@@ -139,3 +139,26 @@ async def test_delete_report_uses_canonical_vault_key(fake_rs, monkeypatch):
     assert out["vault_deleted"] is True
     assert out["canonical_entity_ids_deleted"] == ["company:acme:GB"]
     assert deleted == ["company:acme:GB"]
+
+
+@pytest.mark.asyncio
+async def test_delete_report_false_when_nothing_removed(fake_rs, monkeypatch):
+    """R-F2388 — success True must mean at least one backing store changed."""
+    import aria_service.intel.dd_vault as dv
+
+    class _V:
+        def list_all(self, limit=500):
+            return []
+
+        def delete_case(self, cid):
+            return False
+
+    monkeypatch.setattr(dv, "get_vault", lambda: _V())
+
+    out = await ddo.delete_report("dd_missing")
+
+    assert out["ok"] is False
+    assert out["blob_deleted"] is False
+    assert out["index_entries_removed"] == 0
+    assert out["vault_deleted"] is False
+    assert "not found" in out["error"]

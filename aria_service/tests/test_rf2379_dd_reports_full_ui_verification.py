@@ -736,6 +736,8 @@ def test_dd_reports_delete_removes_row_without_manual_refresh():
     )
     assert "removeDeletedReport(runId)" in html
     assert "removeDeletedReport(rid)" in html
+    assert "_locallyDeletedRunIds.add(runId)" in html
+    assert "_locallyDeletedRunIds.has(r.run_id)" in html
 
 
 def test_dd_reports_detail_view_vls_wired():

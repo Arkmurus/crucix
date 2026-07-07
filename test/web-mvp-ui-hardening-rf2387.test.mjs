@@ -31,3 +31,10 @@ test('R-F2387 DD delete accepts every verified backend deletion layer', () => {
   assert.match(html, /removeDeletedReport\(runId\)/);
   assert.match(html, /removeDeletedReport\(rid\)/);
 });
+
+test('R-F2388 DD delete tombstones local rows during silent refresh', () => {
+  const html = readFileSync('public/dd-reports.html', 'utf8');
+  assert.match(html, /_locallyDeletedRunIds = new Set\(\)/);
+  assert.match(html, /_locallyDeletedRunIds\.add\(runId\)/);
+  assert.match(html, /filter\(r => !r \|\| !_locallyDeletedRunIds\.has\(r\.run_id\)\)/);
+});

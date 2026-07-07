@@ -524,6 +524,7 @@ function mdRender(text) {
 
 let _allReports = [];
 let _expandedRow = null;
+const _locallyDeletedRunIds = new Set();
 
 // R-F608 (2026-05-16): current user identity + domain are used to
 // render the "shared by colleague" badge on rows whose user_id !=
@@ -730,6 +731,7 @@ function deleteVerified(result) {
 }
 
 function removeDeletedReport(runId) {
+  if (runId) _locallyDeletedRunIds.add(runId);
   _allReports = (_allReports || []).filter(r => r && r.run_id !== runId);
   _expandedRow = null;
   applySearch();
@@ -1271,7 +1273,7 @@ async function loadReports(silent = false) {
       return;
     }
     const data = await resp.json();
-    const next = data.reports || [];
+    const next = (data.reports || []).filter(r => !r || !_locallyDeletedRunIds.has(r.run_id));
     // R-F2350 — on a SILENT auto-refresh, skip the re-render when nothing changed (same
     // run_ids + statuses) so the list doesn't flicker every 8s while a DD is running.
     if (silent) {

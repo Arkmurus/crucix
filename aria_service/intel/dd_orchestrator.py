@@ -10843,13 +10843,15 @@ async def delete_report(run_id: str) -> dict:
             vault_deleted = _vault.delete_case(cid) or vault_deleted
     except Exception as e:
         logger.debug("delete_report vault cleanup failed (non-fatal): %s", e)
+    removed_any = bool(blob_existed) or removed_from_index > 0 or bool(vault_deleted)
     return {
-        "ok": True,
+        "ok": removed_any,
         "run_id": run_id,
         "blob_deleted": bool(blob_existed),
         "index_entries_removed": removed_from_index,
         "vault_deleted": bool(vault_deleted),
         "canonical_entity_ids_deleted": sorted(canonical_ids),
+        "error": "" if removed_any else "report not found or already deleted",
     }
 
 
