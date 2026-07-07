@@ -5,9 +5,18 @@ row. These tests cover the browser payload contract, route hydration from a
 previous report, and persist-time canonical pinning.
 """
 import pytest
+from fastapi import HTTPException
 
 from aria_service.intel.dd_schema import ARKDDReport, structured_view
-from aria_service.routes.aria import _hydrate_dd_rerun_lineage
+from aria_service.routes.aria import _hydrate_dd_rerun_lineage, dd_orchestrate_ep
+
+
+class _JsonRequest:
+    def __init__(self, body):
+        self._body = body
+
+    async def json(self):
+        return dict(self._body)
 
 
 def test_structured_view_exposes_rerun_identity_fields():
@@ -110,6 +119,41 @@ async def test_rerun_lineage_overwrites_unnamed_display_placeholder(monkeypatch)
     assert body["name"] == "Acme Ltd"
     assert body["entity"] == "Acme Ltd"
     assert body["_rerun_lineage"]["entity_name"] == "Acme Ltd"
+
+
+@pytest.mark.asyncio
+async def test_rerun_route_rejects_unresolved_placeholder_before_async_start(monkeypatch):
+    from aria_service.intel import dd_orchestrator as ddo
+    from aria_service.intel import redis_store as rs
+
+    previous = {
+        "run_id": "dd_prev",
+        "canonical_entity_id": "company:??:ba3af7a",
+        "target": {"name": "", "query": ""},
+        "identity": {"entity_name": "", "entity_type": "company"},
+    }
+
+    async def fake_get_json(key):
+        assert key == ddo.REPORT_REDIS_KEY.format(run_id="dd_prev")
+        return previous
+
+    async def fail_mark_dd_running(*args, **kwargs):
+        raise AssertionError("placeholder rerun must not create a running DD row")
+
+    monkeypatch.setattr(rs, "get_json", fake_get_json)
+    monkeypatch.setattr(ddo, "mark_dd_running", fail_mark_dd_running)
+
+    with pytest.raises(HTTPException) as exc:
+        await dd_orchestrate_ep(_JsonRequest({
+            "name": "(unknown)",
+            "entity_type": "company",
+            "previous_run_id": "dd_prev",
+            "async_mode": True,
+            "force": True,
+        }))
+
+    assert exc.value.status_code == 422
+    assert "placeholder names cannot be re-run" in exc.value.detail
 
 
 @pytest.mark.asyncio

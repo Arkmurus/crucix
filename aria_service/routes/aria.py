@@ -749,6 +749,23 @@ def _brave_scope(fn):
     return _wrapped
 
 
+_DD_PLACEHOLDER_ENTITY_NAMES = frozenset({
+    "",
+    "(unknown)",
+    "(unnamed)",
+    "unknown",
+    "unnamed",
+    "n/a",
+    "none",
+    "null",
+})
+
+
+def _dd_placeholder_entity_name(value: Any) -> bool:
+    """Return True for DD display placeholders that must not be screened."""
+    return str(value or "").strip().lower() in _DD_PLACEHOLDER_ENTITY_NAMES
+
+
 async def _hydrate_dd_rerun_lineage(body: dict) -> None:
     """Carry prior DD identity into an explicit re-run body.
 
@@ -772,12 +789,8 @@ async def _hydrate_dd_rerun_lineage(body: dict) -> None:
     ident = previous.get("identity") if isinstance(previous.get("identity"), dict) else {}
     target = previous.get("target") if isinstance(previous.get("target"), dict) else {}
 
-    def _placeholder(value: Any) -> bool:
-        text = str(value or "").strip().lower()
-        return text in {"", "(unknown)", "(unnamed)", "unknown", "unnamed", "n/a", "none", "null"}
-
     def _fill(key: str, value: Any) -> None:
-        if value not in (None, "") and _placeholder(body.get(key)):
+        if value not in (None, "") and _dd_placeholder_entity_name(body.get(key)):
             body[key] = value
 
     prior_name = (
@@ -831,6 +844,31 @@ async def dd_orchestrate_ep(req: Request):
     body = await req.json()
     if not isinstance(body, dict) or not (body.get("name") or body.get("entity")):
         raise HTTPException(status_code=400, detail="request body must include 'name' or 'entity'")
+
+    # Map website_url -> website for the orchestrator before lineage repair so
+    # route-level validation and downstream canonicalisation see one identity.
+    if body.get("website_url") and not body.get("website"):
+        body["website"] = body["website_url"]
+
+    await _hydrate_dd_rerun_lineage(body)
+
+    # R-F2352 — the RE-RUN paths (row + detail buttons) send `entity_type`, but the
+    # orchestrator's R-F659 gate requires `target['type']`. Without this mapping every
+    # re-run fast-failed in the background ("R-F659: entity_type missing") — the DD never
+    # completed and (with R-F2341) showed 'Failed'. The New-DD modal already sends `type`,
+    # so only re-run was broken. Normalise so BOTH field names work.
+    if body.get("entity_type") and not body.get("type"):
+        body["type"] = body["entity_type"]
+
+    _resolved_entity_name = body.get("name") or body.get("entity") or ""
+    if _dd_placeholder_entity_name(_resolved_entity_name):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "DD target identity is unresolved. Open the original case or run "
+                "New DD with the entity name; placeholder names cannot be re-run."
+            ),
+        )
 
     # R-F1655: check the DD vault for existing cases on this entity
     # before running a new DD. If found, return the existing summary
@@ -908,20 +946,6 @@ async def dd_orchestrate_ep(req: Request):
         _share_to_company = True
     else:
         _share_to_company = bool(_share_to_company)
-
-    # Map website_url → website for the orchestrator
-    if body.get("website_url") and not body.get("website"):
-        body["website"] = body["website_url"]
-
-    await _hydrate_dd_rerun_lineage(body)
-
-    # R-F2352 — the RE-RUN paths (row + detail buttons) send `entity_type`, but the
-    # orchestrator's R-F659 gate requires `target['type']`. Without this mapping every
-    # re-run fast-failed in the background ("R-F659: entity_type missing") — the DD never
-    # completed and (with R-F2341) showed 'Failed'. The New-DD modal already sends `type`,
-    # so only re-run was broken. Normalise so BOTH field names work.
-    if body.get("entity_type") and not body.get("type"):
-        body["type"] = body["entity_type"]
 
     # R-F2250 — ASYNC DD (fire-and-poll). A full DD runs minutes; a SYNCHRONOUS
     # request dies at the aria-web ariaProxy (~30s) / Fly edge (~60s) timeout →
