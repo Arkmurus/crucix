@@ -217,8 +217,6 @@ async def run() -> dict:
 async def get_queue(limit: int = 50) -> list[dict]:
     """Return the current reassess queue (read-only)."""
     queue = await rs.get_json(_QUEUE_KEY) or []
-    return queue[:limit]
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="ecosystem_reassess",
@@ -230,3 +228,5 @@ async def get_queue(limit: int = 50) -> list[dict]:
                         gap_type="engine_failure", source="ecosystem_reassess:init")
         except Exception:
             pass
+
+    return queue[:limit]

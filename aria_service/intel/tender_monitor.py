@@ -1472,12 +1472,6 @@ async def get_stats() -> dict:
     stats = await rs.get_json(_KEY_STATS) or {}
     health = await rs.get_json(_KEY_PORTAL_HEALTH) or {}
     alert_count = len(await rs.lrange(_KEY_ALERTS, 0, _MAX_ALERTS - 1))
-    return {
-        "last_run": stats,
-        "portal_health": health,
-        "total_alerts_stored": alert_count,
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="tender_monitor",
@@ -1489,3 +1483,9 @@ async def get_stats() -> dict:
                         gap_type="engine_failure", source="tender_monitor:init")
         except Exception:
             pass
+
+    return {
+        "last_run": stats,
+        "portal_health": health,
+        "total_alerts_stored": alert_count,
+    }

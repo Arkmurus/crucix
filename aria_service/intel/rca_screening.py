@@ -285,14 +285,6 @@ def risk_inheritance_summary(result: dict[str, Any]) -> str:
 
 def summary() -> dict[str, Any]:
     """Capability-manifest entry."""
-    return {
-        "module":              "rca_screening",
-        "compliance_basis":    "FATF Recommendation 12 — PEPs + Relatives and Close Associates",
-        "max_depth":           _DEFAULT_DEPTH,
-        "max_relatives_per_match": _MAX_RELATIVES_PER_MATCH,
-        "relationship_kinds":  list(_RELATIONSHIP_WEIGHT.keys()),
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="rca_screening",
@@ -304,3 +296,11 @@ def summary() -> dict[str, Any]:
                         gap_type="engine_failure", source="rca_screening:init")
         except Exception:
             pass
+
+    return {
+        "module":              "rca_screening",
+        "compliance_basis":    "FATF Recommendation 12 — PEPs + Relatives and Close Associates",
+        "max_depth":           _DEFAULT_DEPTH,
+        "max_relatives_per_match": _MAX_RELATIVES_PER_MATCH,
+        "relationship_kinds":  list(_RELATIONSHIP_WEIGHT.keys()),
+    }

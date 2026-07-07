@@ -465,8 +465,6 @@ def render_markdown(result: dict[str, Any]) -> str:
     if nm:
         lines.append(f"**Next meeting:** {nm}")
 
-    return "\n".join(lines)
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="meeting_notes",
@@ -478,3 +476,5 @@ def render_markdown(result: dict[str, Any]) -> str:
                         gap_type="engine_failure", source="meeting_notes:init")
         except Exception:
             pass
+
+    return "\n".join(lines)

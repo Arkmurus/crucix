@@ -762,6 +762,18 @@ def get_stats() -> dict:
             "total_constitutional_rules": 0,
         }
 
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="coding_rag_indexer",
+                     summary="coding_rag_indexer module active",
+                     source_id="coding_rag_indexer:init")
+    except Exception:
+        try:
+            wire_failure(module="coding_rag_indexer", detail="module init failed",
+                        gap_type="engine_failure", source="coding_rag_indexer:init")
+        except Exception:
+            pass
+
     try:
         return {
             "ready": True,
@@ -780,15 +792,3 @@ def get_stats() -> dict:
             "total_codebase_chunks": 0,
             "total_constitutional_rules": 0,
         }
-
-    # R-F2118/R-F2119 §21a — wire module active
-    try:
-        wire_success(module="coding_rag_indexer",
-                     summary="coding_rag_indexer module active",
-                     source_id="coding_rag_indexer:init")
-    except Exception:
-        try:
-            wire_failure(module="coding_rag_indexer", detail="module init failed",
-                        gap_type="engine_failure", source="coding_rag_indexer:init")
-        except Exception:
-            pass

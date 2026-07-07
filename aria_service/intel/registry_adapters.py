@@ -2993,8 +2993,6 @@ async def _lookup_bulgaria(name: str, reg_number: str | None) -> dict | None:
         "For listed Bulgarian banks/insurers cross-check FSC (Financial Supervision Commission) at https://www.fsc.bg/.",
         "Bulgarian sanctions designations are mirrored to EU Consolidated and OFSI — check those lists first.",
     ]
-    return result
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="registry_adapters",
@@ -3006,3 +3004,5 @@ async def _lookup_bulgaria(name: str, reg_number: str | None) -> dict | None:
                         gap_type="engine_failure", source="registry_adapters:init")
         except Exception:
             pass
+
+    return result

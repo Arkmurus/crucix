@@ -359,6 +359,18 @@ async def correlate_with_procurement(country: str, days: int = 60) -> dict:
     else:
         window = "STABLE — no immediate trigger. Maintain relationship cadence."
 
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="conflict_tracker",
+                     summary="conflict_tracker module active",
+                     source_id="conflict_tracker:init")
+    except Exception:
+        try:
+            wire_failure(module="conflict_tracker", detail="module init failed",
+                        gap_type="engine_failure", source="conflict_tracker:init")
+        except Exception:
+            pass
+
     return {
         "country": country,
         "escalation_score": escalation,
@@ -375,15 +387,3 @@ async def correlate_with_procurement(country: str, days: int = 60) -> dict:
         ),
         "disclaimer": "Based on ACLED/GDELT open-source event data. Cross-check with classified or commercial sources before acting.",
     }
-
-    # R-F2118/R-F2119 §21a — wire module active
-    try:
-        wire_success(module="conflict_tracker",
-                     summary="conflict_tracker module active",
-                     source_id="conflict_tracker:init")
-    except Exception:
-        try:
-            wire_failure(module="conflict_tracker", detail="module init failed",
-                        gap_type="engine_failure", source="conflict_tracker:init")
-        except Exception:
-            pass

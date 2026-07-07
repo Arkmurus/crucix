@@ -501,6 +501,18 @@ async def stats() -> dict:
         sample = await rs.lrange(_KEY_LOG, 0, 9999)
         total = len(sample)
     head = await _read_head_hash()
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="audit_log",
+                     summary="audit_log module active",
+                     source_id="audit_log:init")
+    except Exception:
+        try:
+            wire_failure(module="audit_log", detail="module init failed",
+                        gap_type="engine_failure", source="audit_log:init")
+        except Exception:
+            pass
+
     return {
         "total_entries": total,
         "head_hash": head,
@@ -514,15 +526,3 @@ async def stats() -> dict:
             "entry_hash": last.get("entry_hash") if last else None,
         } if last else None,
     }
-
-    # R-F2118/R-F2119 §21a — wire module active
-    try:
-        wire_success(module="audit_log",
-                     summary="audit_log module active",
-                     source_id="audit_log:init")
-    except Exception:
-        try:
-            wire_failure(module="audit_log", detail="module init failed",
-                        gap_type="engine_failure", source="audit_log:init")
-        except Exception:
-            pass

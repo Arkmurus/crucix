@@ -89,8 +89,6 @@ def generate_metrics() -> str:
     except ImportError:
         pass
 
-    return "\n".join(lines) + "\n"
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="metrics",
@@ -102,3 +100,5 @@ def generate_metrics() -> str:
                         gap_type="engine_failure", source="metrics:init")
         except Exception:
             pass
+
+    return "\n".join(lines) + "\n"

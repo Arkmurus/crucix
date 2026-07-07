@@ -131,8 +131,6 @@ def redact_pii(text: str) -> str:
         return text
     for pattern, replacement in _PII_PATTERNS:
         text = pattern.sub(replacement, text)
-    return text
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="pii_redaction",
@@ -144,3 +142,5 @@ def redact_pii(text: str) -> str:
         except Exception:
             pass
         pass
+
+    return text

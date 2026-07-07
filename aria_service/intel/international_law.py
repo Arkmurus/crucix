@@ -2520,12 +2520,6 @@ async def refresh_law_knowledge() -> dict:
     from . import corpus_manager
     crawl_result = await corpus_manager.run_weekly_crawl(tiers=["A", "B"])
 
-    return {
-        "static_ingestion": ingest_result,
-        "sources_registered": register_result,
-        "live_crawl": crawl_result,
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="international_law",
@@ -2537,3 +2531,9 @@ async def refresh_law_knowledge() -> dict:
                         gap_type="engine_failure", source="international_law:init")
         except Exception:
             pass
+
+    return {
+        "static_ingestion": ingest_result,
+        "sources_registered": register_result,
+        "live_crawl": crawl_result,
+    }

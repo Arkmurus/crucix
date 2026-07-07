@@ -166,8 +166,6 @@ def validate_citations(
         return "[UNVERIFIED \u2014 source not in gathered evidence]"
 
     cleaned = _CITATION_MARKER.sub(_replace, response)
-    return cleaned
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="citation_validator",
@@ -179,3 +177,5 @@ def validate_citations(
         except Exception:
             pass
         pass
+
+    return cleaned

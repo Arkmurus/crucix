@@ -597,12 +597,6 @@ async def refresh() -> dict:
     except Exception:
         pass
 
-    return {
-        "upcoming_alerts": len(alerts),
-        "pushed_to_chain": pushed,
-        "generated_at": _now().isoformat(),
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="procurement_calendar",
@@ -614,3 +608,9 @@ async def refresh() -> dict:
                         gap_type="engine_failure", source="procurement_calendar:init")
         except Exception:
             pass
+
+    return {
+        "upcoming_alerts": len(alerts),
+        "pushed_to_chain": pushed,
+        "generated_at": _now().isoformat(),
+    }

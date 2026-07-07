@@ -398,15 +398,6 @@ def score_improvement(
 
     Compliance gaps score higher than general accuracy improvements.
     """
-    return round(
-        impact * 0.25
-        + frequency * 0.20
-        + user_facing * 0.15
-        + ease * 0.20
-        + compliance_risk * 0.20,
-        4,
-    )
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="autonomy_scorer",
@@ -418,3 +409,12 @@ def score_improvement(
                         gap_type="engine_failure", source="autonomy_scorer:init")
         except Exception:
             pass
+
+    return round(
+        impact * 0.25
+        + frequency * 0.20
+        + user_facing * 0.15
+        + ease * 0.20
+        + compliance_risk * 0.20,
+        4,
+    )

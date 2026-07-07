@@ -1245,12 +1245,6 @@ async def investigate_link_tree(
 
 async def get_tree(tree_id: str) -> Optional[dict]:
     """Retrieve a persisted link tree by tree_id."""
-    try:
-        from . import redis_store as rs
-        return await rs.get_json(_TREE_REDIS_KEY.format(tree_id=tree_id))
-    except Exception:
-        return None
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="link_investigator",
@@ -1262,3 +1256,9 @@ async def get_tree(tree_id: str) -> Optional[dict]:
         except Exception:
             pass
         pass
+
+    try:
+        from . import redis_store as rs
+        return await rs.get_json(_TREE_REDIS_KEY.format(tree_id=tree_id))
+    except Exception:
+        return None

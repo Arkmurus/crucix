@@ -289,8 +289,6 @@ def financial_findings(profile: dict) -> list[dict]:
             "confidence": "ASSESSED",
         })
 
-    return findings
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="financial_dd",
@@ -302,3 +300,5 @@ def financial_findings(profile: dict) -> list[dict]:
                         gap_type="engine_failure", source="financial_dd:init")
         except Exception:
             pass
+
+    return findings

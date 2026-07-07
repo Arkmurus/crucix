@@ -266,8 +266,6 @@ def check_all(
         if not d.passed:
             composite.passed = False
 
-    return composite
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="self_protection",
@@ -279,3 +277,5 @@ def check_all(
                         gap_type="engine_failure", source="self_protection:init")
         except Exception:
             pass
+
+    return composite

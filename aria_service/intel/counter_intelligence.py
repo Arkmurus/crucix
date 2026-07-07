@@ -476,14 +476,6 @@ async def scan_top_entities(*, n: int = 5, window_days: int = 14) -> dict[str, A
 
 
 def summary() -> dict[str, Any]:
-    return {
-        "module":   "counter_intelligence",
-        "purpose":  "detect attempts to influence ARIA via reputation washing / corpus seeding",
-        "patterns": ["reputation_washing", "credibility_anomaly", "new_outlet_burst"],
-        "tier_1_hosts_known": len(_TIER_1_HOSTS),
-        "tier_3_patterns":    len(_TIER_3_PATTERNS),
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="counter_intelligence",
@@ -495,3 +487,11 @@ def summary() -> dict[str, Any]:
         except Exception:
             pass
         pass
+
+    return {
+        "module":   "counter_intelligence",
+        "purpose":  "detect attempts to influence ARIA via reputation washing / corpus seeding",
+        "patterns": ["reputation_washing", "credibility_anomaly", "new_outlet_burst"],
+        "tier_1_hosts_known": len(_TIER_1_HOSTS),
+        "tier_3_patterns":    len(_TIER_3_PATTERNS),
+    }

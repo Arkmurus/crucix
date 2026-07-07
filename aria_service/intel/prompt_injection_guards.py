@@ -118,8 +118,6 @@ def validate_entity_name(name: str) -> tuple[str, bool]:
         if cat.startswith("L") or cat == "Nd":
             continue
         return cleaned, False
-    return cleaned, True
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="prompt_injection_guards",
@@ -131,3 +129,5 @@ def validate_entity_name(name: str) -> tuple[str, bool]:
                         gap_type="engine_failure", source="prompt_injection_guards:init")
         except Exception:
             pass
+
+    return cleaned, True

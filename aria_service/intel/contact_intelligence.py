@@ -329,8 +329,6 @@ async def generate_contact_briefing() -> str:
     except Exception as _e:
         logger.debug("chain activation nudges failed (non-fatal): %s", _e)
 
-    return "\n".join(lines)
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="contact_intelligence",
@@ -342,3 +340,5 @@ async def generate_contact_briefing() -> str:
         except Exception:
             pass
         pass
+
+    return "\n".join(lines)

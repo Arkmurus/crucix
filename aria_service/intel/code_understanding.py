@@ -719,8 +719,6 @@ def suggest_return_type(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> st
             return f"{next(iter(return_types))} | None"
         return "Any"
 
-    return "Any"
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="code_understanding",
@@ -732,3 +730,5 @@ def suggest_return_type(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> st
                         gap_type="engine_failure", source="code_understanding:init")
         except Exception:
             pass
+
+    return "Any"

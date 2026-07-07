@@ -515,6 +515,18 @@ async def ingest_all_sections() -> dict:
     """Ingest the risk indices narrative + programmatic doctrine into RAG."""
     from . import rag_store
 
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="risk_indices",
+                     summary="risk_indices module active",
+                     source_id="risk_indices:init")
+    except Exception:
+        try:
+            wire_failure(module="risk_indices", detail="module init failed",
+                        gap_type="engine_failure", source="risk_indices:init")
+        except Exception:
+            pass
+
     try:
         result = await rag_store.ingest_document(
             RISK_INDICES_NARRATIVE,
@@ -545,15 +557,3 @@ async def ingest_all_sections() -> dict:
     except Exception as e:
         logger.error("Risk indices ingestion failed: %s", e)
         return {"sections_ingested": 0, "total_sections": 1, "total_chunks": 0, "error": str(e)}
-
-    # R-F2118/R-F2119 §21a — wire module active
-    try:
-        wire_success(module="risk_indices",
-                     summary="risk_indices module active",
-                     source_id="risk_indices:init")
-    except Exception:
-        try:
-            wire_failure(module="risk_indices", detail="module init failed",
-                        gap_type="engine_failure", source="risk_indices:init")
-        except Exception:
-            pass

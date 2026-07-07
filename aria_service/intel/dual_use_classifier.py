@@ -349,8 +349,6 @@ async def assess(
     except Exception as e:
         logger.debug("audit log write failed (non-fatal): %s", e)
 
-    return result
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="dual_use_classifier",
@@ -362,3 +360,5 @@ async def assess(
         except Exception:
             pass
         pass
+
+    return result

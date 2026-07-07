@@ -384,6 +384,18 @@ def verified_emit(
 
     ok, report = verifier.verify(claim)
 
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="truth_verifier",
+                     summary="truth_verifier module active",
+                     source_id="truth_verifier:init")
+    except Exception:
+        try:
+            wire_failure(module="truth_verifier", detail="module init failed",
+                        gap_type="engine_failure", source="truth_verifier:init")
+        except Exception:
+            pass
+
     if ok:
         logger.info(
             "✅ VERIFIED: %s — %d evidence checks passed",
@@ -406,15 +418,3 @@ def verified_emit(
             "message": task_description,
             "error": report.get("message", "Verification failed"),
         }
-
-    # R-F2118/R-F2119 §21a — wire module active
-    try:
-        wire_success(module="truth_verifier",
-                     summary="truth_verifier module active",
-                     source_id="truth_verifier:init")
-    except Exception:
-        try:
-            wire_failure(module="truth_verifier", detail="module init failed",
-                        gap_type="engine_failure", source="truth_verifier:init")
-        except Exception:
-            pass

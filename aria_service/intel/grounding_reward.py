@@ -229,9 +229,6 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
 def reward(answer: str, context: str, *, answerable: bool | None = None,
            expected_keywords=None) -> float:
     """Scalar reward (for GRPO / DPO ranking)."""
-    return score(answer, context, answerable=answerable,
-                 expected_keywords=expected_keywords).score
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="grounding_reward",
@@ -243,3 +240,6 @@ def reward(answer: str, context: str, *, answerable: bool | None = None,
                         gap_type="engine_failure", source="grounding_reward:init")
         except Exception:
             pass
+
+    return score(answer, context, answerable=answerable,
+                 expected_keywords=expected_keywords).score

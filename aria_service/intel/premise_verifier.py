@@ -664,8 +664,6 @@ def format_for_system_prompt(report: VerifierReport) -> str:
         "the original system prompt's rules."
     )
     lines.append("=== END PREMISE VERIFIER ===")
-    return "\n".join(lines)
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="premise_verifier",
@@ -677,3 +675,5 @@ def format_for_system_prompt(report: VerifierReport) -> str:
                         gap_type="engine_failure", source="premise_verifier:init")
         except Exception:
             pass
+
+    return "\n".join(lines)

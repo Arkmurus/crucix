@@ -191,13 +191,6 @@ def check_response(response_text: str, tool_context: str = "") -> dict[str, Any]
                 rf["severity"], rf["reason"], rf["text"][:80],
             )
 
-    return {
-        "passed": len(red_flags) == 0,
-        "claims": claims,
-        "red_flags": red_flags,
-        "suggested_action": suggested_action,
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="hallucination_guard",
@@ -209,3 +202,10 @@ def check_response(response_text: str, tool_context: str = "") -> dict[str, Any]
                         gap_type="engine_failure", source="hallucination_guard:init")
         except Exception:
             pass
+
+    return {
+        "passed": len(red_flags) == 0,
+        "claims": claims,
+        "red_flags": red_flags,
+        "suggested_action": suggested_action,
+    }

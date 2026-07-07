@@ -371,6 +371,18 @@ async def stats() -> dict:
 
     # Recent worst = 5 lowest averages
     worst = sorted(scores, key=lambda s: s.get("average", 1.0))[:5]
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="rlaif",
+                     summary="rlaif module active",
+                     source_id="rlaif:init")
+    except Exception:
+        try:
+            wire_failure(module="rlaif", detail="module init failed",
+                        gap_type="engine_failure", source="rlaif:init")
+        except Exception:
+            pass
+
     return {
         "enabled": is_enabled(),
         "sample_rate": sample_rate(),
@@ -394,15 +406,3 @@ async def stats() -> dict:
             for w in worst
         ],
     }
-
-    # R-F2118/R-F2119 §21a — wire module active
-    try:
-        wire_success(module="rlaif",
-                     summary="rlaif module active",
-                     source_id="rlaif:init")
-    except Exception:
-        try:
-            wire_failure(module="rlaif", detail="module init failed",
-                        gap_type="engine_failure", source="rlaif:init")
-        except Exception:
-            pass

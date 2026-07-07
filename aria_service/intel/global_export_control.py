@@ -1481,13 +1481,6 @@ async def ingest_all_sections() -> dict:
         )
     except Exception:
         pass
-    return {
-        "sections_ingested": success,
-        "total_sections": len(ALL_SECTIONS),
-        "total_chunks": total_chunks,
-        "detail": results,
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="global_export_control",
@@ -1499,3 +1492,10 @@ async def ingest_all_sections() -> dict:
                         gap_type="engine_failure", source="global_export_control:init")
         except Exception:
             pass
+
+    return {
+        "sections_ingested": success,
+        "total_sections": len(ALL_SECTIONS),
+        "total_chunks": total_chunks,
+        "detail": results,
+    }

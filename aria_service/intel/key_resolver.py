@@ -77,18 +77,6 @@ async def store_obtained_key(
             portal_id, len(api_key),
         )
         return False
-    try:
-        from .portal_registry import store_credential
-        await store_credential(portal_id, {"api_key": api_key, "note": note})
-        logger.info(
-            "[key_resolver] R-F1711 stored obtained API key for %s (now live via "
-            "resolve_key — no restart/operator needed)", portal_id,
-        )
-        return True
-    except Exception as e:
-        logger.warning("store_obtained_key failed for %s: %s", portal_id, e)
-        return False
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="key_resolver",
@@ -100,3 +88,15 @@ async def store_obtained_key(
                         gap_type="engine_failure", source="key_resolver:init")
         except Exception:
             pass
+
+    try:
+        from .portal_registry import store_credential
+        await store_credential(portal_id, {"api_key": api_key, "note": note})
+        logger.info(
+            "[key_resolver] R-F1711 stored obtained API key for %s (now live via "
+            "resolve_key — no restart/operator needed)", portal_id,
+        )
+        return True
+    except Exception as e:
+        logger.warning("store_obtained_key failed for %s: %s", portal_id, e)
+        return False

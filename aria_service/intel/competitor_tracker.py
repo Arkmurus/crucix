@@ -440,15 +440,6 @@ async def stats() -> dict:
         by_firm[a.get("firm", "?")] = by_firm.get(a.get("firm", "?"), 0) + 1
         by_country[a.get("country_iso2", "?")] = by_country.get(a.get("country_iso2", "?"), 0) + 1
         by_type[a.get("activity_type", "?")] = by_type.get(a.get("activity_type", "?"), 0) + 1
-    return {
-        "firms_tracked": len(reg.get("firms", {})),
-        "activities_total": len(data["items"]),
-        "by_firm_top10": dict(sorted(by_firm.items(), key=lambda kv: -kv[1])[:10]),
-        "by_country_top10": dict(sorted(by_country.items(), key=lambda kv: -kv[1])[:10]),
-        "by_type": by_type,
-        "generated_at": _now().isoformat(),
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="competitor_tracker",
@@ -460,3 +451,12 @@ async def stats() -> dict:
         except Exception:
             pass
         pass
+
+    return {
+        "firms_tracked": len(reg.get("firms", {})),
+        "activities_total": len(data["items"]),
+        "by_firm_top10": dict(sorted(by_firm.items(), key=lambda kv: -kv[1])[:10]),
+        "by_country_top10": dict(sorted(by_country.items(), key=lambda kv: -kv[1])[:10]),
+        "by_type": by_type,
+        "generated_at": _now().isoformat(),
+    }

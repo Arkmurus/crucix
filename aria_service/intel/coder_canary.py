@@ -39,8 +39,6 @@ def clamp_percentage(value: float) -> float:
         # DeepSeek fix -> reproduce PASS), proving the gold pipeline after the
         # R-F1857 fuel cleanup + the R-F1928 TestRunner-interpreter fix.
         return 100.0
-    return value
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="coder_canary",
@@ -52,3 +50,5 @@ def clamp_percentage(value: float) -> float:
                         gap_type="engine_failure", source="coder_canary:init")
         except Exception:
             pass
+
+    return value

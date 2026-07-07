@@ -211,11 +211,6 @@ async def get_stats() -> dict:
     for m in db["moves"]:
         c = m.get("competitor", "unknown")
         by_comp[c] = by_comp.get(c, 0) + 1
-    return {
-        "totalMoves": len(db["moves"]),
-        "byCompetitor": dict(sorted(by_comp.items(), key=lambda x: x[1], reverse=True)[:15]),
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="competitors",
@@ -227,3 +222,8 @@ async def get_stats() -> dict:
                         gap_type="engine_failure", source="competitors:init")
         except Exception:
             pass
+
+    return {
+        "totalMoves": len(db["moves"]),
+        "byCompetitor": dict(sorted(by_comp.items(), key=lambda x: x[1], reverse=True)[:15]),
+    }

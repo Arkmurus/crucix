@@ -461,8 +461,6 @@ def resolve(name: str, *, nationality_iso2: str | None = None, max_variants: int
     except Exception as _bh:
         logger.debug("person_resolver brain_hook failed: %s", _bh)
 
-    return _resolution
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="person_resolver",
@@ -474,3 +472,5 @@ def resolve(name: str, *, nationality_iso2: str | None = None, max_variants: int
         except Exception:
             pass
         pass
+
+    return _resolution

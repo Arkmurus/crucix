@@ -384,13 +384,6 @@ async def get_all_surface_health(hours: int = _DEFAULT_HEALTH_WINDOW_H) -> dict:
         }
         if worst_rate is None or h["success_rate"] < worst_rate:
             worst_rate, worst_surface = h["success_rate"], s
-    return {
-        "hours": hours,
-        "surfaces": per_surface,
-        "worst_surface": worst_surface,
-        "worst_success_rate": worst_rate,
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="outcome_wire",
@@ -402,3 +395,10 @@ async def get_all_surface_health(hours: int = _DEFAULT_HEALTH_WINDOW_H) -> dict:
                         gap_type="engine_failure", source="outcome_wire:init")
         except Exception:
             pass
+
+    return {
+        "hours": hours,
+        "surfaces": per_surface,
+        "worst_surface": worst_surface,
+        "worst_success_rate": worst_rate,
+    }

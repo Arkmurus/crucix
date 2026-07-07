@@ -797,6 +797,18 @@ async def stats() -> dict:
         w.get("region") for w in windows["items"] if w.get("region")
     })
 
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="chain_correlator",
+                     summary="chain_correlator module active",
+                     source_id="chain_correlator:init")
+    except Exception:
+        try:
+            wire_failure(module="chain_correlator", detail="module init failed",
+                        gap_type="engine_failure", source="chain_correlator:init")
+        except Exception:
+            pass
+
     return {
         "shifts_total": len(shifts["items"]),
         "shifts_by_type": {
@@ -810,15 +822,3 @@ async def stats() -> dict:
         "regions_covered": regions_covered,
         "generated_at": _now().isoformat(),
     }
-
-    # R-F2118/R-F2119 §21a — wire module active
-    try:
-        wire_success(module="chain_correlator",
-                     summary="chain_correlator module active",
-                     source_id="chain_correlator:init")
-    except Exception:
-        try:
-            wire_failure(module="chain_correlator", detail="module init failed",
-                        gap_type="engine_failure", source="chain_correlator:init")
-        except Exception:
-            pass

@@ -406,8 +406,6 @@ async def history(limit: int = 10) -> list[dict]:
             out.append(json.loads(r) if isinstance(r, str) else r)
         except Exception:
             continue
-    return out
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="aria_peers",
@@ -419,3 +417,5 @@ async def history(limit: int = 10) -> list[dict]:
                         gap_type="engine_failure", source="aria_peers:init")
         except Exception:
             pass
+
+    return out

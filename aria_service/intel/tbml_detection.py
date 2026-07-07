@@ -285,17 +285,6 @@ async def analyze_transaction(
 
 
 def summary() -> dict[str, Any]:
-    return {
-        "module":            "tbml_detection",
-        "compliance_basis":  "FATF 2024 TBML Risk Indicators",
-        "comtrade_key_set":  _comtrade_api_key() is not None,
-        "thresholds":        {
-            "flag":    _THRESHOLD_FLAG,
-            "severe":  _THRESHOLD_SEVERE,
-            "blatant": _THRESHOLD_BLATANT,
-        },
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="tbml_detection",
@@ -307,3 +296,14 @@ def summary() -> dict[str, Any]:
                         gap_type="engine_failure", source="tbml_detection:init")
         except Exception:
             pass
+
+    return {
+        "module":            "tbml_detection",
+        "compliance_basis":  "FATF 2024 TBML Risk Indicators",
+        "comtrade_key_set":  _comtrade_api_key() is not None,
+        "thresholds":        {
+            "flag":    _THRESHOLD_FLAG,
+            "severe":  _THRESHOLD_SEVERE,
+            "blatant": _THRESHOLD_BLATANT,
+        },
+    }

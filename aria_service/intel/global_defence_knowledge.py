@@ -524,13 +524,6 @@ async def ingest_all_sections() -> dict:
     except Exception:
         pass
 
-    return {
-        "sections_ingested": sum(1 for v in results.values() if v.get("status") == "OK"),
-        "total_sections": len(ALL_SECTIONS),
-        "total_chunks": total_chunks,
-        "detail": results,
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="global_defence_knowledge",
@@ -542,3 +535,10 @@ async def ingest_all_sections() -> dict:
                         gap_type="engine_failure", source="global_defence_knowledge:init")
         except Exception:
             pass
+
+    return {
+        "sections_ingested": sum(1 for v in results.values() if v.get("status") == "OK"),
+        "total_sections": len(ALL_SECTIONS),
+        "total_chunks": total_chunks,
+        "detail": results,
+    }

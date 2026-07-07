@@ -730,8 +730,6 @@ def gap_check(euc_text: str, profile_id: str = "UK_GENERAL") -> dict:
     except Exception as e:
         logger.debug("brain_hook/audit absorb failed (non-fatal): %s", e)
 
-    return result
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="euc_library",
@@ -743,3 +741,5 @@ def gap_check(euc_text: str, profile_id: str = "UK_GENERAL") -> dict:
                         gap_type="engine_failure", source="euc_library:init")
         except Exception:
             pass
+
+    return result

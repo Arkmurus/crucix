@@ -180,15 +180,6 @@ async def stats() -> dict[str, Any]:
         elif s == "rejected":
             rejected += 1
     age_h = round((time.time() - oldest_pending_at) / 3600, 1) if oldest_pending_at else None
-    return {
-        "enabled": bool(quarantined_modules()),
-        "quarantined_modules": sorted(quarantined_modules()),
-        "pending": pending,
-        "promoted_recent": promoted,
-        "rejected_recent": rejected,
-        "oldest_pending_age_h": age_h,
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="absorption_quarantine",
@@ -200,3 +191,12 @@ async def stats() -> dict[str, Any]:
         except Exception:
             pass
         pass
+
+    return {
+        "enabled": bool(quarantined_modules()),
+        "quarantined_modules": sorted(quarantined_modules()),
+        "pending": pending,
+        "promoted_recent": promoted,
+        "rejected_recent": rejected,
+        "oldest_pending_age_h": age_h,
+    }

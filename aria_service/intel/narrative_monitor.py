@@ -552,8 +552,6 @@ async def generate_narrative_briefing() -> str:
             )
         lines.append("")
 
-    return "\n".join(lines)
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="narrative_monitor",
@@ -565,3 +563,5 @@ async def generate_narrative_briefing() -> str:
                         gap_type="engine_failure", source="narrative_monitor:init")
         except Exception:
             pass
+
+    return "\n".join(lines)

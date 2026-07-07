@@ -395,8 +395,6 @@ def build_correction_banner(result: dict) -> str | None:
             "Treat them as unconfirmed and verify before relying on them.\n──────────"
         )
 
-    return header + "\n──────────\n\n**Revised response:**\n\n" + rewritten
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="stream_honesty",
@@ -408,3 +406,5 @@ def build_correction_banner(result: dict) -> str | None:
                         gap_type="engine_failure", source="stream_honesty:init")
         except Exception:
             pass
+
+    return header + "\n──────────\n\n**Revised response:**\n\n" + rewritten

@@ -303,8 +303,6 @@ def render_markdown(brief: dict[str, Any]) -> str:
                          "commercial and technical; do not volunteer or probe "
                          "historical or political geography.")
 
-    return "\n".join(lines)
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="precall_brief",
@@ -316,3 +314,5 @@ def render_markdown(brief: dict[str, Any]) -> str:
                         gap_type="engine_failure", source="precall_brief:init")
         except Exception:
             pass
+
+    return "\n".join(lines)

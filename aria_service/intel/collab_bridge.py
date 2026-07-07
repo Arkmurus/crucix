@@ -250,8 +250,6 @@ async def drain_for_aria() -> dict:
 
     await set_cursor("aria", last_seq)
     logger.info("[R-F1409] drained %d Claude→ARIA note(s), cursor→%d", drained, last_seq)
-    return {"drained": drained, "last_seq": last_seq}
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="collab_bridge",
@@ -263,3 +261,5 @@ async def drain_for_aria() -> dict:
                         gap_type="engine_failure", source="collab_bridge:init")
         except Exception:
             pass
+
+    return {"drained": drained, "last_seq": last_seq}

@@ -368,6 +368,18 @@ async def get_ecosystem_status() -> dict[str, Any]:
     except Exception as e:
         delivery_health = {"surfaces": {}, "error": str(e)[:120]}
 
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="ecosystem_dashboard",
+                     summary="ecosystem_dashboard module active",
+                     source_id="ecosystem_dashboard:init")
+    except Exception:
+        try:
+            wire_failure(module="ecosystem_dashboard", detail="module init failed",
+                        gap_type="engine_failure", source="ecosystem_dashboard:init")
+        except Exception:
+            pass
+
     return {
         "timestamp": time.time(),
         "current_task": get_current_task(),
@@ -383,15 +395,3 @@ async def get_ecosystem_status() -> dict[str, Any]:
             "aria-wa": "deployed",
         },
     }
-
-    # R-F2118/R-F2119 §21a — wire module active
-    try:
-        wire_success(module="ecosystem_dashboard",
-                     summary="ecosystem_dashboard module active",
-                     source_id="ecosystem_dashboard:init")
-    except Exception:
-        try:
-            wire_failure(module="ecosystem_dashboard", detail="module init failed",
-                        gap_type="engine_failure", source="ecosystem_dashboard:init")
-        except Exception:
-            pass

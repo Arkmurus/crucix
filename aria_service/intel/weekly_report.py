@@ -367,6 +367,18 @@ async def _audit_knowledge_freshness() -> dict:
 
 async def _generate_summary(llm: Any, report: dict) -> Optional[str]:
     """Use the LLM to produce a 200-word executive summary."""
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="weekly_report",
+                     summary="weekly_report module active",
+                     source_id="weekly_report:init")
+    except Exception:
+        try:
+            wire_failure(module="weekly_report", detail="module init failed",
+                        gap_type="engine_failure", source="weekly_report:init")
+        except Exception:
+            pass
+
     try:
         import json as _json
 
@@ -398,15 +410,3 @@ async def _generate_summary(llm: Any, report: dict) -> Optional[str]:
     except Exception as e:
         logger.warning("LLM summary generation failed: %s", e)
         return None
-
-    # R-F2118/R-F2119 §21a — wire module active
-    try:
-        wire_success(module="weekly_report",
-                     summary="weekly_report module active",
-                     source_id="weekly_report:init")
-    except Exception:
-        try:
-            wire_failure(module="weekly_report", detail="module init failed",
-                        gap_type="engine_failure", source="weekly_report:init")
-        except Exception:
-            pass

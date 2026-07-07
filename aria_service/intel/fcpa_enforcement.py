@@ -308,13 +308,6 @@ async def monitor_doj_fcpa(days_back: int = 30) -> dict[str, Any]:
 
 def summary() -> dict[str, Any]:
     """Capability-manifest entry."""
-    return {
-        "module":             "fcpa_enforcement",
-        "sources":            ["DOJ FCPA listing"],  # extend as more are wired
-        "priority_countries": len(_PRIORITY_COUNTRIES),
-        "future_sources":     ["SEC FCPA", "UK SFO", "France PNF"],
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="fcpa_enforcement",
@@ -326,3 +319,10 @@ def summary() -> dict[str, Any]:
                         gap_type="engine_failure", source="fcpa_enforcement:init")
         except Exception:
             pass
+
+    return {
+        "module":             "fcpa_enforcement",
+        "sources":            ["DOJ FCPA listing"],  # extend as more are wired
+        "priority_countries": len(_PRIORITY_COUNTRIES),
+        "future_sources":     ["SEC FCPA", "UK SFO", "France PNF"],
+    }

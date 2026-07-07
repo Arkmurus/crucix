@@ -411,16 +411,6 @@ async def stats() -> dict:
         if c.get("name"):
             by_oem_filled[c.get("oem", "?")] = by_oem_filled.get(c.get("oem", "?"), 0) + 1
         by_conf[c.get("confidence", "LOW")] = by_conf.get(c.get("confidence", "LOW"), 0) + 1
-    return {
-        "contacts_total": len(data["items"]),
-        "contacts_filled": filled,
-        "fill_rate": round(filled / len(data["items"]), 3) if data["items"] else 0.0,
-        "by_oem_filled": by_oem_filled,
-        "by_confidence": by_conf,
-        "oems_tracked": len(_SEED_OEMS),
-        "generated_at": _now().isoformat(),
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="oem_contact_graph",
@@ -432,3 +422,13 @@ async def stats() -> dict:
                         gap_type="engine_failure", source="oem_contact_graph:init")
         except Exception:
             pass
+
+    return {
+        "contacts_total": len(data["items"]),
+        "contacts_filled": filled,
+        "fill_rate": round(filled / len(data["items"]), 3) if data["items"] else 0.0,
+        "by_oem_filled": by_oem_filled,
+        "by_confidence": by_conf,
+        "oems_tracked": len(_SEED_OEMS),
+        "generated_at": _now().isoformat(),
+    }

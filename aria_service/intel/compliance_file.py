@@ -362,6 +362,18 @@ async def get_provenance(entry_hash: str) -> dict:
             seen.add(h)
     prior.sort(key=lambda x: x.get("seq", 0))
 
+    # R-F2118/R-F2119 §21a — wire module active
+    try:
+        wire_success(module="compliance_file",
+                     summary="compliance_file module active",
+                     source_id="compliance_file:init")
+    except Exception:
+        try:
+            wire_failure(module="compliance_file", detail="module init failed",
+                        gap_type="engine_failure", source="compliance_file:init")
+        except Exception:
+            pass
+
     return {
         "ok": True,
         "decision": {
@@ -395,15 +407,3 @@ async def get_provenance(entry_hash: str) -> dict:
             "the supporting trail, call /api/aria/audit/verify."
         ),
     }
-
-    # R-F2118/R-F2119 §21a — wire module active
-    try:
-        wire_success(module="compliance_file",
-                     summary="compliance_file module active",
-                     source_id="compliance_file:init")
-    except Exception:
-        try:
-            wire_failure(module="compliance_file", detail="module init failed",
-                        gap_type="engine_failure", source="compliance_file:init")
-        except Exception:
-            pass

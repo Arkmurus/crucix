@@ -402,12 +402,6 @@ async def index_status() -> dict[str, Any]:
 
 
 def summary() -> dict[str, Any]:
-    return {
-        "module":  "crypto_sanctions",
-        "source":  "OpenSanctions consolidated targets (free)",
-        "chains":  [c for c, _ in _CHAIN_PATTERNS],
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="crypto_sanctions",
@@ -419,3 +413,9 @@ def summary() -> dict[str, Any]:
                         gap_type="engine_failure", source="crypto_sanctions:init")
         except Exception:
             pass
+
+    return {
+        "module":  "crypto_sanctions",
+        "source":  "OpenSanctions consolidated targets (free)",
+        "chains":  [c for c, _ in _CHAIN_PATTERNS],
+    }

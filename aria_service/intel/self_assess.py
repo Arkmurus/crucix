@@ -294,8 +294,6 @@ async def generate_state_of_aria_briefing() -> str:
             "🚨 *Flag for operator:* " + "; ".join(report["alert_reasons"])
         )
 
-    return "\n".join(lines)
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="self_assess",
@@ -307,3 +305,5 @@ async def generate_state_of_aria_briefing() -> str:
                         gap_type="engine_failure", source="self_assess:init")
         except Exception:
             pass
+
+    return "\n".join(lines)

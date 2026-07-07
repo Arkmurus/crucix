@@ -3521,17 +3521,6 @@ def coverage_report(items: list[dict]) -> dict[str, Any]:
         if cat not in CATEGORY_TARGETS:
             extra_categories.append({"category": cat, "present": n})
 
-    return {
-        "summary": {
-            "total_present": total_present,
-            "total_target": total_target,
-            "overall_pct": round(100 * total_present / total_target, 1) if total_target else 0,
-            "gate_passes": total_present >= 500,
-        },
-        "by_category": sorted(rows, key=lambda r: r["pct"]),
-        "extra_categories": extra_categories,
-    }
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="eval_golden_seed",
@@ -3543,3 +3532,14 @@ def coverage_report(items: list[dict]) -> dict[str, Any]:
         except Exception:
             pass
         pass
+
+    return {
+        "summary": {
+            "total_present": total_present,
+            "total_target": total_target,
+            "overall_pct": round(100 * total_present / total_target, 1) if total_target else 0,
+            "gate_passes": total_present >= 500,
+        },
+        "by_category": sorted(rows, key=lambda r: r["pct"]),
+        "extra_categories": extra_categories,
+    }

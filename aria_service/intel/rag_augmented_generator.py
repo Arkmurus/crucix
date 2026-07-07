@@ -177,8 +177,6 @@ def build_fix_prompt_section(
         title=title,
         error_type=error_type,
     )
-    return result.get("augmented_context", "")
-
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="rag_augmented_generator",
@@ -190,3 +188,5 @@ def build_fix_prompt_section(
                         gap_type="engine_failure", source="rag_augmented_generator:init")
         except Exception:
             pass
+
+    return result.get("augmented_context", "")
