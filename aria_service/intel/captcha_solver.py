@@ -218,9 +218,13 @@ class TwoCaptchaProvider(CaptchaProvider):
                     "json": 1,
                     **params,
                 }
+                # R-F2478: send params in the POST BODY, not the URL query string.
+                # httpx logs request URLs (and exceptions embed them), so `key`
+                # in the query leaked the 2captcha API key into aria-intel logs.
+                # 2captcha accepts GET or POST; body keeps the secret out of URLs.
                 resp = await client.post(
                     f"{self.BASE_URL}/in.php",
-                    params=submit_params,
+                    data=submit_params,
                 )
                 data = resp.json()
                 if data.get("status") != 1:
@@ -245,7 +249,7 @@ class TwoCaptchaProvider(CaptchaProvider):
                     try:
                         resp = await client.post(
                             f"{self.BASE_URL}/res.php",
-                            params=poll_params,
+                            data=poll_params,   # R-F2478: key in POST body, not URL query
                         )
                         data = resp.json()
                     except Exception as e:
