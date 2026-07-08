@@ -27,6 +27,7 @@ DPO_OUT="/workspace/checkpoints/aria_llm_v0_4_dpo"
 SFT_FILE="${SFT_FILE:-/workspace/datasets/aria_sft_distill_v04.jsonl}"
 DPO_FILE="${DPO_FILE:-/workspace/datasets/aria_dpo_v04.jsonl}"
 EVAL_SET="${EVAL_SET:-/workspace/datasets/aria_eval_500q.jsonl}"
+PI_SET="${PI_SET:-/workspace/datasets/pi_eval_set_v1.jsonl}"   # R-F2497 — n=155 injection set (leak was measured on a hardcoded n=10 -> not release-grade)
 EVAL_DIR="/workspace/eval"
 LOGS="/workspace/logs"
 SCRIPTS="/workspace/crucix/scripts/train"
@@ -65,10 +66,12 @@ serve(){  # serve <lora_path> <name>
 
 eval_model(){  # eval_model <name> <out> — concurrency=1 (shim NOT concurrency-safe)
   local name="$1" out="$2"
+  local pi_arg=""
+  [ -s "$PI_SET" ] && pi_arg="--pi-set $PI_SET"   # R-F2497 — measure PI leak on n=155; degrade to the built-in set only if unstaged
   DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}" \
   python "$SCRIPTS/eval_aria_llm.py" \
     --target "http://localhost:$PORT/v1" --model "$name" \
-    --eval-set "$EVAL_SET" --out "$out" 2>&1 | tee "$LOGS/eval_${name}.log"
+    --eval-set "$EVAL_SET" $pi_arg --out "$out" 2>&1 | tee "$LOGS/eval_${name}.log"
 }
 
 coherence_ok(){  # coherence_ok <name> — 3-prompt smoke before a 500-Q eval

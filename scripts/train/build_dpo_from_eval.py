@@ -33,10 +33,15 @@ Inputs:
 Usage:
   python scripts/train/build_dpo_from_eval.py \
     --eval-report data/training/aria_llm_v01_sft_500q.json \
-    --eval-set data/training/aria_eval_500q.jsonl \
+    --eval-set data/eval_frozen/aria_eval_500q.jsonl \
     --target https://<pod>-8888.proxy.runpod.net/v1 \
     --model aria-llm-v0.1 \
     --out data/training/aria_dpo_v1.jsonl
+
+R-F2497 WARNING: this builds DPO prompts FROM the eval set, so its output is
+train/eval CONTAMINATED and MUST be quarantined (see
+data/training/_quarantine_eval_contaminated/). NEVER feed its output into a
+training cycle — the preflight_eval_contamination gate will (and must) reject it.
 """
 from __future__ import annotations
 

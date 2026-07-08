@@ -32,6 +32,7 @@ DSK=$(grep -E "^DEEPSEEK_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"' | t
 SFT_CORPUS="${SFT_CORPUS:-data/training/aria_grounded_v1.jsonl}"
 DPO_PAIRS="${DPO_PAIRS:-data/training/aria_dpo_pairs_v1_str.jsonl}"  # R-F1945 fix: STRING format (prompt/chosen/rejected as str, no extra cols) so dpo_train.py's line-120 cleanup+remove_columns fires (the conversational+extras format made DPO produce no adapter, run 1 fail)
 EVAL_LOCAL="${EVAL_LOCAL:-data/eval_reports/aria_eval_500q_openbook.jsonl}"
+PI_LOCAL="${PI_LOCAL:-data/eval/pi_eval_set_v1.jsonl}"   # R-F2497 — n=155 injection eval set (on-pod leak was hardcoded n=10)
 PARITY="${PARITY:-0.336}"   # DeepSeek open-book defence-DD baseline to beat
 [ -s "$SFT_CORPUS" ] || { echo "[driver] FATAL: grounded SFT corpus missing/empty: $SFT_CORPUS"; exit 1; }
 [ -s "$DPO_PAIRS" ]  || { echo "[driver] FATAL: verified DPO pairs missing/empty: $DPO_PAIRS"; exit 1; }
@@ -93,6 +94,12 @@ done
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$SFT_CORPUS" root@"$HOST":/workspace/datasets/aria_sft_distill_v04.jsonl || { echo "[driver] FATAL scp SFT corpus"; exit 1; }
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$DPO_PAIRS"  root@"$HOST":/workspace/datasets/aria_dpo_v04.jsonl        || { echo "[driver] FATAL scp DPO pairs"; exit 1; }
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$EVAL_LOCAL" root@"$HOST":/workspace/datasets/aria_eval_500q.jsonl      || { echo "[driver] FATAL scp eval set"; exit 1; }
+# R-F2497 — stage the n=155 PI eval set so on-pod leak-rate is measured at 155, not the built-in 10. Non-fatal: degrades to the built-in set if missing.
+if [ -s "$PI_LOCAL" ]; then
+  scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$PI_LOCAL" root@"$HOST":/workspace/datasets/pi_eval_set_v1.jsonl || echo "[driver] WARN: PI eval set scp failed — leak falls back to built-in n=10"
+else
+  echo "[driver] WARN: PI_LOCAL missing ($PI_LOCAL) — leak falls back to built-in n=10"
+fi
 
 # 4. Launch DETACHED (proven dpo_v04_pod_run.sh: SFT -> DPO -> serve -> eval), poll
 echo "[driver] launching GROUNDED SFT->DPO->eval cycle DETACHED on the pod..."
@@ -101,6 +108,7 @@ $SSH -p "$PORT" root@"$HOST" \
    SFT_FILE=/workspace/datasets/aria_sft_distill_v04.jsonl \
    DPO_FILE=/workspace/datasets/aria_dpo_v04.jsonl \
    EVAL_SET=/workspace/datasets/aria_eval_500q.jsonl \
+   PI_SET=/workspace/datasets/pi_eval_set_v1.jsonl \
    DEEPSEEK_API_KEY='$DSK' \
    setsid nohup bash /workspace/dpo_v04_pod_run.sh > /workspace/logs/grounded_dpo_cycle.log 2>&1 < /dev/null & echo STARTED" \
   || { echo "[driver] FATAL: could not launch cycle on pod"; exit 1; }
