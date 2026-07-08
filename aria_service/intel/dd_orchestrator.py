@@ -3363,13 +3363,21 @@ async def _run_identity(
                         break
             if reg_result:
                 profile = reg_result.get("profile", {})
-                report.identity.registration_number = profile.get("company_number") or registration_number
-                report.identity.registration_status = profile.get("company_status")
-                report.identity.incorporation_date = profile.get("date_of_creation")
-                report.identity.registered_address = profile.get("registered_office_address")
-                report.identity.declared_activity = ", ".join(profile.get("sic_codes") or [])[:200]
-                report.identity.directors = reg_result.get("officers") or []
-                report.identity.shareholders = reg_result.get("psc") or []
+                # R-F2511 — ADDITIVE, never clobber. This registry-adapter fallback runs
+                # in the `else` of `if registration_number:`; because the LOCAL
+                # registration_number stays None (CH/GLEIF populate report.identity, not
+                # the local var), it executes even for GB AFTER the Companies House block
+                # already set directors/PSC. The old unconditional assignment overwrote
+                # CH's officers with the adapter's EMPTY list (registry/GLEIF carry no GB
+                # officers — CH is the source) → the DD showed 0 directors for real GB
+                # companies. Only fill fields the CH block left empty.
+                report.identity.registration_number = report.identity.registration_number or profile.get("company_number") or registration_number
+                report.identity.registration_status = report.identity.registration_status or profile.get("company_status")
+                report.identity.incorporation_date = report.identity.incorporation_date or profile.get("date_of_creation")
+                report.identity.registered_address = report.identity.registered_address or profile.get("registered_office_address")
+                report.identity.declared_activity = report.identity.declared_activity or ", ".join(profile.get("sic_codes") or [])[:200]
+                report.identity.directors = report.identity.directors or reg_result.get("officers") or []
+                report.identity.shareholders = report.identity.shareholders or reg_result.get("psc") or []
                 report.identity.meta.subcalls += 1
                 report.identity.findings.append(Finding(
                     severity="info",
@@ -5240,9 +5248,11 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                             elif _addr and not report.identity.registered_address:
                                 report.identity.registered_address = _addr
                             if not report.identity.directors:
-                                report.identity.directors = ch_result.get("officers") or []
+                                _o5251 = ch_result.get("officers")  # R-F2511 {current,past,total} dict
+                                report.identity.directors = (_o5251.get("current") if isinstance(_o5251, dict) else _o5251) or []
                             if not report.identity.shareholders:
-                                report.identity.shareholders = ch_result.get("psc") or []
+                                _p5253 = ch_result.get("psc")
+                                report.identity.shareholders = (_p5253.get("current") if isinstance(_p5253, dict) else _p5253) or []
                             if not report.identity.jurisdiction_iso2:
                                 report.identity.jurisdiction_iso2 = "GB"
                                 report.identity.jurisdiction = (
