@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2475,
+  "next_available": 2478,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18691,6 +18691,34 @@
       "r_number": "R-F2474",
       "title": "audit remediation: stale authz test + flaky ct-token test + gate brain-absorb rerun=1",
       "claimed_at": "2026-07-08T07:00:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7e5eb86e",
+      "notes": null,
+      "shipped_at": "2026-07-08T07:14:11Z"
+    },
+    {
+      "r_number": "R-F2475",
+      "title": "fix stale agent smoke assertions",
+      "claimed_at": "2026-07-08T07:11:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2476",
+      "title": "dependency remediation: npm audit non-breaking fixes (baileys/protobufjs criticals + highs)",
+      "claimed_at": "2026-07-08T07:18:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2477",
+      "title": "state_store reads: decouple read from writer (cap read-path flush) + stop timeout cache-poisoning — fixes empty-DD-page under storm",
+      "claimed_at": "2026-07-08T07:23:15Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
