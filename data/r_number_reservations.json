@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2474,
+  "next_available": 2475,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18632,9 +18632,10 @@
       "title": "telegram intel cards and data audit",
       "claimed_at": "2026-07-08T05:46:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b55e7549",
+      "notes": null,
+      "shipped_at": "2026-07-08T06:51:43Z"
     },
     {
       "r_number": "R-F2469",
@@ -18642,9 +18643,9 @@
       "claimed_at": "2026-07-08T06:01:23Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "88a5a1e1",
+      "commit_sha": "70423650",
       "notes": null,
-      "shipped_at": "2026-07-08T06:30:51Z"
+      "shipped_at": "2026-07-08T06:51:43Z"
     },
     {
       "r_number": "R-F2470",
@@ -18680,6 +18681,16 @@
       "r_number": "R-F2473",
       "title": "fix+harden telegram channel chat_id normalization (100-prefixed abs id double-100 -> chat not found)",
       "claimed_at": "2026-07-08T06:37:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "70423650",
+      "notes": null,
+      "shipped_at": "2026-07-08T06:43:44Z"
+    },
+    {
+      "r_number": "R-F2474",
+      "title": "audit remediation: stale authz test + flaky ct-token test + gate brain-absorb rerun=1",
+      "claimed_at": "2026-07-08T07:00:54Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

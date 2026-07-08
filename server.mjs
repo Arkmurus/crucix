@@ -1492,8 +1492,13 @@ app.get('/api/brain-absorb/diag', requireAuth, (req, res) => {
 // (cached) + a "rerun" option that re-pings synchronously.
 app.get('/api/brain-absorb/verify', async (req, res) => {
   if (req.query?.rerun === '1') {
-    const v = await runAndCacheBridgeVerdict({ telegramAlerter });
-    return res.json(v);
+    // R-F2474 — rerun triggers a SYNCHRONOUS bridge re-ping (work + LLM cost);
+    // gate it behind admin so it can't be spammed unauthenticated. The cached
+    // read-through below stays public (read-only, zero side effects).
+    return requireAdmin(req, res, async () => {
+      const v = await runAndCacheBridgeVerdict({ telegramAlerter });
+      return res.json(v);
+    });
   }
   const cached = getBrainBridgeVerdict();
   if (!cached) return res.status(503).json({ error: 'boot self-check has not yet run; try ?rerun=1' });

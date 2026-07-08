@@ -53,7 +53,10 @@ function _ctEq(a, b) {
 check('RV-04: constant-time compare matches equal, rejects diff/empty/length-mismatch', () => {
   const t = randomBytes(24).toString('hex');
   assert.strictEqual(_ctEq(t, t), true);
-  assert.strictEqual(_ctEq(t, t.slice(0, -1) + '0'), false);   // same length, 1 char diff
+  // R-F2474 — flip the last char to a GUARANTEED-different one; the old
+  // `+ '0'` collided with t (-> flaky pass) ~1/16 of the time when t ended in '0'.
+  const lastDiff = t.slice(-1) === '0' ? '1' : '0';
+  assert.strictEqual(_ctEq(t, t.slice(0, -1) + lastDiff), false);   // same length, guaranteed 1-char diff
   assert.strictEqual(_ctEq(t, t.slice(0, 10)), false);          // length mismatch (no throw)
   assert.strictEqual(_ctEq('', ''), false);                     // empty never matches
   assert.strictEqual(_ctEq(undefined, t), false);

@@ -32,7 +32,11 @@ def test_h2_no_hardcoded_token_default():
 def test_h2_wa_requireauth_fails_closed():
     s = (REPO / "services/wa-listener/aria_wa_listener.mjs").read_text(encoding="utf-8")
     # An empty INT_TOKEN must reject all (truthy-token guard), not auth-everything.
-    assert "token && token === INT_TOKEN" in s, "wa requireAuth must require a truthy token (fail-closed)"
+    # R-F2459 upgraded the compare from `=== INT_TOKEN` to a constant-time compare
+    # (_callbackTokenEq), which ALSO rejects empty tokens (ba.length > 0). The
+    # fail-closed property is preserved via the `token && …` guard + the ct-compare.
+    assert "token && _callbackTokenEq(token, INT_TOKEN)" in s, \
+        "wa requireAuth must require a truthy token + constant-time compare (fail-closed)"
 
 
 H4_ROUTES = [
