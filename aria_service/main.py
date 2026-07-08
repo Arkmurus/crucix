@@ -4188,8 +4188,16 @@ if _static_os.path.isdir(_static_dir):
 
 
 @app.get("/health/live")
-async def health_live_top_level():
+def health_live_top_level():
     """R-F690 (2026-05-18) — top-level /health/live alias.
+
+    R-F2484 (2026-07-08) — DELIBERATELY SYNC `def`, not `async def` (extends the
+    R-F723 fix from the canonical /api/aria/health/live to this alias). FastAPI
+    auto-runs sync routes in starlette's threadpool, which is NOT blocked when the
+    asyncio event loop is wedged by sync work (the aiosqlite writer thread under
+    state_store saturation). As `async def` this alias ran ON the event loop and
+    timed out at 25s during a loop stall (live probe 2026-07-08); as a threadpool
+    route it stays near-instant. Reads only the in-process ARIA_BUILD_REV global.
 
     Live fly logs 2026-05-18 10:43:28 / 10:47:15 / 10:52:53 showed
     monitoring callers hitting `/health/live` without the
