@@ -16,10 +16,14 @@ investigation outputs:
   - Item 10: Shared address → registered address cross-check
 
 API docs: https://developer.company-information.service.gov.uk/
-Rate limit: 600 requests/5 minutes (no key), higher with API key.
+Rate limit: 600 requests/5 minutes with an API key.
 
 Feature-gated: ARIA_COMPANIES_HOUSE_ENABLED env var (default ON).
-Optional: COMPANIES_HOUSE_API_KEY for higher rate limits.
+REQUIRED: COMPANIES_HOUSE_API_KEY. The CH REST API authenticates every request
+(HTTP Basic, key as username); WITHOUT the key every call 401s and returns NOTHING
+(verified live 2026-07-08 R-F2501: search_companies=0, get_officers=0). The key is
+free at developer.company-information.service.gov.uk. Until it is set, GB DDs cannot
+gather directors / incorporation date / PSC and correctly data-starve to INSUFFICIENT.
 """
 from __future__ import annotations
 from .engine_wiring import wire_failure
@@ -44,6 +48,22 @@ _TIMEOUT = 15.0
 def is_enabled() -> bool:
     val = os.getenv("ARIA_COMPANIES_HOUSE_ENABLED", "1") or "1"
     return val.strip().lower() not in ("0", "false", "no", "off")
+
+
+def missing_key_gap() -> str | None:
+    """R-F2501 — the actionable data-gap notice when CH is enabled but has NO API key
+    (the CH REST API 401s without it → GB DDs get zero registry data → INSUFFICIENT).
+    Returns None when the key is set. Single source of truth so the DD identity layer
+    surfaces the ROOT cause + the operator action, not a vague 'registry incomplete'."""
+    if is_enabled() and not _API_KEY:
+        return (
+            "Companies House API key not configured — GB registry data (directors, "
+            "incorporation date, PSC/beneficial owners) is UNAVAILABLE, so this GB DD "
+            "cannot be registry-verified. Set COMPANIES_HOUSE_API_KEY (free at "
+            "developer.company-information.service.gov.uk) to enable decision-grade GB "
+            "due diligence."
+        )
+    return None
 
 
 def _headers() -> dict:

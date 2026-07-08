@@ -3188,6 +3188,24 @@ async def _run_identity(
     if jurisdiction_iso2 == "GB":
         try:
             from . import companies_house
+            # R-F2501 — surface the ROOT cause of GB data-starvation. Without the (free)
+            # COMPANIES_HOUSE_API_KEY the CH REST API 401s and returns NOTHING, so every
+            # GB DD misses directors/incorporation/PSC and data-starves to INSUFFICIENT.
+            # Make it VISIBLE + actionable in the report instead of a vague "registry
+            # incomplete" (proven live: search_companies=0, get_officers=0 with no key).
+            _ch_gap = companies_house.missing_key_gap()
+            if _ch_gap:
+                report.identity.data_gaps.append(_ch_gap)
+                try:
+                    from . import capability_gaps
+                    _cht = asyncio.create_task(capability_gaps.record_gap(
+                        gap_type="api_missing",
+                        detail="COMPANIES_HOUSE_API_KEY not set — GB registry lookups return no data (401)",
+                        source="dd_orchestrator._run_identity:companies_house",
+                    ))
+                    _cht.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
+                except Exception:
+                    pass
             if hasattr(companies_house, "investigate_uk_entity"):
                 ch_result = await companies_house.investigate_uk_entity(
                     company_number=registration_number,

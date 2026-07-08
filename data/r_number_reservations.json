@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2501,
+  "next_available": 2502,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18945,6 +18945,15 @@
       "r_number": "R-F2500",
       "title": "get_report storm-resilient: state_store.get_direct() fresh-readonly fallback so a finished DD's report blob is always openable during a write storm (complements R-F2477)",
       "claimed_at": "2026-07-08T11:45:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2501",
+      "title": "GB DD honesty: surface COMPANIES_HOUSE_API_KEY-missing as a clear actionable data_gap + capability_gap (CH 401s without it -> GB DDs data-starve to INSUFFICIENT); fix misleading 'optional' comment",
+      "claimed_at": "2026-07-08T11:55:08Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
