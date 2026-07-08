@@ -99,6 +99,40 @@ def test_legacy_ownerless_with_no_record_stays_hidden():
     assert "Acme Ltd" not in _names(owner_view), "owner-unknown case must NOT be fabricated onto a scoped user"
 
 
+def test_reconcile_survives_index_write_failure():
+    """R-F2490 — reads must not depend on the volatile writer. Even when the index
+    WRITE (_mutate_report_index) fails under a storm/boot, the owner still sees their
+    reconciled report for THIS read (in-memory merge)."""
+    v = _vault_with_case("dd_new3", "company:GB:NEW3", OWNER)
+    _store = []  # empty index; reconcile must add the vault case in-memory
+
+    async def fake_get_json(key, *a, **k):
+        if key == dor.REPORT_INDEX_KEY:
+            return list(_store)
+        if key == dor.WATCHLIST_KEY:
+            return []
+        return None
+
+    async def fake_set_json(key, val, *a, **k):
+        return True
+
+    async def failing_mutate(mutator, **k):
+        raise RuntimeError("[R-F2343] report-index mutate failed (simulated storm)")
+
+    dor._R2469_OWNER_BACKFILLED.clear()
+    orig = (_rs.get_json, _rs.set_json, _ddv.get_vault, dor._mutate_report_index)
+    _rs.get_json, _rs.set_json = fake_get_json, fake_set_json
+    _ddv.get_vault = lambda: v
+    dor._mutate_report_index = failing_mutate
+    os.environ.pop("ARIA_DD_LEGACY_OWNER_FALLBACK", None)
+    try:
+        owner_view = asyncio.run(dor.list_reports(limit=50, user_id=OWNER, user_email_domain=None))
+    finally:
+        _rs.get_json, _rs.set_json, _ddv.get_vault, dor._mutate_report_index = orig
+    assert "Acme Ltd" in _names(owner_view), \
+        f"owner must see their report even when the index write fails, got {_names(owner_view)}"
+
+
 if __name__ == "__main__":
     test_missing_completed_case_reconciled_and_owner_restored()
     print("PASS test_missing_completed_case_reconciled_and_owner_restored")
@@ -106,4 +140,6 @@ if __name__ == "__main__":
     print("PASS test_present_ownerless_row_healed_from_durable_table")
     test_legacy_ownerless_with_no_record_stays_hidden()
     print("PASS test_legacy_ownerless_with_no_record_stays_hidden")
+    test_reconcile_survives_index_write_failure()
+    print("PASS test_reconcile_survives_index_write_failure")
     print("ALL PASS")

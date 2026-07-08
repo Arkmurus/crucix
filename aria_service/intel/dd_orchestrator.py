@@ -10526,8 +10526,19 @@ async def list_reports(
                         idx.append(_a)
                         _have.add(_a["run_id"])
                 return idx
-            _reconciled = await _mutate_report_index(_merge_missing)
-            index = _reconciled if _reconciled is not None else (await rs.get_json(REPORT_INDEX_KEY) or index)
+            # R-F2490 — apply the reconcile to THIS read IMMEDIATELY (in-memory), so
+            # a user always sees their own reports even when the index WRITE fails.
+            # The whole point of R-F2485 is that reads must not depend on the volatile
+            # writer (cf. R-F2477); the previous version routed the result THROUGH
+            # _mutate_report_index, so a storm-time set_json failure (e.g. boot warmup,
+            # observed live as "[R-F2343] report-index mutate failed") threw the
+            # additions away and the user saw 0. Now: merge in-memory first, then
+            # persist best-effort (re-reconciles on the next read if the write drops).
+            index = _merge_missing(index)
+            try:
+                await _mutate_report_index(_merge_missing)
+            except Exception:
+                pass
     except Exception:
         pass
 
