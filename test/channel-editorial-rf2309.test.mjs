@@ -43,3 +43,17 @@ test('every post is substantial and carries a consult CTA', () => {
     assert.ok(/Source|Sources/.test(p.text), `${p.id} must cite a source`);
   }
 });
+
+test('R-F2465 queue has two weeks of varied premium content', () => {
+  assert.ok(EDITORIAL_POSTS.length >= 14, `expected at least 14 posts, got ${EDITORIAL_POSTS.length}`);
+  const types = new Set(EDITORIAL_POSTS.map(p => p.type));
+  for (const type of ['case_file', 'dd_method', 'signal']) {
+    assert.ok(types.has(type), `missing editorial type ${type}`);
+  }
+  const repeatedTitles = new Set();
+  for (const p of EDITORIAL_POSTS) {
+    const title = p.text.split('\n')[0].replace(/[^\w\s-]/g, '').trim().toLowerCase();
+    assert.ok(!repeatedTitles.has(title), `repeated title: ${title}`);
+    repeatedTitles.add(title);
+  }
+});

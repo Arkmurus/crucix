@@ -30,7 +30,7 @@ import { fetchOpenSanctions } from './apis/sources/opensanctions.mjs';
 import { getLearningStats, getOutcomes, recordAlertOutcome, getSourceHistory, getSourcesToReview, getPatterns, getOpportunities, getExplorerFindings, getUpdateLog, recordSourceSweep, initLearningStore, getBrainAbsorbStats, runAndCacheBridgeVerdict, getBrainBridgeVerdict } from './lib/self/learning_store.mjs';
 import { detectOpportunities, formatOpportunitiesForTelegram } from './lib/self/opportunity_engine.mjs';
 import { analyzePatterns, formatPatternsForTelegram } from './lib/self/pattern_analyzer.mjs';
-import { runExploration, exploreQuery, formatExplorerFindingsForTelegram } from './lib/self/web_explorer.mjs';
+import { runExploration, exploreQuery, formatExplorerFindingsForTelegram, formatExplorerFindingsForTelegramIfTop, recordExplorerTelegramPost } from './lib/self/web_explorer.mjs';
 import { generateSourceModule, generateSourceFix, stageModule, getStagedModules, getStagedCode, formatStagedForTelegram } from './lib/self/code_generator.mjs';
 import { deployModule, rollbackModule, validateSyntax, isRestartPending, clearRestartFlag, triggerGracefulRestart, getAutoManagedModules } from './lib/self/updater.mjs';
 import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage, createDeal, recordOutcome, formatBDSummaryForTelegram, initBDStore } from './lib/self/bd_intelligence.mjs';
@@ -6823,7 +6823,17 @@ async function start() {
         const findings = await runExploration(llmProvider);
         console.log(`[Self] Exploration complete — ${findings.insights?.length || 0} insights, ${findings.salesIdeas?.length || 0} ideas`);
         if (telegramAlerter?.isConfigured && (findings.insights?.length > 0 || findings.salesIdeas?.length > 0)) {
-          await telegramAlerter.sendMessage(formatExplorerFindingsForTelegram(findings));
+          const post = formatExplorerFindingsForTelegramIfTop(findings);
+          if (post.shouldSend) {
+            const sent = await telegramAlerter.sendMessage(post.text);
+            if (sent?.ok !== false) {
+              recordExplorerTelegramPost(post.keys);
+            } else {
+              console.warn('[Self] Exploration Telegram send failed — not recording dedup keys');
+            }
+          } else {
+            console.log(`[Self] Exploration Telegram skipped — ${post.reason}`);
+          }
         }
       } catch (e) { console.error('[Self] Web exploration failed:', e.message); }
     };
