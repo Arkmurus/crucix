@@ -277,30 +277,74 @@ async def _lookup_gibraltar(name: str, reg_number: str | None) -> dict | None:
 _PL_API_BASE = "https://api-krs.ms.gov.pl/api/krs"
 
 
+async def _pl_resolve_krs(name: str) -> str:
+    """R-F2503 — the KRS OdpisPelny API is NUMBER-ONLY, so resolve a KRS number from a
+    NAME via GLEIF's local `registered_as`. Returns a 10-digit KRS or "" (the caller
+    still name-verifies the fetched extract, so a 10-digit number in another scheme —
+    e.g. a NIP — that fetches nothing or the wrong entity is caught downstream)."""
+    try:
+        from .sources import gleif as _g
+        res = await _g.lookup(name, "PL")
+        ra = ((res or {}).get("profile") or {}).get("registered_as") or ""
+        digits = re.sub(r"\D", "", ra)
+        return digits.zfill(10) if len(digits) == 10 else ""
+    except Exception:
+        return ""
+
+
+def _krs_current(x):
+    """R-F2503 — KRS versions many fields as a LIST of historical entries; each carries
+    `nrWpisuWykr` (the entry that CROSSED IT OUT) when superseded. The CURRENT value is
+    the entry NOT crossed out (else the last). Returning entry[0] blindly gave a
+    company's FORMER name/address (e.g. KRS 0000006865 = CD Projekt, but [0] =
+    'OPTIMUS TECHNOLOGIE', its pre-rename name) — a wrong-entity hazard."""
+    if isinstance(x, list):
+        dicts = [e for e in x if isinstance(e, dict)]
+        if not dicts:
+            return {}
+        active = [e for e in dicts if not e.get("nrWpisuWykr")]
+        return active[-1] if active else dicts[-1]
+    return x if isinstance(x, dict) else {}
+
+
+def _pl_name_matches(fetched: str, query: str) -> bool:
+    """R-F2503 — token-overlap guard so a name-resolved KRS extract is trusted ONLY when
+    it is plausibly the SAME entity as the query — a wrong GLEIF/registered_as match must
+    NEVER surface another company's officers (never-false-clean)."""
+    def _toks(s: str) -> set:
+        s = (s or "").lower()
+        s = re.sub(r"\b(s\.?a\.?|sp\.?\s*z\s*o\.?o\.?|spolka|akcyjna|plc|ltd|limited|gmbh|inc)\b", " ", s)
+        return {t for t in re.findall(r"[a-z0-9]{2,}", s)}
+    q, f = _toks(query), _toks(fetched)
+    if not q or not f:
+        return False
+    return (len(q & f) / len(q)) >= 0.5
+
+
 async def _lookup_poland(name: str, reg_number: str | None) -> dict | None:
-    """Poland KRS — free REST API from Ministry of Justice."""
+    """Poland KRS — free REST API from the Ministry of Justice. The OdpisPelny endpoint
+    is NUMBER-ONLY: a '?nazwa=' name search 404s (R-F2503, confirmed live), so a name-only
+    lookup resolves the KRS number via GLEIF's local registered_as, fetches the rich
+    extract, and only trusts it if the fetched name verifies against the query."""
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
             data: dict | None = None
 
+            # Resolve the KRS number: operator-supplied first, else via GLEIF. No usable
+            # 10-digit number → None → lookup_entity's GLEIF identity fallback.
+            _resolved_from_name = False
             if reg_number:
-                # Direct lookup by KRS number — pad to 10 digits
-                krs = reg_number.strip().zfill(10)
-                url = f"{_PL_API_BASE}/OdpisPelny/{krs}?rejestr=P&format=json"
-                resp = await client.get(url)
-                if resp.status_code == 200:
-                    data = resp.json()
+                krs = re.sub(r"\D", "", reg_number)[-10:].zfill(10)
             else:
-                # Search by name
-                url = f"{_PL_API_BASE}/OdpisPelny?nazwa={name}&rejestr=P&format=json"
-                resp = await client.get(url)
-                if resp.status_code == 200:
-                    result = resp.json()
-                    # API returns a list or single object
-                    if isinstance(result, list) and result:
-                        data = result[0]
-                    elif isinstance(result, dict):
-                        data = result
+                krs = await _pl_resolve_krs(name)
+                _resolved_from_name = bool(krs)
+            if not krs or len(krs) != 10 or not krs.isdigit():
+                return None
+
+            url = f"{_PL_API_BASE}/OdpisPelny/{krs}?rejestr=P&format=json"
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                data = resp.json()
 
             if not data:
                 return None
@@ -311,22 +355,27 @@ async def _lookup_poland(name: str, reg_number: str | None) -> dict | None:
             dzial1 = dane.get("dzial1", {})
             dzial2 = dane.get("dzial2", {})
 
-            # Company basics
-            dane_podmiotu = dzial1.get("danePodmiotu", {})
-            company_name = (
-                dane_podmiotu.get("nazwa")
-                or dane.get("nazwa")
-                or name
-            )
+            # Company basics. R-F2503 — KRS returns `nazwa` as a LIST of historical
+            # names ([{nazwa, nrWpisu}, …], newest first) OR a bare string. Extract the
+            # current name string robustly (the old code passed the whole list on as the
+            # name → downstream .lower()/.get crashes). numerKRS lives in `identyfikatory`.
+            dane_podmiotu = dzial1.get("danePodmiotu") or {}
+            _nazwa_raw = dane_podmiotu.get("nazwa")
+            _nazwa = _nazwa_raw if isinstance(_nazwa_raw, str) else _krs_current(_nazwa_raw).get("nazwa", "")
+            _dane_nazwa = dane.get("nazwa")
+            company_name = _nazwa or (_dane_nazwa if isinstance(_dane_nazwa, str) else "") or name
+            _ident = dane_podmiotu.get("identyfikatory") or {}
             company_number = (
-                dane_podmiotu.get("numerKRS")
-                or dane.get("numerKRS")
+                (_ident.get("numerKRS") if isinstance(_ident, dict) else "")
+                or dane_podmiotu.get("numerKRS")
+                or (dane.get("numerKRS") if isinstance(dane.get("numerKRS"), str) else "")
                 or reg_number
+                or krs            # R-F2503 — the resolved/supplied KRS is authoritative
                 or ""
             )
 
-            # Address
-            adres = dzial1.get("siedzibaIAdres", {}).get("adres", {})
+            # Address  (R-F2503 — siedzibaIAdres/adres may be absent/None OR a historical LIST)
+            adres = _krs_current(_krs_current(dzial1.get("siedzibaIAdres")).get("adres"))
             address_parts = [
                 adres.get("ulica", ""),
                 adres.get("nrDomu", ""),
@@ -350,8 +399,8 @@ async def _lookup_poland(name: str, reg_number: str | None) -> dict | None:
                 or ""
             )
 
-            # PKD codes (Polish equivalent of SIC)
-            pkd_list = dzial1.get("przedmiotDzialalnosci", {}).get("przedmiotPrzewazajacejDzialalnosci", [])
+            # PKD codes (Polish equivalent of SIC)  (R-F2503 — przedmiotDzialalnosci may be None)
+            pkd_list = (dzial1.get("przedmiotDzialalnosci") or {}).get("przedmiotPrzewazajacejDzialalnosci") or []
             if isinstance(pkd_list, dict):
                 pkd_list = [pkd_list]
             sic_codes = []
@@ -361,11 +410,19 @@ async def _lookup_poland(name: str, reg_number: str | None) -> dict | None:
                     desc = pkd.get("opis", "")
                     sic_codes.append(f"{code} {desc}".strip())
 
-            # Officers (Zarzad = management board)
+            # Officers (Zarzad = management board). R-F2503 — dzial2.reprezentacja is a
+            # LIST of representation bodies (KRS live shape), each carrying a 'sklad'
+            # (composition); the old code did .get('sklad') on the list → crash. Flatten.
             officers = []
-            organ_list = dzial2.get("reprezentacja", {}).get("sklad", [])
-            if isinstance(organ_list, dict):
-                organ_list = [organ_list]
+            _repr = dzial2.get("reprezentacja")
+            _repr_items = _repr if isinstance(_repr, list) else ([_repr] if isinstance(_repr, dict) else [])
+            organ_list = []
+            for _ri in _repr_items:
+                _sklad = _ri.get("sklad") if isinstance(_ri, dict) else None
+                if isinstance(_sklad, list):
+                    organ_list.extend(_sklad)
+                elif isinstance(_sklad, dict):
+                    organ_list.append(_sklad)
             for member in organ_list:
                 if isinstance(member, dict):
                     officer_name = member.get("nazwisko", "")
@@ -381,9 +438,9 @@ async def _lookup_poland(name: str, reg_number: str | None) -> dict | None:
                         "appointed_on": "",
                     })
 
-            # PSC / shareholders (wspolnicy)
+            # PSC / shareholders (wspolnicy). R-F2503 — key may be present with value None.
             psc = []
-            wspolnicy = dzial1.get("wspolnicySpZOO", [])
+            wspolnicy = dzial1.get("wspolnicySpZOO") or []
             if isinstance(wspolnicy, dict):
                 wspolnicy = [wspolnicy]
             for w in wspolnicy:
@@ -393,6 +450,15 @@ async def _lookup_poland(name: str, reg_number: str | None) -> dict | None:
                         "kind": "shareholder",
                         "natures_of_control": [],
                     })
+
+            # R-F2503 — when the KRS was RESOLVED from a name (not operator-supplied),
+            # VERIFY the fetched company name matches the query before trusting it. A
+            # wrong GLEIF/registered_as match must NEVER return another company's
+            # officers (never-false-clean). On mismatch: discard → GLEIF identity.
+            if _resolved_from_name and not _pl_name_matches(company_name, name):
+                logger.info("PL KRS %s: fetched '%s' != query '%s' — discarding to avoid wrong-entity data",
+                            krs, company_name, name)
+                return None
 
             source_url = f"https://wyszukiwarka-krs.ms.gov.pl/api/krs/OdpisPelny/{company_number}"
 

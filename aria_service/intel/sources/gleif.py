@@ -90,6 +90,11 @@ async def lookup(name: str, jurisdiction_iso2: str = "", reg_number: str | None 
             "company_name": nm,
             "company_number": lei,              # LEI as the registry id
             "lei": lei,
+            # R-F2503 — the LOCAL national registry id (KRS for PL, SIREN for FR, HRB
+            # for DE, …). Lets a number-only national adapter (e.g. Poland KRS) resolve
+            # its rich extract from a name via GLEIF. May be a national number in ANY
+            # scheme — callers MUST validate the format + verify the fetched entity.
+            "registered_as": (e.get("registeredAs") or "").strip(),
             "company_status": (str(e.get("status") or "").lower() or "unknown"),
             "jurisdiction": e.get("jurisdiction", "") or "",
             "registered_office_address": addr_str,
