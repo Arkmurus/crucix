@@ -18987,18 +18987,20 @@
       "title": "state_store Phase-3 reclaim: delete backfilled cold rows from hot (verify-in-cold, never lose data) + VACUUM to shrink the 1GB hot DB → fast writes; dry-run + flag-guard + single-flight",
       "claimed_at": "2026-07-08T14:47:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c808bc48",
+      "notes": null,
+      "shipped_at": "2026-07-08T17:42:35Z"
     },
     {
       "r_number": "R-F2505",
       "title": "brain bulk signal ingest: POST /brain/signal/bulk processes N signals sequentially in one task (writer breathing room) instead of N concurrent posts; aria-web sweep sends one bulk payload — kills the burst that saturated the single writer (5/31)",
       "claimed_at": "2026-07-08T17:25:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0b06494a",
+      "notes": null,
+      "shipped_at": "2026-07-08T17:42:36Z"
     },
     {
       "r_number": "R-F2506",
