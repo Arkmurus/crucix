@@ -119,6 +119,56 @@ def is_available() -> bool:
 
 # ── Indicators v2 — Country indicator fetch ────────────────────────────────
 
+def _parse_indicator_payload(payload: Any) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]] | None:
+    """Parse Indicators v2 [meta, rows] payload into the DD indicator map."""
+    if not isinstance(payload, list) or len(payload) < 2:
+        return None
+    meta = payload[0] or {}
+    data = payload[1] or []
+    if not isinstance(data, list):
+        return None
+    by_code: dict[str, list[dict[str, Any]]] = {}
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        ind = row.get("indicator", {}) or {}
+        ind_code = ind.get("id", "")
+        if not ind_code:
+            continue
+        by_code.setdefault(ind_code, []).append({
+            "year": row.get("date"),
+            "value": row.get("value"),
+            "indicator_name": ind.get("value", ""),
+        })
+    return meta, by_code
+
+
+def _payload_failure_class(payload: Any) -> str:
+    """R-F2495 — classify WHY a WB payload wasn't the expected [meta, rows] shape, so a
+    failed overlay reports the REAL reason (WB error message, empty result, or wrong
+    type) instead of a bare 'unexpected payload shape'. WB v2 signals errors as a list
+    whose first element is {"message": [{"id","key","value"}]} (or a bare dict)."""
+    try:
+        container = payload[0] if isinstance(payload, list) and payload else payload
+        if isinstance(container, dict) and container.get("message"):
+            msgs = container.get("message")
+            if isinstance(msgs, list) and msgs and isinstance(msgs[0], dict):
+                m = msgs[0]
+                return f"wb_api_error: {m.get('value') or m.get('key') or m.get('id') or m}"[:200]
+            return f"wb_api_error: {msgs}"[:200]
+        if isinstance(payload, list):
+            if len(payload) >= 2 and not payload[1]:
+                return "empty_result (WB has no data for this country/indicator combination)"
+            if len(payload) >= 2:
+                return f"unexpected_data_type: {type(payload[1]).__name__}"
+            return f"short_list (len={len(payload)})"
+        if isinstance(payload, dict):
+            return f"unexpected_object: keys={sorted(list(payload.keys()))[:6]}"
+        return f"unexpected_type: {type(payload).__name__}"
+    except Exception:
+        return "unparseable_payload"
+
+
 @wired(module="sources.worldbank_indicators", summary="WB indicators for {iso2_or_iso3}")
 async def fetch_country_indicators(
     iso2_or_iso3: str,
@@ -168,25 +218,56 @@ async def fetch_country_indicators(
         if resp.status_code != 200:
             return {"ok": False, "error": f"HTTP {resp.status_code}", "country_code": code, "source_url": str(resp.request.url)}
         payload = resp.json()
-        # Indicators v2 returns [meta, [data...]]
-        if not isinstance(payload, list) or len(payload) < 2:
-            return {"ok": False, "error": "unexpected payload shape", "country_code": code}
-        meta = payload[0] or {}
-        data = payload[1] or []
-        # Group by indicator code
-        by_code: dict[str, list[dict[str, Any]]] = {}
-        for row in data:
-            if not isinstance(row, dict):
-                continue
-            ind = row.get("indicator", {}) or {}
-            ind_code = ind.get("id", "")
-            if not ind_code:
-                continue
-            by_code.setdefault(ind_code, []).append({
-                "year": row.get("date"),
-                "value": row.get("value"),
-                "indicator_name": ind.get("value", ""),
-            })
+        parsed = _parse_indicator_payload(payload)
+        if parsed is None:
+            _fc = _payload_failure_class(payload)  # R-F2495 — the REAL reason
+            if len(indicators) <= 1:
+                return {
+                    "ok": False,
+                    "error": f"unexpected payload shape ({_fc})",
+                    "failure_class": _fc,
+                    "country_code": code,
+                    "source_url": str(resp.request.url),
+                }
+            by_code: dict[str, list[dict[str, Any]]] = {}
+            errors: dict[str, str] = {}
+            source_urls: dict[str, str] = {}
+            for indicator in indicators:
+                single = await fetch_country_indicators(
+                    code,
+                    indicators=[indicator],
+                    most_recent_only=most_recent_only,
+                    years=years,
+                )
+                if single.get("ok"):
+                    by_code.update(single.get("indicators") or {})
+                    if single.get("source_url"):
+                        source_urls[indicator] = single["source_url"]
+                else:
+                    errors[indicator] = str(single.get("error") or "unknown")
+                    if single.get("source_url"):
+                        source_urls[indicator] = single["source_url"]
+            if not by_code:
+                return {
+                    "ok": False,
+                    "error": f"unexpected payload shape ({_fc})",
+                    "failure_class": _fc,
+                    "country_code": code,
+                    "source_url": str(resp.request.url),
+                    "indicator_errors": errors,
+                }
+            return {
+                "ok": True,
+                "country_code": code,
+                "indicators": by_code,
+                "retrieved_at": _common._iso_now() if hasattr(_common, "_iso_now") else "",
+                "source_url": str(resp.request.url),
+                "source_urls": source_urls,
+                "partial": bool(errors),
+                "indicator_errors": errors,
+                "meta": {"total_records": sum(len(v) for v in by_code.values())},
+            }
+        meta, by_code = parsed
         return {
             "ok": True,
             "country_code": code,
@@ -341,6 +422,12 @@ async def country_risk_overlay(country_iso2_or_iso3: str) -> dict[str, Any]:
             "government_effectiveness": _val("GE.EST"),
         },
         "retrieved_at": raw.get("retrieved_at", ""),
+        # R-F2495 — surface partial coverage: when the combined request failed but the
+        # per-indicator fallback recovered SOME indicators, the overlay is usable but
+        # incomplete. Show which indicators are missing + the WB reason so the DD report
+        # says "military spend unavailable: <reason>" instead of silently dropping it.
+        "partial": bool(raw.get("partial")),
+        "indicator_errors": raw.get("indicator_errors") or {},
         "source_attribution": "World Bank Indicators v2 (api.worldbank.org/v2). Free under CC-BY 4.0.",
         "primary_source_url": raw.get("source_url", ""),
         "wgi_interpretation_note": (

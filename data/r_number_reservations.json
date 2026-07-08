@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2495,
+  "next_available": 2497,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18886,6 +18886,25 @@
       "r_number": "R-F2494",
       "title": "DD run-diagnostics surface: expose Brave/search state + per-query counts, registry-adapter attempt/result, executed mode + auto-deep escalation + layer counts in the report",
       "claimed_at": "2026-07-08T10:45:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "95e56d8e",
+      "notes": null,
+      "shipped_at": "2026-07-08T11:04:08Z"
+    },
+    {
+      "r_number": "R-F2495",
+      "title": "worldbank_indicators: expose the raw WB failure class (api error message / empty / wrong-type) instead of generic 'unexpected payload shape'; surface partial+indicator_errors in country_risk_overlay",
+      "claimed_at": "2026-07-08T10:59:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2496",
+      "title": "tbml rollup never-false-clean: separate INDETERMINATE from screened + count anomalies by grade (anomaly_tier key never existed -> always 0)",
+      "claimed_at": "2026-07-08T11:01:19Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
