@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 
 const mod = await import('../lib/telegram/channelMedia.mjs');
 const {
+  buildIntelCardData,
   generateInfographicCard,
   generateComparisonCard,
   generateTimelineCard,
@@ -47,6 +48,31 @@ describe('ChannelMedia — generateInfographicCard', () => {
 
     const sanctions = generateInfographicCard({ title: 'Sanctions', type: 'sanctions' });
     assert.ok(sanctions.includes('SANCTIONS'));
+  });
+
+  it('renders editorial intelligence panels for channel cards', () => {
+    const svg = generateInfographicCard({
+      title: 'Procurement signal: avionics tender',
+      subtitle: 'Verified tender with dual-use relevance and an unusually short bid window.',
+      bullets: ['Dual-use avionics route needs screening', 'Check buyer, consignee and freight forwarder'],
+      type: 'procurement',
+    });
+    assert.ok(svg.includes('WHY IT MATTERS'));
+    assert.ok(svg.includes('NEXT CHECK'));
+    assert.ok(svg.includes('Dual-use avionics route needs screening'));
+  });
+
+  it('normalizes raw signal data into reusable card fields', () => {
+    const card = buildIntelCardData({
+      title: 'OFAC exposure: Example Trading',
+      text: 'Example Trading surfaced in a sanctions update. Screen the address cluster before quoting.',
+      confidence: 0.87,
+      source: 'OFAC',
+    });
+    assert.equal(card.type, 'sanctions');
+    assert.equal(card.metrics[0].label, 'Confidence');
+    assert.equal(card.metrics[0].value, '87%');
+    assert.ok(card.bullets[0].includes('Example Trading surfaced'));
   });
 });
 
