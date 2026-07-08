@@ -415,6 +415,9 @@ class ARKDDReport:
     orchestrator_mode: str = "standard"                   # quick | standard | deep
     layers_run: list[str] = field(default_factory=list)
     layers_skipped: list[str] = field(default_factory=list)
+    # R-F2494 — per-run diagnostics: search/Brave state + per-query counts, registry
+    # adapter attempt/result, executed mode + auto-deep escalation + layer counts.
+    run_diagnostics: dict = field(default_factory=dict)
 
     # Sections
     identity: IdentitySection = field(default_factory=IdentitySection)
@@ -1272,6 +1275,7 @@ def structured_view(r: dict) -> dict:
         "confidence_gate_triggered": bool(r.get("confidence_gate_triggered")),
         "generated_at": r.get("generated_at"),
         "orchestrator_mode": r.get("orchestrator_mode"),
+        "run_diagnostics": r.get("run_diagnostics") or {},   # R-F2494
         "canonical_entity_id": r.get("canonical_entity_id"),
         "version_number": r.get("version_number") or 1,
         "quality_assessment": _dd_quality_assessment(r),

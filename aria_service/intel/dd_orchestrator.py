@@ -8056,6 +8056,75 @@ def dd_production_outcome(all_layers_ok: bool, gate_triggered: bool,
     return ("error", "insufficient_evidence")
 
 
+async def _build_run_diagnostics(report: "ARKDDReport", target: dict, mode: str) -> dict:
+    """R-F2494 — assemble the per-run DD diagnostics so the report SHOWS what actually
+    ran (codex review of the Modirum report, findings #1/#2/#6):
+      • mode     — requested vs executed + whether auto-deep escalation happened
+      • layers   — which layers ran/were skipped + counts + total duration
+      • search   — Brave configured/scope/circuit state + the representative per-query
+                   ecosystem snapshot (backends served + result counts)
+      • registry — the adapter attempt/result reconstructed from the identity layer
+                   (lookup_entity returns None on miss and loses the attempt, so infer
+                   hit/miss + adapter + failure reason from what the layer produced)
+    Every section is independently guarded — diagnostics must never break a report.
+    """
+    _diag: dict = report.run_diagnostics if isinstance(report.run_diagnostics, dict) else {}
+    _tgt = target if isinstance(target, dict) else {}
+
+    _initial_mode = _tgt.get("_rf409_initial_mode")
+    _diag["mode"] = {
+        "requested": _initial_mode or mode,
+        "executed": report.orchestrator_mode,
+        "auto_escalated": bool(_initial_mode and _initial_mode != report.orchestrator_mode),
+        "initial_mode": _initial_mode,
+    }
+    _diag["layers"] = {
+        "run": list(report.layers_run or []),
+        "skipped": list(report.layers_skipped or []),
+        "count_run": len(report.layers_run or []),
+        "count_skipped": len(report.layers_skipped or []),
+        "total_duration_ms": getattr(report, "total_duration_ms", None),
+    }
+    # #1 — search / Brave state + representative per-query counts
+    try:
+        from . import web_search as _wsm
+        _sh = await _wsm.get_search_health() or {}
+        _diag["search"] = {
+            "brave": _sh.get("brave_search"),
+            "ecosystem": getattr(report.digital, "search_ecosystem", None),
+        }
+    except Exception:
+        pass
+    # #2 — registry adapter attempt/result
+    try:
+        _reg_hit = bool(
+            report.identity.registration_status
+            or report.identity.directors
+            or report.identity.incorporation_date
+        )
+        _reg_adapter = None
+        for _f in (report.identity.findings or []):
+            _src = getattr(_f, "source", "") or ""
+            if _src.startswith("registry_adapters."):
+                _reg_adapter = _src.split("registry_adapters.", 1)[1]
+                break
+        _reg_gaps = [
+            g for g in (report.identity.data_gaps or [])
+            if isinstance(g, str) and "registry" in g.lower()
+        ]
+        _diag["registry"] = {
+            "attempted": True,
+            "jurisdiction": getattr(report.identity, "jurisdiction", None)
+                            or _tgt.get("jurisdiction_iso2"),
+            "adapter": _reg_adapter,
+            "result": "hit" if _reg_hit else "miss",
+            "reason": (_reg_gaps[0] if (_reg_gaps and not _reg_hit) else None),
+        }
+    except Exception:
+        pass
+    return _diag
+
+
 async def orchestrate_dd(
     target: dict,
     *,
@@ -9687,6 +9756,13 @@ async def _orchestrate_dd_impl(
     # private even from same-company colleagues. list_reports honours
     # the resulting share_to_company key on the index entry.
     report.share_to_company = bool(share_to_company)
+
+    # ── R-F2494 — DD run diagnostics (search/Brave state, registry attempt/result,
+    # executed mode + auto-deep escalation + layer counts). Best-effort — never blocks.
+    try:
+        report.run_diagnostics = await _build_run_diagnostics(report, target, mode)
+    except Exception as _rd_err:
+        logger.debug("[dd_orchestrator] run_diagnostics build failed: %s", _rd_err)
 
     # ── Persist + deliver ──
     await _persist_report(report)

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2494,
+  "next_available": 2495,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18867,14 +18867,25 @@
       "title": "financial_health: tighten financial-footprint relevance gate — block social/profile domains fully + require strong financial-document signal (no generic hits as 'financial references')",
       "claimed_at": "2026-07-08T10:30:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f847768c",
+      "notes": null,
+      "shipped_at": "2026-07-08T10:46:10Z"
     },
     {
       "r_number": "R-F2493",
       "title": "dd_schema: hard-cap evidence-grade when verdict is INSUFFICIENT EVIDENCE (data-starved OR confidence-gate) — grade must reflect the honest gate",
       "claimed_at": "2026-07-08T10:30:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f847768c",
+      "notes": null,
+      "shipped_at": "2026-07-08T10:46:10Z"
+    },
+    {
+      "r_number": "R-F2494",
+      "title": "DD run-diagnostics surface: expose Brave/search state + per-query counts, registry-adapter attempt/result, executed mode + auto-deep escalation + layer counts in the report",
+      "claimed_at": "2026-07-08T10:45:00Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
