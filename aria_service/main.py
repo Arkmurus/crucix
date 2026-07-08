@@ -875,6 +875,18 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(600)
     _bg_task(asyncio.create_task(_dd_reconcile_loop(), name="dd_reconcile"))
 
+    # R-F2507 — start the durable brain-ingest queue drain worker (a SINGLE worker;
+    # one process under WEB_CONCURRENCY=1). No-op unless ARIA_BRAIN_QUEUE_ENABLED=1,
+    # so this block is byte-identical to legacy when the flag is off. The worker
+    # connects the queue db then drains absorb payloads past the state_store writer
+    # at bounded concurrency (see brain_hook.brain_queue_drain_loop).
+    if os.environ.get("ARIA_BRAIN_QUEUE_ENABLED", "0") == "1":
+        async def _brain_queue_drain():
+            await asyncio.sleep(20)  # let the state store + boot settle first
+            from .intel import brain_hook as _bh2507
+            await _bh2507.brain_queue_drain_loop()
+        _bg_task(asyncio.create_task(_brain_queue_drain(), name="brain_queue_drain"))
+
     # R-F2376 (M4/§25): drive outcome_wire's silent-drop reconciler. Its
     # reconcile_silent_drops() had ZERO production callers, so the ACTIVE
     # proprioception layer (a surface that dies AFTER record_request_start but

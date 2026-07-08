@@ -24433,6 +24433,16 @@ async def health_perf_ep():
             f"messages captured (Compliance Watch)."
         )
 
+    # R-F2507 — durable brain-ingest queue health (depth / oldest-age / DLQ / by
+    # priority). Zeros when the queue is off/unconnected (harmless). Lets ARIA (and
+    # ops) see if ingest is backing up behind the single drain worker.
+    brain_queue: dict = {}
+    try:
+        from ..intel import brain_ingest_queue as _biq2507
+        brain_queue = await _biq2507.stats()
+    except Exception as _bqe:
+        _log.debug("health/perf brain_queue read failed: %s", _bqe)
+
     return {
         "build_rev": base.get("build_rev"),
         "status": base.get("status"),
@@ -24443,6 +24453,7 @@ async def health_perf_ep():
         "circuit_breakers": base.get("circuit_breakers", {}),
         "verification_24h": verify_stats,
         "autonomy": autonomy_state,
+        "brain_queue": brain_queue,  # R-F2507 durable ingest-queue depth/age/DLQ
         "llm_providers": providers,
         # R-F400: counts + retention policy. ARIA's tool dispatch (R-F399)
         # will quote these directly when asked introspective questions.

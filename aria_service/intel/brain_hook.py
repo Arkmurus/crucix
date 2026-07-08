@@ -820,7 +820,59 @@ async def absorb(
     # tier task — but the durable fact is NOT forgotten: it goes to the WAL for
     # retry (§7 infinite memory). Interactive (chat) signals are never shed.
     _over_cap = (not _is_interactive) and (_pending_absorb >= _MAX_PENDING_ABSORB)
-    if _over_cap:
+    if _BRAIN_QUEUE_ENABLED:
+        # R-F2507 — durable-queue path: enqueue (one cheap INSERT to a SEPARATE db
+        # file, no state_store contention) + return; the single drain worker
+        # (brain_queue_drain_loop) applies it later at bounded concurrency. Priority:
+        # interactive/chat=0, failure/gap=1, else=2 (drained first→last). If the queue
+        # is unavailable (pre-connect / error) the fact is NOT lost — it falls back to
+        # memory_wal (§7) and the gap is still recorded now (§21e timeliness).
+        _q_priority = 0 if _is_interactive else (1 if gap_type else 2)
+        _enq_ok = False
+        try:
+            from . import brain_ingest_queue as _biq2507
+            _enq_ok = await _biq2507.enqueue(
+                {
+                    "module": module, "summary": summary,
+                    "text_for_neural": text_for_neural, "source": source,
+                    "topics": topics, "success": success, "weight": weight,
+                    "confidence": confidence, "entity_name": entity_name,
+                    "gap_type": gap_type, "gap_detail": gap_detail,
+                    "sector": _sector_normalised, "user_id": user_id,
+                    "result_seed": result,
+                },
+                priority=_q_priority,
+            )
+        except Exception:
+            _enq_ok = False
+        if not _enq_ok:
+            # Never forget (§7): durable WAL fallback + record the gap now so the
+            # coder loop isn't blinded (§21e) + one durable-outcome signal.
+            if summary:
+                try:
+                    from . import memory_wal as _mw2507
+                    _tk2507 = f"{module}:{entity_name}" if entity_name else module
+                    _mw2507.record_pending_fact(
+                        topic=_tk2507, content=summary[:2000],
+                        source=source, confidence=confidence,
+                    )
+                except Exception:
+                    pass
+            if gap_type:
+                try:
+                    from . import capability_gaps as _cg2507
+                    await _cg2507.record_gap(
+                        gap_type=gap_type,
+                        detail=gap_detail or f"{module} reported gap: {gap_type} (queue-enqueue failed)",
+                        source=source, user_id=user_id, sector=_sector_normalised,
+                    )
+                except Exception:
+                    pass
+            await _record_signal(module, success=True, sector=_sector_normalised)
+        # On enqueue SUCCESS the drain's absorb_tiers_bg records the signal exactly
+        # once (like the legacy bg path) — do NOT record here (avoids the 50%-floor
+        # double-count documented below).
+    elif _over_cap:
         _dropped_absorb += 1
         if summary:  # never forget — queue the fact durably for later retry
             try:
@@ -931,6 +983,98 @@ async def absorb_silent(**kwargs) -> None:
         await absorb(**kwargs)
     except Exception as e:
         logger.debug("brain_hook.absorb_silent failed entirely: %s", e)
+
+
+# ── R-F2507: durable brain-ingest queue drain worker ────────────────────────
+# When ARIA_BRAIN_QUEUE_ENABLED=1, absorb() enqueues instead of firing an
+# in-memory create_task. THIS single worker (started once at boot, main.py) pulls
+# batches from the durable queue and applies each through the SAME tier processor
+# (absorb_tiers_bg) at BOUNDED concurrency — so brain-ingest writes are PACED past
+# the single state_store writer instead of an unbounded concurrent burst. Durable:
+# a restart replays the queue; a failed apply retries with backoff then dead-letters.
+
+async def _drain_one_queued(row: dict) -> None:
+    """Apply one dequeued ingest payload through absorb_tiers_bg, then mark
+    done / failed. Called inside the drain loop's bounded-concurrency gate."""
+    from . import brain_ingest_queue as _biq
+    from .brain_hook_bg import absorb_tiers_bg
+    p = row.get("payload") or {}
+    try:
+        await absorb_tiers_bg(
+            module=p.get("module", ""),
+            summary=p.get("summary", ""),
+            text_for_neural=p.get("text_for_neural", ""),
+            source=p.get("source", ""),
+            topics=p.get("topics") or [],
+            success=bool(p.get("success", True)),
+            weight=float(p.get("weight", 1.0) or 1.0),
+            confidence=p.get("confidence", "PROBABLE"),
+            entity_name=p.get("entity_name", ""),
+            gap_type=p.get("gap_type"),
+            gap_detail=p.get("gap_detail"),
+            sector=p.get("sector", ""),
+            user_id=p.get("user_id", ""),
+            result=p.get("result_seed") or {},
+            _get_absorb_concurrency_sem=_get_absorb_concurrency_sem,
+            _get_neural_concurrency_sem=_get_neural_concurrency_sem,
+            _ABSORB_CONCURRENCY=_ABSORB_CONCURRENCY,
+            _ABSORB_SEM_ACQUIRE_TIMEOUT_S=_ABSORB_SEM_ACQUIRE_TIMEOUT_S,
+            _run_tier=_run_tier,
+            _record_signal=_record_signal,
+            _record_latency=_record_latency,
+            _maybe_trip_breaker=_maybe_trip_breaker,
+            _start_ms=time.time() * 1000,  # fresh latency baseline at drain time
+        )
+        await _biq.mark_done([row["id"]])
+    except Exception as e:
+        # Retry with backoff, then dead-letter (never lose the fact).
+        try:
+            await _biq.mark_failed(row["id"], p, int(row.get("attempts", 0)), str(e)[:300])
+        except Exception:
+            logger.warning("[R-F2507] mark_failed itself failed for id=%s: %s", row.get("id"), e)
+
+
+async def brain_queue_drain_loop() -> None:
+    """THE single brain-ingest drain worker (R-F2507). Started once at boot
+    (singleton — main.py, one process under WEB_CONCURRENCY=1). No-op unless
+    ARIA_BRAIN_QUEUE_ENABLED=1. Connects the queue db, then loops: pull a due
+    batch, apply it at bounded concurrency, sleep. Pacing (batch size + drain
+    concurrency) is env-tunable so a backlog can be drained faster without
+    reverting to the unbounded create_task burst."""
+    if not _BRAIN_QUEUE_ENABLED:
+        return
+    from . import brain_ingest_queue as _biq
+    try:
+        await _biq.connect()
+    except Exception as e:
+        logger.error(
+            "[R-F2507] brain_ingest_queue connect failed — drain loop NOT starting; "
+            "absorbs will fall back to memory_wal (never lost): %s", e)
+        return
+    _batch = max(1, int(os.environ.get("ARIA_BRAIN_QUEUE_BATCH", "12")))
+    _drain_conc = max(1, int(os.environ.get("ARIA_BRAIN_QUEUE_DRAIN_CONCURRENCY", "3")))
+    _sem = asyncio.Semaphore(_drain_conc)
+    logger.info(
+        "[R-F2507] brain_ingest_queue drain loop started (batch=%d concurrency=%d)",
+        _batch, _drain_conc)
+
+    async def _bounded(row: dict) -> None:
+        async with _sem:
+            await _drain_one_queued(row)
+
+    while True:
+        try:
+            rows = await _biq.dequeue_batch(limit=_batch)
+            if rows:
+                await asyncio.gather(*[_bounded(r) for r in rows], return_exceptions=True)
+                await asyncio.sleep(0.02)  # brief yield between batches
+            else:
+                await asyncio.sleep(1.0)   # idle poll when queue is empty
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning("[R-F2507] drain loop iteration failed: %s", e)
+            await asyncio.sleep(2.0)
 
 
 @fail_wire(module="brain_hook", gap_type="engine_failure")
@@ -1293,6 +1437,14 @@ _ABSORB_SEM_ACQUIRE_TIMEOUT_S = (
     float(os.environ.get("ARIA_BRAIN_ABSORB_SEM_ACQUIRE_MS", "2000")) / 1000.0  # R-F1512: raised from 500ms to 2000ms. With 8 concurrent slots, a 2s acquire window lets brief bursts drain without shedding to WAL.
 )
 _absorb_concurrency_sem: Optional[asyncio.Semaphore] = None
+
+# R-F2507 — durable brain-ingest queue. When ON, absorb() ENQUEUES the ingest
+# payload to a SEPARATE SQLite queue file (one cheap INSERT, no state_store
+# contention) and a SINGLE drain worker (brain_queue_drain_loop, started at boot)
+# applies it later at BOUNDED concurrency — replacing the unbounded per-absorb
+# create_task burst that saturates the single state_store writer (the DD-latency
+# ceiling). Default OFF = byte-identical to the legacy in-memory path.
+_BRAIN_QUEUE_ENABLED = os.environ.get("ARIA_BRAIN_QUEUE_ENABLED", "0") == "1"
 
 # R-F1665 (wedge cure 2): a SEPARATE, smaller concurrency lane for the NEURAL
 # tier. The neural encode (concept extraction + edge formation + GIL-bound
