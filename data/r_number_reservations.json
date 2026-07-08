@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2507,
+  "next_available": 2509,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19006,6 +19006,25 @@
       "r_number": "R-F2506",
       "title": "v0.6 closed-book DD-depth corpus builder (fix v0.5 task mismatch: no provided evidence, reward correctness+depth, keep refusal)",
       "claimed_at": "2026-07-08T17:31:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "200a7a58",
+      "notes": null,
+      "shipped_at": "2026-07-08T17:45:39Z"
+    },
+    {
+      "r_number": "R-F2507",
+      "title": "durable brain_ingest_queue: native SQLite queue file + one drain worker + P0-P3 priority + 202-on-enqueue + retry/DLQ, decoupling brain ingest from the event loop (single-writer serialization is the DD-latency ceiling); flag-gated dark rollout",
+      "claimed_at": "2026-07-08T17:55:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2508",
+      "title": "v0.6 full framework corpus (400) + fire v0.6 RunPod cycle (SFT framework-knowledge + grounding DPO)",
+      "claimed_at": "2026-07-08T17:57:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
