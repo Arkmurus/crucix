@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2482,
+  "next_available": 2483,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18741,9 +18741,10 @@
       "title": "telegram anti repeat quality gate",
       "claimed_at": "2026-07-08T07:37:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "31a83c12",
+      "notes": null,
+      "shipped_at": "2026-07-08T08:01:01Z"
     },
     {
       "r_number": "R-F2480",
@@ -18758,6 +18759,15 @@
       "r_number": "R-F2481",
       "title": "DD ownership robustness: capture owner at DD START (mark_dd_running) so orphaned/interrupted runs are never owner-less",
       "claimed_at": "2026-07-08T07:53:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2482",
+      "title": "landing hero fits viewport: reduce oversized headline font + tighten hero vertical spacing",
+      "claimed_at": "2026-07-08T08:12:18Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
