@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2504,
+  "next_available": 2505,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18975,6 +18975,16 @@
       "r_number": "R-F2503",
       "title": "PL registry adapter: KRS API is number-only (name-search 404s) — resolve KRS# via GLEIF registered_as + fetch rich extract with name-match verification (never wrong-entity); expose registered_as in gleif source",
       "claimed_at": "2026-07-08T13:09:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "96b786d2",
+      "notes": null,
+      "shipped_at": "2026-07-08T13:37:36Z"
+    },
+    {
+      "r_number": "R-F2504",
+      "title": "state_store Phase-3 reclaim: delete backfilled cold rows from hot (verify-in-cold, never lose data) + VACUUM to shrink the 1GB hot DB → fast writes; dry-run + flag-guard + single-flight",
+      "claimed_at": "2026-07-08T14:47:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

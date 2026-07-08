@@ -1463,6 +1463,24 @@ async def admin_state_hotcold_reconcile_ep(sample_n: int = 50):
     return await _ss.reconcile_cold(sample_n=max(1, min(int(sample_n), 1000)))
 
 
+@router.post("/admin/state/hotcold-reclaim")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def admin_state_hotcold_reclaim_ep(dry_run: bool = True, batch: int = 1000,
+                                         sleep_s: float = 0.05, do_vacuum: bool = True):
+    """R-F2504 Phase 3 — DELETE backfilled cold-prefix rows from the HOT db + VACUUM to
+    shrink it (the 1GB → tens-of-MB write-latency payoff). GATE: run ONLY after
+    /admin/state/hotcold-backfill completes AND /admin/state/hotcold-reconcile returns
+    ok=true. dry_run=true (DEFAULT) counts what WOULD delete without mutating — call it
+    first, then dry_run=false to execute. Operator-gated; runs IN-APP on the hot writer
+    (R-F2277). Per-row cold-existence is re-verified so no data is lost even if reconcile
+    was stale. VACUUM is atomic (fails safe)."""
+    from ..intel import state_store as _ss
+    batch = max(1, min(int(batch), 5000))
+    sleep_s = max(0.0, min(float(sleep_s), 10.0))
+    return await _ss.reclaim_hot(batch=batch, sleep_s=sleep_s,
+                                 do_vacuum=bool(do_vacuum), dry_run=bool(dry_run))
+
+
 @router.get("/dd/layer-5c/stats")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def dd_layer_5c_stats_ep(limit: int = 200):

@@ -1661,6 +1661,82 @@ async def reconcile_cold(sample_n: int = 50) -> dict:
                            "mismatch_count": len(mismatches)}}
 
 
+_reclaim_running = False
+
+
+async def reclaim_hot(*, batch: int = 1000, sleep_s: float = 0.05,
+                      do_vacuum: bool = True, dry_run: bool = False) -> dict:
+    """R-F2504 Phase 3 — after backfill_cold + a GREEN reconcile_cold, DELETE the
+    migrated cold-prefix rows from the HOT db and VACUUM to physically shrink the file
+    (the 1GB → tens-of-MB payoff → fast hot writes). Safety, layered:
+      1. refuses unless the split flag is ON (so live routing is correct);
+      2. per batch, deletes a hot key ONLY if it is CONFIRMED present in COLD — never
+         loses data even if backfill is partial (not-in-cold keys are skipped);
+      3. rowid cursor → a skipped/deleted key is never re-scanned (no loop);
+      4. VACUUM is ATOMIC (interrupt/failure leaves the db unchanged).
+    Runs IN-APP on the hot WRITER (a separate process can't write the live store,
+    R-F2277). dry_run counts what WOULD delete without mutating. Single-flight."""
+    global _reclaim_running
+    if _reclaim_running:
+        return {"error": "reclaim already running"}
+    if not _HOTCOLD_SPLIT:
+        return {"error": "split flag OFF — refusing (live routing would be wrong)"}
+    if _conn is None or not await ensure_cold_open():
+        return {"error": "hot/cold connection unavailable"}
+    _reclaim_running = True
+    deleted = would = scanned = 0
+    cursor = 0
+    _clauses = " OR ".join("key GLOB ?" for _ in _COLD_KEY_PREFIXES)
+    _globs = [p + "*" for p in _COLD_KEY_PREFIXES]
+    try:
+        while True:
+            rconn = _get_read_conn()
+            if rconn is None:
+                break
+            cur = await asyncio.wait_for(rconn.execute(
+                "SELECT rowid, key FROM state WHERE rowid > ? AND (" + _clauses +  # nosec B608 - fixed cold-prefix placeholders
+                ") ORDER BY rowid LIMIT ?",
+                (cursor, *_globs, int(batch))), timeout=30.0)
+            rows = await cur.fetchall()
+            await cur.close()
+            if not rows:
+                break
+            cursor = rows[-1][0]
+            scanned += len(rows)
+            keys = [k for (_r, k) in rows]
+            _qm = ",".join("?" for _ in keys)
+            ccur = await asyncio.wait_for((_cold_read_conn or _cold_conn).execute(
+                "SELECT key FROM state WHERE key IN (" + _qm + ")", keys), timeout=30.0)  # nosec B608 - generated placeholders
+            in_cold = {r[0] for r in await ccur.fetchall()}
+            await ccur.close()
+            safe = [k for k in keys if k in in_cold]
+            would += len(safe)
+            if safe and not dry_run:
+                _dq = ",".join("?" for _ in safe)
+                await asyncio.wait_for(_conn.execute(
+                    "DELETE FROM state WHERE key IN (" + _dq + ")", safe), timeout=60.0)  # nosec B608 - generated placeholders
+                await asyncio.wait_for(_conn.commit(), timeout=60.0)
+                deleted += len(safe)
+            await asyncio.sleep(sleep_s)
+        vacuumed = False
+        vac_err = None
+        if do_vacuum and not dry_run and deleted > 0:
+            try:
+                await asyncio.wait_for(_conn.execute("VACUUM"), timeout=900.0)
+                await _conn.commit()
+                vacuumed = True
+            except Exception as e:
+                vac_err = str(e)[:200]
+                logger.error("state_store: R-F2504 VACUUM failed (db unchanged — atomic): %s", e)
+        return {"deleted": deleted, "would_delete": would, "scanned": scanned,
+                "dry_run": dry_run, "vacuumed": vacuumed, "vacuum_error": vac_err}
+    except Exception as e:
+        logger.error("state_store: R-F2504 reclaim failed: %s", e)
+        return {"error": str(e)[:200], "deleted": deleted, "scanned": scanned}
+    finally:
+        _reclaim_running = False
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────
