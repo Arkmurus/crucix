@@ -18721,9 +18721,10 @@
       "title": "state_store reads: decouple read from writer (cap read-path flush) + stop timeout cache-poisoning — fixes empty-DD-page under storm",
       "claimed_at": "2026-07-08T07:23:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dd91861d",
+      "notes": null,
+      "shipped_at": "2026-07-08T07:42:30Z"
     },
     {
       "r_number": "R-F2478",
