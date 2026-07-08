@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2487,
+  "next_available": 2488,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18806,6 +18806,15 @@
       "r_number": "R-F2486",
       "title": "add missing rs.hget() to state_store/redis_store — DD trigger guard was failing OPEN (hget raised, swallowed by except)",
       "claimed_at": "2026-07-08T08:40:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2487",
+      "title": "materialize /health self-diagnostic read (30s TTL cache) so concurrent bursts do not each hit the saturated state_store",
+      "claimed_at": "2026-07-08T08:45:35Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

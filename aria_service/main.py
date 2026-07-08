@@ -4216,6 +4216,39 @@ def health_live_top_level():
     return {"status": "alive", "build_rev": _build_rev}
 
 
+# R-F2487 — /health self-diagnostic read cache. /health is polled frequently
+# (status pages + web's cross-health probe); reading crucix:self_diagnostic:latest
+# from the state_store on EVERY request meant every concurrent poll hit the
+# (sometimes saturated) store, spiking p95 under load. The diagnostic is refreshed
+# only every ~15min by an autonomous task, so a short TTL cache is safe: at most
+# one request per _HEALTH_DIAG_TTL_S touches the store; the rest serve the last
+# snapshot instantly (and keep serving it if a refresh times out).
+_HEALTH_DIAG_CACHE: dict = {"data": None, "ts": 0.0}
+_HEALTH_DIAG_TTL_S = 30.0
+
+
+async def _read_self_diagnostic_cached():
+    import os as _h_os
+    import time as _h_time
+    now = _h_time.monotonic()
+    cached = _HEALTH_DIAG_CACHE["data"]
+    if cached is not None and (now - _HEALTH_DIAG_CACHE["ts"]) < _HEALTH_DIAG_TTL_S:
+        return cached
+    try:
+        from .intel import redis_store as rs
+        latest = await asyncio.wait_for(
+            rs.get_json("crucix:self_diagnostic:latest"),
+            timeout=float(_h_os.getenv("ARIA_HEALTH_READ_TIMEOUT_S", "3")),
+        )
+        _HEALTH_DIAG_CACHE["data"] = latest
+        _HEALTH_DIAG_CACHE["ts"] = now
+        return latest
+    except Exception:
+        # Timeout/error under saturation -> serve the last snapshot (better than
+        # blocking the whole /health response on a slow store read).
+        return cached
+
+
 @app.get("/health")
 async def health():
     """Public liveness + minimal autonomy state.
@@ -4284,20 +4317,13 @@ async def health():
     # autonomous task) so /health stays fast.
     diagnostic_ind: dict = {"overall": "UNKNOWN"}
     try:
-        import os as _h_os
-        from .intel import redis_store as rs
-        # R-F2152 — /health is a PUBLIC status endpoint and MUST stay fast. This
-        # is the only awaitable in the handler (everything else is in-memory), and
-        # it can stall when the worker thread pool is saturated — get_json offloads
-        # json.loads of large blobs to threads. Witnessed 2026-06-30: /health hung
-        # >90s, which made web's cross-health probe report the brain as DOWN even
-        # though it was serving. Bound the read so the page degrades to UNKNOWN
-        # instead of hanging. (asyncio.TimeoutError is an Exception subclass, so the
-        # existing `except Exception` below already absorbs it.)
-        latest = await asyncio.wait_for(
-            rs.get_json("crucix:self_diagnostic:latest"),
-            timeout=float(_h_os.getenv("ARIA_HEALTH_READ_TIMEOUT_S", "3")),
-        )
+        # R-F2152 — /health is a PUBLIC status endpoint and MUST stay fast. The
+        # only awaitable in the handler is this cached diagnostic read (everything
+        # else is in-memory); R-F2487 wraps it in a 30s TTL cache so concurrent
+        # polls don't each hit the (sometimes saturated) state_store — the read is
+        # bounded (ARIA_HEALTH_READ_TIMEOUT_S) and degrades to the last snapshot /
+        # UNKNOWN instead of hanging.
+        latest = await _read_self_diagnostic_cached()
         if latest:
             diagnostic_ind = {
                 "overall": latest.get("overall"),
