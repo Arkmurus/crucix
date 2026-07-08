@@ -2811,6 +2811,40 @@ async def hdel(key: str, field: str) -> bool:
         return False
 
 
+async def hget(key: str, field: str) -> str | None:
+    """Get a single field from a hash. Returns None if the field is absent.
+
+    R-F2486: the exact `hget` method was missing (only hset/hgetall/hdel
+    existed). dd_trigger_pipeline called `rs.hget(...)`, which raised
+    AttributeError; the callers' broad except swallowed it, so the DD trigger
+    guard failed OPEN (repeated failing DD runs were not suppressed). Mirrors
+    hgetall's single-SELECT + legacy JSON-blob fallback.
+    """
+    if _conn is None:
+        return None
+    try:
+        cur = await _conn.execute(
+            "SELECT value FROM hash_entries WHERE hash_key = ? AND field = ?",
+            (key, field),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row is not None:
+            return row[0]
+        # Fallback: migrate a legacy JSON blob then retry once.
+        await _migrate_hash_if_needed(key)
+        cur = await _conn.execute(
+            "SELECT value FROM hash_entries WHERE hash_key = ? AND field = ?",
+            (key, field),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        return row[0] if row is not None else None
+    except Exception as e:
+        logger.warning("[R-F2486] hget %s.%s failed: %s", key, field, e)
+        return None
+
+
 # ── Glob scan ───────────────────────────────────────────────────────────
 
 async def scan_keys(pattern: str, count: int = 200) -> list[str]:

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2485,
+  "next_available": 2487,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18787,6 +18787,25 @@
       "r_number": "R-F2484",
       "title": "top-level /health/live sync-def (threadpool) — extend R-F723 fix to the alias so event-loop stalls do not time out liveness",
       "claimed_at": "2026-07-08T08:22:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6de9ab99",
+      "notes": null,
+      "shipped_at": "2026-07-08T08:35:35Z"
+    },
+    {
+      "r_number": "R-F2485",
+      "title": "DD ownership restore-on-read: heal owner-less index entries from durable dd_report_owners (not just empty-index rebuild)",
+      "claimed_at": "2026-07-08T08:34:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2486",
+      "title": "add missing rs.hget() to state_store/redis_store — DD trigger guard was failing OPEN (hget raised, swallowed by except)",
+      "claimed_at": "2026-07-08T08:40:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

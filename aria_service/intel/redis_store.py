@@ -579,6 +579,27 @@ async def hgetall(key: str) -> dict:
     return json.loads(_mem_store.get(key, "{}"))
 
 
+async def hget(key: str, field: str) -> Optional[str]:
+    """Get a single hash field (None if absent).
+
+    R-F2486: this method was missing entirely, so `rs.hget(...)` in
+    dd_trigger_pipeline raised AttributeError and the DD trigger guard failed
+    OPEN. Mirrors hgetall across the sqlite / Redis / in-memory backends.
+    """
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.hget(key, field)
+    if _client:
+        try:
+            return await _client.hget(key, field)
+        except Exception as e:
+            logger.warning("Redis HGET %s.%s failed: %s", key, field, e)
+    try:
+        return json.loads(_mem_store.get(key, "{}")).get(field)
+    except Exception:
+        return None
+
+
 async def scan_keys(pattern: str, count: int = 200) -> list[str]:
     """Return keys matching a glob pattern (uses SCAN for Redis, filter for in-memory)."""
     if _use_sqlite():
