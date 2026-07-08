@@ -1662,6 +1662,14 @@ async def reconcile_cold(sample_n: int = 50) -> dict:
 
 
 _reclaim_running = False
+_reclaim_state: dict = {"running": False, "phase": None, "deleted": 0, "scanned": 0,
+                        "would_delete": 0, "vacuumed": False, "done": False,
+                        "dry_run": None, "error": None, "updated_at": None}
+
+
+async def reclaim_status() -> dict:
+    """R-F2504 — live reclaim progress (fire-and-forget; poll this)."""
+    return dict(_reclaim_state)
 
 
 async def reclaim_hot(*, batch: int = 1000, sleep_s: float = 0.05,
@@ -1676,7 +1684,7 @@ async def reclaim_hot(*, batch: int = 1000, sleep_s: float = 0.05,
       4. VACUUM is ATOMIC (interrupt/failure leaves the db unchanged).
     Runs IN-APP on the hot WRITER (a separate process can't write the live store,
     R-F2277). dry_run counts what WOULD delete without mutating. Single-flight."""
-    global _reclaim_running
+    global _reclaim_running, _reclaim_state
     if _reclaim_running:
         return {"error": "reclaim already running"}
     if not _HOTCOLD_SPLIT:
@@ -1684,6 +1692,9 @@ async def reclaim_hot(*, batch: int = 1000, sleep_s: float = 0.05,
     if _conn is None or not await ensure_cold_open():
         return {"error": "hot/cold connection unavailable"}
     _reclaim_running = True
+    _reclaim_state = {"running": True, "phase": "delete", "deleted": 0, "scanned": 0,
+                      "would_delete": 0, "vacuumed": False, "done": False,
+                      "dry_run": dry_run, "error": None, "updated_at": _now()}
     deleted = would = scanned = 0
     cursor = 0
     _clauses = " OR ".join("key GLOB ?" for _ in _COLD_KEY_PREFIXES)
@@ -1717,10 +1728,13 @@ async def reclaim_hot(*, batch: int = 1000, sleep_s: float = 0.05,
                     "DELETE FROM state WHERE key IN (" + _dq + ")", safe), timeout=60.0)  # nosec B608 - generated placeholders
                 await asyncio.wait_for(_conn.commit(), timeout=60.0)
                 deleted += len(safe)
+            _reclaim_state.update(deleted=deleted, scanned=scanned, would_delete=would,
+                                  updated_at=_now())
             await asyncio.sleep(sleep_s)
         vacuumed = False
         vac_err = None
         if do_vacuum and not dry_run and deleted > 0:
+            _reclaim_state.update(phase="vacuum", updated_at=_now())
             try:
                 await asyncio.wait_for(_conn.execute("VACUUM"), timeout=900.0)
                 await _conn.commit()
@@ -1728,13 +1742,17 @@ async def reclaim_hot(*, batch: int = 1000, sleep_s: float = 0.05,
             except Exception as e:
                 vac_err = str(e)[:200]
                 logger.error("state_store: R-F2504 VACUUM failed (db unchanged — atomic): %s", e)
+        _reclaim_state.update(phase="done", done=True, deleted=deleted, scanned=scanned,
+                              would_delete=would, vacuumed=vacuumed, updated_at=_now())
         return {"deleted": deleted, "would_delete": would, "scanned": scanned,
                 "dry_run": dry_run, "vacuumed": vacuumed, "vacuum_error": vac_err}
     except Exception as e:
         logger.error("state_store: R-F2504 reclaim failed: %s", e)
+        _reclaim_state.update(error=str(e)[:200], done=True, updated_at=_now())
         return {"error": str(e)[:200], "deleted": deleted, "scanned": scanned}
     finally:
         _reclaim_running = False
+        _reclaim_state["running"] = False
 
 
 # ─────────────────────────────────────────────────────────────────────────

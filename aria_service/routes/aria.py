@@ -1475,10 +1475,31 @@ async def admin_state_hotcold_reclaim_ep(dry_run: bool = True, batch: int = 1000
     (R-F2277). Per-row cold-existence is re-verified so no data is lost even if reconcile
     was stale. VACUUM is atomic (fails safe)."""
     from ..intel import state_store as _ss
+    if getattr(_ss, "_reclaim_running", False):
+        return {"started": False, "note": "reclaim already running",
+                "status": await _ss.reclaim_status()}
     batch = max(1, min(int(batch), 5000))
     sleep_s = max(0.0, min(float(sleep_s), 10.0))
-    return await _ss.reclaim_hot(batch=batch, sleep_s=sleep_s,
-                                 do_vacuum=bool(do_vacuum), dry_run=bool(dry_run))
+
+    async def _run():
+        try:
+            await _ss.reclaim_hot(batch=batch, sleep_s=sleep_s,
+                                  do_vacuum=bool(do_vacuum), dry_run=bool(dry_run))
+        except Exception as _e:  # pragma: no cover
+            _log.warning("hotcold reclaim task failed: %s", _e)
+
+    asyncio.create_task(_run())
+    return {"started": True, "dry_run": bool(dry_run), "do_vacuum": bool(do_vacuum),
+            "batch": batch, "sleep_s": sleep_s}
+
+
+@router.get("/admin/state/hotcold-reclaim/status")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def admin_state_hotcold_reclaim_status_ep():
+    """R-F2504 — live reclaim progress (phase/deleted/scanned/would_delete/vacuumed/
+    done/error). Poll after POST /admin/state/hotcold-reclaim."""
+    from ..intel import state_store as _ss
+    return await _ss.reclaim_status()
 
 
 @router.get("/dd/layer-5c/stats")
