@@ -212,13 +212,17 @@ def scan_brain_hook_registry() -> dict:
 
     try:
         content = _read_file(bh_file)
-        mod_match = re.search(r"MODULE_REGISTRY\s*=\s*\{([^}]+)\}", content, re.DOTALL)
+        # R-F2488: brain_hook.py declares `_MODULE_TOPICS: dict[...] = {...}` and
+        # `_MODULE_WEIGHT: dict[...] = {...}` — NOT MODULE_REGISTRY / TOPIC_WEIGHTS.
+        # The old names never matched, so the audit falsely reported 0 registered
+        # modules / 0 topic weights. `[^=]*` skips the type annotation before `=`.
+        mod_match = re.search(r"_MODULE_TOPICS[^=]*=\s*\{([^}]+)\}", content, re.DOTALL)
         if mod_match:
-            registry["modules"] = re.findall(r'["\'](\w+)["\']\s*:', mod_match.group(1))
+            registry["modules"] = re.findall(r'["\'](\S+?)["\']\s*:', mod_match.group(1))
 
-        weight_match = re.search(r"TOPIC_WEIGHTS\s*=\s*\{([^}]+)\}", content, re.DOTALL)
+        weight_match = re.search(r"_MODULE_WEIGHT[^=]*=\s*\{([^}]+)\}", content, re.DOTALL)
         if weight_match:
-            registry["weights"] = re.findall(r'["\'](\w+)["\']\s*:', weight_match.group(1))
+            registry["weights"] = re.findall(r'["\'](\S+?)["\']\s*:', weight_match.group(1))
     except Exception:
         pass
 
