@@ -15765,6 +15765,58 @@ async def coder_gaps_ep(request: Request):
 from fastapi import BackgroundTasks as _BackgroundTasks  # local alias for clarity
 
 
+async def _route_one_signal(content: str, source: str, sig_type: str, metadata: dict) -> None:
+    """R-F887 / R-F2505 — route ONE cross-tier signal to the brain: WhatsApp-group
+    messages are captured to the evidentiary store (R-F933); failure-type signals become
+    capability_gaps (coder-visible); everything else is a learning absorb. Extracted from
+    brain_signal_ep so the BULK endpoint (R-F2505) reuses it — a sweep's N signals then run
+    SEQUENTIALLY in one task, eliminating the concurrent-write burst that saturated the
+    single SQLite writer (5/31 delivered under load). Best-effort; never raises."""
+    metadata = metadata if isinstance(metadata, dict) else {}
+    _is_failure = any(t in sig_type.lower()
+                      for t in ("fail", "error", "timeout", "404", "unavailable", "reject"))
+    try:
+        if sig_type == "whatsapp_group_message":
+            try:
+                from ..intel import compliance_watch as _cw933
+                _cw = await _cw933.capture_message(
+                    group=str(metadata.get("group", "")),
+                    sender=str(metadata.get("sender", "")),
+                    text=content,
+                    timestamp=str(metadata.get("timestamp", "")),
+                    channel=str(metadata.get("channel", "whatsapp")),
+                )
+                if not _cw.get("captured"):
+                    from ..intel import capability_gaps as _cg1151
+                    await _cg1151.record_gap(
+                        gap_type="operational:output_rejection",
+                        detail=f"compliance_watch capture failed: {_cw.get('error', 'unknown')[:200]}",
+                        source=f"brain_signal:{sig_type}",
+                        message_context=f"group={metadata.get('group','')} sender={metadata.get('sender','')}",
+                    )
+            except Exception as _cw_e:
+                _log.warning("R-F933 compliance_watch capture failed (non-fatal): %s", _cw_e)
+        if _is_failure:
+            from ..intel import capability_gaps as _cg887
+            await _cg887.record_gap(
+                gap_type="operational:output_rejection",
+                detail=f"[cross-tier {sig_type}] {content[:400]}",
+                source=source[:80],
+                message_context=str(metadata)[:300],
+            )
+        else:
+            from ..intel import brain_hook as _bh887
+            await _bh887.absorb(
+                module=f"cross_tier:{sig_type}",
+                summary=content[:300],
+                detail=content[:2000],
+                success=True,
+                confidence="ASSESSED",
+            )
+    except Exception as _e:
+        _log.warning("R-F887 brain/signal routing failed: %s", _e)
+
+
 @router.post("/brain/signal")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def brain_signal_ep(request: Request, background_tasks: _BackgroundTasks):
@@ -15800,67 +15852,49 @@ async def brain_signal_ep(request: Request, background_tasks: _BackgroundTasks):
     _is_failure = any(t in sig_type.lower()
                       for t in ("fail", "error", "timeout", "404", "unavailable", "reject"))
 
-    async def _route_signal():
-        try:
-            # R-F933 — Compliance Watch CAPTURE. Every WhatsApp group message is
-            # persisted to the append-only, hash-chained, attributed evidentiary
-            # store (in ADDITION to the learning absorb below). This is the
-            # bedrock the analysis + private-digest slices read from. Best-effort.
-            if sig_type == "whatsapp_group_message":
-                try:
-                    from ..intel import compliance_watch as _cw933
-                    _cw_result = await _cw933.capture_message(
-                        group=str(metadata.get("group", "")),
-                        sender=str(metadata.get("sender", "")),
-                        text=content,
-                        timestamp=str(metadata.get("timestamp", "")),
-                        channel=str(metadata.get("channel", "whatsapp")),
-                    )
-                    # R-F1151 — wire capture failure to brain so ARIA learns
-                    # that evidentiary capture is failing (was dark: debug log only)
-                    if not _cw_result.get("captured"):
-                        from ..intel import capability_gaps as _cg1151
-                        await _cg1151.record_gap(
-                            gap_type="operational:output_rejection",
-                            detail=f"compliance_watch capture failed: {_cw_result.get('error', 'unknown')[:200]}",
-                            source=f"brain_signal:{sig_type}",
-                            message_context=f"group={metadata.get('group','')} sender={metadata.get('sender','')}",
-                        )
-                except Exception as _cw_e:
-                    _log.warning("R-F933 compliance_watch capture failed (non-fatal): %s", _cw_e)
-                    try:
-                        from ..intel import capability_gaps as _cg1151
-                        await _cg1151.record_gap(
-                            gap_type="operational:output_rejection",
-                            detail=f"compliance_watch exception: {str(_cw_e)[:200]}",
-                            source=f"brain_signal:{sig_type}",
-                        )
-                    except Exception:
-                        pass
-            if _is_failure:
-                from ..intel import capability_gaps as _cg887
-                await _cg887.record_gap(
-                    gap_type="operational:output_rejection",
-                    detail=f"[cross-tier {sig_type}] {content[:400]}",
-                    source=source[:80],
-                    message_context=str(metadata)[:300],
-                )
-            else:
-                from ..intel import brain_hook as _bh887
-                await _bh887.absorb(
-                    module=f"cross_tier:{sig_type}",
-                    summary=content[:300],
-                    detail=content[:2000],
-                    success=True,
-                    confidence="ASSESSED",
-                )
-        except Exception as _e:
-            _log.warning("R-F887 brain/signal routing failed: %s", _e)
-
-    background_tasks.add_task(_route_signal)
+    background_tasks.add_task(_route_one_signal, content, source, sig_type, metadata)
     return {"ok": True, "accepted": True, "signal_type": sig_type,
             "routed": "capability_gap" if _is_failure else "brain_absorb",
             "captured": sig_type == "whatsapp_group_message"}
+
+
+@router.post("/brain/signal/bulk")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def brain_signal_bulk_ep(request: Request, background_tasks: _BackgroundTasks):
+    """R-F2505 — BULK cross-tier signal ingest. A web SWEEP (server.mjs runSweepCycle)
+    POSTs ONE payload {signals: [{content, source, signal_type, metadata}, ...]} instead of
+    N concurrent /brain/signal posts. All signals process in ONE background task that routes
+    each SEQUENTIALLY with a small yield between them — so N sweep signals no longer hit the
+    single SQLite writer as a concurrent burst (which delivered only 5/31 under load).
+    Returns 202. Same per-signal routing as /brain/signal (_route_one_signal)."""
+    from starlette.requests import ClientDisconnect as _disc
+    try:
+        body = await request.json()
+    except _disc:
+        return Response(status_code=499)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    raw = body.get("signals")
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="signals must be a list")
+    norm = []
+    for s in raw[:500]:  # cap to bound the single task
+        if not isinstance(s, dict):
+            continue
+        c = (s.get("content") or "").strip()
+        if not c:
+            continue
+        norm.append((c, (s.get("source") or "unknown").strip(),
+                     (s.get("signal_type") or "signal").strip(),
+                     s.get("metadata") if isinstance(s.get("metadata"), dict) else {}))
+
+    async def _process_bulk():
+        for (c, src, st, md) in norm:
+            await _route_one_signal(c, src, st, md)
+            await asyncio.sleep(0.02)  # writer breathing room — spread, never burst
+
+    background_tasks.add_task(_process_bulk)
+    return {"ok": True, "accepted": len(norm), "dropped": len(raw) - len(norm)}
 
 
 # ── T0★ outcome-wire endpoints (R-F1411) ──────────────────────────────────

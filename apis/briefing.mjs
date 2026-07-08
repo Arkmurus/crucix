@@ -689,22 +689,41 @@ export async function pushSignalsToBrain(sweepOutput) {
         },
       })),
     ];
-    const results = await _mapWithConcurrency(payloads, BRAIN_SIGNAL_CONCURRENCY, async (payload) => {
-      const response = await fetch(url, {
+    // R-F2505 — send ONE bulk payload to /brain/signal/bulk instead of N CONCURRENT
+    // posts to /brain/signal. The single SQLite writer on aria-intel serialized the
+    // concurrent burst (only 5/31 delivered under load); the bulk endpoint drains all N
+    // SEQUENTIALLY in one task with writer breathing room. Falls back to the per-signal
+    // concurrency path if the bulk endpoint 404s (older aria-intel not yet deployed).
+    const bulkUrl = url.replace(/\/brain\/signal$/, '/brain/signal/bulk');
+    let delivered = 0;
+    let failed = 0;
+    try {
+      const response = await fetch(bulkUrl, {
         method: 'POST',
         headers,
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ signals: payloads }),
         signal: AbortSignal.timeout(BRAIN_SIGNAL_TIMEOUT_MS),
       });
-      if (!response.ok) {
-        return { ok: false, status: response.status };
+      if (response.ok) {
+        delivered = payloads.length; // 202 accepted (brain drains fire-and-forget)
+      } else if (response.status === 404) {
+        const results = await _mapWithConcurrency(payloads, BRAIN_SIGNAL_CONCURRENCY, async (payload) => {
+          const r = await fetch(url, {
+            method: 'POST', headers, body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(BRAIN_SIGNAL_TIMEOUT_MS),
+          });
+          return { ok: r.ok, status: r.status };
+        });
+        delivered = results.filter(r => r?.ok).length;
+        failed = payloads.length - delivered;
+      } else {
+        failed = payloads.length;
       }
-      return { ok: true, status: response.status };
-    });
-
-    const delivered = results.filter(r => r?.ok).length;
-    const failed = payloads.length - delivered;
-    console.log(`[Crucix Brain] delivered ${delivered}/${payloads.length} briefing signals to ARIA brain${failed ? ` (${failed} failed)` : ''}`);
+    } catch (e) {
+      failed = payloads.length;
+      console.warn('[Crucix Brain] bulk signal push error (non-fatal):', e?.message);
+    }
+    console.log(`[Crucix Brain] bulk-delivered ${delivered}/${payloads.length} briefing signals to ARIA brain${failed ? ` (${failed} failed)` : ''}`);
     const result = { delivered, failed };
     if (healthPayload) result.healthQueued = true;
     return result;

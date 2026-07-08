@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2505,
+  "next_available": 2507,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18967,9 +18967,10 @@
       "title": "fire v0.5 DD-depth RunPod cycle (SFT merged depth corpus + proven grounding DPO), operator §1 override",
       "claimed_at": "2026-07-08T13:07:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "97d2ad8d",
+      "notes": null,
+      "shipped_at": "2026-07-08T17:23:01Z"
     },
     {
       "r_number": "R-F2503",
@@ -18985,6 +18986,24 @@
       "r_number": "R-F2504",
       "title": "state_store Phase-3 reclaim: delete backfilled cold rows from hot (verify-in-cold, never lose data) + VACUUM to shrink the 1GB hot DB → fast writes; dry-run + flag-guard + single-flight",
       "claimed_at": "2026-07-08T14:47:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2505",
+      "title": "brain bulk signal ingest: POST /brain/signal/bulk processes N signals sequentially in one task (writer breathing room) instead of N concurrent posts; aria-web sweep sends one bulk payload — kills the burst that saturated the single writer (5/31)",
+      "claimed_at": "2026-07-08T17:25:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2506",
+      "title": "v0.6 closed-book DD-depth corpus builder (fix v0.5 task mismatch: no provided evidence, reward correctness+depth, keep refusal)",
+      "claimed_at": "2026-07-08T17:31:33Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
