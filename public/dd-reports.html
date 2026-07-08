@@ -818,7 +818,7 @@ async function startRerun(btn, ctx) {
       Toast.show('Re-run started for ' + (rerunEntityName || 'the selected entity') + '. It appears below as Running', 'info', 6000);
       // R-F2471 — show the running row IMMEDIATELY, resilient to a dropped server index write.
       addOptimisticRunning(started, rerunEntityName, ctx);
-      await loadReports();
+      await loadReports(true);  // R-F2472 — silent: no skeleton flash on re-run
     }
   } catch (err) { Toast.show('Re-run error: ' + err.message, 'error'); }
   btn.classList.remove('is-loading');
@@ -1348,6 +1348,22 @@ async function loadReports(silent = false) {
       next = _optimisticRunning.concat(
         next.filter(r => !(r && r.canonical_entity_id && _optCanon.has(r.canonical_entity_id))));
     }
+    // R-F2472 — storm-resilience: /dd/reports transiently returns [] (or errors) when the
+    // state_store index read is dropped under the R-F2277 write storm. NEVER wipe a
+    // populated list on that transient — that is the "report disappears and comes back"
+    // glitch. Keep the last-good render, still surface optimistic running rows, keep
+    // polling. A real deletion goes through _locallyDeletedRunIds and never empties the
+    // whole list in one poll, so treating an empty response as transient is safe.
+    const _nextReal = next.filter(r => r && !r._optimistic).length;
+    const _prevReal = (_allReports || []).filter(r => r && !r._optimistic).length;
+    if (_nextReal === 0 && _prevReal > 0) {
+      if (_optimisticRunning.length) {
+        _allReports = _optimisticRunning.concat((_allReports || []).filter(r => r && !r._optimistic));
+        applySearch();
+      }
+      scheduleRunningRefresh();
+      return;
+    }
     // R-F2350 — on a SILENT auto-refresh, skip the re-render when nothing changed (same
     // run_ids + statuses) so the list doesn't flicker every 8s while a DD is running.
     if (silent) {
@@ -1459,7 +1475,7 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
         name: name, jurisdiction: body.jurisdiction, jurisdiction_iso2: body.jurisdiction_iso2,
         registration_number: body.registration_number, type: body.type,
       });
-      loadReports();
+      loadReports(true);  // R-F2472 — silent refresh behind the modal (no skeleton flash)
       // R-F2255: keep the modal OPEN with a clear in-box "running" confirmation
       // instead of vanishing on submit. The async DD runs in the background, so show
       // that — the box used to disappear with no feedback (looked broken).

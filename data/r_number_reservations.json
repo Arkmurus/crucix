@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2472,
+  "next_available": 2474,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18665,6 +18665,24 @@
       "commit_sha": "5528d6fd",
       "notes": null,
       "shipped_at": "2026-07-08T06:30:52Z"
+    },
+    {
+      "r_number": "R-F2472",
+      "title": "DD reports UX: ignore transient-empty responses (storm flicker) + silent re-run refresh",
+      "claimed_at": "2026-07-08T06:35:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2473",
+      "title": "fix+harden telegram channel chat_id normalization (100-prefixed abs id double-100 -> chat not found)",
+      "claimed_at": "2026-07-08T06:37:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
