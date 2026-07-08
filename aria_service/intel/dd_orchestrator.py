@@ -10466,55 +10466,70 @@ async def list_reports(
     from . import redis_store as rs
     index = await rs.get_json(REPORT_INDEX_KEY) or []
 
-    # R-F1973: if the index is empty but the vault has cases, rebuild the
-    # index from the vault. This fixes the case where the state_store was
-    # reset but the vault (separate SQLite DB) survived.
-    if not index:
-        try:
-            from .dd_vault import get_vault as _get_dd_vault
-            vault = _get_dd_vault()
-            vault_cases = vault.list_all(limit=limit)
-            if vault_cases:
-                _ff_uid, _ff_dom = _dd_legacy_owner_fallback()
-                for case in vault_cases:
-                    _rid = case.get("latest_report_id", "")
-                    # R-F2469 — restore the REAL per-run owner from the wipe-surviving
-                    # dd_report_owners table (written at persist time). This is the
-                    # durable fix for the R-F2382/R-F2466 class: the dd_cases schema has
-                    # no per-user ownership, so before this a rebuilt case was owner-less
-                    # and either vanished or (worse) got the operator's id fabricated onto
-                    # it — a cross-tenant leak. Now: real owner if known, else owner-less
-                    # (fail-closed); the legacy-operator fallback stays OFF by default
-                    # (R-F2466) and only applies as a last resort when explicitly opted in.
-                    _owner = None
-                    try:
-                        _owner = vault.get_report_owner(_rid) if _rid else None
-                    except Exception:
-                        _owner = None
-                    _own_uid = (_owner or {}).get("user_id") or case.get("user_id") or _ff_uid
-                    _own_dom = (_owner or {}).get("user_email_domain") or case.get("user_email_domain") or _ff_dom
-                    _own_share = (_owner or {}).get("share_to_company", True) if _owner else True
-                    index.append({
-                        "run_id": _rid,
-                        "entity_name": case.get("entity_name", "unknown"),
-                        "entity_type": case.get("entity_type", "company"),
-                        "jurisdiction": case.get("jurisdiction", ""),
-                        "user_id": _own_uid,
-                        "user_email_domain": _own_dom,
-                        "share_to_company": _own_share,
-                        # R-F2240 — normalize at write time (root cause): dd_vault
-                        # last_run_at is a float epoch; store it as ISO so the
-                        # persisted index stays single-type (str) for future reads.
-                        "created_at": _iso_ts(case.get("last_run_at")),
-                        "severity": case.get("risk_level", "unknown"),
-                    })
-                # Persist the rebuilt index so subsequent reads are fast
-                try:
-                    await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+    # R-F1973 + R-F2485: reconcile the VOLATILE index against the DURABLE vault on
+    # EVERY read — not only when the index is empty. The state_store index can drop a
+    # running/completed row under write pressure (R-F2277), and the old empty-only
+    # rebuild meant a stale NON-empty index would hide a user's OWN new DD forever
+    # (live: owner recorded in dd_report_owners, but the index never picked it up →
+    # the user saw 0 of their reports). The vault (dd_cases + dd_report_owners) is a
+    # SEPARATE, reliable SQLite DB immune to the state_store storm, so treat it as the
+    # source of truth: merge every vault case MISSING from the index, restoring its
+    # REAL owner from dd_report_owners (matches all NEW runs; legacy owner-less stays
+    # owner-less / fail-closed; the operator fallback is OFF by default, R-F2466).
+    # delete_report() removes the vault case (:11072), so a deleted report is NOT
+    # resurrected. Owner fetch runs ONLY for cases missing from the index (steady
+    # state = 0). The merge is applied UNDER the index lock so it can never clobber a
+    # concurrent mark_dd_running running-row write.
+    try:
+        from .dd_vault import get_vault as _get_dd_vault
+        vault = _get_dd_vault()
+        _existing_runs = {
+            (e.get("run_id") or "").strip()
+            for e in index if isinstance(e, dict) and (e.get("run_id") or "").strip()
+        }
+        _ff_uid, _ff_dom = _dd_legacy_owner_fallback()
+        _additions: list[dict] = []
+        for case in (vault.list_all(limit=max(limit, 200)) or []):
+            _rid = (case.get("latest_report_id") or "").strip()
+            if not _rid or _rid in _existing_runs:
+                continue  # already represented — no owner lookup needed
+            _owner = None
+            try:
+                _owner = vault.get_report_owner(_rid)
+            except Exception:
+                _owner = None
+            _own_uid = (_owner or {}).get("user_id") or case.get("user_id") or _ff_uid
+            _own_dom = (_owner or {}).get("user_email_domain") or case.get("user_email_domain") or _ff_dom
+            _own_share = (_owner or {}).get("share_to_company", True) if _owner else True
+            _additions.append({
+                "run_id": _rid,
+                "entity_name": case.get("entity_name", "unknown"),
+                "entity_type": case.get("entity_type", "company"),
+                "jurisdiction": case.get("jurisdiction", ""),
+                "user_id": _own_uid,
+                "user_email_domain": _own_dom,
+                "share_to_company": _own_share,
+                "canonical_entity_id": case.get("canonical_entity_id"),
+                # R-F2240 — dd_vault last_run_at is a float epoch; store ISO so the
+                # persisted index stays single-type (str) for future reads.
+                "created_at": _iso_ts(case.get("last_run_at")),
+                "severity": case.get("risk_level", "unknown"),
+            })
+        if _additions:
+            def _merge_missing(idx: list) -> list:
+                _have = {
+                    (e.get("run_id") or "").strip()
+                    for e in idx if isinstance(e, dict) and (e.get("run_id") or "").strip()
+                }
+                for _a in _additions:
+                    if _a["run_id"] not in _have:
+                        idx.append(_a)
+                        _have.add(_a["run_id"])
+                return idx
+            _reconciled = await _mutate_report_index(_merge_missing)
+            index = _reconciled if _reconciled is not None else (await rs.get_json(REPORT_INDEX_KEY) or index)
+    except Exception:
+        pass
 
     if not index:
         return []
@@ -10728,8 +10743,35 @@ async def list_reports(
                     )
         except Exception:
             _wl_owner = {}
+        # R-F2485 — the DURABLE dd_report_owners vault table is the AUTHORITATIVE owner
+        # source (recorded at DD start + persist, survives a state_store wipe). Heal
+        # owner-less-but-present index rows from it FIRST, before the volatile watchlist
+        # (which the churn can clear). Matches every NEW run; legacy owner-less rows with
+        # no record stay hidden (fail-closed). Never fabricates.
+        _own_vault2 = None
+        try:
+            from .dd_vault import get_vault as _gv3
+            _own_vault2 = _gv3()
+        except Exception:
+            _own_vault2 = None
         for entry in _ownerless:
             _rid = (entry.get("run_id") or "").strip()
+            # 1. durable owner table (authoritative)
+            _durable = None
+            if _own_vault2 is not None and _rid:
+                try:
+                    _durable = _own_vault2.get_report_owner(_rid)
+                except Exception:
+                    _durable = None
+            if _durable and (_durable.get("user_id") or "").strip():
+                entry["user_id"] = _durable["user_id"]
+                if _durable.get("user_email_domain") and not entry.get("user_email_domain"):
+                    entry["user_email_domain"] = _durable["user_email_domain"]
+                entry.setdefault("share_to_company", _durable.get("share_to_company", True))
+                entry["_owner_reclaimed_by"] = "R-F2485_dd_report_owners"
+                _changed = True
+                continue
+            # 2. watchlist reclaim (R-F2393)
             _claimed = _wl_owner.get(_rid)
             if _claimed:
                 entry["user_id"] = _claimed[0]
@@ -10738,7 +10780,9 @@ async def list_reports(
                 entry.setdefault("share_to_company", _claimed[2])
                 entry["_owner_reclaimed_by"] = "R-F2393_watchlist"
                 _changed = True
-            elif _ff_uid:
+                continue
+            # 3. legacy-operator fallback (R-F2466 — OFF by default, fail-closed)
+            if _ff_uid:
                 entry["user_id"] = _ff_uid
                 if _ff_dom and not entry.get("user_email_domain"):
                     entry["user_email_domain"] = _ff_dom
@@ -10818,7 +10862,12 @@ async def list_reports(
                 "[R-F1977] user_id filter (%s) returned 0/%d reports "
                 "possible user_id format mismatch. Stored user_ids: %s",
                 user_id, len(index),
-                sorted(set(e.get("user_id") for e in index if isinstance(e, dict)))[:10],
+                # R-F2485: None-safe sort — a healthy index mixes owned (str) + owner-
+                # less (None) user_ids, and a bare sorted() raises str<None on 3.x.
+                sorted(
+                    set(e.get("user_id") for e in index if isinstance(e, dict)),
+                    key=lambda x: (x is None, str(x)),
+                )[:10],
             )
         # R-F2009b: apply collapse to the filtered branch too, so user_id-
         # filtered results also merge duplicate entities. Pre-fix the
