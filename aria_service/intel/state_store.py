@@ -1725,21 +1725,34 @@ async def reclaim_hot(*, batch: int = 1000, sleep_s: float = 0.05,
             would += len(safe)
             if safe and not dry_run:
                 _dq = ",".join("?" for _ in safe)
-                await asyncio.wait_for(_conn.execute(
-                    "DELETE FROM state WHERE key IN (" + _dq + ")", safe), timeout=60.0)  # nosec B608 - generated placeholders
-                await asyncio.wait_for(_conn.commit(), timeout=60.0)
-                deleted += len(safe)
+                # R-F2504 — RETRY transient contention (SQLITE_BUSY 'database is locked',
+                # wait_for timeout) instead of aborting: a large delete on a LIVE db WILL
+                # hit momentary locks against the read-pool scans + residual writes. Six
+                # attempts with backoff drains the whole 376k without giving up (observed
+                # live: prior runs aborted at ~75k on timeout / ~51k on 'database is locked').
+                for _att in range(6):
+                    try:
+                        await asyncio.wait_for(_conn.execute(
+                            "DELETE FROM state WHERE key IN (" + _dq + ")", safe), timeout=90.0)  # nosec B608 - generated placeholders
+                        await asyncio.wait_for(_conn.commit(), timeout=90.0)
+                        deleted += len(safe)
+                        break
+                    except Exception as _de:
+                        if _att == 5:
+                            raise
+                        logger.debug("state_store: R-F2504 delete retry %d (%s)", _att, str(_de)[:60])
+                        await asyncio.sleep(1.5 * (_att + 1))
             _reclaim_state.update(deleted=deleted, scanned=scanned, would_delete=would,
                                   updated_at=_now())
-            # R-F2504 — checkpoint the WAL periodically so accumulating deletes don't
-            # bloat the -wal file → slow commits → timeout (observed live: aborted at
-            # ~75k deleted with a 76MB WAL). TRUNCATE flushes + shrinks the WAL so
-            # commits stay fast for the whole 376k-row delete.
+            # R-F2504 — checkpoint the WAL periodically so accumulating deletes don't bloat
+            # the -wal file → slow commits. PASSIVE (not TRUNCATE): it checkpoints what it
+            # can WITHOUT an exclusive lock, so it never fights the read-pool scans (TRUNCATE
+            # caused 'database is locked'). Best-effort; keeps the WAL bounded/reusable.
             _batches += 1
-            if _batches % 15 == 0:
+            if _batches % 20 == 0:
                 try:
-                    await asyncio.wait_for(_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)"),
-                                           timeout=120.0)
+                    await asyncio.wait_for(_conn.execute("PRAGMA wal_checkpoint(PASSIVE)"),
+                                           timeout=60.0)
                 except Exception as _ck:
                     logger.debug("state_store: R-F2504 mid-delete checkpoint skipped: %s", _ck)
             await asyncio.sleep(sleep_s)
@@ -1747,13 +1760,28 @@ async def reclaim_hot(*, batch: int = 1000, sleep_s: float = 0.05,
         vac_err = None
         if do_vacuum and not dry_run and deleted > 0:
             _reclaim_state.update(phase="vacuum", updated_at=_now())
+            # Flush the WAL first (PASSIVE) so VACUUM has less to fight.
             try:
-                await asyncio.wait_for(_conn.execute("VACUUM"), timeout=900.0)
-                await _conn.commit()
-                vacuumed = True
-            except Exception as e:
-                vac_err = str(e)[:200]
-                logger.error("state_store: R-F2504 VACUUM failed (db unchanged — atomic): %s", e)
+                await asyncio.wait_for(_conn.execute("PRAGMA wal_checkpoint(PASSIVE)"), timeout=60.0)
+            except Exception:
+                pass
+            # VACUUM needs exclusivity vs the open read pool → may hit 'database is
+            # locked'. Retry a few times; if it still can't get the lock, that's OK —
+            # the DELETE already reclaimed the WORKING SET (freed pages reused, smaller
+            # B-tree → faster writes). VACUUM only reclaims DISK, and is atomic (fails safe).
+            for _vatt in range(4):
+                try:
+                    await asyncio.wait_for(_conn.execute("VACUUM"), timeout=900.0)
+                    await _conn.commit()
+                    vacuumed = True
+                    break
+                except Exception as e:
+                    vac_err = str(e)[:200]
+                    if _vatt == 3:
+                        logger.warning("state_store: R-F2504 VACUUM could not get exclusive "
+                                       "lock (db unchanged — atomic); deletes still applied: %s", e)
+                        break
+                    await asyncio.sleep(3.0 * (_vatt + 1))
         _reclaim_state.update(phase="done", done=True, deleted=deleted, scanned=scanned,
                               would_delete=would, vacuumed=vacuumed, updated_at=_now())
         return {"deleted": deleted, "would_delete": would, "scanned": scanned,
