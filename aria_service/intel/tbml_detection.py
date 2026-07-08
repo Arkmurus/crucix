@@ -208,6 +208,36 @@ async def _fetch_comtrade_benchmark(
     return (low, high)
 
 
+def summarize_tbml_results(results: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """R-F2496 — never-false-clean summary of a batch of analyze_transaction
+    results (trade-based money-laundering screen).
+
+    Two things this fixes:
+    1. INDETERMINATE results (COMTRADE source/key unreachable, or no benchmark
+       for the corridor) are NOT counted as "screened" — a down source must never
+       read as "0 anomalies / clean". `coverage` is 'unavailable' when nothing
+       could be screened, 'partial' when some were, 'full' when all were.
+    2. Anomalies are graded OK/FLAG/SEVERE/BLATANT — there is NO `anomaly_tier`
+       key, so the previous `anomaly_tier == 'HIGH'` count was ALWAYS 0 and
+       silently dropped every real trade-mispricing anomaly.
+    """
+    rows = [r for r in (results or []) if isinstance(r, dict)]
+    screened = [r for r in rows if str(r.get("grade") or "").upper() != "INDETERMINATE"]
+    material = [r for r in screened if str(r.get("grade") or "").upper() in ("FLAG", "SEVERE", "BLATANT")]
+    indeterminate = len(rows) - len(screened)
+    coverage = "unavailable" if not screened else ("partial" if indeterminate else "full")
+    return {
+        "transactions_screened": len(screened),
+        "transactions_indeterminate": indeterminate,
+        "material_anomalies": len(material),
+        "coverage": coverage,
+        # Back-compat aliases (now honest — screened-only counts):
+        "transactions_analysed": len(screened),
+        "high_anomalies": len(material),
+        "results": rows,
+    }
+
+
 async def analyze_transaction(
     *,
     declared_unit_value: float,

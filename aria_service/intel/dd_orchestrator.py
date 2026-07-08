@@ -8989,14 +8989,11 @@ async def _orchestrate_dd_impl(
                     except Exception:
                         continue
                 if _tbml_results:
-                    _forensic_out["tbml"] = {
-                        "transactions_analysed": len(_tbml_results),
-                        "high_anomalies": sum(
-                            1 for _r in _tbml_results
-                            if str(_r.get("anomaly_tier") or "").upper() == "HIGH"
-                        ),
-                        "results": _tbml_results,
-                    }
+                    # R-F2496 — never-false-clean rollup: INDETERMINATE (COMTRADE
+                    # down / no benchmark) is NOT "analysed clean", and anomalies
+                    # are counted by grade (the old anomaly_tier=='HIGH' sum was
+                    # always 0). See tbml_detection.summarize_tbml_results.
+                    _forensic_out["tbml"] = _tbml.summarize_tbml_results(_tbml_results)
             if _forensic_out:
                 try:
                     report.forensic = _forensic_out  # type: ignore[attr-defined]

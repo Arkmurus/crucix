@@ -808,10 +808,23 @@ class ARKDDReport:
                     lines.append(f"  • {str(_benf['narrative'])[:400]}")
             _tbml = _fo.get("tbml") or {}
             if _tbml:
-                lines.append(
-                    f"TBML: {_tbml.get('transactions_analysed', 0)} txns analysed, "
-                    f"{_tbml.get('high_anomalies', 0)} HIGH anomaly"
-                )
+                # R-F2496 — never-false-clean render. Distinguish trade-flow
+                # benchmark UNAVAILABLE (COMTRADE source/key down -> NOT screened)
+                # from actually-screened-clean; count anomalies by grade.
+                _cov = str(_tbml.get("coverage") or "")
+                _scr = int(_tbml.get("transactions_screened", _tbml.get("transactions_analysed", 0)) or 0)
+                _ind = int(_tbml.get("transactions_indeterminate", 0) or 0)
+                _mat = int(_tbml.get("material_anomalies", _tbml.get("high_anomalies", 0)) or 0)
+                if _cov == "unavailable" or (_scr == 0 and _ind > 0):
+                    lines.append(
+                        f"TBML: trade-flow benchmark UNAVAILABLE ({_ind} txn(s) indeterminate — "
+                        f"COMTRADE source/key not reachable). NOT screened — no clean or anomaly claim."
+                    )
+                else:
+                    _tail = f" · {_ind} indeterminate" if _ind else ""
+                    lines.append(
+                        f"TBML: {_scr} txn(s) screened, {_mat} material anomaly(ies){_tail}"
+                    )
             lines.append("")
 
         # 6. Synthesis
