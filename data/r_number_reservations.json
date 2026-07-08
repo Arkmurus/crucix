@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2471,
+  "next_available": 2472,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18649,6 +18649,16 @@
       "r_number": "R-F2470",
       "title": "fix lpush seq UNIQUE-constraint race: derive seq from MAX(list_entries) not a drifting counter (dropped watchlist alerts)",
       "claimed_at": "2026-07-08T06:06:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "22dd4ba7",
+      "notes": null,
+      "shipped_at": "2026-07-08T06:20:59Z"
+    },
+    {
+      "r_number": "R-F2471",
+      "title": "DD reports: optimistic running-row render (storm-resilient, no dependence on state_store index write)",
+      "claimed_at": "2026-07-08T06:24:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -526,6 +526,34 @@ let _allReports = [];
 let _expandedRow = null;
 const _locallyDeletedRunIds = new Set();
 
+// R-F2471 — client-side buffer of just-started 'running' DDs. The server writes the
+// 'running' index row best-effort (mark_dd_running → _mutate_report_index), and under a
+// state_store write storm (R-F2277) that write can be DROPPED silently — so a running DD
+// shows NOTHING in the list until it completes (the "banner fired but nothing's running"
+// symptom). We render the running row optimistically from the async-start response and
+// merge it into every list load until the server reports that run_id (caught up) or a
+// 20-minute safety TTL elapses. Storm-resilient: does not depend on the index write.
+let _optimisticRunning = [];
+function addOptimisticRunning(started, entityName, ctx) {
+  if (!started || started.status !== 'running' || !started.run_id) return;
+  ctx = ctx || {};
+  const now = new Date().toISOString();
+  _optimisticRunning = _optimisticRunning.filter(r => r.run_id !== started.run_id);
+  _optimisticRunning.unshift({
+    run_id: started.run_id,
+    status: 'running',
+    entity_name: entityName || started.entity_name || ctx.name || ctx.entity || 'Due diligence',
+    canonical_entity_id: ctx.canonical_entity_id || ctx.canonical_id || started.canonical_entity_id || '',
+    jurisdiction: ctx.jurisdiction || '',
+    jurisdiction_iso2: ctx.jurisdiction_iso2 || '',
+    registration_number: ctx.registration_number || '',
+    entity_type: ctx.type || ctx.entity_type || 'company',
+    risk_classification: 'PENDING', risk: 'PENDING', severity: 'PENDING',
+    created_at: now, generated_at: now,
+    _optimistic: true, _added_at: Date.now(),
+  });
+}
+
 // R-F608 (2026-05-16): current user identity + domain are used to
 // render the "shared by colleague" badge on rows whose user_id !=
 // mine but whose user_email_domain matches mine. The Node proxy is
@@ -788,6 +816,8 @@ async function startRerun(btn, ctx) {
         ctx && ctx.name,
       );
       Toast.show('Re-run started for ' + (rerunEntityName || 'the selected entity') + '. It appears below as Running', 'info', 6000);
+      // R-F2471 — show the running row IMMEDIATELY, resilient to a dropped server index write.
+      addOptimisticRunning(started, rerunEntityName, ctx);
       await loadReports();
     }
   } catch (err) { Toast.show('Re-run error: ' + err.message, 'error'); }
@@ -1306,7 +1336,18 @@ async function loadReports(silent = false) {
       return;
     }
     const data = await resp.json();
-    const next = (data.reports || []).filter(r => !r || !_locallyDeletedRunIds.has(r.run_id));
+    let next = (data.reports || []).filter(r => !r || !_locallyDeletedRunIds.has(r.run_id));
+    // R-F2471 — merge optimistic 'running' rows the storm-flaky server index may have
+    // dropped. Drop one once the server reports its run_id (caught up) or after a 20-min
+    // safety TTL; hide the stale server row for the same entity while its re-run runs.
+    const _serverIds = new Set((next || []).map(r => r && r.run_id).filter(Boolean));
+    _optimisticRunning = _optimisticRunning.filter(r =>
+      r && r.run_id && !_serverIds.has(r.run_id) && (Date.now() - r._added_at) < 20 * 60 * 1000);
+    if (_optimisticRunning.length) {
+      const _optCanon = new Set(_optimisticRunning.map(r => r.canonical_entity_id).filter(Boolean));
+      next = _optimisticRunning.concat(
+        next.filter(r => !(r && r.canonical_entity_id && _optCanon.has(r.canonical_entity_id))));
+    }
     // R-F2350 — on a SILENT auto-refresh, skip the re-render when nothing changed (same
     // run_ids + statuses) so the list doesn't flicker every 8s while a DD is running.
     if (silent) {
@@ -1412,6 +1453,13 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
       }
       const started = await r.json().catch(() => ({}));
       const runId = started.run_id;
+      // R-F2471 — show the running row immediately (resilient to a dropped index write)
+      // + refresh the list behind the still-open modal so it's there when the user closes.
+      addOptimisticRunning(started, name, {
+        name: name, jurisdiction: body.jurisdiction, jurisdiction_iso2: body.jurisdiction_iso2,
+        registration_number: body.registration_number, type: body.type,
+      });
+      loadReports();
       // R-F2255: keep the modal OPEN with a clear in-box "running" confirmation
       // instead of vanishing on submit. The async DD runs in the background, so show
       // that — the box used to disappear with no feedback (looked broken).
