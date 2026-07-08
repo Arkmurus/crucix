@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2510,
+  "next_available": 2511,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19040,6 +19040,15 @@
       "notes": null,
       "abandoned_at": "2026-07-08T18:00:31Z",
       "abandon_reason": "duplicate — R-F2507 already reserved for brain_ingest_queue"
+    },
+    {
+      "r_number": "R-F2510",
+      "title": "F5 codex — rebrand package.json crucix->ARIA (name/description/author), buyer-facing DD polish; name not runtime-referenced",
+      "claimed_at": "2026-07-08T21:00:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

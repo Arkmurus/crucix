@@ -1,7 +1,7 @@
 {
-  "name": "crucix",
+  "name": "aria",
   "version": "2.0.3",
-  "description": "Local intelligence engine - 27 OSINT sources, live dashboard, public demo at crucix.live, auto-refresh, optional LLM layer.",
+  "description": "ARIA — defence and compliance intelligence platform: live OSINT, sanctions, procurement and vault-curated sources fused into structured, evidence-graded due-diligence reports with source health and confidence on every material finding.",
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
@@ -28,7 +28,7 @@
     "dashboard",
     "geopolitical"
   ],
-  "author": "Crucix",
+  "author": "ARIA Intelligence Limited",
   "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=22",
