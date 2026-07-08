@@ -22,6 +22,7 @@ import time
 from . import circle as _circle
 from . import gateway as _gw
 from ..intel import redis_store as rs
+from ..intel.engine_wiring import wire_success, wire_failure  # R-F2489 §21a success+failure
 
 logger = logging.getLogger("aria.guardian.relay")
 
@@ -62,6 +63,10 @@ async def propose(user: str, to: str, message: str) -> dict:
         await rs.set_json(_PENDING_KEY.format(user=user), record, ex=_PENDING_TTL)
     except Exception as e:
         logger.warning("[guardian.relay] stage failed for %s: %s", user, e)
+        # R-F2489 §21a — staging failure (was log-only/dark) reaches the brain.
+        wire_failure(module="guardian_relay",
+                     detail=f"relay.propose stage failed: {e}",
+                     gap_type="engine_failure", source="guardian_relay")
         return {"ok": False, "error": "could not stage the message"}
     return {"ok": True, "staged": True, "to_name": to_name,
             "to_masked": _mask(jid), "preview": message[:300]}
@@ -85,6 +90,14 @@ async def confirm(user: str, send_fn: "_gw.SendFn") -> dict:
         confirmed=True, meta={"to_name": rec.get("to_name", "")},
     )
     res = await _gw.execute(req, send_fn)
+    # R-F2489 §21a — relay's own delivery outcome reaches the brain on BOTH
+    # branches (§25 proprioception; complements the gateway's own outcome wire).
+    if isinstance(res, dict) and res.get("ok"):
+        wire_success(module="guardian_relay", summary="relay send-as-you delivered")
+    else:
+        wire_failure(module="guardian_relay",
+                     detail=f"relay send-as-you failed: {(res or {}).get('status', 'unknown')}",
+                     gap_type="delivery_failure", source="guardian_relay")
     # Clear the pending regardless of delivery result: a confirmed send is consumed;
     # a failure surfaces via the gateway's outcome/escalation, not a silent re-fire.
     try:

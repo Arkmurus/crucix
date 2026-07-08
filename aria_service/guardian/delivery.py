@@ -14,6 +14,7 @@ import os
 import httpx
 
 from . import gateway as _gw
+from ..intel.engine_wiring import wire_success, wire_failure  # R-F2489 §21a success+failure
 
 _WA_SEND_URL = "http://aria-wa.internal:5070/api/wa-listener/send"
 
@@ -34,8 +35,19 @@ def wa_send_fn(timeout: float = 8.0) -> "_gw.SendFn":
                              "Content-Type": "application/json"},
                     json={"to": req.recipient_jid, "message": req.message},
                 )
-                return r.status_code == 200
-        except Exception:
+                # R-F2489 §21a — delivery outcome reaches the brain on BOTH
+                # branches (was `except: return False` = dark), per §25.
+                if r.status_code == 200:
+                    wire_success(module="guardian_delivery", summary="wa_send delivered")
+                    return True
+                wire_failure(module="guardian_delivery",
+                             detail=f"wa_send non-200: http_{r.status_code}",
+                             gap_type="delivery_failure", source="guardian_delivery")
+                return False
+        except Exception as e:
+            wire_failure(module="guardian_delivery",
+                         detail=f"wa_send raised: {e}",
+                         gap_type="delivery_failure", source="guardian_delivery")
             return False
 
     return _send
@@ -59,8 +71,19 @@ def wa_send_image_fn(timeout: float = 30.0) -> "_gw.SendFn":
                     json={"to": req.recipient_jid, "image_b64": req.image_b64,
                           "caption": req.caption or ""},
                 )
-                return r.status_code == 200
-        except Exception:
+                # R-F2489 §21a — image delivery outcome reaches the brain on BOTH
+                # branches (was `except: return False` = dark), per §25.
+                if r.status_code == 200:
+                    wire_success(module="guardian_delivery", summary="wa_send_image delivered")
+                    return True
+                wire_failure(module="guardian_delivery",
+                             detail=f"wa_send_image non-200: http_{r.status_code}",
+                             gap_type="delivery_failure", source="guardian_delivery")
+                return False
+        except Exception as e:
+            wire_failure(module="guardian_delivery",
+                         detail=f"wa_send_image raised: {e}",
+                         gap_type="delivery_failure", source="guardian_delivery")
             return False
 
     return _send

@@ -8,6 +8,7 @@ import httpx
 import logging
 from .provider import LLMProvider, LLMResult, ProviderError
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
+from ..intel.engine_wiring import wire_success  # R-F2489 §21a success sink
 
 logger = logging.getLogger("aria.llm.gemini")
 
@@ -61,6 +62,9 @@ class GeminiProvider(LLMProvider):
             text = parts[0].get("text", "") if parts else ""
 
         meta = data.get("usageMetadata", {})
+        # R-F2489 §21a — success branch reaches the brain (ProviderError failures
+        # are control-flow-exempt above and handled by the fallback chain, §14).
+        wire_success(module="gemini", summary=f"gemini completion ({self._model})")
         return LLMResult(
             text=text,
             input_tokens=meta.get("promptTokenCount", 0),

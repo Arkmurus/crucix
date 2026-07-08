@@ -27,6 +27,7 @@ import time
 
 from .provider import LLMProvider, LLMResult
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
+from ..intel.engine_wiring import wire_success, wire_failure  # R-F2489 §21a success+failure
 
 logger = logging.getLogger("aria.llm.metered")
 
@@ -243,6 +244,9 @@ class MeteredProvider(LLMProvider):
                 timeout=timeout,
                 **extra,
             )
+            # R-F2489 §21a — success branch reaches the brain (failures already
+            # flow via the @fail_wire decorator on this method).
+            wire_success(module="metered", summary=f"metered completion ({self.name})")
             return result
         except Exception as e:
             success = False
@@ -283,6 +287,13 @@ class MeteredProvider(LLMProvider):
             ):
                 yield chunk
             self._record_cost(started, final_result, True, "")
+            # R-F2489 §21a — stream is an async generator (fail_wire cannot wrap
+            # it), so wire BOTH branches explicitly here.
+            wire_success(module="metered", summary=f"metered stream ({self.name})")
         except Exception as e:
             self._record_cost(started, final_result, False, str(e))
+            wire_failure(
+                module="metered", detail=f"metered stream failed ({self.name}): {e}",
+                gap_type="engine_failure", source="metered",
+            )
             raise

@@ -52,6 +52,7 @@ import httpx
 
 from aria_service.search_index import db
 from . import politeness
+from ..intel.engine_wiring import wire_success, wire_failure  # R-F2489 §21a success+failure
 
 logger = logging.getLogger("aria.crawler.fetcher")
 
@@ -103,6 +104,10 @@ async def fetch_for_index(url: str, timeout: float = 20.0) -> dict | None:
         from aria_service.intel.researcher import extract_url_text
     except Exception as e:
         logger.error("fetcher: cannot import extract_url_text: %s", e)
+        # R-F2489 §21a — genuine failure (was log-only/dark) reaches the brain.
+        wire_failure(module="crawler_fetcher",
+                     detail=f"fetch_for_index import extract_url_text failed: {e}",
+                     gap_type="engine_failure", source="crawler_fetcher")
         return None
 
     t0 = time.time()
@@ -111,6 +116,10 @@ async def fetch_for_index(url: str, timeout: float = 20.0) -> dict | None:
     except Exception as e:
         logger.debug("fetcher: extract_url_text raised on %s: %s",
                      url[:120], e)
+        # R-F2489 §21a — genuine failure (was log-only/dark) reaches the brain.
+        wire_failure(module="crawler_fetcher",
+                     detail=f"fetch_for_index extract raised on {url[:120]}: {e}",
+                     gap_type="engine_failure", source="crawler_fetcher")
         return None
 
     duration_ms = int((time.time() - t0) * 1000)
@@ -135,6 +144,8 @@ async def fetch_for_index(url: str, timeout: float = 20.0) -> dict | None:
 
     await db.mark_domain_crawled(domain)
 
+    # R-F2489 §21a — success branch reaches the brain.
+    wire_success(module="crawler_fetcher", summary=f"fetch_for_index ok: {domain}")
     return {
         "url": url,
         "canonical_url": db._canonicalize(url),
@@ -277,9 +288,17 @@ async def fetch_for_crawl(url: str, timeout: float = 10.0) -> dict | None:
     except httpx.HTTPError as e:
         logger.debug("fetcher.crawl: http error on %s: %s", url[:120], e)
         status_class = "error"
+        # R-F2489 §21a — genuine connection/HTTP failure (was log-only) → brain.
+        wire_failure(module="crawler_fetcher",
+                     detail=f"fetch_for_crawl http error on {url[:120]}: {e}",
+                     gap_type="engine_failure", source="crawler_fetcher")
     except Exception as e:
         logger.debug("fetcher.crawl: %s raised on %s", e, url[:120])
         status_class = "error"
+        # R-F2489 §21a — unexpected failure (was log-only) → brain.
+        wire_failure(module="crawler_fetcher",
+                     detail=f"fetch_for_crawl raised on {url[:120]}: {e}",
+                     gap_type="engine_failure", source="crawler_fetcher")
 
     duration_ms = int((time.time() - t0) * 1000)
     await db.mark_domain_crawled(domain)
@@ -312,6 +331,8 @@ async def fetch_for_crawl(url: str, timeout: float = 10.0) -> dict | None:
                 "extraction_ok": False,
                 "duration_ms": duration_ms}
 
+    # R-F2489 §21a — success branch reaches the brain.
+    wire_success(module="crawler_fetcher", summary=f"fetch_for_crawl ok: {domain}")
     return {
         "url": url,
         "canonical_url": db._canonicalize(url),

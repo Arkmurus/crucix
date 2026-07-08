@@ -40,6 +40,7 @@ from typing import Any
 
 from aria_service.search_index import db, indexer
 from . import fetcher
+from ..intel.engine_wiring import wire_success, wire_failure  # R-F2489 §21a success+failure
 
 logger = logging.getLogger("aria.crawler.on_demand")
 
@@ -543,6 +544,15 @@ async def ensure_indexed(
         "budget_exhausted": duration >= time_budget_s,
     }
     logger.info("on_demand.ensure_indexed(%r) → %s", query[:60], summary)
+    # R-F2489 §21a — both branches reach the brain: a fill that indexed 0 pages
+    # while hitting errors is a soft-failure worth a gap; anything else is success.
+    if indexed == 0 and errors > 0:
+        wire_failure(module="crawler_on_demand",
+                     detail=f"ensure_indexed({query[:80]!r}) indexed 0 with {errors} errors",
+                     gap_type="engine_failure", source="crawler_on_demand")
+    else:
+        wire_success(module="crawler_on_demand",
+                     summary=f"ensure_indexed({query[:40]!r}) indexed {indexed}")
     return summary
 
 
@@ -601,6 +611,10 @@ async def background_ensure(query: str,
         logger.info("background_ensure done: %s", summary)
     except Exception as e:
         logger.warning("background_ensure raised: %s", e)
+        # R-F2489 §21a — background crawl failure (was log-only/dark) → brain.
+        wire_failure(module="crawler_on_demand",
+                     detail=f"background_ensure({query[:80]!r}) raised: {e}",
+                     gap_type="engine_failure", source="crawler_on_demand")
 
 
 # Heuristic: chat queries that look like entity research benefit

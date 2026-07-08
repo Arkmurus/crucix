@@ -9,6 +9,7 @@ import time
 from .provider import LLMProvider, LLMResult
 from .openai_compat import OpenAICompatProvider
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
+from ..intel.engine_wiring import wire_success  # R-F2489 §21a success sink
 
 logger = logging.getLogger("aria.llm.hybrid")
 
@@ -99,6 +100,7 @@ class HybridProvider(LLMProvider):
                 self.stats["deepseek_calls"] += 1
                 self.stats["deepseek_tokens"] += r.input_tokens + r.output_tokens
                 r.routed_via = "deepseek"
+                wire_success(module="hybrid", summary="hybrid completion via deepseek")  # R-F2489
                 return r
             except Exception as e:
                 logger.warning(f"DeepSeek failed, trying Ollama: {e}")
@@ -109,6 +111,7 @@ class HybridProvider(LLMProvider):
                 self.stats["ollama_calls"] += 1
                 self.stats["ollama_tokens"] += r.input_tokens + r.output_tokens
                 r.routed_via = "ollama"
+                wire_success(module="hybrid", summary="hybrid completion via ollama")  # R-F2489
                 return r
             except Exception as e:
                 logger.warning(f"Ollama failed: {e}")
@@ -118,6 +121,7 @@ class HybridProvider(LLMProvider):
         self.stats["fallback_calls"] += 1
         self.stats["deepseek_tokens"] += r.input_tokens + r.output_tokens
         r.routed_via = "deepseek-fallback"
+        wire_success(module="hybrid", summary="hybrid completion via deepseek-fallback")  # R-F2489
         return r
 
     @fail_wire(module="hybrid", gap_type="engine_failure")

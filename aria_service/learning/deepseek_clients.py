@@ -28,6 +28,7 @@ from aria_service.learning.data_engine_generate import (
     AnswerGenerator,
     QuestionGenerator,
 )
+from aria_service.intel.engine_wiring import wire_success, wire_failure  # R-F2489 §21a
 
 logger = logging.getLogger("aria.learning.deepseek_clients")
 
@@ -89,8 +90,14 @@ class DeepSeekQuestionGenerator(QuestionGenerator):
             )
         except Exception as e:
             logger.warning("[deepseek_clients] question-gen failed for %s: %s", topic, e)
+            # R-F2489 §21a — DeepSeek failure (was log-only/dark) reaches the brain.
+            wire_failure(module="deepseek_clients",
+                         detail=f"question-gen failed for {topic!r}: {e}",
+                         gap_type="engine_failure", source="deepseek_clients")
             return []
-        return _parse_questions(raw, n)
+        qs = _parse_questions(raw, n)
+        wire_success(module="deepseek_clients", summary=f"generated {len(qs)} questions")
+        return qs
 
     async def generate_questions_async(self, topic: str, n: int) -> list[str]:  # alias safety
         return await self.generate_questions(topic, n)
@@ -106,14 +113,20 @@ class DeepSeekAnswerGenerator(AnswerGenerator):
             "fabricate specific figures, names, or sources you are not sure of."
         )
         try:
-            return (await _chat(
+            answer = (await _chat(
                 [{"role": "system", "content": system},
                  {"role": "user", "content": question}],
                 max_tokens=700, temperature=0.3,
             )).strip()
         except Exception as e:
             logger.warning("[deepseek_clients] answer-gen failed: %s", e)
+            # R-F2489 §21a — DeepSeek failure (was log-only/dark) reaches the brain.
+            wire_failure(module="deepseek_clients",
+                         detail=f"answer-gen failed: {e}",
+                         gap_type="engine_failure", source="deepseek_clients")
             return ""
+        wire_success(module="deepseek_clients", summary="generated reference answer")
+        return answer
 
 
 def _parse_questions(raw: str, n: int) -> list[str]:

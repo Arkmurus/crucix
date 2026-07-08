@@ -10,6 +10,7 @@ from .anthropic import AnthropicProvider
 from .gemini import GeminiProvider
 from .hybrid import HybridProvider
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
+from ..intel.engine_wiring import wire_success, wire_failure  # R-F2489 §21a success+failure
 
 logger = logging.getLogger("aria.llm.factory")
 
@@ -23,7 +24,35 @@ def create_llm_provider(
     ollama_url: str = "http://localhost:11434",
     ollama_model: str = "llama3.1:8b",
 ) -> LLMProvider | None:
-    """Factory: returns the appropriate LLM provider or None."""
+    """Factory: returns the appropriate LLM provider or None.
+
+    R-F2489 §21a: both branches reach the brain — a created provider emits
+    wire_success; an unknown-provider (soft None return, which ``fail_wire``
+    cannot catch because nothing is raised) emits wire_failure.
+    """
+    prov = _build_provider(
+        provider, api_key=api_key, model=model, base_url=base_url,
+        ollama_url=ollama_url, ollama_model=ollama_model,
+    )
+    if prov is None:
+        wire_failure(
+            module="llm_factory",
+            detail=f"unknown LLM provider requested: {provider!r}",
+            gap_type="engine_failure", source="llm_factory",
+        )
+    else:
+        wire_success(module="llm_factory", summary=f"created {provider} provider")
+    return prov
+
+
+def _build_provider(
+    provider: str,
+    api_key: str = "",
+    model: str = "",
+    base_url: str = "",
+    ollama_url: str = "http://localhost:11434",
+    ollama_model: str = "llama3.1:8b",
+) -> LLMProvider | None:
     p = provider.lower().strip()
 
     if p == "anthropic":

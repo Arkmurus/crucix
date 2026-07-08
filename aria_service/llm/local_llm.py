@@ -40,6 +40,7 @@ import os
 import time
 from typing import Any, AsyncIterator
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
+from ..intel.engine_wiring import wire_success, wire_failure  # R-F2489 §21a success+failure
 
 logger = logging.getLogger("aria.llm.local_llm")
 
@@ -66,6 +67,37 @@ def _model_name() -> str:
 
 @fail_wire(module="local_llm", gap_type="engine_failure")
 async def complete(
+    prompt: str,
+    *,
+    system: str = "",
+    max_tokens: int = 1024,
+    temperature: float = 0.7,
+    **_kw: Any,
+) -> dict[str, Any]:
+    """Run a single completion against the local LLM.
+
+    R-F2489 §21a — thin wired wrapper: local_llm reports failures as
+    ``{"ok": False, ...}`` dicts (never raises for HTTP/JSON errors), so
+    ``fail_wire`` alone cannot see them. Inspect the result and reach the
+    brain on BOTH branches (success -> wire_success, soft-failure ->
+    wire_failure). Fire-and-forget; never changes the returned value.
+    """
+    result = await _complete_impl(
+        prompt, system=system, max_tokens=max_tokens,
+        temperature=temperature, **_kw,
+    )
+    if isinstance(result, dict) and result.get("ok"):
+        wire_success(module="local_llm", summary=f"local_llm completion ({result.get('model', '')})")
+    else:
+        wire_failure(
+            module="local_llm",
+            detail=f"local_llm failed: {(result or {}).get('error', 'unknown')}",
+            gap_type="engine_failure", source="local_llm",
+        )
+    return result
+
+
+async def _complete_impl(
     prompt: str,
     *,
     system: str = "",
