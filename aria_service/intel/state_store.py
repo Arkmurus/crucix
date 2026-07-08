@@ -1761,7 +1761,7 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
             # a slow flush never hangs a read (and thus boot) indefinitely.
             await asyncio.wait_for(
                 _flush_cold_queue() if _routed_cold else _flush_write_queue(),
-                timeout=5.0)
+                timeout=_READ_FLUSH_BUDGET_S)  # R-F2477: never let the flush eat the read budget
     except (asyncio.TimeoutError, Exception):
         pass
     conn = _reader_conn_for(key)  # R-F2290: cold keys read from the cold conn
@@ -1912,6 +1912,17 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
 _ERROR_LOG_COOLDOWN_S = 5.0
 _error_log_cache: dict[str, tuple[float, str | None]] = {}  # key -> (last_attempt, cached_result)
 
+# R-F2477 — the read-path write-queue flush in _row() is a best-effort read-after-
+# write helper; it must NEVER consume the read's 5s budget. Under writer saturation
+# (the R-F2277 storm) that flush queues behind the single writer thread and blocks
+# the full 5s, so the actual read never runs → get() times out → returns None → the
+# app reads LIVE data (e.g. the DD report_index, which is present in the DB) as
+# EMPTY, producing the blank DD page / "running forever" symptom. Cap the flush hard;
+# on cap we skip it and read COMMITTED data from the WAL read pool (any <100ms
+# uncommitted write is healed by the 100ms background drain). Decouples reads from
+# the write storm — reads stay fast even when writes are slow.
+_READ_FLUSH_BUDGET_S = 0.3
+
 
 async def get(key: str) -> str | None:
     """R-F2154: bounded read — wraps _row in a 5s timeout so a slow DB
@@ -1923,8 +1934,14 @@ async def get(key: str) -> str | None:
     within _ERROR_LOG_COOLDOWN_S seconds, returns the cached result
     without hitting the DB. This prevents rapid-fire reads of the error_log
     from hammering the DB during load spikes."""
-    # R-F2156: cooldown check for error_log key
-    if key in _error_log_cache:
+    # R-F2156 / R-F2477: the cooldown cache is ONLY for the hot error_log key. The
+    # docstring above claimed that, but the code populated it for EVERY key — so a
+    # single transient read timeout cached None for 5s and blinded live keys (the DD
+    # report_index would read as EMPTY → blank page / "running forever", even though
+    # the value is present in the DB). Scope the cache strictly to error_log keys;
+    # for every other key a timeout is transient and MUST NOT be cached as None.
+    _cacheable = "error_log" in key
+    if _cacheable and key in _error_log_cache:
         last_attempt, cached = _error_log_cache[key]
         if time.monotonic() - last_attempt < _ERROR_LOG_COOLDOWN_S:
             return cached
@@ -1932,8 +1949,8 @@ async def get(key: str) -> str | None:
         row = await asyncio.wait_for(
             _row(key, expected_kind="string"), timeout=5.0)
         result = row[0] if row else None
-        # Cache the result (even None — better than hammering the DB)
-        _error_log_cache[key] = (time.monotonic(), result)
+        if _cacheable:
+            _error_log_cache[key] = (time.monotonic(), result)
         return result
     except asyncio.TimeoutError:
         logger.warning(
@@ -1941,8 +1958,8 @@ async def get(key: str) -> str | None:
             "bloated or under WAL recovery. Returning None.",
             key[:80],
         )
-        # Cache the timeout result so subsequent rapid reads don't retry
-        _error_log_cache[key] = (time.monotonic(), None)
+        if _cacheable:
+            _error_log_cache[key] = (time.monotonic(), None)
         return None
 
 
