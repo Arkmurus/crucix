@@ -420,11 +420,43 @@ async def _search_financial_footprint(name: str, jurisdiction_iso2: str = "") ->
     from ._sanctions_classify import _tokenize_entity_name
     _ent_tokens = _tokenize_entity_name(name)
 
+    # R-F2492 — require a STRONG financial-DOCUMENT signal. The old set included bare
+    # generic tokens (revenue / turnover / results / earnings / accounts) that match
+    # marketing pages, sports "results", login "accounts" etc., so a generic web hit
+    # (e.g. kara5.com) got rendered as a "financial reference" on a decision-grade
+    # report. Keep only terms that denote an actual financial document / disclosure.
+    _financial_terms = {
+        "annual report", "annual accounts", "statutory accounts",
+        "financial statement", "financial statements", "financial results",
+        "audited accounts", "audited financial", "balance sheet",
+        "income statement", "cash flow statement", "profit and loss",
+        "form 10-k", "form 20-f", "form 6-k", "10-k", "20-f",
+        "sec filing", "regulatory filing", "annual filing",
+        "disclosure statement", "financial disclosure",
+        "prospectus", "quarterly report", "interim report", "earnings report",
+    }
+    # R-F2492 — block social / professional-profile domains WHOLESALE (not just the
+    # /in/ /pub/ sub-paths): a LinkedIn *company* page, a Facebook page, etc. is a
+    # profile, never a financial document. Substring match on the host segment.
+    _blocked_financial_domains = {
+        "linkedin.com", "facebook.com", "instagram.com", "x.com",
+        "twitter.com", "youtube.com", "tiktok.com", "pinterest.com",
+        "medium.com", "reddit.com", "wikipedia.org",
+    }
+
     def _relevant(title: str, snippet: str, url: str) -> bool:
+        lower_url = (url or "").lower()
+        if any(blocked in lower_url for blocked in _blocked_financial_domains):
+            return False
         if not _ent_tokens:
-            return True  # name too short to discriminate — don't over-filter
+            entity_relevant = True  # name too short to discriminate — don't over-filter
+        else:
+            hay_entity = f"{title} {snippet} {url}".lower()
+            entity_relevant = any(tok in hay_entity for tok in _ent_tokens)
+        if not entity_relevant:
+            return False
         hay = f"{title} {snippet} {url}".lower()
-        return any(tok in hay for tok in _ent_tokens)
+        return any(term in hay for term in _financial_terms)
 
     sources = []
     for r in (hits or []):

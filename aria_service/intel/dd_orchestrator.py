@@ -3375,7 +3375,8 @@ async def _run_identity(
                     _cov = (
                         f"the {_ji} registry is supported but returned no data — a "
                         f"registration number is often required (e.g. a CNPJ for BR) "
-                        f"or the lookup failed"
+                        f"or the lookup failed; supplied registration_number="
+                        f"{registration_number or 'not supplied'}"
                     )
                 else:
                     _cov = (
@@ -4567,8 +4568,31 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
         # Primary sources (entity site R-F1874, GLEIF R-F1876) carry the report.
         try:
             _eco = web_search.get_last_search_ecosystem() or {}
+            _eco_public = dict(_eco)
+            _eco_public["backends"] = []
+            for _backend in (_eco.get("backends") or []):
+                if not isinstance(_backend, dict):
+                    continue
+                _b_public = dict(_backend)
+                if _b_public.get("name") == "brave":
+                    _b_public["name"] = "primary_user_search"
+                _eco_public["backends"].append(_b_public)
+            report.digital.search_ecosystem = _eco_public
             _eco_health = (_eco.get("health_signal") or "").upper()
             _eco_active = (_eco.get("summary") or {}).get("active_backends")
+            _primary = next(
+                (
+                    b for b in (_eco.get("backends") or [])
+                    if isinstance(b, dict) and b.get("name") == "brave"
+                ),
+                None,
+            )
+            if _primary and _primary.get("state") != "active":
+                report.digital.data_gaps.append(
+                    "Primary user-facing search backend produced no usable result "
+                    f"(state={_primary.get('state') or 'unknown'}"
+                    f"{', reason=' + str(_primary.get('error_reason'))[:80] if _primary.get('error_reason') else ''})."
+                )
             if _eco_health in ("DEAD", "DEGRADED") or _eco_active == 0:
                 report.digital.data_gaps.append(
                     "⚠️ ADVERSE-MEDIA SEARCH UNAVAILABLE — all/most web-search backends were "
@@ -6771,6 +6795,16 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
                     "no registry substance — " + ", ".join(_missing_sub) + " unverified"
                 ]
             _reasons_str = "; ".join(_gate_reasons) if _gate_reasons else "insufficient verification"
+
+            # R-F2493 — this branch EMITS the INSUFFICIENT-EVIDENCE / LIMITED-REGISTRY
+            # verdict, entered via the GREEN confidence gate OR a data-starved AMBER.
+            # Mark the flag on the report so it SERIALISES into the persisted dict and
+            # the evidence-grade scorer (dd_schema _quality_metrics → R-F2493 hard cap)
+            # reflects the honest gate. Before this, a data-starved INSUFFICIENT report
+            # left confidence_gate_triggered=False and could still score C/60.
+            report.confidence_gate_triggered = True
+            if not getattr(report, "confidence_gate_reasons", None):
+                report.confidence_gate_reasons = list(_gate_reasons)
 
             # R-F398 (2026-05-13): before emitting INSUFFICIENT EVIDENCE,
             # try a fallback web search on the entity name. ARIA self-

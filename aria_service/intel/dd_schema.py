@@ -318,6 +318,7 @@ class DigitalSection:
     knowledge_base_hits: list[dict] = field(default_factory=list)  # existing RAG hits
     neural_associations: list[str] = field(default_factory=list)
     source_tier_breakdown: dict = field(default_factory=dict)    # OFFICIAL/INDUSTRY/PRESS counts
+    search_ecosystem: dict = field(default_factory=dict)         # per-run backend health snapshot
     findings: list[Finding] = field(default_factory=list)
     data_gaps: list[str] = field(default_factory=list)
 
@@ -972,11 +973,16 @@ def _quality_metrics(r: dict) -> dict:
         or export_control.get("findings")
         or comp.get("sanctions_regimes")
     )
-    identity_authority = bool(
-        ident.get("registration_number")
-        or ident.get("registration_status")
-        or sanctions_screen.get("verified_sources")
+    # A supplied registration number is only an identifier, not authority. Treat
+    # identity as authority-backed only when an independent source confirmed
+    # registry substance or a sanctions source was actually verified.
+    registry_substance = bool(
+        ident.get("registration_status")
+        or ident.get("incorporation_date")
+        or ident.get("directors")
+        or ident.get("shareholders")
     )
+    identity_authority = bool(registry_substance or sanctions_screen.get("verified_sources"))
     return {
         "press_total": press_total,
         "verified_sources": verified_sources,
@@ -991,6 +997,7 @@ def _quality_metrics(r: dict) -> dict:
         "adverse_media_findings": adverse_findings,
         "adverse_media_skipped": adverse_skipped,
         "has_search_degradation_gap": _quality_has_search_gap(r),
+        "registry_substance_present": registry_substance,
         "identity_authority_present": identity_authority,
         "sanctions_source_unavailable": sanctions_unavailable,
         "export_control_checked": export_checked,
@@ -1042,7 +1049,7 @@ def _quality_penalties(metrics: dict) -> list[tuple[int, str]]:
         (reputable < 5, 20,
          f"only {reputable} reputable independent source(s)"),
         (not metrics["identity_authority_present"], 25,
-         "no Tier-1 identity authority, registry field, or sanctions verification source present"),
+         "no Tier-1 identity authority, verified registry substance, or sanctions verification source present"),
         (metrics["sanctions_source_unavailable"], 25,
          "sanctions screen source was unavailable or stale"),
         (not metrics["export_control_checked"], 15,
@@ -1081,6 +1088,14 @@ def _dd_quality_assessment(r: dict) -> dict:
     blockers = [reason for _, reason in penalties]
     score = 100 - sum(points for points, _ in penalties)
     score = max(0, min(100, score))
+    # R-F2493 — HARD CAP: a report whose own verdict is INSUFFICIENT EVIDENCE (the
+    # confidence gate fired — via the GREEN confidence gate OR a data-starved AMBER,
+    # see dd_orchestrator _data_starved) can NEVER carry a high evidence grade. The
+    # additive penalties alone could still land at C/60 when unrelated signals are
+    # present; the gate means "evidence is insufficient", so the evidence-depth grade
+    # must reflect that. Cap below the C floor (50) → Grade D.
+    if metrics.get("confidence_gate_triggered"):
+        score = min(score, 40)
     public_metrics = dict(metrics)
     public_metrics.pop("adverse_media_skipped", None)
     public_metrics.pop("has_search_degradation_gap", None)
