@@ -2232,28 +2232,34 @@ async def lpush(key: str, value: str, *, critical: bool = False) -> None:
     lock = await _get_lpush_lock(key)
     async with lock:
         try:
-            # Atomically increment the sequence counter
-            await _conn.execute(
-                "INSERT INTO state(key, value, kind) "
-                "VALUES(?, CAST(? AS TEXT), 'string') "
-                "ON CONFLICT(key) DO UPDATE SET "
-                "  value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)",
-                (seq_key, 1),
+            # R-F2470: derive seq AUTHORITATIVELY from the list itself, not a
+            # separate counter that can drift below MAX(seq). The counter fell
+            # behind — the INSERT-OR-IGNORE list-materialization path inserts seq
+            # values without bumping it, and a wedge/restart can leave the read
+            # stale — so a counter-derived seq collided with an existing row:
+            #   "UNIQUE constraint failed: list_entries.list_key, seq"
+            # -> the lpush was SILENTLY DROPPED (e.g. a lost DD watchlist alert).
+            # MAX(seq)+1 under the per-list lock is authoritative and never collides.
+            cur = await _conn.execute(
+                "SELECT COALESCE(MAX(seq), 0) FROM list_entries WHERE list_key = ?", (key,)
             )
-            await _conn.commit()
-            # Read back the new sequence number
-            cur = await _conn.execute("SELECT value FROM state WHERE key = ?", (seq_key,))
             row = await cur.fetchone()
             await cur.close()
-            seq = int(row[0]) if row else 1
-            # Insert the entry with the new sequence number
+            seq = (int(row[0]) if row and row[0] is not None else 0) + 1
+            # Insert the entry, then keep the seq counter in sync (some callers /
+            # future paths may still read it) — atomically in a single commit.
             await _conn.execute(
                 "INSERT INTO list_entries(list_key, seq, value) VALUES(?, ?, ?)",
                 (key, seq, value),
             )
+            await _conn.execute(
+                "INSERT INTO state(key, value, kind) VALUES(?, CAST(? AS TEXT), 'string') "
+                "ON CONFLICT(key) DO UPDATE SET value = CAST(? AS TEXT)",
+                (seq_key, seq, seq),
+            )
             await _conn.commit()
         except Exception as e:
-            logger.warning("[R-F1518] lpush %s failed: %s", key, e)
+            logger.warning("[R-F1518/R-F2470] lpush %s failed: %s", key, e)
             if critical:
                 raise StateWriteError(f"lpush {key}: {e}") from e
 
