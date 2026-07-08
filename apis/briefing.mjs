@@ -546,6 +546,10 @@ export async function fullBriefing() {
 const BRAIN_SIGNAL_LIMIT = 30; // max signals pushed per sweep
 const BRAIN_SIGNAL_CONCURRENCY = 4;
 const BRAIN_SIGNAL_TIMEOUT_MS = 3000;
+// R-F2505 — the bulk push is ONE fire-and-forget request per sweep (returns 202 after
+// enqueue), so give it generous slack to ride out a transient event-loop stall on the
+// single-writer brain (observed: 2.6s aiosqlite stalls → a 3s abort lost all 31 as 0/31).
+const BRAIN_BULK_TIMEOUT_MS = 20000;
 
 // Source names that carry defence/procurement intelligence
 const BRAIN_SOURCE_WHITELIST = new Set([
@@ -702,7 +706,7 @@ export async function pushSignalsToBrain(sweepOutput) {
         method: 'POST',
         headers,
         body: JSON.stringify({ signals: payloads }),
-        signal: AbortSignal.timeout(BRAIN_SIGNAL_TIMEOUT_MS),
+        signal: AbortSignal.timeout(BRAIN_BULK_TIMEOUT_MS),
       });
       if (response.ok) {
         delivered = payloads.length; // 202 accepted (brain drains fire-and-forget)
