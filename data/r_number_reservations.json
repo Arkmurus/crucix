@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2483,
+  "next_available": 2485,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18768,6 +18768,25 @@
       "r_number": "R-F2482",
       "title": "landing hero fits viewport: reduce oversized headline font + tighten hero vertical spacing",
       "claimed_at": "2026-07-08T08:12:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "969e70f4",
+      "notes": null,
+      "shipped_at": "2026-07-08T08:16:20Z"
+    },
+    {
+      "r_number": "R-F2483",
+      "title": "cost_tracker: coalesce record_external_call writes (dominant writer amplifier during DD searches) — mirror R-F2172, cap-safe",
+      "claimed_at": "2026-07-08T08:18:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2484",
+      "title": "top-level /health/live sync-def (threadpool) — extend R-F723 fix to the alias so event-loop stalls do not time out liveness",
+      "claimed_at": "2026-07-08T08:22:44Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

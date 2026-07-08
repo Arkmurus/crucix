@@ -143,6 +143,16 @@ _cost_flush_lock = asyncio.Lock()
 _cost_last_flush: float = 0.0
 _pending_cost_records: list[dict] = []   # raw records since the last flush
 
+# R-F2483 — the SAME coalescing for the EXTERNAL call path (record_external_call).
+# A DD fires dozens of external searches, each previously doing ~7 state_store ops
+# (unique record + INDEX/AGG/MONTH read-modify-write) → the dominant single-writer
+# amplifier during a DD. A SEPARATE buffer + lock so the $300-cap LLM path
+# (assert_monthly_cap's atomic reserve) is completely untouched. External cost feeds
+# observability + the composite month rollup only, so the ~15s window is cap-safe.
+_pending_external_records: list[dict] = []
+_ext_flush_lock = asyncio.Lock()
+_ext_last_flush: float = 0.0
+
 # ── Monthly cap config ─────────────────────────────────────────────────────
 # Hard ceiling on monthly LLM spend across ALL providers. Set at import
 # time from env; callers re-read env on every check so a runtime override
@@ -416,38 +426,17 @@ async def record_external_call(
         "error": (error or "")[:300],
         "metadata": metadata or {},
     }
+    # R-F2483 — coalesce: accumulate the record and let the batched flush update the
+    # hot EXTERNAL index / per-service aggregate / composite month-rollup keys in ONE
+    # read+write per interval, instead of ~7 state_store ops PER external call (the
+    # writer amplifier during a DD's search fan-out). Fail-open — the caller is never
+    # blocked; on flush failure the batch is folded back so no cost data is lost.
+    _pending_external_records.append(record)
     try:
-        await rs.set_json(f"{EXTERNAL_RECORD_PREFIX}{call_id}", record, ex=COST_TTL)
-        index = await rs.get_json(EXTERNAL_INDEX_KEY) or []
-        index.insert(0, {
-            "id": call_id,
-            "ts": record["ts"],
-            "service": record["service"],
-            "operation": record["operation"],
-            "feature": feat,
-            "cost_usd": record["cost_usd"],
-            "success": success,
-        })
-        index = index[:_INDEX_CAP]
-        await rs.set_json(EXTERNAL_INDEX_KEY, index, ex=COST_TTL)
-        agg = await rs.get_json(EXTERNAL_AGG_KEY) or {}
-        svc_agg = agg.get(service) or {
-            "calls": 0, "cost_usd": 0.0, "errors": 0,
-        }
-        svc_agg["calls"] += 1
-        svc_agg["cost_usd"] = round(svc_agg["cost_usd"] + record["cost_usd"], 6)
-        if not success:
-            svc_agg["errors"] += 1
-        agg[service] = svc_agg
-        await rs.set_json(EXTERNAL_AGG_KEY, agg, ex=COST_TTL)
-        # Roll into monthly bucket alongside LLM spend so the dashboard
-        # has a single composite "month-to-date" total. We re-use
-        # _update_month_rollup but tag the record with kind=external
-        # so the writer can filter / report on demand.
-        await _update_month_rollup(record)
+        await _flush_external_pending()
     except Exception as e:
         logger.warning(
-            "cost_tracker.record_external_call persist failed (%s/%s): %s",
+            "cost_tracker.record_external_call flush failed (%s/%s): %s",
             service, operation, e,
         )
     return record
@@ -484,6 +473,7 @@ async def record_brave_call(
 @fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def get_external_summary(month: str | None = None) -> dict:
     """Return per-service external spend summary for the dashboard."""
+    await _flush_external_pending()  # R-F2483 — surface pending coalesced records
     agg = await rs.get_json(EXTERNAL_AGG_KEY) or {}
     return {
         "by_service": agg,
@@ -745,6 +735,80 @@ async def _flush_cost_pending(force: bool = False) -> bool:
             # Fold the batch back so the next flush retries it — no cost lost.
             _pending_cost_records = batch + _pending_cost_records
             logger.debug("cost_tracker flush failed (folded back): %s", e)
+            return False
+
+
+async def _flush_external_pending(force: bool = False) -> bool:
+    """R-F2483 — coalesce pending EXTERNAL call records into ONE read+write per hot
+    key (EXTERNAL_INDEX, EXTERNAL_AGG, composite month rollup) per interval. Mirrors
+    _flush_cost_pending. External cost is observability + the composite month total,
+    NOT the $300 LLM cap (assert_monthly_cap reserves atomically), so the ~15s window
+    is cap-safe. Time-gated + single in-flight; folds the batch back on DB failure so
+    no cost data is lost. Returns True if a flush actually wrote."""
+    global _ext_last_flush, _pending_external_records
+    now = time.time()
+    if not force and (now - _ext_last_flush) < _COST_FLUSH_INTERVAL_S:
+        return False
+    if not _pending_external_records:
+        _ext_last_flush = now
+        return False
+    if _ext_flush_lock.locked():
+        return False
+    async with _ext_flush_lock:
+        now = time.time()
+        if not force and (now - _ext_last_flush) < _COST_FLUSH_INTERVAL_S:
+            return False
+        batch = _pending_external_records
+        _pending_external_records = []
+        try:
+            # 1. Per-call detail blobs (unique keys — no RMW; batched to cut the
+            #    per-call write count).
+            for rec in batch:
+                await rs.set_json(f"{EXTERNAL_RECORD_PREFIX}{rec['id']}", rec, ex=COST_TTL)
+            # 2. Index — newest-first, capped (chronological batch → insert(0) each
+            #    so the newest lands at position 0, matching the old per-call insert).
+            index = await rs.get_json(EXTERNAL_INDEX_KEY) or []
+            for rec in batch:
+                index.insert(0, {
+                    "id": rec["id"], "ts": rec["ts"], "service": rec["service"],
+                    "operation": rec["operation"], "feature": rec["feature"],
+                    "cost_usd": rec["cost_usd"], "success": rec["success"],
+                })
+            await rs.set_json(EXTERNAL_INDEX_KEY, index[:_INDEX_CAP], ex=COST_TTL)
+            # 3. Per-service cumulative aggregate.
+            agg = await rs.get_json(EXTERNAL_AGG_KEY) or {}
+            for rec in batch:
+                svc = rec["service"]
+                sa = agg.get(svc) or {"calls": 0, "cost_usd": 0.0, "errors": 0}
+                sa["calls"] += 1
+                sa["cost_usd"] = round(sa["cost_usd"] + float(rec.get("cost_usd") or 0.0), 6)
+                if not rec.get("success", True):
+                    sa["errors"] += 1
+                agg[svc] = sa
+            await rs.set_json(EXTERNAL_AGG_KEY, agg, ex=COST_TTL)
+            # 4. Composite month rollup(s) — identical math to the LLM path
+            #    (_merge_record_into_rollup is external-record-safe by design).
+            from collections import defaultdict
+            by_month: dict[str, list[dict]] = defaultdict(list)
+            for rec in batch:
+                m = datetime.fromtimestamp(
+                    float(rec.get("ts") or now), tz=timezone.utc).strftime("%Y-%m")
+                by_month[m].append(rec)
+            for m, recs in by_month.items():
+                key = f"{COST_MONTH_PREFIX}{m}"
+                roll = await rs.get_json(key) or _new_rollup(m, recs[0]["ts"])
+                for rec in recs:
+                    _merge_record_into_rollup(roll, rec)
+                await rs.set_json(key, roll, ex=COST_MONTH_TTL)
+                if m == _current_month_key():
+                    _month_cache["month"] = m
+                    _month_cache["total"] = roll["total_cost_usd"]
+                    _month_cache["loaded_at"] = time.time()
+            _ext_last_flush = now
+            return True
+        except Exception as e:
+            _pending_external_records = batch + _pending_external_records
+            logger.debug("cost_tracker external flush failed (folded back): %s", e)
             return False
 
 
