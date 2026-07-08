@@ -33,7 +33,10 @@ check('route is auth-gated with requireAuth',
   /app\.post\('\/api\/wa-listener\/send',\s*requireAuth/.test(SRC));
 check('accepts the brain payload field group_id', /group_id/.test(body));
 check('accepts the brain payload field message', /\.message/.test(body));
-check('sends to the target via sock.sendMessage', /sock\.sendMessage\(\s*target/.test(body));
+// R-F2464 — R-F2459 wrapped the outbound send in _sendChunkWithRetry (re-resolve
+// live socket + backoff), which internally calls sock.sendMessage. Accept either.
+check('sends to the target (via _sendChunkWithRetry re-resolve+retry, or raw sendMessage)',
+  /_sendChunkWithRetry\(\s*target/.test(body) || /sock\.sendMessage\(\s*target/.test(body));
 check('returns 503 when WhatsApp is not connected',
   /isConnected/.test(body) && /503/.test(body));
 check('400 when target/message missing', /400/.test(body));

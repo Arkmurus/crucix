@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2464,
+  "next_available": 2465,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18572,14 +18572,25 @@
       "title": "student reading-loop: pre-filter too-short facts + fix mastery-credit-on-reject",
       "claimed_at": "2026-07-07T23:30:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9d44f866",
+      "notes": null,
+      "shipped_at": "2026-07-07T23:47:05Z"
     },
     {
       "r_number": "R-F2463",
       "title": "portal registry: in-memory cooldown to skip recently-failed registrations",
       "claimed_at": "2026-07-07T23:30:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9d44f866",
+      "notes": null,
+      "shipped_at": "2026-07-07T23:47:06Z"
+    },
+    {
+      "r_number": "R-F2464",
+      "title": "fix stale wa-outbound-send test after R-F2459 send-retry (sock.sendMessage -> _sendChunkWithRetry)",
+      "claimed_at": "2026-07-08T05:26:35Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
