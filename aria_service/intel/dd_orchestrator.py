@@ -10208,7 +10208,25 @@ async def reset_dd_memory(confirm: bool = False) -> dict:
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def get_report(run_id: str) -> dict | None:
     from . import redis_store as rs
-    return await rs.get_json(REPORT_REDIS_KEY.format(run_id=run_id))
+    _key = REPORT_REDIS_KEY.format(run_id=run_id)
+    body = await rs.get_json(_key)
+    if body:
+        return body
+    # R-F2500 — storm fallback. When the DD's own writes saturate the single writer,
+    # the normal read (get()/_row, 5s timeout) returns None even though the report blob
+    # is written + durable in the state DB — so a FINISHED DD shows "running forever"
+    # and can't be opened. Read the blob directly via a fresh read-only connection
+    # (immune to the wedge + pool contention). Never fabricates: returns None if the
+    # blob genuinely isn't there.
+    try:
+        from . import state_store as _ss
+        raw = await _ss.get_direct(_key)
+        if raw:
+            import json
+            return json.loads(raw)
+    except Exception as _e:
+        logger.debug("get_report direct-read fallback failed for %s: %s", run_id, _e)
+    return body
 
 
 async def get_report_owner(run_id: str) -> dict | None:

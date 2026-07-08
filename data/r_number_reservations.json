@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2499,
+  "next_available": 2501,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18926,6 +18926,25 @@
       "r_number": "R-F2498",
       "title": "v0.5 DD-depth training-corpus builder (reward-verified distillation)",
       "claimed_at": "2026-07-08T11:28:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cbfd6fad",
+      "notes": null,
+      "shipped_at": "2026-07-08T11:39:12Z"
+    },
+    {
+      "r_number": "R-F2499",
+      "title": "v0.5 DD-depth full distillation run (~600 -> ~350-450 verified rows) + merge with grounded_v3 + preflight",
+      "claimed_at": "2026-07-08T11:44:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2500",
+      "title": "get_report storm-resilient: state_store.get_direct() fresh-readonly fallback so a finished DD's report blob is always openable during a write storm (complements R-F2477)",
+      "claimed_at": "2026-07-08T11:45:51Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -1963,6 +1963,51 @@ async def get(key: str) -> str | None:
         return None
 
 
+def _get_direct_sync(key: str) -> str | None:
+    """R-F2500 — storm-proof read via a FRESH read-only sqlite connection. Bypasses the
+    wedged writer, the contended read pool, AND the _row flush, so a DURABLE value stays
+    readable at the peak of a write storm. Proven need: a completed DD's 21KB report blob
+    was present in the DB but get()/_row timed out reading it (5s) while the DD's own
+    writes saturated the single writer — the report showed "running forever". Mirrors
+    get()'s lazy-TTL + 'string' kind semantics. Best-effort — None on any error."""
+    if _DB_PATH is None:
+        return None
+    import sqlite3
+    try:
+        # NOT mode=ro: a read-only URI connection can't read UNCHECKPOINTED WAL data
+        # (a just-written blob still in the -wal file). A normal connection + query_only
+        # reads the WAL like any reader (WAL readers never block on the writer) while
+        # still rejecting writes — so this is storm-proof for freshly-written values too.
+        conn = sqlite3.connect(str(_DB_PATH), timeout=2.0)
+        try:
+            conn.execute("PRAGMA query_only=ON")
+            row = conn.execute(
+                "SELECT value, expires_at FROM state WHERE key=? AND kind='string'",
+                (key,),
+            ).fetchone()
+        finally:
+            conn.close()
+    except Exception:
+        return None
+    if not row:
+        return None
+    value, expires_at = row[0], row[1]
+    if expires_at is not None and expires_at < time.time():
+        return None
+    return value
+
+
+async def get_direct(key: str) -> str | None:
+    """Async wrapper for _get_direct_sync — runs the blocking read-only read OFF the
+    event loop. Use as a FALLBACK when get() returns None during a write storm and the
+    value is known durable (e.g. get_report). Complements R-F2477 (which scoped the
+    error_log cache) by giving critical readers a path immune to writer saturation."""
+    try:
+        return await asyncio.to_thread(_get_direct_sync, key)
+    except Exception:
+        return None
+
+
 async def get_strict(key: str) -> str | None:
     """R-F1392: like get(), but a store-layer failure RAISES StateReadError
     instead of silently returning None. A None return therefore means the key
