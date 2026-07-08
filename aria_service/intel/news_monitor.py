@@ -56,9 +56,12 @@ _SEEN_URLS_KEY = "crucix:news_monitor:seen_urls"
 _FEED_STATE_KEY = "crucix:news_monitor:feed_state"
 _ARTICLES_KEY = "crucix:news_monitor:articles"
 _INTEL_SIGNALS_KEY = "crucix:news_monitor:intel_signals"
+_POLL_STATE_KEY = "crucix:news_monitor:poll_state"
 _MAX_ARTICLES = 1000
 _MAX_INTEL_SIGNALS = 500
 _MAX_SEEN_URLS = 50000
+_GOLDEN_POLL_STALE_S = int(os.getenv("ARIA_GOLDEN_POLL_STALE_S", "5400"))
+_GOLDEN_SIGNAL_STALE_S = int(os.getenv("ARIA_GOLDEN_SIGNAL_STALE_S", str(72 * 3600)))
 
 # ── HTTP client ───────────────────────────────────────────────────────────────
 _TIMEOUT_S = 15
@@ -523,6 +526,29 @@ def _article_text(article: dict) -> str:
     ).strip()
 
 
+def _parse_epoch(value: Any) -> float | None:
+    """Best-effort timestamp parser for freshness calculations."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        text = str(value).strip()
+        if not text:
+            return None
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
+
+
+def _age_seconds(value: Any, *, now: float | None = None) -> int | None:
+    epoch = _parse_epoch(value)
+    if epoch is None:
+        return None
+    ref = time.time() if now is None else now
+    return max(0, int(ref - epoch))
+
+
 def _extract_article_entities(text: str) -> dict:
     try:
         from . import intel_ledger as _il
@@ -757,6 +783,45 @@ async def _persist_backfilled_intel_signals(signals: list[dict]) -> None:
             return
 
 
+async def _read_poll_state() -> dict:
+    try:
+        state = await rs.get_json(_POLL_STATE_KEY)
+        return state if isinstance(state, dict) else {}
+    except Exception:
+        logger.debug("[news_monitor] poll state read failed", exc_info=True)
+        return {}
+
+
+async def _write_poll_state(summary: dict) -> dict:
+    """Persist the last news-monitor heartbeat used by Golden Intel freshness."""
+    existing = await _read_poll_state()
+    polled_at = str(summary.get("polled_at") or datetime.now(timezone.utc).isoformat())
+    failed = int(summary.get("feeds_failed") or 0)
+    total = int(summary.get("feeds_polled") or 0)
+    status = "ok"
+    if total > 0 and failed >= total:
+        status = "failed"
+    elif failed > 0:
+        status = "degraded"
+    state = {
+        **existing,
+        "status": status,
+        "last_poll_at": polled_at,
+        "last_success_at": polled_at if status in {"ok", "degraded"} else existing.get("last_success_at"),
+        "last_error_at": polled_at if status == "failed" else existing.get("last_error_at"),
+        "feeds_polled": total,
+        "feeds_failed": failed,
+        "articles_fetched": int(summary.get("articles_fetched") or 0),
+        "articles_new": int(summary.get("articles_new") or 0),
+        "signals_promoted": int(summary.get("signals_promoted") or 0),
+    }
+    try:
+        await rs.set_json(_POLL_STATE_KEY, state)
+    except Exception:
+        logger.debug("[news_monitor] poll state write failed", exc_info=True)
+    return state
+
+
 async def _backfill_intel_signals_from_articles(limit: int) -> list[dict]:
     """Derive Golden Intel from existing raw articles when promotion storage is empty."""
     scan_limit = max(limit * 5, min(_MAX_ARTICLES, 100))
@@ -775,6 +840,7 @@ async def _backfill_intel_signals_from_articles(limit: int) -> list[dict]:
         if signal_id in seen:
             continue
         seen.add(signal_id)
+        signal["_backfilled"] = True
         candidates.append(signal)
 
     priority_rank = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
@@ -790,16 +856,18 @@ async def _backfill_intel_signals_from_articles(limit: int) -> list[dict]:
     return candidates[:limit]
 
 
-async def _promote_article_signal(article: dict) -> None:
+async def _promote_article_signal(article: dict) -> bool:
     """Best-effort promotion from raw article to dashboard decision signal."""
     try:
         signal = _build_intel_signal(article)
         await _store_intel_signal(signal)
+        return True
     except Exception:
         logger.debug("[news_monitor] intel signal promotion failed", exc_info=True)
+        return False
 
 
-async def _feed_to_brain(article: dict) -> None:
+async def _feed_to_brain(article: dict) -> bool:
     """Feed article to ARIA's brain for analysis.
 
     R-F2001: also feeds into intel_ledger so signal_correlator can
@@ -843,7 +911,7 @@ async def _feed_to_brain(article: dict) -> None:
     # R-F2385 — product-grade promotion layer. The raw article still lands in
     # the audit feed, but the user-facing surface now gets a concise signal with
     # priority, confidence, why-it-matters, action, entities, and evidence.
-    await _promote_article_signal(article)
+    promoted = await _promote_article_signal(article)
 
     # R-F2190: VAULT sources feed CONTENT into the brain (RAG/knowledge), not just the
     # correlator ledger — so a manually-added website (vault.html "Add Site") becomes
@@ -867,6 +935,8 @@ async def _feed_to_brain(article: dict) -> None:
             )
     except Exception:
         logger.debug("[news_monitor] vault-source brain absorb failed", exc_info=True)
+
+    return promoted
 
 
 # ── Feed fetching ─────────────────────────────────────────────────────────────
@@ -1135,8 +1205,8 @@ async def _scrape_vault_website(name: str, url: str, category: str, lang: str, t
         "detected_at": datetime.now(timezone.utc).isoformat(),
     }
     await _store_article(article)
-    await _feed_to_brain(article)             # → intel_ledger (data output) + brain absorb (intel)
-    return {"fetched": 1, "new": 1}
+    promoted = await _feed_to_brain(article)  # → intel_ledger (data output) + brain absorb (intel)
+    return {"fetched": 1, "new": 1, "signals_promoted": 1 if promoted else 0}
 
 
 async def poll_feeds(
@@ -1163,6 +1233,7 @@ async def poll_feeds(
     total_fetched = 0
     total_new = 0
     total_failed = 0
+    total_promoted = 0
     feed_results = []
 
     for name, url, category, lang, tier, topics in sources:
@@ -1204,7 +1275,8 @@ async def poll_feeds(
                     sc = await _scrape_vault_website(name, url, category, lang, tier, topics)
                     total_fetched += sc["fetched"]
                     total_new += sc["new"]
-                    feed_results.append({"name": name, "status": "scraped", "articles": sc["fetched"], "new": sc["new"]})
+                    total_promoted += int(sc.get("signals_promoted") or 0)
+                    feed_results.append({"name": name, "status": "scraped", "articles": sc["fetched"], "new": sc["new"], "signals_promoted": sc.get("signals_promoted", 0)})
                     # R-F2217 — a fetched page = live source (clear streak / promote);
                     # a 0-fetch scrape = failure (bump toward auto-suspend).
                     if sc["fetched"] > 0:
@@ -1230,7 +1302,8 @@ async def poll_feeds(
                 article["detected_at"] = datetime.now(timezone.utc).isoformat()
                 await _mark_seen(article["url"])
                 await _store_article(article)
-                await _feed_to_brain(article)
+                if await _feed_to_brain(article):
+                    total_promoted += 1
                 new_count += 1
 
             total_new += new_count
@@ -1265,9 +1338,12 @@ async def poll_feeds(
         "feeds_failed": total_failed,
         "articles_fetched": total_fetched,
         "articles_new": total_new,
+        "signals_promoted": total_promoted,
         "results": feed_results,
         "polled_at": datetime.now(timezone.utc).isoformat(),
     }
+    state = await _write_poll_state(summary)
+    summary["freshness"] = state
 
     logger.info(
         "[news_monitor] Polled %d feeds: %d articles fetched, %d new, %d failed",
@@ -1312,10 +1388,12 @@ async def get_recent_intel_signals(limit: int = 20) -> dict:
     capped = max(1, min(int(limit or 20), 100))
     raw = await rs.lrange(_INTEL_SIGNALS_KEY, 0, capped - 1)
     backfilled: list[dict] = []
+    used_backfill = False
     if not raw:
         try:
             backfilled = await _backfill_intel_signals_from_articles(capped)
             if backfilled:
+                used_backfill = True
                 asyncio.create_task(_persist_backfilled_intel_signals(backfilled))
         except Exception:
             logger.debug("[news_monitor] intel signal backfill failed", exc_info=True)
@@ -1336,11 +1414,59 @@ async def get_recent_intel_signals(limit: int = 20) -> dict:
         typ = str(sig.get("signal_type") or "unknown")
         by_priority[pri] = by_priority.get(pri, 0) + 1
         by_type[typ] = by_type.get(typ, 0) + 1
+    poll_state = await _read_poll_state()
+    now = time.time()
+    newest_signal_at = None
+    newest_signal_epoch = None
+    for sig in signals:
+        for field in ("detected_at", "published"):
+            epoch = _parse_epoch(sig.get(field))
+            if epoch is not None and (newest_signal_epoch is None or epoch > newest_signal_epoch):
+                newest_signal_epoch = epoch
+                newest_signal_at = sig.get(field)
+    poll_age_s = _age_seconds(poll_state.get("last_success_at"), now=now)
+    newest_signal_age_s = int(now - newest_signal_epoch) if newest_signal_epoch is not None else None
+    stale_reasons: list[str] = []
+    if poll_age_s is None:
+        stale_reasons.append("missing_poll_state")
+    elif poll_age_s > _GOLDEN_POLL_STALE_S:
+        stale_reasons.append("poll_stale")
+    if not signals:
+        stale_reasons.append("no_signals")
+    elif newest_signal_age_s is None:
+        stale_reasons.append("missing_signal_timestamp")
+    elif newest_signal_age_s > _GOLDEN_SIGNAL_STALE_S:
+        stale_reasons.append("signals_stale")
+    if poll_state.get("status") == "failed":
+        stale_reasons.append("last_poll_failed")
+    freshness = {
+        "status": "stale" if stale_reasons else "fresh",
+        "stale": bool(stale_reasons),
+        "stale_reasons": stale_reasons,
+        "last_poll_at": poll_state.get("last_poll_at"),
+        "last_success_at": poll_state.get("last_success_at"),
+        "last_error_at": poll_state.get("last_error_at"),
+        "poll_age_s": poll_age_s,
+        "poll_stale_after_s": _GOLDEN_POLL_STALE_S,
+        "newest_signal_at": newest_signal_at,
+        "newest_signal_age_s": newest_signal_age_s,
+        "signal_stale_after_s": _GOLDEN_SIGNAL_STALE_S,
+        "backfilled": used_backfill or (bool(signals) and all(bool(sig.get("_backfilled")) for sig in signals)),
+        "poll": {
+            "status": poll_state.get("status"),
+            "feeds_polled": poll_state.get("feeds_polled"),
+            "feeds_failed": poll_state.get("feeds_failed"),
+            "articles_fetched": poll_state.get("articles_fetched"),
+            "articles_new": poll_state.get("articles_new"),
+            "signals_promoted": poll_state.get("signals_promoted"),
+        },
+    }
     return {
         "signals": signals,
         "count": len(signals),
         "by_priority": by_priority,
         "by_type": by_type,
+        "freshness": freshness,
         "schema_version": "rf2385.v1",
     }
 
@@ -1368,6 +1494,7 @@ async def get_stats() -> dict:
         "by_category": by_category,
         "top_sources": dict(sorted(by_source.items(), key=lambda x: x[1], reverse=True)[:20]),
         "categories": sorted(set(s[2] for s in NEWS_SOURCES)),
+        "poll_state": await _read_poll_state(),
     }
     _stats_cache = result
     _stats_cache_ts = now

@@ -1435,7 +1435,7 @@ tasks:
       defence news, regional defence (Africa, MENA, LATAM, Asia), think
       tanks, financial news, press releases, and local-language regional
       news (Portuguese, Arabic, Turkish).
-    cron: "0 * * * *"
+    cron: "7 * * * *"
     enabled: true
     priority: HIGH
     timeout_seconds: 300

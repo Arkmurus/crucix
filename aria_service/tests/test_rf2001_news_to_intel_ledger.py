@@ -199,12 +199,23 @@ class TestGoldenIntelSignals:
             "priority": "HIGH",
             "confidence": "HIGH",
             "title": "New sanctions designation",
+            "detected_at": "2026-07-07T10:00:00+00:00",
         }
 
         async def _fake_lrange(_key, _start, _end):
             return [json.dumps(signal)]
 
+        async def _fake_get_json(key):
+            assert key == nm._POLL_STATE_KEY  # noqa: SLF001
+            return {
+                "status": "ok",
+                "last_poll_at": "2026-07-07T10:10:00+00:00",
+                "last_success_at": "2026-07-07T10:10:00+00:00",
+            }
+
         monkeypatch.setattr(nm.rs, "lrange", _fake_lrange)
+        monkeypatch.setattr(nm.rs, "get_json", _fake_get_json)
+        monkeypatch.setattr(nm.time, "time", lambda: 1783419300.0)  # 2026-07-07T10:15:00Z
 
         out = await nm.get_recent_intel_signals(limit=5)
 
@@ -219,6 +230,9 @@ class TestGoldenIntelSignals:
         assert sig["evidence_count"] == 1
         assert "actionable sanctions change pattern" in sig["confidence_rationale"]
         assert sig["evidence"]["count"] == 1
+        assert out["freshness"]["stale"] is False
+        assert out["freshness"]["poll_age_s"] == 300
+        assert out["freshness"]["newest_signal_age_s"] == 900
 
     @pytest.mark.asyncio
     async def test_recent_intel_signals_backfills_from_existing_articles(self, monkeypatch) -> None:
@@ -250,14 +264,24 @@ class TestGoldenIntelSignals:
         async def _fake_ltrim(_key, _start, _end):
             return None
 
+        async def _fake_get_json(_key):
+            return {
+                "status": "ok",
+                "last_poll_at": "2026-07-07T10:10:00+00:00",
+                "last_success_at": "2026-07-07T10:10:00+00:00",
+            }
+
         monkeypatch.setattr(nm.rs, "lrange", _fake_lrange)
         monkeypatch.setattr(nm.rs, "lpush", _fake_lpush)
         monkeypatch.setattr(nm.rs, "ltrim", _fake_ltrim)
+        monkeypatch.setattr(nm.rs, "get_json", _fake_get_json)
+        monkeypatch.setattr(nm.time, "time", lambda: 1783419300.0)
 
         out = await nm.get_recent_intel_signals(limit=5)
         await asyncio.sleep(0)
 
         assert out["count"] == 1
+        assert out["freshness"]["backfilled"] is True
         assert stored_signals, "backfill must persist promoted signals for later reads"
         sig = out["signals"][0]
         assert sig["decision_summary"] == "Angola launches armoured vehicle tender"
@@ -265,3 +289,50 @@ class TestGoldenIntelSignals:
         assert sig["quality_label"] == "decision-grade single-source"
         assert sig["confidence_rationale"]
         assert sig["evidence"]["url"] == "https://example.com/angola-tender"
+
+    @pytest.mark.asyncio
+    async def test_recent_intel_signals_marks_missing_poll_state_stale(self, monkeypatch) -> None:
+        signal = {
+            "signal_type": "active_tender",
+            "priority": "HIGH",
+            "confidence": "HIGH",
+            "quality_label": "decision-grade single-source",
+            "title": "Angola launches armoured vehicle tender",
+            "detected_at": "2026-07-07T10:00:00+00:00",
+        }
+
+        async def _fake_lrange(_key, _start, _end):
+            return [json.dumps(signal)]
+
+        async def _fake_get_json(_key):
+            return {}
+
+        monkeypatch.setattr(nm.rs, "lrange", _fake_lrange)
+        monkeypatch.setattr(nm.rs, "get_json", _fake_get_json)
+        monkeypatch.setattr(nm.time, "time", lambda: 1783419300.0)
+
+        out = await nm.get_recent_intel_signals(limit=5)
+
+        assert out["freshness"]["stale"] is True
+        assert "missing_poll_state" in out["freshness"]["stale_reasons"]
+
+    @pytest.mark.asyncio
+    async def test_poll_feeds_persists_freshness_state(self, monkeypatch) -> None:
+        stored = {}
+        monkeypatch.setattr(nm, "NEWS_SOURCES", [])
+        monkeypatch.setattr(nm, "_get_vault_feed_sources", lambda: [])
+
+        async def _fake_get_json(_key):
+            return {}
+
+        async def _fake_set_json(key, value):
+            stored[key] = value
+
+        monkeypatch.setattr(nm.rs, "get_json", _fake_get_json)
+        monkeypatch.setattr(nm.rs, "set_json", _fake_set_json)
+
+        out = await nm.poll_feeds()
+
+        assert out["freshness"]["status"] == "ok"
+        assert stored[nm._POLL_STATE_KEY]["last_success_at"] == out["polled_at"]  # noqa: SLF001
+        assert stored[nm._POLL_STATE_KEY]["signals_promoted"] == 0  # noqa: SLF001
