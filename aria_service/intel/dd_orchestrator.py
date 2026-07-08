@@ -10190,6 +10190,24 @@ async def mark_dd_running(run_id: str, entity_name: str, mode: str = "standard",
         return index
     await _mutate_report_index(_add_running)
 
+    # R-F2481 — capture ownership at DD START (not only at completion). The user_id
+    # is known now, and this write goes to the WIPE-SURVIVING vault (dd_report_owners,
+    # keyed by run_id). So an orphaned / interrupted run (deploy restart, crash before
+    # persist) is NEVER owner-less: its owner is already recorded and a later rebuild
+    # (R-F2469) or reconcile restores it to the right user. Completion re-writes it
+    # (idempotent upsert) with the final canonical. Owner-less starts write nothing.
+    try:
+        from .dd_vault import get_vault as _get_dd_vault_ms
+        _get_dd_vault_ms().record_report_owner(
+            run_id,
+            canonical_entity_id=canonical_entity_id,
+            user_id=user_id,
+            user_email_domain=user_email_domain,
+            share_to_company=share_to_company,
+        )
+    except Exception as _own_ms_err:
+        logger.debug("[R-F2481] mark_dd_running owner capture failed (non-fatal): %s", _own_ms_err)
+
 
 async def mark_dd_failed(run_id: str, error: str) -> None:
     """R-F2250 — mark an async DD failed under its report key so the poller sees a

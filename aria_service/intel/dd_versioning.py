@@ -136,13 +136,34 @@ def _name_hash(name: str) -> str:
     return hashlib.sha1(norm.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
 
 
+# R-F2480 — registry-type LABEL prefixes that some sources prepend to the ID (e.g.
+# Brazil's `CNPJ 45.218.484/0003-40`, Denmark's `CVR 12345678`). The label is NOT
+# part of the identity — the jurisdiction is already encoded in the canonical key
+# (`company:BR:…`) — so a source that includes it must not fork a SECOND canonical
+# case for the SAME company. Whitelist only (never a bare 2-letter country prefix
+# like a UK `SC`/`NI` company number), so a legitimate alpha-ID prefix is preserved.
+_REGNUM_LABEL_PREFIXES = (
+    "CNPJ", "CPF", "CVR", "NIP", "NIF", "NIT", "RUC", "RFC",
+    "UEN", "ABN", "ACN", "TIN", "EIN", "KVK", "SIREN", "SIRET",
+)
+
+
 def _scrub_regnum(regnum: str) -> str:
-    """Uppercase + drop punctuation/whitespace from a registration
-    number so cosmetic variation doesn't fork the canonical key.
-    `'07.689.002/0001-89'` → `'076890020001-89'` no, wait —
-    `'076890020001-89'`. Actually drop *all* non-alphanumerics so the
-    Brazilian-format CNPJ `07.689.002/0001-89` → `07689002000189`."""
-    return re.sub(r"[^A-Z0-9]", "", (regnum or "").upper())
+    """Uppercase + drop punctuation/whitespace from a registration number so
+    cosmetic variation doesn't fork the canonical key: the Brazilian-format CNPJ
+    `07.689.002/0001-89` → `07689002000189`.
+
+    R-F2480 — ALSO strip a leading registry-type LABEL, so `CNPJ 45.218.484/0003-40`
+    and `45.218.484/0003-40` both scrub to `45218484000340` (they were forking two
+    duplicate cases for one company on re-run). Only strips when digits remain, so a
+    pure-ID is never emptied."""
+    s = re.sub(r"[^A-Z0-9]", "", (regnum or "").upper())
+    for _lbl in _REGNUM_LABEL_PREFIXES:
+        if s.startswith(_lbl):
+            _rest = s[len(_lbl):]
+            if _rest and any(c.isdigit() for c in _rest):
+                return _rest
+    return s
 
 
 # ── Canonical entity ID ─────────────────────────────────────────────────────
