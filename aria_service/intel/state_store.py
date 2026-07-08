@@ -1697,6 +1697,7 @@ async def reclaim_hot(*, batch: int = 1000, sleep_s: float = 0.05,
                       "dry_run": dry_run, "error": None, "updated_at": _now()}
     deleted = would = scanned = 0
     cursor = 0
+    _batches = 0
     _clauses = " OR ".join("key GLOB ?" for _ in _COLD_KEY_PREFIXES)
     _globs = [p + "*" for p in _COLD_KEY_PREFIXES]
     try:
@@ -1730,6 +1731,17 @@ async def reclaim_hot(*, batch: int = 1000, sleep_s: float = 0.05,
                 deleted += len(safe)
             _reclaim_state.update(deleted=deleted, scanned=scanned, would_delete=would,
                                   updated_at=_now())
+            # R-F2504 — checkpoint the WAL periodically so accumulating deletes don't
+            # bloat the -wal file → slow commits → timeout (observed live: aborted at
+            # ~75k deleted with a 76MB WAL). TRUNCATE flushes + shrinks the WAL so
+            # commits stay fast for the whole 376k-row delete.
+            _batches += 1
+            if _batches % 15 == 0:
+                try:
+                    await asyncio.wait_for(_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)"),
+                                           timeout=120.0)
+                except Exception as _ck:
+                    logger.debug("state_store: R-F2504 mid-delete checkpoint skipped: %s", _ck)
             await asyncio.sleep(sleep_s)
         vacuumed = False
         vac_err = None
