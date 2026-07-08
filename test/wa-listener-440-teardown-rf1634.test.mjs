@@ -48,7 +48,11 @@ check('old socket nulled before recreate', teardownWindow.includes('sock = null'
 // 2. The disconnect streak is NOT reset unconditionally on 'open' (the flap-storm
 //    bug). A delayed/identity-checked reset must gate it so a flap still climbs
 //    the streak toward the self-heal exit.
-const openIdx = SRC.indexOf("connection === 'open'");
+// Anchor to the CANONICAL startListener() connection.update handler. The
+// multi-account handlers (_createAccount / _reconnectAccount, R-F1930/R-F1972)
+// added earlier `connection === 'open'` blocks, so search from startListener
+// (defined at ~line 1988) to land on the streak-reset block, not a per-account one.
+const openIdx = SRC.indexOf("connection === 'open'", startIdx);
 const closeIdx = SRC.indexOf("connection === 'close'", openIdx);
 const openWindow = SRC.slice(openIdx, closeIdx);
 check("'open' block found", openIdx > -1 && closeIdx > openIdx);

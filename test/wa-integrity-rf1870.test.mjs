@@ -70,12 +70,16 @@ await check('DD-18 static: token generated, appended to callback_url, stored, ve
 
 // ── DD-24 static: deliveredViaCallback set AFTER the send loop ───────────────
 await check('DD-24: deliveredViaCallback set only after the send completes', () => {
-  // The flag assignment must come AFTER the sendMessage loop, inside the try.
-  const sendIdx = SRC.indexOf('await sock.sendMessage(chatId, { text: chunks[i] })');
+  // The flag assignment must come AFTER the send loop, inside the try.
+  // R-F1930/R-F2069: the raw sock.sendMessage was replaced by _sendChunkWithRetry
+  // (re-resolves the socket per retry so a mid-delivery reconnect doesn't drop the
+  // result) — the DD-24 ordering property (flag set only after the loop) is unchanged.
+  const sendIdx = SRC.indexOf('await _sendChunkWithRetry(chatId, { text: chunks[i] }, _resolveDsock)');
   const flagIdx = SRC.indexOf('mapping.deliveredViaCallback = true', sendIdx);
   assert.ok(sendIdx >= 0 && flagIdx > sendIdx, 'deliveredViaCallback is not set after the send loop');
-  // And it must NOT be set in the pre-send guard region anymore.
-  const guardRegion = SRC.slice(SRC.indexOf("already_delivered_via_poll"), sendIdx);
+  // And it must NOT be set in the pre-send guard region anymore. R-F1884 renamed
+  // the double-delivery guard reason to 'already_delivered_or_in_progress'.
+  const guardRegion = SRC.slice(SRC.indexOf("already_delivered_or_in_progress"), sendIdx);
   assert.ok(!/mapping\.deliveredViaCallback = true/.test(guardRegion), 'flag still set before send');
 });
 

@@ -123,7 +123,7 @@ console.log('\n3. public/admin.html test-email success check accepts sent:true')
   );
   check(
     'success bar text says "Email alerter OK"',
-    /✓ Email alerter OK —/.test(html),
+    /✓ Email alerter OK\./.test(html),
     'differentiates new success from misleading old copy'
   );
   check(

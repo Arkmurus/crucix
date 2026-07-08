@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2465,
+  "next_available": 2468,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18591,6 +18591,34 @@
       "r_number": "R-F2464",
       "title": "fix stale wa-outbound-send test after R-F2459 send-retry (sock.sendMessage -> _sendChunkWithRetry)",
       "claimed_at": "2026-07-08T05:26:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cc5cc368",
+      "notes": null,
+      "shipped_at": "2026-07-08T05:27:54Z"
+    },
+    {
+      "r_number": "R-F2465",
+      "title": "telegram top content quality gate",
+      "claimed_at": "2026-07-08T05:34:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2466",
+      "title": "DD cross-tenant leak: gate legacy-owner fallback fail-closed (owner-less never adopted to operator)",
+      "claimed_at": "2026-07-08T05:38:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2467",
+      "title": "triage codex test failures: 9 stale source-assertions updated + restore dashboard _freshness STALE badge (real gap)",
+      "claimed_at": "2026-07-08T05:38:47Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

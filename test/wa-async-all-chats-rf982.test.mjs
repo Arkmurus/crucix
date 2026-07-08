@@ -25,7 +25,9 @@ console.log('R-F982 — WA: all chats async, no sync timeout\n');
 
 // askARIA must delegate straight to askARIAAsync (no conditional sync branch).
 const askBody = SRC.slice(SRC.indexOf('async function askARIA('), SRC.indexOf('async function askARIAAsync('));
-check('askARIA calls askARIAAsync', /return await askARIAAsync\(message, senderJid, chatId\)/.test(askBody));
+// R-F1411/R-F1968: askARIA now generates a request_id (rid) for outcome tracking
+// and delegates to askARIAAsync with it, then returns the answer.
+check('askARIA calls askARIAAsync', /await askARIAAsync\(message, senderJid, chatId, rid\)/.test(askBody));
 check('askARIA no longer gates on _needsAsyncChat', !/_needsAsyncChat/.test(askBody));
 check('askARIA no longer has a 90s sync brainPost chat call',
   !/await brainPost\('\/api\/aria\/chat', \{ message, session_id: sid \}\)/.test(askBody));
@@ -42,7 +44,9 @@ check('fast-first polling constants present (FAST_MS / FAST_PHASE_MS)',
   /FAST_MS\s*=\s*1000/.test(SRC) && /FAST_PHASE_MS\s*=\s*30000/.test(SRC));
 check('interim "working on it" is deferred (INTERIM_AFTER_MS gate + interimSent)',
   /INTERIM_AFTER_MS/.test(SRC) && /interimSent/.test(SRC));
-check('10-minute total poll window retained (MAX_MS = 600000)', /MAX_MS\s*=\s*600000/.test(SRC));
+// R-F1056 (2026): total poll window raised from 10 min to 15 min ("give her the
+// time she needs"); the brain job has no server-side cap so this is the only bound.
+check('15-minute total poll window retained (MAX_MS = 900000)', /MAX_MS\s*=\s*900000/.test(SRC));
 
 // Failure still observable to the brain (R-F925 signal preserved).
 check('a chat failure still emits signalChatFailure', /signalChatFailure\(message, senderJid/.test(SRC));

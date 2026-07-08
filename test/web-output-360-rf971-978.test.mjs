@@ -36,8 +36,9 @@ check('dashboard distinguishes it from the brain + links to /aria-brain',
 console.log('\nR-F972 — share footer points at the correct domain:');
 check('bd-intelligence no longer references intel.sursec.co.uk',
   !/intel\.sursec\.co\.uk/.test(BD));
-check('bd-intelligence uses intel.arkmurus.com in the share footer',
-  /intel\.arkmurus\.com/.test(BD));
+// Rebranded intel.arkmurus.com -> imaria.io (bd-intelligence.html:114 share footer).
+check('bd-intelligence uses imaria.io in the share footer',
+  /imaria\.io/.test(BD));
 
 console.log('\nR-F978 — /api/data surfaces sweep freshness:');
 check('/api/data emits a _freshness block',

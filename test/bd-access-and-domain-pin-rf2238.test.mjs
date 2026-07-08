@@ -50,9 +50,13 @@ for (const r of ADMIN_ROUTES) {
 //   params.set('user_id', userId);
 //   params.delete('user_email_domain'); ...
 //   try { ... }
+// R-F2355 (2026-07-02) added a THIRD fail-closed pin block: the /dd/watchlist
+// handler (server.mjs:3046-3048), alongside the original /dd/reports (3025-3027)
+// and _ddPinUserParams (3068-3070). All three strip a client-supplied domain
+// unconditionally right after pinning user_id. Count is now 3.
 const failClosed = (SERVER.match(/params\.set\('user_id', userId\);\s*\n\s*params\.delete\('user_email_domain'\)/g) || []).length;
-check('both pin blocks delete user_email_domain right after pinning user_id (fail-closed ×2)',
-  failClosed === 2);
+check('all pin blocks delete user_email_domain right after pinning user_id (fail-closed ×3)',
+  failClosed === 3);
 // and the delete must precede every set of user_email_domain (no set without a prior delete in-block)
 const firstDelete = SERVER.indexOf("params.delete('user_email_domain')");
 const firstSet = SERVER.indexOf("params.set('user_email_domain'");

@@ -487,9 +487,22 @@ async function loadData() {
   }
   document.getElementById('kpi-opportunities').textContent = oppCount;
 
-  // ── Last updated ──
+  // ── Last updated (R-F2467 — surface DATA staleness, not just client render
+  // time. /api/data emits a _freshness block {stale, ageSeconds, ...}; the
+  // R-F2385 dashboard rewrite dropped its consumption, so data that fetched OK
+  // but is stale was shown with no warning — an intel product must flag stale
+  // intel so the operator does not act on it unaware). ──
   const lu = document.getElementById('last-updated');
-  lu.textContent = 'Updated: ' + new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+  const _data = (sweepRes.status === 'fulfilled' && sweepRes.value) || {};
+  const _fresh = _data._freshness || null;
+  const _stamp = new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+  if (_fresh && _fresh.stale) {
+    lu.textContent = 'Updated: ' + _stamp + ' · ⚠ STALE DATA';
+    lu.style.color = '#dc2626';
+  } else {
+    lu.textContent = 'Updated: ' + _stamp;
+    lu.style.color = '';
+  }
 
   renderGoldenIntel(intelData);
 

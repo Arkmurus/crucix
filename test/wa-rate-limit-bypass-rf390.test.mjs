@@ -83,7 +83,10 @@ check(`exactly 5 skip wirings (got ${skipMatches.length})`, skipMatches.length =
 // Each named tier mentions the bypass within the next 8 lines after its
 // declaration. Catches a wiring drift where someone refactors but the
 // total count stays at 5.
-const tiersBlock = RL_SRC.split('};')[0]; // TIERS object body
+// TIERS object body: from `const TIERS = {` up to the speedLimiter that follows
+// it. (The old `split('};')[0]` broke once R-F2383 added keyGenerator comments
+// containing `{userId,...};` — the `};` substring truncated the block mid-tier.)
+const tiersBlock = RL_SRC.slice(RL_SRC.indexOf('const TIERS = {'), RL_SRC.indexOf('const speedLimiter'));
 for (const name of ['standard', 'ariaThin', 'ariaChat', 'admin']) {
   const i = tiersBlock.indexOf(`${name}: {`);
   const slice = i >= 0 ? tiersBlock.slice(i, i + 600) : '';

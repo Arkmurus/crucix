@@ -81,7 +81,10 @@ check(
 );
 check(
   'degraded-stream badge surfaces count text',
-  /degraded stream — '\s*\+\s*window\._ariaSseMalformedThisStream/.test(html),
+  // R-F2404 de-AI'd the badge copy: em-dash → colon
+  // ('⚠ degraded stream: ' + window._ariaSseMalformedThisStream + ' bad events').
+  // Count is still surfaced; only the punctuation changed. (public/aria.html:1719)
+  /degraded stream: '\s*\+\s*window\._ariaSseMalformedThisStream/.test(html),
   'badge copy must include the live count'
 );
 

@@ -31,8 +31,11 @@ console.log('R-F981 — dead sursec domain removed from functional code\n');
 
 const EMAIL = read('lib', 'auth', 'email.mjs');
 check('email.mjs has no reference to the dead domain', !EMAIL.includes(DEAD));
+// imaria.io rebrand (R-F2244): the canonical production host is now
+// intel.imaria.io (server.mjs:6388 "canonical production host"), not the
+// old intel.arkmurus.com. email.mjs:49 default was updated to match.
 check('email.mjs APP_URL default points at the live host',
-  /APP_URL\s*=\s*process\.env\.APP_URL\s*\|\|\s*'https:\/\/intel\.arkmurus\.com'/.test(EMAIL));
+  /APP_URL\s*=\s*process\.env\.APP_URL\s*\|\|\s*'https:\/\/intel\.imaria\.io'/.test(EMAIL));
 
 const WA = read('lib', 'whatsapp', 'ariaWhatsApp.mjs');
 check('ariaWhatsApp.mjs has no reference to the dead domain', !WA.includes(DEAD));
