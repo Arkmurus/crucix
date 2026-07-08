@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2468,
+  "next_available": 2469,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18602,18 +18602,20 @@
       "title": "telegram top content quality gate",
       "claimed_at": "2026-07-08T05:34:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "31994b35",
+      "notes": null,
+      "shipped_at": "2026-07-08T05:51:48Z"
     },
     {
       "r_number": "R-F2466",
       "title": "DD cross-tenant leak: gate legacy-owner fallback fail-closed (owner-less never adopted to operator)",
       "claimed_at": "2026-07-08T05:38:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f632054f",
+      "notes": null,
+      "shipped_at": "2026-07-08T05:59:01Z"
     },
     {
       "r_number": "R-F2467",
@@ -18624,6 +18626,15 @@
       "commit_sha": "74e83c02",
       "notes": null,
       "shipped_at": "2026-07-08T05:43:27Z"
+    },
+    {
+      "r_number": "R-F2468",
+      "title": "telegram intel cards and data audit",
+      "claimed_at": "2026-07-08T05:46:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
