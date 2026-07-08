@@ -39,15 +39,17 @@ def test_absorb_enqueues_and_drain_applies(tmp_path, monkeypatch):
             assert rows[0]["payload"]["summary"] == "integration test fact"
             assert rows[0]["priority"] == 0  # user_id set → interactive → P0
 
-            # Drain applies the row through the REAL absorb_tiers_bg (the lazy
-            # `from .brain_hook_bg import ...` inside _drain_one_queued doesn't pick
-            # up a monkeypatch under pytest's module identity — a harness quirk, not
-            # a product bug; full tier application is verified LIVE). What we assert
-            # here is the drain RESOLVES the claimed row (never leaves it stuck in
-            # 'processing'): it's either done (deleted) or retry-scheduled (pending).
+            # The drain must CALL absorb_tiers_bg (all callables it passes must
+            # resolve — _run_tier_ml, _record_signal, _record_latency,
+            # _maybe_trip_breaker, the sems) and mark the row DONE, not dead-letter it.
+            # Regression guard for the R-F2507 bug where _run_tier was absorb()-local
+            # → NameError at arg-build → every drained item dead-lettered.
             await bh._drain_one_queued(rows[0])
+            assert len(calls) == 1, ("drain did not reach absorb_tiers_bg", calls)
+            assert calls[0]["module"] == "web_search"
+            assert calls[0]["summary"] == "integration test fact"
             s2 = await biq.stats()
-            assert s2["processing"] == 0, s2  # claimed row resolved, not stranded
+            assert s2["depth"] == 0 and s2["processing"] == 0 and s2["dead_letter"] == 0, s2
         finally:
             await biq.close()
 

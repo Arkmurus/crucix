@@ -993,6 +993,26 @@ async def absorb_silent(**kwargs) -> None:
 # the single state_store writer instead of an unbounded concurrent burst. Durable:
 # a restart replays the queue; a failed apply retries with backoff then dead-letters.
 
+async def _run_tier_ml(coro, label: str) -> tuple[bool, Optional[str]]:
+    """R-F2507 — MODULE-LEVEL tier runner for the queue drain worker. absorb()'s own
+    _run_tier is a NESTED function (closes over its `module` local), so the drain
+    worker cannot pass it — referencing it NameError'd and every drained item
+    dead-lettered. Same timeout+error contract; omits the per-module debug string
+    (the single drain worker processes many modules)."""
+    try:
+        if _TIER_TIMEOUT_S > 0:
+            await asyncio.wait_for(coro, timeout=_TIER_TIMEOUT_S)
+        else:
+            await coro
+        return (True, None)
+    except asyncio.TimeoutError:
+        logger.debug("brain_hook drain %s tier timed out (>%.1fs)", label, _TIER_TIMEOUT_S)
+        return (False, f"{label}: timeout (>{_TIER_TIMEOUT_S:.1f}s)")
+    except Exception as e:
+        logger.debug("brain_hook drain %s failed: %s", label, e)
+        return (False, f"{label}: {e}")
+
+
 async def _drain_one_queued(row: dict) -> None:
     """Apply one dequeued ingest payload through absorb_tiers_bg, then mark
     done / failed. Called inside the drain loop's bounded-concurrency gate."""
@@ -1019,7 +1039,7 @@ async def _drain_one_queued(row: dict) -> None:
             _get_neural_concurrency_sem=_get_neural_concurrency_sem,
             _ABSORB_CONCURRENCY=_ABSORB_CONCURRENCY,
             _ABSORB_SEM_ACQUIRE_TIMEOUT_S=_ABSORB_SEM_ACQUIRE_TIMEOUT_S,
-            _run_tier=_run_tier,
+            _run_tier=_run_tier_ml,  # module-level (absorb's _run_tier is nested)
             _record_signal=_record_signal,
             _record_latency=_record_latency,
             _maybe_trip_breaker=_maybe_trip_breaker,
