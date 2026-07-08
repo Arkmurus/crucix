@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2512,
+  "next_available": 2515,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19056,6 +19056,33 @@
       "r_number": "R-F2511",
       "title": "DD 0-officers root fix: CH _get retries transient 429/timeout (was silently empty under DD load) + surfaces persistent unavailability (never-false-clean); DD parses officers/psc {current,past,total} dicts as lists + registered_address dict",
       "claimed_at": "2026-07-08T21:32:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2512",
+      "title": "v0.7 large per-layer framework corpus + counter-intel/PI protection (scale the dd_layer lever)",
+      "claimed_at": "2026-07-08T21:48:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2513",
+      "title": "Track A: preserve v0.6 sovereign adapter + prep grounded-synthesis shadow activation (ARIA_LLM_URL)",
+      "claimed_at": "2026-07-08T21:48:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2514",
+      "title": "v0.7 framework corpus: scale + counter-intel + PI-resistance protective rows",
+      "claimed_at": "2026-07-08T21:51:06Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
