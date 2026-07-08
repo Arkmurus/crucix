@@ -18620,9 +18620,10 @@
       "title": "triage codex test failures: 9 stale source-assertions updated + restore dashboard _freshness STALE badge (real gap)",
       "claimed_at": "2026-07-08T05:38:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "74e83c02",
+      "notes": null,
+      "shipped_at": "2026-07-08T05:43:27Z"
     }
   ]
 }

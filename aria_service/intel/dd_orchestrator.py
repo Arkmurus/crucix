@@ -10363,12 +10363,26 @@ def _dd_legacy_owner_fallback() -> tuple[str | None, str | None]:
     The dd_vault ``dd_cases`` table has no ``user_id`` column, so reports
     rebuilt from the vault after a state_store index reset (e.g. the
     2026-07-02 wipe) come back owner-less and disappear from every user's
-    scoped DD-reports list. Fall back to the configured operator so the
-    primary user keeps seeing their reports. Returns ``(user_id, email_domain)``
-    — both ``None`` when no operator is configured (then behaviour is
-    unchanged: owner-less, admin-only).
+    scoped DD-reports list. This fallback stamps such owner-less reports to
+    the configured operator so the primary user keeps seeing their reports.
+
+    R-F2466 — SECURITY, fail-CLOSED by default. Stamping owner-less reports to
+    the operator FABRICATES ownership. In a MULTI-USER deployment that LEAKS
+    other users' owner-less reports onto the operator's scoped DD-reports (and
+    watchlist) view — a confidential cross-tenant breach: an owner-less report
+    gets stamped with the operator's user_id, then matches the operator's own
+    user_id filter and appears on their page. It is now DISABLED by default:
+    owner-less reports stay owner-less (visible ONLY on the admin / no-filter
+    path), never adopted to a scoped user. The PRECISE reclaims (from the
+    watchlist by last_dd_run_id, from the report index) are UNAFFECTED — they
+    recover the REAL owner, not this fabricated one. Re-enable ONLY on a
+    genuinely single-operator deployment via ARIA_DD_LEGACY_OWNER_FALLBACK=1.
+    Returns ``(user_id, email_domain)`` — both ``None`` when disabled/unset.
     """
     import os as _os
+    # R-F2466 — off unless explicitly opted in (single-operator deployments only).
+    if (_os.getenv("ARIA_DD_LEGACY_OWNER_FALLBACK") or "").strip().lower() not in ("1", "true", "yes", "on"):
+        return None, None
     # R-F2388 — the DD owner must be the operator's REAL aria-web user_id (the
     # JWT `userId` the /dd/reports proxy pins, server.mjs:2978), NOT
     # ARIA_CODER_OPERATOR_USER_ID — those are DIFFERENT ids, so the original
