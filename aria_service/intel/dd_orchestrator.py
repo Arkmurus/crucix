@@ -1278,6 +1278,11 @@ ORCHESTRATOR_ENABLED = (os.getenv("ARIA_DD_ORCHESTRATOR_ENABLED", "1") or "1").s
 
 REPORT_REDIS_KEY = "crucix:dd:report:{run_id}"
 REPORT_INDEX_KEY = "crucix:dd:report_index"
+# R-F2469 — run_ids whose ownership this process has already backfilled into the
+# wipe-surviving vault (dd_report_owners). Bounds the on-read backfill to one
+# vault upsert per run_id per process (not per dashboard poll). Vault-DB writes,
+# separate from the state_store — no impact on the R-F2277 write ceiling.
+_R2469_OWNER_BACKFILLED: set[str] = set()
 # R-F877 (2026-05-25) — DD report bodies + index NO LONGER EXPIRE.
 # Was `7 * 24 * 3600` (7-day TTL). A DD verdict is a compliance artifact
 # (HARD_STOP / SAR-trigger) and knowledge — CLAUDE.md §7 is binding: "No TTL
@@ -7355,6 +7360,21 @@ async def _persist_report(report: ARKDDReport) -> None:
         except Exception:
             pass
 
+    # R-F2469 — persist per-RUN ownership in the WIPE-SURVIVING vault so an index
+    # rebuild restores the REAL owner (never fabricated — the R-F2466 leak class).
+    # Owner-less runs write nothing → stay owner-less (fail-closed).
+    try:
+        from .dd_vault import get_vault as _get_dd_vault2
+        _get_dd_vault2().record_report_owner(
+            getattr(report, "run_id", None),
+            canonical_entity_id=getattr(report, "canonical_entity_id", None),
+            user_id=getattr(report, "user_id", None),
+            user_email_domain=getattr(report, "user_email_domain", None),
+            share_to_company=getattr(report, "share_to_company", True),
+        )
+    except Exception as _own_err:
+        logger.debug("dd_vault: record_report_owner failed (non-fatal): %s", _own_err)
+
 # =============================================================================
 # HELPERS
 # =============================================================================
@@ -10439,21 +10459,31 @@ async def list_reports(
             if vault_cases:
                 _ff_uid, _ff_dom = _dd_legacy_owner_fallback()
                 for case in vault_cases:
+                    _rid = case.get("latest_report_id", "")
+                    # R-F2469 — restore the REAL per-run owner from the wipe-surviving
+                    # dd_report_owners table (written at persist time). This is the
+                    # durable fix for the R-F2382/R-F2466 class: the dd_cases schema has
+                    # no per-user ownership, so before this a rebuilt case was owner-less
+                    # and either vanished or (worse) got the operator's id fabricated onto
+                    # it — a cross-tenant leak. Now: real owner if known, else owner-less
+                    # (fail-closed); the legacy-operator fallback stays OFF by default
+                    # (R-F2466) and only applies as a last resort when explicitly opted in.
+                    _owner = None
+                    try:
+                        _owner = vault.get_report_owner(_rid) if _rid else None
+                    except Exception:
+                        _owner = None
+                    _own_uid = (_owner or {}).get("user_id") or case.get("user_id") or _ff_uid
+                    _own_dom = (_owner or {}).get("user_email_domain") or case.get("user_email_domain") or _ff_dom
+                    _own_share = (_owner or {}).get("share_to_company", True) if _owner else True
                     index.append({
-                        "run_id": case.get("latest_report_id", ""),
+                        "run_id": _rid,
                         "entity_name": case.get("entity_name", "unknown"),
                         "entity_type": case.get("entity_type", "company"),
                         "jurisdiction": case.get("jurisdiction", ""),
-                        # R-F2382 — the dd_vault schema has NO user_id column, so a
-                        # case rebuilt from the vault (after a state_store index
-                        # reset, e.g. the 2026-07-02 wipe) is owner-less and
-                        # vanishes from EVERY user's scoped list. Fall back to the
-                        # configured operator so the primary user keeps seeing their
-                        # reports; a real user_id on the case (once the vault stores
-                        # one) always wins.
-                        "user_id": case.get("user_id") or _ff_uid,
-                        "user_email_domain": case.get("user_email_domain") or _ff_dom,
-                        "share_to_company": True,
+                        "user_id": _own_uid,
+                        "user_email_domain": _own_dom,
+                        "share_to_company": _own_share,
                         # R-F2240 — normalize at write time (root cause): dd_vault
                         # last_run_at is a float epoch; store it as ISO so the
                         # persisted index stays single-type (str) for future reads.
@@ -10703,6 +10733,35 @@ async def list_reports(
             await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
         except Exception as e:
             logger.debug("R-F162 index repair write failed: %s", e)
+
+    # R-F2469 — durably capture ownership of already-owned index entries into the
+    # WIPE-SURVIVING vault so a FUTURE state_store wipe restores their real owner
+    # instead of losing it (or, pre-R-F2466, fabricating the operator's). Only
+    # entries with a real user_id are captured (owner-less stays owner-less); each
+    # run_id is upserted once per process. Vault-DB writes — NOT state_store, so no
+    # impact on the R-F2277 write ceiling.
+    try:
+        from .dd_vault import get_vault as _get_dd_vault3
+        _own_vault = None
+        for _e in index[:limit]:
+            if not isinstance(_e, dict):
+                continue
+            _euid = (_e.get("user_id") or "").strip()
+            _erid = (_e.get("run_id") or "").strip()
+            if not (_euid and _erid) or _erid in _R2469_OWNER_BACKFILLED:
+                continue
+            if _own_vault is None:
+                _own_vault = _get_dd_vault3()
+            _own_vault.record_report_owner(
+                _erid,
+                canonical_entity_id=_e.get("canonical_entity_id"),
+                user_id=_euid,
+                user_email_domain=_e.get("user_email_domain"),
+                share_to_company=_e.get("share_to_company", True),
+            )
+            _R2469_OWNER_BACKFILLED.add(_erid)
+    except Exception as _bf_err:
+        logger.debug("R-F2469 ownership backfill failed (non-fatal): %s", _bf_err)
 
     # R-F607 / R-F608 — apply user-scoped filter AFTER repair/backfill so
     # admin-side rewrites still happen unconditionally. The filter only

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2469,
+  "next_available": 2471,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18631,6 +18631,24 @@
       "r_number": "R-F2468",
       "title": "telegram intel cards and data audit",
       "claimed_at": "2026-07-08T05:46:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2469",
+      "title": "durable per-run DD ownership: survive state_store wipe (dd_report_owners table in vault)",
+      "claimed_at": "2026-07-08T06:01:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2470",
+      "title": "fix lpush seq UNIQUE-constraint race: derive seq from MAX(list_entries) not a drifting counter (dropped watchlist alerts)",
+      "claimed_at": "2026-07-08T06:06:33Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

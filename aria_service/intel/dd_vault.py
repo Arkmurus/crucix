@@ -79,6 +79,22 @@ CREATE TABLE IF NOT EXISTS financial_profiles (
     updated_at          REAL NOT NULL
 );
 
+-- R-F2469 — per-RUN report ownership so ownership SURVIVES a state_store wipe.
+-- The report index (which carries user_id) lives in the WIPEABLE state_store; this
+-- vault DB (/data/dd_vault.db) survives. Keyed by run_id — PER-RUN and multi-user-
+-- safe, unlike dd_cases which is per-entity (one row per canonical_entity_id, so it
+-- cannot hold two tenants' ownership of the same entity). Written at persist time,
+-- read on index rebuild to restore the REAL owner instead of fabricating one (the
+-- R-F2466 cross-tenant-leak class). Owner-less runs write nothing → stay owner-less.
+CREATE TABLE IF NOT EXISTS dd_report_owners (
+    run_id              TEXT PRIMARY KEY,
+    canonical_entity_id TEXT,
+    user_id             TEXT,
+    user_email_domain   TEXT,
+    share_to_company    INTEGER NOT NULL DEFAULT 1,
+    created_at          REAL NOT NULL
+);
+
 INSERT OR IGNORE INTO vault_meta (key, value) VALUES ('schema_version', '1');
 """
 
@@ -202,6 +218,68 @@ class DDVault:
             "entity_name": entity_name,
             "version": version,
             "is_new": existing is None,
+        }
+
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
+    def record_report_owner(
+        self,
+        run_id: str,
+        *,
+        canonical_entity_id: str | None = None,
+        user_id: str | None = None,
+        user_email_domain: str | None = None,
+        share_to_company: bool = True,
+    ) -> None:
+        """R-F2469 — persist per-RUN ownership so it SURVIVES a state_store wipe.
+
+        Written at DD persist time. On an index rebuild from the vault (which has no
+        per-user ownership on dd_cases), list_reports reads this to restore the REAL
+        owner instead of fabricating one (the R-F2466 leak). No-op when user_id is
+        empty — an owner-less run must STAY owner-less (fail-closed), never invented.
+        """
+        if not run_id or not (user_id or "").strip():
+            return
+        conn = self._get_conn()
+        conn.execute(
+            """INSERT INTO dd_report_owners
+                 (run_id, canonical_entity_id, user_id, user_email_domain,
+                  share_to_company, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(run_id) DO UPDATE SET
+                 canonical_entity_id = excluded.canonical_entity_id,
+                 user_id             = excluded.user_id,
+                 user_email_domain   = excluded.user_email_domain,
+                 share_to_company    = excluded.share_to_company""",
+            (
+                run_id,
+                canonical_entity_id,
+                user_id.strip(),
+                (user_email_domain or "").strip().lower() or None,
+                1 if share_to_company else 0,
+                time.time(),
+            ),
+        )
+        conn.commit()
+
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
+    def get_report_owner(self, run_id: str) -> dict[str, Any] | None:
+        """R-F2469 — return {user_id, user_email_domain, share_to_company} for a
+        run_id, or None when unknown (→ the caller keeps the row owner-less,
+        fail-closed). Immune to a state_store wipe (this table is in the vault DB)."""
+        if not run_id:
+            return None
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT user_id, user_email_domain, share_to_company "
+            "FROM dd_report_owners WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        if not row or not row[0]:
+            return None
+        return {
+            "user_id": row[0],
+            "user_email_domain": row[1],
+            "share_to_company": bool(row[2]),
         }
 
     @fail_wire(module="dd_vault", gap_type="engine_failure")
