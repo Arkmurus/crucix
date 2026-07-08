@@ -880,7 +880,8 @@ async def lifespan(app: FastAPI):
     # so this block is byte-identical to legacy when the flag is off. The worker
     # connects the queue db then drains absorb payloads past the state_store writer
     # at bounded concurrency (see brain_hook.brain_queue_drain_loop).
-    if os.environ.get("ARIA_BRAIN_QUEUE_ENABLED", "0") == "1":
+    import os as _os2507  # local: lifespan has function-local `import os as _os` later
+    if _os2507.environ.get("ARIA_BRAIN_QUEUE_ENABLED", "0") == "1":
         async def _brain_queue_drain():
             await asyncio.sleep(20)  # let the state store + boot settle first
             from .intel import brain_hook as _bh2507
