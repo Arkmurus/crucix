@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2498,
+  "next_available": 2499,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -18907,14 +18907,25 @@
       "title": "tbml rollup never-false-clean: separate INDETERMINATE from screened + count anomalies by grade (anomaly_tier key never existed -> always 0)",
       "claimed_at": "2026-07-08T11:01:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6a6aac3f",
+      "notes": null,
+      "shipped_at": "2026-07-08T11:20:49Z"
     },
     {
       "r_number": "R-F2497",
       "title": "§24 pre-flight hardening: relocate eval-set copy out of data/training + wire n=155 PI set into the eval cycle",
       "claimed_at": "2026-07-08T11:14:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e8458599",
+      "notes": null,
+      "shipped_at": "2026-07-08T11:20:49Z"
+    },
+    {
+      "r_number": "R-F2498",
+      "title": "v0.5 DD-depth training-corpus builder (reward-verified distillation)",
+      "claimed_at": "2026-07-08T11:28:22Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
