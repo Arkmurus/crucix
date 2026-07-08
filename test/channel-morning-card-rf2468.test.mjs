@@ -9,6 +9,10 @@ import path from 'node:path';
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-channel-rf2468-'));
 process.env.CHANNEL_EDITORIAL_STATE_PATH = path.join(tempDir, 'posted.json');
+// R-F2479 added cross-day dedup to the editorial path; isolate the dedup state
+// to a fresh temp file so this test does not read shared/prod posted-keys (which
+// would pre-dedup the editorial and make the assertion non-deterministic).
+process.env.CHANNEL_POST_DEDUP_PATH = path.join(tempDir, 'dedup.json');
 
 const { handleMorningSignalCron } = await import('../lib/telegram/channelServerHooks.mjs');
 
@@ -30,6 +34,7 @@ describe('Channel morning cron cards', () => {
   after(() => {
     global.fetch = originalFetch;
     delete process.env.CHANNEL_EDITORIAL_STATE_PATH;
+    delete process.env.CHANNEL_POST_DEDUP_PATH;
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
