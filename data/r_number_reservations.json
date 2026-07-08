@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2511,
+  "next_available": 2512,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19017,9 +19017,10 @@
       "title": "durable brain_ingest_queue: native SQLite queue file + one drain worker + P0-P3 priority + 202-on-enqueue + retry/DLQ, decoupling brain ingest from the event loop (single-writer serialization is the DD-latency ceiling); flag-gated dark rollout",
       "claimed_at": "2026-07-08T17:55:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6d5edbf1",
+      "notes": null,
+      "shipped_at": "2026-07-08T21:03:56Z"
     },
     {
       "r_number": "R-F2508",
@@ -19045,6 +19046,16 @@
       "r_number": "R-F2510",
       "title": "F5 codex — rebrand package.json crucix->ARIA (name/description/author), buyer-facing DD polish; name not runtime-referenced",
       "claimed_at": "2026-07-08T21:00:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7190be8b",
+      "notes": null,
+      "shipped_at": "2026-07-08T21:10:29Z"
+    },
+    {
+      "r_number": "R-F2511",
+      "title": "DD 0-officers root fix: CH _get retries transient 429/timeout (was silently empty under DD load) + surfaces persistent unavailability (never-false-clean); DD parses officers/psc {current,past,total} dicts as lists + registered_address dict",
+      "claimed_at": "2026-07-08T21:32:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

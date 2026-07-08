@@ -3213,19 +3213,46 @@ async def _run_identity(
                 )
                 report.identity.meta.subcalls += 1
                 if isinstance(ch_result, dict):
+                    # R-F2511 — parse investigate_uk_entity's ACTUAL shape. It returns
+                    # officers/psc as {current,past,total} DICTS (not flat lists) and the
+                    # profile carries `registered_address` (a dict), NOT
+                    # registered_office_address.address_snippet. The old parse assigned the
+                    # summary dict to `directors` and read the wrong address key, so even a
+                    # SUCCESSFUL GB lookup mis-shaped the data (and psc_list[:10] TypeError'd).
+                    _ch_unavail = companies_house.consume_unavailable()
                     profile = ch_result.get("profile") or ch_result.get("company") or {}
-                    report.identity.registration_number = profile.get("company_number") or registration_number
-                    report.identity.registration_status = profile.get("company_status")
-                    report.identity.incorporation_date = profile.get("date_of_creation")
-                    report.identity.registered_address = (profile.get("registered_office_address") or {}).get("address_snippet") if isinstance(profile.get("registered_office_address"), dict) else profile.get("registered_office_address")
-                    report.identity.declared_activity = ", ".join(profile.get("sic_codes") or [])[:200] or profile.get("sic_description")
-                    report.identity.directors = ch_result.get("officers") or []
-                    report.identity.shareholders = ch_result.get("psc") or []
+                    if profile.get("company_number"):
+                        report.identity.registration_number = profile.get("company_number")
+                    report.identity.registration_status = profile.get("company_status") or report.identity.registration_status
+                    report.identity.incorporation_date = profile.get("date_of_creation") or report.identity.incorporation_date
+                    _addr = profile.get("registered_address") or profile.get("registered_office_address")
+                    if isinstance(_addr, dict):
+                        report.identity.registered_address = ", ".join(
+                            str(v) for v in (_addr.get("line1"), _addr.get("address_snippet"),
+                                             _addr.get("locality"), _addr.get("postal_code"),
+                                             _addr.get("country")) if v
+                        ) or report.identity.registered_address
+                    elif isinstance(_addr, str) and _addr:
+                        report.identity.registered_address = _addr
+                    report.identity.declared_activity = ", ".join(profile.get("sic_codes") or [])[:200] or report.identity.declared_activity
+                    _off = ch_result.get("officers")
+                    report.identity.directors = (_off.get("current") if isinstance(_off, dict) else _off) or []
+                    _psc_raw = ch_result.get("psc")
+                    report.identity.shareholders = (_psc_raw.get("current") if isinstance(_psc_raw, dict) else _psc_raw) or []
+                    # never-false-clean: an empty CH result caused by a rate-limit/timeout
+                    # (after retries) must SURFACE as a gap, not read as "verified: no
+                    # directors/PSC". A genuine not-found still surfaces its error.
+                    if _ch_unavail and not report.identity.directors:
+                        report.identity.data_gaps.append(
+                            f"Companies House {_ch_unavail} — directors/PSC NOT confirmed "
+                            f"(registry lookup could not complete); re-run when available")
+                    elif not ch_result.get("found") and ch_result.get("error"):
+                        report.identity.data_gaps.append(f"Companies House: {ch_result.get('error')}")
 
                     # ── PSC-reverse: screen each beneficial owner against sanctions ──
                     # 2026-04-12: "Which people control this company, and are any of
                     # them sanctioned?" Surfaces hidden risk from beneficial owners.
-                    psc_list = ch_result.get("psc") or []
+                    psc_list = report.identity.shareholders
                     if psc_list:
                         from . import sanctions as _san
                         from ._sanctions_classify import classify_matches as _cm_psc, SEVERITY_RANK

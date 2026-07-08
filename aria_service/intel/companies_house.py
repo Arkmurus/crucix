@@ -28,6 +28,8 @@ gather directors / incorporation date / PSC and correctly data-starve to INSUFFI
 from __future__ import annotations
 from .engine_wiring import wire_failure
 
+import asyncio
+import contextvars
 import logging
 import os
 import re
@@ -42,6 +44,36 @@ logger = logging.getLogger("aria.intel.companies_house")
 _BASE_URL = "https://api.company-information.service.gov.uk"
 _API_KEY = os.getenv("COMPANIES_HOUSE_API_KEY", "").strip()
 _TIMEOUT = 15.0
+
+# R-F2511 — CH 429 (rate-limit: 600 req/5min free tier) + timeouts are TRANSIENT.
+# _get retries them with backoff instead of silently returning empty, which made GB
+# DDs report 0 officers under load (the DD fires search+profile+officers+PSC+filing,
+# and standalone returned 3 while in-DD returned 0 with no error). On persistent
+# unavailability we flag a per-async-context ContextVar so the caller surfaces a
+# data-gap (never-false-clean: a rate-limited empty must NOT read as "verified: no
+# directors"). ContextVar is task-local → safe under concurrent DDs.
+_MAX_RETRIES = int(os.getenv("COMPANIES_HOUSE_MAX_RETRIES", "3"))
+_BACKOFF_BASE = 1.5
+_ch_unavailable: contextvars.ContextVar = contextvars.ContextVar("ch_unavailable", default=None)
+
+
+def _mark_unavailable(reason: str) -> None:
+    try:
+        _ch_unavailable.set(reason)
+    except Exception:
+        pass
+
+
+def consume_unavailable() -> str | None:
+    """Return + CLEAR the last CH-unavailability reason in this async context
+    (None if all calls were healthy). Callers read this after a lookup to decide
+    whether an empty result is 'genuinely no data' vs 'CH was unavailable'."""
+    try:
+        r = _ch_unavailable.get()
+        _ch_unavailable.set(None)
+        return r
+    except Exception:
+        return None
 
 
 @fail_wire(module="companies_house", gap_type="api_missing")
@@ -96,8 +128,12 @@ def extract_company_number(text: str) -> str | None:
 
 # ── API calls ──────────────────────────────────────────────────────────────
 
-async def _get(path: str) -> dict | None:
-    """GET from Companies House API. Returns parsed JSON or None."""
+async def _get(path: str, _attempt: int = 0) -> dict | None:
+    """GET from Companies House API. Returns parsed JSON, or None on genuine 404 /
+    persistent failure. R-F2511 — 429 (rate-limit) and timeouts are TRANSIENT and are
+    RETRIED with backoff (respecting Retry-After) rather than silently returning empty;
+    on persistent failure `_mark_unavailable` flags the async context so the caller can
+    surface a data-gap (never-false-clean). Only a real 404 returns None-as-not-found."""
     if not is_enabled():
         return None
     url = f"{_BASE_URL}{path}"
@@ -107,12 +143,28 @@ async def _get(path: str) -> dict | None:
             if resp.status_code == 404:
                 return None
             if resp.status_code == 429:
-                logger.warning("Companies House rate limited")
+                if _attempt < _MAX_RETRIES:
+                    _ra = (resp.headers.get("Retry-After") or "").strip()
+                    _wait = min(8.0, float(_ra)) if _ra.isdigit() else _BACKOFF_BASE * (_attempt + 1)
+                    logger.warning("Companies House rate limited (429) — retry %d/%d after %.1fs (%s)",
+                                   _attempt + 1, _MAX_RETRIES, _wait, path)
+                    await asyncio.sleep(_wait)
+                    return await _get(path, _attempt + 1)
+                logger.warning("Companies House rate limited (429) — exhausted %d retries (%s)", _MAX_RETRIES, path)
+                _mark_unavailable("rate_limited")
                 return None
             if resp.status_code != 200:
                 logger.debug("CH API %s returned %d", path, resp.status_code)
                 return None
             return resp.json()
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as e:
+        # Transient network/timeout — retry with backoff before giving up.
+        if _attempt < _MAX_RETRIES:
+            await asyncio.sleep(_BACKOFF_BASE * (_attempt + 1))
+            return await _get(path, _attempt + 1)
+        logger.debug("CH API request failed after %d retries: %s", _MAX_RETRIES, e)
+        _mark_unavailable("timeout")
+        return None
     except Exception as e:
         logger.debug("CH API request failed: %s", e)
         return None
