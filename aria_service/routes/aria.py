@@ -15847,7 +15847,14 @@ async def brain_signal_ep(request: Request, background_tasks: _BackgroundTasks):
     sig_type = (body.get("signal_type") or "signal").strip()
     metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
     if not content:
-        raise HTTPException(status_code=400, detail="content required")
+        # R-F2519 (log-review F3) — an empty single signal is a no-op, not a client
+        # error. The old 400 cluttered logs + read as a delivery FAILURE (observed live:
+        # POST /brain/signal 400 while /bulk 200). Match the bulk endpoint, which silently
+        # DROPS empties, and log the SOURCE at debug so a sender that keeps posting empties
+        # (WA listener / server.mjs proxy — the non-sweep single-signal callers) is
+        # diagnosable without a 4xx.
+        _log.debug("brain/signal: empty-content signal dropped (source=%s type=%s)", source, sig_type)
+        return {"ok": True, "accepted": False, "skipped": "empty_content", "source": source}
 
     _is_failure = any(t in sig_type.lower()
                       for t in ("fail", "error", "timeout", "404", "unavailable", "reject"))
@@ -19587,10 +19594,31 @@ CRITICAL: Arkmurus is the broker READING this intel — the viewer, never a mark
                 # of a wrong "Arkmurus cited as potential supplier" citation.
                 if "arkmurus" in _summary.lower():
                     _summary = ""
+                _win_probability_raw = l.get("win_probability")
+                try:
+                    _win_probability = float(_win_probability_raw)
+                except (TypeError, ValueError):
+                    _win_probability = None
+                try:
+                    _signal_count = max(0, int(l.get("signal_count") or 0))
+                except (TypeError, ValueError):
+                    _signal_count = 0
+                _urgency = str(l.get("urgency", "")).upper()
+                if _urgency not in {"HOT", "WARM", "COLD"}:
+                    if _win_probability is None:
+                        _urgency = "WARM" if _signal_count > 0 else "COLD"
+                    elif _win_probability >= 60:
+                        _urgency = "HOT"
+                    elif _win_probability >= 30:
+                        _urgency = "WARM"
+                    else:
+                        _urgency = "COLD"
                 norm.append({
                     "market": market,
                     "signal_summary": _summary,
-                    "signal_count": max(0, int(l.get("signal_count") or 0)),
+                    "signal_count": _signal_count,
+                    "urgency": _urgency,
+                    "win_probability": _win_probability,
                     "source": "brain_lead_hunt",
                 })
             generated_at = datetime.now(timezone.utc).isoformat()
@@ -24443,6 +24471,15 @@ async def health_perf_ep():
     except Exception as _bqe:
         _log.debug("health/perf brain_queue read failed: %s", _bqe)
 
+    # R-F2519 (log-review F1) — event-loop heartbeat-stall metric (count/worst/last),
+    # so the recurring SQLite/thread-pool pressure is trackable, not just log-scattered.
+    heartbeat_stats: dict = {}
+    try:
+        from ..intel import continuous_profiler as _cp2519
+        heartbeat_stats = _cp2519.get_stall_stats()
+    except Exception as _hbe:
+        _log.debug("health/perf heartbeat read failed: %s", _hbe)
+
     return {
         "build_rev": base.get("build_rev"),
         "status": base.get("status"),
@@ -24454,6 +24491,7 @@ async def health_perf_ep():
         "verification_24h": verify_stats,
         "autonomy": autonomy_state,
         "brain_queue": brain_queue,  # R-F2507 durable ingest-queue depth/age/DLQ
+        "heartbeat": heartbeat_stats,  # R-F2519 event-loop stall count/worst/last
         "llm_providers": providers,
         # R-F400: counts + retention policy. ARIA's tool dispatch (R-F399)
         # will quote these directly when asked introspective questions.

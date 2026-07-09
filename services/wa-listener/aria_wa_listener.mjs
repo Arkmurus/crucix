@@ -1077,6 +1077,13 @@ async function brainGet(path) {
 const HEARTBEAT_INTERVAL_MS = 180000; // 3 min
 let _heartbeatTimer = null;
 async function sendHeartbeat() {
+  // R-F2519 (log-review F6) — emit a LOCAL liveness log too, not only the (silent) brain
+  // beat. The review could not see fresh WA health via `flyctl logs -a aria-wa` (only
+  // stale prior-day lines) because liveness was a brain POST with no local log line. This
+  // makes current WA liveness visible in the Fly log buffer.
+  try {
+    console.log(`[WA] heartbeat — alive connected=${!!sock} heard=${typeof messagesHeard !== 'undefined' ? messagesHeard : '?'}`);
+  } catch { /* logging must never break the beat */ }
   try {
     await brainPost('/api/aria/liveness/beat', {
       limb: 'aria-wa',

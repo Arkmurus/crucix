@@ -48,6 +48,11 @@ _state: dict[str, Any] = {
     "last_sample_at": 0.0,
     "stall_detected": False,
     "main_loop_heartbeat": 0.0,
+    # R-F2519 (log-review F1) — count stall EVENTS as a metric, not only a log warning,
+    # so the recurring event-loop pressure is trackable on /health/perf over time.
+    "stall_count": 0,
+    "last_stall_at": 0.0,
+    "max_stall_s": 0.0,
 }
 
 
@@ -77,10 +82,17 @@ def _sample_thread() -> None:
             if heartbeat > 0 and (time.time() - heartbeat) > _STALL_THRESHOLD_S:
                 if not _state["stall_detected"]:
                     _state["stall_detected"] = True
+                    _stall_s = time.time() - heartbeat
+                    # R-F2519 (F1) — record the stall EVENT as a metric.
+                    _state["stall_count"] += 1
+                    _state["last_stall_at"] = time.time()
+                    if _stall_s > _state["max_stall_s"]:
+                        _state["max_stall_s"] = _stall_s
                     logger.warning(
                         "[continuous_profiler] Main loop heartbeat stale for "
-                        "%.1fs — possible event-loop stall. Top frames: %s",
-                        time.time() - heartbeat,
+                        "%.1fs — possible event-loop stall (stall #%d). Top frames: %s",
+                        _stall_s,
+                        _state["stall_count"],
                         _state["samples"].most_common(5),
                     )
         except Exception:
@@ -95,6 +107,20 @@ async def _heartbeat_tick() -> None:
     while _state["running"]:
         await asyncio.sleep(1.0)
         _state["main_loop_heartbeat"] = time.time()
+
+
+def get_stall_stats() -> dict:
+    """R-F2519 (log-review F1) — heartbeat-stall metric for /health/perf. Reports the
+    count of event-loop stall EVENTS (heartbeat stale beyond the threshold), the worst
+    stall seen, and how long ago the last one was — so recurring pressure is trackable
+    over time, not just visible as scattered log warnings."""
+    _last = _state.get("last_stall_at", 0.0)
+    return {
+        "stall_count": int(_state.get("stall_count", 0)),
+        "max_stall_s": round(float(_state.get("max_stall_s", 0.0)), 2),
+        "last_stall_age_s": round(time.time() - _last, 1) if _last else None,
+        "threshold_s": _STALL_THRESHOLD_S,
+    }
 
 
 async def _report_loop() -> None:

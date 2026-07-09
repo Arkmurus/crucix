@@ -231,11 +231,18 @@ const sourceHealth = {}; // { sourceName: { ok: N, fail: N, lastStatus: 'ok'|'er
 
 function updateSourceHealth(timingMap) {
   for (const [name, info] of Object.entries(timingMap || {})) {
-    if (!sourceHealth[name]) sourceHealth[name] = { ok: 0, fail: 0, lastStatus: null, lastMs: 0 };
+    if (!sourceHealth[name]) sourceHealth[name] = { ok: 0, fail: 0, lastStatus: null, lastMs: 0, recent: [] };
     if (info.status === 'ok') sourceHealth[name].ok++;
     else                      sourceHealth[name].fail++;
     sourceHealth[name].lastStatus = info.status;
     sourceHealth[name].lastMs     = info.ms || 0;
+    // R-F2519 (log-review F2) — keep a rolling window of the last 10 sweep outcomes so
+    // consumers can show "degraded in last N sweeps" instead of only the CURRENT sweep.
+    // External-source quality is bursty; a one-sweep view flaps green↔degraded and hides
+    // a source that's been intermittently failing.
+    const rec = sourceHealth[name].recent || (sourceHealth[name].recent = []);
+    rec.push(info.status === 'ok' ? 1 : 0);
+    if (rec.length > 10) rec.shift();
   }
 }
 
@@ -243,7 +250,9 @@ function getSourceHealthSummary() {
   return Object.entries(sourceHealth).map(([name, h]) => {
     const total      = h.ok + h.fail;
     const reliability = total > 0 ? Math.round((h.ok / total) * 100) : null;
-    return { name, ok: h.ok, fail: h.fail, reliability, lastStatus: h.lastStatus, lastMs: h.lastMs };
+    const recent = h.recent || [];
+    const degradedInLastN = recent.filter(v => v === 0).length;  // R-F2519 F2
+    return { name, ok: h.ok, fail: h.fail, reliability, lastStatus: h.lastStatus, lastMs: h.lastMs, degradedInLastN, recentWindow: recent.length };
   }).sort((a, b) => (a.reliability ?? 100) - (b.reliability ?? 100)); // worst first
 }
 
