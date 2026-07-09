@@ -19094,9 +19094,10 @@
       "title": "DD CH-officer backfill: when identity layer times out under load (subcalls=0, directors empty), re-fetch CH officers/PSC outside the 90s layer cap in the main DD flow so real GB companies get directors instead of INSUFFICIENT",
       "claimed_at": "2026-07-09T06:00:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2b48759c",
+      "notes": null,
+      "shipped_at": "2026-07-09T06:35:22Z"
     },
     {
       "r_number": "R-F2516",
