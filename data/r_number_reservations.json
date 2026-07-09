@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2515,
+  "next_available": 2517,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19057,9 +19057,10 @@
       "title": "DD 0-officers root fix: CH _get retries transient 429/timeout (was silently empty under DD load) + surfaces persistent unavailability (never-false-clean); DD parses officers/psc {current,past,total} dicts as lists + registered_address dict",
       "claimed_at": "2026-07-08T21:32:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dce11df5",
+      "notes": null,
+      "shipped_at": "2026-07-08T22:40:33Z"
     },
     {
       "r_number": "R-F2512",
@@ -19083,6 +19084,24 @@
       "r_number": "R-F2514",
       "title": "v0.7 framework corpus: scale + counter-intel + PI-resistance protective rows",
       "claimed_at": "2026-07-08T21:51:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2515",
+      "title": "DD CH-officer backfill: when identity layer times out under load (subcalls=0, directors empty), re-fetch CH officers/PSC outside the 90s layer cap in the main DD flow so real GB companies get directors instead of INSUFFICIENT",
+      "claimed_at": "2026-07-09T06:00:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2516",
+      "title": "fix: model network volume deleted -> create new 100GB volume + point ARIA_RUNPOD_VOLUME_ID (unblocks recover/persistent cycles)",
+      "claimed_at": "2026-07-09T06:00:34Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

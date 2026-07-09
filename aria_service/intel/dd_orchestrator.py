@@ -8704,6 +8704,52 @@ async def _orchestrate_dd_impl(
 
             await asyncio.gather(_run_network_layer(), _run_digital_layer(), return_exceptions=True)
 
+        # R-F2515 — Companies House officer BACKFILL, outside the starved identity budget.
+        # The identity layer is wrapped in wait_for(90s); under warmup/L3 load its pre-CH
+        # work (GLEIF + sanctions screens) can burn the whole budget, so it's CANCELLED
+        # before the CH lookup runs (proven live: identity.meta.error='timeout after 90s',
+        # subcalls=0) → a REAL GB company reports 0 directors → INSUFFICIENT. reg# is still
+        # populated (GLEIF sets it independently). Re-fetch CH officers/PSC HERE, in the main
+        # DD flow (bounded by the much-larger DD hard budget, NOT the 90s layer cap). Lean:
+        # get_officers/get_psc by reg# (2 calls); fall back to name resolution if reg# is
+        # missing. Fires ONLY on the empty-GB failure case; never overwrites populated data.
+        try:
+            if (report.identity.jurisdiction_iso2 == "GB"
+                    and not report.identity.directors):
+                from . import companies_house as _ch2515
+                if _ch2515.is_enabled():
+                    _regnum = report.identity.registration_number
+                    _offs: list = []
+                    if _regnum:
+                        _offs = await _ch2515.get_officers(_regnum) or []
+                    else:
+                        _bf = await _ch2515.investigate_uk_entity(company_name=report.identity.entity_name)
+                        if isinstance(_bf, dict) and _bf.get("found"):
+                            _bo = _bf.get("officers")
+                            _offs = (_bo.get("current") if isinstance(_bo, dict) else _bo) or []
+                            _regnum = _bf.get("company_number") or _regnum
+                    _cur = [o for o in _offs if o.get("is_current")] or _offs
+                    if _cur:
+                        report.identity.directors = _cur
+                        if _regnum and not report.identity.registration_number:
+                            report.identity.registration_number = _regnum
+                        if _regnum and not report.identity.shareholders:
+                            try:
+                                _pscs = await _ch2515.get_psc(_regnum) or []
+                                _pcur = [p for p in _pscs if p.get("is_current")] or _pscs
+                                if _pcur:
+                                    report.identity.shareholders = _pcur
+                            except Exception:
+                                pass
+                        report.identity.data_gaps.append(
+                            "Companies House officers backfilled after the identity layer was "
+                            "cut off under load (directors/PSC recovered post-timeout, R-F2515)")
+                        logger.info("R-F2515 CH backfill: recovered %d directors for %s (reg %s) "
+                                    "after identity-layer timeout", len(_cur),
+                                    report.identity.entity_name, _regnum)
+        except Exception as _bf_e:
+            logger.debug("R-F2515 CH backfill failed (non-fatal): %s", _bf_e)
+
         # ──         # ?? LAYER 5b: SWEEP INTELLIGENCE (R-F1110) ??
         # Queries the brain for recent signals from the 49-source Node sweep.
         # Best-effort enrichment -- never blocks the DD report.
