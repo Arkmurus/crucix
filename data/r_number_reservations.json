@@ -19113,9 +19113,10 @@
       "title": "sovereign shadow activation — ARIA_LLM_URL two-track",
       "claimed_at": "2026-07-09T17:22:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a9f0df9b",
+      "notes": null,
+      "shipped_at": "2026-07-09T18:20:35Z"
     },
     {
       "r_number": "R-F2518",
