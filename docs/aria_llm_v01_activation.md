@@ -9,7 +9,51 @@
 > "R-F2410 TWO-TRACK ACTIVATION" section at the bottom of this file first** — it is
 > the current, authoritative runbook. The legacy steps are kept for reference only.
 
-**Status: READY TO ACTIVATE.** RunPod credit available. Follow the steps below.
+**Status: 🟢 LIVE IN SHADOW (R-F2517, 2026-07-09).** See the LIVE ACTIVATION RECORD directly below.
+
+---
+
+## 🟢 LIVE ACTIVATION RECORD — sovereign shadow (R-F2517, 2026-07-09)
+
+Operator directive: "go to shadow". Sovereign v0.7 DPO adapter promoted to the
+model_router **shadow** stage (measurement-only, zero user exposure).
+
+**What is live**
+- **Serving pod**: `9qqei97al7gke4` (H100 PCIe, US-KS-2, on model volume `swsj40xxvl`).
+  vLLM `v0.24.0` serving base `unsloth/mistral-7b-instruct-v0.3` (loaded offline from the
+  volume HF cache) + LoRA `aria-llm-v0.1` = `/workspace/checkpoints/aria_llm_v0_4_dpo`
+  (the persisted v0.7 DPO adapter, r=32), `--max-model-len 16384`, port **8888**.
+- **Endpoint**: `https://9qqei97al7gke4-8888.proxy.runpod.net/v1`
+- **aria-intel secrets** (v2393): `ARIA_LLM_URL`=<endpoint>, `ARIA_LLM_MODEL`=`aria-llm-v0.1`,
+  `ARIA_LLM_KEY`="", `ARIA_LLM_SHADOW`=`0`, `ARIA_LLM_MAX_MODEL_LEN`=`16384`.
+- **Mode**: `ARIA_LLM_PROMOTION_STAGE` unset → `model_router.promotion_stage()` defaults to
+  **shadow**. On non-stream grounded turns the sovereign generates ALONGSIDE DeepSeek, the
+  grounded-rate comparison is logged to the brain, and **DeepSeek is shipped** (zero user
+  risk). `ARIA_LLM_SHADOW=0` keeps the sovereign OUT of the fallback chain entirely, so it
+  never serves a user even on DeepSeek failure. Sovereign error/timeout → DeepSeek,
+  reported operational (§14).
+- **Verified live**: env propagated into the running machine; a grounded turn through
+  `/api/aria/chat` reached the sovereign via the proxy (`100.64.1.3 → POST /v1/chat/completions 200`);
+  user shipped DeepSeek. `model_router` is wired at `aria_engine.py:3983` (chat) + `:4895` (stream).
+
+**Cost guard**: H100 @ ~$2.89/hr. A pod-side self-stop (`/workspace/selfstop.sh`, `sleep 18000`)
+auto-stops the pod ~5h after launch (≈$14.5 cap), verified persistent across SSH sessions.
+Balance at activation ~$27.36. **Sustained shadow needs a RunPod top-up + ideally a cheaper
+inference GPU (A40/L40S).**
+
+**Promote / roll back**
+- Promote to canary: `flyctl secrets set ARIA_LLM_PROMOTION_STAGE=canary ARIA_LLM_CANARY_PCT=10 -a aria-intel`.
+- Promote to serve: `ARIA_LLM_PROMOTION_STAGE=serve` (sovereign serves ALL grounded turns, DeepSeek fallback).
+- **Roll back (one step)**: `flyctl secrets unset ARIA_LLM_URL -a aria-intel` → two-track goes pass-through, DeepSeek-only.
+- **Stop the pod**: `python scripts/admin/runpod_cost_guard.py` (or RunPod dashboard → Stop; volume `swsj40xxvl` persists the adapter for restart).
+
+**Known minor**: vLLM logs a deprecation warning that it uses the base tokenizer for the LoRA
+(the adapter ships its own tokenizer, identical vocab for Mistral v0.3 — completions are
+coherent, non-blocking). Re-serve with `--tokenizer <lora_path>` if a mismatch ever surfaces.
+
+---
+
+**Legacy status: READY TO ACTIVATE.** RunPod credit available. Follow the steps below.
 
 ## When to activate
 
