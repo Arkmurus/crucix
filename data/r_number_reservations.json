@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2520,
+  "next_available": 2521,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19135,6 +19135,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F2520",
+      "title": "shadow stream async fire-and-forget compare — sample streaming traffic",
+      "claimed_at": "2026-07-10T07:29:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9a1b5d1e",
+      "notes": null,
+      "shipped_at": "2026-07-10T07:49:55Z"
     }
   ]
 }

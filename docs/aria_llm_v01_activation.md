@@ -18,6 +18,15 @@
 Operator directive: "go to shadow". Sovereign v0.7 DPO adapter promoted to the
 model_router **shadow** stage (measurement-only, zero user exposure).
 
+**Update 2026-07-10 (R-F2520):** shadow now samples STREAMING traffic (was a no-op → 0 organic
+samples in R-F2517). `model_router.stream_synthesis` shadow ships DeepSeek to the user AND
+fire-and-forgets the sovereign compare after the stream (zero added latency); `complete_synthesis`
+shadow made fire-and-forget too. Deployed `build_rev 9a1b5d1e`. **Serving pod is now
+`y1h0p3wkrm8j2y` (A100 80GB @ $1.39/hr), endpoint `https://y1h0p3wkrm8j2y-8888.proxy.runpod.net/v1`,
+`ARIA_LLM_URL` updated (v2395). Self-stop = 12h backstop (runpodctl). Monitor via
+`model_router.summary().shadow_inflight` + brain `model_router:shadow_compare` signals.** The
+original H100 pod below was stopped (host full, unresumable). Original record kept for reference:
+
 **What is live**
 - **Serving pod**: `9qqei97al7gke4` (H100 PCIe, US-KS-2, on model volume `swsj40xxvl`).
   vLLM `v0.24.0` serving base `unsloth/mistral-7b-instruct-v0.3` (loaded offline from the
