@@ -27,6 +27,10 @@ _ENV = ("ARIA_LLM_URL", "ARIA_LLM_PROMOTION_STAGE",
 def _clean_env(monkeypatch):
     for v in _ENV:
         monkeypatch.delenv(v, raising=False)
+    # R-F2521 — reset the module-global shadow accumulator between tests
+    mr._shadow_stats_acc.update(samples=0, deepseek_sum=0.0, sovereign_sum=0.0,
+                                sovereign_wins=0, sovereign_answered=0)
+    mr._shadow_recent.clear()
     yield
 
 
@@ -316,6 +320,10 @@ async def test_stream_shadow_samples_sovereign_async(monkeypatch):
     await _drain_shadow()
     assert seen["sov"] == 1               # sovereign SAMPLED in background (the new capability)
     assert any("SHADOW grounded-rate" in (k.get("summary") or "") for k in logged)
+    # R-F2521 — the comparison is captured in a readable tally (not dropped)
+    st = mr.shadow_stats()
+    assert st["samples"] == 1
+    assert st["sovereign_answered"] == 1
 
 
 @pytest.mark.asyncio

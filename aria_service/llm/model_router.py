@@ -42,6 +42,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+from collections import deque
 from typing import Any, AsyncGenerator, Callable, Optional
 
 from .provider import LLMResult, LLMProvider
@@ -213,6 +214,47 @@ async def _sovereign_complete(
     return None
 
 
+# R-F2521 — in-memory shadow-comparison accumulator. wire_success telemetry
+# DROPS the summary string (brain_hook.record_signal stores only module+success),
+# so the grounded-rate deltas were un-readable. This keeps a running tally +
+# recent samples in process memory (resets on restart — fine, shadow is a live
+# measurement window) and is exposed via shadow_stats() / the /llm/shadow route.
+_shadow_stats_acc: dict[str, float] = {
+    "samples": 0, "deepseek_sum": 0.0, "sovereign_sum": 0.0,
+    "sovereign_wins": 0, "sovereign_answered": 0,
+}
+_shadow_recent: deque = deque(maxlen=50)  # (deepseek_score, sovereign_score|None)
+
+
+def _record_shadow_stat(deepseek_score: float, sovereign_score: float | None) -> None:
+    _shadow_stats_acc["samples"] += 1
+    _shadow_stats_acc["deepseek_sum"] += deepseek_score
+    if sovereign_score is not None:
+        _shadow_stats_acc["sovereign_answered"] += 1
+        _shadow_stats_acc["sovereign_sum"] += sovereign_score
+        if sovereign_score > deepseek_score:
+            _shadow_stats_acc["sovereign_wins"] += 1
+    _shadow_recent.append((
+        round(deepseek_score, 3),
+        round(sovereign_score, 3) if sovereign_score is not None else None,
+    ))
+
+
+def shadow_stats() -> dict[str, Any]:
+    """Readable summary of the shadow grounded-rate comparison (R-F2521)."""
+    s = _shadow_stats_acc
+    n = int(s["samples"]) or 1
+    ans = int(s["sovereign_answered"]) or 1
+    return {
+        "samples": int(s["samples"]),
+        "sovereign_answered": int(s["sovereign_answered"]),
+        "deepseek_grounded_mean": round(s["deepseek_sum"] / n, 3),
+        "sovereign_grounded_mean": round(s["sovereign_sum"] / ans, 3),
+        "sovereign_win_rate": round(s["sovereign_wins"] / ans, 3),
+        "recent": list(_shadow_recent)[-15:],
+    }
+
+
 def _log_shadow(context: str, base: LLMResult, sov: LLMResult | None) -> None:
     """SHADOW stage — compare grounded-rate of DeepSeek vs sovereign on the SAME
     grounded turn (R-F2397 grounding_reward now parses production context)."""
@@ -220,6 +262,7 @@ def _log_shadow(context: str, base: LLMResult, sov: LLMResult | None) -> None:
         from ..intel import grounding_reward as gr
         b = gr.score(base.text or "", context or "")
         s = gr.score((sov.text if sov else "") or "", context or "")
+        _record_shadow_stat(b.score, s.score if sov else None)  # R-F2521 readable tally
         wire_success(
             module="model_router",
             summary=(f"SHADOW grounded-rate deepseek={b.score:.3f} "

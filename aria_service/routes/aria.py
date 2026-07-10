@@ -4658,6 +4658,16 @@ async def independence_ep():
     return await reasoning_router.get_independence_report()
 
 
+@router.get("/llm/shadow")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def llm_shadow_ep():
+    """R-F2521 — sovereign SHADOW comparison stats (grounded-rate deepseek vs
+    sovereign over live grounded turns). Router config + the readable tally that
+    wire_success telemetry otherwise drops. Read this to decide canary/serve."""
+    from ..llm import model_router as _mr
+    return {"router": _mr.summary(), "shadow": _mr.shadow_stats()}
+
+
 @router.post("/reasoning-library/find")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def reasoning_library_find_ep(request: Request):
