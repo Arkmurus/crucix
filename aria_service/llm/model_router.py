@@ -231,6 +231,75 @@ def _log_shadow(context: str, base: LLMResult, sov: LLMResult | None) -> None:
         logger.debug("[model_router] shadow compare failed: %s", e)
 
 
+# ── Async shadow comparison (R-F2520) ─────────────────────────────────────────
+# Option (a): in the SHADOW stage, generate the sovereign side FIRE-AND-FORGET
+# AFTER the user already has DeepSeek's answer. This lets the STREAM path (which
+# ships DeepSeek and returns immediately) sample the sovereign for the
+# grounded-rate comparison at ZERO added user latency. Pre-R-F2520 shadow only
+# fired on the non-stream path (a sequential await = latency tax), and live
+# traffic is streaming, so it collected nothing (R-F2517 monitoring: 0 organic
+# samples over ~8h). This closes that gap.
+_shadow_bg_tasks: set = set()
+_SHADOW_MAX_INFLIGHT = 32  # cap concurrent shadow calls so a burst can't pile up
+                           # unbounded; drops are wired, never silent.
+
+
+def _shadow_max_inflight() -> int:
+    try:
+        v = int((os.getenv("ARIA_LLM_SHADOW_MAX_INFLIGHT") or "").strip())
+        return v if v >= 1 else _SHADOW_MAX_INFLIGHT
+    except (TypeError, ValueError):
+        return _SHADOW_MAX_INFLIGHT
+
+
+async def _shadow_compare_bg(
+    system_prompt: str, user_message: str, context: str,
+    base_text: str, max_tokens: int,
+) -> None:
+    """Background sovereign generation + grounded-rate log. Never raises."""
+    try:
+        sov = await _sovereign_complete(
+            system_prompt, user_message,
+            max_tokens=max_tokens, timeout=_sovereign_timeout(40.0),
+        )
+        _log_shadow(
+            context,
+            LLMResult(text=base_text, model="deepseek", routed_via="deepseek"),
+            sov,
+        )
+    except Exception as e:  # pragma: no cover — fire-and-forget must never surface
+        logger.debug("[model_router] shadow bg compare failed: %s", e)
+
+
+def _spawn_shadow_compare(
+    system_prompt: str, user_message: str, context: str,
+    base_text: str, max_tokens: int,
+) -> "object | None":
+    """Fire-and-forget the sovereign shadow comparison on the running loop.
+    Zero added user latency — the caller has already shipped DeepSeek. Returns
+    the task (for tests) or None when skipped (no loop / backpressure)."""
+    import asyncio
+    cap = _shadow_max_inflight()
+    if len(_shadow_bg_tasks) >= cap:
+        wire_failure(
+            module="model_router",
+            detail=f"shadow compare dropped — {len(_shadow_bg_tasks)} in flight >= cap {cap}",
+            gap_type="shadow_backpressure",
+            source="model_router:shadow_drop",
+        )
+        return None
+    try:
+        task = asyncio.create_task(
+            _shadow_compare_bg(system_prompt, user_message, context,
+                               base_text, max_tokens)
+        )
+    except RuntimeError:
+        return None  # no running loop (sync caller) — skip
+    _shadow_bg_tasks.add(task)
+    task.add_done_callback(_shadow_bg_tasks.discard)
+    return task
+
+
 async def complete_synthesis(
     base_llm: LLMProvider,
     system_prompt: str,
@@ -256,12 +325,11 @@ async def complete_synthesis(
         base_res = await base_llm.complete(
             system_prompt, user_message, max_tokens=max_tokens, timeout=timeout,
         )
-        sov = await _sovereign_complete(
-            system_prompt, user_message,
-            max_tokens=max_tokens, timeout=_sovereign_timeout(40.0),
-        )
-        _log_shadow(context, base_res, sov)
-        return base_res   # SHIP DeepSeek — zero user risk
+        # R-F2520 — fire-and-forget the sovereign compare so there is NO latency
+        # tax on the shipped DeepSeek answer (was a sequential await pre-R-F2520).
+        _spawn_shadow_compare(system_prompt, user_message, context,
+                              base_res.text or "", max_tokens)
+        return base_res   # SHIP DeepSeek — zero user risk, zero added latency
 
     # decision == "sovereign"
     sov = await _sovereign_complete(
@@ -305,12 +373,29 @@ async def stream_synthesis(
     existing local_brain handler, same as today). SHADOW ships DeepSeek's stream."""
     decision = route_decision(message, context, canary_key=canary_key)
 
-    if decision in ("deepseek", "shadow"):
+    if decision == "deepseek":
         async for chunk in base_llm.stream(
             system_prompt, user_message,
             max_tokens=max_tokens, timeout=timeout, on_done=on_done,
         ):
             yield chunk
+        return
+
+    if decision == "shadow":
+        # R-F2520 — ship DeepSeek's stream to the user AND accumulate it, then
+        # fire-and-forget the sovereign compare AFTER the stream completes. This
+        # samples STREAMING grounded traffic (the dominant path) at ZERO added
+        # user latency — the gap R-F2517 monitoring found (stream shadow was a
+        # no-op, so shadow collected nothing live).
+        _parts: list[str] = []
+        async for chunk in base_llm.stream(
+            system_prompt, user_message,
+            max_tokens=max_tokens, timeout=timeout, on_done=on_done,
+        ):
+            _parts.append(chunk)
+            yield chunk
+        _spawn_shadow_compare(system_prompt, user_message, context,
+                              "".join(_parts), max_tokens)
         return
 
     # decision == "sovereign" — stream sovereign, pre-first-token fallback to DeepSeek.
@@ -368,4 +453,5 @@ def summary() -> dict[str, Any]:
         "canary_pct": _canary_pct(),
         "primary_all": _primary_all(),
         "router_disabled": _router_disabled(),
+        "shadow_inflight": len(_shadow_bg_tasks),  # R-F2520 async compares in flight
     }

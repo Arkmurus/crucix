@@ -98,6 +98,16 @@ def _mock_sovereign_error(monkeypatch):
     monkeypatch.setattr(mr.aria_llm_provider, "complete", _c)
 
 
+async def _drain_shadow():
+    """R-F2520 — await any fire-and-forget shadow-compare bg tasks so a test can
+    assert what the background sampling did (deterministic, no sleeps)."""
+    import asyncio
+    for _ in range(10):
+        if not mr._shadow_bg_tasks:
+            return
+        await asyncio.gather(*list(mr._shadow_bg_tasks), return_exceptions=True)
+
+
 _GROUNDED_MSG = "Summarise findings. [TOOL: web_search] results: OFAC lists Entity A [from mem0:x]"
 _GROUNDED_CTX = "• [1.04] web_search:x\n  ↳ source: mem0:session_eval_abc:2026\n" * 6
 _CLOSED_MSG = "What is the capital of France?"
@@ -138,6 +148,7 @@ async def test_grounded_defaults_to_shadow_not_user_serving(monkeypatch):
     r = await mr.complete_synthesis(base, "sys", "user", message=_GROUNDED_MSG,
                                     context=_GROUNDED_CTX)
     assert r.text == "DEEPSEEK-ANSWER"
+    await _drain_shadow()               # R-F2520: sovereign compare is fire-and-forget
     assert seen["sov"] is True
     assert base.complete_calls == 1
 
@@ -192,11 +203,13 @@ async def test_sovereign_error_falls_back_operational(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_shadow_ships_deepseek_but_runs_sovereign(monkeypatch):
+    """R-F2520: non-stream shadow ships DeepSeek with NO latency tax — the
+    sovereign compare is FIRE-AND-FORGET (not awaited inline), then runs."""
     monkeypatch.setenv("ARIA_LLM_URL", "http://mock-sovereign/v1")
     monkeypatch.setenv("ARIA_LLM_SHADOW", "1")
-    seen = {"sov": False}
+    seen = {"sov": 0}
     async def _c(prompt, *, system="", max_tokens=2048, temperature=0.3, timeout=None, **kw):
-        seen["sov"] = True
+        seen["sov"] += 1
         return {"ok": True, "text": "SOV", "model": "aria-llm", "tokens_in": 1, "tokens_out": 1}
     monkeypatch.setattr(mr.aria_llm_provider, "complete", _c)
     base = _BaseLLM()
@@ -204,7 +217,9 @@ async def test_shadow_ships_deepseek_but_runs_sovereign(monkeypatch):
     r = await mr.complete_synthesis(base, "sys", "user", message=_GROUNDED_MSG,
                                     context=_GROUNDED_CTX)
     assert r.text == "DEEPSEEK-ANSWER"   # user gets DeepSeek
-    assert seen["sov"] is True           # sovereign still generated for comparison
+    assert seen["sov"] == 0              # NOT awaited inline (fire-and-forget = no latency tax)
+    await _drain_shadow()
+    assert seen["sov"] == 1              # sovereign generated for comparison, in background
 
 
 # ── CANARY 0 / 100 ───────────────────────────────────────────────────────────
@@ -267,6 +282,40 @@ async def test_stream_grounded_routes_to_sovereign(monkeypatch):
     assert "".join(out) == "SOV-STREAM"
     assert base.stream_calls == 0
     assert done.get("via") == "sovereign"
+
+
+@pytest.mark.asyncio
+async def test_stream_shadow_samples_sovereign_async(monkeypatch):
+    """R-F2520 (the fix): a STREAMING grounded turn in shadow ships DeepSeek's
+    stream to the user AND fires the sovereign compare in the BACKGROUND — the
+    gap R-F2517 monitoring found (stream shadow used to be a no-op, so shadow
+    collected 0 organic samples). Zero added user latency; the compare is logged."""
+    monkeypatch.setenv("ARIA_LLM_URL", "http://mock-sovereign/v1")
+    # default promotion stage == shadow (no PROMOTION_STAGE set)
+    seen = {"sov": 0}
+    async def _c(prompt, *, system="", max_tokens=2048, temperature=0.3, timeout=None, **kw):
+        seen["sov"] += 1
+        return {"ok": True, "text": "SOV-SHADOW", "model": "aria-llm", "tokens_in": 1, "tokens_out": 1}
+    monkeypatch.setattr(mr.aria_llm_provider, "complete", _c)
+    logged = []
+    monkeypatch.setattr(mr, "wire_success", lambda **kw: logged.append(kw))
+    # deterministic grounded scorer so the assertion doesn't depend on the real one
+    class _Sc:
+        def __init__(self, s): self.score = s
+    monkeypatch.setattr("aria_service.intel.grounding_reward.score",
+                        lambda text, ctx: _Sc(0.5 if text else 0.0))
+    base = _BaseLLM()
+    assert mr.route_decision(_GROUNDED_MSG, _GROUNDED_CTX) == "shadow"
+    out = []
+    async for c in mr.stream_synthesis(base, "sys", "user", message=_GROUNDED_MSG,
+                                       context=_GROUNDED_CTX):
+        out.append(c)
+    assert "".join(out) == "DEEPSEEK"     # user got DeepSeek's stream, unaffected
+    assert base.stream_calls == 1
+    assert seen["sov"] == 0               # fire-and-forget — not called during the stream
+    await _drain_shadow()
+    assert seen["sov"] == 1               # sovereign SAMPLED in background (the new capability)
+    assert any("SHADOW grounded-rate" in (k.get("summary") or "") for k in logged)
 
 
 @pytest.mark.asyncio
