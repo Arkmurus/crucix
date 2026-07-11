@@ -305,6 +305,43 @@ async def test_stream_grounded_routes_to_sovereign(monkeypatch):
     assert done.get("via") == "sovereign"
 
 
+_VCTX = ("• [1.0] web_search: sanctions\n  ↳ source: ofac.treasury.gov | 2026-01\n"
+         "Evidence: the entity is OFAC-designated and UK-registered." + "x" * 200)
+_VMSG = "[TOOL: web_search] summarise the findings"
+
+
+class _CiteLLM:
+    async def complete(self, system, user, *, max_tokens=4096, timeout=60.0):
+        return LLMResult(text="Designated [Source: ofac.treasury.gov]. Indicted [Source: fabricated_court_xyz].",
+                         model="deepseek-chat", routed_via="deepseek")
+    async def stream(self, system, user, *, max_tokens=4096, timeout=120.0, on_done=None):
+        for c in ("Designated [Source: ofac.treasury.gov]. ", "Indicted [Source: fabricated_court_xyz]."):
+            yield c
+        if on_done:
+            on_done(LLMResult(text="x", model="deepseek-chat"))
+
+
+@pytest.mark.asyncio
+async def test_complete_synthesis_strips_fabricated_citation(monkeypatch):
+    """R-F2542: a grounded answer's fabricated [Source: X] is stripped before return."""
+    r = await mr.complete_synthesis(_CiteLLM(), "sys", "user", message=_VMSG, context=_VCTX)
+    assert "ofac.treasury.gov" in r.text          # the real, verifiable source is kept
+    assert "fabricated_court_xyz" not in r.text    # the invented source is gone
+    assert "[unverified]" in r.text                # ...and the claim is flagged
+
+
+@pytest.mark.asyncio
+async def test_stream_synthesis_strips_fabricated_citation(monkeypatch):
+    """R-F2542 (§13 mirror): the streamed grounded answer is verified before it reaches the user."""
+    out = []
+    async for c in mr.stream_synthesis(_CiteLLM(), "sys", "user", message=_VMSG, context=_VCTX):
+        out.append(c)
+    txt = "".join(out)
+    assert "ofac.treasury.gov" in txt
+    assert "fabricated_court_xyz" not in txt
+    assert "[unverified]" in txt
+
+
 @pytest.mark.asyncio
 async def test_stream_shadow_samples_sovereign_async(monkeypatch):
     """R-F2520 (the fix): a STREAMING grounded turn in shadow ships DeepSeek's

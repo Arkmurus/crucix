@@ -377,6 +377,28 @@ def _spawn_shadow_compare(
     return task
 
 
+def _verify_grounded(text: str, context: str, message: str) -> str:
+    """R-F2542 — THE honesty guarantee: strip any citation that does not resolve to
+    the retrieved evidence BEFORE the answer reaches the user, so no fabricated /
+    made-up source can ever ship. Grounded turns only (needs context to verify
+    against). Deterministic, never raises; on any issue returns the text unchanged."""
+    try:
+        if not is_grounded_synthesis(message, context):
+            return text
+        from ..intel import citation_verifier as cv
+        v = cv.verify_and_clean(text or "", context or "")
+        if v.get("fabricated_removed"):
+            wire_success(
+                module="model_router",
+                summary=f"citation-verify: stripped {v['fabricated_removed']} unverified source(s) before shipping",
+                source_id="model_router:citation_verify",
+            )
+            return v["answer"]
+        return text
+    except Exception:  # pragma: no cover — verification must never break a turn
+        return text
+
+
 async def complete_synthesis(
     base_llm: LLMProvider,
     system_prompt: str,
@@ -390,46 +412,52 @@ async def complete_synthesis(
 ) -> LLMResult:
     """Two-track synthesis completion (chat path). Pass-through to DeepSeek when
     the router is inactive (URL unset) — byte-identical to today. On sovereign
-    error/timeout -> DeepSeek fallback, reported operational (§14)."""
+    error/timeout -> DeepSeek fallback, reported operational (§14). R-F2542: the
+    final answer is citation-verified before return — no fabricated source ships."""
     decision = route_decision(message, context, canary_key=canary_key)
 
     if decision == "deepseek":
-        return await base_llm.complete(
+        result = await base_llm.complete(
             system_prompt, user_message, max_tokens=max_tokens, timeout=timeout,
         )
-
-    if decision == "shadow":
-        base_res = await base_llm.complete(
+    elif decision == "shadow":
+        result = await base_llm.complete(
             system_prompt, user_message, max_tokens=max_tokens, timeout=timeout,
         )
         # R-F2520 — fire-and-forget the sovereign compare so there is NO latency
         # tax on the shipped DeepSeek answer (was a sequential await pre-R-F2520).
         _spawn_shadow_compare(system_prompt, user_message, context,
-                              base_res.text or "", max_tokens)
-        return base_res   # SHIP DeepSeek — zero user risk, zero added latency
-
-    # decision == "sovereign"
-    sov = await _sovereign_complete(
-        system_prompt, user_message,
-        max_tokens=max_tokens, timeout=_sovereign_timeout(timeout),
-    )
-    if sov is not None:
-        wire_success(
-            module="model_router",
-            summary="grounded synthesis routed to sovereign (operational)",
-            source_id="model_router:route_sovereign",
+                              result.text or "", max_tokens)
+    else:  # decision == "sovereign"
+        sov = await _sovereign_complete(
+            system_prompt, user_message,
+            max_tokens=max_tokens, timeout=_sovereign_timeout(timeout),
         )
-        return sov
-    # §14 — cooling/error is NOT degraded; fall back to DeepSeek, stay operational.
-    wire_failure(
-        module="model_router",
-        detail="sovereign unavailable on grounded turn — fell back to DeepSeek (operational)",
-        gap_type="llm_fallback",
-        source="model_router:fallback_deepseek",
-    )
-    return await base_llm.complete(
-        system_prompt, user_message, max_tokens=max_tokens, timeout=timeout,
-    )
+        if sov is not None:
+            wire_success(
+                module="model_router",
+                summary="grounded synthesis routed to sovereign (operational)",
+                source_id="model_router:route_sovereign",
+            )
+            result = sov
+        else:
+            # §14 — cooling/error is NOT degraded; fall back to DeepSeek, stay operational.
+            wire_failure(
+                module="model_router",
+                detail="sovereign unavailable on grounded turn — fell back to DeepSeek (operational)",
+                gap_type="llm_fallback",
+                source="model_router:fallback_deepseek",
+            )
+            result = await base_llm.complete(
+                system_prompt, user_message, max_tokens=max_tokens, timeout=timeout,
+            )
+
+    # R-F2542 — citation verification gate: no fabricated source reaches the user.
+    try:
+        result.text = _verify_grounded(result.text, context, message)
+    except Exception:
+        pass
+    return result
 
 
 async def stream_synthesis(
@@ -449,8 +477,11 @@ async def stream_synthesis(
     BEFORE the first token is emitted (a mid-stream failure surfaces to the caller's
     existing local_brain handler, same as today). SHADOW ships DeepSeek's stream."""
     decision = route_decision(message, context, canary_key=canary_key)
+    grounded = is_grounded_synthesis(message, context)
 
-    if decision == "deepseek":
+    # Non-grounded turns carry no evidence to cite → nothing to verify → stream
+    # token-by-token exactly as before (byte-identical, zero added latency).
+    if decision == "deepseek" and not grounded:
         async for chunk in base_llm.stream(
             system_prompt, user_message,
             max_tokens=max_tokens, timeout=timeout, on_done=on_done,
@@ -458,24 +489,29 @@ async def stream_synthesis(
             yield chunk
         return
 
-    if decision == "shadow":
-        # R-F2520 — ship DeepSeek's stream to the user AND accumulate it, then
-        # fire-and-forget the sovereign compare AFTER the stream completes. This
-        # samples STREAMING grounded traffic (the dominant path) at ZERO added
-        # user latency — the gap R-F2517 monitoring found (stream shadow was a
-        # no-op, so shadow collected nothing live).
+    # GROUNDED via DeepSeek (deepseek-routed grounded turn, or shadow which ships
+    # DeepSeek): R-F2542 — a grounded answer must be citation-verified BEFORE the
+    # user sees it, so we generate it fully, strip any unverifiable source, then
+    # emit. No fabricated citation can appear mid-stream.
+    if decision in ("deepseek", "shadow"):
         _parts: list[str] = []
         async for chunk in base_llm.stream(
-            system_prompt, user_message,
-            max_tokens=max_tokens, timeout=timeout, on_done=on_done,
+            system_prompt, user_message, max_tokens=max_tokens, timeout=timeout,
         ):
             _parts.append(chunk)
-            yield chunk
-        _spawn_shadow_compare(system_prompt, user_message, context,
-                              "".join(_parts), max_tokens)
+        full = "".join(_parts)
+        if decision == "shadow":
+            _spawn_shadow_compare(system_prompt, user_message, context, full, max_tokens)
+        cleaned = _verify_grounded(full, context, message)
+        if on_done:
+            try:
+                on_done(LLMResult(text=cleaned, model="deepseek", routed_via="deepseek"))
+            except Exception:  # pragma: no cover
+                pass
+        yield cleaned
         return
 
-    # decision == "sovereign" — stream sovereign, pre-first-token fallback to DeepSeek.
+    # decision == "sovereign" — buffer sovereign, verify, emit; any failure → DeepSeek.
     emitted = False
     full = ""
     try:
@@ -486,24 +522,30 @@ async def stream_synthesis(
             if piece:
                 emitted = True
                 full += piece
-                yield piece
     except Exception as e:
-        if emitted:
-            raise  # mid-stream failure -> caller's existing handler (as today)
-        logger.warning("[model_router] sovereign stream failed pre-token: %s", e)
+        logger.warning("[model_router] sovereign stream failed (%s) — %s",
+                       "mid" if emitted else "pre-token", e)
+        emitted = False  # buffered — nothing shipped yet, so fall back cleanly
 
     if not emitted:
         wire_failure(
             module="model_router",
-            detail="sovereign stream produced no tokens — fell back to DeepSeek (operational)",
+            detail="sovereign stream unavailable — fell back to DeepSeek (operational)",
             gap_type="llm_fallback",
             source="model_router:stream_fallback",
         )
+        _parts = []
         async for chunk in base_llm.stream(
-            system_prompt, user_message,
-            max_tokens=max_tokens, timeout=timeout, on_done=on_done,
+            system_prompt, user_message, max_tokens=max_tokens, timeout=timeout,
         ):
-            yield chunk
+            _parts.append(chunk)
+        cleaned = _verify_grounded("".join(_parts), context, message)
+        if on_done:
+            try:
+                on_done(LLMResult(text=cleaned, model="deepseek", routed_via="deepseek"))
+            except Exception:  # pragma: no cover
+                pass
+        yield cleaned
         return
 
     wire_success(
@@ -511,11 +553,13 @@ async def stream_synthesis(
         summary="grounded synthesis STREAM routed to sovereign (operational)",
         source_id="model_router:route_sovereign_stream",
     )
+    cleaned = _verify_grounded(full, context, message)
     if on_done:
         try:
-            on_done(LLMResult(text=full, model="aria-llm", routed_via="sovereign"))
+            on_done(LLMResult(text=cleaned, model="aria-llm", routed_via="sovereign"))
         except Exception:  # pragma: no cover
             pass
+    yield cleaned
 
 
 def summary() -> dict[str, Any]:
