@@ -2039,6 +2039,33 @@ async def get_stats() -> dict:
     # empty despite real data existing. Explicitly re-expose it (root-kill: name
     # the real aggregate, don't relax the module filter).
     result["_by_sector"] = stats.get("_by_sector", {})
+    # R-F2537 (finding #4): surface the durable ingest queue + semantic-index queue
+    # health so a "healthy" brain report can't silently hide a dead-lettered ingest
+    # backlog, a stuck drain, or dropped semantic-index work. Best-effort — a queue
+    # that is disabled/unavailable is reported as such (never-false-clean), not omitted.
+    try:
+        from . import brain_ingest_queue as _biq2537
+        _ingest_q = await _biq2537.stats()
+    except Exception as _e:
+        _ingest_q = {"available": False, "error": str(_e)[:120]}
+    try:
+        from . import _semantic_index_queue as _siq2537
+        _sem_q = _siq2537.get_stats()
+    except Exception as _e:
+        _sem_q = {"available": False, "error": str(_e)[:120]}
+    result["queues"] = {"brain_ingest": _ingest_q, "semantic_index": _sem_q}
+    # R-F2537 (finding #5): label these stats as the CURRENT VISIBLE window, not a
+    # guarantee of full-ecosystem historical coverage — a module absent from `modules`
+    # means "no signal since tracking_since" (or a fresh/reset brain), NOT "unwired".
+    result["coverage"] = {
+        "modules_tracked": len(modules),
+        "modules_healthy": len(healthy),
+        "scope": "current_visible_window",
+        "note": ("Reflects modules that emitted a brain signal since tracking_since. "
+                 "A module absent here has been silent in this window (or the brain "
+                 "state is fresh/reset) — it is NOT necessarily unwired. This is not a "
+                 "claim of full historical ecosystem coverage."),
+    }
     # R-F1599: update cache
     _stats_cache = result
     _stats_cache_at = now
@@ -2107,9 +2134,13 @@ async def get_stale_alerts() -> list[dict]:
         })
     return alerts
 
-# R-F2119 §21a — wire failure handler for brain_hook
-try:
-    wire_failure(module="brain_hook", detail="module shutdown",
-                gap_type="engine_failure", source="brain_hook:shutdown")
-except Exception:
-    pass
+# R-F2537: REMOVED a bogus R-F2119 auto-annotation block that fired
+#   wire_failure(module="brain_hook", detail="module shutdown", gap_type="engine_failure")
+# at MODULE-IMPORT time (not shutdown). brain_hook is imported constantly, so this
+# recorded a FALSE engine_failure gap into capability_gaps on every import — self-
+# referential noise that buried real caller gaps (it broke test_rf2404's shed-branch
+# assertion) and polluted the gap_detector→self_coder signal. brain_hook wires its
+# real outcomes through absorb()/_record_signal continuously; it needs no import-time
+# self-wire. NOTE: ~210 other intel/ modules still carry this same import-time
+# wire_failure("module shutdown") block from R-F2119 — a systemic sweep is tracked
+# separately (see the session findings); this removes only the brain_hook instance.

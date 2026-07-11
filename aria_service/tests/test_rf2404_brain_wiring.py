@@ -46,8 +46,17 @@ def test_absorb_shed_branch_records_gap(monkeypatch):
     ))
 
     assert spy.calls, "shed branch must record the gap it would otherwise drop"
-    assert spy.calls[0]["gap_type"] == "api_missing"
-    assert "ACME api key missing" in spy.calls[0]["detail"]
+    # R-F2537: assert the caller's gap is PRESENT — not that it is calls[0]. The shed
+    # branch DOES record it (brain_hook.py:896); the old calls[0] assertion was brittle
+    # because unrelated module-init wiring gaps (the R-F2119 import-time
+    # wire_failure("module shutdown") blocks, still being swept) can interleave into the
+    # same spied record_gap during the test's event loop.
+    _match = [c for c in spy.calls if c.get("gap_type") == "api_missing"]
+    assert _match, (
+        "shed branch must record the caller's api_missing gap; "
+        f"got {[c.get('gap_type') for c in spy.calls]}"
+    )
+    assert "ACME api key missing" in _match[0]["detail"]
 
 
 def test_absorb_shed_branch_no_gap_when_none(monkeypatch):

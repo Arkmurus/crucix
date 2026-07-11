@@ -886,7 +886,12 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(20)  # let the state store + boot settle first
             from .intel import brain_hook as _bh2507
             await _bh2507.brain_queue_drain_loop()
-        _bg_task(asyncio.create_task(_brain_queue_drain(), name="brain_queue_drain"))
+        # R-F2537: register the FACTORY so the bg supervisor respawns this load-bearing
+        # drain worker if it dies (without it, a post-startup exit was logged but never
+        # respawned — the durable ingest queue would silently stop draining). Mirrors the
+        # supervised-loop pattern at _bg_task(...factory=...) elsewhere in lifespan.
+        _bg_task(asyncio.create_task(_brain_queue_drain(), name="brain_queue_drain"),
+                 factory=_brain_queue_drain)
 
     # R-F2376 (M4/§25): drive outcome_wire's silent-drop reconciler. Its
     # reconcile_silent_drops() had ZERO production callers, so the ACTIVE
