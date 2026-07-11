@@ -2753,6 +2753,14 @@ async def maybe_repair_grounding(llm, question: str, tool_context: str, response
         # tool that returned no usable sources cannot be repaired into grounding —
         # rgr stays <= gr and we correctly keep the original.
         if rgr is not None and rgr > gr:
+            # R-F2546 — the repaired re-synthesis bypasses model_router's citation
+            # verifier; verify its citations against the SAME tool evidence before
+            # it overwrites the (already-verified) original and ships to the user.
+            try:
+                from ..intel import citation_verifier as _cv
+                repaired = _cv.verify_and_clean(repaired, tool_context)["answer"]
+            except Exception:
+                pass
             out.update({"response": repaired, "judgment": rj, "verification": rv,
                         "repaired": True})
             return _done("repaired_improved")

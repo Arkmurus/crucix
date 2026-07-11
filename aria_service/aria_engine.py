@@ -2027,6 +2027,15 @@ async def doc_lane_chat(message: str, session_id: str, llm, *, persona: str = ""
     if not text:
         return None  # empty → let the full grounded pipeline handle it
 
+    # R-F2546 — doc-review bypasses model_router's citation verifier; verify the
+    # answer's citations against the document (in `message`) before storing/return.
+    # A [Source: X] not present in the document is an external fabrication; flag-mode
+    # is non-destructive (the claim text stays, the unverifiable source is flagged).
+    try:
+        from .intel import citation_verifier as _cv
+        text = _cv.verify_and_clean(text, message)["answer"]
+    except Exception:
+        pass
     msgs = session.get("messages") or []
     msgs.append({"role": "user", "content": _strip_tool_context_for_history(message)})
     msgs.append({"role": "aria", "content": text})
@@ -5378,6 +5387,13 @@ async def aria_think(
     try:
         result = await llm.complete(ARIA_THINK_SYSTEM, user_prompt, max_tokens=3000, timeout=90.0)
         text = result.text
+        # R-F2546 — /think bypasses model_router's citation verifier; verify the
+        # answer's citations against the assembled evidence before parse/ship.
+        try:
+            from .intel import citation_verifier as _cv
+            text = _cv.verify_and_clean(text, context_str + intel_context)["answer"]
+        except Exception:
+            pass
     except Exception as e:
         return {"error": f"ARIA reasoning failed: {e}"}
 

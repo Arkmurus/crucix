@@ -493,6 +493,21 @@ async def build_report(
         }
 
 
+    # R-F2546 — verify the report draft's citations against the investigation
+    # evidence before it ships (report_builder bypasses model_router's verifier;
+    # a [Source: X] not present in the findings is fabricated).
+    try:
+        from . import citation_verifier as _cv
+        _dt = getattr(draft, "text", draft)
+        if isinstance(_dt, str) and _dt and investigation_text:
+            _clean = _cv.verify_and_clean(_dt, investigation_text)["answer"]
+            if hasattr(draft, "text"):
+                draft.text = _clean
+            else:
+                draft = _clean
+    except Exception:
+        pass
+
     # R-F996 — wire to brain
     wire_success(
         module="report_builder",

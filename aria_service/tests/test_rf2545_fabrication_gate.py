@@ -90,3 +90,21 @@ def test_gate_wiring_present_in_source():
     for fn in (mr.complete_synthesis, mr.stream_synthesis):
         src = inspect.getsource(fn)
         assert "_verify_grounded" in src, f"{fn.__name__} no longer calls the citation verifier"
+
+
+def test_gate_bypass_paths_stay_wired():
+    """R-F2546 structural guard: the citation-capable paths that bypass model_router
+    (doc-review, /think, grounding-repair, report draft) must each call the verifier,
+    so a coverage gap cannot silently re-open."""
+    from aria_service import aria_engine
+    from aria_service.intel import report_builder
+    from aria_service.routes import aria as routes_aria
+    for name, fn in (
+        ("doc_lane_chat", aria_engine.doc_lane_chat),
+        ("aria_think", aria_engine.aria_think),
+        ("maybe_repair_grounding", routes_aria.maybe_repair_grounding),
+        ("build_report", report_builder.build_report),
+    ):
+        src = inspect.getsource(fn)
+        assert ("citation_verifier" in src or "verify_and_clean" in src), \
+            f"{name} no longer verifies citations — a fabricated source could ship"
