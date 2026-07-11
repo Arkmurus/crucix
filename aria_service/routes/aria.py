@@ -7459,6 +7459,40 @@ def _get_dd_inline_sem() -> "asyncio.Semaphore":
     return _dd_inline_sem
 
 
+# ── R-F2526: SCALE-READY global DD concurrency gate ─────────────────────────
+# The DD caps above (_DD_INLINE_MAX / _DD_DEEP_BG_MAX) are PROCESS-LOCAL, so running N
+# worker machines would multiply the effective cap to 3×N heavy DDs — the codex scale
+# blocker. These gates add a GLOBAL cap via redis_store: a NO-OP on a single machine
+# (redis_store in-memory fallback → the local semaphore/set stays authoritative, so this
+# is byte-identical to today), and a shared cross-machine budget the instant REDIS_URL is
+# configured. Horizontal scale then needs only that one secret — no code refactor.
+# Fail-OPEN: any coordination error admits the DD (a gate must never block real work).
+async def _dd_admit_global(kind: str, cap: int) -> bool:
+    from ..intel import redis_store as _rs2526
+    if not _rs2526.is_shared():
+        return True  # single machine — local caps authoritative; byte-identical
+    key = f"crucix:dd:inflight:{kind}"
+    try:
+        n = await _rs2526.incrbyfloat(key, 1.0)
+        await _rs2526.expire(key, 1800)  # 30min TTL — a crashed DD's slot auto-frees
+        if n > cap:
+            await _rs2526.incrbyfloat(key, -1.0)  # over global cap — roll back
+            return False
+        return True
+    except Exception:
+        return True  # fail-open — never block a DD on the gate
+
+
+async def _dd_release_global(kind: str) -> None:
+    from ..intel import redis_store as _rs2526
+    if not _rs2526.is_shared():
+        return
+    try:
+        await _rs2526.incrbyfloat(f"crucix:dd:inflight:{kind}", -1.0)
+    except Exception:
+        pass
+
+
 # R-F2055 — per-USER inline-DD FAIRNESS. The global Semaphore(_DD_INLINE_MAX) is
 # FIFO; without a per-user gate, ONE user firing several inline DDs can occupy
 # ALL global slots and starve other users (the audited multi-user-fairness gap).
@@ -7521,6 +7555,15 @@ def _launch_deep_dd_bg(target: dict, llm, *, user_id: str, user_email: str | Non
     _budget = float(int(os.getenv("ARIA_DD_DEEP_BG_BUDGET_S", "840")))
 
     async def _runner():
+        # R-F2526 — GLOBAL cap gate (no-op single-machine → byte-identical; enforced
+        # across workers when REDIS_URL is set). Local slot already reserved above; if the
+        # SHARED budget is full, release the local slot and skip (caller's shallow inline
+        # result stands) rather than pile another 840s job onto the fleet.
+        if not await _dd_admit_global("deep", _DD_DEEP_BG_MAX):
+            _log.warning("R-F2526 deep-bg DD skipped — GLOBAL cap %d reached across workers (entity=%r)",
+                         _DD_DEEP_BG_MAX, _ent)
+            _DD_DEEP_BG_INFLIGHT.discard(_key)
+            return
         try:
             from ..intel import dd_orchestrator as _ddo
             _deep_target = {**target, "_deep_bg": True}
@@ -7542,6 +7585,7 @@ def _launch_deep_dd_bg(target: dict, llm, *, user_id: str, user_email: str | Non
                 pass
         finally:
             _DD_DEEP_BG_INFLIGHT.discard(_key)
+            await _dd_release_global("deep")  # R-F2526 — free the shared slot
 
     _t = asyncio.create_task(_runner())
     _DD_DEEP_BG_TASKS.add(_t)

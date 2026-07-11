@@ -93,6 +93,16 @@ def _use_sqlite() -> bool:
 def _use_memory() -> bool:
     return _BACKEND == "memory"
 
+
+def is_shared() -> bool:
+    """R-F2526 — True iff a REAL shared Redis backend is live (cross-machine coordination
+    available). False in the in-memory fallback (single machine — the current §6 state,
+    Upstash cancelled), where process-local primitives are authoritative and any
+    cross-machine coordination gate MUST be a no-op. Callers use this so a gate is
+    byte-identical on one machine and becomes a global cap the instant REDIS_URL is set —
+    horizontal scale as a config flip, no code refactor."""
+    return _client is not None
+
 # F51/F52 fix 2026-04-28: capture the main app loop on connect() so worker
 # threads can schedule redis-touching coroutines back onto it via
 # run_on_main_loop(). The aioredis client is loop-bound at construction;
