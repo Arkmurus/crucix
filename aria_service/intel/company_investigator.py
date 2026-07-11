@@ -411,14 +411,20 @@ async def _phase_deep_crawl(
         return
     try:
         from . import web_crawler as _wc
+        # R-F2534: web_crawler has NO module-level crawl() — the old call raised
+        # AttributeError on every DD and was swallowed. crawl() is an instance method on
+        # UniversalWebCrawler. Its results are CrawledPage DATACLASSES (url/title/text/…),
+        # NOT dicts — the old page.get(...) would AttributeError even once wired
+        # (same class as R-F2407). Access attributes directly.
+        _crawler = _wc.UniversalWebCrawler()
         pages = await asyncio.wait_for(
-            _wc.crawl(website, max_pages=10, max_depth=max_depth),
+            _crawler.crawl(website, max_pages=10, max_depth=max_depth),
             timeout=_PHASE_TIMEOUTS["deep_crawl"],
         )
         for page in (pages or [])[:5]:
-            url = page.get("url", "")
-            title = page.get("title", "")[:200]
-            text = page.get("text", "")[:500]
+            url = getattr(page, "url", "") or ""
+            title = (getattr(page, "title", "") or "")[:200]
+            text = (getattr(page, "text", "") or getattr(page, "content", "") or "")[:500]
             if url:
                 report.findings.append(InvestigationFinding(
                     category="crawl",
@@ -714,10 +720,28 @@ async def _phase_tech_stack(
     if not website:
         return
     try:
-        from . import web_crawler as _wc
-        headers = await asyncio.wait_for(
-            _wc.get_headers(website),
-            timeout=_PHASE_TIMEOUTS["tech_stack"],
+        # R-F2534: web_crawler.get_headers() exists NOWHERE (AttributeError on every DD,
+        # swallowed). Tech-stack detection just needs the HTTP response headers — fetch
+        # them directly with a lightweight HEAD (fall back to GET), rather than a
+        # non-existent helper. Self-contained; no crawl needed.
+        import httpx
+        _url = website if "://" in website else f"https://{website}"
+
+        async def _fetch_headers() -> dict:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=_PHASE_TIMEOUTS["tech_stack"]) as _client:
+                try:
+                    _resp = await _client.head(_url)
+                    if _resp.status_code >= 400 or not _resp.headers:
+                        _resp = await _client.get(_url)
+                except httpx.HTTPError:
+                    _resp = await _client.get(_url)
+                return {k.lower(): v for k, v in _resp.headers.items()}
+
+        # R-F2534: keep the HARD wall-clock bound the old asyncio.wait_for gave — httpx's
+        # per-operation timeout + follow_redirects + the HEAD→GET fan-out could otherwise
+        # exceed the phase budget. wait_for restores the strict cap (→ "timed out" note).
+        headers: dict = await asyncio.wait_for(
+            _fetch_headers(), timeout=_PHASE_TIMEOUTS["tech_stack"]
         )
         if headers:
             server = headers.get("server", "")
