@@ -255,7 +255,8 @@ def shadow_stats() -> dict[str, Any]:
     }
 
 
-def _log_shadow(context: str, base: LLMResult, sov: LLMResult | None) -> None:
+def _log_shadow(context: str, base: LLMResult, sov: LLMResult | None,
+                message: str = "") -> None:
     """SHADOW stage — compare grounded-rate of DeepSeek vs sovereign on the SAME
     grounded turn (R-F2397 grounding_reward now parses production context)."""
     try:
@@ -263,6 +264,23 @@ def _log_shadow(context: str, base: LLMResult, sov: LLMResult | None) -> None:
         b = gr.score(base.text or "", context or "")
         s = gr.score((sov.text if sov else "") or "", context or "")
         _record_shadow_stat(b.score, s.score if sov else None)  # R-F2521 readable tally
+        # R-F2527 — durably capture the discarded comparison for the DPO flywheel.
+        # Flag-gated OFF by default (ARIA_SHADOW_DISTILL_ENABLED); soft-import so the
+        # router never hard-fails on it; the module itself never raises.
+        try:
+            from ..intel import grounded_shadow_distill as _gsd
+            _gsd.record_shadow_pair(
+                message=message,
+                context=context or "",
+                deepseek_text=base.text or "",
+                sovereign_text=(sov.text if sov else None),
+                deepseek_score=b.score,
+                sovereign_score=(s.score if sov else None),
+                deepseek_breakdown=b,
+                sovereign_breakdown=(s if sov else None),
+            )
+        except Exception:
+            pass
         wire_success(
             module="model_router",
             summary=(f"SHADOW grounded-rate deepseek={b.score:.3f} "
@@ -309,6 +327,7 @@ async def _shadow_compare_bg(
             context,
             LLMResult(text=base_text, model="deepseek", routed_via="deepseek"),
             sov,
+            message=user_message,
         )
     except Exception as e:  # pragma: no cover — fire-and-forget must never surface
         logger.debug("[model_router] shadow bg compare failed: %s", e)
