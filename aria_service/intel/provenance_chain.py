@@ -297,9 +297,4 @@ def summary() -> dict[str, Any]:
         "data_file":  str(_PROVENANCE_FILE),
     }
 
-# R-F2119 §21a — wire failure handler for provenance_chain
-try:
-    wire_failure(module="provenance_chain", detail="module shutdown",
-                gap_type="engine_failure", source="provenance_chain:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

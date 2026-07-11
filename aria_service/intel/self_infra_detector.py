@@ -339,9 +339,4 @@ def contains_known_fabrication(text: str | None) -> bool:
     lowered = text.lower()
     return any(tok in lowered for tok in KNOWN_FABRICATED_TOKENS)
 
-# R-F2119 §21a — wire failure handler for self_infra_detector
-try:
-    wire_failure(module="self_infra_detector", detail="module shutdown",
-                gap_type="engine_failure", source="self_infra_detector:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

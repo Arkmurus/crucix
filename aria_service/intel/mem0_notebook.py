@@ -46,9 +46,4 @@ def search(query: str, limit: int = 5) -> list[dict[str, Any]]:
 
     return [{"context": str(ctx)[:2000], "query": query}]
 
-# R-F2119 §21a — wire failure handler for mem0_notebook
-try:
-    wire_failure(module="mem0_notebook", detail="module shutdown",
-                gap_type="engine_failure", source="mem0_notebook:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

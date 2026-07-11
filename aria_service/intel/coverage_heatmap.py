@@ -799,9 +799,4 @@ def summary() -> dict[str, Any]:
         "purpose":              "domain × jurisdiction knowledge-coverage view",
     }
 
-# R-F2119 §21a — wire failure handler for coverage_heatmap
-try:
-    wire_failure(module="coverage_heatmap", detail="module shutdown",
-                gap_type="engine_failure", source="coverage_heatmap:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

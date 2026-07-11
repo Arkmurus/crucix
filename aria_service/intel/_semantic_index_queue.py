@@ -331,9 +331,4 @@ async def shutdown(timeout_s: float = 5.0) -> dict:
 
     return {"drained": drained, "remaining": remaining}
 
-# R-F2119 §21a — wire failure handler for _semantic_index_queue
-try:
-    wire_failure(module="_semantic_index_queue", detail="module shutdown",
-                gap_type="engine_failure", source="_semantic_index_queue:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

@@ -470,9 +470,4 @@ class TaskBroadcaster:
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="multi_user_os", summary="Multi-User OS Active", source_id="multi_user_os:R-F1002")
 
-# R-F2119 §21a — wire failure handler for multi_user_os
-try:
-    wire_failure(module="multi_user_os", detail="module shutdown",
-                gap_type="engine_failure", source="multi_user_os:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

@@ -401,9 +401,4 @@ def summary() -> dict[str, Any]:
         "insubstantive_threshold": _INSUBSTANTIVE_THRESHOLD,
     }
 
-# R-F2119 §21a — wire failure handler for economic_substance
-try:
-    wire_failure(module="economic_substance", detail="module shutdown",
-                gap_type="engine_failure", source="economic_substance:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

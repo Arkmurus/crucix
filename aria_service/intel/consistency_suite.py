@@ -511,9 +511,4 @@ async def summary_for_dashboard() -> dict:
         "fired_at": latest.get("fired_at"),
     }
 
-# R-F2119 §21a — wire failure handler for consistency_suite
-try:
-    wire_failure(module="consistency_suite", detail="module shutdown",
-                gap_type="engine_failure", source="consistency_suite:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

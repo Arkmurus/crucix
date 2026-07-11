@@ -169,9 +169,4 @@ def guard_commitments(response_text: str) -> dict:
         "changed": changed,
     }
 
-# R-F2119 §21a — wire failure handler for commitment_guard
-try:
-    wire_failure(module="commitment_guard", detail="module shutdown",
-                gap_type="engine_failure", source="commitment_guard:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

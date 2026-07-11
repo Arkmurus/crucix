@@ -250,9 +250,4 @@ async def get_stats() -> dict[str, Any]:
         "mode": "OBSERVE_ONLY — no rewrites applied to streamed response",
     }
 
-# R-F2119 §21a — wire failure handler for stream_guard_observer
-try:
-    wire_failure(module="stream_guard_observer", detail="module shutdown",
-                gap_type="engine_failure", source="stream_guard_observer:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

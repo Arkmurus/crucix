@@ -287,9 +287,4 @@ def review_response(
 
     return rewritten_text + "\n".join(warning_lines), demotions
 
-# R-F2119 §21a — wire failure handler for officeholder_guard
-try:
-    wire_failure(module="officeholder_guard", detail="module shutdown",
-                gap_type="engine_failure", source="officeholder_guard:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

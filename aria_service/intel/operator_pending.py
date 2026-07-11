@@ -265,9 +265,4 @@ def list_keys() -> list[str]:
     """Cheap helper for test contracts."""
     return [e["key"] for e in _PENDING_CATALOGUE]
 
-# R-F2119 §21a — wire failure handler for operator_pending
-try:
-    wire_failure(module="operator_pending", detail="module shutdown",
-                gap_type="engine_failure", source="operator_pending:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

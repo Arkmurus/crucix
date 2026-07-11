@@ -389,9 +389,4 @@ def get_brazil_context(query: str, max_blocks: int = 2) -> str:
 def list_blocks() -> list[str]:
     return [e["id"] for e in _SEARCH_INDEX]
 
-# R-F2119 §21a — wire failure handler for knowledge_latam_lusophone
-try:
-    wire_failure(module="knowledge_latam_lusophone", detail="module shutdown",
-                gap_type="engine_failure", source="knowledge_latam_lusophone:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

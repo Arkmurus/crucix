@@ -179,9 +179,4 @@ async def rename_conversation(session_id: str, title: str, user_id: str | None =
     await rs.hset(meta_key, {"title": title.strip()[:100]})
     return True
 
-# R-F2119 §21a — wire failure handler for conversation_store
-try:
-    wire_failure(module="conversation_store", detail="module shutdown",
-                gap_type="engine_failure", source="conversation_store:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

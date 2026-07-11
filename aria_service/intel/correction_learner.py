@@ -410,9 +410,4 @@ async def recent_corrections_addendum(message: str = "") -> str:
         lines.append(f"   _source: {source} · {created}_")
     return "\n".join(lines)
 
-# R-F2119 §21a — wire failure handler for correction_learner
-try:
-    wire_failure(module="correction_learner", detail="module shutdown",
-                gap_type="engine_failure", source="correction_learner:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

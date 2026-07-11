@@ -452,9 +452,4 @@ async def snapshot_to_yaml() -> dict:
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
-# R-F2119 §21a — wire failure handler for web_atlas
-try:
-    wire_failure(module="web_atlas", detail="module shutdown",
-                gap_type="engine_failure", source="web_atlas:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

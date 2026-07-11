@@ -150,9 +150,4 @@ async def diagnose_topic(topic: str) -> dict:
 
     return hits
 
-# R-F2119 §21a — wire failure handler for memory_diagnostics
-try:
-    wire_failure(module="memory_diagnostics", detail="module shutdown",
-                gap_type="engine_failure", source="memory_diagnostics:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

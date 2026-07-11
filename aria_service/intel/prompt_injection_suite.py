@@ -421,9 +421,4 @@ def summary() -> dict[str, Any]:
         "severities":  sorted({a["severity"] for a in _LIBRARY}),
     }
 
-# R-F2119 §21a — wire failure handler for prompt_injection_suite
-try:
-    wire_failure(module="prompt_injection_suite", detail="module shutdown",
-                gap_type="engine_failure", source="prompt_injection_suite:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

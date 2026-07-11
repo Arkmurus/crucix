@@ -337,9 +337,4 @@ wire_success(
     source_id="multi_lang_coder:R-F1044",
 )
 
-# R-F2119 §21a — wire failure handler for multi_lang_coder
-try:
-    wire_failure(module="multi_lang_coder", detail="module shutdown",
-                gap_type="engine_failure", source="multi_lang_coder:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

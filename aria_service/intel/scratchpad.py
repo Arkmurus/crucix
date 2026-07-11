@@ -304,9 +304,4 @@ strongest counterargument — not just produced in a single forward
 pass from the input.
 """
 
-# R-F2119 §21a — wire failure handler for scratchpad
-try:
-    wire_failure(module="scratchpad", detail="module shutdown",
-                gap_type="engine_failure", source="scratchpad:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

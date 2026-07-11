@@ -199,9 +199,4 @@ CONFIDENCE DISCIPLINE
 Every material claim must carry one of: [CONFIRMED] [PROBABLE] [ASSESSED] [UNCERTAIN] [SPECULATIVE].
 A section with no available data should say so plainly — do NOT invent numbers."""
 
-# R-F2119 §21a — wire failure handler for pmesii
-try:
-    wire_failure(module="pmesii", detail="module shutdown",
-                gap_type="engine_failure", source="pmesii:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

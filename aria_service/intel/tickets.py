@@ -309,9 +309,4 @@ async def list_open_tickets(limit: int = 20) -> dict[str, Any]:
         logger.warning("list_open_tickets exception: %s", e)
         return {"ok": False, "reason": "exception", "detail": str(e)[:200], "tickets": []}
 
-# R-F2119 §21a — wire failure handler for tickets
-try:
-    wire_failure(module="tickets", detail="module shutdown",
-                gap_type="engine_failure", source="tickets:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

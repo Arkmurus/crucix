@@ -313,9 +313,4 @@ async def auto_record_gap_from_text(text: str, source: str = "chat_response") ->
                 return None
     return None
 
-# R-F2119 §21a — wire failure handler for brain_hook_bg
-try:
-    wire_failure(module="brain_hook_bg", detail="module shutdown",
-                gap_type="engine_failure", source="brain_hook_bg:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

@@ -329,9 +329,4 @@ def compare_claimed_founding(cui: int | str, claimed_year: int) -> dict:
         "detail": detail,
     }
 
-# R-F2119 §21a — wire failure handler for _romanian_cui
-try:
-    wire_failure(module="_romanian_cui", detail="module shutdown",
-                gap_type="engine_failure", source="_romanian_cui:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

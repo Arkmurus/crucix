@@ -429,9 +429,4 @@ def summary() -> dict[str, Any]:
         "bootstrap_cached": len(_BOOTSTRAP_CACHE),
     }
 
-# R-F2119 §21a — wire failure handler for domain_ownership_verifier
-try:
-    wire_failure(module="domain_ownership_verifier", detail="module shutdown",
-                gap_type="engine_failure", source="domain_ownership_verifier:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

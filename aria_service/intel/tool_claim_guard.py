@@ -471,9 +471,4 @@ def _infer_resolver(*, user_message: str, response_text: str) -> tuple[str, str,
         "(b) let me know which autonomous task should cover it.",
     )
 
-# R-F2119 §21a — wire failure handler for tool_claim_guard
-try:
-    wire_failure(module="tool_claim_guard", detail="module shutdown",
-                gap_type="engine_failure", source="tool_claim_guard:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

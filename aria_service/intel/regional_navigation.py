@@ -1635,9 +1635,4 @@ if __name__ == "__main__":
         ctx = get_regional_context(test)
         print(f"  '{test}' → {len(ctx)} chars")
 
-# R-F2119 §21a — wire failure handler for regional_navigation
-try:
-    wire_failure(module="regional_navigation", detail="module shutdown",
-                gap_type="engine_failure", source="regional_navigation:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

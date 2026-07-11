@@ -191,9 +191,4 @@ def file_type_matches_claim(
         return True
     return False
 
-# R-F2119 §21a — wire failure handler for file_type_detector
-try:
-    wire_failure(module="file_type_detector", detail="module shutdown",
-                gap_type="engine_failure", source="file_type_detector:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

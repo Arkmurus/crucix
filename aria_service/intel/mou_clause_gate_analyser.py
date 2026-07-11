@@ -242,9 +242,4 @@ def list_known_satisfaction_patterns() -> list[str]:
     )
     return list(_SATISFACTION_LANGUAGE)
 
-# R-F2119 §21a — wire failure handler for mou_clause_gate_analyser
-try:
-    wire_failure(module="mou_clause_gate_analyser", detail="module shutdown",
-                gap_type="engine_failure", source="mou_clause_gate_analyser:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

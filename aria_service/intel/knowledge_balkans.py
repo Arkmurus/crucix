@@ -285,9 +285,4 @@ def get_balkans_context(query: str, max_blocks: int = 2) -> str:
 def list_blocks() -> list[str]:
     return [e["id"] for e in _SEARCH_INDEX]
 
-# R-F2119 §21a — wire failure handler for knowledge_balkans
-try:
-    wire_failure(module="knowledge_balkans", detail="module shutdown",
-                gap_type="engine_failure", source="knowledge_balkans:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

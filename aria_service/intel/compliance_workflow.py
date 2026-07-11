@@ -372,9 +372,4 @@ async def _save_cases(cases: list[dict]) -> None:
         cases = cases[:MAX_CASES]
     await rs.set_json(CASES_KEY, cases, ex=CASES_TTL)
 
-# R-F2119 §21a — wire failure handler for compliance_workflow
-try:
-    wire_failure(module="compliance_workflow", detail="module shutdown",
-                gap_type="engine_failure", source="compliance_workflow:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

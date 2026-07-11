@@ -229,9 +229,4 @@ async def get_user_state(user_id: str) -> dict:
         "daily_cost_cap_usd": USER_DAILY_COST_CAP_USD,
     }
 
-# R-F2119 §21a — wire failure handler for user_quota
-try:
-    wire_failure(module="user_quota", detail="module shutdown",
-                gap_type="engine_failure", source="user_quota:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

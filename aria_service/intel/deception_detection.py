@@ -902,9 +902,4 @@ if __name__ == "__main__":
     print()
     print("Module ready. Inject DECEPTION_DETECTION_SYSTEM_PROMPT into ARIA.")
 
-# R-F2119 §21a — wire failure handler for deception_detection
-try:
-    wire_failure(module="deception_detection", detail="module shutdown",
-                gap_type="engine_failure", source="deception_detection:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

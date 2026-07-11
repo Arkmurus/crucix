@@ -761,9 +761,4 @@ def print_gate_results(results: dict[str, list[str]]) -> None:
         print("  ALL GATES PASS — harness is clean")
     print(f"{'=' * 60}")
 
-# R-F2119 §21a — wire failure handler for wiring_harness
-try:
-    wire_failure(module="wiring_harness", detail="module shutdown",
-                gap_type="engine_failure", source="wiring_harness:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

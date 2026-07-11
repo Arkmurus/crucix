@@ -736,9 +736,4 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
         "noise_filtered": noise_filtered,
     }
 
-# R-F2119 §21a — wire failure handler for _sanctions_classify
-try:
-    wire_failure(module="_sanctions_classify", detail="module shutdown",
-                gap_type="engine_failure", source="_sanctions_classify:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

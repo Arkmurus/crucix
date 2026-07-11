@@ -177,9 +177,4 @@ async def compute_error_streak(
 
     return out
 
-# R-F2119 §21a — wire failure handler for error_streak
-try:
-    wire_failure(module="error_streak", detail="module shutdown",
-                gap_type="engine_failure", source="error_streak:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

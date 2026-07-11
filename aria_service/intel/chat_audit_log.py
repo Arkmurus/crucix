@@ -273,9 +273,4 @@ async def verify_chain(sample: int = 100) -> dict:
         "breaks": breaks[:10],
     }
 
-# R-F2119 §21a — wire failure handler for chat_audit_log
-try:
-    wire_failure(module="chat_audit_log", detail="module shutdown",
-                gap_type="engine_failure", source="chat_audit_log:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

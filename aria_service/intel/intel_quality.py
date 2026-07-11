@@ -219,9 +219,4 @@ class AheadOfGameEngine:
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="intel_quality", summary="Intel Quality Active", source_id="intel_quality:R-F1008")
 
-# R-F2119 §21a — wire failure handler for intel_quality
-try:
-    wire_failure(module="intel_quality", detail="module shutdown",
-                gap_type="engine_failure", source="intel_quality:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

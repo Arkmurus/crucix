@@ -697,9 +697,4 @@ def catalogue_summary() -> dict:
         ),
     }
 
-# R-F2119 §21a — wire failure handler for defence_source_seed
-try:
-    wire_failure(module="defence_source_seed", detail="module shutdown",
-                gap_type="engine_failure", source="defence_source_seed:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

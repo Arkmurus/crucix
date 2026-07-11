@@ -438,9 +438,4 @@ def filter_index_by_canonical_id(
     matching.sort(key=lambda e: e.get("generated_at") or "", reverse=True)
     return matching
 
-# R-F2119 §21a — wire failure handler for dd_versioning
-try:
-    wire_failure(module="dd_versioning", detail="module shutdown",
-                gap_type="engine_failure", source="dd_versioning:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

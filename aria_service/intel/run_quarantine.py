@@ -344,9 +344,4 @@ def filter_citations_sync(text: str) -> tuple[str, list[str]]:
     )
     return cleaned, found
 
-# R-F2119 §21a — wire failure handler for run_quarantine
-try:
-    wire_failure(module="run_quarantine", detail="module shutdown",
-                gap_type="engine_failure", source="run_quarantine:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

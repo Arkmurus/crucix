@@ -208,9 +208,4 @@ def build_queries_for_languages(
             out.append((lang_lc, q))
     return out
 
-# R-F2119 §21a — wire failure handler for adverse_media_polyglot
-try:
-    wire_failure(module="adverse_media_polyglot", detail="module shutdown",
-                gap_type="engine_failure", source="adverse_media_polyglot:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

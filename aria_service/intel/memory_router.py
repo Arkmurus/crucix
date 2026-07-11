@@ -489,9 +489,4 @@ def get_routing_status():
     wire_success(module="memory_router", summary="Memory Router Status", source_id="memory_router:R-F1001")
     return result
 
-# R-F2119 §21a — wire failure handler for memory_router
-try:
-    wire_failure(module="memory_router", detail="module shutdown",
-                gap_type="engine_failure", source="memory_router:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

@@ -700,9 +700,4 @@ def get_capability_surface() -> dict:
         "llm_calls_required": 0,
     }
 
-# R-F2119 §21a — wire failure handler for symbolic_reasoner
-try:
-    wire_failure(module="symbolic_reasoner", detail="module shutdown",
-                gap_type="engine_failure", source="symbolic_reasoner:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

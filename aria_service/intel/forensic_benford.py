@@ -305,9 +305,4 @@ def summary() -> dict[str, Any]:
         "expected_pct":    {d: round(_BENFORD_EXPECTED[d] * 100, 2) for d in range(1, 10)},
     }
 
-# R-F2119 §21a — wire failure handler for forensic_benford
-try:
-    wire_failure(module="forensic_benford", detail="module shutdown",
-                gap_type="engine_failure", source="forensic_benford:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

@@ -233,9 +233,4 @@ class ARIAAntivirus:
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="antivirus", summary="ARIA Antivirus Active", source_id="antivirus:R-F1007")
 
-# R-F2119 §21a — wire failure handler for antivirus
-try:
-    wire_failure(module="antivirus", detail="module shutdown",
-                gap_type="engine_failure", source="antivirus:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

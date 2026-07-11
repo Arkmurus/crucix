@@ -539,9 +539,4 @@ async def export_jsonl(
             break
     return "\n".join(lines)
 
-# R-F2119 §21a — wire failure handler for critique_collector
-try:
-    wire_failure(module="critique_collector", detail="module shutdown",
-                gap_type="engine_failure", source="critique_collector:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

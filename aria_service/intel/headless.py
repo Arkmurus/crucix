@@ -230,9 +230,4 @@ async def _fetch_rendered_html_locked(url: str, timeout: float) -> str:
             except asyncio.TimeoutError:
                 proc.kill()
 
-# R-F2119 §21a — wire failure handler for headless
-try:
-    wire_failure(module="headless", detail="module shutdown",
-                gap_type="engine_failure", source="headless:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

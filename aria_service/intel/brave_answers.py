@@ -80,9 +80,4 @@ def is_enabled() -> bool:
     """R-F320: Brave is permanently disabled."""
     return False
 
-# R-F2119 §21a — wire failure handler for brave_answers
-try:
-    wire_failure(module="brave_answers", detail="module shutdown",
-                gap_type="engine_failure", source="brave_answers:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

@@ -381,9 +381,4 @@ def get_ohada_legal_context(query: str, max_blocks: int = 2) -> str:
 def list_blocks() -> list[str]:
     return [e["id"] for e in _SEARCH_INDEX]
 
-# R-F2119 §21a — wire failure handler for legal_ohada
-try:
-    wire_failure(module="legal_ohada", detail="module shutdown",
-                gap_type="engine_failure", source="legal_ohada:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

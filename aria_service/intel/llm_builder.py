@@ -260,9 +260,4 @@ print(f"Training complete. Model saved to {config['output_dir']}/final")
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="llm_builder", summary="Llm Builder Active", source_id="llm_builder:R-F1001")
 
-# R-F2119 §21a — wire failure handler for llm_builder
-try:
-    wire_failure(module="llm_builder", detail="module shutdown",
-                gap_type="engine_failure", source="llm_builder:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

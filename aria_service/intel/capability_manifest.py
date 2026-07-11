@@ -332,9 +332,4 @@ async def snapshot() -> dict:
 
     return new
 
-# R-F2119 §21a — wire failure handler for capability_manifest
-try:
-    wire_failure(module="capability_manifest", detail="module shutdown",
-                gap_type="engine_failure", source="capability_manifest:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

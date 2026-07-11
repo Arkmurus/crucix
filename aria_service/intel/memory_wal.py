@@ -219,9 +219,4 @@ async def drain(store_fact: Callable[..., Any], max_items: int = 500) -> dict:
     finally:
         _drain_in_progress = False
 
-# R-F2119 §21a — wire failure handler for memory_wal
-try:
-    wire_failure(module="memory_wal", detail="module shutdown",
-                gap_type="engine_failure", source="memory_wal:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

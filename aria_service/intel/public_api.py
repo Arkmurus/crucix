@@ -219,9 +219,4 @@ def get_openapi_spec() -> dict[str, Any]:
 from .engine_wiring import wire_success, wire_failure
 wire_success(module="public_api", summary="Public Api Active", source_id="public_api:R-F1011")
 
-# R-F2119 §21a — wire failure handler for public_api
-try:
-    wire_failure(module="public_api", detail="module shutdown",
-                gap_type="engine_failure", source="public_api:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

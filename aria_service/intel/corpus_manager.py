@@ -551,9 +551,4 @@ async def _store_proposal(proposal: URLProposal) -> None:
         proposals = proposals[-200:]
     await rs.set_json(PROPOSALS_KEY, proposals)
 
-# R-F2119 §21a — wire failure handler for corpus_manager
-try:
-    wire_failure(module="corpus_manager", detail="module shutdown",
-                gap_type="engine_failure", source="corpus_manager:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

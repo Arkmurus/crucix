@@ -478,9 +478,4 @@ def _node_summary(node: EntityNode) -> dict:
         "risk_reason": node.risk_reason[:150] if node.risk_reason else "",
     }
 
-# R-F2119 §21a — wire failure handler for entity_graph
-try:
-    wire_failure(module="entity_graph", detail="module shutdown",
-                gap_type="engine_failure", source="entity_graph:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

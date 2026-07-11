@@ -241,9 +241,4 @@ async def check_thresholds_and_alert(
         "drift": drift,
     }
 
-# R-F2119 §21a — wire failure handler for brier_drift_monitor
-try:
-    wire_failure(module="brier_drift_monitor", detail="module shutdown",
-                gap_type="engine_failure", source="brier_drift_monitor:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

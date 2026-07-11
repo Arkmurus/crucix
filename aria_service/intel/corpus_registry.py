@@ -220,9 +220,4 @@ def stats() -> dict[str, Any]:
         "registry_path": str(_REGISTRY_PATH),
     }
 
-# R-F2119 §21a — wire failure handler for corpus_registry
-try:
-    wire_failure(module="corpus_registry", detail="module shutdown",
-                gap_type="engine_failure", source="corpus_registry:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

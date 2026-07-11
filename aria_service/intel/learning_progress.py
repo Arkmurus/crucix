@@ -303,9 +303,4 @@ def summary() -> dict[str, Any]:
         "overrides_count":     len(_MAX_STALENESS_OVERRIDES),
     }
 
-# R-F2119 §21a — wire failure handler for learning_progress
-try:
-    wire_failure(module="learning_progress", detail="module shutdown",
-                gap_type="engine_failure", source="learning_progress:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

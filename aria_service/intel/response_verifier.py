@@ -469,9 +469,4 @@ def inject_inline_citations(
 
     return out
 
-# R-F2119 §21a — wire failure handler for response_verifier
-try:
-    wire_failure(module="response_verifier", detail="module shutdown",
-                gap_type="engine_failure", source="response_verifier:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

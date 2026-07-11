@@ -127,9 +127,4 @@ def block_length() -> int:
     """For monitoring — how many chars the addendum adds to the system prompt."""
     return len(_ANALYTIC_PRINCIPLES_BLOCK)
 
-# R-F2119 §21a — wire failure handler for analytic_principles
-try:
-    wire_failure(module="analytic_principles", detail="module shutdown",
-                gap_type="engine_failure", source="analytic_principles:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

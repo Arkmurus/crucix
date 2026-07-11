@@ -220,9 +220,4 @@ def summary() -> dict[str, Any]:
         "redis_key": _REDIS_KEY,
     }
 
-# R-F2119 §21a — wire failure handler for continuous_update
-try:
-    wire_failure(module="continuous_update", detail="module shutdown",
-                gap_type="engine_failure", source="continuous_update:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

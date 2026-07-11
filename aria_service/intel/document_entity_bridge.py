@@ -466,9 +466,4 @@ def _normalise_date(raw: str) -> str:
         return f"{yyyy}-{a}-{b}"
     return raw  # best-effort; return as-is
 
-# R-F2119 §21a — wire failure handler for document_entity_bridge
-try:
-    wire_failure(module="document_entity_bridge", detail="module shutdown",
-                gap_type="engine_failure", source="document_entity_bridge:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

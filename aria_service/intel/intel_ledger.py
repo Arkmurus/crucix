@@ -917,9 +917,4 @@ async def recent_signals(limit: int = 1000) -> list[dict]:
     """Alias for get_recent — same defensive reason as all_signals."""
     return await get_recent(limit=limit)
 
-# R-F2119 §21a — wire failure handler for intel_ledger
-try:
-    wire_failure(module="intel_ledger", detail="module shutdown",
-                gap_type="engine_failure", source="intel_ledger:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

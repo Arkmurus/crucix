@@ -1298,9 +1298,4 @@ def industry_knowledge_summary() -> dict[str, Any]:
         "integration_status": "implemented but NOT yet integrated — opt-in via dd_orchestrator wiring or chat-context injection (operator decision)",
     }
 
-# R-F2119 §21a — wire failure handler for regulated_commodity_pack
-try:
-    wire_failure(module="regulated_commodity_pack", detail="module shutdown",
-                gap_type="engine_failure", source="regulated_commodity_pack:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

@@ -441,9 +441,4 @@ def retrieve_for_query(query: str) -> str:
 
     return block
 
-# R-F2119 §21a — wire failure handler for mem0
-try:
-    wire_failure(module="mem0", detail="module shutdown",
-                gap_type="engine_failure", source="mem0:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

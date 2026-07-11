@@ -620,9 +620,4 @@ async def reindex_all(batch_size: int = 1000) -> dict:
         "summary": summary,
     }
 
-# R-F2119 §21a — wire failure handler for mistake_ledger
-try:
-    wire_failure(module="mistake_ledger", detail="module shutdown",
-                gap_type="engine_failure", source="mistake_ledger:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

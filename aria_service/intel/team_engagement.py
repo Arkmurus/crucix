@@ -446,9 +446,4 @@ async def get_stats() -> dict:
         "profiles_configured": len(TEAM_PROFILES),
     }
 
-# R-F2119 §21a — wire failure handler for team_engagement
-try:
-    wire_failure(module="team_engagement", detail="module shutdown",
-                gap_type="engine_failure", source="team_engagement:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

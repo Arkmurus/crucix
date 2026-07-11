@@ -825,9 +825,4 @@ wire_success(
     source_id="grounded_reasoner:R-F1044",
 )
 
-# R-F2119 §21a — wire failure handler for grounded_reasoner
-try:
-    wire_failure(module="grounded_reasoner", detail="module shutdown",
-                gap_type="engine_failure", source="grounded_reasoner:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

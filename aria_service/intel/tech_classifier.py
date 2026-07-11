@@ -689,9 +689,4 @@ def explain_item(designation: str) -> dict:
         }
     return {"designation": key, "found": False, "note": "Not in technical database."}
 
-# R-F2119 §21a — wire failure handler for tech_classifier
-try:
-    wire_failure(module="tech_classifier", detail="module shutdown",
-                gap_type="engine_failure", source="tech_classifier:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

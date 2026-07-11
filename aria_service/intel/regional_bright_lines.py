@@ -447,9 +447,4 @@ def summary() -> dict[str, Any]:
         "codes": [r.code for r in _RULES],
     }
 
-# R-F2119 §21a — wire failure handler for regional_bright_lines
-try:
-    wire_failure(module="regional_bright_lines", detail="module shutdown",
-                gap_type="engine_failure", source="regional_bright_lines:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

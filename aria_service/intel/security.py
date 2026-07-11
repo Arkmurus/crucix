@@ -496,9 +496,4 @@ def is_legitimate_lookup(country: str) -> bool:
         return False
     return country.lower().strip() in _LEGITIMATE_LOOKUP_COUNTRIES
 
-# R-F2119 §21a — wire failure handler for security
-try:
-    wire_failure(module="security", detail="module shutdown",
-                gap_type="engine_failure", source="security:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.

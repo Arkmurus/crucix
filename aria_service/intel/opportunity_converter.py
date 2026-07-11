@@ -340,9 +340,4 @@ async def convert(
         "brief_markdown": brief,
     }
 
-# R-F2119 §21a — wire failure handler for opportunity_converter
-try:
-    wire_failure(module="opportunity_converter", detail="module shutdown",
-                gap_type="engine_failure", source="opportunity_converter:shutdown")
-except Exception:
-    pass
+# R-F2538: R-F2119 import-time wire_failure("module shutdown") block removed — it fired a FALSE engine_failure gap on every import (not at shutdown); do not re-add.
