@@ -18,6 +18,16 @@
 Operator directive: "go to shadow". Sovereign v0.7 DPO adapter promoted to the
 model_router **shadow** stage (measurement-only, zero user exposure).
 
+**Update 2026-07-11 (R-F2522) — PROMOTED to CANARY 50%.** Sovereign now SERVES 50% of grounded
+synthesis turns (stable per session_id), DeepSeek the other 50% + fallback (§14); closed-book/
+coverage always DeepSeek. Config env-only (aria-intel v2397): `ARIA_LLM_PROMOTION_STAGE=canary`,
+`ARIA_LLM_CANARY_PCT=50`, `ARIA_LLM_URL=https://lwvxmhoatf42kb-8888.proxy.runpod.net/v1` (A100-SXM4,
+$1.49/hr). **VERIFIED live:** a grounded turn routed to the sovereign (pod completions +1) and the
+sovereign responded within its ~40s budget (the >4min wall-clock is aria-intel's pre-existing
+full-pipeline overhead, NOT the sovereign). Canary logs no shadow-compare (route=sovereign|deepseek);
+proof-of-better = the offline eval. **Ramp: `ARIA_LLM_PROMOTION_STAGE=serve` = 100% grounded → sovereign.**
+Keepalive rewritten to PROCESS-based (the port-based one relaunched vLLM every 60s during cold-load).
+
 **Update 2026-07-10 (R-F2520):** shadow now samples STREAMING traffic (was a no-op → 0 organic
 samples in R-F2517). `model_router.stream_synthesis` shadow ships DeepSeek to the user AND
 fire-and-forgets the sovereign compare after the stream (zero added latency); `complete_synthesis`
