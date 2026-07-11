@@ -264,6 +264,27 @@ memory.initFromRedis().catch(() => {});
 // === LLM + Telegram + Discord ===
 const llmProvider = createLLMProvider(config.llm);
 const telegramAlerter = new TelegramAlerter(config.telegram);
+// R-F2544 — Telegram public intel must be Golden Intel only. This flag's real
+// scope is the still-LIVE non-Golden paths: it blocks the manual admin-channel
+// endpoints (post/daily-brief/media/poll/welcome/template → 409) and the automatic
+// sweep/digest/explorer alert lanes. Setting TELEGRAM_GOLDEN_INTEL_ONLY=0 re-opens
+// ONLY those live paths. It does NOT govern the editorial crons (case file / know
+// your rights / country read / opportunity) — those lanes are RETIRED (unscheduled,
+// content logic deleted) regardless of the flag. handleMorningSignalCron remains
+// the sole automatic public intel publisher.
+const TELEGRAM_GOLDEN_INTEL_ONLY = !['0', 'false', 'off', 'no'].includes(
+  String(process.env.TELEGRAM_GOLDEN_INTEL_ONLY ?? '1').toLowerCase(),
+);
+function blockNonGoldenTelegramIntel(res, surface) {
+  const payload = {
+    ok: false,
+    blocked: true,
+    reason: 'golden_intel_only',
+    surface,
+  };
+  if (res) return res.status(409).json(payload);
+  return payload;
+}
 // R-F2292 — P0 hotfix: R-F2288 added this object with BARE shorthand names
 // (curateSignals, …) that were never imported → `ReferenceError: curateSignals
 // is not defined` at module load → aria-web crash-looped to max-restart → the
@@ -5223,6 +5244,7 @@ app.get('/api/admin/channel/state', requireAdmin, (req, res) => {
 
 app.post('/api/admin/channel/post', requireAdmin, async (req, res) => {
   try {
+    if (TELEGRAM_GOLDEN_INTEL_ONLY) return blockNonGoldenTelegramIntel(res, 'admin_channel_post');
     if (!telegramAlerter?.isConfigured) {
       return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
     }
@@ -5240,6 +5262,7 @@ app.post('/api/admin/channel/post', requireAdmin, async (req, res) => {
 
 app.post('/api/admin/channel/daily-brief', requireAdmin, async (req, res) => {
   try {
+    if (TELEGRAM_GOLDEN_INTEL_ONLY) return blockNonGoldenTelegramIntel(res, 'admin_channel_daily_brief');
     if (!telegramAlerter?.isConfigured) {
       return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
     }
@@ -5273,6 +5296,7 @@ app.get('/api/admin/channel/media/infographic', requireAdmin, async (req, res) =
 
 app.post('/api/admin/channel/media/post-with-image', requireAdmin, async (req, res) => {
   try {
+    if (TELEGRAM_GOLDEN_INTEL_ONLY) return blockNonGoldenTelegramIntel(res, 'admin_channel_media_post');
     if (!telegramAlerter?.isConfigured) return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
     const { title, summary, source, severity, country, sector, type } = req.body || {};
     if (!title) return res.status(400).json({ error: 'title is required' });
@@ -5298,6 +5322,7 @@ app.get('/api/admin/channel/interactive/stats', requireAdmin, async (req, res) =
 
 app.post('/api/admin/channel/interactive/poll', requireAdmin, async (req, res) => {
   try {
+    if (TELEGRAM_GOLDEN_INTEL_ONLY) return blockNonGoldenTelegramIntel(res, 'admin_channel_poll');
     if (!telegramAlerter?.isConfigured) return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
     const { sendPoll, buildPoll } = await import('./lib/telegram/channelMedia.mjs');
     const { question, options, isQuiz, correctOptionId, explanation } = req.body || {};
@@ -5350,6 +5375,7 @@ app.get('/api/admin/channel/schedule', requireAdmin, async (req, res) => {
 
 app.post('/api/admin/channel/welcome', requireAdmin, async (req, res) => {
   try {
+    if (TELEGRAM_GOLDEN_INTEL_ONLY) return blockNonGoldenTelegramIntel(res, 'admin_channel_welcome');
     if (!telegramAlerter?.isConfigured) return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
     const post = channelHooks.buildWelcomePost();
     await telegramAlerter.sendMessage(post);
@@ -5361,6 +5387,7 @@ app.post('/api/admin/channel/welcome', requireAdmin, async (req, res) => {
 
 app.post('/api/admin/channel/post-template', requireAdmin, async (req, res) => {
   try {
+    if (TELEGRAM_GOLDEN_INTEL_ONLY) return blockNonGoldenTelegramIntel(res, 'admin_channel_template');
     if (!telegramAlerter?.isConfigured) return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
     const { template, data } = req.body || {};
     if (!template || !data) return res.status(400).json({ error: 'template and data required' });
@@ -6294,13 +6321,15 @@ async function runSweepCycle() {
       scanForCompetitorMoves(currentData);
     } catch (e) { console.warn('[Competitors] Scan error (non-fatal):', e.message); }
 
-    if (telegramAlerter && telegramAlerter.isConfigured) {
+    if (!TELEGRAM_GOLDEN_INTEL_ONLY && telegramAlerter && telegramAlerter.isConfigured) {
       try {
         await telegramAlerter.onSweepComplete(currentData);
         // alert cadence managed by telegram.mjs
       } catch (err) {
         console.error('[Crucix] Telegram alert error:', err.message);
       }
+    } else if (TELEGRAM_GOLDEN_INTEL_ONLY) {
+      console.log('[Telegram] Sweep alerts skipped — Golden Intel only');
     }
 
     // ── Channel Publisher: delegated to channelServerHooks ────────────────
@@ -6780,8 +6809,12 @@ async function start() {
 
     cron.schedule('0 7 * * *', async () => {
       console.log('[Crucix] Sending morning digest...');
-      try { await sendMorningDigest(telegramAlerter, currentData); }
-      catch (e) { console.error('[Digest] Failed:', e.message); }
+      if (TELEGRAM_GOLDEN_INTEL_ONLY) {
+        console.log('[Digest] Telegram morning digest skipped — Golden Intel only');
+      } else {
+        try { await sendMorningDigest(telegramAlerter, currentData); }
+        catch (e) { console.error('[Digest] Failed:', e.message); }
+      }
       pushDigest('Morning Intelligence Brief', 'Your daily ARIA intelligence briefing is ready.', '/dashboard/brief').catch(e => console.warn('[Push] digest push failed:', e.message));
     }, { timezone: 'Europe/London' });
 
@@ -6808,7 +6841,7 @@ async function start() {
         evolveGeneration();
         const stats = getEvolutionStats();
         console.log(`[Evolution] Gen ${stats.generation} — ${stats.populationSize} queries, ${stats.totalHits} hits, ${stats.totalMisses} misses`);
-        if (telegramAlerter?.isConfigured) {
+        if (!TELEGRAM_GOLDEN_INTEL_ONLY && telegramAlerter?.isConfigured) {
           const top = stats.topQueries.slice(0, 3).map(q => `  "${q.query}" (fitness: ${q.fitness})`).join('\n');
           await telegramAlerter.sendMessage(`🧬 *QUERY EVOLUTION — Gen ${stats.generation}*\n${stats.populationSize} queries, ${stats.totalHits} total hits\n\nTop performers:\n${top}`);
         }
@@ -6821,7 +6854,7 @@ async function start() {
       try {
         const { patterns, runsAnalyzed } = await analyzePatterns(llmProvider);
         console.log(`[Self] Pattern analysis complete — ${patterns.length} patterns from ${runsAnalyzed} runs`);
-        if (telegramAlerter?.isConfigured && patterns.length > 0) {
+        if (!TELEGRAM_GOLDEN_INTEL_ONLY && telegramAlerter?.isConfigured && patterns.length > 0) {
           const stored = getPatterns();
           await telegramAlerter.sendMessage(
             `🔍 *WEEKLY PATTERN UPDATE*\n${patterns.length} intelligence patterns detected from ${runsAnalyzed} historical runs.\n\n/patterns to view`
@@ -6836,7 +6869,7 @@ async function start() {
       try {
         const findings = await runExploration(llmProvider);
         console.log(`[Self] Exploration complete — ${findings.insights?.length || 0} insights, ${findings.salesIdeas?.length || 0} ideas`);
-        if (telegramAlerter?.isConfigured && (findings.insights?.length > 0 || findings.salesIdeas?.length > 0)) {
+        if (!TELEGRAM_GOLDEN_INTEL_ONLY && telegramAlerter?.isConfigured && (findings.insights?.length > 0 || findings.salesIdeas?.length > 0)) {
           const post = formatExplorerFindingsForTelegramIfTop(findings);
           if (post.shouldSend) {
             const sent = await telegramAlerter.sendMessage(post.text);
@@ -6848,6 +6881,8 @@ async function start() {
           } else {
             console.log(`[Self] Exploration Telegram skipped — ${post.reason}`);
           }
+        } else if (TELEGRAM_GOLDEN_INTEL_ONLY) {
+          console.log('[Self] Exploration Telegram skipped — Golden Intel only');
         }
       } catch (e) { console.error('[Self] Web exploration failed:', e.message); }
     };
