@@ -106,6 +106,30 @@ class InvestigationReport:
     sources_cited: list[str] = field(default_factory=list)
     duration_ms: float = 0.0
     error: str = ""
+    # R-F2532 — NEVER-FALSE-CLEAN: enrichment phases (registry, news, procurement,
+    # crawl, conflict, SSL...) run in best-effort try-blocks. Before this, a phase dying
+    # on a dead API was swallowed to logger.debug, so investigate_company returned a
+    # GREEN report while most enrichment was silently dead. Every failed phase is now
+    # recorded here so the result is HONEST about which enrichment did not run.
+    phase_failures: list[str] = field(default_factory=list)
+
+
+def _note_phase(report: "InvestigationReport", label: str, exc: "Exception | None" = None, *, timed_out: bool = False) -> None:
+    """R-F2532 — NEVER-FALSE-CLEAN: record a failed / timed-out enrichment phase onto
+    the report so investigate_company is HONEST about which enrichment did not run.
+
+    Before this, every phase swallowed its failure to ``logger.debug`` and the report
+    came back GREEN even when the registry / news / procurement / crawl APIs were dead.
+    Defensive by design — this must NEVER raise (it runs inside except handlers)."""
+    try:
+        if timed_out:
+            report.phase_failures.append(f"{label}: timed out")
+        elif exc is not None:
+            report.phase_failures.append(f"{label}: {str(exc)[:120]}")
+        else:
+            report.phase_failures.append(label)
+    except Exception:
+        pass
 
 
 def _looks_like_document_text(text: str) -> bool:
@@ -256,6 +280,27 @@ async def investigate_company(
         logger.exception("[company_investigator] pipeline failed")
         report.error = str(e)[:500]
 
+    # R-F2532 — NEVER-FALSE-CLEAN: if enrichment phases failed / timed-out, say so in the
+    # user-visible report instead of returning a falsely-clean result. Several of these
+    # phases were calling dead/wrong APIs and swallowing the error to logger.debug, so a
+    # report could come back GREEN while registry / news / procurement / crawl never ran.
+    if report.phase_failures:
+        _uniq: list[str] = []
+        for _pf in report.phase_failures:
+            if _pf not in _uniq:
+                _uniq.append(_pf)
+        report.open_questions.append(
+            f"Enrichment incomplete — {len(_uniq)} source(s) did not return: "
+            + "; ".join(_uniq[:12])
+        )
+        # When the report would otherwise look clean (few/no findings), the absence of
+        # findings is driven by dead enrichment, not a clean bill — flag it explicitly.
+        if len(report.findings) < 3:
+            report.risk_indicators.append(
+                "⚠ Coverage gap: multiple enrichment sources failed to return — "
+                "absence of findings is NOT a clean assessment"
+            )
+
     report.duration_ms = (time.monotonic() - start) * 1000
     # R-F2104 (2026-06-28, ARIA brain DD) §21a — surface the run OUTCOME to the brain.
     # Pre-fix only an import-time wire_success('active') fired; every real run
@@ -296,12 +341,18 @@ async def _phase_entity_resolution(
     """Resolve entity to canonical form."""
     try:
         from . import entity_resolver as _er
-        resolved = await _er.resolve(company_name, jurisdiction=jurisdiction)
+        # R-F2532: resolve() has no `jurisdiction` param (persona/nationality_iso2/fetch_history
+        # only) — the old kwarg raised TypeError on EVERY call and was swallowed, so entity
+        # resolution never ran. Pass the jurisdiction as nationality_iso2 only when it is a
+        # 2-letter ISO code; otherwise omit it.
+        _juris_iso2 = jurisdiction if (jurisdiction and len(jurisdiction) == 2) else None
+        resolved = await _er.resolve(company_name, nationality_iso2=_juris_iso2)
         if resolved:
             report.canonical_name = resolved.get("canonical", company_name)
             if not report.jurisdiction:
                 report.jurisdiction = resolved.get("jurisdiction", "")
     except Exception as e:
+        _note_phase(report, "entity resolution", e)
         logger.debug("[company_investigator] entity resolution failed: %s", e)
 
 
@@ -345,6 +396,7 @@ async def _phase_web_search(
             except asyncio.TimeoutError:
                 logger.debug("[company_investigator] web search query timed out: %s", query)
     except Exception as e:
+        _note_phase(report, "web search", e)
         logger.debug("[company_investigator] web search failed: %s", e)
 
 
@@ -377,8 +429,10 @@ async def _phase_deep_crawl(
                     tags=["deep_crawl"],
                 ))
     except asyncio.TimeoutError:
+        _note_phase(report, "deep crawl", timed_out=True)
         logger.debug("[company_investigator] deep crawl timed out")
     except Exception as e:
+        _note_phase(report, "deep crawl", e)
         logger.debug("[company_investigator] deep crawl failed: %s", e)
 
 
@@ -405,8 +459,10 @@ async def _phase_company_registry(
                 tags=["registry", r.get("jurisdiction", "")],
             ))
     except asyncio.TimeoutError:
+        _note_phase(report, "company registry", timed_out=True)
         logger.debug("[company_investigator] company registry timed out")
     except Exception as e:
+        _note_phase(report, "company registry", e)
         logger.debug("[company_investigator] company registry failed: %s", e)
 
 
@@ -489,6 +545,7 @@ async def _phase_sanctions(
         report.risk_indicators.append(
             f"Sanctions screen TIMED OUT for {company_name} — unverified"
         )
+        _note_phase(report, "sanctions check", timed_out=True)
         logger.debug("[company_investigator] sanctions check timed out")
     except Exception as e:
         # R-F2159: an errored screen must SURFACE as unverified, never vanish.
@@ -504,6 +561,7 @@ async def _phase_sanctions(
         report.risk_indicators.append(
             f"Sanctions screen FAILED for {company_name} — unverified"
         )
+        _note_phase(report, "sanctions check", e)
         logger.debug("[company_investigator] sanctions check failed: %s", e)
 
 
@@ -529,8 +587,10 @@ async def _phase_conflict_risk(
                 tags=["conflict", "risk"],
             ))
     except asyncio.TimeoutError:
+        _note_phase(report, "conflict check", timed_out=True)
         logger.debug("[company_investigator] conflict check timed out")
     except Exception as e:
+        _note_phase(report, "conflict check", e)
         logger.debug("[company_investigator] conflict check failed: %s", e)
 
 
@@ -555,8 +615,10 @@ async def _phase_news(
                 tags=["news", a.get("source", "")],
             ))
     except asyncio.TimeoutError:
+        _note_phase(report, "news search", timed_out=True)
         logger.debug("[company_investigator] news search timed out")
     except Exception as e:
+        _note_phase(report, "news search", e)
         logger.debug("[company_investigator] news search failed: %s", e)
 
 
@@ -592,6 +654,7 @@ async def _phase_social_media(
             except asyncio.TimeoutError:
                 continue
     except Exception as e:
+        _note_phase(report, "social media search", e)
         logger.debug("[company_investigator] social media search failed: %s", e)
 
 
@@ -626,8 +689,10 @@ async def _phase_tech_stack(
                     tags=["tech_stack"],
                 ))
     except asyncio.TimeoutError:
+        _note_phase(report, "tech stack check", timed_out=True)
         logger.debug("[company_investigator] tech stack check timed out")
     except Exception as e:
+        _note_phase(report, "tech stack check", e)
         logger.debug("[company_investigator] tech stack check failed: %s", e)
 
 
@@ -658,8 +723,10 @@ async def _phase_ssl_dns(
                     tags=["ssl", "certificate_transparency"],
                 ))
         except asyncio.TimeoutError:
+            _note_phase(report, "SSL check", timed_out=True)
             logger.debug("[company_investigator] SSL check timed out")
         except Exception as e:
+            _note_phase(report, "SSL check", e)
             logger.debug("[company_investigator] SSL check failed: %s", e)
 
     async def _check_whois() -> None:
@@ -733,10 +800,12 @@ async def _phase_ssl_dns(
                     tags=["whois", "domain_registration"],
                 ))
         except asyncio.TimeoutError:
+            _note_phase(report, "WHOIS check", timed_out=True)
             logger.debug("[company_investigator] WHOIS check timed out")
         except ConnectionRefusedError:
             logger.debug("[company_investigator] WHOIS server refused connection")
         except Exception as e:
+            _note_phase(report, "WHOIS check", e)
             logger.debug("[company_investigator] WHOIS check failed: %s", e)
 
     # Run SSL cert check and WHOIS concurrently
@@ -755,10 +824,15 @@ async def _phase_procurement(
     """Search procurement history."""
     try:
         from . import procurement_history as _ph
-        contracts = await asyncio.wait_for(
-            _ph.search(company_name, jurisdiction=jurisdiction),
+        # R-F2532: procurement_history has NO `search()` — the old call raised AttributeError
+        # on every DD and was swallowed, so procurement never ran. Real API is
+        # query_entity_history(entity_name, *, jurisdiction_iso2=...) -> {"consolidated": [...]}.
+        _juris_iso2 = jurisdiction if (jurisdiction and len(jurisdiction) == 2) else None
+        _proc = await asyncio.wait_for(
+            _ph.query_entity_history(company_name, jurisdiction_iso2=_juris_iso2),
             timeout=_PHASE_TIMEOUTS["procurement"],
         )
+        contracts = (_proc or {}).get("consolidated", []) if isinstance(_proc, dict) else []
         for c in (contracts or [])[:3]:
             report.findings.append(InvestigationFinding(
                 category="procurement",
@@ -770,8 +844,10 @@ async def _phase_procurement(
                 tags=["procurement", "contract"],
             ))
     except asyncio.TimeoutError:
+        _note_phase(report, "procurement search", timed_out=True)
         logger.debug("[company_investigator] procurement search timed out")
     except Exception as e:
+        _note_phase(report, "procurement search", e)
         logger.debug("[company_investigator] procurement search failed: %s", e)
 
 
@@ -865,8 +941,10 @@ async def _phase_contract_lookup(
                 ))
 
     except asyncio.TimeoutError:
+        _note_phase(report, "contract lookup", timed_out=True)
         logger.debug("[company_investigator] contract lookup timed out")
     except Exception as e:
+        _note_phase(report, "contract lookup", e)
         logger.debug("[company_investigator] contract lookup failed: %s", e)
 
 
@@ -876,7 +954,16 @@ async def _phase_synthesis(
 ) -> None:
     """Synthesize all findings into a structured report using LLM."""
     if not report.findings:
-        report.summary = f"No findings could be gathered for {company_name}."
+        # R-F2532 — NEVER-FALSE-CLEAN: "no findings" is only reassuring if enrichment
+        # actually RAN. If phases failed, say the result is incomplete, not clean.
+        if report.phase_failures:
+            report.summary = (
+                f"No findings could be gathered for {company_name}. "
+                f"NOTE: this is NOT a clean result — {len(set(report.phase_failures))} "
+                f"enrichment source(s) failed to return, so coverage was incomplete."
+            )
+        else:
+            report.summary = f"No findings could be gathered for {company_name}."
         return
 
     try:
@@ -931,9 +1018,11 @@ async def _phase_synthesis(
                 report.sources_cited.append(f.source)
 
     except asyncio.TimeoutError:
+        _note_phase(report, "synthesis", timed_out=True)
         logger.debug("[company_investigator] synthesis timed out")
         report.summary = "Synthesis timed out — raw findings are available."
     except Exception as e:
+        _note_phase(report, "synthesis", e)
         logger.debug("[company_investigator] synthesis failed: %s", e)
 
 
