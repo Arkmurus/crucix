@@ -120,10 +120,6 @@ def stats() -> dict:
         return {"error": str(e), "dir": str(_CORPUS_DIR)}
 
 
-# R-F2318 §21a — wire failure handler for brave_distill (module-level registration).
-try:
-    from .engine_wiring import wire_failure as _wf_shutdown
-    _wf_shutdown(module="brave_distill", detail="module shutdown",
-                 gap_type="engine_failure", source="brave_distill:shutdown")
-except Exception:
-    pass
+# R-F2541: removed the R-F2318 import-time _wf_shutdown("module shutdown") block — it
+# fired a FALSE engine_failure gap on every import (variant of the R-F2538 sweep that
+# used an aliased wire_failure import, so the sweep regex missed it); do not re-add.

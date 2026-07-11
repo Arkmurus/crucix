@@ -324,10 +324,6 @@ def stats() -> dict:
     }
 
 
-# R-F2339 §21a — module-level failure-handler registration.
-try:
-    from .engine_wiring import wire_failure as _wf_shutdown
-    _wf_shutdown(module="brave_student", detail="module shutdown",
-                 gap_type="engine_failure", source="brave_student:shutdown")
-except Exception:
-    pass
+# R-F2541: removed the R-F2339 import-time _wf_shutdown("module shutdown") block — it
+# fired a FALSE engine_failure gap on every import (aliased-import variant the R-F2538
+# sweep regex missed); do not re-add.

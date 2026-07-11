@@ -153,6 +153,14 @@ NO_AUTODEPLOY_FILES: set[str] = {
     "aria_service/autonomous/constitutional_validator.py",   # if/when restored
 }
 
+# R-F2541: seed MODIFIABLE_FILES with the critical set at IMPORT time. These files
+# ARE modifiable — a human may stage + review + deploy a legitimate edit — they are
+# only barred from AUTO-deploy (that is what NO_AUTODEPLOY_FILES gates). Before this,
+# MODIFIABLE_FILES stayed empty until the async _ensure_modifiable_files() ran at boot,
+# so a critical file looked un-stageable at import and the human-review path was blocked
+# (test_rf851 regression). The full-tree scan still runs at boot and unions in the rest.
+MODIFIABLE_FILES.update(NO_AUTODEPLOY_FILES)
+
 
 # R-F996 — dynamically populate MODIFIABLE_FILES with ALL project files
 # so the coder can improve any part of the codebase.
@@ -282,15 +290,25 @@ def _is_safe_new_file(file_path: str) -> bool:
 def _auto_deploy_allowed(file_path: str, change_type: str) -> bool:
     """Whether a staged change may AUTO-deploy (no human in the loop).
 
-    Self-harm-critical files (NO_AUTODEPLOY_FILES — boot, constitution,
-    verification gate, prompts, safety guards, the deploy config itself) always
-    require explicit human approval: they can be staged and human-deployed, never
-    auto-deployed, independent of change_type or the env flag. Every OTHER file is
-    free to auto-deploy (ARIA codes without restriction). R-F851 / R-F1040.
+    TWO independent gates — BOTH must pass:
+    1. Self-harm-critical files (NO_AUTODEPLOY_FILES — boot, constitution, verification
+       gate, prompts, safety guards, the deploy config itself) always require explicit
+       human approval: staged + human-deployed, never auto-deployed. R-F851 / R-F1040.
+    2. The change_type must itself be auto-deployable. CHANGE_TYPES marks
+       prompt_evolution / new_intel_layer / enhancement as auto_deploy=False (human-only)
+       — those NEVER auto-deploy on any file; only bug_fix / optimisation may, and only
+       when ARIA_SELF_IMPROVE_AUTO_DEPLOY=1 (via _R462_AUTO_DEPLOY_DEFAULT).
+
+    R-F2541: restore gate #2. A prior simplification returned True for every non-critical
+    file "independent of change_type", so human-only change types could auto-deploy — a
+    safety-gate regression caught by test_rf851. An unknown change_type fails closed.
     """
     if file_path in NO_AUTODEPLOY_FILES:
         return False
-    return True
+    ct = CHANGE_TYPES.get(change_type)
+    if ct is None:
+        return False  # unknown change_type → require human review (fail-closed)
+    return bool(ct.get("auto_deploy", False))
 
 
 # Root directory

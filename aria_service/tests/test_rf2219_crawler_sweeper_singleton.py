@@ -72,8 +72,13 @@ class TestR_F2219_ElectionGateWiring:
     def test_election_complete_event_exists_and_is_set_after_election(self):
         src = self._src()
         assert "_election_complete" in src
-        # Set right after the election resolves.
-        assert "await _elect_engine_role()" in src
+        # The election runs and _election_complete is set right after it resolves.
+        # R-F2541: the election is now wrapped in asyncio.wait_for(...) with a bounded
+        # timeout (falls back to role="all" on timeout) — assert it's invoked in either
+        # the bare-await or the wait_for form, not the exact old literal.
+        assert ("await _elect_engine_role()" in src
+                or "wait_for(_elect_engine_role()" in src), \
+            "election must be invoked (bare await or asyncio.wait_for form)"
         assert "_election_complete.set()" in src
 
     def test_crawler_is_election_gated_singleton(self):

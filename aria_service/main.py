@@ -866,6 +866,14 @@ async def lifespan(app: FastAPI):
     # (catches restart-orphans) and every 10 min (catches a hang without restart).
     async def _dd_reconcile_loop():
         await asyncio.sleep(45)  # let the state store settle after boot
+        # R-F2541: engine SINGLETON — reconciliation rewrites shared DD status +
+        # brain/gap signals; N workers would N× the writes and race on shared state.
+        # Started before the election, so wait for it, then exit on non-singleton roles.
+        if _election_complete is not None:
+            await _election_complete.wait()
+        if not _runs_singletons():
+            logger.info("[R-F2541] dd_reconcile SKIPPED (ARIA_ROLE=%s)", _aria_role())
+            return
         while True:
             try:
                 from .intel import dd_orchestrator as _ddo
@@ -906,6 +914,14 @@ async def lifespan(app: FastAPI):
     # is live now so the mechanism drains the moment producers land.
     async def _outcome_reconcile_loop():
         await asyncio.sleep(90)  # let the state store settle after boot
+        # R-F2541: engine SINGLETON — reconciles shared outcome ledger + emits
+        # delivery_failure gaps; N workers would duplicate the gap writes. Wait for the
+        # election (started before it), then exit on non-singleton roles.
+        if _election_complete is not None:
+            await _election_complete.wait()
+        if not _runs_singletons():
+            logger.info("[R-F2541] outcome_reconcile SKIPPED (ARIA_ROLE=%s)", _aria_role())
+            return
         while True:
             try:
                 from .intel import outcome_wire as _ow
