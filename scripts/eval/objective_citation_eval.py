@@ -123,11 +123,15 @@ async def run(args) -> int:
                 async with httpx.AsyncClient(timeout=90.0) as c:
                     if args.platform_eval:
                         # PLATFORM = frontier model grounded in ARIA's retrieved evidence (cite/abstain).
+                        # PLATFORM_VERIFIED = platform answer after R-F2540 citation verification.
                         # RAW = same frontier model, bare question, no evidence (client going direct).
+                        from aria_service.intel import citation_verifier as _cv
                         plat = await _gen(c, "https://api.deepseek.com/v1", "deepseek-chat", dsk, q, ctx, grounded=True)
                         raw = await _gen(c, "https://api.deepseek.com/v1", "deepseek-chat", dsk, q, ctx, grounded=False)
+                        plat_clean = _cv.verify_and_clean(plat, ctx)["answer"]
                         rec = {"seed_id": row.get("seed_id"), "topic": row.get("topic"), "answerable": ans,
                                "platform": _score(plat, ctx, kws, ans),
+                               "platform_verified": _score(plat_clean, ctx, kws, ans),
                                "raw": _score(raw, ctx, kws, ans)}
                     else:
                         sov = await _gen(c, args.sov_url, args.sov_model, args.sov_key or None, q, ctx)
@@ -154,36 +158,38 @@ def report(args) -> int:
     recs = [json.loads(l) for l in open(args.out, encoding="utf-8") if l.strip()]
     if not recs:
         print("no records"); return 1
-    # auto-detect which two sides this file holds
-    if any(r.get("platform") for r in recs):
-        a, b, la, lb, title = "platform", "raw", "PLATFORM", "RAW-DEEPSEEK", "PLATFORM (ARIA grounded) vs RAW DeepSeek"
-    else:
-        a, b, la, lb, title = "sovereign", "deepseek", "SOVEREIGN", "DEEPSEEK", "SOVEREIGN vs DeepSeek"
+    order = ["platform", "platform_verified", "raw", "sovereign", "deepseek"]
+    sides = [s for s in order if any(r.get(s) for r in recs)]
 
     def agg(side):
         vals = [r[side] for r in recs if r.get(side)]
         n = len(vals) or 1
         return {
-            "n": len(vals),
             "citation_precision": round(sum(v["citation_precision"] for v in vals) / n, 4),
             "mean_fabricated": round(sum(v["fabricated_citations"] for v in vals) / n, 4),
             "keyword_recall": round(sum(v["keyword_recall"] for v in vals) / n, 4),
             "mean_reward": round(sum(v["score"] for v in vals) / n, 4),
             "pct_zero_fabrication": round(sum(1 for v in vals if v["fabricated_citations"] == 0) / n, 4),
         }
-    sa, sb = agg(a), agg(b)
-    both = [r for r in recs if r.get(a) and r.get(b)]
-    a_wins = sum(1 for r in both if r[a]["score"] > r[b]["score"])
-    ties = sum(1 for r in both if r[a]["score"] == r[b]["score"])
-    print(f"=== OBJECTIVE EVAL (grounding_reward): {title} ===")
-    print(f"rows scored: {len(recs)}")
-    print(f"{'metric':<24}{la:>14}{lb:>14}")
+    aggs = {s: agg(s) for s in sides}
+    print(f"=== OBJECTIVE EVAL (grounding_reward) — {len(recs)} rows ===")
+    print(f"{'metric':<22}" + "".join(f"{s.upper():>19}" for s in sides))
     for k in ("citation_precision", "mean_fabricated", "keyword_recall", "mean_reward", "pct_zero_fabrication"):
-        print(f"{k:<24}{sa[k]:>14}{(sb[k] if sb['n'] else 'n/a'):>14}")
-    if both:
-        print(f"\nhead-to-head (n={len(both)}): {la}>{lb} {a_wins} | ties {ties} | "
-              f"{lb}>{la} {len(both)-a_wins-ties}")
-        print(f"{la} win-rate (excl ties): {round(a_wins/max(len(both)-ties,1),3)}")
+        print(f"{k:<22}" + "".join(f"{aggs[s][k]:>19}" for s in sides))
+    if "platform" in sides and "platform_verified" in sides:
+        p, v = aggs["platform"], aggs["platform_verified"]
+        print(f"\n>>> CITATION-VERIFIER EFFECT (R-F2540):")
+        print(f"    mean fabricated citations : {p['mean_fabricated']}  ->  {v['mean_fabricated']}")
+        print(f"    fabrication-free answers  : {round(p['pct_zero_fabrication']*100,1)}%  ->  "
+              f"{round(v['pct_zero_fabrication']*100,1)}%")
+    if len(sides) >= 2:
+        a, b = sides[0], sides[1]
+        both = [r for r in recs if r.get(a) and r.get(b)]
+        aw = sum(1 for r in both if r[a]["score"] > r[b]["score"])
+        ties = sum(1 for r in both if r[a]["score"] == r[b]["score"])
+        if both:
+            print(f"\nhead-to-head {a} vs {b} (n={len(both)}): {a}>{b} {aw} | ties {ties} | "
+                  f"{b}>{a} {len(both)-aw-ties}")
     return 0
 
 
