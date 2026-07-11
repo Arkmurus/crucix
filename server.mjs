@@ -285,6 +285,30 @@ function blockNonGoldenTelegramIntel(res, surface) {
   if (res) return res.status(409).json(payload);
   return payload;
 }
+
+function telegramChannelBotOrResponse(res, surface) {
+  if (!config.telegram.botToken) {
+    return res.status(503).json({ configured: false, reason: 'TELEGRAM_BOT_TOKEN is not set', surface });
+  }
+  if (!config.telegram.channelId) {
+    return res.status(409).json({
+      configured: false,
+      reason: 'telegram_channel_id_required',
+      detail: 'Set TELEGRAM_CHANNEL_ID for public Telegram channel publishing. TELEGRAM_CHAT_ID is reserved for private ops/admin bot messages.',
+      surface,
+    });
+  }
+  return { botToken: config.telegram.botToken, chatId: config.telegram.channelId, channelId: config.telegram.channelId };
+}
+
+async function sendTelegramChannelText(bot, text) {
+  return fetch(`https://api.telegram.org/bot${bot.botToken}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: bot.channelId, text, parse_mode: 'Markdown', disable_web_page_preview: true }),
+    signal: AbortSignal.timeout(15000),
+  });
+}
 // R-F2292 — P0 hotfix: R-F2288 added this object with BARE shorthand names
 // (curateSignals, …) that were never imported → `ReferenceError: curateSignals
 // is not defined` at module load → aria-web crash-looped to max-restart → the
@@ -5245,14 +5269,12 @@ app.get('/api/admin/channel/state', requireAdmin, (req, res) => {
 app.post('/api/admin/channel/post', requireAdmin, async (req, res) => {
   try {
     if (TELEGRAM_GOLDEN_INTEL_ONLY) return blockNonGoldenTelegramIntel(res, 'admin_channel_post');
-    if (!telegramAlerter?.isConfigured) {
-      return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
-    }
+    const bot = telegramChannelBotOrResponse(res, 'admin_channel_post');
+    if (!bot || res.headersSent) return;
     const { title, summary, source, severity, country, sector } = req.body || {};
     if (!title) return res.status(400).json({ error: 'title is required' });
 
     const signal = { title, summary: summary || title, source: source || 'Admin', severity: severity || 'medium', timestamp: new Date().toISOString(), country, sector };
-    const bot = { botToken: config.telegram.botToken, chatId: config.telegram.chatId, channelId: config.telegram.channelId };
     const result = await channelHooks.publishSignal(signal, bot, { generateImage: true, registerKeyword: true, crossPostLinkedIn: false });
     res.json(result);
   } catch (err) {
@@ -5263,12 +5285,11 @@ app.post('/api/admin/channel/post', requireAdmin, async (req, res) => {
 app.post('/api/admin/channel/daily-brief', requireAdmin, async (req, res) => {
   try {
     if (TELEGRAM_GOLDEN_INTEL_ONLY) return blockNonGoldenTelegramIntel(res, 'admin_channel_daily_brief');
-    if (!telegramAlerter?.isConfigured) {
-      return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
-    }
+    const bot = telegramChannelBotOrResponse(res, 'admin_channel_daily_brief');
+    if (!bot || res.headersSent) return;
     const briefData = req.body || {};
     const post = channelHooks.formatDailyBrief(briefData);
-    await telegramAlerter.sendMessage(post);
+    await sendTelegramChannelText(bot, post);
     channelHooks.recordPost();
     res.json({ posted: true, type: 'daily-brief', length: post.length });
   } catch (err) {
@@ -5297,12 +5318,12 @@ app.get('/api/admin/channel/media/infographic', requireAdmin, async (req, res) =
 app.post('/api/admin/channel/media/post-with-image', requireAdmin, async (req, res) => {
   try {
     if (TELEGRAM_GOLDEN_INTEL_ONLY) return blockNonGoldenTelegramIntel(res, 'admin_channel_media_post');
-    if (!telegramAlerter?.isConfigured) return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
+    const bot = telegramChannelBotOrResponse(res, 'admin_channel_media_post');
+    if (!bot || res.headersSent) return;
     const { title, summary, source, severity, country, sector, type } = req.body || {};
     if (!title) return res.status(400).json({ error: 'title is required' });
 
     const signal = { title, summary: summary || title, source: source || 'Admin', severity: severity || 'medium', timestamp: new Date().toISOString(), country, sector };
-    const bot = { botToken: config.telegram.botToken, chatId: config.telegram.chatId, channelId: config.telegram.channelId };
     const result = await channelHooks.publishSignal(signal, bot, { generateImage: true, registerKeyword: true, crossPostLinkedIn: false });
     res.json(result);
   } catch (err) {
@@ -5323,13 +5344,13 @@ app.get('/api/admin/channel/interactive/stats', requireAdmin, async (req, res) =
 app.post('/api/admin/channel/interactive/poll', requireAdmin, async (req, res) => {
   try {
     if (TELEGRAM_GOLDEN_INTEL_ONLY) return blockNonGoldenTelegramIntel(res, 'admin_channel_poll');
-    if (!telegramAlerter?.isConfigured) return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
+    const bot = telegramChannelBotOrResponse(res, 'admin_channel_poll');
+    if (!bot || res.headersSent) return;
     const { sendPoll, buildPoll } = await import('./lib/telegram/channelMedia.mjs');
     const { question, options, isQuiz, correctOptionId, explanation } = req.body || {};
     if (!question || !options || options.length < 2) return res.status(400).json({ error: 'question and 2+ options required' });
 
     const pollData = buildPoll({ question, options, isQuiz, correctOptionId, explanation });
-    const bot = { botToken: config.telegram.botToken, chatId: config.telegram.channelId || config.telegram.chatId };
     const result = await sendPoll(bot, pollData);
     res.json(result);
   } catch (err) {
@@ -5376,9 +5397,10 @@ app.get('/api/admin/channel/schedule', requireAdmin, async (req, res) => {
 app.post('/api/admin/channel/welcome', requireAdmin, async (req, res) => {
   try {
     if (TELEGRAM_GOLDEN_INTEL_ONLY) return blockNonGoldenTelegramIntel(res, 'admin_channel_welcome');
-    if (!telegramAlerter?.isConfigured) return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
+    const bot = telegramChannelBotOrResponse(res, 'admin_channel_welcome');
+    if (!bot || res.headersSent) return;
     const post = channelHooks.buildWelcomePost();
-    await telegramAlerter.sendMessage(post);
+    await sendTelegramChannelText(bot, post);
     res.json({ posted: true, length: post.length });
   } catch (err) {
     res.status(502).json({ error: 'Failed to post welcome', detail: err.message });
@@ -5388,7 +5410,8 @@ app.post('/api/admin/channel/welcome', requireAdmin, async (req, res) => {
 app.post('/api/admin/channel/post-template', requireAdmin, async (req, res) => {
   try {
     if (TELEGRAM_GOLDEN_INTEL_ONLY) return blockNonGoldenTelegramIntel(res, 'admin_channel_template');
-    if (!telegramAlerter?.isConfigured) return res.status(503).json({ configured: false, reason: 'Telegram not configured' });
+    const bot = telegramChannelBotOrResponse(res, 'admin_channel_template');
+    if (!bot || res.headersSent) return;
     const { template, data } = req.body || {};
     if (!template || !data) return res.status(400).json({ error: 'template and data required' });
 
@@ -5400,7 +5423,7 @@ app.post('/api/admin/channel/post-template', requireAdmin, async (req, res) => {
       case 'morning_signal': post = channelHooks.buildMorningSignal(data); break;
       default: return res.status(400).json({ error: 'Unknown template: ' + template });
     }
-    await telegramAlerter.sendMessage(post);
+    await sendTelegramChannelText(bot, post);
     channelHooks.markPosted(template);
     res.json({ posted: true, template, length: post.length });
   } catch (err) {

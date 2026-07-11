@@ -12,9 +12,12 @@ process.env.CHANNEL_EDITORIAL_STATE_PATH = path.join(tempDir, 'editorial.json');
 
 const {
   formatGoldenIntelChannelPost,
+  handleCaseFileCron,
   handleMorningSignalCron,
+  runChannelSweep,
   selectTelegramGoldenIntel,
 } = await import('../lib/telegram/channelServerHooks.mjs');
+const { dedupKey, recordPosted } = await import('../lib/telegram/postDedup.mjs');
 
 function goodSignal(overrides = {}) {
   return {
@@ -73,6 +76,20 @@ describe('Telegram Golden Intel gate', () => {
     assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ url: '' })] }), null);
   });
 
+  it('rejects already-posted Golden Intel even when re-ingested with a new id', () => {
+    fs.writeFileSync(process.env.CHANNEL_POST_DEDUP_PATH, '{}');
+    recordPosted(dedupKey(goodSignal()));
+    const duplicate = goodSignal({
+      id: 'sig-new-ingestion-id',
+      url: 'https://example.com/angola-tender?utm_source=newsletter',
+    });
+    assert.equal(selectTelegramGoldenIntel({
+      ok: true,
+      freshness: { stale: false, backfilled: false },
+      signals: [duplicate],
+    }), null);
+  });
+
   it('formats the Telegram post around decision, impact, action, and evidence', () => {
     const text = formatGoldenIntelChannelPost(goodSignal(), { newest_signal_at: '2026-07-07T10:00:00Z' });
     assert.match(text, /GOLDEN INTEL/);
@@ -82,7 +99,8 @@ describe('Telegram Golden Intel gate', () => {
     assert.match(text, /Evidence: US DoD Daily Contracts/);
   });
 
-  it('morning cron posts fresh Golden Intel before editorial fallback', async () => {
+  it('morning cron posts fresh Golden Intel and no fallback content', async () => {
+    fs.writeFileSync(process.env.CHANNEL_POST_DEDUP_PATH, '{}');
     const calls = [];
     global.fetch = async (url, opts = {}) => {
       calls.push({ url: String(url), opts });
@@ -105,5 +123,61 @@ describe('Telegram Golden Intel gate', () => {
     assert.equal(telegramMessages.length, 1);
     assert.match(String(telegramMessages[0].opts.body), /GOLDEN INTEL/);
     assert.doesNotMatch(String(telegramMessages[0].opts.body), /Hidden in the supply chain/);
+  });
+
+  it('morning cron sends nothing when Golden Intel is missing or stale', async () => {
+    fs.writeFileSync(process.env.CHANNEL_POST_DEDUP_PATH, '{}');
+    const calls = [];
+    global.fetch = async (url, opts = {}) => {
+      calls.push({ url: String(url), opts });
+      if (String(url).includes('/api/aria/intel/signals/recent')) {
+        return new Response(JSON.stringify({
+          signals: [goodSignal()],
+          freshness: { stale: true, stale_reasons: ['poll_stale'] },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true, result: { message_id: calls.length } }), { status: 200 });
+    };
+
+    const result = await handleMorningSignalCron({}, { botToken: 'test-token', chatId: '1234567890', channelId: '1234567890' });
+    const telegramMessages = calls.filter(c => c.url.includes('/sendMessage') || c.url.includes('/sendPhoto'));
+    assert.equal(result?.skipped, true);
+    assert.equal(telegramMessages.length, 0);
+  });
+
+  it('morning cron refuses to use private chat ID as public channel fallback', async () => {
+    const calls = [];
+    global.fetch = async (url, opts = {}) => {
+      calls.push({ url: String(url), opts });
+      return new Response(JSON.stringify({ ok: true, result: { message_id: calls.length } }), { status: 200 });
+    };
+
+    const result = await handleMorningSignalCron({}, { botToken: 'test-token', chatId: 'private-ops-chat' });
+    const telegramMessages = calls.filter(c => c.url.includes('api.telegram.org'));
+
+    assert.equal(result?.reason, 'missing_channel_id');
+    assert.equal(telegramMessages.length, 0);
+  });
+
+  it('static scheduled case files are blocked by the Golden-only rule', async () => {
+    const calls = [];
+    global.fetch = async (url, opts = {}) => {
+      calls.push({ url: String(url), opts });
+      return new Response(JSON.stringify({ ok: true, result: { message_id: calls.length } }), { status: 200 });
+    };
+
+    const result = await handleCaseFileCron({ botToken: 'test-token', chatId: '1234567890', channelId: '1234567890' });
+
+    const telegramMessages = calls.filter(c => c.url.includes('/sendMessage'));
+    assert.equal(result?.reason, 'golden_intel_only');
+    assert.equal(telegramMessages.length, 0);
+  });
+
+  it('sweep-triggered channel publishing is blocked by the Golden-only rule', async () => {
+    const result = await runChannelSweep({
+      correlations: [{ severity: 'critical', title: 'Critical non-golden item' }],
+      opensanctions: { recent: [{ name: 'Example Entity', datasets: ['x', 'y'] }] },
+    }, { botToken: 'test-token', chatId: '1234567890', channelId: '1234567890' });
+    assert.deepEqual(result, { posted: 0, errors: 0, skipped: true, reason: 'golden_intel_only' });
   });
 });

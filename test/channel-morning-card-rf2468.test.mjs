@@ -38,16 +38,11 @@ describe('Channel morning cron cards', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('publishes an editorial card and then the full morning text', async () => {
-    await handleMorningSignalCron({}, { botToken: 'test-token', chatId: '1234567890', channelId: '1234567890' });
+  it('does not publish editorial fallback when Golden Intel is unavailable', async () => {
+    const result = await handleMorningSignalCron({}, { botToken: 'test-token', chatId: '1234567890', channelId: '1234567890' });
 
     const telegramCalls = calls.filter(c => c.url.includes('api.telegram.org'));
-    assert.equal(telegramCalls.length, 3);
-    assert.ok(telegramCalls[0].url.includes('/sendPhoto'));
-    assert.ok(String(telegramCalls[0].opts.body).includes('aria_intel_'));
-    assert.ok(telegramCalls[1].url.includes('/sendPhoto'));
-    assert.ok(String(telegramCalls[1].opts.body).includes('card-file-id'));
-    assert.ok(telegramCalls[2].url.includes('/sendMessage'));
-    assert.ok(String(telegramCalls[2].opts.body).includes('Hidden in the supply chain'));
+    assert.equal(result?.reason, 'no_golden_intel');
+    assert.equal(telegramCalls.length, 0);
   });
 });

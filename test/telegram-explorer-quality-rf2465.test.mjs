@@ -79,11 +79,12 @@ test('manual exploration formatter keeps on-demand output available with honest 
   assert.doesNotMatch(text, /Auto-runs Sundays 04:00 UTC/);
 });
 
-test('scheduled Telegram path records dedup only after send success', () => {
+test('scheduled Telegram explorer path is blocked when Golden-only mode is active', () => {
   const src = readFileSync(path.join(__dirname, '..', 'server.mjs'), 'utf8');
   const start = src.indexOf('formatExplorerFindingsForTelegramIfTop(findings)');
   assert.ok(start > -1, 'scheduled Telegram quality gate must be wired');
-  const block = src.slice(start, start + 520);
+  const block = src.slice(start - 180, start + 620);
+  assert.ok(block.includes('!TELEGRAM_GOLDEN_INTEL_ONLY'));
   assert.ok(block.includes('const sent = await telegramAlerter.sendMessage(post.text)'));
   assert.ok(block.includes('if (sent?.ok !== false)'));
   assert.ok(block.indexOf('if (sent?.ok !== false)') < block.indexOf('recordExplorerTelegramPost(post.keys)'));
