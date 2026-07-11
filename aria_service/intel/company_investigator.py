@@ -441,22 +441,55 @@ async def _phase_company_registry(
     company_name: str,
     jurisdiction: str,
 ) -> None:
-    """Check company registries."""
+    """Check company registries (UK Companies House)."""
     try:
         from . import companies_house as _ch
+        # R-F2533: companies_house has NO `search()` (the old call raised AttributeError
+        # on every DD and was swallowed). The real entity search is
+        #   search_companies(query, limit) -> [{company_number, title, company_status,
+        #                                        date_of_creation, address_snippet, company_type}]
+        # CH is UK-only, so only query it for UK / unspecified jurisdictions; a non-UK
+        # hint would return false name-matches against UK companies.
+        _j = (jurisdiction or "").strip().lower()
+        _uk = _j in (
+            "", "uk", "gb", "gbr", "united kingdom", "great britain",
+            "england", "scotland", "wales", "northern ireland",
+        )
+        if not _uk:
+            _note_phase(report, "company registry", RuntimeError(
+                f"no registry source wired for jurisdiction '{jurisdiction}' "
+                f"(only UK Companies House is available)"))
+            return
+        # Surface the missing-API-key ROOT cause honestly instead of a cryptic 401.
+        _gap = _ch.missing_key_gap()
+        if _gap:
+            _note_phase(report, "company registry", RuntimeError(_gap))
+            logger.debug("[company_investigator] company registry unavailable: %s", _gap)
+            return
         results = await asyncio.wait_for(
-            _ch.search(company_name, jurisdiction=jurisdiction),
+            _ch.search_companies(company_name, limit=3),
             timeout=_PHASE_TIMEOUTS["company_registry"],
         )
         for r in (results or [])[:3]:
+            if not isinstance(r, dict):
+                continue
+            _num = r.get("company_number") or ""
+            _url = (
+                f"https://find-and-update.company-information.service.gov.uk/company/{_num}"
+                if _num else "companies_house"
+            )
             report.findings.append(InvestigationFinding(
                 category="registry",
-                title=f"Company registry: {r.get('name', company_name)}",
-                summary=f"Status: {r.get('status', 'unknown')}. "
-                        f"Registered: {r.get('incorporation_date', 'unknown')}",
-                source=r.get("url", "companies_house"),
+                title=f"UK Companies House: {r.get('title') or company_name}",
+                summary=(
+                    f"Status: {r.get('company_status', 'unknown')}. "
+                    f"Incorporated: {r.get('date_of_creation', 'unknown')}. "
+                    f"Type: {r.get('company_type', 'unknown')}. "
+                    f"No.: {_num or 'unknown'}."
+                ),
+                source=_url,
                 confidence=0.9,
-                tags=["registry", r.get("jurisdiction", "")],
+                tags=["registry", "companies_house", "GB"],
             ))
     except asyncio.TimeoutError:
         _note_phase(report, "company registry", timed_out=True)
@@ -598,18 +631,33 @@ async def _phase_news(
     report: InvestigationReport,
     company_name: str,
 ) -> None:
-    """Search news for company mentions."""
+    """Search recently-monitored news feeds for company mentions."""
     try:
         from . import news_monitor as _nm
-        articles = await asyncio.wait_for(
-            _nm.search(company_name, max_articles=5),
+        # R-F2533: news_monitor has NO keyword search — it's a background RSS poller
+        # (the old _nm.search() raised AttributeError on every DD, swallowed). The real
+        # API is get_recent_articles(limit) -> [{title, url, summary, published, source}].
+        # Pull the recent monitored corpus and filter by company-name mention. This is
+        # HONEST: "mentions of X in recently-monitored feeds", not a full news search —
+        # absence of a match means "no recent monitored coverage", not "no adverse media".
+        recent = await asyncio.wait_for(
+            _nm.get_recent_articles(limit=200),
             timeout=_PHASE_TIMEOUTS["news"],
         )
-        for a in (articles or [])[:5]:
+        _needle = (company_name or "").strip().lower()
+        matched: list[dict] = []
+        if _needle:
+            for a in (recent or []):
+                if not isinstance(a, dict):
+                    continue
+                _hay = f"{a.get('title', '')} {a.get('summary', '')}".lower()
+                if _needle in _hay:
+                    matched.append(a)
+        for a in matched[:5]:
             report.findings.append(InvestigationFinding(
                 category="news",
-                title=a.get("title", "")[:200],
-                summary=a.get("summary", "")[:300],
+                title=(a.get("title") or "")[:200],
+                summary=(a.get("summary") or "")[:300],
                 source=a.get("url", ""),
                 confidence=0.6,
                 tags=["news", a.get("source", "")],
