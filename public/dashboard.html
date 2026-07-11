@@ -55,9 +55,9 @@
       <a href="/news.html" class="sc-btn sc-btn-outline sc-btn-sm ms-auto">Raw feed</a>
     </div>
     <p style="margin:8px 14px 0;color:var(--sc-muted);font-size:12px;line-height:1.5">
-      <i class="bi bi-info-circle"></i> Promoted signals from ARIA's monitored news sources. Each item is reduced to the decision, confidence, impact, action, and evidence.
+      <i class="bi bi-info-circle"></i> Promoted signals from ARIA's monitored sources. Distribution-ready items meet the public-channel gate; candidates remain visible for mining and corroboration.
     </p>
-    <div class="sc-card-body" id="golden-intel-list" style="max-height:520px;overflow-y:auto">
+    <div class="sc-card-body" id="golden-intel-list" style="max-height:620px;overflow-y:auto">
       <div class="sc-loading-state"><div class="sc-spinner"></div>Loading decision signals…</div>
     </div>
   </div>
@@ -294,6 +294,88 @@ function actionHref(action, target) {
   return '/news.html';
 }
 
+const GOLDEN_DISTRIBUTION_TYPES = new Set([
+  'sanctions_change',
+  'active_tender',
+  'contract_award',
+  'budget_movement',
+  'programme_signal',
+  'competitor_activity',
+  'conflict_escalation',
+]);
+
+function signalEvidenceUrl(s) {
+  const direct = String(s && s.url || '').trim();
+  if (/^https?:\/\//i.test(direct)) return direct;
+  const ev = s && s.evidence && typeof s.evidence === 'object' ? String(s.evidence.url || '').trim() : '';
+  return /^https?:\/\//i.test(ev) ? ev : '';
+}
+
+function isDistributionReadyGolden(s) {
+  const quality = String(s && s.quality_label || '').toLowerCase();
+  const priority = String(s && s.priority || '').toUpperCase();
+  const confidence = String(s && s.confidence || '').toUpperCase();
+  const tier = String(s && (s.source_tier || (s.evidence && s.evidence.source_tier)) || '').toLowerCase();
+  const type = String(s && s.signal_type || '');
+  return quality.indexOf('decision-grade') === 0
+    && priority === 'HIGH'
+    && (confidence === 'HIGH' || confidence === 'MEDIUM')
+    && GOLDEN_DISTRIBUTION_TYPES.has(type)
+    && ['tier_1a', 'tier_1b', 'tier_2'].includes(tier)
+    && Boolean(s && (s.decision_summary || s.title))
+    && Boolean(s && s.why_it_matters)
+    && Boolean(s && s.recommended_action)
+    && Boolean(signalEvidenceUrl(s))
+    && !s._backfilled;
+}
+
+function renderGoldenIntelItem(s, compact) {
+  const target = s.target || (s.entities && ((s.entities.oems || [])[0] || (s.entities.countries || [])[0])) || s.source || 'Signal';
+  const href = actionHref(s.recommended_action, target);
+  const evidenceUrl = signalEvidenceUrl(s);
+  const evidence = evidenceUrl
+    ? '<a href="' + escHtml(evidenceUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--sc-prime);text-decoration:none">Evidence</a>'
+    : '<span style="color:var(--sc-muted)">Evidence retained</span>';
+  const detected = s.detected_at ? new Date(s.detected_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '';
+  return '<div style="padding:12px 0;border-bottom:1px solid var(--sc-border)">'
+    + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
+    + priorityBadge(s.priority)
+    + confidenceBadge(s.confidence)
+    + '<span class="sc-badge sc-badge-muted">' + escHtml(String(s.signal_type || 'signal').replace(/_/g, ' ')) + '</span>'
+    + '<span class="sc-badge sc-badge-muted">' + escHtml(s.quality_label || 'context') + '</span>'
+    + '<span style="font-size:11px;color:#9b968c;margin-left:auto">' + escHtml(s.source_tier || (s.evidence && s.evidence.source_tier) || 'unclassified') + '</span>'
+    + '</div>'
+    + '<div style="font-size:14px;font-weight:700;color:var(--sc-heading);line-height:1.35;margin-bottom:4px">' + escHtml(s.decision_summary || s.title || 'Untitled signal') + '</div>'
+    + '<div style="font-size:12px;color:var(--sc-muted);margin-bottom:6px"><strong style="color:var(--sc-text)">Target:</strong> ' + escHtml(target)
+    + ' · <strong style="color:var(--sc-text)">Horizon:</strong> ' + escHtml(s.action_horizon || 'monitor')
+    + ' · <strong style="color:var(--sc-text)">Evidence:</strong> ' + escHtml(s.corroboration || 'single-source')
+    + '</div>'
+    + (compact ? '' : '<div style="font-size:12px;color:var(--sc-text);line-height:1.5;margin-bottom:8px">' + escHtml(s.why_it_matters || '') + '</div>')
+    + '<div style="font-size:11px;color:#9b968c;line-height:1.4;margin-bottom:8px">' + escHtml(s.confidence_rationale || '') + '</div>'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px">'
+    + '<a href="' + escHtml(href) + '" class="sc-btn sc-btn-primary sc-btn-sm">' + escHtml(s.recommended_action || 'Review') + '</a>'
+    + evidence
+    + '<span style="color:#9b968c">' + escHtml(detected) + '</span>'
+    + '</div>'
+    + '</div>';
+}
+
+function renderGoldenIntelColumn(title, subtitle, icon, signals, emptyText, compact) {
+  const rows = signals.length
+    ? signals.map(s => renderGoldenIntelItem(s, compact)).join('')
+    : '<p class="text-muted" style="padding:8px 0;margin:0;font-size:12px;line-height:1.5">' + escHtml(emptyText) + '</p>';
+  return '<div style="min-width:0">'
+    + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px">'
+    + '<div>'
+    + '<h3 style="font-size:13px;color:#57534b;margin:0 0 3px;text-transform:uppercase;letter-spacing:0.5px"><i class="bi ' + icon + '"></i> ' + escHtml(title) + '</h3>'
+    + '<div style="font-size:11px;color:var(--sc-muted);line-height:1.35">' + escHtml(subtitle) + '</div>'
+    + '</div>'
+    + '<span class="sc-badge sc-badge-muted">' + signals.length + '</span>'
+    + '</div>'
+    + '<div style="max-height:520px;overflow-y:auto">' + rows + '</div>'
+    + '</div>';
+}
+
 function renderGoldenIntel(data) {
   const el = document.getElementById('golden-intel-list');
   if (!el) return;
@@ -302,34 +384,45 @@ function renderGoldenIntel(data) {
     el.innerHTML = '<p class="text-muted" style="padding:8px">No promoted intel signals yet. ARIA will populate this after the next news poll finds decision-grade items.</p>';
     return;
   }
-  el.innerHTML = signals.slice(0, 8).map(function (s) {
-    const target = s.target || (s.entities && ((s.entities.oems || [])[0] || (s.entities.countries || [])[0])) || s.source || 'Signal';
-    const href = actionHref(s.recommended_action, target);
-    const evidence = s.url && /^https?:\/\//i.test(s.url)
-      ? '<a href="' + escHtml(s.url) + '" target="_blank" rel="noopener noreferrer" style="color:var(--sc-prime);text-decoration:none">Evidence</a>'
-      : '<span style="color:var(--sc-muted)">Evidence retained</span>';
-    return '<div style="padding:12px 0;border-bottom:1px solid var(--sc-border)">'
-      + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
-      + priorityBadge(s.priority)
-      + confidenceBadge(s.confidence)
-      + '<span class="sc-badge sc-badge-muted">' + escHtml(String(s.signal_type || 'signal').replace(/_/g, ' ')) + '</span>'
-      + '<span class="sc-badge sc-badge-muted">' + escHtml(s.quality_label || 'context') + '</span>'
-      + '<span style="font-size:11px;color:#9b968c;margin-left:auto">' + escHtml(s.source_tier || 'unclassified') + '</span>'
-      + '</div>'
-      + '<div style="font-size:14px;font-weight:700;color:var(--sc-heading);line-height:1.35;margin-bottom:4px">' + escHtml(s.decision_summary || s.title || 'Untitled signal') + '</div>'
-      + '<div style="font-size:12px;color:var(--sc-muted);margin-bottom:6px"><strong style="color:var(--sc-text)">Target:</strong> ' + escHtml(target)
-      + ' · <strong style="color:var(--sc-text)">Horizon:</strong> ' + escHtml(s.action_horizon || 'monitor')
-      + ' · <strong style="color:var(--sc-text)">Evidence:</strong> ' + escHtml(s.corroboration || 'single-source')
-      + '</div>'
-      + '<div style="font-size:12px;color:var(--sc-text);line-height:1.5;margin-bottom:8px">' + escHtml(s.why_it_matters || '') + '</div>'
-      + '<div style="font-size:11px;color:#9b968c;line-height:1.4;margin-bottom:8px">' + escHtml(s.confidence_rationale || '') + '</div>'
-      + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px">'
-      + '<a href="' + escHtml(href) + '" class="sc-btn sc-btn-primary sc-btn-sm">' + escHtml(s.recommended_action || 'Review') + '</a>'
-      + evidence
-      + '<span style="color:#9b968c">' + escHtml(s.detected_at ? new Date(s.detected_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '') + '</span>'
-      + '</div>'
-      + '</div>';
-  }).join('');
+  const fresh = data && data.freshness ? data.freshness : {};
+  // R-F2554 — mirror the LIVE Telegram gate's FEED-level rejection
+  // (selectTelegramGoldenIntel, channelServerHooks.mjs:192-193): a stale or fully
+  // backfilled feed publishes NOTHING, so "Distribution Ready" must be empty then,
+  // else the column would claim items are publishable that Telegram would not post.
+  // Per-signal fidelity is already enforced by isDistributionReadyGolden.
+  const feedPublishable = fresh.stale === false && !fresh.backfilled;
+  const distributionReady = feedPublishable ? signals.filter(isDistributionReadyGolden).slice(0, 8) : [];
+  const distributionIds = new Set(distributionReady.map(s => s.id || (s.url + '|' + s.title)));
+  const candidates = signals
+    .filter(s => !distributionIds.has(s.id || (s.url + '|' + s.title)))
+    .slice(0, 8);
+  const statusLine = fresh.stale
+    ? 'Feed status: stale' + (fresh.stale_reasons && fresh.stale_reasons.length ? ' · ' + fresh.stale_reasons.join(', ') : '')
+    : 'Feed status: fresh';
+  el.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px">'
+    + '<div style="font-size:12px;color:var(--sc-muted)">' + escHtml(statusLine) + '</div>'
+    + '<div style="font-size:12px;color:var(--sc-muted)">Returned: ' + escHtml(String(signals.length)) + ' signals</div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px">'
+    + renderGoldenIntelColumn(
+      'Distribution Ready',
+      'Meets the public-channel Golden Intel gate; server applies recency-dedup before posting.',
+      'bi-send-check',
+      distributionReady,
+      feedPublishable
+        ? 'No current signal meets the public-channel Golden Intel gate.'
+        : 'Feed is stale or backfilled — nothing is distribution-ready right now (see feed status above).',
+      false,
+    )
+    + renderGoldenIntelColumn(
+      'Mining Queue',
+      'Useful candidates requiring corroboration, tier upgrade, or stronger evidence.',
+      'bi-gem',
+      candidates,
+      'No remaining candidates returned by the current Golden Intel feed.',
+      true,
+    )
+    + '</div>';
 }
 
 // ── R-F2414 — provenance badge. Makes cross-source corroboration VISIBLE:
