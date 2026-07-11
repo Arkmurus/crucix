@@ -110,6 +110,7 @@ $SSH -p "$PORT" root@"$HOST" \
    EVAL_SET=/workspace/datasets/aria_eval_500q.jsonl \
    PI_SET=/workspace/datasets/pi_eval_set_v1.jsonl \
    DEEPSEEK_API_KEY='$DSK' \
+   DPO_BETA='${DPO_BETA:-}' DPO_LR='${DPO_LR:-}' \
    setsid nohup bash /workspace/dpo_v04_pod_run.sh > /workspace/logs/grounded_dpo_cycle.log 2>&1 < /dev/null & echo STARTED" \
   || { echo "[driver] FATAL: could not launch cycle on pod"; exit 1; }
 
