@@ -903,26 +903,33 @@ async def assert_monthly_cap(estimated_cost_usd: float = 0.02) -> None:
     reserve_key = f"{COST_MONTH_PREFIX}{month}:reserve"
     est = max(0.001, float(estimated_cost_usd))
 
-    # Atomic reserve: INCRBYFLOAT returns the NEW total (spent + this reserve).
-    # If Redis is unavailable, fall back to the cache-based check (best-effort).
+    # Atomic reserve: INCRBYFLOAT on the reserve key protects against concurrent
+    # overshoot (R-F2111). But the CEILING is on ACTUAL month-to-date spend PLUS the
+    # in-flight reserves — NOT the reserve alone. R-F2524: the reserve key has a 5-min
+    # TTL and record_call reconciles it back to ~0, so comparing `new_reserve >= cap`
+    # NEVER blocked on accumulated spend — an over-cap month passed every check (proven
+    # by test_assert_monthly_cap_blocks_once_over: $4.50 spent vs $0.50 cap did not
+    # raise). Add the recorded month spend so the cap is a true hard ceiling.
+    reserved = False
     try:
-        new_total = await rs.incrbyfloat(reserve_key, est)
+        new_reserve = await rs.incrbyfloat(reserve_key, est)
         await rs.expire(reserve_key, 300)  # 5min TTL — a crashed reserve auto-expires
+        reserved = True
+        spent = await _refresh_month_cache()  # actual recorded month-to-date spend
+        new_total = spent + new_reserve
     except Exception:
         # Fall back to cache-based check when Redis is down
         spent = await _refresh_month_cache()
-        if spent >= cap:
-            pass  # will raise below
-        else:
-            return  # under cap, allow through
+        new_total = spent + est
 
-    # new_total is the running total INCLUDING this reserve. Compare against cap.
+    # new_total = recorded month spend + in-flight reserves. Compare against cap.
     if new_total >= cap:
         # Roll back the reserve so we don't permanently inflate the counter
-        try:
-            await rs.incrbyfloat(reserve_key, -est)
-        except Exception:
-            pass
+        if reserved:
+            try:
+                await rs.incrbyfloat(reserve_key, -est)
+            except Exception:
+                pass
         if _warn_only():
             logger.error(
                 "ARIA monthly LLM cap $%.2f would block call — allowed because "
