@@ -609,22 +609,68 @@ async def _phase_conflict_risk(
     company_name: str,
     jurisdiction: str,
 ) -> None:
-    """Check conflict and risk indicators."""
+    """Check conflict and risk indicators for the company's jurisdiction (country)."""
+    # R-F2536: conflict_tracker has NO get_events() — the old call raised AttributeError
+    # on every DD and was swallowed. The real API is
+    #   get_recent_events(country, days, limit) -> {total_events, fatalities, by_type,
+    #                                                escalation_score, ...}
+    # It is COUNTRY-level (ACLED/GDELT), so only run it when we have a real country
+    # jurisdiction — the old `jurisdiction or company_name` fallback fed a company name
+    # as a country, which is nonsense. No jurisdiction ⇒ honestly record we couldn't
+    # assess conflict exposure, rather than imply it's clean.
+    # R-F2536: prefer the entity-resolution-enriched country (entity_resolution runs
+    # before this gather) but fall back to the input hint.
+    _country = (report.jurisdiction or jurisdiction or "").strip()
+    if not _country:
+        # A missing country is a missing INPUT, not a failed data source. Record a soft
+        # open_question (honest + visible) rather than a phase_failure — the latter would
+        # escalate to the coverage-gap risk / "NOT a clean result" summary for the many
+        # DDs (UK/US SaaS entities etc.) where conflict exposure is simply not relevant.
+        report.open_questions.append(
+            "Conflict exposure not assessed — no country/jurisdiction was provided."
+        )
+        return
     try:
         from . import conflict_tracker as _ct
-        events = await asyncio.wait_for(
-            _ct.get_events(jurisdiction or company_name, days=365),
+        stats = await asyncio.wait_for(
+            _ct.get_recent_events(_country, days=365),
             timeout=_PHASE_TIMEOUTS["conflict_risk"],
         )
-        if events:
+        stats = stats if isinstance(stats, dict) else {}
+        _total = int(stats.get("total_events", 0) or 0)
+        _fatalities = int(stats.get("fatalities", 0) or 0)
+        _escalation = int(stats.get("escalation_score", 0) or 0)
+        if _total > 0:
+            _types = stats.get("by_type") or {}
+            _top = ", ".join(sorted(_types, key=lambda k: _types[k], reverse=True)[:3])
             report.findings.append(InvestigationFinding(
                 category="conflict",
-                title=f"Conflict events in {jurisdiction or company_name}",
-                summary=f"{len(events)} events in the last year",
+                title=f"Conflict exposure: {_country}",
+                summary=(
+                    f"{_total} kinetic event(s) in the last year"
+                    + (f", {_fatalities} fatalities" if _fatalities else "")
+                    + f". Escalation score {_escalation}/100"
+                    + (f". Top: {_top}" if _top else "") + "."
+                ),
                 source="ACLED/GDELT",
                 confidence=0.7,
-                tags=["conflict", "risk"],
+                tags=["conflict", "risk", _country],
             ))
+            # High country-escalation is a material DD risk for an entity operating there.
+            if _escalation >= 50 or _fatalities >= 100:
+                report.risk_indicators.append(
+                    f"Operating jurisdiction {_country} shows elevated conflict "
+                    f"(escalation {_escalation}/100, {_total} events, {_fatalities} fatalities)"
+                )
+        else:
+            # NEVER-FALSE-CLEAN: a 0-event result is AMBIGUOUS — genuinely low-conflict,
+            # OR the country string didn't resolve to a valid ACLED/GDELT region (e.g. an
+            # unmapped name → bad ISO3), OR both sources failed. Do NOT read 0 as "clean";
+            # say it's inconclusive. Soft open_question, not an escalating phase_failure.
+            report.open_questions.append(
+                f"Conflict exposure inconclusive for {_country} — 0 events returned "
+                f"(genuinely low-conflict, or outside ACLED/GDELT coverage)."
+            )
     except asyncio.TimeoutError:
         _note_phase(report, "conflict check", timed_out=True)
         logger.debug("[company_investigator] conflict check timed out")
