@@ -39,10 +39,14 @@ def test_authedjson_has_abortcontroller_timeout():
     )
     # Default timeout value
     assert "timeoutMs" in src
-    # Explicit default ms — must NOT be zero / undefined
-    assert "20000" in src, (
-        "R-F743 regression: expected 20000ms default timeout in "
-        "authedJson"
+    # R-F2525 (codex finding 7): assert a SUBSTANTIAL default timeout is present, not a
+    # brittle exact value. The default was intentionally raised 20000→30000ms (a UX
+    # accommodation for slow-backend tail latency); the old exact-"20000" assertion drifted.
+    import re as _re
+    _m = _re.search(r"timeoutMs\s*=\s*\([^)]*\)\s*\|\|\s*(\d+)", src)
+    assert _m and int(_m.group(1)) >= 15000, (
+        "R-F743 regression: authedJson must have a substantial (>=15000ms) default "
+        f"timeout; found {_m.group(1) if _m else 'none'}"
     )
 
 
@@ -88,7 +92,12 @@ def test_existing_authedjson_callers_still_work():
         "(method, url, body) backwards-compatible — new opts2 must "
         "be the 4th positional and optional."
     )
-    # Sample existing callers (sanity)
+    # R-F2525 (codex finding 7): the real guard is the backwards-compatible SIGNATURE
+    # above. The old specific-caller list (GET/PUT/DELETE) was brittle — PUT/DELETE were
+    # refactored to raw fetch, so only authedJson('GET') remains. Assert authedJson is
+    # actually invoked (>=1 caller) rather than pinning exact method strings.
+    import re
     assert "authedJson('GET'," in src
-    assert "authedJson('PUT'," in src
-    assert "authedJson('DELETE'," in src
+    assert len(re.findall(r"authedJson\('[A-Z]+'", src)) >= 1, (
+        "R-F743 regression: authedJson has no callers — the timeout-wrapped helper is dead code."
+    )
