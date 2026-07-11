@@ -82,6 +82,13 @@ def _shadow() -> bool:
     return _truthy(os.getenv("ARIA_LLM_SHADOW"))
 
 
+def _capture_enabled() -> bool:
+    """R-F2531 — is the grounded-synthesis flywheel capturing? When on, canary's
+    not-selected grounded turns route through shadow so their sovereign side is
+    generated + captured (see route_decision)."""
+    return _truthy(os.getenv("ARIA_SHADOW_DISTILL_ENABLED"))
+
+
 def promotion_stage() -> str:
     """Current sovereign promotion stage.
 
@@ -187,6 +194,14 @@ def route_decision(message: str = "", context: str = "", *, canary_key: str = ""
     if stage == "serve":
         return "sovereign"
     if not _in_canary(canary_key):
+        # R-F2531 — canary's NOT-selected grounded turns: when the flywheel is
+        # capturing (ARIA_SHADOW_DISTILL_ENABLED), route them through SHADOW so the
+        # sovereign is generated in the background and the DeepSeek-vs-sovereign
+        # comparison is captured for the DPO flywheel. The USER still gets DeepSeek
+        # (shadow ships DeepSeek) — identical UX, zero added user latency. Without
+        # capture enabled, plain DeepSeek (byte-identical to before).
+        if _capture_enabled():
+            return "shadow"
         return "deepseek"
     return "sovereign"
 

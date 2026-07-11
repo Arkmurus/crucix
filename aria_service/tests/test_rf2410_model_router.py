@@ -20,7 +20,8 @@ from aria_service.llm.provider import LLMResult
 
 _ENV = ("ARIA_LLM_URL", "ARIA_LLM_PROMOTION_STAGE",
         "ARIA_LLM_SHADOW", "ARIA_LLM_CANARY_PCT",
-        "ARIA_LLM_PRIMARY_ALL", "ARIA_LLM_ROUTER_DISABLED", "ARIA_LLM_TIMEOUT")
+        "ARIA_LLM_PRIMARY_ALL", "ARIA_LLM_ROUTER_DISABLED", "ARIA_LLM_TIMEOUT",
+        "ARIA_SHADOW_DISTILL_ENABLED")
 
 
 @pytest.fixture(autouse=True)
@@ -246,6 +247,22 @@ def test_primary_all_deactivates_two_track(monkeypatch):
     monkeypatch.setenv("ARIA_LLM_PRIMARY_ALL", "1")
     assert mr.two_track_active() is False
     assert mr.route_decision(_GROUNDED_MSG, _GROUNDED_CTX) == "deepseek"
+
+
+def test_canary_notselected_captures_via_shadow(monkeypatch):
+    """R-F2531: with the flywheel capturing, canary's NOT-selected grounded turns
+    route through shadow (user still gets DeepSeek, sovereign generated for capture);
+    without capture they stay plain deepseek (byte-identical to before)."""
+    monkeypatch.setenv("ARIA_LLM_URL", "http://mock-sovereign/v1")
+    monkeypatch.setenv("ARIA_LLM_PROMOTION_STAGE", "canary")
+    monkeypatch.setenv("ARIA_LLM_CANARY_PCT", "0")   # nobody selected → all not-selected
+    # capture OFF → plain deepseek
+    assert mr.route_decision(_GROUNDED_MSG, _GROUNDED_CTX, canary_key="s1") == "deepseek"
+    # capture ON → shadow (so the sovereign side is generated + captured)
+    monkeypatch.setenv("ARIA_SHADOW_DISTILL_ENABLED", "1")
+    assert mr.route_decision(_GROUNDED_MSG, _GROUNDED_CTX, canary_key="s1") == "shadow"
+    # non-grounded turns are unaffected even with capture on
+    assert mr.route_decision(_CLOSED_MSG, "", canary_key="s1") == "deepseek"
 
 
 def test_router_disabled_forces_deepseek(monkeypatch):
