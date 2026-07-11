@@ -210,6 +210,11 @@ VALID_GAP_TYPES = frozenset({
     # and demoted a real provider-routing signal to noise. Registering it makes the
     # provider-failure taxonomy first-class (prereq for task-value LLM routing).
     "llm_provider_failure",
+    # R-F2555 — the Golden Intel promotion bridge (golden_intel_bridge.py) records
+    # this when a source adapter cannot fetch (never-false-clean: a dead source is a
+    # gap, not a silent "all clear") or when the signal store write fails. First-class
+    # so the coder loop can act and no "Unknown gap type" warning is emitted.
+    "golden_intel_promotion_failure",
 })
 
 

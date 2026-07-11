@@ -1363,6 +1363,16 @@ async def poll_feeds(
     except Exception:
         pass
 
+    # R-F2555 — Golden Intel promotion bridge. After the RSS poll, promote
+    # structured findings (public procurement tenders, ...) into the SAME signal
+    # store so "Distribution Ready" is not RSS-only. Lazy import avoids a circular
+    # dependency; guarded so a bridge error can never break the news poll.
+    try:
+        from . import golden_intel_bridge
+        summary["promotion_bridge"] = await golden_intel_bridge.run_promotion_pass()
+    except Exception:
+        logger.debug("[news_monitor] golden intel promotion pass failed", exc_info=True)
+
     return summary
 
 

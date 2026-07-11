@@ -1,0 +1,376 @@
+"""R-F2555 — Golden Intel promotion bridge.
+
+Mines STRUCTURED, authoritative findings from ARIA's existing intelligence
+sources (DD watchlist risk changes, sanctions designations, procurement/tenders,
+DD-report risk triggers, ...) and normalizes them into the SAME signal schema
+that ``news_monitor._build_intel_signal`` produces and that the Telegram gate
+(``selectTelegramGoldenIntel``) + the dashboard split (``isDistributionReadyGolden``)
+consume.
+
+Why this exists: the Golden Intel gate + UI are correct, but the raw feed is
+RSS-only, so "Distribution Ready" is near-empty. This bridge raises VOLUME by
+mining stronger sources — WITHOUT lowering the gate. A finding only reaches
+"Distribution Ready" if it is HONESTLY decision-grade (HIGH priority, tier_1a/1b/2,
+confidence, evidence url, why-it-matters + recommended-action) — those are set
+authoritatively by the SOURCE ADAPTER and merely packaged here, never fabricated.
+
+Constitutional compliance:
+- §21a wired: every promotion pass calls ``wire_success`` on success AND
+  ``wire_failure`` on every error branch (imported from ``engine_wiring``).
+- §6 files-only: writes only to the native ``redis_store``/state_store — no new
+  persistence, no paid backend.
+- never-false-clean: an adapter that CANNOT reach its source records a failure gap
+  (``wire_failure``); it never returns an empty list that would read as "all clear".
+- §22: schema + store contract verified against news_monitor.py:648-773 (2026-07-11).
+"""
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Any, Awaitable, Callable
+
+from . import news_monitor as _nm
+from . import redis_store as rs
+from .engine_wiring import wire_failure, wire_success
+
+logger = logging.getLogger("aria.intel.golden_intel_bridge")
+
+_MODULE = "golden_intel_bridge"
+
+# Dedup ledger: id -> ISO timestamp of last promotion. A finding is promoted at
+# most once per cooldown window so a per-poll pass does not flood the signal list
+# with the same active designation/tender.
+_PROMOTED_KEY = "crucix:golden_intel_bridge:promoted"
+_PROMOTE_COOLDOWN_S = 7 * 86_400  # 7 days
+_MAX_PROMOTED_KEYS = 4000
+
+# Mirror of the Node gate's _GOLDEN_ALLOWED_TYPES (channelServerHooks.mjs:162) and
+# the dashboard GOLDEN_DISTRIBUTION_TYPES. A finding whose signal_type is NOT here
+# is still stored (it shows in the Mining Queue) but can never reach Distribution
+# Ready — matching the real gate. Keep in sync with the Node set.
+_GOLDEN_ALLOWED_TYPES = frozenset({
+    "sanctions_change",
+    "active_tender",
+    "contract_award",
+    "budget_movement",
+    "programme_signal",
+    "competitor_activity",
+    "conflict_escalation",
+})
+
+# score consistent with an authoritatively-asserted confidence (drives the gate's
+# secondary sort; _confidence(score) round-trips to the same bucket).
+_CONFIDENCE_SCORE = {"HIGH": 82, "MEDIUM": 60, "LOW": 30}
+
+# ── Adapter registry ─────────────────────────────────────────────────────────
+# An adapter is an async callable returning a list of raw "finding" dicts. Each
+# finding carries AUTHORITATIVE source metadata (see _normalize_finding_to_signal
+# for the accepted keys). Adapters are registered at import time (bottom of file).
+FindingAdapter = Callable[[], Awaitable[list[dict]]]
+_ADAPTERS: dict[str, FindingAdapter] = {}
+
+
+def register_adapter(name: str, fn: FindingAdapter) -> None:
+    """Register a source adapter. Idempotent — re-registration overwrites."""
+    _ADAPTERS[name] = fn
+
+
+# ── Normalization ────────────────────────────────────────────────────────────
+def _clean(v: Any) -> str:
+    return str(v or "").strip()
+
+
+def _finding_dedup_key(finding: dict) -> str:
+    """Stable identity for a finding across passes: source|type|entity|ref.
+
+    ``ref`` (a designation id / tender id / report id / date) makes a genuinely
+    NEW event on the same entity a distinct signal, while a re-observed unchanged
+    finding collapses to the same key (and is cooldown-suppressed)."""
+    return "|".join([
+        _clean(finding.get("source_key") or finding.get("source")),
+        _clean(finding.get("signal_type")),
+        _clean(finding.get("entity") or finding.get("target")).lower(),
+        _clean(finding.get("ref") or finding.get("evidence_url") or finding.get("url")),
+    ])
+
+
+def _normalize_finding_to_signal(finding: dict) -> dict | None:
+    """Package one authoritative finding into the exact news_monitor signal schema.
+
+    Returns None only if the finding lacks the minimum to be a signal at all
+    (no title/summary). Findings that are merely NOT decision-grade are still
+    returned — the gate/dashboard place them in the Mining Queue; honesty is
+    preserved by NOT inflating priority/tier/confidence here.
+    """
+    title = _clean(finding.get("decision_summary") or finding.get("title"))
+    if not title:
+        return None
+
+    signal_type = _clean(finding.get("signal_type")) or "situational_awareness"
+    priority = (_clean(finding.get("priority")) or "LOW").upper()
+    confidence = (_clean(finding.get("confidence")) or "LOW").upper()
+    source = _clean(finding.get("source")) or "ARIA monitored source"
+    source_tier = (_clean(finding.get("source_tier")) or "unclassified").lower()
+    evidence_count = int(finding.get("evidence_count") or 1)
+    entities = finding.get("entities") if isinstance(finding.get("entities"), dict) else {}
+    target = _clean(finding.get("target") or finding.get("entity")) or source
+    url = _clean(finding.get("evidence_url") or finding.get("url"))
+    score = int(finding.get("score") or _CONFIDENCE_SCORE.get(confidence, 30))
+    detected_at = _clean(finding.get("detected_at")) or datetime.now(timezone.utc).isoformat()
+
+    quality_label = _nm._quality_label(priority, confidence, evidence_count)
+    action_horizon = _nm._action_horizon(signal_type, priority)
+    corroboration = "corroborated" if evidence_count >= 2 else "single-source"
+    signal_id = _nm._article_hash(_finding_dedup_key(finding))
+
+    return {
+        "id": signal_id,
+        "signal_type": signal_type,
+        "priority": priority,
+        "confidence": confidence,
+        "score": score,
+        "quality_label": quality_label,
+        "confidence_rationale": _nm._confidence_rationale(
+            source_tier=source_tier,
+            signal_type=signal_type,
+            entities=entities,
+            evidence_count=evidence_count,
+        ),
+        "evidence_count": evidence_count,
+        "corroboration": corroboration,
+        "action_horizon": action_horizon,
+        "urgency": "immediate" if action_horizon == "0-72h" else "near-term",
+        "title": title[:220],
+        "decision_summary": title[:220],
+        "why_it_matters": _clean(finding.get("why_it_matters")),
+        "recommended_action": _clean(finding.get("recommended_action")),
+        "target": target,
+        "source": source,
+        "source_tier": source_tier,
+        "category": _clean(finding.get("category")) or "promoted_intel",
+        "language": _clean(finding.get("language")) or "en",
+        "url": url,
+        "published": _clean(finding.get("published")),
+        "detected_at": detected_at,
+        "promoted_by": _MODULE,
+        "promotion_source": _clean(finding.get("source_key") or finding.get("source")),
+        "entities": entities,
+        "evidence": {
+            "source": source,
+            "source_tier": source_tier,
+            "url": url,
+            "count": evidence_count,
+            "corroboration": corroboration,
+        },
+    }
+
+
+# ── Dedup ledger ─────────────────────────────────────────────────────────────
+async def _load_promoted() -> dict[str, str]:
+    try:
+        data = await rs.get_json(_PROMOTED_KEY)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        logger.debug("[%s] promoted-ledger read failed", _MODULE, exc_info=True)
+        return {}
+
+
+def _recently_promoted(promoted: dict[str, str], signal_id: str, now: datetime) -> bool:
+    ts = promoted.get(signal_id)
+    if not ts:
+        return False
+    try:
+        last = datetime.fromisoformat(ts)
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+    except Exception:
+        return False
+    return (now - last).total_seconds() < _PROMOTE_COOLDOWN_S
+
+
+async def _save_promoted(promoted: dict[str, str]) -> None:
+    # cap: keep the most-recent _MAX_PROMOTED_KEYS by timestamp
+    if len(promoted) > _MAX_PROMOTED_KEYS:
+        newest = sorted(promoted.items(), key=lambda kv: kv[1], reverse=True)[:_MAX_PROMOTED_KEYS]
+        promoted = dict(newest)
+    try:
+        await rs.set_json(_PROMOTED_KEY, promoted)
+    except Exception:
+        logger.debug("[%s] promoted-ledger write failed", _MODULE, exc_info=True)
+
+
+# ── Promotion ────────────────────────────────────────────────────────────────
+async def promote_findings(findings: list[dict], *, source_name: str) -> dict:
+    """Normalize + dedup + persist a batch of findings from one adapter.
+
+    Returns {promoted, skipped, invalid}. §21-wired by the caller
+    (run_promotion_pass); this helper is also directly callable/testable.
+    """
+    now = datetime.now(timezone.utc)
+    promoted_ledger = await _load_promoted()
+    result = {"promoted": 0, "skipped": 0, "invalid": 0, "distribution_ready": 0}
+
+    for finding in findings or []:
+        signal = _normalize_finding_to_signal(finding)
+        if signal is None:
+            result["invalid"] += 1
+            continue
+        if _recently_promoted(promoted_ledger, signal["id"], now):
+            result["skipped"] += 1
+            continue
+        try:
+            await _nm._store_intel_signal(signal)
+        except Exception as exc:  # never-false-clean: a store failure is surfaced, not swallowed
+            logger.warning("[%s] store failed for %s: %s", _MODULE, source_name, exc)
+            wire_failure(_MODULE, f"store failed ({source_name}): {exc}", gap_type="golden_intel_promotion_failure",
+                         source=source_name)
+            continue
+        promoted_ledger[signal["id"]] = now.isoformat()
+        result["promoted"] += 1
+        if _is_distribution_ready(signal):
+            result["distribution_ready"] += 1
+
+    if result["promoted"]:
+        await _save_promoted(promoted_ledger)
+    return result
+
+
+def _is_distribution_ready(s: dict) -> bool:
+    """Mirror selectTelegramGoldenIntel's per-signal filter (for metrics/tests)."""
+    return (
+        str(s.get("quality_label", "")).lower().startswith("decision-grade")
+        and str(s.get("priority", "")).upper() == "HIGH"
+        and str(s.get("confidence", "")).upper() in {"HIGH", "MEDIUM"}
+        and s.get("signal_type") in _GOLDEN_ALLOWED_TYPES
+        and str(s.get("source_tier", "")).lower() in {"tier_1a", "tier_1b", "tier_2"}
+        and bool(s.get("decision_summary") or s.get("title"))
+        and bool(s.get("why_it_matters"))
+        and bool(s.get("recommended_action"))
+        and bool(s.get("url") or (s.get("evidence") or {}).get("url"))
+    )
+
+
+async def run_promotion_pass() -> dict:
+    """Run every registered adapter, promote its findings, and report.
+
+    §21a: wire_success on a completed pass, wire_failure per adapter that raises.
+    Called from news_monitor.poll_feeds so it runs on the live poll cadence.
+    """
+    totals = {"promoted": 0, "skipped": 0, "invalid": 0, "distribution_ready": 0,
+              "adapters_ok": 0, "adapters_failed": 0}
+    for name, adapter in list(_ADAPTERS.items()):
+        try:
+            findings = await adapter()
+        except Exception as exc:
+            # never-false-clean: an adapter failure is a GAP, not a silent "all clear"
+            logger.warning("[%s] adapter '%s' failed: %s", _MODULE, name, exc)
+            wire_failure(_MODULE, f"adapter '{name}' failed: {exc}",
+                         gap_type="golden_intel_promotion_failure", source=f"{_MODULE}:{name}")
+            totals["adapters_failed"] += 1
+            continue
+        res = await promote_findings(findings, source_name=name)
+        for k in ("promoted", "skipped", "invalid", "distribution_ready"):
+            totals[k] += res[k]
+        totals["adapters_ok"] += 1
+
+    wire_success(
+        _MODULE,
+        summary=(f"promotion pass: {totals['promoted']} promoted "
+                 f"({totals['distribution_ready']} distribution-ready), "
+                 f"{totals['skipped']} deduped, {totals['adapters_failed']} adapter failures"),
+    )
+    logger.info("[%s] pass complete: %s", _MODULE, json.dumps(totals))
+    return totals
+
+
+# ── Source adapters ──────────────────────────────────────────────────────────
+# Only PUBLIC-domain, non-tenant-private sources are promoted to the public Golden
+# Intel feed. Deliberately NOT included:
+#   - DD watchlist alerts (dd_orchestrator.get_watchlist_alerts): user-scoped
+#     (user_id / share_to_company) — promoting them to the public feed/channel
+#     would be a cross-tenant/GDPR leak (cf. R-F2401/2402/2456). Needs an explicit
+#     public/system-watchlist gate before it can be an adapter.
+#   - Sanctions "recent designations": no diff/snapshot producer exists in Python
+#     (verified 2026-07-11) — the source modules are name-screens only. Building a
+#     designation-diff feed is a separate R-number, not fabricated here.
+
+# Official government / multilateral procurement portals → source tier. These are
+# public tender notices, safe for public distribution.
+_PORTAL_TIER = {
+    "TED": "tier_1a",              # EU official (Tenders Electronic Daily)
+    "SAM_GOV": "tier_1a",         # US federal
+    "CONTRACTS_FINDER": "tier_1a", # UK government
+    "UNGM": "tier_1a",            # UN procurement
+    "AFDB": "tier_1b",            # African Development Bank
+    "SEACE_PERU": "tier_1b",
+    "ELICITATIE_RO": "tier_1b",
+    "MERX_CANADA": "tier_1b",
+}
+_TENDER_WINDOW_H = 48
+
+
+async def _tender_adapter() -> list[dict]:
+    """Promote NEW public procurement tenders (tender_monitor) into active_tender
+    signals. Priority/confidence are set HONESTLY from the crawler's relevance
+    score — only a high-relevance, product-matched, sourced tender from an official
+    portal reaches HIGH/decision-grade (i.e. Distribution Ready)."""
+    from . import tender_monitor
+
+    tenders = await tender_monitor.get_new_tenders(since_hours=_TENDER_WINDOW_H)
+    findings: list[dict] = []
+    for t in tenders:
+        d = t.to_dict() if hasattr(t, "to_dict") else dict(t)
+        rel = float(d.get("relevance_score") or 0.0)
+        url = _clean(d.get("url"))
+        matched = d.get("matched_products") or []
+        portal = _clean(d.get("portal")).upper()
+        tier = _PORTAL_TIER.get(portal, "tier_2")
+
+        # Honest priority ladder — decision-grade only when genuinely actionable.
+        if rel >= 0.60 and url and matched:
+            priority = "HIGH"
+        elif rel >= 0.45:
+            priority = "MEDIUM"
+        else:
+            priority = "LOW"
+        score = max(0, min(100, round(rel * 100)))
+        confidence = _nm._confidence(score)  # >=72 HIGH, >=50 MEDIUM, else LOW
+
+        buyer = _clean(d.get("buyer"))
+        country = _clean(d.get("country"))
+        value = _clean(d.get("value_estimate")) or "undisclosed"
+        deadline = _clean(d.get("deadline")) or "unspecified"
+        why = (f"{buyer or 'Buyer undisclosed'} ({country or 'n/a'}) — value {value}, "
+               f"deadline {deadline}."
+               + (f" Matched products: {', '.join(matched[:4])}." if matched else ""))
+
+        findings.append({
+            "source_key": "tender_monitor",
+            "source": f"Procurement: {portal or 'portal'}",
+            "signal_type": "active_tender",
+            "priority": priority,
+            "confidence": confidence,
+            "score": score,
+            "source_tier": tier,
+            "title": _clean(d.get("title")),
+            "why_it_matters": why,
+            "recommended_action": "Assess bid/no-bid — review scope, eligibility and deadline.",
+            "target": buyer or country or portal,
+            "entities": {
+                "countries": [country] if country else [],
+                "products": list(matched)[:6],
+                "oems": [],
+            },
+            "evidence_url": url,
+            "url": url,
+            "ref": _clean(d.get("id")),
+            "detected_at": _clean(d.get("detected_at")),
+            "published": _clean(d.get("publication_date")),
+            "evidence_count": 1,
+            "category": "procurement",
+        })
+    return findings
+
+
+register_adapter("tender_monitor", _tender_adapter)
