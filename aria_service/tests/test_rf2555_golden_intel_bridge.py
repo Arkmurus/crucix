@@ -174,6 +174,91 @@ def test_adapter_failure_records_gap_never_false_clean(monkeypatch):
     assert any("boom" in str(c) for c in failures), "wire_failure not called for failed adapter"
 
 
+# ── Pass-2 review hardening (adversarial review findings #1–#5) ───────────────
+
+class _FakeTender:
+    def __init__(self, **kw):
+        self._d = {
+            "id": "t1", "portal": "TED", "title": "Radios tender", "buyer": "MoD",
+            "country": "Portugal", "value_estimate": "EUR 5M", "deadline": "2026-09-01",
+            "url": "https://ted.europa.eu/n/1", "relevance_score": 0.9,
+            "matched_products": ["radios"], "detected_at": "2026-07-11T10:00:00+00:00",
+            "publication_date": "2026-07-10",
+        }
+        self._d.update(kw)
+
+    def to_dict(self):
+        return dict(self._d)
+
+
+def test_unknown_portal_defaults_to_tier3(monkeypatch):
+    """#3 — an unmapped portal must NOT be treated as trusted (tier_2)."""
+    from aria_service.intel import tender_monitor
+    async def fake(since_hours=24):
+        return [_FakeTender(portal="WEIRD_PORTAL")]
+    monkeypatch.setattr(tender_monitor, "get_new_tenders", fake)
+    findings = asyncio.run(bridge._tender_adapter())
+    assert findings[0]["source_tier"] == "tier_3"
+    assert bridge._is_distribution_ready(bridge._normalize_finding_to_signal(findings[0])) is False
+
+
+def test_dead_tender_source_records_gap(monkeypatch):
+    """#1 — empty result + UNREADABLE store → gap (never-false-clean), not silent."""
+    from aria_service.intel import tender_monitor
+    failures: list = []
+    monkeypatch.setattr(bridge, "wire_failure", lambda *a, **k: failures.append((a, k)))
+    async def empty(since_hours=24):
+        return []
+    async def broken_stats():
+        raise RuntimeError("store corrupt")
+    monkeypatch.setattr(tender_monitor, "get_new_tenders", empty)
+    monkeypatch.setattr(tender_monitor, "get_stats", broken_stats)
+    assert asyncio.run(bridge._tender_adapter()) == []
+    assert any("unreadable" in str(c) for c in failures), "dead source not recorded as gap"
+
+
+def test_readable_empty_source_records_no_false_gap(monkeypatch):
+    """#1 — genuinely empty but READABLE source must not record a false gap."""
+    from aria_service.intel import tender_monitor
+    failures: list = []
+    monkeypatch.setattr(bridge, "wire_failure", lambda *a, **k: failures.append((a, k)))
+    async def empty(since_hours=24):
+        return []
+    async def ok_stats():
+        return {"last_run": {}, "portal_health": {}, "total_alerts_stored": 0}
+    monkeypatch.setattr(tender_monitor, "get_new_tenders", empty)
+    monkeypatch.setattr(tender_monitor, "get_stats", ok_stats)
+    assert asyncio.run(bridge._tender_adapter()) == []
+    assert not failures, "false gap recorded for a readable empty source"
+
+
+def test_tender_batch_is_capped_and_floored(monkeypatch):
+    """#2 — a burst is bounded per pass; below-floor noise is dropped entirely."""
+    from aria_service.intel import tender_monitor
+    async def many(since_hours=24):
+        high = [_FakeTender(id=f"t{i}", url=f"https://ted/{i}", relevance_score=0.9) for i in range(100)]
+        low = [_FakeTender(id="tlow", url="https://ted/low", relevance_score=0.10, matched_products=[])]
+        return high + low
+    monkeypatch.setattr(tender_monitor, "get_new_tenders", many)
+    findings = asyncio.run(bridge._tender_adapter())
+    assert len(findings) <= bridge._MAX_TENDERS_PER_PASS
+    assert all(f.get("ref") != "tlow" for f in findings), "below-floor tender not dropped"
+    # explicit floor check: a single below-floor tender promotes nothing
+    async def one_low(since_hours=24):
+        return [_FakeTender(id="tlow", relevance_score=0.10, matched_products=[])]
+    monkeypatch.setattr(tender_monitor, "get_new_tenders", one_low)
+    assert asyncio.run(bridge._tender_adapter()) == []
+
+
+def test_non_http_url_is_not_distribution_ready():
+    """#5 — mirror the dashboard's strict http(s) evidence-URL requirement."""
+    f = _decision_grade_tender_finding()
+    f["evidence_url"] = "javascript:alert(1)"
+    f["url"] = "javascript:alert(1)"
+    sig = bridge._normalize_finding_to_signal(f)
+    assert bridge._is_distribution_ready(sig) is False
+
+
 if __name__ == "__main__":
     import sys
     import pytest

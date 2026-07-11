@@ -247,7 +247,9 @@ def _is_distribution_ready(s: dict) -> bool:
         and bool(s.get("decision_summary") or s.get("title"))
         and bool(s.get("why_it_matters"))
         and bool(s.get("recommended_action"))
-        and bool(s.get("url") or (s.get("evidence") or {}).get("url"))
+        # match the STRICTEST real gate: the dashboard (signalEvidenceUrl) requires a
+        # real http(s) evidence URL, so this metric must too or it overstates the count.
+        and str(s.get("url") or (s.get("evidence") or {}).get("url") or "").startswith(("http://", "https://"))
     )
 
 
@@ -274,12 +276,16 @@ async def run_promotion_pass() -> dict:
             totals[k] += res[k]
         totals["adapters_ok"] += 1
 
-    wire_success(
-        _MODULE,
-        summary=(f"promotion pass: {totals['promoted']} promoted "
-                 f"({totals['distribution_ready']} distribution-ready), "
-                 f"{totals['skipped']} deduped, {totals['adapters_failed']} adapter failures"),
-    )
+    # §21a honesty: only emit a success "engine ran" signal if at least one adapter
+    # actually completed. If every adapter failed, the per-adapter wire_failure calls
+    # already recorded the gaps — do not muddy telemetry with a success on top.
+    if totals["adapters_ok"] > 0:
+        wire_success(
+            _MODULE,
+            summary=(f"promotion pass: {totals['promoted']} promoted "
+                     f"({totals['distribution_ready']} distribution-ready), "
+                     f"{totals['skipped']} deduped, {totals['adapters_failed']} adapter failures"),
+        )
     logger.info("[%s] pass complete: %s", _MODULE, json.dumps(totals))
     return totals
 
@@ -308,24 +314,51 @@ _PORTAL_TIER = {
     "MERX_CANADA": "tier_1b",
 }
 _TENDER_WINDOW_H = 48
+_TENDER_RELEVANCE_FLOOR = 0.35   # below this, a tender is noise — not promoted at all
+_MAX_TENDERS_PER_PASS = 25       # bound the shared 500-slot signal list vs a burst
 
 
 async def _tender_adapter() -> list[dict]:
     """Promote NEW public procurement tenders (tender_monitor) into active_tender
     signals. Priority/confidence are set HONESTLY from the crawler's relevance
     score — only a high-relevance, product-matched, sourced tender from an official
-    portal reaches HIGH/decision-grade (i.e. Distribution Ready)."""
+    portal reaches HIGH/decision-grade (i.e. Distribution Ready). Bounded per pass so
+    a 48h backlog burst cannot flood/evict the shared signal list."""
     from . import tender_monitor
 
     tenders = await tender_monitor.get_new_tenders(since_hours=_TENDER_WINDOW_H)
+    if not tenders:
+        # never-false-clean: get_new_tenders swallows its own read errors and returns
+        # [] (tender_monitor.py:1350-1352), so an empty result could be a BROKEN store,
+        # not "no new tenders". Re-probe the store via get_stats (which reads the same
+        # keys) — if THAT raises, the source is genuinely unreadable → record a gap.
+        try:
+            await tender_monitor.get_stats()
+        except Exception as exc:
+            wire_failure(_MODULE, f"tender source unreadable: {exc}",
+                         gap_type="golden_intel_promotion_failure",
+                         source=f"{_MODULE}:tender_monitor")
+        return []
+
+    # Rank by relevance, drop noise below the floor, cap the batch.
+    ranked = sorted(
+        (t.to_dict() if hasattr(t, "to_dict") else dict(t) for t in tenders),
+        key=lambda d: float(d.get("relevance_score") or 0.0),
+        reverse=True,
+    )
+    ranked = [d for d in ranked
+              if float(d.get("relevance_score") or 0.0) >= _TENDER_RELEVANCE_FLOOR
+              ][:_MAX_TENDERS_PER_PASS]
+
     findings: list[dict] = []
-    for t in tenders:
-        d = t.to_dict() if hasattr(t, "to_dict") else dict(t)
+    for d in ranked:
         rel = float(d.get("relevance_score") or 0.0)
         url = _clean(d.get("url"))
         matched = d.get("matched_products") or []
         portal = _clean(d.get("portal")).upper()
-        tier = _PORTAL_TIER.get(portal, "tier_2")
+        # unmapped/unknown portal → tier_3 (fails the gate → Mining Queue only). An
+        # unrecognised portal must NOT be treated as trusted (tier_2).
+        tier = _PORTAL_TIER.get(portal, "tier_3")
 
         # Honest priority ladder — decision-grade only when genuinely actionable.
         if rel >= 0.60 and url and matched:
