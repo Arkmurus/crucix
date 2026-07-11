@@ -26406,6 +26406,18 @@ async def intel_signals_recent_ep(limit: int = 20) -> dict:
     return await news_monitor.get_recent_intel_signals(limit=limit)
 
 
+@router.post("/intel/promote/run")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def intel_promote_run_ep() -> dict:
+    """R-F2556 — run the Golden Intel promotion pass (R-F2555 bridge) on demand:
+    mine structured findings (public procurement tenders, ...) into the signal store
+    now, instead of waiting for the hourly poll_feeds cadence. Returns the pass stats
+    (promoted / distribution_ready / skipped / adapters_ok / adapters_failed) — a §25
+    proprioception surface so ARIA can be asked whether promotion actually ran."""
+    from ..intel import golden_intel_bridge
+    return await golden_intel_bridge.run_promotion_pass()
+
+
 @router.post("/news/poll")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def news_poll_ep(categories: str = "") -> dict:
