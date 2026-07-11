@@ -24,6 +24,27 @@ from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.coder_entrypoint")
 
+# R-F2543 (codex F1): PARTITION the R-number space so ARIA-Coder's autonomous
+# allocations can NEVER collide with Claude's / local file-registry sequential range
+# (~R-F25xx). The coder's Redis counter is otherwise UNSEEDED — next() = redis.incr from
+# 0, so it hands out R-F1, R-F2, … colliding with ancient numbers AND the file registry
+# (§2: 9 collisions in 50h is exactly this failure class). Full unification with the
+# git-serialized file registry is a follow-up (blocked on the ci_deploy commit path).
+R_CODER_BASE = 900000
+
+
+async def _seed_coder_r_counter(counter, base: int = R_CODER_BASE) -> None:
+    """Seed the coder's R-number counter to a high partition base if it is below it.
+
+    Idempotent — the ``current() < base`` guard only ever RAISES the floor, so a reboot
+    (counter already at e.g. base+5) is a no-op and never resets an in-flight sequence.
+    """
+    if await counter.current() < base:
+        await counter.seed(base)
+        logger.info("[coder_entrypoint] R-F2543: r_counter seeded to coder base %d "
+                    "(no collision with file-registry R-numbers)", base)
+
+
 # R-F1320: wire module health to the brain
 try:
     from aria_service.intel.engine_wiring import wire_success as _ws1320
@@ -502,6 +523,13 @@ async def start_aria_coder(
         app_state.aria_coder = coder
     except Exception as e:
         logger.debug("[coder_entrypoint] could not stash coder on app_state: %s", e)
+
+    # R-F2543 (codex F1): partition the R-number space so ARIA-Coder never collides with
+    # the file-registry range (see _seed_coder_r_counter). Non-fatal.
+    try:
+        await _seed_coder_r_counter(coder.r_counter)
+    except Exception as _seed_e:
+        logger.warning("[coder_entrypoint] R-F2543 r_counter seed failed (non-fatal): %s", _seed_e)
 
     # R-F1146 — start blackout detector and tick heartbeat for the coder
     try:

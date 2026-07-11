@@ -3442,6 +3442,22 @@ async def lifespan(app: FastAPI):
                 _coder_tasks = await start_aria_coder(app.state)
                 if _coder_tasks:
                     aria_coder_tasks.extend(_coder_tasks)
+                    # R-F2543 (codex F4): the coder's own loops were held only in
+                    # aria_coder_tasks (GC refs), NOT registered with the bg supervisor —
+                    # so a post-startup death was neither logged nor respawned. Register
+                    # each with _bg_task for death-visibility, and give the MAIN self_coder
+                    # loop a respawn factory (coder.run_forever) so the supervisor revives
+                    # it if it dies (mirrors the R-F2537 drain-worker supervision).
+                    _coder = getattr(app.state, "aria_coder", None)
+                    for _ct in _coder_tasks:
+                        try:
+                            _cn = _ct.get_name()
+                            if _cn == "aria_coder.self_coder" and _coder is not None:
+                                _bg_task(_ct, name=_cn, factory=_coder.run_forever)
+                            else:
+                                _bg_task(_ct, name=_cn)
+                        except Exception as _reg_e:
+                            logger.debug("[R-F2543] coder task register failed: %s", _reg_e)
                     logger.info(
                         "[R-F803] ARIA-Coder started with %d background tasks",
                         len(aria_coder_tasks),
