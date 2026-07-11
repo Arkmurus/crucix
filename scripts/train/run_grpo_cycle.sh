@@ -19,7 +19,12 @@ EVAL_LOCAL="${EVAL_LOCAL:-data/eval_reports/aria_eval_500q_openbook.jsonl}"
 INIT_ADAPTER="${INIT_ADAPTER:-data/training/checkpoints/aria_llm_grounded_dpo_v1/aria_llm_v0_4_dpo}"
 [ -s "$PROMPTS" ] || { echo "[driver] FATAL: prompts missing: $PROMPTS"; exit 1; }
 [ -s "$EVAL_LOCAL" ] || { echo "[driver] FATAL: eval set missing: $EVAL_LOCAL"; exit 1; }
-[ -f "$INIT_ADAPTER/adapter_config.json" ] || { echo "[driver] FATAL: init adapter missing: $INIT_ADAPTER"; exit 1; }
+# R-F2549 — INIT_ON_POD starts the cycle from an adapter ALREADY on the pod volume
+# (e.g. the v0.7 DPO at /workspace/checkpoints/aria_llm_v0_4_dpo on vol swsj40xxvl),
+# skipping the local check + upload (that adapter isn't kept locally).
+if [ -z "${INIT_ON_POD:-}" ]; then
+  [ -f "$INIT_ADAPTER/adapter_config.json" ] || { echo "[driver] FATAL: init adapter missing: $INIT_ADAPTER"; exit 1; }
+fi
 echo "[driver] GRPO prompts $(wc -l < "$PROMPTS") | eval $(wc -l < "$EVAL_LOCAL") | init $INIT_ADAPTER"
 
 KEY="/tmp/rpkey"; cp ~/.ssh/runpod_aria "$KEY"; chmod 600 "$KEY"
@@ -68,7 +73,13 @@ done
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$PROMPTS" root@"$HOST":/workspace/datasets/aria_grpo_prompts_v1.jsonl || exit 1
 scp -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$EVAL_LOCAL" root@"$HOST":/workspace/datasets/aria_eval_500q.jsonl || exit 1
 echo "[driver] uploading init adapter (may take ~30s, 335MB)…"
-scp -r -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$INIT_ADAPTER"/* root@"$HOST":/workspace/checkpoints/aria_llm_init/ || { echo "[driver] FATAL scp init adapter"; exit 1; }
+if [ -n "${INIT_ON_POD:-}" ]; then
+  # R-F2549 — adapter already on the pod volume; copy it into the init dir the runner reads.
+  $SSH -p "$PORT" root@"$HOST" "cp -rf $INIT_ON_POD/* /workspace/checkpoints/aria_llm_init/ && test -f /workspace/checkpoints/aria_llm_init/adapter_config.json" || { echo "[driver] FATAL: INIT_ON_POD adapter missing on pod: $INIT_ON_POD"; exit 1; }
+  echo "[driver] init adapter from ON-POD: $INIT_ON_POD"
+else
+  scp -r -i "$KEY" -o StrictHostKeyChecking=no -P "$PORT" "$INIT_ADAPTER"/* root@"$HOST":/workspace/checkpoints/aria_llm_init/ || { echo "[driver] FATAL scp init adapter"; exit 1; }
+fi
 
 # 4. launch detached + arm self-stop watcher
 echo "[driver] launching GRPO cycle DETACHED…"
