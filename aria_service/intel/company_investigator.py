@@ -1033,7 +1033,7 @@ async def _phase_synthesis(
     report: InvestigationReport,
     company_name: str,
 ) -> None:
-    """Synthesize all findings into a structured report using LLM."""
+    """Synthesize all findings into a structured report — deterministic, no LLM (R-F2535)."""
     if not report.findings:
         # R-F2532 — NEVER-FALSE-CLEAN: "no findings" is only reassuring if enrichment
         # actually RAN. If phases failed, say the result is incomplete, not clean.
@@ -1047,71 +1047,59 @@ async def _phase_synthesis(
             report.summary = f"No findings could be gathered for {company_name}."
         return
 
+    # R-F2535: DETERMINISTIC ($0, no-LLM) synthesis. company_investigator runs on
+    # try_local_reasoning's explicitly LLM-FREE / cost-avoidance path (it reports
+    # llm_calls_avoided=1). The old llm_pipeline.LLMPipeline() never existed, so every
+    # single run recorded a "synthesis" phase_failure and leaked the internal error into
+    # the user-facing summary; calling a cloud LLM here would ALSO violate the caller's
+    # no-cloud contract and risk bypassing the §17 cost meter. So assemble a structured
+    # digest from the findings directly — cost-safe by construction, no provider needed.
     try:
-        from . import llm_pipeline as _llm
-
-        # Build evidence summary
-        evidence_lines = []
+        # 1. Surface risk indicators implied by finding text (keyword scan).
         for f in report.findings:
-            evidence_lines.append(
-                f"[{f.category.upper()}] {f.title}\n"
-                f"  Source: {f.source}\n"
-                f"  Summary: {f.summary}\n"
-            )
-
-        evidence_text = "\n".join(evidence_lines)[:4000]
-
-        prompt = (
-            "You are an OSINT investigation analyst. Based ONLY on the evidence "
-            "below, produce a structured investigation report for the company.\n\n"
-            "Format your response as:\n"
-            "1. EXECUTIVE SUMMARY (2-3 sentences)\n"
-            "2. KEY FINDINGS (bullet points, each with source citation)\n"
-            "3. RISK INDICATORS (if any)\n"
-            "4. OPEN QUESTIONS (what we still don't know)\n"
-            "5. SOURCES (list of URLs/references)\n\n"
-            "If evidence is insufficient for any section, say so honestly. "
-            "Do NOT fabricate information.\n\n"
-            f"Company: {company_name}\n"
-            f"Jurisdiction: {report.jurisdiction or 'unknown'}\n\n"
-            f"Evidence:\n{evidence_text}"
-        )
-
-        llm = _llm.LLMPipeline()
-        resp = await asyncio.wait_for(
-            llm.complete("", prompt, max_tokens=2000),
-            timeout=_PHASE_TIMEOUTS["synthesis"],
-        )
-        if resp and resp.content:
-            report.summary = resp.content[:5000]
-
-        # Extract risk indicators from findings
-        for f in report.findings:
-            if any(kw in f.summary.lower() for kw in
+            if any(kw in (f.summary or "").lower() for kw in
                    ("sanctions", "hard_stop", "risk", "warning", "negative",
                     "lawsuit", "investigation", "penalty", "fine")):
                 if f.title not in report.risk_indicators:
                     report.risk_indicators.append(f.title)
 
-        # Collect cited sources
+        # 2. Collect cited sources.
         for f in report.findings:
             if f.source and f.source not in report.sources_cited:
                 report.sources_cited.append(f.source)
 
-    except asyncio.TimeoutError:
-        _note_phase(report, "synthesis", timed_out=True)
-        logger.debug("[company_investigator] synthesis timed out")
-        report.summary = "Synthesis timed out — raw findings are available."
+        # 3. Deterministic structured summary — grouped by category, no fabrication.
+        by_cat: dict[str, list] = {}
+        for f in report.findings:
+            by_cat.setdefault(f.category or "other", []).append(f)
+        cats = sorted(by_cat.keys())
+        parts: list[str] = [
+            f"Investigation of {company_name}"
+            + (f" ({report.jurisdiction})" if report.jurisdiction else "")
+            + f": {len(report.findings)} finding(s) across "
+            + f"{len(cats)} categor{'y' if len(cats) == 1 else 'ies'}."
+        ]
+        for cat in cats:
+            items = by_cat[cat]
+            parts.append(f"\n[{cat.upper()}] {len(items)} finding(s):")
+            for f in items[:3]:
+                line = (f.title or "").strip() or (f.summary or "").strip()[:80]
+                parts.append(f"  • {line[:160]}" + (f" — {f.source}" if f.source else ""))
+        if report.risk_indicators:
+            parts.append("\nRisk indicators:")
+            for ri in report.risk_indicators[:6]:
+                parts.append(f"  ⚠ {ri[:160]}")
+        report.summary = "\n".join(parts)[:5000]
+
     except Exception as e:
+        # Deterministic assembly should not fail, but a malformed finding must never
+        # blank the report — keep an honest non-empty fallback (never-false-clean).
         _note_phase(report, "synthesis", e)
-        logger.debug("[company_investigator] synthesis failed: %s", e)
-        # R-F2532: never leave the summary blank — a failed synthesis with findings
-        # present must still say what happened, not return an empty (falsely-silent)
-        # report. The raw findings + risk_indicators remain available downstream.
+        logger.debug("[company_investigator] synthesis assembly failed: %s", e)
         if not report.summary:
             report.summary = (
-                f"Synthesis unavailable ({str(e)[:80]}) — "
-                f"{len(report.findings)} raw finding(s) gathered; review findings directly."
+                f"{len(report.findings)} finding(s) gathered for {company_name}; "
+                "structured summary unavailable — review findings directly."
             )
 
 
