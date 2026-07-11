@@ -201,6 +201,15 @@ VALID_GAP_TYPES = frozenset({
     "codebase_health",                   # R-F1592: eagle_eye emits this (code
                                          # smells / stale modules) but it was
                                          # unregistered → gaps silently rejected
+    # R-F2551 (Phase 0.3) — LLM provider call failed (timeout / 5xx / connection /
+    # stale endpoint, e.g. the sovereign RunPod /v1/models 404). Distinct from the
+    # SPECIFIC provider failures already registered (billing_required=402,
+    # rate_limited=429, auth_failure=401/403): this is the GENERIC "the provider did
+    # not return" class the LLM chain emits. Was firing "Unknown gap type
+    # 'llm_provider_failure'" repeatedly live (2026-07-11), which both spammed the log
+    # and demoted a real provider-routing signal to noise. Registering it makes the
+    # provider-failure taxonomy first-class (prereq for task-value LLM routing).
+    "llm_provider_failure",
 })
 
 
