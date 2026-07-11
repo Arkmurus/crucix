@@ -42,6 +42,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# R-F2550 — allow direct `python aria_cli/cli.py` invocation, not only the `aria` entry
+# point / `python -m aria_cli.cli`. Run directly there is no package context, so the
+# relative imports below throw a cryptic "attempted relative import with no known parent
+# package". Bootstrap the package onto sys.path + set __package__ so BOTH styles work.
+if __package__ in (None, ""):
+    import os as _os_boot, sys as _sys_boot
+    _sys_boot.path.insert(0, _os_boot.path.dirname(_os_boot.path.dirname(_os_boot.path.abspath(__file__))))
+    __package__ = "aria_cli"
+
 from . import __version__
 from . import brain as brain_mod
 from .agent import Agent, AgentUI
