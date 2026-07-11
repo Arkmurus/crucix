@@ -261,10 +261,10 @@ async def check_endpoint(endpoint: dict[str, Any]) -> IntegrityCheck:
         if expected and resp.is_success:
             try:
                 data = resp.json()
-                for field in expected:
-                    if field not in data:
+                for fname in expected:  # R-F2523: was 'field' — shadowed dataclasses.field
+                    if fname not in data:
                         check.errors.append(
-                            f"Missing expected field '{field}' in {method} {path}"
+                            f"Missing expected field '{fname}' in {method} {path}"
                         )
                         check.passed = False
             except (json.JSONDecodeError, ValueError):
@@ -345,10 +345,10 @@ async def check_endpoint_public(endpoint: dict[str, Any]) -> IntegrityCheck:
         if expected and resp.is_success:
             try:
                 data = resp.json()
-                for field in expected:
-                    if field not in data:
+                for fname in expected:  # R-F2523: was 'field' — shadowed dataclasses.field
+                    if fname not in data:
                         check.errors.append(
-                            f"Missing expected field '{field}' in {method} {path} (public)"
+                            f"Missing expected field '{fname}' in {method} {path} (public)"
                         )
                         check.passed = False
             except (json.JSONDecodeError, ValueError):
@@ -389,16 +389,16 @@ def validate_input_payload(
     required = schema.get("required_fields", [])
     field_types = schema.get("field_types", {})
 
-    for field in required:
-        if field not in payload:
-            errors.append(f"Missing required field: {field}")
+    for fname in required:  # R-F2523: was 'field' — shadowed dataclasses.field
+        if fname not in payload:
+            errors.append(f"Missing required field: {fname}")
 
-    for field, expected_type in field_types.items():
-        if field in payload and not isinstance(payload[field], expected_type):
+    for fname, expected_type in field_types.items():  # R-F2523: was 'field'
+        if fname in payload and not isinstance(payload[fname], expected_type):
             errors.append(
-                f"Field '{field}' has wrong type: "
+                f"Field '{fname}' has wrong type: "
                 f"expected {expected_type.__name__}, "
-                f"got {type(payload[field]).__name__}"
+                f"got {type(payload[fname]).__name__}"
             )
 
     return errors
@@ -588,10 +588,10 @@ class WebIntegrityAgent:
         for ep in WEB_ENDPOINTS:
             if ep["path"] == path and ep["method"] == method:
                 expected = ep.get("expected", {})
-                for field in expected:
-                    if field not in response_data:
+                for fname in expected:  # R-F2523: was 'field' — shadowed dataclasses.field
+                    if fname not in response_data:
                         errors.append(
-                            f"Output missing expected field '{field}' in {method} {path}"
+                            f"Output missing expected field '{fname}' in {method} {path}"
                         )
                 break
 
@@ -706,7 +706,7 @@ class WebIntegrityAgent:
             )
         else:
             try:
-                from .engine_wiring import wire_success, wire_failure
+                from .engine_wiring import wire_success  # R-F2523: wire_failure unused here (module-level import at top is used)
                 wire_success(
                     module="web_integrity",
                     summary=f"Integrity cycle clean: all {len(checks)} endpoints healthy",
