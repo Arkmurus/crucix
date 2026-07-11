@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2522,
+  "next_available": 2524,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19155,6 +19155,25 @@
       "commit_sha": "edb7e7dd",
       "notes": null,
       "shipped_at": "2026-07-10T08:54:50Z"
+    },
+    {
+      "r_number": "R-F2522",
+      "title": "sovereign canary activation — stage=canary on grounded turns",
+      "claimed_at": "2026-07-10T13:12:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "70a37d51",
+      "notes": null,
+      "shipped_at": "2026-07-11T09:04:02Z"
+    },
+    {
+      "r_number": "R-F2523",
+      "title": "web_integrity_agent lint fixes (Prospector): remove unused local wire_failure import (line 709); rename loop var field->fname (4 loops) so it stops shadowing dataclasses.field",
+      "claimed_at": "2026-07-11T08:51:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
