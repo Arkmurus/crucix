@@ -803,6 +803,7 @@ async def _phase_ssl_dns(
             _note_phase(report, "WHOIS check", timed_out=True)
             logger.debug("[company_investigator] WHOIS check timed out")
         except ConnectionRefusedError:
+            _note_phase(report, "WHOIS check", timed_out=False)
             logger.debug("[company_investigator] WHOIS server refused connection")
         except Exception as e:
             _note_phase(report, "WHOIS check", e)
@@ -834,11 +835,19 @@ async def _phase_procurement(
         )
         contracts = (_proc or {}).get("consolidated", []) if isinstance(_proc, dict) else []
         for c in (contracts or [])[:3]:
+            # R-F2532: consolidated records use keys value_usd / date_signed (see
+            # procurement_history query_usaspending/query_uk_contracts_finder), NOT
+            # value / date. The old loop read the wrong keys — latent because search()
+            # never ran; now that the real API is wired, map the correct keys or every
+            # finding would render "Value: unknown. Awarded: unknown".
+            _val = c.get("value_usd") or c.get("value") or "unknown"
+            _when = c.get("date_signed") or c.get("date") or "unknown"
+            _buyer = c.get("buyer") or ""
             report.findings.append(InvestigationFinding(
                 category="procurement",
-                title=c.get("title", "")[:200],
-                summary=f"Value: {c.get('value', 'unknown')}. "
-                        f"Awarded: {c.get('date', 'unknown')}",
+                title=(c.get("title") or "")[:200],
+                summary=(f"Value: {_val}. Awarded: {_when}."
+                         + (f" Buyer: {_buyer}." if _buyer else "")),
                 source=c.get("url", ""),
                 confidence=0.7,
                 tags=["procurement", "contract"],
@@ -1024,6 +1033,14 @@ async def _phase_synthesis(
     except Exception as e:
         _note_phase(report, "synthesis", e)
         logger.debug("[company_investigator] synthesis failed: %s", e)
+        # R-F2532: never leave the summary blank — a failed synthesis with findings
+        # present must still say what happened, not return an empty (falsely-silent)
+        # report. The raw findings + risk_indicators remain available downstream.
+        if not report.summary:
+            report.summary = (
+                f"Synthesis unavailable ({str(e)[:80]}) — "
+                f"{len(report.findings)} raw finding(s) gathered; review findings directly."
+            )
 
 
 # ── Wire to brain ──────────────────────────────────────────────────────

@@ -89,8 +89,11 @@ def test_procurement_uses_query_entity_history(monkeypatch):
     async def _fake_qeh(entity_name, *, jurisdiction_iso2=None, **kw):
         called["entity_name"] = entity_name
         called["jurisdiction_iso2"] = jurisdiction_iso2
+        # Real consolidated records use value_usd / date_signed / buyer (see
+        # procurement_history), NOT value / date — the finding must read these.
         return {"consolidated": [
-            {"title": "Framework award", "value": "£1m", "date": "2025-01-01", "url": "http://x"},
+            {"title": "Framework award", "value_usd": 1000000, "date_signed": "2025-01-01",
+             "buyer": "Ministry of Defence", "url": "http://x"},
         ]}
 
     # If any code still reaches for .search(), make it explode so the test catches it.
@@ -104,7 +107,12 @@ def test_procurement_uses_query_entity_history(monkeypatch):
 
     assert called["entity_name"] == "Acme"
     assert called["jurisdiction_iso2"] == "GB"
-    assert any(f.category == "procurement" for f in rep.findings)
+    _proc_findings = [f for f in rep.findings if f.category == "procurement"]
+    assert _proc_findings, "procurement finding not created"
+    # The finding must read the REAL keys (value_usd/date_signed/buyer), not render "unknown".
+    _sm = _proc_findings[0].summary
+    assert "1000000" in _sm and "2025-01-01" in _sm and "Ministry of Defence" in _sm, _sm
+    assert "unknown" not in _sm, f"still reading wrong keys: {_sm}"
     assert not any("procurement" in p for p in rep.phase_failures)
 
 
