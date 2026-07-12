@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2566,
+  "next_available": 2568,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19577,6 +19577,26 @@
       "commit_sha": "929ac8a8",
       "notes": null,
       "shipped_at": "2026-07-12T14:05:06Z"
+    },
+    {
+      "r_number": "R-F2566",
+      "title": "llm_health_checker builds illegal 'Bearer ' header when ARIA_LLM_KEY empty -> probe fails at header construction, never reaches endpoint, reports sovereign down even when up + spams gap ledger; guard like the other providers",
+      "claimed_at": "2026-07-12T18:20:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0a8a8f60",
+      "notes": null,
+      "shipped_at": "2026-07-12T18:56:49Z"
+    },
+    {
+      "r_number": "R-F2567",
+      "title": "coder/llm operator-gated but coder holds only internal token -> 403 on every LLM call -> self-coding loop fixed=0 (P0); exempt the compute endpoint from _OPERATOR_ONLY_RE like coder/rag, keep control/destructive gated",
+      "claimed_at": "2026-07-12T18:36:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0a8a8f60",
+      "notes": null,
+      "shipped_at": "2026-07-12T18:56:49Z"
     }
   ]
 }
