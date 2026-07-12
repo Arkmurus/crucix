@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2524,
+  "next_available": 2566,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19174,6 +19174,409 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F2524",
+      "title": "cost monthly-cap HARD-BLOCK fix: assert_monthly_cap compared only the 5min-TTL reserve key (reconciled to ~0) vs cap, never adding actual month-to-date spend, so an over-cap month never blocked (only warned). Add recorded spend to the reserve for the ceiling check",
+      "claimed_at": "2026-07-11T09:05:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2525",
+      "title": "R-F743 test de-brittle (codex finding 7 test-drift): assert default timeout is present+substantial (was exact 20000, code now 30000) and check authedJson backwards-compat signature instead of stale specific PUT/DELETE caller strings (PUT refactored to raw fetch)",
+      "claimed_at": "2026-07-11T09:09:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2526",
+      "title": "scale-ready global DD concurrency gate: redis_store.is_shared() + _dd_admit_global/_dd_release_global — no-op single-machine (byte-identical), GLOBAL cap across workers when REDIS_URL set (codex scale blocker #2/#3: DD caps would multiply 3xN). Fail-open. Prepares horizontal scale as a config flip",
+      "claimed_at": "2026-07-11T09:17:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2527",
+      "title": "grounded-synthesis shadow flywheel: durable DPO capture + harvester",
+      "claimed_at": "2026-07-11T09:18:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2528",
+      "title": "grounded-synthesis shadow flywheel: capture + harvester + gates",
+      "claimed_at": "2026-07-11T09:26:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2529",
+      "title": "widening-cycle DPO dataset v2 (format-varied + answerable-coverage)",
+      "claimed_at": "2026-07-11T09:30:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2530",
+      "title": "cycle driver: forward DPO_BETA/DPO_LR env to on-pod orchestrator",
+      "claimed_at": "2026-07-11T09:34:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2531",
+      "title": "canary not-selected grounded turns capture via shadow (flywheel-during-canary)",
+      "claimed_at": "2026-07-11T09:42:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2532",
+      "title": "company_investigator never-false-clean: surface FAILED enrichment phases in the report (was silent logger.debug) so investigate_company stops returning falsely-green when resolve/registry/news/procurement/crawl/conflict phases die on dead APIs; + fix the unambiguous API breaks (resolve drop jurisdiction, procurement query_entity_history)",
+      "claimed_at": "2026-07-11T09:46:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a9d73beb",
+      "notes": null,
+      "shipped_at": "2026-07-11T09:57:37Z"
+    },
+    {
+      "r_number": "R-F2533",
+      "title": "rewire company_investigator news_monitor + companies_house dead APIs",
+      "claimed_at": "2026-07-11T10:10:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5c19fc49",
+      "notes": null,
+      "shipped_at": "2026-07-11T10:13:27Z"
+    },
+    {
+      "r_number": "R-F2534",
+      "title": "rewire company_investigator deep_crawl + tech_stack dead APIs",
+      "claimed_at": "2026-07-11T10:19:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "76ef8fc3",
+      "notes": null,
+      "shipped_at": "2026-07-11T10:24:40Z"
+    },
+    {
+      "r_number": "R-F2535",
+      "title": "deterministic no-LLM synthesis for company_investigator (cost-safe)",
+      "claimed_at": "2026-07-11T10:40:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "859195d8",
+      "notes": null,
+      "shipped_at": "2026-07-11T10:45:03Z"
+    },
+    {
+      "r_number": "R-F2536",
+      "title": "rewire conflict_tracker dead API in company_investigator (get_recent_events)",
+      "claimed_at": "2026-07-11T10:51:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8ec0ae39",
+      "notes": null,
+      "shipped_at": "2026-07-11T11:01:41Z"
+    },
+    {
+      "r_number": "R-F2537",
+      "title": "brain observability: drain supervision + queue health + signal-consumer verdict",
+      "claimed_at": "2026-07-11T11:12:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "689e45b4",
+      "notes": null,
+      "shipped_at": "2026-07-11T11:20:32Z"
+    },
+    {
+      "r_number": "R-F2538",
+      "title": "sweep 210 R-F2119 import-time false engine_failure wire_failure blocks",
+      "claimed_at": "2026-07-11T12:11:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "473c9d76",
+      "notes": null,
+      "shipped_at": "2026-07-11T12:33:18Z"
+    },
+    {
+      "r_number": "R-F2539",
+      "title": "objective citation-precision eval (grounding_reward, sovereign vs DeepSeek)",
+      "claimed_at": "2026-07-11T12:49:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2540",
+      "title": "citation_verifier — deterministic citation verification (golden-reasoning layer)",
+      "claimed_at": "2026-07-11T13:15:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2541",
+      "title": "codex review batch: self-improve gate, sweep variants, coder supervision, reconcile singleton, election test",
+      "claimed_at": "2026-07-11T13:17:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7aad7976",
+      "notes": null,
+      "shipped_at": "2026-07-11T13:26:02Z"
+    },
+    {
+      "r_number": "R-F2542",
+      "title": "wire citation_verifier into live synthesis (complete + stream, no fabricated source ships)",
+      "claimed_at": "2026-07-11T13:27:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2543",
+      "title": "coder R-number partition seed + coder-loop respawn supervision (codex F1/F4)",
+      "claimed_at": "2026-07-11T13:29:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "09aff0a6",
+      "notes": null,
+      "shipped_at": "2026-07-11T13:37:30Z"
+    },
+    {
+      "r_number": "R-F2544",
+      "title": "telegram golden intel only gate",
+      "claimed_at": "2026-07-11T13:32:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f19b4382",
+      "notes": null,
+      "shipped_at": "2026-07-11T15:05:35Z"
+    },
+    {
+      "r_number": "R-F2545",
+      "title": "CI fabrication gate — build fails if verifier unwired or fabrication survives",
+      "claimed_at": "2026-07-11T13:42:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2546",
+      "title": "wire citation_verifier into bypass paths (grounding-repair, doc_lane, /think, report_builder)",
+      "claimed_at": "2026-07-11T13:49:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2547",
+      "title": "harden coder R-number partition — floor-enforced allocation (bulletproof vs counter reset)",
+      "claimed_at": "2026-07-11T13:55:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2548",
+      "title": "accurate §21 wiring audit (idle-vs-dark) + Telegram bot sendMessage outcome-wire (§25)",
+      "claimed_at": "2026-07-11T15:20:45Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "44b810f3",
+      "notes": null,
+      "shipped_at": "2026-07-11T15:36:37Z"
+    },
+    {
+      "r_number": "R-F2549",
+      "title": "GRPO driver INIT_ON_POD — start from an adapter already on the pod volume",
+      "claimed_at": "2026-07-11T15:36:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2550",
+      "title": "aria CLI: robust direct-invocation (relative-import bootstrap)",
+      "claimed_at": "2026-07-11T15:49:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0d9fc10d",
+      "notes": null,
+      "shipped_at": "2026-07-11T15:50:01Z"
+    },
+    {
+      "r_number": "R-F2551",
+      "title": "Phase-0.3: register llm_provider_failure gap type (stop Unknown-gap-type warnings)",
+      "claimed_at": "2026-07-11T16:12:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "802212cd",
+      "notes": null,
+      "shipped_at": "2026-07-11T19:58:57Z"
+    },
+    {
+      "r_number": "R-F2552",
+      "title": "telegram channel id separation",
+      "claimed_at": "2026-07-11T17:14:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "effa9ab3",
+      "notes": null,
+      "shipped_at": "2026-07-11T18:55:40Z"
+    },
+    {
+      "r_number": "R-F2553",
+      "title": "golden intel web split",
+      "claimed_at": "2026-07-11T17:35:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2554",
+      "title": "golden-intel dashboard split + feed-freshness fidelity gate",
+      "claimed_at": "2026-07-11T18:50:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6385fd5a",
+      "notes": null,
+      "shipped_at": "2026-07-11T18:54:14Z"
+    },
+    {
+      "r_number": "R-F2555",
+      "title": "Golden Intel promotion bridge — tender adapter + §21 wiring",
+      "claimed_at": "2026-07-11T19:39:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a849e368",
+      "notes": null,
+      "shipped_at": "2026-07-11T19:58:56Z"
+    },
+    {
+      "r_number": "R-F2556",
+      "title": "manual Golden Intel promotion trigger endpoint + live verify",
+      "claimed_at": "2026-07-11T20:16:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cc7c0375",
+      "notes": null,
+      "shipped_at": "2026-07-11T20:27:26Z"
+    },
+    {
+      "r_number": "R-F2557",
+      "title": "Golden Intel bridge — Node ingest inbox + BD/OpenSanctions adapters",
+      "claimed_at": "2026-07-12T07:59:13Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9bad020d",
+      "notes": null,
+      "shipped_at": "2026-07-12T10:24:11Z"
+    },
+    {
+      "r_number": "R-F2558",
+      "title": "GRPO composite-win: fix dead recall+answerable signals, enrich keywords, cycle from grpo_v1",
+      "claimed_at": "2026-07-12T07:59:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2559",
+      "title": "system-public watchlist + GDPR-safe Golden Intel promotion adapter",
+      "claimed_at": "2026-07-12T08:41:43Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2ffbba90",
+      "notes": null,
+      "shipped_at": "2026-07-12T09:27:22Z"
+    },
+    {
+      "r_number": "R-F2560",
+      "title": "OFAC/UN/FCDO designation-diff feed -> decision-grade sanctions_change",
+      "claimed_at": "2026-07-12T11:17:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "73cc8c32",
+      "notes": null,
+      "shipped_at": "2026-07-12T11:59:27Z"
+    },
+    {
+      "r_number": "R-F2561",
+      "title": "web_integrity_agent internal-auth: attach ARIA_INTERNAL_TOKEN to self-probes (P0.2)",
+      "claimed_at": "2026-07-12T12:14:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "19978b1f",
+      "notes": null,
+      "shipped_at": "2026-07-12T12:26:52Z"
+    },
+    {
+      "r_number": "R-F2562",
+      "title": "deprecate dead web-push channel — PUSH_ENABLED flag, quiet no-op (#9)",
+      "claimed_at": "2026-07-12T12:35:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "304bc07a",
+      "notes": null,
+      "shipped_at": "2026-07-12T12:43:38Z"
+    },
+    {
+      "r_number": "R-F2563",
+      "title": "state_store boot-VACUUM one-shot + fail-loud cold-open (P0.1 hardening)",
+      "claimed_at": "2026-07-12T12:48:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e3bff2dd",
+      "notes": null,
+      "shipped_at": "2026-07-12T13:34:50Z"
+    },
+    {
+      "r_number": "R-F2564",
+      "title": "parallel brain-ingest drain workers (N-worker fan-out, shared concurrency sem, atomic claim)",
+      "claimed_at": "2026-07-12T13:29:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "929ac8a8",
+      "notes": null,
+      "shipped_at": "2026-07-12T14:05:06Z"
+    },
+    {
+      "r_number": "R-F2565",
+      "title": "FCDO/OFSI parser: read flat 2022format (name1-5+Name6, group by GroupID, AliasType primary/alias) — old parser matched a <Name> wrapper that no longer exists, silently returned 0 records",
+      "claimed_at": "2026-07-12T13:32:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "929ac8a8",
+      "notes": null,
+      "shipped_at": "2026-07-12T14:05:06Z"
     }
   ]
 }
