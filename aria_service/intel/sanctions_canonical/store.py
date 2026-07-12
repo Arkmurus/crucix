@@ -102,6 +102,32 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+class CoverageDriftError(Exception):
+    """R-F2570 — a refresh parsed implausibly FEW rows versus the prior list (partial
+    schema drift, e.g. OFAC/EU rename a tag for a class of entries). replace_source rolls
+    back and preserves the last-known-good rows rather than overwrite a healthy sanctions
+    list with a thin one — overwriting it would screen the dropped sanctioned entities as
+    CLEAR (a false clean, the worst DD/compliance output). Never-false-clean, fail-closed."""
+
+    def __init__(self, source: str, new_count: int, prior_count: int):
+        self.source = source
+        self.new_count = new_count
+        self.prior_count = prior_count
+        super().__init__(
+            f"coverage drift: source={source} parsed {new_count} rows "
+            f"(< floor of prior {prior_count}); refusing to replace")
+
+
+def _drift_min_fraction() -> float:
+    """R-F2570 — a refresh must carry at least this fraction of the prior row count to be
+    accepted (else it's treated as partial-drift and refused). Sanctions lists effectively
+    never legitimately shrink >50% between refreshes. Env-tunable ARIA_SANCTIONS_DRIFT_MIN_FRACTION."""
+    try:
+        return max(0.0, min(1.0, float(os.getenv("ARIA_SANCTIONS_DRIFT_MIN_FRACTION", "0.5"))))
+    except Exception:
+        return 0.5
+
+
 def replace_source(source: str, rows, batch_size: int = 500) -> int:
     """Atomically replace all rows for a single source.
 
@@ -122,6 +148,11 @@ def replace_source(source: str, rows, batch_size: int = 500) -> int:
     """
     now = time.time()
     inserted = 0
+    # R-F2570 — baseline for the coverage-drift floor: the count BEFORE we delete/replace.
+    try:
+        prior_count = count_entries(source)
+    except Exception:
+        prior_count = 0
     try:
         with connect() as conn:
             cur = conn.cursor()
@@ -177,6 +208,12 @@ def replace_source(source: str, rows, batch_size: int = 500) -> int:
                             ),
                         )
                     inserted += 1
+                # R-F2570 — coverage-drift floor: refuse to overwrite a healthy list with an
+                # implausibly small parse (partial schema drift). Raising here lets the outer
+                # except ROLLBACK, preserving the last-known-good rows. prior_count==0 (first
+                # load / empty store) is exempt — there is no baseline to protect.
+                if prior_count > 0 and inserted < int(prior_count * _drift_min_fraction()):
+                    raise CoverageDriftError(source, inserted, prior_count)
                 cur.execute("COMMIT")
             except Exception:
                 cur.execute("ROLLBACK")
@@ -193,6 +230,22 @@ def replace_source(source: str, rows, batch_size: int = 500) -> int:
         except Exception:
             pass
         return inserted
+    except CoverageDriftError as drift:
+        # R-F2570 — never-false-clean: a drifted refresh was REFUSED and the last-known-good
+        # rows preserved. Wire it distinctly (not a generic crash) so the self-heal loop + the
+        # operator see that a sanctions source's parser likely broke and coverage is frozen.
+        logger.error("[sanctions_canonical] REFUSED drifted refresh — %s", drift)
+        try:
+            from ..engine_wiring import wire_failure
+            wire_failure(
+                module="sanctions_canonical.store",
+                detail=str(drift),
+                gap_type="sanctions_coverage_drift",
+                source="sanctions_canonical:store:replace_source",
+            )
+        except Exception:
+            pass
+        raise
     except Exception as exc:
         # R-F1304 — wire failure to brain (§21a)
         try:
@@ -279,6 +332,26 @@ def count_entries(source: str | None = None) -> int:
         else:
             cur.execute("SELECT COUNT(*) FROM entries")
         return int(cur.fetchone()[0])
+
+
+def last_successful_rows_loaded(source: str) -> int:
+    """R-F2570 — rows_loaded of the most recent SUCCESSFUL refresh for `source`, or 0 if
+    there is no successful refresh on record. The self-calibrating baseline for the
+    coverage-drift plausibility floor (a store now holding far fewer rows than its own last
+    healthy load is implausibly thin). Because replace_source REFUSES a drifted refresh
+    (it never records success), this baseline only ever reflects a healthy load."""
+    try:
+        with connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT rows_loaded FROM refresh_log WHERE source = ? AND success = 1 "
+                "ORDER BY finished_at DESC LIMIT 1",
+                (source,),
+            )
+            row = cur.fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
+    except Exception:
+        return 0
 
 
 def newest_entry_refresh(source: str | None = None) -> float | None:

@@ -110,6 +110,31 @@ def _expected_sources() -> list[str]:
     return srcs
 
 
+def _expected_minimum(source: str) -> int:
+    """R-F2570 — per-source plausibility floor for the H2 CLEAR gate, SELF-CALIBRATED from
+    the source's OWN last successful refresh (refresh_log.rows_loaded). A store now holding
+    fewer than DRIFT_MIN_FRACTION of its last healthy load is implausibly thin (partial
+    schema drift, or a partial wipe after a good load) → treated as a coverage gap, so a
+    would-be CLEAR downgrades to INSUFFICIENT_DATA rather than screen the dropped sanctioned
+    entities as clean.
+
+    Self-calibrating (no magic per-source counts) so it can't false-trip a legitimately-
+    sized list and it works for direct-seeded test fixtures: no successful-refresh history
+    → return 1 (i.e. the prior `<= 0` behaviour, unchanged). Fraction is the same
+    ARIA_SANCTIONS_DRIFT_MIN_FRACTION the replace_source load-time floor uses (default 0.5)."""
+    try:
+        baseline = store.last_successful_rows_loaded(source)
+    except Exception:
+        baseline = 0
+    if baseline <= 0:
+        return 1
+    try:
+        frac = max(0.0, min(1.0, float(os.getenv("ARIA_SANCTIONS_DRIFT_MIN_FRACTION", "0.5"))))
+    except Exception:
+        frac = 0.5
+    return max(1, int(baseline * frac))
+
+
 def _has_refresh_metadata() -> bool:
     """True once the REAL refresh pipeline has recorded at least one refresh
     (production). Pure direct-seed stores (test fixtures / operator-manual
@@ -495,7 +520,9 @@ def check_sanctions(
                     if src not in expected:
                         continue  # unknown/non-registry source — do not enforce
                     try:
-                        if store.count_entries(src) <= 0:
+                        # R-F2570 — plausibility floor (was `<= 0`): a source present but
+                        # implausibly THIN (partial schema drift) must not yield CLEAR.
+                        if store.count_entries(src) < _expected_minimum(src):
                             coverage_gap.append(src)
                     except Exception:
                         coverage_gap.append(src)
