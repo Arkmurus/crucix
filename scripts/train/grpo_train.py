@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -259,7 +260,13 @@ def main() -> int:
         max_completion_length=args.max_completion_len,
         bf16=True,
         logging_steps=5,
-        save_strategy="epoch",
+        # R-F2558: PERIODIC checkpoints, not epoch-only. A prior v2 run was hard-
+        # stopped at step 109/110 by a racy self-stop watcher and lost EVERYTHING
+        # because save_strategy="epoch" only writes at the end. Step checkpoints make
+        # a late kill cost <=SAVE_STEPS steps and let the re-run resume.
+        save_strategy="steps",
+        save_steps=int(os.environ.get("SAVE_STEPS", "20")),
+        save_total_limit=int(os.environ.get("SAVE_TOTAL_LIMIT", "3")),
         gradient_checkpointing=True,
         report_to=[],
     )
@@ -281,7 +288,12 @@ def main() -> int:
         processing_class=tok,
         **({"peft_config": peft_config} if peft_config is not None else {}),
     )
-    trainer.train()
+    # R-F2558: resume from the latest step-checkpoint if one exists in output_dir
+    # (True lets TRL/Trainer auto-find it), so a killed run continues where it left off.
+    _resume = any(Path(args.output_dir).glob("checkpoint-*")) if Path(args.output_dir).exists() else False
+    if _resume:
+        print(f"[grpo] resuming from latest checkpoint in {args.output_dir}")
+    trainer.train(resume_from_checkpoint=_resume)
     trainer.save_model(str(args.output_dir))
     tok.save_pretrained(str(args.output_dir))
     print(f"[grpo] saved GRPO adapter -> {args.output_dir}")

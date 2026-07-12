@@ -93,8 +93,15 @@ $SSH -p "$PORT" root@"$HOST" \
    MAX_PROMPTS='${MAX_PROMPTS:-220}' \
    DEEPSEEK_API_KEY='$DSK' \
    setsid nohup bash /workspace/$POD_RUN_SCRIPT > /workspace/logs/grpo_cycle.log 2>&1 < /dev/null & echo STARTED" || { echo "[driver] FATAL launch"; exit 1; }
+# R-F2558: the _cycle_status-based self-stop watcher misfired on STALE cross-cycle
+# sentinel state (it lives on the shared volume) and hard-killed a run at step
+# 109/110, losing ~7h. Replace it with a DUMB absolute-time backstop: no sentinel
+# dependency, cannot misfire on stale state. Kill any leftover watchers first so
+# they can't accumulate and stop the pod out from under a live run.
+BACKSTOP_SECS="${BACKSTOP_SECS:-28800}"   # 8h hard ceiling; the driver/monitor stops the pod earlier on genuine completion
 $SSH -p "$PORT" root@"$HOST" \
-  "POD_ID=$POD RP_KEY='$API_KEY' GRACE=1800 setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_selfstop.log 2>&1 < /dev/null & echo ARMED" || echo "[driver] WARN selfstop arm"
+  "pkill -f pod_selfstop_watch 2>/dev/null; pkill -f selfstop_watch 2>/dev/null; \
+   setsid nohup bash -c 'sleep $BACKSTOP_SECS; curl -s -X POST $API/pods/$POD/stop -H \"Authorization: Bearer $API_KEY\"' >/workspace/logs/_backstop.log 2>&1 < /dev/null & echo ARMED_BACKSTOP_${BACKSTOP_SECS}s" || echo "[driver] WARN backstop arm"
 
 echo "[driver] polling (cap ~6.6h)…"
 RC=""
