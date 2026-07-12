@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2581,
+  "next_available": 2585,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19724,6 +19724,46 @@
       "commit_sha": "8e0fc891",
       "notes": null,
       "shipped_at": "2026-07-12T22:39:04Z"
+    },
+    {
+      "r_number": "R-F2581",
+      "title": "status-preservation contract test: all aria-intel proxying goes through ariaProxy (no status masking)",
+      "claimed_at": "2026-07-12T22:45:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "657e968b",
+      "notes": null,
+      "shipped_at": "2026-07-12T22:49:44Z"
+    },
+    {
+      "r_number": "R-F2582",
+      "title": "synthetic dashboard honesty monitor (dual-probe: no false-offline while aria-intel healthy)",
+      "claimed_at": "2026-07-12T22:45:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "223a4a30",
+      "notes": null,
+      "shipped_at": "2026-07-12T23:08:20Z"
+    },
+    {
+      "r_number": "R-F2583",
+      "title": "golden intel professional empty-state + balanced layout, surfaces honest freshness diagnostic (no gate change)",
+      "claimed_at": "2026-07-12T22:53:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0c70b454",
+      "notes": null,
+      "shipped_at": "2026-07-12T22:58:53Z"
+    },
+    {
+      "r_number": "R-F2584",
+      "title": "Golden Intel feed (Telegram channel + dashboard) went 27h stale: HOURLY-NEWS-MONITOR autonomous task not firing (scheduler) so news_monitor.poll_feeds never ran. Add reliable lifespan news-poll loop (staleness-gated, hourly, off-scheduler, wired, respawn) mirroring R-F2572 sanctions-refresh — poll_feeds proven to complete in 250s + un-stale the gate live",
+      "claimed_at": "2026-07-12T23:09:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f54109c2",
+      "notes": null,
+      "shipped_at": "2026-07-12T23:21:06Z"
     }
   ]
 }
