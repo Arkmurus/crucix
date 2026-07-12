@@ -10149,6 +10149,171 @@ async def add_to_watchlist(target: dict) -> dict:
     return {"ok": True, "added": target, "count": len(current)}
 
 
+# ── System-public watchlist (R-F2559) ────────────────────────────────────────
+# A PHYSICALLY SEPARATE, operator-curated watchlist of PUBLIC entities (e.g. high-
+# profile sanctioned / PEP subjects). It NEVER contains tenant data: entries carry
+# scope="system_public" and no user_id / domain / deals, and live under their own
+# keys (not crucix:dd:watchlist). Its risk-change alerts are the ONLY watchlist data
+# eligible for the public Golden Intel feed — the customer watchlist is never promoted
+# (GDPR fail-closed). Populated only via the operator-gated curation endpoints.
+PUBLIC_WATCHLIST_KEY = "crucix:dd:watchlist:public"
+PUBLIC_WATCHLIST_STATE_KEY = "crucix:dd:watchlist:public:state"
+PUBLIC_WATCHLIST_ALERTS_KEY = "crucix:dd:watchlist:public:alerts"
+_PUBLIC_WATCHLIST_MAX = 500
+
+
+async def add_public_watchlist_entity(name: str, curated_by: str = "operator") -> dict:
+    """Operator-only: add a PUBLIC entity to the system watchlist. No tenant fields
+    are ever stored on a public entry."""
+    from . import redis_store as rs
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("name required")
+    try:
+        from . import sanctions as _sanc
+        if hasattr(_sanc, "_looks_like_entity_name") and not _sanc._looks_like_entity_name(name):
+            raise ValueError("not a valid entity name")
+    except ValueError:
+        raise
+    except Exception:
+        pass
+    current = await rs.get_json(PUBLIC_WATCHLIST_KEY) or []
+    for w in current:
+        if (w.get("name") or "").strip().lower() == name.lower():
+            return {"ok": True, "note": "already public", "count": len(current)}
+    current.insert(0, {
+        "name": name,
+        "scope": "system_public",
+        "curated_by": curated_by,
+        "added_at": datetime.now(timezone.utc).isoformat(),
+    })
+    current = current[:_PUBLIC_WATCHLIST_MAX]
+    await rs.set_json(PUBLIC_WATCHLIST_KEY, current)
+    return {"ok": True, "added": name, "count": len(current)}
+
+
+async def get_public_watchlist() -> list:
+    from . import redis_store as rs
+    return await rs.get_json(PUBLIC_WATCHLIST_KEY) or []
+
+
+async def remove_public_watchlist_entity(name: str) -> dict:
+    from . import redis_store as rs
+    key = (name or "").strip().lower()
+    current = await rs.get_json(PUBLIC_WATCHLIST_KEY) or []
+    kept = [w for w in current if (w.get("name") or "").strip().lower() != key]
+    await rs.set_json(PUBLIC_WATCHLIST_KEY, kept)
+    return {"ok": True, "removed": len(current) - len(kept), "count": len(kept)}
+
+
+async def get_public_watchlist_alerts(since_hours: int = 168) -> list:
+    """Read public-watchlist risk-change alerts (already tenant-free by construction)."""
+    from datetime import timedelta as _td
+    from . import redis_store as rs
+    import json as _json
+    raw = await rs.lrange(PUBLIC_WATCHLIST_ALERTS_KEY, 0, _PUBLIC_WATCHLIST_MAX - 1)
+    cutoff = datetime.now(timezone.utc) - _td(hours=since_hours)
+    out = []
+    for r in raw:
+        try:
+            a = _json.loads(r) if isinstance(r, str) else r
+            ts = a.get("timestamp")
+            if ts:
+                try:
+                    if datetime.fromisoformat(str(ts).replace("Z", "+00:00")) < cutoff:
+                        continue
+                except Exception:
+                    pass
+            out.append(a)
+        except Exception:
+            continue
+    return out
+
+
+async def rescreen_public_watchlist() -> dict:
+    """Re-screen the operator-curated PUBLIC watchlist and emit public-safe risk-change
+    alerts (entity / change_type / status / detail only — NEVER a tenant field).
+    Diffs against a dedicated public-state key (not customer DD reports)."""
+    import asyncio as _aio
+    import json as _json
+    from . import redis_store as rs
+    t0 = time.monotonic()
+    entities = await rs.get_json(PUBLIC_WATCHLIST_KEY) or []
+    if not entities:
+        return {"entities_screened": 0, "changes_detected": [], "errors": [], "duration_ms": 0}
+    try:
+        from . import sanctions
+        from ._sanctions_classify import classify_matches
+    except Exception as e:
+        return {"entities_screened": 0, "changes_detected": [], "errors": [{"entity": "*", "error": str(e)}], "duration_ms": 0}
+    state = await rs.get_json(PUBLIC_WATCHLIST_STATE_KEY) or {}
+    changes: list[dict] = []
+    errors: list[dict] = []
+    per_timeout = float(os.environ.get("ARIA_RESCREEN_PER_ENTITY_TIMEOUT_S", "60.0"))
+    for entry in entities:
+        name = (entry.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            async def _screen():
+                if hasattr(sanctions, "screen_with_aliases"):
+                    return await sanctions.screen_with_aliases(name)
+                if hasattr(sanctions, "fuzzy_screen"):
+                    return await sanctions.fuzzy_screen(name)
+                return None
+            screen = await (_aio.wait_for(_screen(), timeout=per_timeout) if per_timeout > 0 else _screen())
+            if screen is None:
+                errors.append({"entity": name, "error": "no sanctions entrypoint"})
+                continue
+            matches = screen.get("matches") or []
+            classified = classify_matches(matches, query_name=name)
+            new_status = _derive_status(classified)
+            new_score = _derive_score_from_matches(matches)
+            prior = state.get(name.lower()) or {}
+            old_status = prior.get("status", "CLEAN")
+            old_score = float(prior.get("score", 0.0))
+            change_type, detail = None, ""
+            if old_status == "CLEAN" and new_status == "HIT":
+                change_type = "new_hit"; detail = f"Previously clean, now sanctioned. {classified.get('summary','')[:200]}"
+            elif old_status == "HIT" and new_status == "CLEAN":
+                change_type = "removed"; detail = "Previously sanctioned, now clean across all lists."
+            elif old_status != "PEP" and new_status == "PEP":
+                change_type = "new_pep"; detail = f"New PEP / adverse-media match. {classified.get('summary','')[:200]}"
+            elif abs(new_score - old_score) > 0.1:
+                change_type = "score_change"; detail = f"Best match score changed {old_score:.2f} -> {new_score:.2f}."
+            # never-false-clean (R-F2559 review #G): EMIT only risk-INCREASE events.
+            # A dead/empty sanctions store returns no matches -> CLEAN, which could
+            # fabricate a "removed"/"score_change"; new_hit/new_pep can NEVER be
+            # produced by a dead store (it never yields HIT/PEP). Removals/score moves
+            # still update state below (for future diffs) but are not promoted.
+            if change_type in ("new_hit", "new_pep"):
+                alert = {
+                    "entity": name,
+                    "change_type": change_type,
+                    "old_status": old_status,
+                    "new_status": new_status,
+                    "old_score": round(old_score, 3),
+                    "new_score": round(new_score, 3),
+                    "detail": detail,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "scope": "system_public",
+                    # NO user_id / user_email_domain / share_to_company / run_id /
+                    # impacted_deals — this store is public by construction.
+                }
+                changes.append(alert)
+                await rs.lpush(PUBLIC_WATCHLIST_ALERTS_KEY, _json.dumps(alert, default=str))
+                await rs.ltrim(PUBLIC_WATCHLIST_ALERTS_KEY, 0, _PUBLIC_WATCHLIST_MAX - 1)
+            state[name.lower()] = {"status": new_status, "score": round(new_score, 3),
+                                   "ts": datetime.now(timezone.utc).isoformat()}
+        except _aio.TimeoutError:
+            errors.append({"entity": name, "error": f"screen timeout >{per_timeout}s"})
+        except Exception as e:
+            errors.append({"entity": name, "error": str(e)[:200]})
+    await rs.set_json(PUBLIC_WATCHLIST_STATE_KEY, state)
+    return {"entities_screened": len(entities), "changes_detected": changes,
+            "errors": errors, "duration_ms": int((time.monotonic() - t0) * 1000)}
+
+
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def remove_from_watchlist(name: str, user_id: str = "",
                                 user_email_domain: str = "") -> dict:

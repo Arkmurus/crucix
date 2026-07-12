@@ -312,7 +312,11 @@ _OPERATOR_ONLY_RE = re.compile(
     # R-F2415: hot/cold state_store backfill + reconcile control plane. Copy-only
     # (never deletes hot) but it OPENS the cold store + drives a background writer,
     # so gate it operator-only — the shared service token must not kick it.
-    r"|admin/state/)"
+    r"|admin/state/"
+    # R-F2559: operator-curated PUBLIC watchlist (add/remove/rescreen). Its risk
+    # changes are the ONLY watchlist data promoted to the public Golden Intel feed,
+    # so curation MUST be operator-only — a customer/service token must never write it.
+    r"|dd/watchlist/public)"
 )
 
 # R-F2374: paths that are operator-only for DESTRUCTIVE methods ONLY (a GET is a
@@ -1554,6 +1558,46 @@ async def dd_watchlist_rescreen_ep(request: Request):
     from ..intel import dd_orchestrator
     result = await dd_orchestrator.rescreen_watchlist()
     return result
+
+
+# ── System-public watchlist (R-F2559) — OPERATOR-ONLY (gated by _OPERATOR_ONLY_RE) ──
+@router.get("/dd/watchlist/public")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def dd_watchlist_public_list_ep():
+    """List the operator-curated PUBLIC watchlist (no tenant data — public entities)."""
+    from ..intel import dd_orchestrator
+    return {"public_watchlist": await dd_orchestrator.get_public_watchlist()}
+
+
+@router.post("/dd/watchlist/public")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def dd_watchlist_public_add_ep(req: Request):
+    """Operator-only: add a PUBLIC entity to the system watchlist. Body: {name}."""
+    body = await req.json()
+    name = (body or {}).get("name") if isinstance(body, dict) else None
+    from ..intel import dd_orchestrator
+    try:
+        return await dd_orchestrator.add_public_watchlist_entity(str(name or ""))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/dd/watchlist/public/remove")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def dd_watchlist_public_remove_ep(req: Request):
+    """Operator-only: remove a PUBLIC entity. Body: {name}."""
+    body = await req.json()
+    name = (body or {}).get("name") if isinstance(body, dict) else None
+    from ..intel import dd_orchestrator
+    return await dd_orchestrator.remove_public_watchlist_entity(str(name or ""))
+
+
+@router.post("/dd/watchlist/public/rescreen")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def dd_watchlist_public_rescreen_ep():
+    """Operator-only: re-screen the PUBLIC watchlist now + emit public-safe alerts."""
+    from ..intel import dd_orchestrator
+    return await dd_orchestrator.rescreen_public_watchlist()
 
 
 @router.get("/dd/watchlist/alerts")

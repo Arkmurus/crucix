@@ -505,3 +505,77 @@ async def _inbox_adapter() -> list[dict]:
 
 
 register_adapter("ingested", _inbox_adapter)
+
+
+# ── System-public watchlist adapter (R-F2559) ────────────────────────────────
+_PUBLIC_WL_WINDOW_H = 168   # promote risk changes seen in the last 7 days
+
+_PUBLIC_WL_TITLE = {
+    "new_hit": "{e}: now appears on a sanctions list",
+    "new_pep": "{e}: new PEP / adverse-media match",
+    "removed": "{e}: removed from sanctions lists",
+    "score_change": "{e}: sanctions match score changed",
+}
+
+
+async def _public_watchlist_adapter() -> list[dict]:
+    """Promote operator-curated PUBLIC watchlist risk changes (dd_orchestrator
+    system-public list) into sanctions_change signals. GDPR FAIL-CLOSED: reads only
+    the physically-separate public alerts store, and REFUSES (records a gap for) any
+    alert that carries a tenant field — a customer alert can never reach here, but the
+    check is defense-in-depth so a future wiring mistake fails closed, not open."""
+    from . import dd_orchestrator
+    try:
+        alerts = await dd_orchestrator.get_public_watchlist_alerts(since_hours=_PUBLIC_WL_WINDOW_H)
+    except Exception as exc:
+        wire_failure(_MODULE, f"public watchlist read failed: {exc}",
+                     gap_type="golden_intel_promotion_failure", source=f"{_MODULE}:public_watchlist")
+        return []
+    findings: list[dict] = []
+    for a in alerts or []:
+        if not isinstance(a, dict):
+            continue
+        # FAIL-CLOSED: never promote an alert that carries ANY tenant identifier.
+        if (a.get("user_id") or a.get("user_email_domain")
+                or a.get("impacted_deals") or a.get("run_id")):
+            wire_failure(_MODULE, f"public watchlist alert carried a tenant field — REFUSED ({a.get('entity')})",
+                         gap_type="golden_intel_promotion_failure", source=f"{_MODULE}:public_watchlist")
+            continue
+        # positive gate: must be explicitly marked public.
+        if _clean(a.get("scope")) != "system_public":
+            continue
+        entity = _clean(a.get("entity"))
+        ct = _clean(a.get("change_type"))
+        new_status = _clean(a.get("new_status")).upper()
+        if not entity or not ct:
+            continue
+        worsening = ct in ("new_hit", "new_pep")
+        # honest tiering: a confirmed NEW sanctions/PEP hit on a curated public entity
+        # (screened against official OFAC/UN/FCDO lists) is decision-grade; a score
+        # move or a removal is informational (Mining Queue).
+        priority = "HIGH" if (worsening and new_status in ("HIT", "PEP")) else "MEDIUM"
+        confidence = "HIGH" if worsening else "MEDIUM"
+        findings.append({
+            "source_key": "public_watchlist",
+            "source": "ARIA Public Watchlist (sanctions/PEP re-screen)",
+            "signal_type": "sanctions_change",
+            "priority": priority,
+            "confidence": confidence,
+            "source_tier": "tier_1b",   # ARIA screen vs official sanctions/PEP lists
+            "title": _PUBLIC_WL_TITLE.get(ct, "{e}: sanctions status change").format(e=entity),
+            "why_it_matters": _clean(a.get("detail")) or f"{entity}: {a.get('old_status')} -> {new_status}.",
+            "recommended_action": "Screen counterparties; review exposure to this entity.",
+            "target": entity,
+            "entities": {"countries": [], "products": [], "oems": []},
+            "evidence_url": "https://sanctionssearch.ofac.treas.gov/",
+            "url": "https://sanctionssearch.ofac.treas.gov/",
+            # stable ref per (entity, transition) — dedups within the cooldown window.
+            "ref": f"pubwl|{entity.lower()}|{ct}|{new_status}",
+            "detected_at": _clean(a.get("timestamp")),
+            "evidence_count": 1,
+            "category": "sanctions",
+        })
+    return findings
+
+
+register_adapter("public_watchlist", _public_watchlist_adapter)

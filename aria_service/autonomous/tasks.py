@@ -476,7 +476,14 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
 
     elif tool_kind == "dd_watchlist_sweep":
         from ..intel import dd_orchestrator
-        return await dd_orchestrator.rescreen_watchlist(llm=llm)
+        result = await dd_orchestrator.rescreen_watchlist(llm=llm)
+        # R-F2559 — also re-screen the operator-curated PUBLIC watchlist (separate,
+        # tenant-free store) so its risk changes flow to Golden Intel. Non-fatal.
+        try:
+            await dd_orchestrator.rescreen_public_watchlist()
+        except Exception:
+            pass
+        return result
 
     # R-F1255 (2026-06-01): Full DD sweep — runs the 7-layer orchestrator
     # on every watchlist entity. This is a COSTLY operation (each entity
