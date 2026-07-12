@@ -706,6 +706,30 @@ async def lifespan(app: FastAPI):
     import os as _f28_os
     _f28_os.environ.setdefault("NODE_OPTIONS", "--no-deprecation")
 
+    # R-F2563 — one-shot EXCLUSIVE boot VACUUM of the hot state DB, run BEFORE the
+    # state-backend connect below. It MUST be here (not inside state_store.connect):
+    # (a) EXCLUSIVE — no aiosqlite conn/read-pool is open yet, so VACUUM can take its
+    #     lock cleanly; and (b) OFF the 20s ARIA_STATE_CONNECT_BOOT_TIMEOUT_S budget that
+    #     wraps rs.connect() below — a slow compaction here just delays reclamation, it
+    #     does NOT trip that cap and drop the box to the in-memory fallback.
+    # The R-F2504 reclaim deleted 376k rows but never compacted the file (~1GB free pages
+    # → slow WAL boots + writer pressure = the wedge class). This reclaims it once; after
+    # the first compaction it self-gates (below_threshold) to a fast no-op. Existence-guarded
+    # + timeout-bounded + failure-tolerant; only runs for the sqlite backend.
+    if _f28_os.getenv("ARIA_STATE_BACKEND", "sqlite").strip().lower() in ("sqlite", "", "file"):
+        try:
+            from .intel import state_store as _ss_vac
+            _vac_timeout_s = max(5.0, float(_f28_os.getenv("ARIA_STATE_VACUUM_TIMEOUT_S", "120.0")))
+            _vac_res = await asyncio.wait_for(_ss_vac.maybe_boot_vacuum(), timeout=_vac_timeout_s)
+            if _vac_res.get("vacuumed"):
+                logger.warning("[R-F2563] boot VACUUM reclaimed ~%.0fMB in %.1fs before state connect",
+                               _vac_res.get("reclaimed_mb", 0), _vac_res.get("seconds", 0))
+        except asyncio.TimeoutError:
+            logger.warning("[R-F2563] boot VACUUM exceeded %.0fs — skipped; runtime stays on the "
+                           "existing DB (reclamation retries next boot)", _vac_timeout_s)
+        except Exception as _vac_e:
+            logger.warning("[R-F2563] boot VACUUM skipped (non-fatal): %s", _vac_e)
+
     # Connect Redis / SQLite / memory backend per ARIA_STATE_BACKEND.
     # R-F762 (2026-05-20): capture the result so /health can flag the
     # backend as RED when connect fails. Pre-R-F762 a Redis-unreachable

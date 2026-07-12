@@ -443,6 +443,13 @@ _cold_conn = None             # aiosqlite writer connection for the cold DB
 _cold_read_conn = None        # aiosqlite read connection for the cold DB
 _cold_queue: "asyncio.Queue[tuple] | None" = None
 _COLD_WORKER_TASK: "asyncio.Task | None" = None
+# R-F2563 — cold-store-open-failed flag (fail-loud, not silent-degrade). Post the
+# R-F2504 reclaim the cold store is the ONLY home of verified_facts/audit/reasoning_library.
+_cold_open_failed = False
+# R-F2563 — boot VACUUM fires only when the hot DB carries at least this much free space
+# (the R-F2504 reclaim left ~1GB uncompacted). Small enough to run once for the current
+# bloat, large enough that it's not a routine-boot tax.
+_VACUUM_MIN_FREE_MB = 300
 
 # COLD (permanent, append-only, read-rarely) K/V key prefixes. ONLY simple-K/V
 # prefixes here — list/hash prefixes (audit:by_entity …) route in Phase 0b.
@@ -1157,6 +1164,58 @@ def _expired(expires_at: float | None) -> bool:
 # Lifecycle
 # ─────────────────────────────────────────────────────────────────────────
 
+async def maybe_boot_vacuum(db_path: str | None = None) -> dict:
+    """R-F2563 — one-shot compaction of the hot DB when it carries >= _VACUUM_MIN_FREE_MB
+    of free pages (the R-F2504 reclaim deleted 376k rows but left ~1GB uncompacted → slow
+    WAL boots + writer pressure = the wedge class). Opens its OWN autocommit connection
+    (VACUUM cannot run inside a txn) and MUST be called from the lifespan BEFORE
+    state_store.connect() opens the main conn + read pool, so the DB is EXCLUSIVE and the
+    work is OFF the 20s connect budget (main.py ARIA_STATE_CONNECT_BOOT_TIMEOUT_S) — a slow
+    VACUUM here delays reclamation, it does NOT drop the box to the in-memory fallback.
+    Self-gating (skips a compact DB), existence-guarded (never creates a stray DB when the
+    backend isn't sqlite), timeout-bounded, failure-tolerant. Disable via
+    ARIA_STATE_VACUUM_ON_BOOT=0."""
+    if os.getenv("ARIA_STATE_VACUUM_ON_BOOT", "").strip().lower() in ("0", "false", "off", "no"):
+        return {"vacuumed": False, "reason": "disabled"}
+    if db_path is None:
+        db_path = os.getenv("ARIA_STATE_DB_PATH", "/data/aria_state.db")
+    db_path = str(db_path)
+    # Existence guard: only compact a DB that is already there. A missing file means a
+    # fresh boot (nothing to reclaim) or a non-sqlite backend — do NOT create a stray file.
+    if not os.path.exists(db_path):
+        return {"vacuumed": False, "reason": "no_db_file"}
+    def _work(path: str) -> dict:
+        # Stdlib sqlite3 in AUTOCOMMIT (isolation_level=None) is the clean way to VACUUM —
+        # no lingering-cursor / implicit-txn issues. Runs in a worker thread so the boot
+        # event loop stays free while VACUUM rewrites the file.
+        import sqlite3
+        con = sqlite3.connect(path, isolation_level=None, timeout=60.0)
+        try:
+            cur = con.execute("PRAGMA freelist_count"); row = cur.fetchone(); cur.close()
+            free_pages = int(row[0]) if row else 0
+            cur = con.execute("PRAGMA page_size"); row = cur.fetchone(); cur.close()
+            page_sz = int(row[0]) if row else 4096
+            free_mb = free_pages * page_sz / (1024 * 1024)
+            if free_mb < _VACUUM_MIN_FREE_MB:
+                return {"vacuumed": False, "reason": "below_threshold", "free_mb": round(free_mb, 1)}
+            con.execute("PRAGMA busy_timeout=60000")
+            t0 = time.monotonic()
+            con.execute("VACUUM")
+            return {"vacuumed": True, "reclaimed_mb": round(free_mb, 1),
+                    "seconds": round(time.monotonic() - t0, 1)}
+        finally:
+            con.close()
+    try:
+        r = await asyncio.wait_for(asyncio.to_thread(_work, str(db_path)), timeout=300.0)
+        if r.get("vacuumed"):
+            logger.warning("state_store: R-F2563 boot VACUUM reclaimed ~%.0fMB free pages in %.1fs",
+                           r.get("reclaimed_mb", 0), r.get("seconds", 0))
+        return r
+    except Exception as e:
+        logger.error("state_store: R-F2563 boot VACUUM skipped (%s)", e)
+        return {"vacuumed": False, "reason": f"vacuum_failed: {e}"}
+
+
 async def connect(db_path: str | None = None) -> bool:
     """Open the SQLite file and create the schema if missing. Returns True
     on success. Caller (main.py) should fall back to in-memory dict if
@@ -1195,6 +1254,12 @@ async def connect(db_path: str | None = None) -> bool:
     try:
         # R-F2151: wrap connect in a timeout so a locked/WAL-recovering DB
         # doesn't hang boot forever. 30s is generous for any SQLite open.
+        # NOTE (R-F2563): the one-shot boot VACUUM is deliberately NOT run here.
+        # connect() is wrapped by main.py in a 20s boot budget (ARIA_STATE_CONNECT_
+        # BOOT_TIMEOUT_S); a slow VACUUM inside it would trip that cap → in-memory
+        # fallback + an orphaned lock-holding thread. The VACUUM runs as a dedicated
+        # EXCLUSIVE pre-connect step (state_store.maybe_boot_vacuum(), called from the
+        # lifespan BEFORE this connect) so it is off the connect critical path.
         _conn = await asyncio.wait_for(
             aiosqlite.connect(str(_DB_PATH)), timeout=30.0)
         # R-F1449/R-F2242: open the READ-connection POOL (_READ_POOL_SIZE
@@ -1316,8 +1381,15 @@ async def connect(db_path: str | None = None) -> bool:
             try:
                 await _open_cold_store()
             except Exception as e:
-                logger.error("state_store: R-F2290 cold store open failed — "
-                             "degrading to hot-only: %s", e)
+                # R-F2563 — FAIL LOUD. Post the R-F2504 reclaim, the cold store is the ONLY
+                # home of verified_facts / audit:by_hash / verified_intel:fact /
+                # reasoning_library. A silent degrade-to-hot-only would BLIND the app to all
+                # of that data — a visibility outage, not a soft degrade. Flag + escalate.
+                global _cold_open_failed
+                _cold_open_failed = True
+                logger.critical("state_store: COLD STORE OPEN FAILED — verified_facts/audit/"
+                                "reasoning_library (cold-only since the R-F2504 reclaim) are "
+                                "NOW BLIND. Data-visibility outage, not a soft degrade: %s", e)
         logger.info("state_store: SQLite ready at %s (WAL mode)", _DB_PATH)
         return True
     except Exception as e:
