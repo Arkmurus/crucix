@@ -56,12 +56,18 @@ def _parse_xml(raw_bytes: bytes) -> list[dict]:
         name = _g("name1") or _g("Name6") or ""
         if not name:
             continue
-        # Build full name from components
+        # Build full name from components (name1..name5 forenames + Name6 surname/main).
         name_parts = [name]
         for part_tag in ["name2", "name3", "name4", "name5"]:
             part = _g(part_tag)
             if part:
                 name_parts.append(part)
+        # R-F2578: append Name6 (surname/main). It was read into the `name6` field but dropped
+        # from the full name, truncating e.g. "Mian Abdul Haq" -> "Mian Abdul". Skip if it
+        # already IS `name` (the name1-empty fallback used Name6).
+        _n6 = _g("Name6")
+        if _n6 and _n6 != name:
+            name_parts.append(_n6)
         full_name = " ".join(name_parts).strip()
 
         entity = {
