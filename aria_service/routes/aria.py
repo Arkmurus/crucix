@@ -301,8 +301,10 @@ _OPERATOR_ONLY_RE = re.compile(
     # LLM $ is capped §17) and was DESIGNED to accept the INTERNAL token (see its docstring). It
     # was mis-gated operator-only, so the autonomous coder — which holds only ARIA_INTERNAL_TOKEN —
     # got 403 on EVERY LLM call (reproduce/plan/code/heal) → self-coding loop fixed=0 (§21c P0).
-    # llm(?![-\w]) exempts exactly coder/llm (and coder/llm/…), NOT a future coder/llm-sensitive.
-    r"|coder/(?!rag/|llm(?![-\w]))|cost/set-cap|cost/reset-task|admin/purge|capability-gaps/purge"
+    # llm(?![-\w/]) exempts EXACTLY coder/llm — NOT coder/llm-sensitive and NOT any future
+    # coder/llm/<subpath> (security Pass-2: keep sub-paths gated so a later control sub-route
+    # can't silently inherit the service-token exemption).
+    r"|coder/(?!rag/|llm(?![-\w/]))|cost/set-cap|cost/reset-task|admin/purge|capability-gaps/purge"
     r"|memory/backup/restore|student/mastery/reset|portal/credentials|session/forget"
     r"|eval/|operating-mode/set|knowledge/fact"
     # R-F2458: /training-data/library-export + /export dump up to 5000 Q&A tuples

@@ -50,7 +50,8 @@ def test_coder_rag_still_accepts_internal_token(monkeypatch):
     "/api/aria/self/deploy",
     "/api/aria/coder/request",        # a non-llm coder control path stays gated
     "/api/aria/dd/admin/reset",
-    "/api/aria/coder/llm-sensitive",  # PRECISION: llm(?![-\w]) must NOT exempt this
+    "/api/aria/coder/llm-sensitive",  # PRECISION: must NOT exempt this
+    "/api/aria/coder/llm/steal",      # PRECISION (security Pass-2): sub-paths stay gated
 ])
 def test_control_paths_still_operator_only(monkeypatch, path):
     with pytest.raises(HTTPException) as ei:
@@ -72,6 +73,7 @@ def test_operator_only_regex_exempts_coder_llm_only():
     assert R.search("/api/aria/coder/gaps") is not None       # gated
     assert R.search("/api/aria/coder/llm-sensitive") is not None  # gated (precision)
     assert R.search("/api/aria/coder/llmx") is not None       # gated (precision)
+    assert R.search("/api/aria/coder/llm/steal") is not None  # gated — sub-paths NOT exempt
 
 
 if __name__ == "__main__":
