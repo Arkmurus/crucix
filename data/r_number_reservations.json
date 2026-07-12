@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2579,
+  "next_available": 2581,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19704,6 +19704,26 @@
       "commit_sha": "d7d06011",
       "notes": null,
       "shipped_at": "2026-07-12T22:14:13Z"
+    },
+    {
+      "r_number": "R-F2579",
+      "title": "aria-web ariaProxy relay upstream 401/403 instead of masking as 503 offline (dashboard honesty)",
+      "claimed_at": "2026-07-12T22:16:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7ed057ec",
+      "notes": null,
+      "shipped_at": "2026-07-12T22:36:52Z"
+    },
+    {
+      "r_number": "R-F2580",
+      "title": "R-F2277 liveness watchdog probes only the HOT conn (probe_liveness heartbeat routes hot); a wedged COLD writer thread silently blinds verified_facts/audit/reasoning_library with no escalation. Add a non-churning SELECT 1 cold-conn probe gated on ARIA_STATE_HOTCOLD_SPLIT so a cold wedge triggers the restart recovery",
+      "claimed_at": "2026-07-12T22:22:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8e0fc891",
+      "notes": null,
+      "shipped_at": "2026-07-12T22:39:04Z"
     }
   ]
 }
