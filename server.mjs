@@ -2509,6 +2509,27 @@ async function ariaProxy(req, res, path, { method = 'GET', fallback, timeoutMs }
         if (ct.includes('application/json')) return res.json(await r.json());
         return res.type(ct).send(await r.text());
       }
+      // R-F2579 — RELAY upstream AUTH statuses (401/403) verbatim instead of
+      // letting them fall through to the generic 503 "ARIA service offline"
+      // fallback. An upstream 401/403 from aria-intel is a DEFINITIVE authorization
+      // decision (e.g. an operator-only control-plane endpoint reached with a
+      // non-operator token under ARIA token scoping) — NOT a service outage. The
+      // old behaviour masked it as 503, so the browser could never tell "auth-gated"
+      // from "down" and the /aria-brain dashboard showed the red "DATA UNAVAILABLE"
+      // banner for panels that were merely operator-gated. The frontend already
+      // treats 401/403 as auth-gated (public/aria-brain.html:485) — it just never
+      // saw the real status. Only genuine failures (5xx / network / timeout) should
+      // reach the fallback below.
+      if (r.status === 401 || r.status === 403) {
+        const ct = r.headers.get('content-type') || '';
+        let body = '';
+        try { body = await r.text(); } catch { /* swallow */ }
+        console.warn(`[ARIA proxy] ${path} → fly.io HTTP ${r.status} bearer=${hasBearer} (auth status relayed)`);
+        if (ct.includes('application/json') && body) {
+          try { return res.status(r.status).json(JSON.parse(body)); } catch { /* fall through */ }
+        }
+        return res.status(r.status).json({ error: 'auth_required', fly_status: r.status });
+      }
       // Non-2xx — capture the body for diagnostics and log it. ariaProxy
       // historically swallowed non-2xx responses silently, which made it
       // impossible to tell whether fly.io rejected the request, returned
