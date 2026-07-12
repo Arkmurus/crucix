@@ -620,11 +620,15 @@ async def _sanctions_diff_adapter() -> list[dict]:
         entity = _clean(a.get("entity"))
         if not entity:
             continue
-        list_type = _clean(a.get("list_type")) or _clean(a.get("source")).upper()
+        src = _clean(a.get("source"))
+        list_type = _clean(a.get("list_type")) or src.upper()
         programs = _clean(a.get("programs"))
         url = _clean(a.get("citation_url"))
-        if not url.startswith(("http://", "https://")):
-            url = "https://sanctionssearch.ofac.treas.gov/"
+        if not url.startswith(("http://", "https://")):   # source-aware fallback (review #5)
+            url = {
+                "un": "https://www.un.org/securitycouncil/sanctions/information",
+                "fcdo": "https://www.gov.uk/government/publications/financial-sanctions-consolidated-list-of-targets",
+            }.get(src, "https://sanctionssearch.ofac.treas.gov/")
         why = (f"New {list_type} sanctions designation."
                + (f" Programs: {programs}." if programs else "")
                + (f" Listed {a.get('designation_date')}." if _clean(a.get("designation_date")) else ""))

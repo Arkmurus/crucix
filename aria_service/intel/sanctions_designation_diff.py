@@ -97,57 +97,65 @@ async def run_designation_diff() -> dict:
     """Snapshot + diff every official sanctions list; emit alerts for new designations."""
     result: dict = {"sources": {}, "new_total": 0}
     for source, loader in await _loaders():
+        # Per-source isolation (review #3): a state_store timeout or parse error on ONE
+        # source must never starve the others or skip wire_success.
         try:
             records = await loader()
+            by_id: dict[str, dict] = {}
+            for r in (records or []):
+                rid = _record_id(source, r)
+                if rid:
+                    by_id.setdefault(rid, r)
+            snap_key = _SNAPSHOT_KEY.format(source=source)
+            prior = await rs.get_json(snap_key)
+
+            # DEAD-FETCH guard: empty or a suspiciously small fetch -> do NOT diff.
+            if len(by_id) < _MIN_HEALTHY_LIST or (
+                isinstance(prior, list) and prior and len(by_id) < _HEALTHY_FRACTION * len(prior)
+            ):
+                logger.warning("[%s] %s fetch looks unhealthy (%d entries; prior %s) — skipping diff",
+                               _MODULE, source, len(by_id), len(prior) if isinstance(prior, list) else "none")
+                wire_failure(_MODULE, f"{source} fetch unhealthy ({len(by_id)} entries) — diff skipped",
+                             gap_type="golden_intel_promotion_failure", source=f"{_MODULE}:{source}")
+                result["sources"][source] = {"skipped": "unhealthy_fetch", "count": len(by_id)}
+                continue
+
+            if prior is None:
+                await rs.set_json(snap_key, list(by_id.keys()))      # BASELINE — emit nothing
+                result["sources"][source] = {"baseline": len(by_id)}
+                continue
+
+            prior_set = set(prior)
+            new_ids = [rid for rid in by_id if rid not in prior_set]
+            capped = new_ids[:_MAX_NEW_PER_SOURCE]
+            if len(new_ids) > _MAX_NEW_PER_SOURCE:
+                logger.warning("[%s] %s: %d new designations, capping to %d this run "
+                               "(remainder promotes next cycle)", _MODULE, source,
+                               len(new_ids), _MAX_NEW_PER_SOURCE)
+            emitted = 0
+            for rid in capped:
+                alert = _designation_alert(source, by_id[rid], rid)
+                if not alert["entity"]:
+                    continue
+                await rs.lpush(_ALERTS_KEY, json.dumps(alert, default=str))
+                emitted += 1
+            if emitted:
+                await rs.ltrim(_ALERTS_KEY, 0, _MAX_ALERTS - 1)      # once, not per-lpush (review #4)
+            # ONLY-ADD snapshot (review #1/#2): NEVER shrink — a transiently-partial fetch
+            # then cannot re-emit long-standing designations as "new". Add ONLY the promoted
+            # ids so any over-cap remainder stays "new" and drains over the next runs.
+            new_snapshot = prior_set | set(capped)
+            if new_snapshot != prior_set:                            # write only on change (review #4)
+                await rs.set_json(snap_key, sorted(new_snapshot))
+            result["sources"][source] = {"new": emitted, "new_uncapped": len(new_ids),
+                                         "total": len(by_id)}
+            result["new_total"] += emitted
         except Exception as exc:
-            logger.warning("[%s] %s load failed: %s", _MODULE, source, exc)
-            wire_failure(_MODULE, f"{source} list load failed: {exc}",
+            logger.warning("[%s] %s diff failed: %s", _MODULE, source, exc)
+            wire_failure(_MODULE, f"{source} diff failed: {exc}",
                          gap_type="golden_intel_promotion_failure", source=f"{_MODULE}:{source}")
             result["sources"][source] = {"error": str(exc)[:120]}
             continue
-
-        by_id: dict[str, dict] = {}
-        for r in (records or []):
-            rid = _record_id(source, r)
-            if rid:
-                by_id.setdefault(rid, r)
-        snap_key = _SNAPSHOT_KEY.format(source=source)
-        prior = await rs.get_json(snap_key)
-
-        # DEAD-FETCH guard: empty or a suspiciously small fetch -> do NOT diff.
-        if len(by_id) < _MIN_HEALTHY_LIST or (
-            isinstance(prior, list) and prior and len(by_id) < _HEALTHY_FRACTION * len(prior)
-        ):
-            logger.warning("[%s] %s fetch looks unhealthy (%d entries; prior %s) — skipping diff",
-                           _MODULE, source, len(by_id), len(prior) if isinstance(prior, list) else "none")
-            wire_failure(_MODULE, f"{source} fetch unhealthy ({len(by_id)} entries) — diff skipped",
-                         gap_type="golden_intel_promotion_failure", source=f"{_MODULE}:{source}")
-            result["sources"][source] = {"skipped": "unhealthy_fetch", "count": len(by_id)}
-            continue
-
-        if prior is None:
-            # BASELINE — record, emit nothing.
-            await rs.set_json(snap_key, list(by_id.keys()))
-            result["sources"][source] = {"baseline": len(by_id)}
-            continue
-
-        prior_set = set(prior)
-        new_ids = [rid for rid in by_id if rid not in prior_set]
-        capped = new_ids[:_MAX_NEW_PER_SOURCE]
-        if len(new_ids) > _MAX_NEW_PER_SOURCE:
-            logger.warning("[%s] %s: %d new designations, capped to %d this run",
-                           _MODULE, source, len(new_ids), _MAX_NEW_PER_SOURCE)
-        for rid in capped:
-            alert = _designation_alert(source, by_id[rid], rid)
-            if not alert["entity"]:
-                continue
-            await rs.lpush(_ALERTS_KEY, json.dumps(alert, default=str))
-            await rs.ltrim(_ALERTS_KEY, 0, _MAX_ALERTS - 1)
-
-        await rs.set_json(snap_key, list(by_id.keys()))
-        result["sources"][source] = {"new": len(capped), "new_uncapped": len(new_ids),
-                                     "total": len(by_id)}
-        result["new_total"] += len(capped)
 
     wire_success(_MODULE, summary=f"designation diff: {result['new_total']} new across "
                                   f"{len(result['sources'])} lists")

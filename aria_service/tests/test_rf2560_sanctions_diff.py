@@ -130,6 +130,57 @@ def test_sanctions_diff_adapter_is_decision_grade(monkeypatch):
     assert bridge._is_distribution_ready(bridge._normalize_finding_to_signal(f)) is True
 
 
+def test_partial_fetch_does_not_shrink_or_flood(monkeypatch):
+    """Review #1: a partial fetch (>=50%, passes the guard) must NOT shrink the snapshot,
+    so recovery cannot re-emit long-standing designations as false 'newly designated'."""
+    store, lists = _rs_stub(monkeypatch)
+    prior = [str(i) for i in range(1, 101)]                       # prior 100
+    store[_snap("ofac")] = list(prior)
+    _set_loaders(monkeypatch, [("ofac", _ofac([str(i) for i in range(1, 61)]))])  # 60% subset
+    r1 = asyncio.run(sdd.run_designation_diff())
+    assert r1["sources"]["ofac"]["new"] == 0
+    assert lists.get(sdd._ALERTS_KEY, []) == []
+    assert set(store[_snap("ofac")]) == set(prior)               # snapshot NOT shrunk
+    _set_loaders(monkeypatch, [("ofac", _ofac(list(prior)))])    # recovery to full 100
+    r2 = asyncio.run(sdd.run_designation_diff())
+    assert r2["sources"]["ofac"]["new"] == 0
+    assert lists.get(sdd._ALERTS_KEY, []) == []                  # NO false flood on recovery
+
+
+def test_over_cap_remainder_drains_next_run(monkeypatch):
+    """Review #2: >cap new designations promote _MAX/run; the remainder is NOT lost."""
+    store, lists = _rs_stub(monkeypatch)
+    store[_snap("ofac")] = [str(i) for i in range(1, 101)]        # prior 100
+    full = [str(i) for i in range(1, 201)]                        # +100 new
+    _set_loaders(monkeypatch, [("ofac", _ofac(full))])
+    r1 = asyncio.run(sdd.run_designation_diff())
+    assert r1["sources"]["ofac"]["new"] == sdd._MAX_NEW_PER_SOURCE
+    assert r1["sources"]["ofac"]["new_uncapped"] == 100
+    _set_loaders(monkeypatch, [("ofac", _ofac(full))])
+    r2 = asyncio.run(sdd.run_designation_diff())
+    assert r2["sources"]["ofac"]["new"] == 50                     # remainder drains
+    _set_loaders(monkeypatch, [("ofac", _ofac(full))])
+    r3 = asyncio.run(sdd.run_designation_diff())
+    assert r3["sources"]["ofac"]["new"] == 0                      # fully drained
+    assert len(lists.get(sdd._ALERTS_KEY, [])) == 100            # all 100 eventually promoted
+
+
+def test_source_error_does_not_starve_others(monkeypatch):
+    """Review #3: an error on one source must not stop the other sources running."""
+    store, lists = _rs_stub(monkeypatch)
+    monkeypatch.setattr(sdd, "wire_failure", lambda *a, **k: None)
+    monkeypatch.setattr(sdd, "wire_success", lambda *a, **k: None)
+    async def boom():
+        raise RuntimeError("state_store timeout")
+    async def un_loader():
+        return [{"group_id": f"g{i}", "name": f"UN {i}", "list_type": "UN_SC",
+                 "citation_url": "https://www.un.org/x"} for i in range(1, 12)]
+    _set_loaders(monkeypatch, [("ofac", boom), ("un", un_loader)])
+    r = asyncio.run(sdd.run_designation_diff())
+    assert "error" in r["sources"]["ofac"]
+    assert r["sources"]["un"]["baseline"] == 11                  # un still ran
+
+
 if __name__ == "__main__":
     import sys
     import pytest
