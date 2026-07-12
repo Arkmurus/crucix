@@ -1054,37 +1054,24 @@ async def _drain_one_queued(row: dict) -> None:
             logger.warning("[R-F2507] mark_failed itself failed for id=%s: %s", row.get("id"), e)
 
 
-async def brain_queue_drain_loop() -> None:
-    """THE single brain-ingest drain worker (R-F2507). Started once at boot
-    (singleton — main.py, one process under WEB_CONCURRENCY=1). No-op unless
-    ARIA_BRAIN_QUEUE_ENABLED=1. Connects the queue db, then loops: pull a due
-    batch, apply it at bounded concurrency, sleep. Pacing (batch size + drain
-    concurrency) is env-tunable so a backlog can be drained faster without
-    reverting to the unbounded create_task burst."""
-    if not _BRAIN_QUEUE_ENABLED:
-        return
+async def _drain_worker_body(worker_id: int, sem: "asyncio.Semaphore", batch: int) -> None:
+    """One brain-ingest drain worker loop (R-F2564). Assumes brain_ingest_queue is
+    ALREADY connected (the parent connects once, then fans out N of these). Loops:
+    pull a due batch, apply it under the SHARED concurrency `sem`, sleep. Catches
+    per-iteration errors so a transient failure never kills the worker (only
+    CancelledError, at shutdown, exits it)."""
     from . import brain_ingest_queue as _biq
-    try:
-        await _biq.connect()
-    except Exception as e:
-        logger.error(
-            "[R-F2507] brain_ingest_queue connect failed — drain loop NOT starting; "
-            "absorbs will fall back to memory_wal (never lost): %s", e)
-        return
-    _batch = max(1, int(os.environ.get("ARIA_BRAIN_QUEUE_BATCH", "12")))
-    _drain_conc = max(1, int(os.environ.get("ARIA_BRAIN_QUEUE_DRAIN_CONCURRENCY", "3")))
-    _sem = asyncio.Semaphore(_drain_conc)
-    logger.info(
-        "[R-F2507] brain_ingest_queue drain loop started (batch=%d concurrency=%d)",
-        _batch, _drain_conc)
 
     async def _bounded(row: dict) -> None:
-        async with _sem:
+        async with sem:
             await _drain_one_queued(row)
 
     while True:
         try:
-            rows = await _biq.dequeue_batch(limit=_batch)
+            # dequeue_batch atomically claims + flips to 'processing' under the
+            # queue write lock, so N workers pulling concurrently NEVER double-claim
+            # a row (highest-priority/oldest first via the ORDER BY).
+            rows = await _biq.dequeue_batch(limit=batch)
             if rows:
                 await asyncio.gather(*[_bounded(r) for r in rows], return_exceptions=True)
                 await asyncio.sleep(0.02)  # brief yield between batches
@@ -1093,8 +1080,61 @@ async def brain_queue_drain_loop() -> None:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.warning("[R-F2507] drain loop iteration failed: %s", e)
+            logger.warning("[R-F2507] drain worker %d iteration failed: %s", worker_id, e)
             await asyncio.sleep(2.0)
+
+
+async def brain_queue_drain_loop() -> None:
+    """Brain-ingest drain supervisor (R-F2507 + R-F2564). Started once at boot
+    (main.py, one process under WEB_CONCURRENCY=1). No-op unless
+    ARIA_BRAIN_QUEUE_ENABLED=1. Connects the queue db ONCE, then runs
+    ARIA_BRAIN_QUEUE_WORKERS drain workers (default 1 = byte-identical to the
+    original single-worker design).
+
+    Why N workers are safe now (per the brain-scaling design doc P1.1): the
+    hot/cold writer split (P0.1) is live, so the ingest/knowledge writes land on
+    the COLD writer, isolated from the hot request path. All workers share ONE
+    concurrency semaphore (ARIA_BRAIN_QUEUE_DRAIN_CONCURRENCY), so raising the
+    worker count adds pull/claim parallelism: a worker blocked awaiting its batch's
+    applies no longer stops OTHER workers from claiming + draining the next batch.
+    Total apply load is NOT multiplied by the worker count — all workers share ONE
+    apply semaphore, so throughput is dialed explicitly via the concurrency knob
+    (a slow absorb still consumes a shared slot; the cap is global by design).
+    dequeue_batch's atomic claim + lock-guarded mark_done/mark_failed (R-F2564)
+    guarantee no row is applied twice across workers."""
+    if not _BRAIN_QUEUE_ENABLED:
+        return
+    from . import brain_ingest_queue as _biq
+    try:
+        await _biq.connect()          # connect ONCE — workers share this handle
+    except Exception as e:
+        logger.error(
+            "[R-F2507] brain_ingest_queue connect failed — drain loop NOT starting; "
+            "absorbs will fall back to memory_wal (never lost): %s", e)
+        return
+    _batch = max(1, int(os.environ.get("ARIA_BRAIN_QUEUE_BATCH", "12")))
+    _drain_conc = max(1, int(os.environ.get("ARIA_BRAIN_QUEUE_DRAIN_CONCURRENCY", "3")))
+    _workers = max(1, int(os.environ.get("ARIA_BRAIN_QUEUE_WORKERS", "1")))
+    _sem = asyncio.Semaphore(_drain_conc)   # SHARED across all workers (total-apply cap)
+    logger.info(
+        "[R-F2507/R-F2564] brain_ingest_queue drain started: %d worker(s), batch=%d, "
+        "shared apply concurrency=%d", _workers, _batch, _drain_conc)
+
+    if _workers == 1:
+        # Unchanged single-worker path (no gather overhead).
+        await _drain_worker_body(0, _sem, _batch)
+    else:
+        # Fan out N workers on the ONE shared connection + shared sem. The worker body
+        # only exits via CancelledError (its while-loop catches every other exception),
+        # so in practice this gather returns only at shutdown. return_exceptions=True is
+        # defence-in-depth: were a worker to die abnormally, the surviving workers keep
+        # draining and the supervisor does NOT respawn the whole loop (a respawn would
+        # re-run connect()->recover_stuck() against rows the live workers still hold,
+        # risking a double-apply). mark_done/mark_failed run under the queue write lock
+        # (R-F2564) so no claim/mark interleave corrupts the shared connection.
+        await asyncio.gather(*[
+            _drain_worker_body(i, _sem, _batch) for i in range(_workers)
+        ], return_exceptions=True)
 
 
 @fail_wire(module="brain_hook", gap_type="engine_failure")

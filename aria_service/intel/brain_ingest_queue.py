@@ -343,14 +343,19 @@ async def dequeue_batch(limit: int = 20) -> list[dict]:
 
 
 async def mark_done(ids: list[int]) -> None:
-    """Delete completed rows. Best-effort, never raises."""
+    """Delete completed rows. Best-effort, never raises.
+
+    R-F2564: runs under the write lock so a completing worker's DELETE+commit
+    never interleaves with another worker's in-flight dequeue_batch claim on the
+    shared connection (safe when ARIA_BRAIN_QUEUE_WORKERS>1)."""
     if _conn is None or not ids:
         return
     try:
-        clean = [int(i) for i in ids]
-        marks = ",".join("?" for _ in clean)
-        await _conn.execute(f"DELETE FROM queue WHERE id IN ({marks})", clean)
-        await _conn.commit()
+        async with _get_lock():
+            clean = [int(i) for i in ids]
+            marks = ",".join("?" for _ in clean)
+            await _conn.execute(f"DELETE FROM queue WHERE id IN ({marks})", clean)
+            await _conn.commit()
     except Exception as e:
         logger.warning("brain_ingest_queue: mark_done failed: %s", e)
 
@@ -368,39 +373,42 @@ async def mark_failed(row_id: int, payload: dict, attempts: int, error: str,
     if _conn is None:
         return
     try:
-        now = _now()
-        new_attempts = int(attempts) + 1
-        if new_attempts < int(max_attempts):
-            backoff = min(60.0, float(2 ** new_attempts))
+        # R-F2564: all _conn mutations here run under the write lock so they never
+        # interleave with a concurrent worker's dequeue_batch claim (N>1 safe).
+        async with _get_lock():
+            now = _now()
+            new_attempts = int(attempts) + 1
+            if new_attempts < int(max_attempts):
+                backoff = min(60.0, float(2 ** new_attempts))
+                await _conn.execute(
+                    "UPDATE queue SET attempts = attempts + 1, status='pending', "
+                    "next_attempt_at = ? WHERE id = ?",
+                    (now + backoff, int(row_id)),
+                )
+                await _conn.commit()
+                return
+            # Terminal: dead-letter it. Preserve enqueued_at from the queue row if
+            # the row still exists, else fall back to now.
+            enq_at: float | None
+            async with _conn.execute(
+                "SELECT enqueued_at FROM queue WHERE id = ?", (int(row_id),)
+            ) as cur:
+                r = await cur.fetchone()
+            enq_at = float(r[0]) if r and r[0] is not None else now
+            try:
+                blob = json.dumps(payload, ensure_ascii=False, default=str)
+            except Exception:
+                blob = str(payload)
             await _conn.execute(
-                "UPDATE queue SET attempts = attempts + 1, status='pending', "
-                "next_attempt_at = ? WHERE id = ?",
-                (now + backoff, int(row_id)),
+                "INSERT INTO dead_letter (payload, error, attempts, enqueued_at, "
+                "failed_at) VALUES (?, ?, ?, ?, ?)",
+                (blob, str(error)[:2000], new_attempts, enq_at, now),
             )
+            await _conn.execute("DELETE FROM queue WHERE id = ?", (int(row_id),))
             await _conn.commit()
-            return
-        # Terminal: dead-letter it. Preserve enqueued_at from the queue row if
-        # the row still exists, else fall back to now.
-        enq_at: float | None
-        async with _conn.execute(
-            "SELECT enqueued_at FROM queue WHERE id = ?", (int(row_id),)
-        ) as cur:
-            r = await cur.fetchone()
-        enq_at = float(r[0]) if r and r[0] is not None else now
-        try:
-            blob = json.dumps(payload, ensure_ascii=False, default=str)
-        except Exception:
-            blob = str(payload)
-        await _conn.execute(
-            "INSERT INTO dead_letter (payload, error, attempts, enqueued_at, "
-            "failed_at) VALUES (?, ?, ?, ?, ?)",
-            (blob, str(error)[:2000], new_attempts, enq_at, now),
-        )
-        await _conn.execute("DELETE FROM queue WHERE id = ?", (int(row_id),))
-        await _conn.commit()
-        logger.warning(
-            "brain_ingest_queue: dead-lettered id=%d after %d attempts: %s",
-            int(row_id), new_attempts, str(error)[:200])
+            logger.warning(
+                "brain_ingest_queue: dead-lettered id=%d after %d attempts: %s",
+                int(row_id), new_attempts, str(error)[:200])
     except Exception as e:
         logger.warning("brain_ingest_queue: mark_failed failed: %s", e)
 

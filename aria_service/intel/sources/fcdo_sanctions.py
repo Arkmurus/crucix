@@ -58,12 +58,28 @@ _CACHE_TTL_S = 6 * 3600  # 6h — OFSI publishes weekly, but check twice daily
 _CACHE_LOCK = asyncio.Lock()
 
 
-def _parse_xml(xml_text: str) -> list[dict]:
-    """Parse the OFSI XML consolidated list into normalised records.
+# R-F2565 — a name-part element in the live 2022format is name1..name5 (lowercase
+# forenames) + Name6 (capital surname/main). Match case-insensitively so a future
+# case flip (or the legacy Name1..Name6) still parses.
+_NAME_PART_RE = re.compile(r"^name([1-6])$", re.I)
 
-    We use ElementTree with a defusedxml fallback if installed. The 2022
-    format wraps entries in FinancialSanctionsTarget elements with
-    nested Names, Addresses, etc.
+
+def _parse_xml(xml_text: str) -> list[dict]:
+    """Parse the OFSI/FCDO XML consolidated list ("2022format") into normalised records.
+
+    R-F2565 — CORRECTED for the live schema. Each <FinancialSanctionsTarget> is a FLAT
+    row = ONE name variant with fields directly beneath it (there is NO <Name>/<Address>
+    wrapper subtree): name1..name5 (forenames) + Name6 (surname/main), NameNonLatinScript
+    (Arabic/Cyrillic/Chinese), GroupID, AliasType ("Primary name" | "Primary name
+    variation" | "AKA" | "FKA" | ...), RegimeName, DateDesignated,
+    GroupTypeDescription, Address1..Address6/PostCode/Country. Rows that share a GroupID
+    are the SAME entity's name variants — we group by GroupID and emit ONE record per
+    entity (primary name + the rest as aliases).
+
+    The previous parser looked for a nested <Name> element that this format does not
+    contain, so name extraction returned nothing and EVERY record was dropped (`if not
+    names: continue`) → 0 records from a 19.7k-target feed, silently. Verified against the
+    live feed 2026-07-12.
     """
     try:
         from defusedxml import ElementTree as ET
@@ -76,78 +92,138 @@ def _parse_xml(xml_text: str) -> list[dict]:
     def _local(tag: str) -> str:
         return tag.rsplit("}", 1)[-1] if "}" in tag else tag
 
-    records: list[dict] = []
+    # Group rows by GroupID (fallback to a synthetic per-row id when absent).
+    groups: dict[str, dict] = {}
+    _synthetic = 0
     for target in root.iter():
         if _local(target.tag) not in ("FinancialSanctionsTarget", "Target"):
             continue
 
         group_id = ""
-        names: list[dict] = []
+        alias_type = ""
         regime = ""
         designation_date = ""
         entity_type = ""
-        addresses: list[str] = []
+        uk_ref = ""
+        name_parts: dict[int, str] = {}
+        non_latin = ""            # R-F2565: NameNonLatinScript (Arabic/Cyrillic/Chinese)
+        addr_parts: list[str] = []
 
         for child in target.iter():
+            if child is target:
+                continue
             tag = _local(child.tag)
             text = (child.text or "").strip()
-            if tag == "GroupID" and text:
+            if not text:
+                continue
+            m = _NAME_PART_RE.match(tag)
+            if m:
+                name_parts[int(m.group(1))] = text
+                continue
+            if tag == "NameNonLatinScript":
+                non_latin = text
+            elif tag == "GroupID":
                 group_id = text
-            elif tag == "Regime" and text:
+            elif tag == "AliasType":
+                alias_type = text
+            elif tag in ("RegimeName", "Regime"):
                 regime = text
-            elif tag == "DateDesignated" and text:
+            elif tag in ("DateDesignated", "DateListed") and not designation_date:
                 designation_date = text
-            elif tag == "GroupTypeDescription" and text:
+            elif tag == "GroupTypeDescription":
                 entity_type = text
-            elif tag == "Name":
-                # Name subtree: Name1, Name2..6 + NameType (primary/aka)
-                full: list[str] = []
-                name_type = ""
-                for n in child.iter():
-                    nt = _local(n.tag)
-                    nv = (n.text or "").strip()
-                    if nt.startswith("Name") and nt != "NameType" and nv:
-                        full.append(nv)
-                    elif nt == "NameType" and nv:
-                        name_type = nv
-                if full:
-                    names.append({
-                        "name": " ".join(full).strip(),
-                        "type": name_type or "Primary",
-                    })
-            elif tag == "Address":
-                addr_parts: list[str] = []
-                for a in child.iter():
-                    at = _local(a.tag)
-                    av = (a.text or "").strip()
-                    if at in ("AddressLine1", "AddressLine2", "City", "Country", "PostCode") and av:
-                        addr_parts.append(av)
-                if addr_parts:
-                    addresses.append(", ".join(addr_parts))
+            elif tag == "UKSanctionsListRef":
+                uk_ref = text
+            elif tag in ("Address1", "Address2", "Address3", "Address4",
+                         "Address5", "Address6", "PostCode", "Country"):
+                addr_parts.append(text)
 
-        if not names:
+        # Full name = forenames (name1..name5) then surname (Name6), in index order.
+        full_name = " ".join(name_parts[i] for i in sorted(name_parts) if name_parts[i]).strip()
+        full_name = re.sub(r"\s+", " ", full_name)
+        # R-F2565: a row whose ONLY name is non-Latin must NOT be dropped (that would be a
+        # false clean if it were the sole row of its GroupID). Fall back to the non-Latin
+        # name so the designation always surfaces.
+        if not full_name and non_latin:
+            full_name = non_latin
+        if not full_name:
             continue
 
-        # Primary name first, aliases afterwards
-        primary = next((n["name"] for n in names if n["type"].lower().startswith("prim")), names[0]["name"])
-        aliases = [n["name"] for n in names if n["name"] != primary]
+        # R-F2565: the non-Latin name is a distinct searchable string for the SAME entity —
+        # carry it as an alias so native-script screen queries match.
+        row_aliases = [full_name]
+        if non_latin and non_latin != full_name:
+            row_aliases.append(non_latin)
 
+        gid = group_id or f"_row{_synthetic}"
+        if not group_id:
+            _synthetic += 1
+        g = groups.get(gid)
+        is_primary = alias_type.lower() == "primary name"
+        addr = ", ".join(addr_parts) if addr_parts else ""
+        if g is None:
+            groups[gid] = {
+                "group_id": group_id,
+                "primary": full_name if is_primary else "",
+                "first_seen": full_name,      # fallback primary if no explicit primary row
+                # aliases seed: the non-Latin name always, plus this row's Latin name
+                # unless it's the primary (which is tracked separately).
+                "aliases": [a for a in row_aliases if not (is_primary and a == full_name)],
+                "regime": regime,
+                "designation_date": designation_date,
+                "entity_type": entity_type,
+                "uk_ref": uk_ref,
+                "addresses": [addr] if addr else [],
+            }
+        else:
+            if is_primary and not g["primary"]:
+                g["primary"] = full_name
+            elif full_name != g["primary"]:
+                g["aliases"].append(full_name)
+            if non_latin and non_latin != g["primary"]:
+                g["aliases"].append(non_latin)
+            # Backfill shared metadata from whichever row carries it.
+            for k, v in (("regime", regime), ("designation_date", designation_date),
+                         ("entity_type", entity_type), ("uk_ref", uk_ref)):
+                if v and not g[k]:
+                    g[k] = v
+            if addr and addr not in g["addresses"]:
+                g["addresses"].append(addr)
+
+    records: list[dict] = []
+    for gid, g in groups.items():
+        primary = g["primary"] or g["first_seen"]
+        # R-F2565: dedupe aliases (multi-primary/variation rows repeat) and drop the primary.
+        aliases = list(dict.fromkeys(a for a in g["aliases"] if a and a != primary))
+        group_id = g["group_id"]
         records.append({
             "name": primary,
             "aliases": aliases,
             "list_type": "UK_OFSI",
-            "regime": regime,
-            "designation_date": designation_date,
+            "regime": g["regime"],
+            "designation_date": g["designation_date"],
             "group_id": group_id,
-            "entity_type": entity_type or "",
-            "address": addresses[0] if addresses else "",
-            "all_addresses": addresses,
+            "entity_type": g["entity_type"] or "",
+            "uk_ref": g["uk_ref"],
+            "address": g["addresses"][0] if g["addresses"] else "",
+            "all_addresses": g["addresses"],
             "citation_url": (
                 f"https://www.gov.uk/government/publications/financial-sanctions-"
                 f"consolidated-list-of-targets#group-{group_id}" if group_id
                 else _CONSOLIDATED_URL
             ),
         })
+    # R-F2565 schema-drift canary: the original bug (0 records) is caught downstream
+    # (0 → "list unavailable", never clean), but a PARTIAL drift that silently drops a
+    # SUBSET of entities' name fields would leave len(records)>0 and look healthy while
+    # some designations become false cleans. A large feed body that yields implausibly
+    # few entities is the tell — warn loudly so the drift is caught, not screened as thin.
+    if len(xml_text) > 1_000_000 and len(records) < 100:
+        logger.warning(
+            "[fcdo_sanctions] SCHEMA-DRIFT CANARY: only %d entities parsed from a %.1fMB "
+            "feed — implausibly few; the OFSI schema may have changed and the parser is "
+            "stale (screening coverage is degraded, not clean).",
+            len(records), len(xml_text) / 1e6)
     return records
 
 
