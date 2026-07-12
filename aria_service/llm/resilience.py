@@ -192,10 +192,21 @@ class LLMHealthChecker:
 
         try:
             import httpx
+            # R-F2566: only send the Authorization header when the key is non-empty.
+            # ARIA_LLM_KEY can be empty (the served RunPod endpoint needs no token) — an
+            # unconditional f"Bearer {key}" then builds "Bearer " (whitespace-only value),
+            # which httpx rejects as an "Illegal header value" BEFORE the request is sent.
+            # The probe would then fail at header construction and report the sovereign as
+            # DOWN even when it is UP (breaking the promotion-gate health signal), and spam
+            # the gap ledger every cycle. Guard it, matching aria_llm_provider/openai_compat.
+            _headers = {}
+            _key = (self._api_key or "").strip()
+            if _key:
+                _headers["Authorization"] = f"Bearer {_key}"
             async with httpx.AsyncClient(timeout=self._probe_timeout) as client:
                 resp = await client.post(
                     f"{self._endpoint.rstrip('/')}/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    headers=_headers,
                     json={
                         "model": _ARIA_LLM_MODEL,
                         "messages": [{"role": "user", "content": "ok"}],
