@@ -201,6 +201,16 @@ _WEB_ENDPOINTS_PUBLIC: list[dict[str, Any]] = [
 
 # ── Core check functions ────────────────────────────────────────────────────
 
+def _internal_auth_headers() -> dict:
+    """R-F2561 (P0.2) — the internal self-probes hit token-gated endpoints
+    (/report, /self/staged, /autonomous/status, /cost/monthly/status, watchlist
+    unread-count). Attach the internal-service token (already accepted by the router
+    auth, _accepted_tokens) so probes don't 401 (false health failures + log spam)."""
+    import os
+    tok = (os.getenv("ARIA_INTERNAL_TOKEN") or os.getenv("ARIA_API_TOKEN") or "").strip()
+    return {"Authorization": f"Bearer {tok}"} if tok else {}
+
+
 async def check_endpoint(endpoint: dict[str, Any]) -> IntegrityCheck:
     """Check a single web endpoint for correctness.
 
@@ -223,10 +233,11 @@ async def check_endpoint(endpoint: dict[str, Any]) -> IntegrityCheck:
     try:
         url = f"{_ARIA_SERVICE_URL}{path}"
         async with httpx.AsyncClient(timeout=10.0) as client:  # no-breaker: web integrity agent is best-effort; breaker would block integrity checks
+            _hdrs = _internal_auth_headers()   # R-F2561 — internal token so probes don't 401
             if method == "GET":
-                resp = await client.get(url)
+                resp = await client.get(url, headers=_hdrs)
             elif method == "POST":
-                resp = await client.post(url, json={})
+                resp = await client.post(url, json={}, headers=_hdrs)
             else:
                 check.errors.append(f"Unsupported method: {method}")
                 check.passed = False
