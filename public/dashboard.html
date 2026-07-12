@@ -360,10 +360,51 @@ function renderGoldenIntelItem(s, compact) {
     + '</div>';
 }
 
-function renderGoldenIntelColumn(title, subtitle, icon, signals, emptyText, compact) {
+// R-F2583 — plain-language "time ago" for the honest empty-state diagnostic.
+function _goldenFmtAgo(iso) {
+  const t = Date.parse(iso || '');
+  if (isNaN(t)) return 'a while';
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 3600) return Math.max(1, Math.round(s / 60)) + ' min';
+  if (s < 86400) return Math.round(s / 3600) + 'h';
+  return Math.round(s / 86400) + 'd';
+}
+
+// R-F2583 — professional empty-state for the Distribution Ready column. Honest:
+// it does NOT fill the column; it explains WHAT the gate is and WHY nothing has
+// cleared it right now, using freshness data the endpoint already returns. Turns
+// a bare "0 / stale" line into a matched-height status card so the two columns
+// read as one designed system even when one is empty. (No gate change.)
+function renderGoldenIntelEmptyCard(freshness, candidateCount) {
+  const fr = freshness || {};
+  const reasons = Array.isArray(fr.stale_reasons) ? fr.stale_reasons : [];
+  let why;
+  if (fr.stale === false) {
+    why = 'The feed is fresh, but no current signal has cleared the public-channel gate — decision-grade, trusted tier, corroborated, with evidence.';
+  } else if (reasons.indexOf('poll_stale') !== -1 || reasons.indexOf('missing_poll_state') !== -1) {
+    const ago = fr.last_success_at ? _goldenFmtAgo(fr.last_success_at) + ' ago' : 'over 90 min';
+    why = 'The source poll last refreshed ' + escHtml(ago) + ', so no new signal can be certified for public distribution yet. This column populates automatically once the poll resumes.';
+  } else if (reasons.indexOf('signals_stale') !== -1 || reasons.indexOf('no_signals') !== -1) {
+    why = 'No fresh signals are available from the current feed.';
+  } else {
+    why = 'No signal currently meets the public-channel Golden Intel gate.';
+  }
+  const cand = candidateCount > 0
+    ? '<div style="font-size:11px;color:var(--sc-muted);line-height:1.5;margin-top:4px">'
+      + candidateCount + ' candidate' + (candidateCount === 1 ? '' : 's') + ' in the Mining Queue awaiting corroboration or a tier upgrade before they can be distributed.</div>'
+    : '';
+  return '<div style="border:1px dashed var(--sc-border);border-radius:10px;padding:22px 18px;min-height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;text-align:center">'
+    + '<div style="font-size:22px;color:var(--sc-muted)"><i class="bi bi-send-check"></i></div>'
+    + '<div style="font-size:13px;font-weight:600;color:var(--sc-text)">Nothing cleared for distribution right now</div>'
+    + '<div style="font-size:12px;color:var(--sc-muted);line-height:1.5;max-width:40ch">' + why + '</div>'
+    + cand
+    + '</div>';
+}
+
+function renderGoldenIntelColumn(title, subtitle, icon, signals, emptyText, compact, emptyHtml) {
   const rows = signals.length
     ? signals.map(s => renderGoldenIntelItem(s, compact)).join('')
-    : '<p class="text-muted" style="padding:8px 0;margin:0;font-size:12px;line-height:1.5">' + escHtml(emptyText) + '</p>';
+    : (emptyHtml || '<p class="text-muted" style="padding:8px 0;margin:0;font-size:12px;line-height:1.5">' + escHtml(emptyText) + '</p>');
   return '<div style="min-width:0">'
     + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px">'
     + '<div>'
@@ -413,6 +454,7 @@ function renderGoldenIntel(data) {
         ? 'No current signal meets the public-channel Golden Intel gate.'
         : 'Feed is stale or backfilled — nothing is distribution-ready right now (see feed status above).',
       false,
+      renderGoldenIntelEmptyCard(fresh, candidates.length),   // R-F2583 professional empty-state
     )
     + renderGoldenIntelColumn(
       'Mining Queue',
