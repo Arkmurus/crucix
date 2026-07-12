@@ -1,23 +1,23 @@
-"""R-F2569 — /compliance/screen must NEVER certify CLEAR when the sanctions screen
-did not actually run.
+"""R-F2569 + R-F2571 — /compliance/screen + /compliance/sanctions never-false-clean.
 
-Live bug (2026-07-12): screening "Bank Rossiya" (a sanctioned bank) returned
-status=CLEAR / result=PERMITTED because the sanctions backend call failed ("All
-connection attempts failed") and the endpoint left the init default risk_level="clear",
-which the verdict logic read as "no match" → CLEAR. That is a false clean on a
-sanctioned entity — the never-false-clean USP violation.
+R-F2569: a sanctions screen that did NOT actually run must never be certified CLEAR (live
+bug: sanctioned "Bank Rossiya" returned CLEAR/PERMITTED while the backend errored).
+R-F2571: those endpoints now screen IN-PROCESS via the canonical check_sanctions (the same
+authoritative path DD reports use) instead of the broken cross-tier Node hop.
 
-Capability test drives the REAL compliance_screen_ep with a mocked backend.
+Capability tests drive the REAL endpoints with a mocked check_sanctions, asserting:
+  HARD_STOP -> BLOCKED, REVIEW -> REVIEW_REQUIRED, CLEAR -> CLEAR (ran + no match),
+  INSUFFICIENT_DATA / source_unavailable -> REVIEW_REQUIRED (never CLEAR).
 """
 from __future__ import annotations
 
 import asyncio
 import types
 
-import httpx
 import pytest
 
 from aria_service.routes import aria as A
+from aria_service.intel.sanctions_canonical import lookup as _lookup
 
 
 def _req(entity: str = "Bank Rossiya"):
@@ -26,88 +26,76 @@ def _req(entity: str = "Bank Rossiya"):
 
 
 def _request():
-    st = types.SimpleNamespace(app_url="http://unreachable.test:3117", internal_token="tok")
+    st = types.SimpleNamespace(app_url="http://unused.test", internal_token="tok")
     return types.SimpleNamespace(app=types.SimpleNamespace(state=st))
 
 
-class _Resp:
-    def __init__(self, status, payload):
-        self.status_code = status
-        self._p = payload
-
-    def json(self):
-        return self._p
+def _mock_check_sanctions(verdict, matches=None, source_unavailable=False, reason=None):
+    def _fn(name, *a, **k):
+        return {"verdict": verdict, "matches": matches or [],
+                "source_unavailable": source_unavailable, "reason": reason}
+    return _fn
 
 
-def _client_factory(behavior):
-    class _C:
-        def __init__(self, *a, **k):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def post(self, url, json=None, headers=None, **k):
-            if behavior == "fail":
-                raise httpx.ConnectError("All connection attempts failed")
-            if behavior == "500":
-                return _Resp(500, {})
-            if behavior == "clean":
-                return _Resp(200, {"matched": False, "matches": [], "risk_level": "clear"})
-            if behavior == "match":
-                return _Resp(200, {"matched": True, "matches": [{"name": "Bank Rossiya"}],
-                                   "risk_level": "high"})
-    return _C
+_HARD_MATCH = [{"formatted_name": "BANK ROSSIYA", "source": "ofac_sdn", "match_score": 1.0}]
 
 
-def _run(monkeypatch, behavior):
-    monkeypatch.setattr(httpx, "AsyncClient", _client_factory(behavior))
+def _run_screen(monkeypatch, verdict, **kw):
+    monkeypatch.setattr(_lookup, "check_sanctions", _mock_check_sanctions(verdict, **kw))
     return asyncio.run(A.compliance_screen_ep(_req(), _request()))
 
 
-def test_failed_screen_is_never_clear(monkeypatch):
-    r = _run(monkeypatch, "fail")
-    assert r["status"] != "CLEAR", "a failed sanctions screen must not be CLEAR"
-    assert r["result"] != "PERMITTED"
+def _run_sanctions(monkeypatch, verdict, **kw):
+    monkeypatch.setattr(_lookup, "check_sanctions", _mock_check_sanctions(verdict, **kw))
+    monkeypatch.setattr(A.knowledge, "search_knowledge", lambda n: "")
+    return asyncio.run(A.compliance_sanctions_ep(A.SanctionsRequest(name="Bank Rossiya"), _request()))
+
+
+# ── /compliance/screen ───────────────────────────────────────────────────────
+def test_screen_hard_stop_is_blocked(monkeypatch):
+    r = _run_screen(monkeypatch, "HARD_STOP", matches=_HARD_MATCH)
+    assert r["status"] == "BLOCKED"
+    assert r["blocked"] is True
+
+
+def test_screen_review_is_review_required(monkeypatch):
+    r = _run_screen(monkeypatch, "REVIEW", matches=_HARD_MATCH)
+    assert r["status"] == "REVIEW_REQUIRED"
+
+
+def test_screen_clear_that_ran_is_clear(monkeypatch):
+    r = _run_screen(monkeypatch, "CLEAR")
+    assert r["status"] == "CLEAR"
+
+
+def test_screen_insufficient_is_never_clear(monkeypatch):
+    r = _run_screen(monkeypatch, "INSUFFICIENT_DATA", reason="sanctions_store_empty_or_unavailable")
+    assert r["status"] != "CLEAR"
     assert r["status"] == "REVIEW_REQUIRED"
     assert r["screened_against"]["Sanctions (entity)"] != "clear"
 
 
-def test_backend_non_200_is_never_clear(monkeypatch):
-    r = _run(monkeypatch, "500")
-    assert r["status"] == "REVIEW_REQUIRED"
+def test_screen_source_unavailable_is_never_clear(monkeypatch):
+    r = _run_screen(monkeypatch, "CLEAR", source_unavailable=True)
+    assert r["status"] == "REVIEW_REQUIRED"   # source_unavailable overrides a would-be clear
 
 
-def test_successful_clean_screen_is_clear(monkeypatch):
-    # A screen that ACTUALLY RAN and found nothing is legitimately CLEAR (no false positive).
-    r = _run(monkeypatch, "clean")
-    assert r["status"] == "CLEAR"
+# ── /compliance/sanctions ────────────────────────────────────────────────────
+def test_sanctions_hard_stop_not_clear(monkeypatch):
+    r = _run_sanctions(monkeypatch, "HARD_STOP", matches=_HARD_MATCH)
+    assert r["clear"] is False
+    assert r["match_count"] >= 1
 
 
-def test_match_is_blocked(monkeypatch):
-    r = _run(monkeypatch, "match")
-    assert r["status"] == "BLOCKED"
+def test_sanctions_clear_that_ran_is_clear(monkeypatch):
+    r = _run_sanctions(monkeypatch, "CLEAR")
+    assert r["clear"] is True
 
 
-# ── sibling endpoint /compliance/sanctions ───────────────────────────────────
-def _run_sanctions(monkeypatch, behavior, kb=""):
-    monkeypatch.setattr(httpx, "AsyncClient", _client_factory(behavior))
-    monkeypatch.setattr(A.knowledge, "search_knowledge", lambda n: kb)
-    return asyncio.run(A.compliance_sanctions_ep(A.SanctionsRequest(name="Bank Rossiya"), _request()))
-
-
-def test_sanctions_failed_screen_not_clear(monkeypatch):
-    r = _run_sanctions(monkeypatch, "fail", kb="")
-    assert r["clear"] is False, "a failed sanctions screen must not report clear=True"
+def test_sanctions_insufficient_not_clear(monkeypatch):
+    r = _run_sanctions(monkeypatch, "INSUFFICIENT_DATA", reason="unavailable")
+    assert r["clear"] is False
     assert r["screening_unavailable"] is True
-
-
-def test_sanctions_success_clean_is_clear(monkeypatch):
-    r = _run_sanctions(monkeypatch, "clean", kb="")
-    assert r["clear"] is True   # an authoritative screen that ran + found nothing is clear
 
 
 if __name__ == "__main__":

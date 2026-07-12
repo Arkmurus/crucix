@@ -18440,27 +18440,44 @@ async def compliance_screen_ep(req: ComplianceScreenRequest, request: Request):
     product = req.product_description.strip()
     country = req.destination_country.strip().upper()
 
-    # ── 1. Sanctions screening via Node.js brain endpoint ────────────────
+    # ── 1. Sanctions screening via the in-process CANONICAL check_sanctions ───
+    # R-F2571: screen against the canonical never-false-clean store IN-PROCESS — the SAME
+    # authoritative verdict path DD reports use (company_investigator -> check_sanctions,
+    # proven live to HARD_STOP "Bank Rossiya") — instead of the fragile cross-tier Node hop
+    # to localhost:3117 (a separate app; the /api/brain/compliance/screen-entity path never
+    # resolved, so the screen NEVER actually ran). check_sanctions is sync + a fast indexed
+    # SQLite lookup; run it off the event loop. R-F2569 invariant preserved: an
+    # INSUFFICIENT_DATA / source-unavailable / errored screen is NOT clear.
     sanctions_result: dict[str, Any] = {"matched": False, "matches": [], "risk_level": "clear"}
     sanctions_screened = False   # R-F2569: did the sanctions screen ACTUALLY run? (never-false-clean)
     try:
-        app_url = getattr(request.app.state, "app_url", "http://localhost:3117")
-        token = getattr(request.app.state, "internal_token", "aria-internal")
-        import httpx
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{app_url}/api/brain/compliance/screen-entity",
-                json={"entity_name": entity},
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            if resp.status_code == 200:
-                sanctions_result = resp.json()
-                sanctions_screened = True
-            else:
-                sanctions_result["error"] = f"screen backend HTTP {resp.status_code}"
+        from ..intel.sanctions_canonical.lookup import check_sanctions as _check_sanctions
+        _cs = await asyncio.to_thread(_check_sanctions, entity)
+        _verdict = _cs.get("verdict")
+        if _verdict == "INSUFFICIENT_DATA" or _cs.get("source_unavailable"):
+            sanctions_result = {
+                "matched": False, "matches": [], "risk_level": "unavailable",
+                "verdict": _verdict,
+                "error": _cs.get("reason") or "sanctions_store_unavailable",
+            }
+            sanctions_screened = False
+        else:
+            sanctions_screened = True
+            _rl = {"HARD_STOP": "critical", "REVIEW": "medium", "CLEAR": "clear"}.get(_verdict, "clear")
+            sanctions_result = {
+                "matched": _verdict in ("HARD_STOP", "REVIEW"),
+                "matches": [
+                    {"name": m.get("formatted_name") or m.get("name"),
+                     "list": m.get("source"), "score": m.get("match_score")}
+                    for m in (_cs.get("matches") or [])[:10]
+                ],
+                "risk_level": _rl,
+                "verdict": _verdict,
+            }
     except Exception as e:
-        _log.warning("Sanctions screening call failed: %s", e)
-        sanctions_result["error"] = str(e)
+        _log.warning("in-process sanctions screen failed: %s", e)
+        sanctions_result = {"matched": False, "matches": [], "risk_level": "clear", "error": str(e)}
+        sanctions_screened = False
 
     # ── 2. Country risk assessment ──────────────────────────────────────────
     EMBARGOED = {
@@ -18811,27 +18828,22 @@ async def compliance_sanctions_ep(req: SanctionsRequest, request: Request):
     error = None
     screened = False   # R-F2569: did the authoritative sanctions screen ACTUALLY run?
     try:
-        app_url = getattr(request.app.state, "app_url", "http://localhost:3117")
-        token = getattr(request.app.state, "internal_token", "aria-internal")
-        import httpx
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{app_url}/api/brain/compliance/screen-entity",
-                json={"entity_name": name},
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            if resp.status_code == 200:
-                screened = True
-                data = resp.json()
-                for m in (data.get("matches") or []):
-                    matches.append({
-                        "name": m.get("name") or m.get("entity") or name,
-                        "list": m.get("list") or m.get("source") or "Sanctions list",
-                        "score": m.get("score") or m.get("confidence"),
-                        "reason": m.get("reason") or m.get("notes") or "",
-                    })
-            else:
-                error = f"screen backend HTTP {resp.status_code}"
+        # R-F2571: screen in-process via the canonical never-false-clean check_sanctions
+        # (same authoritative path DD reports use) instead of the broken cross-tier Node hop.
+        from ..intel.sanctions_canonical.lookup import check_sanctions as _check_sanctions
+        _cs = await asyncio.to_thread(_check_sanctions, name)
+        _verdict = _cs.get("verdict")
+        if _verdict == "INSUFFICIENT_DATA" or _cs.get("source_unavailable"):
+            error = _cs.get("reason") or "sanctions_store_unavailable"
+        else:
+            screened = True
+            for m in (_cs.get("matches") or []):
+                matches.append({
+                    "name": m.get("formatted_name") or m.get("name") or name,
+                    "list": m.get("source") or "Sanctions list",
+                    "score": m.get("match_score"),
+                    "reason": f"canonical sanctions verdict: {_verdict}",
+                })
     except Exception as e:
         error = str(e)
         _log.warning("Sanctions check upstream failed: %s", e)
