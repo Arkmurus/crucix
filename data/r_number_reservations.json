@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2576,
+  "next_available": 2579,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19674,6 +19674,36 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F2576",
+      "title": "first-load absolute sanctions floor (R-F2570 MED-1): the self-calibrating floor exempts prior=0, so a broken FIRST load on a fresh container loads thin data that screens CLEAR. Add absolute_floor param to replace_source, passed per-source from load_from_file (OFAC>=10k, EU>=1k) — catches first-load drift without breaking direct-seeded test fixtures",
+      "claimed_at": "2026-07-12T21:55:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d7d06011",
+      "notes": null,
+      "shipped_at": "2026-07-12T22:14:12Z"
+    },
+    {
+      "r_number": "R-F2577",
+      "title": "sources/ofac_sdn + un_sc_sanctions partial-drift canary (audit AT-RISK): a large feed parsing implausibly few records overwrote the healthy in-memory cache with thin data -> dropped sanctioned entities screen as no-hit=clean. Keep last-known-good + warn (mirror R-F2570/R-F2576 floor)",
+      "claimed_at": "2026-07-12T21:59:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d7d06011",
+      "notes": null,
+      "shipped_at": "2026-07-12T22:14:13Z"
+    },
+    {
+      "r_number": "R-F2578",
+      "title": "uk_ofsi_ingest parses namespaced ofsi:FinancialSanctionsTarget but the live 2022format ConList.xml is namespace-less (R-F2565 finding) -> 0-extracts the UK OFSI heatmap feed. Fix namespace-agnostically (localname match) like fcdo_sanctions",
+      "claimed_at": "2026-07-12T22:01:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d7d06011",
+      "notes": null,
+      "shipped_at": "2026-07-12T22:14:13Z"
     }
   ]
 }
