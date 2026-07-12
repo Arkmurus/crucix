@@ -492,6 +492,51 @@ async def _sanctions_refresh_once() -> dict:
         return {"refreshed": False, "reason": f"error: {e}"}
 
 
+async def _news_poll_once() -> dict:
+    """R-F2584 — run news_monitor.poll_feeds() IF the Golden Intel feed is stale. poll_feeds
+    refreshes the signal store + runs the promotion bridge that feed BOTH the Telegram Golden
+    Intel channel AND the dashboard 'Distribution Ready' column. The HOURLY-NEWS-MONITOR
+    autonomous task stopped firing (2026-07-12: 27h stale, last_poll 2026-07-11T20:14) → the
+    gate correctly skipped stale signals → the channel went silent. This first-class loop makes
+    the poll reliable regardless of the autonomous scheduler (same fix pattern as R-F2572).
+    Staleness-gated so it doesn't re-poll a fresh feed; poll_feeds is async (~250s) and yields
+    on feed I/O; §21-wired."""
+    try:
+        from .intel import news_monitor as _nm
+        st = await _nm._read_poll_state()
+        last = (st or {}).get("last_poll_at")
+        max_age = float(_os.getenv("ARIA_NEWS_POLL_MAX_AGE_S", "3000"))  # ~50min
+        stale = True
+        if last:
+            try:
+                import datetime as _dt
+                lp = _dt.datetime.fromisoformat(str(last).replace("Z", "+00:00")).timestamp()
+                stale = (time.time() - lp) > max_age
+            except Exception:
+                stale = True
+        if not stale:
+            return {"polled": False, "reason": "fresh"}
+        timeout = float(_os.getenv("ARIA_NEWS_POLL_TIMEOUT_S", "330"))
+        res = await asyncio.wait_for(_nm.poll_feeds(), timeout=timeout)
+        try:
+            from .intel.engine_wiring import wire_success
+            wire_success(module="news_poll",
+                         summary=f"Golden Intel news poll refreshed: {str(res)[:120]}",
+                         source_id="main:_news_poll_once")
+        except Exception:
+            pass
+        return {"polled": True, "result": res}
+    except Exception as e:
+        logger.warning("[R-F2584] news poll error: %s", e)
+        try:
+            from .intel.engine_wiring import wire_failure
+            wire_failure(module="news_poll", detail=f"news poll error: {str(e)[:160]}",
+                         gap_type="engine_failure", source="main:_news_poll_once")
+        except Exception:
+            pass
+        return {"polled": False, "reason": f"error: {e}"}
+
+
 def _should_force_restart(
     stale_s: float, armed: bool, enabled: bool, ceiling_s: float
 ) -> bool:
@@ -1067,6 +1112,31 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(6 * 3600)   # re-check every 6h (refresh only fires when stale)
     _bg_task(asyncio.create_task(_sanctions_refresh_loop(), name="sanctions_refresh"),
              factory=_sanctions_refresh_loop)
+
+    # ---- R-F2584 — keep the Golden Intel feed (Telegram channel + dashboard) fresh --------
+    # The HOURLY-NEWS-MONITOR autonomous task stopped firing (scheduler) → the news_monitor
+    # poll went 27h stale (2026-07-12) → the Golden Intel gate correctly skipped stale signals
+    # → the Telegram channel + dashboard "Distribution Ready" went silent. This first-class
+    # loop runs the poll hourly (staleness-gated), off the autonomous scheduler, §21-wired,
+    # engine-singleton, factory-respawned. Idempotent with the autonomous task (staleness gate
+    # → skips a fresh feed) so both can coexist if the scheduler is later fixed.
+    async def _news_poll_loop():
+        await asyncio.sleep(200)  # boot settle — poll_feeds is ~250s of feed I/O
+        if _election_complete is not None:
+            await _election_complete.wait()
+        if not _runs_singletons():
+            logger.info("[R-F2584] news_poll SKIPPED (ARIA_ROLE=%s)", _aria_role())
+            return
+        while True:
+            try:
+                r = await _news_poll_once()
+                if r.get("polled"):
+                    logger.warning("[R-F2584] Golden Intel news poll ran: %s", str(r)[:200])
+            except Exception as e:
+                logger.warning("[R-F2584] news poll loop error: %s", e)
+            await asyncio.sleep(3600)   # hourly (only fires when the feed is stale)
+    _bg_task(asyncio.create_task(_news_poll_loop(), name="news_poll"),
+             factory=_news_poll_loop)
     # ---- R-F2277 - state_store liveness watchdog (per-process, NOT election- ---
     # gated: each process owns a connection that can wedge). Recovers a hung
     # aiosqlite thread the event-loop watchdog (R-F1417) can't see, escalating
