@@ -10269,6 +10269,7 @@ async def rescreen_public_watchlist() -> dict:
             classified = classify_matches(matches, query_name=name)
             new_status = _derive_status(classified)
             new_score = _derive_score_from_matches(matches)
+            _seen_before = name.lower() in state   # False on the first (baseline) screen
             prior = state.get(name.lower()) or {}
             old_status = prior.get("status", "CLEAN")
             old_score = float(prior.get("score", 0.0))
@@ -10286,7 +10287,10 @@ async def rescreen_public_watchlist() -> dict:
             # fabricate a "removed"/"score_change"; new_hit/new_pep can NEVER be
             # produced by a dead store (it never yields HIT/PEP). Removals/score moves
             # still update state below (for future diffs) but are not promoted.
-            if change_type in ("new_hit", "new_pep"):
+            # Honesty: the FIRST screen of a newly-curated entity sets the BASELINE — a
+            # pre-existing sanction is not a "change", so only emit once we had a prior
+            # observation (_seen_before).
+            if change_type in ("new_hit", "new_pep") and _seen_before:
                 alert = {
                     "entity": name,
                     "change_type": change_type,

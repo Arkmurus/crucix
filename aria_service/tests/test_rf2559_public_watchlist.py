@@ -117,6 +117,7 @@ def test_rescreen_emits_tenant_free_alert(monkeypatch):
     from aria_service.intel import sanctions, _sanctions_classify
     store, lists = _rs_stub(monkeypatch)
     store[dd.PUBLIC_WATCHLIST_KEY] = [{"name": "Wagner Group", "scope": "system_public"}]
+    store[dd.PUBLIC_WATCHLIST_STATE_KEY] = {"wagner group": {"status": "CLEAN", "score": 0.0}}  # prior -> genuine change
 
     async def fake_screen(name):
         return {"matches": [{"name": name, "score": 0.95}]}
@@ -154,6 +155,27 @@ def test_rescreen_suppresses_removed_never_false_clean(monkeypatch):
     asyncio.run(dd.rescreen_public_watchlist())
     assert lists.get(dd.PUBLIC_WATCHLIST_ALERTS_KEY, []) == []   # 'removed' NOT emitted
     assert store[dd.PUBLIC_WATCHLIST_STATE_KEY]["wagner group"]["status"] == "CLEAN"  # state tracked
+
+
+def test_rescreen_first_screen_is_baseline_no_alert(monkeypatch):
+    """Honesty: the FIRST screen of a newly-curated, already-sanctioned entity sets the
+    baseline — it must NOT emit a 'new_hit' (a long-standing sanction is not a change)."""
+    from aria_service.intel import dd_orchestrator as dd
+    from aria_service.intel import sanctions, _sanctions_classify
+    store, lists = _rs_stub(monkeypatch)
+    store[dd.PUBLIC_WATCHLIST_KEY] = [{"name": "Wagner Group", "scope": "system_public"}]
+    # NO prior state -> first screen (baseline)
+
+    async def fake_screen(name):
+        return {"matches": [{"name": name, "score": 0.95}]}
+    monkeypatch.setattr(sanctions, "screen_with_aliases", fake_screen, raising=False)
+    monkeypatch.setattr(_sanctions_classify, "classify_matches",
+                        lambda m, query_name=None: {"worst_severity": "red", "summary": "OFAC SDN"})
+    monkeypatch.setattr(dd, "_derive_score_from_matches", lambda m: 0.95)
+
+    asyncio.run(dd.rescreen_public_watchlist())
+    assert lists.get(dd.PUBLIC_WATCHLIST_ALERTS_KEY, []) == []          # baseline: no alert
+    assert store[dd.PUBLIC_WATCHLIST_STATE_KEY]["wagner group"]["status"] == "HIT"  # recorded
 
 
 if __name__ == "__main__":
