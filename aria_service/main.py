@@ -406,6 +406,46 @@ async def _expiry_sweeper_loop() -> None:
         await asyncio.sleep(300)
 
 
+async def _dd_reconcile_once() -> None:
+    """R-F2568 — ONE dd-reconcile pass with §21d failure-wiring. Extracted to module
+    level so the (previously DARK) failure branch is capability-testable.
+
+    reconcile_stale_running_dds is the ONLY thing that clears orphaned status='running'
+    DDs after a restart/wedge (R-F2300, the 12.5h chat-hang). Its failure mode is exactly
+    the R-F2277 state_store wedge — so it goes blind precisely when it's needed. Wire the
+    failure to the brain so the self-heal loop can act instead of user DDs silently hanging."""
+    try:
+        from .intel import dd_orchestrator as _ddo
+        await _ddo.reconcile_stale_running_dds()
+    except Exception as _e:  # noqa: BLE001 — best-effort, never crash the loop
+        logger.debug("[R-F2300] dd reconcile error: %s", _e)
+        try:  # R-F2568 §21d — surface reconcile failures to the brain (was dark)
+            from .intel.engine_wiring import wire_failure
+            wire_failure(module="dd_reconcile", detail=f"dd reconcile error: {str(_e)[:160]}",
+                         gap_type="engine_failure", source="main:_dd_reconcile_once")
+        except Exception:
+            pass
+
+
+async def _outcome_reconcile_once() -> None:
+    """R-F2568 — ONE outcome-reconcile pass (§25 silent-drop backstop) with §21d
+    per-surface failure-wiring (was DARK). A surface whose delivery backstop keeps
+    failing is a real 'did-I-deliver?' blindspot — surface it as a gap so self-heal fires."""
+    from .intel import outcome_wire as _ow
+    for _surface in _ow.KNOWN_SURFACES:
+        try:
+            await _ow.reconcile_silent_drops(_surface)
+        except Exception as _e2:  # per-surface best-effort
+            logger.debug("[R-F2376] outcome reconcile(%s) error: %s", _surface, _e2)
+            try:  # R-F2568 §21d — surface the failing backstop to the brain (was dark)
+                from .intel.engine_wiring import wire_failure
+                wire_failure(module="outcome_reconcile",
+                             detail=f"outcome reconcile({_surface}) error: {str(_e2)[:140]}",
+                             gap_type="engine_failure", source="main:_outcome_reconcile_once")
+            except Exception:
+                pass
+
+
 def _should_force_restart(
     stale_s: float, armed: bool, enabled: bool, ceiling_s: float
 ) -> bool:
@@ -899,13 +939,13 @@ async def lifespan(app: FastAPI):
             logger.info("[R-F2541] dd_reconcile SKIPPED (ARIA_ROLE=%s)", _aria_role())
             return
         while True:
-            try:
-                from .intel import dd_orchestrator as _ddo
-                await _ddo.reconcile_stale_running_dds()
-            except Exception as _e:  # noqa: BLE001 — best-effort, never crash boot
-                logger.debug("[R-F2300] dd reconcile loop error: %s", _e)
+            await _dd_reconcile_once()   # R-F2568: failure-wired, capability-tested
             await asyncio.sleep(600)
-    _bg_task(asyncio.create_task(_dd_reconcile_loop(), name="dd_reconcile"))
+    # R-F2568: register the FACTORY so the bg supervisor respawns this DD-hang self-heal
+    # loop if it dies (was death-visible but not auto-respawned). Safe: on the singleton
+    # box the loop never returns early, so respawn only fires on a genuine crash.
+    _bg_task(asyncio.create_task(_dd_reconcile_loop(), name="dd_reconcile"),
+             factory=_dd_reconcile_loop)
 
     # R-F2507 — start the durable brain-ingest queue drain worker (a SINGLE worker;
     # one process under WEB_CONCURRENCY=1). No-op unless ARIA_BRAIN_QUEUE_ENABLED=1,
@@ -947,20 +987,16 @@ async def lifespan(app: FastAPI):
             logger.info("[R-F2541] outcome_reconcile SKIPPED (ARIA_ROLE=%s)", _aria_role())
             return
         while True:
-            try:
-                from .intel import outcome_wire as _ow
-                for _surface in _ow.KNOWN_SURFACES:
-                    try:
-                        await _ow.reconcile_silent_drops(_surface)
-                    except Exception as _e2:  # per-surface best-effort
-                        logger.debug("[R-F2376] outcome reconcile(%s) error: %s", _surface, _e2)
-            except Exception as _e:  # noqa: BLE001 — best-effort, never crash boot
-                logger.debug("[R-F2376] outcome reconcile loop error: %s", _e)
+            await _outcome_reconcile_once()   # R-F2568: per-surface failure-wired, tested
             await asyncio.sleep(600)
-    _bg_task(asyncio.create_task(_outcome_reconcile_loop(), name="outcome_reconcile"))
+    # R-F2568: register the FACTORY so the bg supervisor respawns the §25 delivery backstop.
+    _bg_task(asyncio.create_task(_outcome_reconcile_loop(), name="outcome_reconcile"),
+             factory=_outcome_reconcile_loop)
 
     # ---- R-F2154 - background expired-entry sweeper --------------------------
-    _bg_task(asyncio.create_task(_expiry_sweeper_loop(), name="expiry_sweeper"))
+    # R-F2568: factory= so the sweeper (already failure-wired R-F2256) also auto-respawns.
+    _bg_task(asyncio.create_task(_expiry_sweeper_loop(), name="expiry_sweeper"),
+             factory=_expiry_sweeper_loop)
     # ---- R-F2277 - state_store liveness watchdog (per-process, NOT election- ---
     # gated: each process owns a connection that can wedge). Recovers a hung
     # aiosqlite thread the event-loop watchdog (R-F1417) can't see, escalating
