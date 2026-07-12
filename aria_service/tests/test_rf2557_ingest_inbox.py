@@ -172,6 +172,44 @@ def test_opportunity_dedups_across_sweeps_no_flood(monkeypatch):
     assert len(stored) == 1              # NOT flooded
 
 
+def test_malformed_numeric_is_coerced_not_fatal(monkeypatch):
+    """Regression review #1: a bad numeric (evidence_count='n/a', score='55%') from the
+    ingest boundary is defensively coerced — promotes, never aborts the pass."""
+    _inbox_stubs(monkeypatch)
+    stored: list = []
+    async def fake_store(s):
+        stored.append(s)
+    monkeypatch.setattr(bridge._nm, "_store_intel_signal", fake_store)
+    f = _bd_finding()
+    f.update({"evidence_count": "n/a", "score": "55%"})
+    r = asyncio.run(bridge.promote_findings([f], source_name="test"))
+    assert r["promoted"] == 1 and len(stored) == 1
+
+
+def test_normalize_exception_contained_to_one_finding(monkeypatch):
+    """Regression review #2: a raise in normalization is contained to that one finding
+    (invalid + gap); the pass continues and other findings still promote."""
+    _inbox_stubs(monkeypatch)
+    stored: list = []
+    fails: list = []
+    async def fake_store(s):
+        stored.append(s)
+    monkeypatch.setattr(bridge._nm, "_store_intel_signal", fake_store)
+    monkeypatch.setattr(bridge, "wire_failure", lambda *a, **k: fails.append(1))
+    _orig = bridge._normalize_finding_to_signal
+    _n = {"c": 0}
+    def flaky(f):
+        _n["c"] += 1
+        if _n["c"] == 1:
+            raise ValueError("boom")
+        return _orig(f)
+    monkeypatch.setattr(bridge, "_normalize_finding_to_signal", flaky)
+    f1 = _bd_finding(); f1["ref"] = "A"
+    f2 = _bd_finding(); f2["ref"] = "B"
+    r = asyncio.run(bridge.promote_findings([f1, f2], source_name="test"))
+    assert r["invalid"] == 1 and r["promoted"] == 1 and fails
+
+
 if __name__ == "__main__":
     import sys
     import pytest

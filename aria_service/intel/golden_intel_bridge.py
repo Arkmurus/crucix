@@ -81,6 +81,14 @@ def _clean(v: Any) -> str:
     return str(v or "").strip()
 
 
+def _safe_int(v: Any, default: int) -> int:
+    """Coerce to int, never raise — a malformed ingested numeric must not abort a pass."""
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
 def _finding_dedup_key(finding: dict) -> str:
     """Stable identity for a finding across passes: source|type|entity|ref.
 
@@ -112,11 +120,11 @@ def _normalize_finding_to_signal(finding: dict) -> dict | None:
     confidence = (_clean(finding.get("confidence")) or "LOW").upper()
     source = _clean(finding.get("source")) or "ARIA monitored source"
     source_tier = (_clean(finding.get("source_tier")) or "unclassified").lower()
-    evidence_count = int(finding.get("evidence_count") or 1)
+    evidence_count = _safe_int(finding.get("evidence_count"), 1) or 1
     entities = finding.get("entities") if isinstance(finding.get("entities"), dict) else {}
     target = _clean(finding.get("target") or finding.get("entity")) or source
     url = _clean(finding.get("evidence_url") or finding.get("url"))
-    score = int(finding.get("score") or _CONFIDENCE_SCORE.get(confidence, 30))
+    score = _safe_int(finding.get("score"), 0) or _CONFIDENCE_SCORE.get(confidence, 30)
     detected_at = _clean(finding.get("detected_at")) or datetime.now(timezone.utc).isoformat()
 
     quality_label = _nm._quality_label(priority, confidence, evidence_count)
@@ -212,7 +220,16 @@ async def promote_findings(findings: list[dict], *, source_name: str) -> dict:
     result = {"promoted": 0, "skipped": 0, "invalid": 0, "distribution_ready": 0}
 
     for finding in findings or []:
-        signal = _normalize_finding_to_signal(finding)
+        # Per-finding guard: a single malformed finding (esp. from the external
+        # ingest boundary) must never abort the pass or drop other drained items.
+        try:
+            signal = _normalize_finding_to_signal(finding)
+        except Exception as exc:
+            result["invalid"] += 1
+            logger.warning("[%s] normalize failed (%s): %s", _MODULE, source_name, exc)
+            wire_failure(_MODULE, f"normalize failed ({source_name}): {exc}",
+                         gap_type="golden_intel_promotion_failure", source=source_name)
+            continue
         if signal is None:
             result["invalid"] += 1
             continue
