@@ -6871,10 +6871,17 @@ async function start() {
     }, { timezone: 'Europe/London' });
 
     // ── Channel Scheduler — delegated to channelServerHooks ────────────────
-    cron.schedule('0 7 * * *', async () => {
-      const bot = { botToken: config.telegram.botToken, chatId: config.telegram.chatId, channelId: config.telegram.channelId };
-      await channelHooks.handleMorningSignalCron(currentData, bot);
-    }, { timezone: 'Europe/London' });
+    // R-F2585 (operator: 2 Golden Intel drops/day, 3 max): TWO scheduled curated posts —
+    // 07:00 (morning) + 17:00 (evening) Europe/London. Post dedup + the freshness gate mean
+    // the evening slot only fires on a DIFFERENT fresh decision-grade signal (skips if nothing
+    // new since morning — never re-posts the same item). CHANNEL_MAX_DAILY_POSTS=3 leaves
+    // headroom for ONE real-time breaking item on top of the two scheduled slots.
+    for (const _hour of [7, 17]) {
+      cron.schedule(`0 ${_hour} * * *`, async () => {
+        const bot = { botToken: config.telegram.botToken, chatId: config.telegram.chatId, channelId: config.telegram.channelId };
+        await channelHooks.handleMorningSignalCron(currentData, bot);
+      }, { timezone: 'Europe/London' });
+    }
 
     // R-F2306 — DISABLED (operator: ONE relevant post/day, keep noise down).
     // The Case File / Know-Your-Rights / Country Read / Opportunity crons posted
