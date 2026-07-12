@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2571,
+  "next_available": 2572,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19627,6 +19627,16 @@
       "commit_sha": "812dd852",
       "notes": null,
       "shipped_at": "2026-07-12T20:43:39Z"
+    },
+    {
+      "r_number": "R-F2571",
+      "title": "compliance/screen + compliance/sanctions coverage rewire: screen in-process via canonical check_sanctions (never-false-clean, same path DD reports use) instead of the broken cross-tier Node hop to localhost:3117 that never worked",
+      "claimed_at": "2026-07-12T20:46:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9e13ca47",
+      "notes": null,
+      "shipped_at": "2026-07-12T20:59:03Z"
     }
   ]
 }
