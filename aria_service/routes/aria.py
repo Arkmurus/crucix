@@ -18442,6 +18442,7 @@ async def compliance_screen_ep(req: ComplianceScreenRequest, request: Request):
 
     # ── 1. Sanctions screening via Node.js brain endpoint ────────────────
     sanctions_result: dict[str, Any] = {"matched": False, "matches": [], "risk_level": "clear"}
+    sanctions_screened = False   # R-F2569: did the sanctions screen ACTUALLY run? (never-false-clean)
     try:
         app_url = getattr(request.app.state, "app_url", "http://localhost:3117")
         token = getattr(request.app.state, "internal_token", "aria-internal")
@@ -18454,6 +18455,9 @@ async def compliance_screen_ep(req: ComplianceScreenRequest, request: Request):
             )
             if resp.status_code == 200:
                 sanctions_result = resp.json()
+                sanctions_screened = True
+            else:
+                sanctions_result["error"] = f"screen backend HTTP {resp.status_code}"
     except Exception as e:
         _log.warning("Sanctions screening call failed: %s", e)
         sanctions_result["error"] = str(e)
@@ -18515,6 +18519,19 @@ async def compliance_screen_ep(req: ComplianceScreenRequest, request: Request):
     risk_factors: list[str] = []
 
     sanc_risk = sanctions_result.get("risk_level", "clear")
+    # R-F2569 — NEVER-FALSE-CLEAN: if the sanctions screen did not actually run (backend
+    # down / non-200 / exception), we CANNOT certify the entity as clear. A failed screen
+    # left risk_level="clear" (the init default), which previously produced overall CLEAR/
+    # PERMITTED on a SANCTIONED entity (live 2026-07-12: "Bank Rossiya" → CLEAR while the
+    # backend errored "All connection attempts failed"). Treat an un-run screen as
+    # review-required and label it unavailable — never as a clean result.
+    if not sanctions_screened:
+        risk_factors.append(
+            "Sanctions screening UNAVAILABLE — entity NOT screened; a manual sanctions "
+            "check is REQUIRED before proceeding")
+        sanctions_result["screened"] = False
+        sanctions_result["risk_level"] = "unavailable"
+        sanc_risk = "unavailable"
     if sanc_risk in ("critical", "high"):
         blocked = True
         risk_factors.append(f"Entity sanctions match: {sanc_risk}")
@@ -18536,6 +18553,10 @@ async def compliance_screen_ep(req: ComplianceScreenRequest, request: Request):
         overall_status = "REVIEW_REQUIRED"
     else:
         overall_status = "CLEAR"
+    # R-F2569 — hard never-false-clean invariant: an un-run sanctions screen can NEVER be
+    # certified CLEAR, regardless of how the risk-factor logic above evolves.
+    if not sanctions_screened and overall_status == "CLEAR":
+        overall_status = "REVIEW_REQUIRED"
 
     # Backward-compat mapping for WhatsApp/Telegram clients
     result_label = {"CLEAR": "PERMITTED", "REVIEW_REQUIRED": "REVIEW", "BLOCKED": "BLOCKED"}.get(overall_status, overall_status)
@@ -18788,6 +18809,7 @@ async def compliance_sanctions_ep(req: SanctionsRequest, request: Request):
 
     matches: list[dict] = []
     error = None
+    screened = False   # R-F2569: did the authoritative sanctions screen ACTUALLY run?
     try:
         app_url = getattr(request.app.state, "app_url", "http://localhost:3117")
         token = getattr(request.app.state, "internal_token", "aria-internal")
@@ -18799,6 +18821,7 @@ async def compliance_sanctions_ep(req: SanctionsRequest, request: Request):
                 headers={"Authorization": f"Bearer {token}"},
             )
             if resp.status_code == 200:
+                screened = True
                 data = resp.json()
                 for m in (data.get("matches") or []):
                     matches.append({
@@ -18807,6 +18830,8 @@ async def compliance_sanctions_ep(req: SanctionsRequest, request: Request):
                         "score": m.get("score") or m.get("confidence"),
                         "reason": m.get("reason") or m.get("notes") or "",
                     })
+            else:
+                error = f"screen backend HTTP {resp.status_code}"
     except Exception as e:
         error = str(e)
         _log.warning("Sanctions check upstream failed: %s", e)
@@ -18827,7 +18852,13 @@ async def compliance_sanctions_ep(req: SanctionsRequest, request: Request):
         "matches": matches,
         "results": matches,
         "match_count": len(matches),
-        "clear": len(matches) == 0,
+        # R-F2569 — NEVER-FALSE-CLEAN: "clear" only when the authoritative screen actually
+        # RAN and returned no matches. A failed/unavailable screen (error set) is NOT clear
+        # — the KB fallback is supplementary, not authoritative (was: clear=True whenever
+        # matches was empty, even when the backend errored → false clean on unscreened entity).
+        "clear": len(matches) == 0 and screened,
+        "screened": screened,
+        "screening_unavailable": (not screened),
         "error": error,
         "disclaimer": "Pre-screen only. Verify against authoritative lists (OFAC, OFSI, EU, UN) before any commercial action.",
     }
