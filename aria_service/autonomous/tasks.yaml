@@ -473,15 +473,17 @@ tasks:
   - id: REFRESH-SANCTIONS-CANONICAL
     name: Refresh canonical sanctions cache (OFAC + EU)
     description: |
-      Daily 06:00 UTC — pull OFAC SDN Enhanced XML + EU Consolidated
-      CSV from authoritative URLs, parse into the local canonical
-      SQLite store. dd_orchestrate's sanctions matcher and
-      lookup.check_sanctions() consume this store, applying R-F518's
-      entity-overlap gate before promoting any name match to HARD
-      STOP. Eliminates the 2026-05-14 Zagaria/Swisscraft false-
-      positive class.
+      R-F2572 (2026-07-12): DISABLED — this task used `tool: shell` + `command:
+      python -m scripts.refresh_sanctions`, but the autonomous engine has NO
+      `shell` tool_kind handler, so it was a SILENT NO-OP and the canonical
+      sanctions store went 58 DAYS stale. Superseded by the first-class
+      `_sanctions_refresh_loop` in main.py (staleness-gated, off-loop, §21-wired,
+      factory-respawned) which actually runs the download+load. Kept here disabled
+      as an audit trail — do NOT re-enable a shell task the engine cannot execute.
+      (Original intent: daily 06:00 UTC pull OFAC SDN Enhanced XML + EU CSV into
+      the canonical store that lookup.check_sanctions consumes.)
     cron: "0 6 * * *"
-    enabled: true
+    enabled: false
     priority: HIGH
     timeout_seconds: 300
     cost_cap_usd: 0.0

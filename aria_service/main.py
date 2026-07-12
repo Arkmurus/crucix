@@ -446,6 +446,52 @@ async def _outcome_reconcile_once() -> None:
                 pass
 
 
+async def _sanctions_refresh_once() -> dict:
+    """R-F2572 — refresh the canonical sanctions store IF it is stale. Downloads the OFAC
+    SDN Enhanced XML + EU consolidated CSV and loads them into the canonical store — the
+    pipeline the DAILY-SANCTIONS-REFRESH tasks.yaml task tried to run via `tool: shell`,
+    which the autonomous engine has no handler for (a silent no-op → 58-day-stale store on
+    2026-07-12). Staleness-gated (skips a fresh store so deploys don't re-download the
+    108MB feed), runs off the event loop, §21-wired. The R-F2570 drift floor protects the
+    store if a feed's format ever breaks the parser (refuses to overwrite good data)."""
+    try:
+        from .intel.sanctions_canonical import store as _ss
+        newest = _ss.newest_entry_refresh()
+        max_age_h = float(_os.getenv("ARIA_SANCTIONS_REFRESH_MAX_AGE_H", "20"))
+        if newest is not None and (time.time() - newest) < max_age_h * 3600:
+            return {"refreshed": False, "reason": "fresh",
+                    "age_h": round((time.time() - newest) / 3600, 1)}
+        from scripts import refresh_sanctions as _rs
+        res = await asyncio.to_thread(_rs.refresh_all)
+        # A drifted load returns success=True with rows_loaded=0 (R-F2570), so require BOTH.
+        per_ok = {s: bool(v.get("success")) and int(v.get("rows_loaded") or 0) > 0
+                  for s, v in (res or {}).items()}
+        all_ok = bool(per_ok) and all(per_ok.values())
+        try:
+            from .intel.engine_wiring import wire_success, wire_failure
+            if all_ok:
+                wire_success(module="sanctions_refresh",
+                             summary=f"canonical sanctions store refreshed: {per_ok}",
+                             source_id="main:_sanctions_refresh_once")
+            else:
+                wire_failure(module="sanctions_refresh",
+                             detail=f"sanctions refresh incomplete/failed: {res}",
+                             gap_type="source_failure", source="main:_sanctions_refresh_once")
+        except Exception:
+            pass
+        return {"refreshed": True, "ok": all_ok, "result": res}
+    except Exception as e:
+        logger.warning("[R-F2572] sanctions refresh error: %s", e)
+        try:
+            from .intel.engine_wiring import wire_failure
+            wire_failure(module="sanctions_refresh",
+                         detail=f"sanctions refresh error: {str(e)[:160]}",
+                         gap_type="engine_failure", source="main:_sanctions_refresh_once")
+        except Exception:
+            pass
+        return {"refreshed": False, "reason": f"error: {e}"}
+
+
 def _should_force_restart(
     stale_s: float, armed: bool, enabled: bool, ceiling_s: float
 ) -> bool:
@@ -997,6 +1043,30 @@ async def lifespan(app: FastAPI):
     # R-F2568: factory= so the sweeper (already failure-wired R-F2256) also auto-respawns.
     _bg_task(asyncio.create_task(_expiry_sweeper_loop(), name="expiry_sweeper"),
              factory=_expiry_sweeper_loop)
+
+    # ---- R-F2572 — keep the canonical sanctions store fresh -------------------
+    # The DAILY-SANCTIONS-REFRESH tasks.yaml task used `tool: shell`, which the autonomous
+    # engine has NO handler for → it was a silent no-op and the store went 58 DAYS stale
+    # (2026-07-12), so every clean compliance/DD screen returned INSUFFICIENT_DATA and new
+    # designations were missed. This first-class loop refreshes at boot (if stale) + every
+    # 6h, off the event loop, §21-wired, engine-singleton, factory-respawned.
+    async def _sanctions_refresh_loop():
+        await asyncio.sleep(150)  # let boot settle — don't compete with warmup or re-download eagerly
+        if _election_complete is not None:
+            await _election_complete.wait()
+        if not _runs_singletons():
+            logger.info("[R-F2572] sanctions_refresh SKIPPED (ARIA_ROLE=%s)", _aria_role())
+            return
+        while True:
+            try:
+                r = await _sanctions_refresh_once()
+                if r.get("refreshed"):
+                    logger.warning("[R-F2572] canonical sanctions refresh: %s", str(r)[:300])
+            except Exception as e:
+                logger.warning("[R-F2572] sanctions refresh loop error: %s", e)
+            await asyncio.sleep(6 * 3600)   # re-check every 6h (refresh only fires when stale)
+    _bg_task(asyncio.create_task(_sanctions_refresh_loop(), name="sanctions_refresh"),
+             factory=_sanctions_refresh_loop)
     # ---- R-F2277 - state_store liveness watchdog (per-process, NOT election- ---
     # gated: each process owns a connection that can wedge). Recovers a hung
     # aiosqlite thread the event-loop watchdog (R-F1417) can't see, escalating

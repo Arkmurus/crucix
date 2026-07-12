@@ -50,7 +50,11 @@ logging.basicConfig(
 
 SOURCES: dict[str, dict] = {
     "ofac_sdn": {
-        "url": "https://www.treasury.gov/ofac/downloads/sdn_enhanced.xml",
+        # R-F2572: treasury.gov/ofac/downloads/sdn_enhanced.xml is DEAD (404 since OFAC
+        # migrated to sanctionslistservice.ofac.treas.gov). This URL 302-redirects to a
+        # signed S3 object serving the current SDN_ENHANCED.XML (~108MB, same schema the
+        # canonical parser reads — verified 19,143 records). urllib follows the redirect.
+        "url": "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN_ENHANCED.XML",
         "local_name": "sdn_enhanced.xml",
         "loader_module": "aria_service.intel.sanctions_canonical.ofac_sdn",
     },
@@ -88,7 +92,13 @@ def _download(url: str, dest_path: str, timeout: int = 120) -> bool:
         req = urllib.request.Request(
             url,
             headers={
-                "User-Agent": "ARIA/1.0 (compliance refresh; +arkmurus.com)",
+                # R-F2572: a browser UA — the OFAC sanctionslistservice endpoint (and some
+                # gov feeds) reject non-browser UAs. urllib follows the 302 to the signed
+                # S3 URL automatically.
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+                ),
                 "Accept": "*/*",
             },
         )
