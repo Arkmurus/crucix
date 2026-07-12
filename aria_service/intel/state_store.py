@@ -879,7 +879,23 @@ async def probe_liveness(timeout_s: float = 3.0) -> bool:
         # 100ms background drain) — this is the exact op that wedged 2026-07-02.
         await asyncio.wait_for(_flush_write_queue(), timeout=timeout_s)
         got = await asyncio.wait_for(get(key), timeout=timeout_s)
-        return got == val
+        if got != val:
+            return False
+        # R-F2580 — when the hot/cold split is active, ALSO probe the COLD writer conn.
+        # The round-trip above exercises only the HOT conn (the heartbeat key routes hot),
+        # so a wedged cold writer thread would silently blind verified_facts / audit /
+        # reasoning_library with NO watchdog escalation. A lightweight, non-churning
+        # SELECT 1 through the cold writer thread detects a wedge (a stuck thread can't
+        # answer it); any timeout/error → the store is reported unavailable → the watchdog
+        # escalates → its os._exit restart reopens BOTH conns. Gated on the split + an
+        # actually-open cold conn (byte-identical when the split is off).
+        if _HOTCOLD_SPLIT and _cold_conn is not None:
+            # Consume + close the cursor (mirror the hot-conn reconnect probe) so no
+            # statement lingers; any timeout/error here → the outer except → unavailable.
+            _cur = await asyncio.wait_for(_cold_conn.execute("SELECT 1"), timeout=timeout_s)
+            await asyncio.wait_for(_cur.fetchone(), timeout=timeout_s)
+            await _cur.close()
+        return True
     except Exception:
         return False
 
