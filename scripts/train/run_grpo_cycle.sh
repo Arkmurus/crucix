@@ -88,6 +88,9 @@ $SSH -p "$PORT" root@"$HOST" \
    INIT_ADAPTER=/workspace/checkpoints/aria_llm_init \
    PROMPTS=/workspace/datasets/aria_grpo_prompts_v1.jsonl \
    EVAL_SET=/workspace/datasets/aria_eval_500q.jsonl \
+   GRPO_OUT='${GRPO_OUT:-/workspace/checkpoints/aria_llm_grpo_v1}' \
+   GRPO_REPORT='${GRPO_REPORT:-/workspace/eval/aria_llm_grpo_v1_eval.json}' \
+   MAX_PROMPTS='${MAX_PROMPTS:-220}' \
    DEEPSEEK_API_KEY='$DSK' \
    setsid nohup bash /workspace/$POD_RUN_SCRIPT > /workspace/logs/grpo_cycle.log 2>&1 < /dev/null & echo STARTED" || { echo "[driver] FATAL launch"; exit 1; }
 $SSH -p "$PORT" root@"$HOST" \

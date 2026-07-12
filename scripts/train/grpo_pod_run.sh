@@ -9,14 +9,14 @@
 set -uo pipefail
 BASE_MODEL="${BASE_MODEL:-unsloth/mistral-7b-instruct-v0.3}"
 INIT_ADAPTER="${INIT_ADAPTER:-/workspace/checkpoints/aria_llm_init}"   # uploaded SFT/DPO adapter
-GRPO_OUT="/workspace/checkpoints/aria_llm_grpo_v1"
+GRPO_OUT="${GRPO_OUT:-/workspace/checkpoints/aria_llm_grpo_v1}"   # R-F2558 overridable — don't clobber a prior winner
 PROMPTS="${PROMPTS:-/workspace/datasets/aria_grpo_prompts_v1.jsonl}"
 EVAL_SET="${EVAL_SET:-/workspace/datasets/aria_eval_500q.jsonl}"
 EVAL_DIR="/workspace/eval"; LOGS="/workspace/logs"; SCRIPTS="/workspace/crucix/scripts/train"
 PORT=8888
 NUM_GEN="${NUM_GEN:-4}"; GRPO_EPOCHS="${GRPO_EPOCHS:-1}"; GRPO_LR="${GRPO_LR:-1e-6}"
 MAX_PROMPTS="${MAX_PROMPTS:-220}"           # cap first cycle for tractable wall-clock
-GRPO_REPORT="${EVAL_DIR}/aria_llm_grpo_v1_eval.json"
+GRPO_REPORT="${GRPO_REPORT:-${EVAL_DIR}/aria_llm_grpo_v1_eval.json}"
 export HF_HOME=/workspace/.cache/huggingface
 export PYTHONPATH="/workspace/crucix:${PYTHONPATH:-}"
 mkdir -p "$EVAL_DIR" "$LOGS" "$(dirname "$GRPO_OUT")" /workspace/datasets
