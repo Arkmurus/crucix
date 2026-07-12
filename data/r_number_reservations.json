@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2585,
+  "next_available": 2586,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19764,6 +19764,16 @@
       "commit_sha": "f54109c2",
       "notes": null,
       "shipped_at": "2026-07-12T23:21:06Z"
+    },
+    {
+      "r_number": "R-F2585",
+      "title": "channel cadence: operator wants 2 Golden Intel drops/day (3 max). Add 2nd scheduled Morning-Signal cron (17:00 London complements 07:00) + set CHANNEL_MAX_DAILY_POSTS=3 (headroom for 1 breaking). Dedup+freshness gate → 2nd only posts a different fresh decision-grade signal",
+      "claimed_at": "2026-07-12T23:40:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d5323766",
+      "notes": null,
+      "shipped_at": "2026-07-12T23:45:08Z"
     }
   ]
 }
