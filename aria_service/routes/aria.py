@@ -296,7 +296,13 @@ def _aria_service_token() -> str:
 # tier when ARIA_TOKEN_SCOPING=1. Chat/read/telemetry are deliberately NOT here.
 _OPERATOR_ONLY_RE = re.compile(
     r"/api/aria/(?:autonomous/|autonomy/|self/(?:improve|deploy|code)|self/improvements/"
-    r"|coder/(?!rag/)|cost/set-cap|cost/reset-task|admin/purge|capability-gaps/purge"
+    # R-F2567: coder/* is operator-only EXCEPT the two COMPUTE endpoints coder/rag/* (R-F2243)
+    # and coder/llm. coder/llm just runs an LLM completion (no control/destructive/deploy action;
+    # LLM $ is capped §17) and was DESIGNED to accept the INTERNAL token (see its docstring). It
+    # was mis-gated operator-only, so the autonomous coder — which holds only ARIA_INTERNAL_TOKEN —
+    # got 403 on EVERY LLM call (reproduce/plan/code/heal) → self-coding loop fixed=0 (§21c P0).
+    # llm(?![-\w]) exempts exactly coder/llm (and coder/llm/…), NOT a future coder/llm-sensitive.
+    r"|coder/(?!rag/|llm(?![-\w]))|cost/set-cap|cost/reset-task|admin/purge|capability-gaps/purge"
     r"|memory/backup/restore|student/mastery/reset|portal/credentials|session/forget"
     r"|eval/|operating-mode/set|knowledge/fact"
     # R-F2458: /training-data/library-export + /export dump up to 5000 Q&A tuples
