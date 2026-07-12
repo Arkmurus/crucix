@@ -596,3 +596,58 @@ async def _public_watchlist_adapter() -> list[dict]:
 
 
 register_adapter("public_watchlist", _public_watchlist_adapter)
+
+
+# ── OFAC/UN/FCDO designation-diff adapter (R-F2560) ───────────────────────────
+_SANCTIONS_DIFF_WINDOW_H = 168   # promote designations detected in the last 7 days
+
+
+async def _sanctions_diff_adapter() -> list[dict]:
+    """Promote GENUINELY NEW OFAC/UN/FCDO designations (sanctions_designation_diff)
+    into decision-grade tier_1a `sanctions_change` signals — real primary-source
+    sanctions intel (contrast: the OpenSanctions heuristic is capped to Mining Queue)."""
+    from . import sanctions_designation_diff as sdd
+    try:
+        alerts = await sdd.get_designation_alerts(since_hours=_SANCTIONS_DIFF_WINDOW_H)
+    except Exception as exc:
+        wire_failure(_MODULE, f"sanctions diff read failed: {exc}",
+                     gap_type="golden_intel_promotion_failure", source=f"{_MODULE}:sanctions_diff")
+        return []
+    findings: list[dict] = []
+    for a in alerts or []:
+        if not isinstance(a, dict):
+            continue
+        entity = _clean(a.get("entity"))
+        if not entity:
+            continue
+        list_type = _clean(a.get("list_type")) or _clean(a.get("source")).upper()
+        programs = _clean(a.get("programs"))
+        url = _clean(a.get("citation_url"))
+        if not url.startswith(("http://", "https://")):
+            url = "https://sanctionssearch.ofac.treas.gov/"
+        why = (f"New {list_type} sanctions designation."
+               + (f" Programs: {programs}." if programs else "")
+               + (f" Listed {a.get('designation_date')}." if _clean(a.get("designation_date")) else ""))
+        findings.append({
+            "source_key": "sanctions_diff",
+            "source": f"{list_type} designation",
+            "signal_type": "sanctions_change",
+            "priority": "HIGH",
+            "confidence": "HIGH",
+            "source_tier": "tier_1a",   # primary official designation
+            "title": f"{entity}: newly designated on {list_type}",
+            "why_it_matters": why,
+            "recommended_action": "Screen counterparties; block/freeze per the designation.",
+            "target": entity,
+            "entities": {"countries": [], "products": [], "oems": []},
+            "evidence_url": url,
+            "url": url,
+            "ref": f"sanctdiff|{_clean(a.get('source'))}|{_clean(a.get('id'))}",
+            "detected_at": _clean(a.get("timestamp")),
+            "evidence_count": 1,
+            "category": "sanctions",
+        })
+    return findings
+
+
+register_adapter("sanctions_diff", _sanctions_diff_adapter)

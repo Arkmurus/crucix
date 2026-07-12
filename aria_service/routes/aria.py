@@ -26485,6 +26485,25 @@ async def intel_promote_ingest_ep(request: Request) -> dict:
     return {"source": source, "received": len(findings), "accepted": accepted}
 
 
+@router.post("/intel/sanctions/diff/run")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def intel_sanctions_diff_run_ep() -> dict:
+    """R-F2560 — run the OFAC/UN/FCDO designation-diff now: snapshot each official list,
+    detect genuinely-new designations, emit alerts for the Golden Intel bridge. First run
+    per source is a silent baseline. Returns per-source {new/baseline/skipped} stats."""
+    from ..intel import sanctions_designation_diff
+    return await sanctions_designation_diff.run_designation_diff()
+
+
+@router.get("/intel/sanctions/diff/alerts")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def intel_sanctions_diff_alerts_ep(since_hours: int = 168) -> dict:
+    """R-F2560 — recent new-designation alerts (public sanctions data)."""
+    from ..intel import sanctions_designation_diff
+    alerts = await sanctions_designation_diff.get_designation_alerts(since_hours=since_hours)
+    return {"alerts": alerts, "count": len(alerts), "since_hours": since_hours}
+
+
 @router.post("/news/poll")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def news_poll_ep(categories: str = "") -> dict:

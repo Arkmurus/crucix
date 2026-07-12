@@ -483,6 +483,13 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
             await dd_orchestrator.rescreen_public_watchlist()
         except Exception:
             pass
+        # R-F2560 — refresh the OFAC/UN/FCDO designation-diff feed (new official
+        # designations -> decision-grade Golden Intel). Non-fatal.
+        try:
+            from ..intel import sanctions_designation_diff
+            await sanctions_designation_diff.run_designation_diff()
+        except Exception:
+            pass
         return result
 
     # R-F1255 (2026-06-01): Full DD sweep — runs the 7-layer orchestrator
