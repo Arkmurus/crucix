@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2569,
+  "next_available": 2570,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19607,6 +19607,16 @@
       "commit_sha": "6e9d22e8",
       "notes": null,
       "shipped_at": "2026-07-12T19:39:51Z"
+    },
+    {
+      "r_number": "R-F2569",
+      "title": "never-false-clean invariant on /compliance/screen: a failed/unavailable/non-200 sanctions sub-check left risk_level=clear -> overall CLEAR/PERMITTED on a SANCTIONED entity (live false-clean, USP violation). Force REVIEW when screening did not actually run",
+      "claimed_at": "2026-07-12T19:58:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f1cd993f",
+      "notes": null,
+      "shipped_at": "2026-07-12T20:14:46Z"
     }
   ]
 }
