@@ -1,0 +1,34 @@
+# R-F2582 — synthetic dashboard honesty monitor (§25 proprioception, runtime layer).
+# Runs the live honesty probe on a schedule so a recurrence of the "DATA UNAVAILABLE"
+# masking class (a healthy brain rendered as "offline") is caught by CI, not by the
+# operator. A violation fails the job (visible red + notifiable). Independent of the
+# apps — probes the LIVE endpoints read-only; deploys/touches nothing.
+name: dashboard-honesty-monitor
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # every 30 min
+  workflow_dispatch: {}       # manual run
+
+permissions:
+  contents: read              # least privilege — read-only probe
+
+concurrency:
+  group: honesty-monitor
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Probe dashboard honesty invariant
+        env:
+          # Optional — set as a repo secret for full-coverage (authed) probes.
+          # Without it the probe still runs (reduced coverage) and does not false-alarm.
+          ARIA_INTERNAL_TOKEN: ${{ secrets.ARIA_INTERNAL_TOKEN }}
+        run: node scripts/monitor/dashboard_honesty_probe.mjs
