@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2572,
+  "next_available": 2576,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19637,6 +19637,43 @@
       "commit_sha": "9e13ca47",
       "notes": null,
       "shipped_at": "2026-07-12T20:59:03Z"
+    },
+    {
+      "r_number": "R-F2572",
+      "title": "sanctions refresh pipeline fix: OFAC sdn_enhanced URL dead (404, treasury.gov moved to sanctionslistservice.ofac.treas.gov) + shell-task scheduler is a no-op (no shell tool_kind) -> 58d stale. Update URL+browser UA + add reliable lifespan refresh loop (staleness-gated, wired, respawn) + disable dead shell task",
+      "claimed_at": "2026-07-12T21:33:45Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c03f62dd",
+      "notes": null,
+      "shipped_at": "2026-07-12T21:48:14Z"
+    },
+    {
+      "r_number": "R-F2573",
+      "title": "weekly autonomous training orchestrator (preflight->train->eval->gate->report->feedforward)",
+      "claimed_at": "2026-07-12T21:41:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2574",
+      "title": "register weekly training cycle in autonomous_scheduler (gated, §24-capped)",
+      "claimed_at": "2026-07-12T21:41:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2575",
+      "title": "activate runpod_scheduler weekly window (set ARIA_RUNPOD_POD_ID, work-claim backstop)",
+      "claimed_at": "2026-07-12T21:41:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
