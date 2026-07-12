@@ -193,6 +193,18 @@ async def _load_records() -> list[dict]:
         # a worker thread so concurrent chat-stream + brain-absorb stay
         # responsive during the refresh.
         records = await asyncio.to_thread(_parse_xml, xml_text)
+        # R-F2577 — partial-drift canary: a large feed that parses implausibly few records is a
+        # broken parse (schema drift). Overwriting the cache with thin data would screen dropped
+        # sanctioned entities as no-hit = clean. Keep the last-known-good cache + warn instead
+        # (floor = max(absolute 5k, 50% of prior); prior=0 first-load below 5k also refused).
+        _prior = len(_CACHE["records"])
+        _floor = max(5000, int(_prior * 0.5))
+        if records and len(records) < _floor:
+            logger.warning(
+                "[ofac_sdn] SCHEMA-DRIFT CANARY: parsed %d records (< floor %d; prior %d) from a "
+                "%.1fMB feed — keeping last-known-good cache, NOT caching thin data",
+                len(records), _floor, _prior, len(xml_text) / 1e6)
+            return _CACHE["records"]
         if records:
             _CACHE["records"] = records
             _CACHE["fetched_at"] = now

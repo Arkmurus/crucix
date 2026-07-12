@@ -170,6 +170,17 @@ async def _load_records() -> list[dict]:
         # R-F716 (2026-05-19): sync ElementTree parse on the event
         # loop — see ofac_sdn.py rationale. Moved to worker thread.
         records = await asyncio.to_thread(_parse_xml, xml_text)
+        # R-F2577 — partial-drift canary (see ofac_sdn): a large feed parsing implausibly few
+        # records is a broken parse; keep the last-known-good cache + warn rather than screen
+        # dropped UN-designated entities as clean. Floor = max(absolute 300, 50% of prior).
+        _prior = len(_CACHE["records"])
+        _floor = max(300, int(_prior * 0.5))
+        if records and len(records) < _floor:
+            logger.warning(
+                "[un_sc] SCHEMA-DRIFT CANARY: parsed %d records (< floor %d; prior %d) from a "
+                "%.1fMB feed — keeping last-known-good cache, NOT caching thin data",
+                len(records), _floor, _prior, len(xml_text) / 1e6)
+            return _CACHE["records"]
         if records:
             _CACHE["records"] = records
             _CACHE["fetched_at"] = now
