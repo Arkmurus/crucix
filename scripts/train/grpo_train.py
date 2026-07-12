@@ -56,6 +56,7 @@ def make_reward_fn():
     def grounding_reward_fn(prompts=None, completions=None, **kwargs):
         contexts = kwargs.get("context")
         answerables = kwargs.get("answerable")   # R-F2033 — per-prompt answerability
+        keywords = kwargs.get("expected_keywords")  # R-F2558 — recall/substance signal
         comps = completions or []
         if contexts is None:
             # Fall back to the prompt text as context (it carries the [Source:]
@@ -64,11 +65,30 @@ def make_reward_fn():
         out = []
         for i, c in enumerate(comps):
             ctx = contexts[i] if i < len(contexts) else ""
-            ans = answerables[i] if (answerables is not None and i < len(answerables)) else None
-            out.append(float(gr.reward(_completion_text(c), ctx or "", answerable=ans)))
+            # R-F2558: coerce answerable to a REAL bool — the dataset historically
+            # carried it as the string "True"/"False", which silently defeated
+            # score()'s `is True`/`is False` checks (dead abstention + over-claim
+            # logic in cycle #1). Never trust the raw type again.
+            ans = _to_bool(answerables[i]) if (answerables is not None and i < len(answerables)) else None
+            kw = keywords[i] if (keywords is not None and i < len(keywords)) else None
+            out.append(float(gr.reward(_completion_text(c), ctx or "",
+                                       answerable=ans, expected_keywords=kw)))
         return out
     grounding_reward_fn.__name__ = "grounding_reward"
     return grounding_reward_fn
+
+
+def _to_bool(v):
+    """R-F2558 — robust answerable coercion. Historically the dataset stored
+    answerable as the STRING "True"/"False"; `"False"` is truthy, so every
+    identity/`if` check silently misfired. Normalise once, here."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "1", "yes")
+    if v is None:
+        return None
+    return bool(v)
 
 
 def _prompt_text(p) -> str:
@@ -105,13 +125,15 @@ def dry_run(ds_path: Path) -> int:
            if not isinstance(r.get("prompt"), list) or not r.get("context")
            or "answerable" not in r]
     assert not bad, f"{len(bad)} rows missing prompt(list)/context/answerable (e.g. idx {bad[:3]})"
-    n_ans = sum(1 for r in rows if r.get("answerable"))
+    n_ans = sum(1 for r in rows if _to_bool(r.get("answerable")))
+    n_kw = sum(1 for r in rows if r.get("expected_keywords"))
     print(f"[dry-run] dataset OK: {len(rows)} prompts (answerable={n_ans}, "
-          f"unanswerable={len(rows) - n_ans}), all have prompt+context+answerable")
+          f"unanswerable={len(rows) - n_ans}, with expected_keywords={n_kw}), "
+          f"all have prompt+context+answerable")
 
     rf = make_reward_fn()
-    ans_row = next((r for r in rows if r.get("answerable")), rows[0])
-    unans_row = next((r for r in rows if not r.get("answerable")), None)
+    ans_row = next((r for r in rows if _to_bool(r.get("answerable"))), rows[0])
+    unans_row = next((r for r in rows if _to_bool(r.get("answerable")) is False), None)
     ctx = ans_row["context"]
     real_src = (gr.extract_citations(ctx) or ["web_search:example"])[0]
     grounded = f"Per the evidence, the figure is X [Source: {real_src}]."
@@ -124,6 +146,23 @@ def dry_run(ds_path: Path) -> int:
     print(f"[dry-run] ANSWERABLE: grounded={r_g:.3f}  abstain={r_a:.3f}  fabricated={r_f:.3f}")
     assert r_g > r_a, f"on answerable, grounded({r_g}) must beat abstain({r_a}) — the R-F2033 fix"
     assert r_g > r_f and r_a >= r_f, "fabrication must be worst"
+
+    # R-F2558: the RECALL signal must be LIVE — a grounded answer that STATES the
+    # expected facts must beat an equally-grounded but terse answer that omits them.
+    # (In cycle #1 expected_keywords was absent, so this term was always 0 and the
+    # model was never pushed to be substantive → recall stayed flat at ~0.22.)
+    kw_row = next((r for r in rows if _to_bool(r.get("answerable")) and r.get("expected_keywords")), None)
+    if kw_row is not None:
+        kctx = kw_row["context"]; kws = kw_row["expected_keywords"]
+        ksrc = (gr.extract_citations(kctx) or ["web_search:example"])[0]
+        substantive = f"The evidence states {', '.join(kws)} [Source: {ksrc}]."
+        terse = f"Per the evidence, the answer is noted [Source: {ksrc}]."
+        r_sub, r_terse = rf(completions=[substantive, terse],
+                            context=[kctx, kctx], answerable=[True, True],
+                            expected_keywords=[kws, kws])
+        print(f"[dry-run] RECALL: substantive={r_sub:.3f}  terse={r_terse:.3f}  (kw n={len(kws)})")
+        assert r_sub > r_terse, (f"R-F2558 recall signal DEAD: stating the facts ({r_sub}) "
+                                 f"must beat terse ({r_terse}) — expected_keywords not wired")
 
     if unans_row is not None:
         uctx = unans_row["context"]
