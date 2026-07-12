@@ -128,8 +128,15 @@ def _drift_min_fraction() -> float:
         return 0.5
 
 
-def replace_source(source: str, rows, batch_size: int = 500) -> int:
+def replace_source(source: str, rows, batch_size: int = 500,
+                   *, absolute_floor: int = 0) -> int:
     """Atomically replace all rows for a single source.
+
+    R-F2576 — `absolute_floor`: refuse the replace if fewer than this many rows are
+    parsed, EVEN on a first load (prior=0, where the R-F2570 fraction floor is exempt).
+    This catches a broken FIRST load on a fresh container that would otherwise commit
+    thin data and screen sanctioned entities CLEAR. Only the download pipeline
+    (load_from_file) passes it; direct-seeded fixtures use the default 0 (no floor).
 
     R-F527 (2026-05-15): `rows` may now be either a list OR an
     iterator/generator. Generators stream without materialising
@@ -208,6 +215,10 @@ def replace_source(source: str, rows, batch_size: int = 500) -> int:
                             ),
                         )
                     inserted += 1
+                # R-F2576 — absolute first-load floor: catches a broken FIRST load (prior=0,
+                # where the fraction floor below is exempt) before it commits thin data.
+                if absolute_floor > 0 and inserted < absolute_floor:
+                    raise CoverageDriftError(source, inserted, absolute_floor)
                 # R-F2570 — coverage-drift floor: refuse to overwrite a healthy list with an
                 # implausibly small parse (partial schema drift). Raising here lets the outer
                 # except ROLLBACK, preserving the last-known-good rows. prior_count==0 (first

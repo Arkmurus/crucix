@@ -13,6 +13,7 @@ future growth.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Iterator
 
@@ -24,6 +25,10 @@ from .normalise import normalise_name
 logger = logging.getLogger("aria.sanctions_canonical.ofac_sdn")
 
 SOURCE_ID = "ofac_sdn"
+# R-F2576 — absolute first-load floor. OFAC SDN realistically holds ~19k entities; a load
+# that parses fewer than this is a broken parse (schema drift) and must not overwrite/seed
+# the store — refuse it so sanctioned entities are never screened CLEAR against thin data.
+_MIN_EXPECTED_ROWS = int(os.getenv("ARIA_OFAC_MIN_ROWS", "10000"))
 UPSTREAM_URL = "https://www.treasury.gov/ofac/downloads/sdn_enhanced.xml"
 
 
@@ -298,7 +303,8 @@ def load_from_file(xml_path: str) -> int:
     success = False
     error = ""
     try:
-        rows_loaded = store.replace_source(SOURCE_ID, parse_xml(xml_path))
+        rows_loaded = store.replace_source(
+            SOURCE_ID, parse_xml(xml_path), absolute_floor=_MIN_EXPECTED_ROWS)
         success = True
         logger.info("[ofac_sdn] loaded %d entries from %s", rows_loaded, xml_path)
         # R-F1304 — wire success to brain (§21a)

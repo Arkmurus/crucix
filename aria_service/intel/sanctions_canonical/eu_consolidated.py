@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import os
 import time
 from typing import Iterator
 
@@ -25,6 +26,9 @@ from .normalise import normalise_name
 logger = logging.getLogger("aria.sanctions_canonical.eu_consolidated")
 
 SOURCE_ID = "eu_consolidated"
+# R-F2576 — absolute first-load floor. The EU consolidated list realistically holds ~6k
+# entities; a load parsing fewer is a broken parse — refuse it (never seed thin data).
+_MIN_EXPECTED_ROWS = int(os.getenv("ARIA_EU_MIN_ROWS", "1000"))
 UPSTREAM_URL = (
     "https://webgate.ec.europa.eu/fsd/fsf/public/files/"
     "csvFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw"
@@ -172,7 +176,7 @@ def load_from_file(csv_path: str) -> int:
     error = ""
     try:
         rows = list(parse_csv(csv_path))
-        rows_loaded = store.replace_source(SOURCE_ID, rows)
+        rows_loaded = store.replace_source(SOURCE_ID, rows, absolute_floor=_MIN_EXPECTED_ROWS)
         success = True
         logger.info("[eu_consolidated] loaded %d entries from %s", rows_loaded, csv_path)
         # R-F1304 — wire success to brain (§21a)
