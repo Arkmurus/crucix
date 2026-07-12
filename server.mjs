@@ -6322,6 +6322,14 @@ async function runSweepCycle() {
       console.error('[BD] BD intelligence failed after retries — using cached data');
     }
 
+    // R-F2557 — push BD opportunities + OpenSanctions findings to the Python Golden
+    // Intel promotion bridge. Node/Python share no store, so this HTTP push is the
+    // only way these Node-tier findings reach the signal feed. Non-fatal.
+    try {
+      const { pushPromotionsToBrain } = await import('./apis/promotion_bridge.mjs');
+      await pushPromotionsToBrain(synthesized);
+    } catch (e) { console.warn('[PromotionBridge] push failed (non-fatal):', e.message); }
+
     // Check restart flag — apply pending self-updates after sweep completes
     if (isRestartPending()) {
       console.log('[Self] Restart flag detected — will restart after current sweep to apply updates');

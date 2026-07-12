@@ -26418,6 +26418,29 @@ async def intel_promote_run_ep() -> dict:
     return await golden_intel_bridge.run_promotion_pass()
 
 
+@router.post("/intel/promote/ingest")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def intel_promote_ingest_ep(request: Request) -> dict:
+    """R-F2557 — cross-tier ingest for the Golden Intel promotion bridge. aria-web
+    (Node) and aria-intel (Python) share no store, so Node-only sources (BD
+    Intelligence, OpenSanctions) POST their structured findings here to be promoted
+    into the signal feed. Body: {source, findings:[{signal_type, priority, title,
+    why_it_matters, recommended_action, source_tier, evidence_url, entities, ...}]}.
+    Queued for the next promotion pass; a per-source honesty policy is enforced
+    server-side (e.g. opensanctions is capped to Mining-Queue tier)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return {"accepted": 0, "error": "invalid_json"}
+    source = str(body.get("source") or "unknown")
+    findings = body.get("findings") or []
+    if not isinstance(findings, list):
+        return {"accepted": 0, "error": "findings_not_a_list"}
+    from ..intel import golden_intel_bridge
+    accepted = await golden_intel_bridge.push_to_inbox(source, findings)
+    return {"source": source, "received": len(findings), "accepted": accepted}
+
+
 @router.post("/news/poll")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def news_poll_ep(categories: str = "") -> dict:

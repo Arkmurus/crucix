@@ -407,3 +407,101 @@ async def _tender_adapter() -> list[dict]:
 
 
 register_adapter("tender_monitor", _tender_adapter)
+
+
+# ── Node→brain ingest inbox (R-F2557) ────────────────────────────────────────
+# aria-web (Node) and aria-intel (Python) do NOT share a store, so Node-only
+# sources (BD Intelligence / OpenSanctions) reach the bridge by POSTing structured
+# findings to /api/aria/intel/promote/ingest -> push_to_inbox(). The inbox is
+# drained each promotion pass by _inbox_adapter().
+_INBOX_KEY = "crucix:golden_intel_bridge:inbox"
+_MAX_INBOX = 300               # cap the queue (oldest dropped) — bounded growth
+_MAX_INGEST_BATCH = 100        # per-POST cap
+_INBOX_DRAIN_PER_PASS = 40     # promote at most this many per pass (vs 500-slot flood)
+
+# Per-source honesty policy (SERVER-SIDE): cap what a NAMED source may claim. This
+# constrains the DECLARED source (e.g. opensanctions -> Mining Queue). It is NOT a
+# general anti-injection guarantee — auth is that (the ingest route is token-gated,
+# routes/aria.py:251, fail-closed in prod). A caller is bound by the policy of whatever
+# source label it declares; a relabelled finding takes that label's policy (or none).
+_PRIORITY_RANK = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
+_TIER_RANK = {"tier_1a": 4, "tier_1b": 3, "tier_2": 2, "tier_3": 1, "unclassified": 0}
+_RANK_PRIORITY = {3: "HIGH", 2: "MEDIUM", 1: "LOW"}
+_RANK_TIER = {4: "tier_1a", 3: "tier_1b", 2: "tier_2", 1: "tier_3", 0: "unclassified"}
+_SOURCE_POLICY = {
+    # OpenSanctions live feed is a heuristic (OPENSANCTIONS_API_KEY unset in prod →
+    # Treasury RSS fallback, no confirmed designation dates). Cap to Mining Queue:
+    # MEDIUM priority alone keeps quality_label out of "decision-grade"; tier_2 is a
+    # belt-and-suspenders ceiling. It can NEVER reach public "Distribution Ready".
+    "opensanctions": {"max_priority": "MEDIUM", "max_tier": "tier_2"},
+}
+
+
+def _apply_source_policy(finding: dict) -> dict:
+    pol = _SOURCE_POLICY.get(_clean(finding.get("source_key")))
+    if not pol:
+        return finding
+    if "max_priority" in pol:
+        cur = _PRIORITY_RANK.get((_clean(finding.get("priority")) or "LOW").upper(), 1)
+        cap = _PRIORITY_RANK.get(pol["max_priority"], 2)
+        if cur > cap:
+            finding["priority"] = _RANK_PRIORITY[cap]
+    if "max_tier" in pol:
+        cur = _TIER_RANK.get((_clean(finding.get("source_tier")) or "unclassified").lower(), 0)
+        cap = _TIER_RANK.get(pol["max_tier"], 2)
+        if cur > cap:
+            finding["source_tier"] = _RANK_TIER[cap]
+    return finding
+
+
+async def push_to_inbox(source: str, findings: list) -> int:
+    """Queue structured findings pushed from the Node tier for the next promotion
+    pass. Returns the count accepted. Defensive: a finding needs a title + a
+    signal_type; source_key is stamped SERVER-SIDE (client claim ignored)."""
+    source = _clean(source) or "unknown"
+    accepted = 0
+    for f in (findings or [])[:_MAX_INGEST_BATCH]:
+        if not isinstance(f, dict):
+            continue
+        if not _clean(f.get("title") or f.get("decision_summary")):
+            continue
+        if not _clean(f.get("signal_type")):
+            continue
+        f["source_key"] = source
+        try:
+            await rs.lpush(_INBOX_KEY, json.dumps(f, default=str))
+        except Exception as exc:
+            logger.warning("[%s] inbox push failed for %s: %s", _MODULE, source, exc)
+            wire_failure(_MODULE, f"inbox push failed ({source}): {exc}",
+                         gap_type="golden_intel_promotion_failure", source=f"{_MODULE}:ingest")
+            break
+        accepted += 1
+    if accepted:
+        try:
+            await rs.ltrim(_INBOX_KEY, 0, _MAX_INBOX - 1)
+        except Exception:
+            logger.debug("[%s] inbox trim failed", _MODULE, exc_info=True)
+    return accepted
+
+
+async def _inbox_adapter() -> list[dict]:
+    """Drain the Node→brain ingest inbox (atomic lpop_multi = processed once) and
+    return the queued findings with the per-source honesty policy applied."""
+    try:
+        raw = await rs.lpop_multi(_INBOX_KEY, _INBOX_DRAIN_PER_PASS)
+    except Exception as exc:
+        wire_failure(_MODULE, f"inbox drain failed: {exc}",
+                     gap_type="golden_intel_promotion_failure", source=f"{_MODULE}:inbox")
+        return []
+    findings: list[dict] = []
+    for r in raw or []:
+        try:
+            f = json.loads(r) if isinstance(r, str) else r
+            if isinstance(f, dict):
+                findings.append(_apply_source_policy(f))
+        except Exception:
+            continue
+    return findings
+
+
+register_adapter("ingested", _inbox_adapter)
