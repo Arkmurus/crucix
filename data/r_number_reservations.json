@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2570,
+  "next_available": 2571,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19617,6 +19617,16 @@
       "commit_sha": "f1cd993f",
       "notes": null,
       "shipped_at": "2026-07-12T20:14:46Z"
+    },
+    {
+      "r_number": "R-F2570",
+      "title": "canonical sanctions partial-drift floor (never-false-clean): replace_source refuse-to-replace when a refresh parses <50% of prior rows (preserve last-known-good) + per-source plausibility floor in check_sanctions H2 before CLEAR (OFAC/EU implausibly-thin -> coverage gap, not clean)",
+      "claimed_at": "2026-07-12T20:21:21Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "812dd852",
+      "notes": null,
+      "shipped_at": "2026-07-12T20:43:39Z"
     }
   ]
 }
