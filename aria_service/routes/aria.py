@@ -1758,15 +1758,40 @@ async def dd_layer_5c_digital_stats_ep(limit: int = 200):
 # ── R-F1182: VLS (Verifiable Ledger System) endpoints ──────────────────────
 
 
+async def _dd_vls_run_access_ok(dd_orchestrator, run_id: str, user_id: str,
+                                user_email_domain: str) -> bool:
+    """R-F2588 — may this caller read VLS proof/verify for `run_id`?
+
+    Mirrors the by-id report ACL (dd_report_delete_ep): owner or same-company
+    shared, admin/internal (user_id='') always. A SCOPED caller whose run_id
+    maps to no known report fails CLOSED (don't reveal proof existence for an
+    unknown/unowned run_id — run_id is random so not enumerable, but we still
+    never confirm existence to a stranger). Internal (user_id='') is allowed
+    through so server-to-server verification keeps working.
+    """
+    _report = await dd_orchestrator.get_report(run_id)
+    if _report is not None:
+        _acl = await _dd_report_acl_context(dd_orchestrator, run_id, _report)
+        return _dd_report_access_allowed(_acl, user_id, user_email_domain)
+    return not user_id  # unknown run_id: internal→allow, scoped→deny (fail closed)
+
+
 @router.get("/dd/vls/proof/{run_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_vls_proof_ep(run_id: str):
+async def dd_vls_proof_ep(run_id: str, user_id: str = "", user_email_domain: str = ""):
     """R-F1182 — retrieve the VLS cryptographic proof for a DD report.
 
     Returns the proof (hash, signature, chain link) or 404 if no proof
     exists (pre-VLS reports, or the proof was never stored).
+
+    R-F2588 — ownership gate (confirmed cross-tenant IDOR: existence + chain
+    metadata leak by run_id). Only the owner / same-company colleague / internal
+    caller may read a report's proof; everyone else 404s.
     """
+    from ..intel import dd_orchestrator
     from ..intel import verifiable_ledger as _vls
+    if not await _dd_vls_run_access_ok(dd_orchestrator, run_id, user_id, user_email_domain):
+        raise HTTPException(status_code=404, detail=f"No VLS proof found for run_id={run_id}")
     proof = await _vls.get_proof(run_id)
     if not proof:
         raise HTTPException(status_code=404, detail=f"No VLS proof found for run_id={run_id}")
@@ -1775,25 +1800,46 @@ async def dd_vls_proof_ep(run_id: str):
 
 @router.get("/dd/vls/verify/{run_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_vls_verify_single_ep(run_id: str):
+async def dd_vls_verify_single_ep(run_id: str, user_id: str = "", user_email_domain: str = ""):
     """R-F1182 — verify a single DD report's VLS integrity.
 
     Checks the hash and ECDSA signature of the stored report body
     against the VLS proof. Does NOT check chain linking.
+
+    R-F2588 — ownership gate (see dd_vls_proof_ep): the verify result leaks the
+    risk_classification + chain metadata, so it is owner/internal-only.
     """
+    from ..intel import dd_orchestrator
     from ..intel import verifiable_ledger as _vls
+    if not await _dd_vls_run_access_ok(dd_orchestrator, run_id, user_id, user_email_domain):
+        raise HTTPException(status_code=404, detail=f"No VLS proof found for run_id={run_id}")
     return await _vls.verify_single(run_id)
 
 
 @router.get("/dd/vls/chain/{canonical_entity_id:path}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_vls_chain_ep(canonical_entity_id: str):
+async def dd_vls_chain_ep(canonical_entity_id: str, user_id: str = "",
+                          user_email_domain: str = ""):
     """R-F1182 — verify the entire VLS chain for a canonical entity.
 
     Checks every proof's hash, signature, and chain-of-hash linking.
     Returns per-version results and an overall verified flag.
+
+    R-F2588 — ownership gate. This was the most severe leg of the confirmed
+    IDOR: canonical_entity_id is deterministic/reconstructable from public data
+    (company:GB:<regnum>, person:<name>:GB:<year>), so an ungated chain verify
+    let any authenticated user enumerate "does ARIA hold a DD on entity X, how
+    many versions, and what risk verdict". Mirror dd_case_ep: a scoped user may
+    only verify a chain for an entity they own a report for; else 404. Internal
+    (user_id='') → unrestricted.
     """
     from ..intel import verifiable_ledger as _vls
+    _owned = await _dd_owned_entity_ids(user_id, user_email_domain)
+    if _owned is not None and canonical_entity_id not in _owned:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no VLS chain found for canonical_entity_id={canonical_entity_id}",
+        )
     return await _vls.verify_chain(canonical_entity_id)
 
 
