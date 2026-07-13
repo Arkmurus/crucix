@@ -19840,9 +19840,10 @@
       "title": "xlsx untrusted-attachment DoS guard — size-cap before XLSX.read in email + WA parse paths (no upstream xlsx fix)",
       "claimed_at": "2026-07-13T09:17:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bd8ae4bb",
+      "notes": null,
+      "shipped_at": "2026-07-13T09:29:56Z"
     }
   ]
 }
