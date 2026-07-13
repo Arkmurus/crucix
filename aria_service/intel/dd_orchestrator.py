@@ -2958,9 +2958,24 @@ async def _run_identity(
             # this guard stops the misleading "verified" label on the same outage.
             _ofsi = _ofsi_result or {}
             if not _ofsi.get("error") and not _ofsi.get("stale") and not _ofsi.get("source_unavailable"):
-                _vs = list(screen.get("verified_sources") or [])
+                # R-F2590 — verified_sources is a dict[str, dict] (derive_verified_sources,
+                # _sanctions_classify.py:196). The old `list(screen.get("verified_sources"))`
+                # collapsed that dict to a LIST OF KEYS, so downstream `.items()` at
+                # _run_verification (dd_orchestrator.py:6086) crashed the whole DD with
+                # "'list' object has no attribute 'items'" — deterministically, whenever the
+                # OFSI lookup returned clean (as it did for Modirum Gespi / BR). Add uk_ofsi
+                # as a proper dict entry matching the schema so the shape is preserved and
+                # uk_ofsi is honestly credited as a checked source.
+                _vs = screen.get("verified_sources")
+                if not isinstance(_vs, dict):
+                    _vs = {}
                 if "uk_ofsi" not in _vs:
-                    _vs.append("uk_ofsi")
+                    _vs["uk_ofsi"] = {
+                        "label": "UK OFSI — HM Treasury Consolidated List",
+                        "status": "HIT" if _ofsi_hits else "CLEAN",
+                        "match_count": len(_ofsi_hits),
+                        "matched_entities": [(h.get("name") or name) for h in _ofsi_hits][:5],
+                    }
                 screen["verified_sources"] = _vs
         except Exception as _ofsi_e:
             logger.debug(
@@ -6080,7 +6095,11 @@ async def _run_verification(target: dict, report: ARKDDReport) -> None:
         # R-F2411: the live pipeline sets sanctions_screen as a dict (see
         # _screen_identity), but guard the shape so a legacy/list-shaped screen
         # can never crash the grounded-rate honesty metric for the whole report.
-        _vsrc = (_ss.get("verified_sources") or {}) if isinstance(_ss, dict) else {}
+        # R-F2590 — guard the INNER shape too (R-F2411 only checked the outer _ss). A
+        # non-dict verified_sources (e.g. a legacy/corrupted list) must never reach
+        # `.items()` below and crash the whole report; fall through to the else-branch.
+        _vsrc_raw = _ss.get("verified_sources") if isinstance(_ss, dict) else None
+        _vsrc = _vsrc_raw if isinstance(_vsrc_raw, dict) else {}
         # count only lists actually QUERIED (CLEAN/HIT), never UNAVAILABLE ones.
         _checked_lists = [
             k for k, v in _vsrc.items()
