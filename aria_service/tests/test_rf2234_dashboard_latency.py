@@ -112,14 +112,20 @@ def test_rf2234_second_call_within_ttl_is_cached(monkeypatch):
 
 
 def test_rf2234_registry_paths_are_frontend_paths():
-    """Every registry key must be a real frontend fetchJson path, and the
-    ambiguous /dd/layer-5c/stats must be OMITTED (documented safety fallback)."""
+    """Every registry key must be a real frontend fetchJson path, and
+    /dd/layer-5c/stats must now be COVERED (R-F2587).
+
+    It was previously omitted as an "ambiguous dup-handler path", but R-F2278
+    resolved that collision (the digital-footprint variant was renamed to
+    `dd_layer_5c_digital_stats_ep`), so `dd_layer_5c_stats_ep` is a unique
+    symbol and R-F2587 includes it — removing the last structural fall-through.
+    """
     reg = aria_routes._dashboard_panel_registry()
     assert set(reg.keys()) <= _FRONTEND_REFRESH_PATHS, (
         "registry contains a path the frontend never fetches: "
         f"{set(reg.keys()) - _FRONTEND_REFRESH_PATHS}"
     )
-    assert "/dd/layer-5c/stats" not in reg, "ambiguous dup-handler path must be omitted"
+    assert "/dd/layer-5c/stats" in reg, "R-F2587: dd/layer-5c/stats must be covered post-R-F2278"
     # sanity: registry should carry the bulk of the panels
     assert len(reg) >= 20
 

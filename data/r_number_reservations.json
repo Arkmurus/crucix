@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2586,
+  "next_available": 2588,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19774,6 +19774,25 @@
       "commit_sha": "d5323766",
       "notes": null,
       "shipped_at": "2026-07-12T23:45:08Z"
+    },
+    {
+      "r_number": "R-F2586",
+      "title": "GRPO cycle 3 precision lever: env-configurable precision_weight in grounding_reward (default unchanged)",
+      "claimed_at": "2026-07-13T06:17:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "35c9f68f",
+      "notes": null,
+      "shipped_at": "2026-07-13T06:21:05Z"
+    },
+    {
+      "r_number": "R-F2587",
+      "title": "aggregate covers dd/layer-5c/stats — obsolete post-R-F2278 omission removes last dashboard fall-through",
+      "claimed_at": "2026-07-13T06:52:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

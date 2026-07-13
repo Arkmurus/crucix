@@ -26132,11 +26132,17 @@ def _dashboard_panel_registry() -> dict:
     direct per-path probe for any omitted path, so omission is safe, never
     fatal.
 
-    OMITTED: "/dd/layer-5c/stats" — two route handlers share the symbol
-    `dd_layer_5c_stats_ep` (aria.py has both an :1079 and an :1217 def). The
-    module name resolves to the SECOND while the live ROUTE resolves to the
-    FIRST, so calling the symbol here would return a DIFFERENT payload than the
-    direct probe. Left out; the frontend probes it directly.
+    R-F2587 (2026-07-13): "/dd/layer-5c/stats" is now INCLUDED. It was omitted
+    because two handlers once shared the symbol `dd_layer_5c_stats_ep`, so the
+    module name and the live route resolved to different payloads. R-F2278
+    (2026-07-02) resolved that collision — the digital-footprint variant was
+    renamed to `dd_layer_5c_digital_stats_ep` (see :1712), leaving
+    `dd_layer_5c_stats_ep` (:1517, commercial-coherence — the payload the page
+    actually reads) a UNIQUE symbol. Including it removes the last structural
+    fall-through, so a signed-in operator gets all 24 panels from the one cached
+    aggregate instead of a direct probe that (in a signed-out/partial state)
+    reads as an "operator panel requires sign-in". Handler takes only limit
+    (default 200) — matches the frontend's query-less fetch, no Request needed.
     """
     return {
         "/health": health_check_ep,
@@ -26145,6 +26151,7 @@ def _dashboard_panel_registry() -> dict:
         "/adversarial/stats": adversarial_stats_ep,
         "/circuit-breakers": circuit_breakers_ep,
         "/adversarial/amendments": adversarial_amendments_ep,
+        "/dd/layer-5c/stats": dd_layer_5c_stats_ep,  # R-F2587: unique symbol post-R-F2278
         "/predictor/block_rate": predictor_block_rate_ep,
         "/chat-audit/stats": chat_audit_stats_ep,
         "/chat-audit/recent?limit=10": lambda: chat_audit_recent_ep(limit=10),
