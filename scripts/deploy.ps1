@@ -6,12 +6,19 @@ Mirrors scripts/deploy.sh exactly: push guard, build_rev verification,
 polling, health checks.
 
 Usage:
-  .\scripts\deploy.ps1 [-Intel] [-Web] [-Wa] [-All]
+  .\scripts\deploy.ps1 [-Intel] [-Web] [-Wa] [-All] [-CleanHead]
 
 Examples:
   .\scripts\deploy.ps1 -All          # deploy all three apps
   .\scripts\deploy.ps1 -Intel        # aria-intel only
   .\scripts\deploy.ps1 -Web -Wa      # aria-web + aria-wa only
+  .\scripts\deploy.ps1 -Intel -CleanHead   # deploy EXACTLY committed HEAD
+
+-CleanHead (R-F2591): before deploying, stash any uncommitted working-tree
+changes so the image is built from committed HEAD ONLY, then restore them
+afterwards (always, via finally). Use this to deploy collision-safely when a
+parallel agent has uncommitted WIP in the shared tree — it replaces the manual
+stash-shield dance. A pop conflict never loses work (changes stay in git stash).
 
 Prereqs: flyctl installed + authenticated, git available.
 #>
@@ -21,7 +28,8 @@ param(
     [switch]$Web,
     [switch]$Wa,
     [switch]$Searxng,
-    [switch]$All
+    [switch]$All,
+    [switch]$CleanHead
 )
 
 $ErrorActionPreference = "Stop"
@@ -187,53 +195,84 @@ function Deploy-And-Verify {
     return $false
 }
 
+# ---- R-F2591: CleanHead shield — stash dirty tree so the image == committed HEAD ----
+$stashed = $false
+if ($CleanHead) {
+    $dirty = git status --porcelain
+    if ($dirty) {
+        Write-Host "  [CleanHead] working tree dirty - stashing so the image is built from committed HEAD ($GIT_SHORT) only"
+        git stash push -u -m "deploy-cleanhead-$GIT_SHORT" 2>&1 | Select-Object -Last 1 | ForEach-Object { Write-Host "    $_" }
+        $stashed = $true
+    } else {
+        Write-Host "  [CleanHead] working tree already clean - nothing to shield"
+    }
+    Write-Host ""
+}
+
 # ---- Write last deploy SHA ----
 Set-Content -Path "$REPO_ROOT/.last_deploy_sha" -Value $GIT_SHORT -NoNewline
 
-# ---- Execute deploys ----
-# R-F1369: judge ONLY the function's final return value (last element), never
-# the whole output stream — any stray stdout from a helper would otherwise make
-# a $false return look truthy and swallow the failure (see Deploy-And-Verify).
-$failures = 0
-if ($Intel) {
-    $result = @(Deploy-And-Verify "aria-intel" "fly.toml" 900)[-1]
-    if ($result -ne $true) { $failures++ }
-}
-if ($Web) {
-    $result = @(Deploy-And-Verify "aria-web" "fly.web.toml" 600)[-1]
-    if ($result -ne $true) { $failures++ }
-}
-if ($Wa) {
-    $result = @(Deploy-And-Verify "aria-wa" "fly.wa.toml" 600)[-1]
-    if ($result -ne $true) { $failures++ }
-}
-if ($Searxng) {
-    $result = @(Deploy-And-Verify "aria-searxng" "searxng/fly.toml" 300)[-1]
-    if ($result -ne $true) { $failures++ }
-}
-
-Write-Host ""
-if ($failures -eq 0) {
-    $tagName = "deploy-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-    git tag $tagName $GIT_SHA 2>$null
-    if (-not $?) { Write-Host "  [WARN] git tag failed (non-fatal)" }
-    Write-Host "=== [PASS] ALL DEPLOYS VERIFIED LIVE (commit $GIT_SHORT is serving) ==="
-
-    # ---- Live health regression suite ----
-    Write-Host ""
-    Write-Host "=== Running live health regression suite ==="
-    # R-F1478: pass the sha THIS deploy actually shipped, so the check verifies the
-    # real deployed commit and is immune to a concurrent ci_deploy overwriting
-    # .last_deploy_sha mid-deploy (which false-failed every manual deploy).
-    python "$REPO_ROOT/scripts/live_health_check.py" --app all --expected-sha $GIT_SHORT
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "=== [FAIL] Live health regression suite FAILED - deploy succeeded but health checks failed. ==="
-        Write-Host "    Check flyctl logs -a (app) for details."
-        exit 1
+$exitCode = 0
+try {
+    # ---- Execute deploys ----
+    # R-F1369: judge ONLY the function's final return value (last element), never
+    # the whole output stream — any stray stdout from a helper would otherwise make
+    # a $false return look truthy and swallow the failure (see Deploy-And-Verify).
+    $failures = 0
+    if ($Intel) {
+        $result = @(Deploy-And-Verify "aria-intel" "fly.toml" 900)[-1]
+        if ($result -ne $true) { $failures++ }
     }
-    Write-Host "=== [PASS] Live health regression suite PASSED ==="
-    exit 0
-} else {
-    Write-Host "=== [FAIL] $failures deploy(s) NOT verified live - NOT shipped. Fix + re-run. ==="
-    exit 1
+    if ($Web) {
+        $result = @(Deploy-And-Verify "aria-web" "fly.web.toml" 600)[-1]
+        if ($result -ne $true) { $failures++ }
+    }
+    if ($Wa) {
+        $result = @(Deploy-And-Verify "aria-wa" "fly.wa.toml" 600)[-1]
+        if ($result -ne $true) { $failures++ }
+    }
+    if ($Searxng) {
+        $result = @(Deploy-And-Verify "aria-searxng" "searxng/fly.toml" 300)[-1]
+        if ($result -ne $true) { $failures++ }
+    }
+
+    Write-Host ""
+    if ($failures -eq 0) {
+        $tagName = "deploy-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        git tag $tagName $GIT_SHA 2>$null
+        if (-not $?) { Write-Host "  [WARN] git tag failed (non-fatal)" }
+        Write-Host "=== [PASS] ALL DEPLOYS VERIFIED LIVE (commit $GIT_SHORT is serving) ==="
+
+        # ---- Live health regression suite ----
+        Write-Host ""
+        Write-Host "=== Running live health regression suite ==="
+        # R-F1478: pass the sha THIS deploy actually shipped, so the check verifies the
+        # real deployed commit and is immune to a concurrent ci_deploy overwriting
+        # .last_deploy_sha mid-deploy (which false-failed every manual deploy).
+        python "$REPO_ROOT/scripts/live_health_check.py" --app all --expected-sha $GIT_SHORT
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "=== [FAIL] Live health regression suite FAILED - deploy succeeded but health checks failed. ==="
+            Write-Host "    Check flyctl logs -a (app) for details."
+            $exitCode = 1
+        } else {
+            Write-Host "=== [PASS] Live health regression suite PASSED ==="
+            $exitCode = 0
+        }
+    } else {
+        Write-Host "=== [FAIL] $failures deploy(s) NOT verified live - NOT shipped. Fix + re-run. ==="
+        $exitCode = 1
+    }
 }
+finally {
+    # R-F2591: ALWAYS restore the shielded WIP, even if a deploy threw. A pop
+    # conflict never loses work — the changes stay in `git stash list`.
+    if ($stashed) {
+        Write-Host ""
+        Write-Host "  [CleanHead] restoring stashed working-tree changes..."
+        git stash pop 2>&1 | Select-Object -Last 3 | ForEach-Object { Write-Host "    $_" }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  [CleanHead][WARN] 'git stash pop' hit a conflict - your changes are SAFE in 'git stash list'; resolve manually."
+        }
+    }
+}
+exit $exitCode
