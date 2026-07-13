@@ -25,8 +25,16 @@ def record_request(latency_ms: float) -> None:
     _metrics["latency_ms_sum"] += latency_ms
 
 
-def generate_metrics() -> str:
-    """Generate Prometheus-formatted metrics text."""
+def generate_metrics(monthly_cost: dict | None = None) -> str:
+    """Generate Prometheus-formatted metrics text.
+
+    R-F2589: `monthly_cost` is the cost_tracker.get_month_breakdown() dict,
+    fetched by the (async) caller and passed in — generate_metrics is sync and
+    cannot await. Pre-R-F2589 this called a non-existent sync
+    cost_tracker.get_monthly_cost() inside a try/except, so the
+    aria_llm_monthly_cost_usd gauge silently NEVER emitted. Pass None to skip
+    the gauge (back-compat).
+    """
     lines = [
         "# HELP aria_requests_total Total HTTP requests",
         "# TYPE aria_requests_total counter",
@@ -62,16 +70,16 @@ def generate_metrics() -> str:
     except Exception:
         pass
 
-    # Add cost tracker stats if available
+    # Add cost tracker stats if available (R-F2589: passed in by the async
+    # caller; real key is total_cost_usd — get_month_breakdown's shape).
     try:
-        from aria_service.intel import cost_tracker as _ct
-        monthly = _ct.get_monthly_cost()
-        lines.extend([
-            "",
-            "# HELP aria_llm_monthly_cost_usd Monthly LLM cost in USD",
-            "# TYPE aria_llm_monthly_cost_usd gauge",
-            f'aria_llm_monthly_cost_usd {monthly.get("total", 0)}',
-        ])
+        if isinstance(monthly_cost, dict):
+            lines.extend([
+                "",
+                "# HELP aria_llm_monthly_cost_usd Monthly LLM cost in USD",
+                "# TYPE aria_llm_monthly_cost_usd gauge",
+                f'aria_llm_monthly_cost_usd {monthly_cost.get("total_cost_usd", 0)}',
+            ])
     except Exception:
         pass
 

@@ -216,20 +216,19 @@ async def _measure_capabilities() -> dict[str, float]:
         scores["self_evolution"] = 3.0  # conservative baseline
 
     # ── autonomy: from eval pass rate ─────────────────────────────────────
-    try:
-        from .eval_runner import latest as _eval_latest
-        eval_data = await _eval_latest()
-        if eval_data and "pass_rate" in eval_data:
-            scores["autonomy"] = eval_data["pass_rate"] * 10.0
-        else:
-            scores["autonomy"] = 5.0
-    except Exception:
-        scores["autonomy"] = 5.0
+    # R-F2589: eval_runner exposes no `latest()` accessor (type drift — the
+    # symbol never existed; the old import silently fell through to this
+    # fallback every call). No live "last eval summary" getter exists yet, so
+    # use the neutral midpoint until one is wired (this engine is dormant).
+    scores["autonomy"] = 5.0
 
-    # ── multi_provider: from tier_router ──────────────────────────────────
+    # ── multi_provider: from tier_router config ───────────────────────────
+    # R-F2589: tier_router has no AVAILABLE_PROVIDERS constant (drift — it never
+    # existed; live availability is a per-call param). Count the DISTINCT
+    # providers the tier map can route to as a static capability proxy.
     try:
-        from ..llm.tier_router import AVAILABLE_PROVIDERS
-        provider_count = len(AVAILABLE_PROVIDERS)
+        from ..llm.tier_router import _TIER_TO_PROVIDER
+        provider_count = len(set(_TIER_TO_PROVIDER.values()))
         scores["multi_provider"] = min(10.0, provider_count * 2.5)
     except Exception:
         scores["multi_provider"] = 3.0
@@ -246,8 +245,8 @@ async def _measure_capabilities() -> dict[str, float]:
 
     # ── self_healing: from self_healing health status ─────────────────────
     try:
-        from .self_healing import get_health_summary
-        health = get_health_summary()
+        from .self_healing import get_status as _get_health  # R-F2589: real name
+        health = _get_health()
         healthy_count = sum(
             1 for s in health.values() if isinstance(s, str) and s == "healthy"
         )
@@ -274,8 +273,9 @@ async def _measure_capabilities() -> dict[str, float]:
 
     # ── cost_efficiency: from cost_tracker ────────────────────────────────
     try:
-        from .cost_tracker import get_monthly_cost
-        monthly = await get_monthly_cost()
+        from .cost_tracker import get_month_breakdown  # R-F2589: real name (async, dict)
+        _mb = await get_month_breakdown()
+        monthly = float(_mb.get("total_cost_usd", 0.0)) if isinstance(_mb, dict) else 0.0
         # $300 cap; lower spend = higher score
         if monthly > 0:
             scores["cost_efficiency"] = max(1.0, 10.0 - (monthly / 30))

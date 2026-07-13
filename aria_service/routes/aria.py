@@ -24139,8 +24139,17 @@ async def metrics_ep():
     """Prometheus metrics endpoint."""
     from ..intel import metrics as _metrics
     from starlette.responses import Response
+    # R-F2589 — fetch the monthly cost async here and hand it to the sync
+    # generator (it cannot await). Fail-soft: on any error the cost gauge is
+    # simply omitted, never a 500 on the scrape path.
+    _monthly = None
+    try:
+        from ..intel import cost_tracker as _ct
+        _monthly = await _ct.get_month_breakdown()
+    except Exception:
+        _monthly = None
     return Response(
-        content=_metrics.generate_metrics(),
+        content=_metrics.generate_metrics(monthly_cost=_monthly),
         media_type="text/plain; charset=utf-8",
     )
 

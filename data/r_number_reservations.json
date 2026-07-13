@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2589,
+  "next_available": 2590,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19798,6 +19798,15 @@
       "r_number": "R-F2588",
       "title": "gate VLS chain/verify/proof routes by DD ownership — confirmed cross-tenant IDOR (existence+risk-verdict leak)",
       "claimed_at": "2026-07-13T07:30:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2589",
+      "title": "fix type/API drift — metrics.py live cost gauge (sync/async mismatch) + strategic_evolution dead-engine rotted bindings",
+      "claimed_at": "2026-07-13T07:48:08Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
