@@ -54,6 +54,13 @@ def make_reward_fn():
     """Build the GRPO reward function bound to the grounding reward. Returns a
     list[float] in [0,1] — fabricated citations score ~0, grounded/honest-abstain
     score high. Robust to a missing/short context (reward handles empty context)."""
+    # R-F2586 — GRPO cycle 3 precision lever. Env-configurable precision/recall
+    # split; default 0.5 = v2 behaviour. Cycle 3 sets GROUNDING_PRECISION_WEIGHT=0.75.
+    try:
+        _prec_w = float(os.environ.get("GROUNDING_PRECISION_WEIGHT", "0.5"))
+    except Exception:
+        _prec_w = 0.5
+
     def grounding_reward_fn(prompts=None, completions=None, **kwargs):
         contexts = kwargs.get("context")
         answerables = kwargs.get("answerable")   # R-F2033 — per-prompt answerability
@@ -73,7 +80,8 @@ def make_reward_fn():
             ans = _to_bool(answerables[i]) if (answerables is not None and i < len(answerables)) else None
             kw = keywords[i] if (keywords is not None and i < len(keywords)) else None
             out.append(float(gr.reward(_completion_text(c), ctx or "",
-                                       answerable=ans, expected_keywords=kw)))
+                                       answerable=ans, expected_keywords=kw,
+                                       precision_weight=_prec_w)))
         return out
     grounding_reward_fn.__name__ = "grounding_reward"
     return grounding_reward_fn

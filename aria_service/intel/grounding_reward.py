@@ -141,7 +141,8 @@ class RewardBreakdown:
 
 
 def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
-          answerable: bool | None = None, expected_keywords=None) -> RewardBreakdown:
+          answerable: bool | None = None, expected_keywords=None,
+          precision_weight: float = 0.5) -> RewardBreakdown:
     """Objective grounding reward in [0,1]. Higher = better grounded / honestly
     abstained; near 0 = fabricated sources, OR abstained when the answer WAS available.
 
@@ -208,7 +209,14 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
     # one that carries only a bare citation. Bonus applies ONLY when there is real
     # grounding (>=1 grounded citation) so it can never reward a fabricated answer.
     if expected_keywords and b.grounded_citations > 0:
-        b.score = 0.5 * precision_score + 0.5 * b.keyword_recall
+        # R-F2586 — precision_weight controls the precision/recall split of the
+        # composite. Default 0.5 = the v2 (R-F2558) 50/50 behaviour (backward-
+        # compatible; the objective eval stays comparable). GRPO cycle 3 raises it
+        # (e.g. 0.75) because v2 showed recall is inert while the 0.5 recall weight
+        # diluted the precision gradient (precision slipped 0.741→0.730). Weighting
+        # precision higher targets the ONLY remaining gap to a decisive composite win.
+        pw = min(1.0, max(0.0, precision_weight))
+        b.score = pw * precision_score + (1.0 - pw) * b.keyword_recall
         if b.keyword_recall > 0:
             b.reasons.append(f"keyword_recall={b.keyword_recall:.2f}")
     if b.grounded_citations == 0:
@@ -227,8 +235,9 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
 
 
 def reward(answer: str, context: str, *, answerable: bool | None = None,
-           expected_keywords=None) -> float:
-    """Scalar reward (for GRPO / DPO ranking)."""
+           expected_keywords=None, precision_weight: float = 0.5) -> float:
+    """Scalar reward (for GRPO / DPO ranking). ``precision_weight`` (R-F2586) tunes
+    the precision/recall split; default 0.5 = backward-compatible."""
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="grounding_reward",
@@ -242,4 +251,5 @@ def reward(answer: str, context: str, *, answerable: bool | None = None,
             pass
 
     return score(answer, context, answerable=answerable,
-                 expected_keywords=expected_keywords).score
+                 expected_keywords=expected_keywords,
+                 precision_weight=precision_weight).score
