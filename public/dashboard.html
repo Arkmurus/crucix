@@ -890,51 +890,11 @@ async function loadData() {
   }
 }
 
-async function runSweep() {
-  var btn = document.getElementById('btn-sweep');
-  if (btn.disabled) return;
-  btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Triggering…'; btn.disabled = true;
-
-  try {
-    // Check if sweep already running
-    var health = await API.get('/api/health');
-    if (health && health.sweepInProgress) {
-      Toast.show('Sweep already running, waiting for it to finish…', 'info');
-    } else {
-      var result = await API.post('/api/sweep', {});
-      if (!result.ok) {
-        Toast.show((result.data && result.data.error) || 'Failed to trigger sweep', 'error');
-        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
-        return;
-      }
-      Toast.show('Sweep triggered, monitoring progress…', 'info');
-    }
-
-    // Poll /api/health until sweepInProgress goes false
-    var waited = 0;
-    var poll = setInterval(async function() {
-      waited += 3;
-      btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Sweeping… ' + waited + 's';
-      try {
-        var h = await API.get('/api/health');
-        if (!h || !h.sweepInProgress || waited >= 180) {
-          clearInterval(poll);
-          await loadData();
-          btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
-          Toast.show('Intelligence updated', 'success');
-        }
-      } catch (e) {
-        clearInterval(poll);
-        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
-        Toast.show('Lost connection. Refresh the page', 'error');
-      }
-    }, 3000);
-  } catch (e) {
-    btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
-    Toast.show('Sweep failed. Try again', 'error');
-    console.error('runSweep error:', e);
-  }
-}
+// R-F2619: removed dead runSweep() — the manual "Run Sweep" button (id
+// btn-sweep) was retired when the dashboard moved to interval auto-refresh
+// (see R-F2087 below). The function was left behind, referenced a null
+// btn-sweep element, and was never called from anywhere. Sweeps still fire
+// via the server tier's own scheduler / POST /api/sweep.
 
 loadData();
 

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2619,
+  "next_available": 2620,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20087,9 +20087,10 @@
       "title": "model-card live-hydrate clause count + audit key fingerprint (kill stale 23/24-clause + a39f prose)",
       "claimed_at": "2026-07-14T15:59:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4722252f",
+      "notes": null,
+      "shipped_at": "2026-07-14T16:20:37Z"
     },
     {
       "r_number": "R-F2618",
@@ -20100,6 +20101,15 @@
       "commit_sha": "5810c1dc",
       "notes": null,
       "shipped_at": "2026-07-14T16:13:08Z"
+    },
+    {
+      "r_number": "R-F2619",
+      "title": "LOW pass — honest empty-vs-error states (bd-intelligence + opportunities) + remove dead runSweep()",
+      "claimed_at": "2026-07-14T16:22:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

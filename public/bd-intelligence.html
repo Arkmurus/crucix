@@ -180,7 +180,14 @@ function freshnessPill(item) {
 
 async function load() {
   var data = await API.get('/api/bd-intelligence');
-  if (!data) { document.getElementById('bd-sub').textContent = 'No data. Run a sweep first'; return; }
+  // R-F2619: API.get returns null on failure only (success-empty returns a real
+  // payload). A null here is a broken fetch, not "no data yet" — say so honestly
+  // rather than implying the operator just needs to run a sweep (§22).
+  if (!data) {
+    document.getElementById('bd-sub').textContent = 'Couldn\'t load BD intelligence — live data is unavailable. Retry shortly.';
+    document.getElementById('panel-leads').innerHTML = '<p class="text-muted">Couldn\'t load — the page is up but the BD feed is unavailable right now.</p>';
+    return;
+  }
   bdData = data;
 
   var tenders = data.tenders || [];
@@ -320,6 +327,13 @@ async function load() {
 
 async function loadPipeline() {
   const data = await API.get('/api/bd-intelligence/pipeline');
+  // R-F2619: null = load failure; [] = genuinely empty. Don't render a broken
+  // fetch as "No deals in pipeline yet" (§22 empty-vs-error).
+  if (data === null) {
+    document.getElementById('cnt-pipeline').textContent = '—';
+    document.getElementById('panel-pipeline').innerHTML = '<p class="text-muted">Couldn\'t load the pipeline — live data is unavailable. Retry shortly.</p>';
+    return;
+  }
   const deals = data || [];
   document.getElementById('cnt-pipeline').textContent = deals.length;
   document.getElementById('panel-pipeline').innerHTML = deals.length ?

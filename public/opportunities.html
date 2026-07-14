@@ -33,9 +33,17 @@ async function load() {
   const data = await API.get('/api/opportunities');
   document.getElementById('opps-loading').style.display = 'none';
   document.getElementById('opps-content').style.display = '';
+  // R-F2619: API.get returns null on failure (401/timeout/5xx/error-envelope)
+  // and a real (possibly empty) payload on success. Distinguish the two —
+  // rendering "No opportunities available" on a load failure is the §22
+  // empty-vs-error lie (looks like an honest empty state; it's a broken fetch).
+  if (data === null) {
+    document.getElementById('opps-grid').innerHTML = '<p class="text-muted">Couldn\'t load opportunities — the page is up but live data is unavailable. Retry shortly.</p>';
+    return;
+  }
   const opps = data?.opportunities || (Array.isArray(data) ? data : []);
   if (!opps.length) {
-    document.getElementById('opps-grid').innerHTML = '<p class="text-muted">No opportunities available.</p>';
+    document.getElementById('opps-grid').innerHTML = '<p class="text-muted">No opportunities available yet. Opportunities are generated from procurement + conflict + dev-finance signal convergence during sweeps.</p>';
     return;
   }
   document.getElementById('opps-grid').innerHTML = opps.map(o => {
