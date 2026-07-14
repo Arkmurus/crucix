@@ -55,11 +55,24 @@ def make_reward_fn():
     list[float] in [0,1] — fabricated citations score ~0, grounded/honest-abstain
     score high. Robust to a missing/short context (reward handles empty context)."""
     # R-F2586 — GRPO cycle 3 precision lever. Env-configurable precision/recall
-    # split; default 0.5 = v2 behaviour. Cycle 3 sets GROUNDING_PRECISION_WEIGHT=0.75.
-    try:
-        _prec_w = float(os.environ.get("GROUNDING_PRECISION_WEIGHT", "0.5"))
-    except Exception:
-        _prec_w = 0.5
+    # split; default 0.5 = v2 behaviour. Cycle 3 set it 0.75 (which de-weighted
+    # recall and drove over-abstention); cycle 4 restores 0.5 and uses the coverage
+    # lever below instead.
+    def _envf(name, default):
+        try:
+            return float(os.environ.get(name, str(default)))
+        except Exception:
+            return default
+    _prec_w = _envf("GROUNDING_PRECISION_WEIGHT", 0.5)
+    # Cycle-4 COVERAGE lever — reward grounded-citation breadth on answerable rows to
+    # close the confirmed v3 coverage gap (22% of answerable rows uncited). Defaults
+    # (0.0 / 2.0 / 0.1) = backward-compatible. Cycle 4 sets GROUNDING_COVERAGE_WEIGHT
+    # (~0.15). Double-gated in score() so it can never reward fabrication.
+    _cov_w = _envf("GROUNDING_COVERAGE_WEIGHT", 0.0)
+    _cov_tgt = _envf("GROUNDING_COVERAGE_TARGET", 2.0)
+    _nocite_pen = _envf("GROUNDING_ANSWERABLE_NOCITE_PENALTY", 0.1)
+    print(f"[grpo] reward: precision_weight={_prec_w} coverage_weight={_cov_w} "
+          f"coverage_target={_cov_tgt} answerable_nocite_penalty={_nocite_pen}")
 
     def grounding_reward_fn(prompts=None, completions=None, **kwargs):
         contexts = kwargs.get("context")
@@ -81,7 +94,10 @@ def make_reward_fn():
             kw = keywords[i] if (keywords is not None and i < len(keywords)) else None
             out.append(float(gr.reward(_completion_text(c), ctx or "",
                                        answerable=ans, expected_keywords=kw,
-                                       precision_weight=_prec_w)))
+                                       precision_weight=_prec_w,
+                                       coverage_weight=_cov_w,
+                                       coverage_target=_cov_tgt,
+                                       answerable_nocite_penalty=_nocite_pen)))
         return out
     grounding_reward_fn.__name__ = "grounding_reward"
     return grounding_reward_fn
@@ -172,6 +188,24 @@ def dry_run(ds_path: Path) -> int:
         print(f"[dry-run] RECALL: substantive={r_sub:.3f}  terse={r_terse:.3f}  (kw n={len(kws)})")
         assert r_sub > r_terse, (f"R-F2558 recall signal DEAD: stating the facts ({r_sub}) "
                                  f"must beat terse ({r_terse}) — expected_keywords not wired")
+
+    # Cycle-4 COVERAGE lever pre-flight: when GROUNDING_COVERAGE_WEIGHT>0, citing MORE
+    # grounded facts must score higher (closes the answerable-row coverage gap), a
+    # 0-citation answerable answer must lose to a grounded one, and fabrication must
+    # still not pay. Only runs when the lever is enabled so the default pipeline is
+    # unchanged.
+    if float(os.environ.get("GROUNDING_COVERAGE_WEIGHT", "0") or 0) > 0:
+        two_src = gr.extract_citations(ctx)
+        if len(two_src) >= 2:
+            one = f"Fact A [Source: {two_src[0]}]."
+            two = f"Fact A [Source: {two_src[0]}]. Fact B [Source: {two_src[1]}]."
+            none = "Fact A is the case, but no source is given."
+            r_one, r_two, r_none = rf(completions=[one, two, none],
+                                      context=[ctx, ctx, ctx], answerable=[True, True, True])
+            print(f"[dry-run] COVERAGE: 2-cite={r_two:.3f}  1-cite={r_one:.3f}  0-cite={r_none:.3f}")
+            assert r_two > r_one, f"coverage lever DEAD: 2 grounded cites ({r_two}) must beat 1 ({r_one})"
+            assert r_one > r_none, f"0-citation answerable ({r_none}) must lose to a grounded answer ({r_one})"
+            assert r_none >= r_f, f"honest silence ({r_none}) must not score below fabrication ({r_f})"
 
     if unans_row is not None:
         uctx = unans_row["context"]

@@ -139,6 +139,17 @@ async def run(args) -> int:
                         rec = {"seed_id": row.get("seed_id"), "topic": row.get("topic"), "answerable": ans,
                                "sovereign": _score(sov, ctx, kws, ans),
                                "deepseek": _score(ds, ctx, kws, ans) if dsk else None}
+                        # Cycle-4 diagnosis gap: metrics-only records made root-causing the
+                        # v3 coverage regression impossible (could not re-score or inspect the
+                        # uncited rows). --store-text persists the generated answers + question
+                        # (+ truncated context) so a later cycle can re-score offline. Default
+                        # OFF so existing reports stay byte-identical (report() ignores extras).
+                        if args.store_text:
+                            rec["question"] = q
+                            rec["sovereign_text"] = sov
+                            rec["deepseek_text"] = ds
+                            rec["context"] = (ctx or "")[:4000]
+                            rec["expected_keywords"] = kws
             except Exception as e:
                 print(f"  skip {row.get('seed_id')}: {type(e).__name__}", file=sys.stderr)
                 return
@@ -202,6 +213,9 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--concurrency", type=int, default=6)
     ap.add_argument("--report", action="store_true")
+    ap.add_argument("--store-text", action="store_true",
+                    help="persist generated answers + question + truncated context per row "
+                         "(default off; enables offline re-scoring / coverage-gap diagnosis)")
     ap.add_argument("--platform-eval", action="store_true",
                     help="PLATFORM (DeepSeek grounded in ARIA evidence) vs RAW DeepSeek; no sovereign endpoint needed")
     args = ap.parse_args()

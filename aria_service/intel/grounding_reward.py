@@ -123,6 +123,7 @@ class RewardBreakdown:
     context_has_sources: bool = False
     answerable: bool | None = None       # R-F2033 — was this question answerable from ctx?
     keyword_recall: float = 0.0          # R-F2033 — substance signal (expected_keywords hit)
+    coverage_bonus: float = 0.0          # cycle-4 — grounded-citation coverage bonus applied
     reasons: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -136,13 +137,16 @@ class RewardBreakdown:
             "context_has_sources": self.context_has_sources,
             "answerable": self.answerable,
             "keyword_recall": round(self.keyword_recall, 4),
+            "coverage_bonus": round(self.coverage_bonus, 4),
             "reasons": self.reasons,
         }
 
 
 def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
           answerable: bool | None = None, expected_keywords=None,
-          precision_weight: float = 0.5) -> RewardBreakdown:
+          precision_weight: float = 0.5, coverage_weight: float = 0.0,
+          coverage_target: float = 2.0,
+          answerable_nocite_penalty: float = 0.1) -> RewardBreakdown:
     """Objective grounding reward in [0,1]. Higher = better grounded / honestly
     abstained; near 0 = fabricated sources, OR abstained when the answer WAS available.
 
@@ -155,6 +159,24 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
     answer that actually states the expected facts scores above one that merely
     carries a valid citation. Backward-compatible: answerable=None + no keywords ->
     the original behaviour exactly.
+
+    GRPO cycle 4 — COVERAGE lever (closes the confirmed v3 gap). v1→v3 the model's
+    precision-WHEN-it-cites rose (0.85→0.93, better than DeepSeek) but the fraction
+    of answerable rows it cited on FELL (zero-citation rows 12.7%→22.4%, avg
+    citations 1.59→1.30): the reward taught cite-perfectly-or-not-at-all, so overall
+    precision (which scores a 0-citation answerable row as 0.0) and recall both
+    slipped below DeepSeek despite record-low fabrication (0.056). Two knobs, both
+    DEFAULT-OFF (score() with defaults is byte-identical to R-F2586, so the
+    objective eval stays comparable):
+      - ``coverage_weight`` (>0) adds a bonus for GROUNDED citation breadth, scaled
+        by ``coverage_target`` grounded citations AND by citation_precision — so
+        citing MORE real facts pays, but a fabricated citation (which lowers
+        precision and raises fab_rate) shrinks the bonus AND the precision_score:
+        double-gated, it can NEVER reward spamming/inventing citations.
+      - ``answerable_nocite_penalty`` is the score for answering an ANSWERABLE
+        question with ZERO citations (the coverage failure). Default 0.1 = current;
+        a cycle may lower it, but it must stay >= the fabrication floor (0.05) so
+        honest silence is never scored worse than inventing a source.
     """
     ctx_sources = extract_context_sources(context)  # R-F2397 — production + synthetic
     ans_cites = extract_citations(answer)
@@ -198,7 +220,15 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
     # Case 3: answering response — reward precision, punish fabrication, require
     # at least one grounded citation; R-F2033 adds a substance (keyword) bonus.
     if b.total_citations == 0:
-        b.score = 0.1; b.reasons.append("answered_without_any_citation")
+        # Answering an ANSWERABLE question with zero citations is the COVERAGE
+        # failure cycle-4 targets (v3: 22% of answerable rows, each scored 0.0
+        # precision). Configurable penalty; floored at the fabrication floor (0.05)
+        # so honest silence is never scored below inventing a source.
+        if answerable is True:
+            b.score = max(0.05, answerable_nocite_penalty)
+            b.reasons.append("answered_answerable_without_citation")
+        else:
+            b.score = 0.1; b.reasons.append("answered_without_any_citation")
         return b
     b.citation_precision = b.grounded_citations / b.total_citations
     fab_rate = b.fabricated_citations / b.total_citations
@@ -211,14 +241,33 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
     if expected_keywords and b.grounded_citations > 0:
         # R-F2586 — precision_weight controls the precision/recall split of the
         # composite. Default 0.5 = the v2 (R-F2558) 50/50 behaviour (backward-
-        # compatible; the objective eval stays comparable). GRPO cycle 3 raises it
-        # (e.g. 0.75) because v2 showed recall is inert while the 0.5 recall weight
-        # diluted the precision gradient (precision slipped 0.741→0.730). Weighting
-        # precision higher targets the ONLY remaining gap to a decisive composite win.
+        # compatible; the objective eval stays comparable). Cycle 3 raised it to 0.75,
+        # which de-weighted recall and drove the model toward cite-perfectly-or-not-
+        # at-all (see coverage regression above) — cycle 4 restores 0.5 and adds the
+        # coverage_weight lever instead of pushing precision_weight further.
         pw = min(1.0, max(0.0, precision_weight))
         b.score = pw * precision_score + (1.0 - pw) * b.keyword_recall
         if b.keyword_recall > 0:
             b.reasons.append(f"keyword_recall={b.keyword_recall:.2f}")
+    # Cycle-4 COVERAGE bonus — reward citing MORE grounded facts on answerable rows
+    # so the model stops leaving ~22% of answerable rows uncited. Implemented as a
+    # REALLOCATION blend (not an additive bonus): a coverage_weight slice of the
+    # reward is reassigned to the coverage term, so it still differentiates 1 vs 2
+    # grounded citations even when the base is already saturated at 1.0 (a perfect
+    # single citation on a keyword-less row — 37% of the dataset — otherwise had ZERO
+    # coverage gradient). DOUBLE-gated so it can never reward fabrication: (1) only
+    # grounded citations count toward coverage, (2) the coverage term is scaled by
+    # citation_precision, so any fabricated citation both raises fab_rate (lowering
+    # the base precision_score above) AND shrinks this term. Skipped on known-
+    # unanswerable rows (answerable is False) — those should abstain.
+    if coverage_weight > 0.0 and b.grounded_citations > 0 and answerable is not False:
+        cw = min(1.0, max(0.0, coverage_weight))
+        tgt = max(1.0, float(coverage_target))
+        coverage = min(1.0, b.grounded_citations / tgt)
+        base_before = b.score
+        b.score = (1.0 - cw) * base_before + cw * coverage * b.citation_precision
+        b.coverage_bonus = b.score - base_before
+        b.reasons.append(f"coverage={coverage:.2f}")
     if b.grounded_citations == 0:
         b.score = min(b.score, 0.05); b.reasons.append("no_grounded_citation")
     # R-F2033 (symmetry): if the gold was to ABSTAIN (context insufficient for this
@@ -235,9 +284,12 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
 
 
 def reward(answer: str, context: str, *, answerable: bool | None = None,
-           expected_keywords=None, precision_weight: float = 0.5) -> float:
+           expected_keywords=None, precision_weight: float = 0.5,
+           coverage_weight: float = 0.0, coverage_target: float = 2.0,
+           answerable_nocite_penalty: float = 0.1) -> float:
     """Scalar reward (for GRPO / DPO ranking). ``precision_weight`` (R-F2586) tunes
-    the precision/recall split; default 0.5 = backward-compatible."""
+    the precision/recall split; ``coverage_weight``/``answerable_nocite_penalty``
+    (cycle-4) tune answerable-row citation coverage. All defaults = backward-compatible."""
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="grounding_reward",
@@ -252,4 +304,7 @@ def reward(answer: str, context: str, *, answerable: bool | None = None,
 
     return score(answer, context, answerable=answerable,
                  expected_keywords=expected_keywords,
-                 precision_weight=precision_weight).score
+                 precision_weight=precision_weight,
+                 coverage_weight=coverage_weight,
+                 coverage_target=coverage_target,
+                 answerable_nocite_penalty=answerable_nocite_penalty).score
