@@ -264,14 +264,27 @@ try {
     }
 }
 finally {
-    # R-F2591: ALWAYS restore the shielded WIP, even if a deploy threw. A pop
-    # conflict never loses work — the changes stay in `git stash list`.
+    # R-F2591/R-F2594: ALWAYS restore the shielded WIP, even if a deploy threw.
     if ($stashed) {
         Write-Host ""
         Write-Host "  [CleanHead] restoring stashed working-tree changes..."
         git stash pop 2>&1 | Select-Object -Last 3 | ForEach-Object { Write-Host "    $_" }
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "  [CleanHead][WARN] 'git stash pop' hit a conflict - your changes are SAFE in 'git stash list'; resolve manually."
+            # R-F2594: distinguish a benign untracked-file COLLISION (a parallel
+            # agent re-created a stashed untracked file mid-deploy) from a real
+            # MERGE conflict. On a pure collision the tracked changes DID apply via
+            # 3-way merge and the untracked files already exist in the tree, so the
+            # kept stash is fully redundant — drop it, else every deploy under
+            # concurrent editing leaks a dead backup stash. Only genuine unmerged
+            # paths need manual resolution.
+            $mergeConflict = @(git diff --name-only --diff-filter=U 2>$null) | Where-Object { $_ }
+            if ($mergeConflict.Count -gt 0) {
+                Write-Host "  [CleanHead][WARN] MERGE conflict on pop ($($mergeConflict.Count) file(s)) - resolve manually; stash KEPT as backup:"
+                $mergeConflict | Select-Object -First 5 | ForEach-Object { Write-Host "      $_" }
+            } else {
+                Write-Host "  [CleanHead] pop hit untracked-file collision only (no merge conflict); working tree is complete - dropping redundant backup stash"
+                git stash drop 2>&1 | Select-Object -Last 1 | ForEach-Object { Write-Host "    $_" }
+            }
         }
     }
 }

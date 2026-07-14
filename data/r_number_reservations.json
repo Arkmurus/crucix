@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2594,
+  "next_available": 2596,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19854,6 +19854,25 @@
       "commit_sha": "a26da867",
       "notes": null,
       "shipped_at": "2026-07-14T09:01:53Z"
+    },
+    {
+      "r_number": "R-F2594",
+      "title": "deploy.ps1 -CleanHead robustness — auto-drop redundant stash on untracked-only pop collision (no merge conflict), stop stash accumulation under concurrent editing",
+      "claimed_at": "2026-07-14T09:10:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "pending",
+      "notes": null,
+      "shipped_at": "2026-07-14T09:12:40Z"
+    },
+    {
+      "r_number": "R-F2595",
+      "title": "pin semver via npm overrides — close utf7 transitive ReDoS (low-stakes hygiene)",
+      "claimed_at": "2026-07-14T09:10:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
