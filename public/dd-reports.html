@@ -779,6 +779,10 @@ function deleteVerified(result) {
 function removeDeletedReport(runId) {
   if (runId) _locallyDeletedRunIds.add(runId);
   _allReports = (_allReports || []).filter(r => r && r.run_id !== runId);
+  // R-F2612 — also drop the deleted report's OPTIMISTIC 'running' row, else it
+  // lingers in _optimisticRunning (up to its 20-min TTL) and loadReports re-adds
+  // it on the next poll → the deleted report "reappears" on the page.
+  _optimisticRunning = (_optimisticRunning || []).filter(r => r && r.run_id !== runId);
   _expandedRow = null;
   applySearch();
 }
