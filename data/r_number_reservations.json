@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2593,
+  "next_available": 2594,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19844,6 +19844,15 @@
       "commit_sha": "bd8ae4bb",
       "notes": null,
       "shipped_at": "2026-07-13T09:29:56Z"
+    },
+    {
+      "r_number": "R-F2593",
+      "title": "pin xlsx to patched SheetJS CDN build (0.20.x) — closes prototype-pollution/ReDoS the abandoned npm 0.18.5 never fixed",
+      "claimed_at": "2026-07-14T08:50:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
