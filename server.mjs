@@ -1425,6 +1425,11 @@ app.get('/api/aria/chat-audit/stats', (req, res) =>
   _r577PublicProxy(req, res, '/api/aria/chat-audit/stats'));
 app.get('/api/aria/adversarial/stats', (req, res) =>
   _r577PublicProxy(req, res, '/api/aria/adversarial/stats'));
+// R-F2617: signing-key fingerprint for the model-card audit section. Publishable
+// (16 hex of SHA-256(key); the key itself is never exposed) — replaces the stale
+// hardcoded `a39f3328d92bffe4` that lied after the key rotated 2026-05-17.
+app.get('/api/aria/audit/key-fingerprint', (req, res) =>
+  _r577PublicProxy(req, res, '/api/aria/audit/key-fingerprint'));
 
 // ── Rate limiting + XSS guard — BEFORE route registration ────────────────────
 applyRateLimiting(app);

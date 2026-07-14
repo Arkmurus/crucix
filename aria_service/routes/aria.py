@@ -361,6 +361,7 @@ _PUBLIC_AUTH_BYPASS_PATHS = frozenset({
     "/api/aria/constitution/version",     # R-F221 model-card field
     "/api/aria/chat-audit/stats",         # R-F221 model-card field
     "/api/aria/adversarial/stats",        # R-F221 model-card field
+    "/api/aria/audit/key-fingerprint",    # R-F2617 model-card field — signing-key fingerprint (16 hex of SHA-256(key); key never exposed)
     "/api/aria/health",                   # operational status probe (rich, may touch Redis)
     "/api/aria/health/live",              # R-F372 fastpath — fly.io load-balancer probe
     # R-F677 (2026-05-18): Phase A gate-indicator endpoints. Live log
