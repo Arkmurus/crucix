@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2612,
+  "next_available": 2613,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20031,6 +20031,16 @@
       "commit_sha": "b8f0089a",
       "notes": null,
       "shipped_at": "2026-07-14T13:05:16Z"
+    },
+    {
+      "r_number": "R-F2612",
+      "title": "DD reports frontend: removeDeletedReport must also drop the matching optimistic-running ghost row",
+      "claimed_at": "2026-07-14T13:12:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2b7bab93",
+      "notes": null,
+      "shipped_at": "2026-07-14T13:17:38Z"
     }
   ]
 }
