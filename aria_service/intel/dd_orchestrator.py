@@ -11546,6 +11546,43 @@ async def delete_report(run_id: str) -> dict:
             vault_deleted = _vault.delete_case(cid) or vault_deleted
     except Exception as e:
         logger.debug("delete_report vault cleanup failed (non-fatal): %s", e)
+    # R-F2611 — STREAMLINE: when the owner deletes their LAST DD for an entity, also
+    # drop the watchlist entry that DD AUTO-enrolled (source="dd_auto_enroll", R-F878),
+    # so a deleted report doesn't linger in the dashboard Watchlist box / Watchlist page.
+    # Tenant-safe (owner-scoped) and preserves (a) manually-added watchlist entries and
+    # (b) entities the same owner still has another DD for. Best-effort, never fatal.
+    watchlist_removed: list = []
+    try:
+        _owner = ""
+        if isinstance(report_blob, dict):
+            _ident = report_blob.get("identity") if isinstance(report_blob.get("identity"), dict) else {}
+            _owner = (report_blob.get("user_id") or (_ident.get("user_id") if _ident else "") or "").strip()
+        if canonical_ids:
+            _idx = await rs.get_json(REPORT_INDEX_KEY) or []
+            # entities the SAME owner STILL has a DD report for (index already post-delete)
+            _owner_still = {
+                (e.get("canonical_entity_id") or "").strip()
+                for e in _idx if isinstance(e, dict)
+                and (e.get("canonical_entity_id") or "").strip()
+                and (e.get("user_id") or "").strip() == _owner
+            }
+            _orphaned = {c for c in canonical_ids if c and c not in _owner_still}
+            if _orphaned:
+                _wl = await rs.get_json(WATCHLIST_KEY) or []
+                _kept = []
+                for w in _wl:
+                    if (isinstance(w, dict)
+                            and (w.get("canonical_entity_id") or "").strip() in _orphaned
+                            and w.get("source") == "dd_auto_enroll"
+                            and (w.get("user_id") or "").strip() == _owner):
+                        watchlist_removed.append(w.get("name") or w.get("canonical_entity_id"))
+                        continue
+                    _kept.append(w)
+                if watchlist_removed:
+                    await rs.set_json(WATCHLIST_KEY, _kept)
+    except Exception as e:
+        logger.debug("delete_report watchlist cascade failed (non-fatal): %s", e)
+
     removed_any = bool(blob_existed) or removed_from_index > 0 or bool(vault_deleted)
     return {
         "ok": removed_any,
@@ -11554,6 +11591,7 @@ async def delete_report(run_id: str) -> dict:
         "index_entries_removed": removed_from_index,
         "vault_deleted": bool(vault_deleted),
         "canonical_entity_ids_deleted": sorted(canonical_ids),
+        "watchlist_entries_removed": watchlist_removed,
         "error": "" if removed_any else "report not found or already deleted",
     }
 
