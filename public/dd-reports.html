@@ -576,7 +576,7 @@ function fmtDate(d) {
 function severityPill(sev) {
   if (!sev) return '<span class="dd-pill unknown">-</span>';
   const cls = (sev || '').toLowerCase().replace(/[^a-z_]/g, '');
-  return '<span class="dd-pill ' + cls + '">' + sev.replace(/_/g, ' ') + '</span>';
+  return '<span class="dd-pill ' + cls + '">' + escText(sev.replace(/_/g, ' ')) + '</span>';
 }
 
 // R-F2341 — running/failed async DDs get a clear status badge instead of a bogus
@@ -864,7 +864,7 @@ function ddFmtBody(body) {
                : '<img class="dd-cite-fav" loading="lazy" src="https://www.google.com/s2/favicons?domain=' + encodeURIComponent(dom) + '&sz=32" onerror="this.style.visibility=\'hidden\'">')
         + '<div class="dd-cite-main">'
           + (mem ? '<span class="dd-cite-title">' + escText(title) + '</span>'
-                 : '<a class="dd-cite-title" href="' + escAttr(url) + '" target="_blank" rel="noopener">' + escText(title) + '</a>')
+                 : '<a class="dd-cite-title" href="' + escAttr(safeHref(url)) + '" target="_blank" rel="noopener">' + escText(title) + '</a>')
           + '<span class="dd-cite-dom">' + escText(dom) + '</span>'
         + '</div>'
         + '<span class="dd-tier dd-tier-' + tc + '">' + escText(tier.replace(/_/g, ' ')) + '</span>'
@@ -958,7 +958,7 @@ async function toggleDetail(row, runId) {
       if (sec.highlights && sec.highlights.length) { h += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'; for (const hl of sec.highlights) h += '<span style="background:rgba(148,163,184,.12);border:1px solid var(--sc-border,#334155);border-radius:6px;padding:3px 9px;font-size:12px"><span style="color:var(--sc-muted)">'+escText(hl.label)+'</span> <b>'+escText(hl.value)+'</b></span>'; h += '</div>'; }
       if (sec.findings && sec.findings.length) { for (const f of sec.findings) { h += '<div style="padding:7px 0;border-top:1px solid var(--sc-border,#26324a)"><div style="display:flex;gap:8px;align-items:flex-start">'+sevPill(f.severity)+'<div style="flex:1;min-width:0"><div style="font-weight:600">'+escText(f.title)+'</div>'+(f.detail?'<div style="font-size:12.5px;color:var(--sc-text,#cbd5e1);margin-top:2px;line-height:1.5">'+escText(f.detail)+'</div>':'')+fmtSource(f)+'</div></div></div>'; } }
       else if (!(sec.highlights&&sec.highlights.length) && !(sec.evidence&&sec.evidence.length)) { h += '<div style="color:var(--sc-muted);font-size:12.5px">No findings recorded.</div>'; }
-      if (sec.evidence && sec.evidence.length) { h += '<div style="margin-top:9px"><div style="font-size:11px;color:var(--sc-muted);margin-bottom:3px">Cited sources</div>'; for (const ev of sec.evidence) h += '<div style="font-size:12px;margin:2px 0"><a href="'+escAttr(ev.url)+'" target="_blank" rel="noopener" style="color:#60a5fa;word-break:break-all">'+escText(ev.source||ev.url)+'</a>'+(ev.tier?' <span style="color:var(--sc-muted)">['+escText(ev.tier)+']</span>':'')+'</div>'; h += '</div>'; }
+      if (sec.evidence && sec.evidence.length) { h += '<div style="margin-top:9px"><div style="font-size:11px;color:var(--sc-muted);margin-bottom:3px">Cited sources</div>'; for (const ev of sec.evidence) h += '<div style="font-size:12px;margin:2px 0"><a href="'+escAttr(safeHref(ev.url))+'" target="_blank" rel="noopener" style="color:#60a5fa;word-break:break-all">'+escText(ev.source||ev.url)+'</a>'+(ev.tier?' <span style="color:var(--sc-muted)">['+escText(ev.tier)+']</span>':'')+'</div>'; h += '</div>'; }
       if (sec.data_gaps && sec.data_gaps.length) { h += '<div style="margin-top:9px;font-size:12px;color:#f59e0b"><i class="bi bi-exclamation-triangle"></i> Gaps: '+sec.data_gaps.map(escText).join('; ')+'</div>'; }
       h += '</div></div>'; return h;
     };
@@ -1651,7 +1651,7 @@ loadReports().then(openRunFromUrl);
         html += '<tr class="dd-row" data-action="showVaultCase" data-id="' + escHtml(e.canonical_entity_id) + '">';
         html += '<td class="col-entity">' + escHtml(e.entity_name) + '</td>';
         html += '<td class="col-meta">' + escHtml(e.entity_type) + '</td>';
-        html += '<td><span class="dd-pill ' + riskClass + '">' + escHtml(e.risk_level || 'unknown') + '</span></td>';
+        html += '<td><span class="dd-pill ' + escHtml(riskClass) + '">' + escHtml(e.risk_level || 'unknown') + '</span></td>';
         html += '<td class="col-meta">' + (e.run_count || 1) + '</td>';
         html += '<td class="col-meta">' + lastRun + '</td>';
         html += '<td class="col-meta">' + escHtml(e.jurisdiction || '--') + '</td>';
@@ -1680,7 +1680,7 @@ loadReports().then(openRunFromUrl);
       html += '<h3 style="color:var(--sc-heading);margin:0 0 8px">' + escHtml(c.entity_name) + '</h3>';
       html += '<div style="color:#6b6862;font-size:13px;margin-bottom:16px">';
       html += 'Type: ' + escHtml(c.entity_type) + ' &middot; Jurisdiction: ' + escHtml(c.jurisdiction || '--');
-      html += ' &middot; Risk: <span class="dd-pill ' + (c.risk_level || '').toLowerCase() + '">' + escHtml(c.risk_level || 'unknown') + '</span>';
+      html += ' &middot; Risk: <span class="dd-pill ' + escHtml((c.risk_level || '').toLowerCase()) + '">' + escHtml(c.risk_level || 'unknown') + '</span>';
       html += ' &middot; Runs: ' + (c.run_count || 1);
       html += '</div>';
       if (c.findings_summary) {

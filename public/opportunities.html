@@ -69,7 +69,7 @@ async function load() {
         </div>
         ${note?`<p style="font-size:12px;color:#3d3a34;margin-top:12px;line-height:1.6;border-top:1px solid #e9e6df;padding-top:10px">${escHtml(truncate(note,180))}</p>`:''}
         ${(o.sources||[]).length?`<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">
-          ${o.sources.slice(0,3).map(s=>s.url?`<a href="${escHtml(s.url)}" target="_blank" rel="noopener" style="font-size:11px;color:#7c3aed;text-decoration:none" title="${escHtml(s.title||'')}"><i class="bi bi-box-arrow-up-right"></i> ${escHtml(s.type||'source')}</a>`:'').join('')}
+          ${o.sources.slice(0,3).map(s=>s.url?`<a href="${escHtml(safeHref(s.url))}" target="_blank" rel="noopener" style="font-size:11px;color:#7c3aed;text-decoration:none" title="${escHtml(s.title||'')}"><i class="bi bi-box-arrow-up-right"></i> ${escHtml(s.type||'source')}</a>`:'').join('')}
         </div>`:''}
       </div>
     </div>`;

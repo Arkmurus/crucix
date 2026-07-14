@@ -1102,7 +1102,7 @@ function updateEntityRail() {
         var node;
         if (s.url) {
           node = document.createElement('a');
-          node.href = s.url;
+          node.href = safeHref(s.url);
           node.target = '_blank';
           node.rel = 'noopener noreferrer';
         } else {

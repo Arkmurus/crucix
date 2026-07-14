@@ -234,7 +234,7 @@ async function loadVault() {
         : escHtml(e.site_url || '');
       return `<tr>
         <td><strong>${escHtml(e.site_name || '')}</strong><div style="font-size:11px;color:#9b968c">${escHtml(e.site_id || '')}</div></td>
-        <td><a href="${escHtml(e.site_url || '#')}" target="_blank" style="color:var(--sc-prime);font-size:12px;text-decoration:none" title="${escHtml(e.site_url || '')}">${urlDisplay}</a></td>
+        <td><a href="${escHtml(safeHref(e.site_url || '#'))}" target="_blank" style="color:var(--sc-prime);font-size:12px;text-decoration:none" title="${escHtml(e.site_url || '')}">${urlDisplay}</a></td>
         <td style="font-size:13px"><i class="bi bi-person" style="margin-right:4px;color:var(--sc-muted)"></i>${escHtml(e.agent_id || '')}</td>
         <td>${statusHtml(e.status)}</td>
         <td style="font-size:12px;color:var(--sc-muted)">${fmtDate(e.created_at)}</td>

@@ -545,7 +545,7 @@ Sidebar.init('explorer');
         <div class="ex-card-head">
           <div class="ex-card-source">${escapeHtml(source)}</div>
           ${date ? `<div class="ex-card-meta">${escapeHtml(fmtDate(date))}</div>` : ''}
-          ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" style="margin-left:auto"><i class="bi bi-box-arrow-up-right"></i></a>` : ''}
+          ${url ? `<a href="${escapeHtml(safeHref(url))}" target="_blank" rel="noopener" style="margin-left:auto"><i class="bi bi-box-arrow-up-right"></i></a>` : ''}
         </div>
         <div class="ex-card-title">${escapeHtml(title)}</div>
         <div class="ex-card-body">${escapeHtml(truncate(text, 320))}</div>
@@ -603,10 +603,10 @@ Sidebar.init('explorer');
         out.push(`<div class="ex-card">
           <div class="ex-card-head">
             <div class="ex-card-source">${escapeHtml(pm.name || '-')}</div>
-            <span class="ex-card-meta">score ${pm.score == null ? '-' : pm.score}</span>
+            <span class="ex-card-meta">score ${pm.score == null ? '-' : Number(pm.score)}</span>
           </div>
           <div class="ex-card-body">${bodyParts.join('')}</div>
-          ${pm.url ? `<div class="ex-card-tags"><a href="${escapeHtml(pm.url)}" target="_blank" rel="noopener">View on OpenSanctions →</a></div>` : ''}
+          ${pm.url ? `<div class="ex-card-tags"><a href="${escapeHtml(safeHref(pm.url))}" target="_blank" rel="noopener">View on OpenSanctions →</a></div>` : ''}
         </div>`);
       });
     }
@@ -681,7 +681,7 @@ Sidebar.init('explorer');
         </div>
         <div class="ex-card-title">${escapeHtml(e.name || e.entity || '-')}</div>
         ${e.summary ? `<div class="ex-card-body">${escapeHtml(truncate(e.summary, 220))}</div>` : ''}
-        ${e.score != null ? `<div class="ex-card-tags"><span class="ex-card-tag tier-2">name-match score ${e.score}</span></div>` : ''}
+        ${e.score != null ? `<div class="ex-card-tags"><span class="ex-card-tag tier-2">name-match score ${Number(e.score)}</span></div>` : ''}
       </div>
     `).join('');
     // Surface top 5 related entities in the rail
@@ -723,7 +723,7 @@ Sidebar.init('explorer');
       <div class="ex-card">
         <div class="ex-card-head">
           <div class="ex-card-source">Counter-Intelligence Scan (R-F84)</div>
-          <span class="ex-card-tag ${n > 0 ? 'tier-3' : 'tier-1'}">${n} signal${n === 1 ? '' : 's'} · ${data.window_days || 30}d</span>
+          <span class="ex-card-tag ${n > 0 ? 'tier-3' : 'tier-1'}">${Number(n)} signal${n === 1 ? '' : 's'} · ${Number(data.window_days) || 30}d</span>
         </div>
         <div class="ex-card-title">${escapeHtml(data.narrative || '-')}</div>
         ${patternRows.length ? `<div class="ex-card-body">
@@ -802,11 +802,11 @@ Sidebar.init('explorer');
         <div class="ex-card-title">${escapeHtml(sanctions.divergence.narrative || '-')}</div>
       </div>`;
     }
-    if (counterScore >= 0.5) {
+    if (counterRan && counterSignals > 0) {
       html += `<div class="ex-card">
         <div class="ex-card-head">
           <div class="ex-card-source">⚠ Counter-intelligence alert</div>
-          <span class="ex-card-tag tier-3">composite ${counterScore}</span>
+          <span class="ex-card-tag tier-3">${Number(counterSignals)} signal${counterSignals === 1 ? '' : 's'}</span>
         </div>
         <div class="ex-card-title">${escapeHtml(counter.narrative || '-')}</div>
       </div>`;

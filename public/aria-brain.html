@@ -1127,7 +1127,7 @@ async function runInventory() {
     return;
   }
   if (!r.facts || r.facts.length === 0) {
-    out.innerHTML = `<span class="warn">0 hits for "${tag}".</span><br>` +
+    out.innerHTML = `<span class="warn">0 hits for "${escapeHtml(tag)}".</span><br>` +
       `<span style="font-size:11px;color:#6b6862">Either this is a starved tag (no facts ingested yet) ` +
       `or the tag components don't match anything. Tag splits on _/-/space/dot; ALL ≥3-char components ` +
       `must appear in topic/content/source.</span>`;

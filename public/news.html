@@ -180,7 +180,7 @@
       const catLabel = cat.replace(/_/g, ' ');
       const catClass = cat.includes('defence') ? 'sc-pill-green' : cat.includes('finance') ? 'sc-pill-orange' : cat.includes('regional') ? 'sc-pill-blue' : 'sc-pill-info';
       return '<div class="article-card">' +
-        '<div class="article-title"><a href="' + escapeHtml(a.url || '#') + '" target="_blank" rel="noopener">' + escapeHtml(a.title || 'Untitled') + '</a></div>' +
+        '<div class="article-title"><a href="' + escapeHtml(safeHref(a.url || '#')) + '" target="_blank" rel="noopener">' + escapeHtml(a.title || 'Untitled') + '</a></div>' +
         '<div class="article-meta">' +
           '<span class="source">' + escapeHtml(a.source || '') + '</span>' +
           '<span class="sc-pill ' + catClass + '">' + escapeHtml(catLabel) + '</span>' +

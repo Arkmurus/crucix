@@ -366,6 +366,14 @@ function escHtml(s) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// R-F2607 — scheme allowlist for data-derived href/URL sinks. Blocks
+// javascript:/data:/vbscript: URLs by falling back to '#'. Global (app.js
+// loads in page scope) so any page including js/app.js can reuse this copy.
+function safeHref(u) {
+  const s = String(u == null ? '' : u).trim();
+  return /^(https?:|mailto:)/i.test(s) ? s : '#';
+}
+
 function severityColor(s) {
   switch ((s || '').toLowerCase()) {
     case 'critical': case 'flash': return '#ef4444';

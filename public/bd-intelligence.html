@@ -152,7 +152,7 @@ function renderCard(title, meta, summary, nextstep, url, shareTextFn) {
       ${summary?`<div class="ic-text">${escHtml(truncate(summary,200))}</div>`:''}
       ${nextstep?`<div class="ic-nextstep"><i class="bi bi-arrow-right-circle" style="flex-shrink:0;color:#ea580c;font-size:14px"></i>${escHtml(nextstep)}</div>`:''}
     </div>
-    ${url?`<div class="ic-foot"><a href="${escHtml(url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--sc-prime)"><i class="bi bi-box-arrow-up-right"></i> Source</a></div>`:''}
+    ${url?`<div class="ic-foot"><a href="${escHtml(safeHref(url))}" target="_blank" rel="noopener" style="font-size:12px;color:var(--sc-prime)"><i class="bi bi-box-arrow-up-right"></i> Source</a></div>`:''}
   </div>`;
 }
 
@@ -295,7 +295,7 @@ async function load() {
       (t.leadQuality ? '<div style="margin-bottom:8px">' + chip(t.leadQuality,qBadge) + (t.winProbability?chip('Fit '+t.winProbability+'/100','sc-badge-green'):'') + '</div>' : '') +
       '<div style="font-size:13px;font-weight:600;color:var(--sc-heading);margin-bottom:6px;line-height:1.5">' + escHtml(truncate(t.title||'',120)) + '</div>' +
       (t.summary ? '<p style="font-size:12px;color:#57534b;line-height:1.5;margin-bottom:8px;border-top:1px solid var(--sc-border);padding-top:8px">' + escHtml(truncate(t.summary,160)) + '</p>' : '') +
-      (t.url ? '<a href="'+escHtml(t.url)+'" target="_blank" rel="noopener" style="font-size:12px;color:var(--sc-prime)"><i class="bi bi-box-arrow-up-right"></i> Source</a>' : '') +
+      (t.url ? '<a href="'+escHtml(safeHref(t.url))+'" target="_blank" rel="noopener" style="font-size:12px;color:var(--sc-prime)"><i class="bi bi-box-arrow-up-right"></i> Source</a>' : '') +
       '</div></div>';
   }).join('') + '</div>' : '<p class="text-muted">No tenders found. Tenders are extracted from procurement feeds during sweeps.</p>';
 

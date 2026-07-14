@@ -270,7 +270,7 @@ function severityPill(sev) {
   if (!sev) return '<span class="sc-badge sc-badge-muted">-</span>';
   const cls = (sev || '').toLowerCase().replace(/[^a-z_]/g, '');
   const map = { 'hard_stop': 'sc-badge-red', 'red': 'sc-badge-red', 'amber-light': 'sc-badge-orange', 'amber-dark': 'sc-badge-orange', 'green': 'sc-badge-green' };
-  return '<span class="sc-badge ' + (map[cls] || 'sc-badge-muted') + '">' + sev.replace(/_/g, ' ') + '</span>';
+  return '<span class="sc-badge ' + (map[cls] || 'sc-badge-muted') + '">' + escHtml(sev.replace(/_/g, ' ')) + '</span>';
 }
 
 function priorityBadge(priority) {
@@ -854,9 +854,9 @@ async function loadData() {
       tbody.innerHTML = opps.slice(0,5).map(function(o) {
         return '<tr>'
           + '<td><strong>' + escHtml(o.market) + '</strong></td>'
-          + '<td><span class="sc-badge sc-badge-prime">' + (o.score||0) + '</span></td>'
-          + '<td><span class="sc-badge sc-badge-muted">' + (o.type||'') + '</span></td>'
-          + '<td style="font-size:12px">' + (o.signal_count||0) + ' signals</td>'
+          + '<td><span class="sc-badge sc-badge-prime">' + (Number(o.score) || 0) + '</span></td>'
+          + '<td><span class="sc-badge sc-badge-muted">' + escHtml(o.type||'') + '</span></td>'
+          + '<td style="font-size:12px">' + (Number(o.signal_count) || 0) + ' signals</td>'
           + '</tr>';
       }).join('');
     }

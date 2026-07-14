@@ -386,6 +386,13 @@
 
     function showQrRaw(id, html) {
       document.getElementById('qrTitle').textContent = 'Scan with WhatsApp';
+      // R-F2607 — `html` is a pre-rendered QR SVG produced by the trusted internal
+      // aria-wa (Baileys) service, not user-derived input. It is injected raw
+      // because a scannable QR must render as markup; the structured-data SVG
+      // fallback (showQr's `data.qr` branch above) only shows a placeholder and
+      // cannot be scanned, so it is used only when no qr_html is available. If the
+      // WA service ever emits a structured QR matrix instead, prefer rendering that
+      // via the SVG fallback over this raw-HTML path.
       document.getElementById('qrContent').innerHTML = '<div class="qr-frame">' + html + '</div>';
       document.getElementById('qrStatus').textContent = 'QR code expires in 60 seconds';
       // Auto-refresh modal every 30s

@@ -170,8 +170,8 @@ function renderIncidents(list, target, emptyMsg) {
       '<div class="st-card-head">' +
         '<h3 class="st-card-title">' + escapeHtml(i.title) + '</h3>' +
         '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-          '<span class="st-pill ' + i.status + '">' + i.status + '</span>' +
-          '<span class="st-pill ' + i.severity + '">' + i.severity + '</span>' +
+          '<span class="st-pill ' + escapeHtml(i.status) + '">' + escapeHtml(i.status) + '</span>' +
+          '<span class="st-pill ' + escapeHtml(i.severity) + '">' + escapeHtml(i.severity) + '</span>' +
         '</div>' +
       '</div>' +
       '<div class="st-card-meta">' +
