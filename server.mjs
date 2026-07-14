@@ -16,7 +16,7 @@ import { synthesize, generateIdeas } from './dashboard/inject.mjs';
 import { MemoryManager } from './lib/delta/index.mjs';
 import { createLLMProvider } from './lib/llm/index.mjs';
 import { generateLLMIdeas } from './lib/llm/ideas.mjs';
-import { TelegramAlerter } from './lib/alerts/telegram.mjs';
+import { TelegramAlerter, degradedReply } from './lib/alerts/telegram.mjs';
 import { DiscordAlerter } from './lib/alerts/discord.mjs';
 import { filterNewSignals, initDedup } from './lib/intel/dedup.mjs';
 import { correlate, formatCorrelationsForTelegram } from './lib/intel/correlate.mjs';
@@ -654,7 +654,9 @@ telegramAlerter._handleBrief = async function() {
 
     return msg;
   } catch (error) {
-    return `Brief failed: ${error.message}`;
+    // R-F2615 §25 — mark the failed /brief reply so _handleMessage reports an honest
+    // 'error' delivery outcome instead of 'delivered' (this monkey-patch is the prod /brief).
+    return degradedReply(`Brief failed: ${error.message}`);
   }
 };
 
