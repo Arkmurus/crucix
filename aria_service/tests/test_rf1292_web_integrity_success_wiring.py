@@ -43,7 +43,9 @@ def test_rf1292_clean_cycle_emits_wire_success(monkeypatch):
     asyncio.run(a._one_cycle())
 
     assert calls, "a clean integrity cycle must emit wire_success (§21a)"
-    assert calls[0].get("module") == "web_integrity"
+    # R-F2597: success + failure share ONE module bucket ("web_integrity_agent") so the
+    # watched/read metric isn't split into a permanent false 0%.
+    assert calls[0].get("module") == "web_integrity_agent"
     # success heartbeat must NOT go through brain_hook.absorb (composite-safe)
     a._brain_hook.absorb.assert_not_called()
 

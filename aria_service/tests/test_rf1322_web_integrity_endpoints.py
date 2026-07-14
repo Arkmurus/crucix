@@ -48,10 +48,12 @@ def test_autonomous_status_expected_fields():
 
 
 def test_cost_status_expected_fields():
-    """cost/monthly/status returns {total, monthly_cap}."""
+    """cost/monthly/status returns {month, spent_usd, cap_usd, ...} — R-F2597
+    corrected the stale {total, monthly_cap} (neither field exists on the live
+    endpoint, so the probe false-failed every cycle)."""
     source = _agent_source()
-    assert '"monthly_cap"' in source or "'monthly_cap'" in source, (
-        "cost/monthly/status expected fields must include 'monthly_cap'"
+    assert '"cap_usd"' in source or "'cap_usd'" in source, (
+        "cost/monthly/status expected fields must include the real 'cap_usd'"
     )
 
 

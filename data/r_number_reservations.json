@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2596,
+  "next_available": 2598,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19874,6 +19874,26 @@
       "commit_sha": "fa03a93c",
       "notes": null,
       "shipped_at": "2026-07-14T09:15:47Z"
+    },
+    {
+      "r_number": "R-F2596",
+      "title": "GRPO cycle 4 coverage lever — reward answerable-row citation breadth (close v3 under-citation gap), double-gated vs fabrication",
+      "claimed_at": "2026-07-14T09:47:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e3289815",
+      "notes": null,
+      "shipped_at": "2026-07-14T09:48:38Z"
+    },
+    {
+      "r_number": "R-F2597",
+      "title": "web_integrity_agent false-0% — fix stale expected fields (unread_count, cost spent_usd/cap_usd) + align wire_success module name + self/staged slow-read",
+      "claimed_at": "2026-07-14T09:56:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "pending",
+      "notes": null,
+      "shipped_at": "2026-07-14T10:05:16Z"
     }
   ]
 }

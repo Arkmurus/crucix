@@ -128,7 +128,7 @@ WEB_ENDPOINTS: list[dict[str, Any]] = [
 
     # Due diligence
     {"path": "/api/aria/dd/watchlist/alerts/unread-count", "method": "GET",
-     "expected": {"count"}, "critical": False},
+     "expected": {"unread_count"}, "critical": False},  # R-F2597: real field is unread_count (was stale 'count')
 
     # Self-improvement
     {"path": "/api/aria/self/staged", "method": "GET", "expected": {}, "critical": False},
@@ -136,7 +136,7 @@ WEB_ENDPOINTS: list[dict[str, Any]] = [
     # logs showed 404; /self/staged remains as the live staged queue probe.
 
     # Cost & autonomy
-    {"path": "/api/aria/cost/monthly/status", "method": "GET", "expected": {"total", "monthly_cap"}, "critical": False},
+    {"path": "/api/aria/cost/monthly/status", "method": "GET", "expected": {"spent_usd", "cap_usd"}, "critical": False},  # R-F2597: real fields (was stale total/monthly_cap)
     {"path": "/api/aria/autonomous/status", "method": "GET", "expected": {"ok", "engine"}, "critical": False},
 
     # Adversarial
@@ -700,7 +700,10 @@ class WebIntegrityAgent:
         # brain_hook.absorb (rare; wants the full record). The SUCCESS path uses the
         # lightweight engine_wiring.wire_success — NOT absorb — because this cycle is
         # high-frequency and absorb's neural/mastery side-effects would inflate the
-        # composite (R-F973 lesson). module="web_integrity" matches the agent_id.
+        # composite (R-F973 lesson). R-F2597: SUCCESS + FAILURE must share ONE module
+        # name — the failure path + brain_hook heartbeat-watch + probe_web_full all read
+        # "web_integrity_agent", so success wiring under "web_integrity" (below) split the
+        # metric → the watched bucket only ever saw failures = a permanent false 0%.
         if errors_found > 0:
             await self._wire_to_brain(
                 module="web_integrity_agent",
@@ -719,7 +722,7 @@ class WebIntegrityAgent:
             try:
                 from .engine_wiring import wire_success  # R-F2523: wire_failure unused here (module-level import at top is used)
                 wire_success(
-                    module="web_integrity",
+                    module="web_integrity_agent",  # R-F2597: align with the failure path + heartbeat-watch
                     summary=f"Integrity cycle clean: all {len(checks)} endpoints healthy",
                     source_id="web_integrity_agent:_one_cycle",
                 )
