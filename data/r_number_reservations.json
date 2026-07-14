@@ -19861,18 +19861,19 @@
       "claimed_at": "2026-07-14T09:10:33Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "pending",
+      "commit_sha": "10880f30",
       "notes": null,
-      "shipped_at": "2026-07-14T09:12:40Z"
+      "shipped_at": "2026-07-14T09:12:47Z"
     },
     {
       "r_number": "R-F2595",
       "title": "pin semver via npm overrides — close utf7 transitive ReDoS (low-stakes hygiene)",
       "claimed_at": "2026-07-14T09:10:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "pending",
+      "notes": null,
+      "shipped_at": "2026-07-14T09:15:20Z"
     }
   ]
 }

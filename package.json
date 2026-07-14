@@ -63,6 +63,9 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "overrides": {
-    "undici": "^7.24.4"
+    "undici": "^7.24.4",
+    "utf7": {
+      "semver": "^7.8.5"
+    }
   }
 }
