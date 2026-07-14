@@ -19850,9 +19850,10 @@
       "title": "pin xlsx to patched SheetJS CDN build (0.20.x) — closes prototype-pollution/ReDoS the abandoned npm 0.18.5 never fixed",
       "claimed_at": "2026-07-14T08:50:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a26da867",
+      "notes": null,
+      "shipped_at": "2026-07-14T09:01:53Z"
     }
   ]
 }
