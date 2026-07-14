@@ -89,6 +89,140 @@ def _safe_int(v: Any, default: int) -> int:
         return default
 
 
+_GENERIC_ACTIONS = {
+    "monitor signal",
+    "review if relevant",
+    "assess country risk",
+    "monitor procurement path",
+}
+_CUSTOMER_VALUE_DISTRIBUTION_MIN = 70
+_CUSTOMER_VALUE_TELEGRAM_MIN = 80
+_SOURCE_AUTHORITY_SCORE = {
+    "tier_1a": 20,
+    "tier_1b": 17,
+    "tier_2": 13,
+    "tier_3": 6,
+    "unclassified": 0,
+}
+
+
+def _customer_value_lane(signal_type: str) -> tuple[list[str], list[str], list[str]]:
+    """Map signal types to customer value lanes used by the Golden Intel gate."""
+    if signal_type == "sanctions_change":
+        return (
+            ["compliance_officer", "defence_exporter", "broker_or_intermediary"],
+            ["sanctions_risk", "counterparty_risk", "export_control_risk"],
+            ["compliance_implication"],
+        )
+    if signal_type in {"active_tender", "contract_award", "budget_movement"}:
+        return (
+            ["procurement_team", "defence_exporter", "investor"],
+            ["bid_opportunity", "contract_award_follow_on", "market_timing"],
+            ["procurement_implication"],
+        )
+    if signal_type in {"programme_signal", "competitor_activity"}:
+        return (
+            ["defence_exporter", "investor", "procurement_team"],
+            ["competitor_positioning", "market_timing"],
+            ["market_synthesis"],
+        )
+    if signal_type == "conflict_escalation":
+        return (
+            ["logistics_or_delivery_operator", "defence_exporter", "compliance_officer"],
+            ["delivery_or_route_risk", "market_timing"],
+            ["market_synthesis"],
+        )
+    return ([], [], [])
+
+
+def _assess_customer_value(signal: dict, finding: dict | None = None) -> dict:
+    """Score whether a signal is decision-grade customer intel, not just news.
+
+    The score mirrors ``data/golden_intel_north_star_rubric.json``. Explicit
+    source-adapter metadata is honoured, but absent metadata is conservatively
+    inferred from the normalized signal so older adapters are not silently trusted.
+    """
+    finding = finding or {}
+    explicit = finding.get("customer_value") if isinstance(finding.get("customer_value"), dict) else {}
+    signal_type = _clean(signal.get("signal_type"))
+    source_tier = (_clean(signal.get("source_tier") or (signal.get("evidence") or {}).get("source_tier"))
+                   or "unclassified").lower()
+    action = _clean(signal.get("recommended_action"))
+    action_key = action.lower().rstrip(".")
+    why = _clean(signal.get("why_it_matters"))
+    title = _clean(signal.get("decision_summary") or signal.get("title"))
+    target = _clean(signal.get("target"))
+    url = _clean(signal.get("url") or (signal.get("evidence") or {}).get("url"))
+    entities = signal.get("entities") if isinstance(signal.get("entities"), dict) else {}
+    evidence_count = _safe_int(signal.get("evidence_count"), 1)
+
+    segments, problems, added = _customer_value_lane(signal_type)
+    segments = list(explicit.get("segments") or explicit.get("customer_segments") or segments)
+    problems = list(explicit.get("problems") or explicit.get("customer_problems") or problems)
+    added = list(explicit.get("aria_added") or explicit.get("aria_added_value") or added)
+    if evidence_count >= 2 and "cross_source_synthesis" not in added:
+        added.append("cross_source_synthesis")
+    if _clean(finding.get("source_key")) in {"public_watchlist", "customer_watchlist"} and "watchlist_match" not in added:
+        added.append("watchlist_match")
+
+    dimensions = {
+        "source_authority": _SOURCE_AUTHORITY_SCORE.get(source_tier, 0),
+        "specificity": 0,
+        "customer_segment_fit": 15 if segments and problems else 0,
+        "actionability": 0,
+        "aria_synthesis": min(20, 8 + (4 if added else 0) + (4 if evidence_count >= 2 else 0)
+                              + (4 if target and target.lower() not in {"signal", "source"} else 0)),
+        "freshness_and_novelty": 10 if _clean(signal.get("detected_at") or signal.get("published")) else 0,
+    }
+    if target and title and target.lower() not in {"signal", "source"}:
+        dimensions["specificity"] += 5
+    if len(why) >= 60:
+        dimensions["specificity"] += 5
+    if url.startswith(("http://", "https://")):
+        dimensions["specificity"] += 5
+    if action and action_key not in _GENERIC_ACTIONS:
+        dimensions["actionability"] = 20 if any(v in action.lower() for v in (
+            "screen", "block", "freeze", "bid", "review", "qualify", "assess", "engage",
+        )) else 14
+    elif action:
+        dimensions["actionability"] = 4
+
+    if isinstance(explicit.get("score"), int):
+        score = max(0, min(100, int(explicit["score"])))
+    else:
+        score = max(0, min(100, sum(dimensions.values())))
+
+    rejection_reasons: list[str] = []
+    if action_key in _GENERIC_ACTIONS:
+        rejection_reasons.append("generic_action")
+    if not segments:
+        rejection_reasons.append("missing_customer_segment")
+    if not problems:
+        rejection_reasons.append("missing_customer_problem")
+    if not added:
+        rejection_reasons.append("missing_aria_added_value")
+    if dimensions["specificity"] < 10:
+        rejection_reasons.append("insufficient_specificity")
+    if dimensions["actionability"] < 14:
+        rejection_reasons.append("weak_actionability")
+    hard_rejections = list(rejection_reasons)
+    if score < _CUSTOMER_VALUE_DISTRIBUTION_MIN:
+        rejection_reasons.append("customer_value_below_distribution_threshold")
+    if score < _CUSTOMER_VALUE_TELEGRAM_MIN:
+        rejection_reasons.append("customer_value_below_telegram_threshold")
+
+    return {
+        "score": score,
+        "dimensions": dimensions,
+        "segments": segments,
+        "problems": problems,
+        "aria_added": added,
+        "rejection_reasons": rejection_reasons,
+        "distribution_ready": score >= _CUSTOMER_VALUE_DISTRIBUTION_MIN and not hard_rejections,
+        "telegram_ready": score >= _CUSTOMER_VALUE_TELEGRAM_MIN and not hard_rejections,
+    }
+
+
 def _finding_dedup_key(finding: dict) -> str:
     """Stable identity for a finding across passes: source|type|entity|ref.
 
@@ -132,7 +266,7 @@ def _normalize_finding_to_signal(finding: dict) -> dict | None:
     corroboration = "corroborated" if evidence_count >= 2 else "single-source"
     signal_id = _nm._article_hash(_finding_dedup_key(finding))
 
-    return {
+    signal = {
         "id": signal_id,
         "signal_type": signal_type,
         "priority": priority,
@@ -172,6 +306,10 @@ def _normalize_finding_to_signal(finding: dict) -> dict | None:
             "corroboration": corroboration,
         },
     }
+    signal["customer_value"] = _assess_customer_value(signal, finding)
+    signal["distribution_score"] = signal["customer_value"]["score"]
+    signal["distribution_rejection_reasons"] = signal["customer_value"]["rejection_reasons"]
+    return signal
 
 
 # ── Dedup ledger ─────────────────────────────────────────────────────────────
@@ -264,6 +402,7 @@ def _is_distribution_ready(s: dict) -> bool:
         and bool(s.get("decision_summary") or s.get("title"))
         and bool(s.get("why_it_matters"))
         and bool(s.get("recommended_action"))
+        and bool((s.get("customer_value") or {}).get("telegram_ready"))
         # match the STRICTEST real gate: the dashboard (signalEvidenceUrl) requires a
         # real http(s) evidence URL, so this metric must too or it overstates the count.
         and str(s.get("url") or (s.get("evidence") or {}).get("url") or "").startswith(("http://", "https://"))

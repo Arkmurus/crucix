@@ -311,6 +311,18 @@ function signalEvidenceUrl(s) {
   return /^https?:\/\//i.test(ev) ? ev : '';
 }
 
+function customerValueScore(s) {
+  const n = Number(s && s.customer_value && s.customer_value.score != null ? s.customer_value.score : (s && s.distribution_score));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function customerValueHardRejections(s) {
+  const reasons = Array.isArray(s && s.customer_value && s.customer_value.rejection_reasons)
+    ? s.customer_value.rejection_reasons
+    : (Array.isArray(s && s.distribution_rejection_reasons) ? s.distribution_rejection_reasons : []);
+  return reasons.filter(r => ['customer_value_below_distribution_threshold', 'customer_value_below_telegram_threshold'].indexOf(String(r)) === -1);
+}
+
 function isDistributionReadyGolden(s) {
   const quality = String(s && s.quality_label || '').toLowerCase();
   const priority = String(s && s.priority || '').toUpperCase();
@@ -325,6 +337,8 @@ function isDistributionReadyGolden(s) {
     && Boolean(s && (s.decision_summary || s.title))
     && Boolean(s && s.why_it_matters)
     && Boolean(s && s.recommended_action)
+    && customerValueScore(s) >= 70
+    && customerValueHardRejections(s).length === 0
     && Boolean(signalEvidenceUrl(s))
     && !s._backfilled;
 }
@@ -333,16 +347,26 @@ function renderGoldenIntelItem(s, compact) {
   const target = s.target || (s.entities && ((s.entities.oems || [])[0] || (s.entities.countries || [])[0])) || s.source || 'Signal';
   const href = actionHref(s.recommended_action, target);
   const evidenceUrl = signalEvidenceUrl(s);
+  const why = String(s.why_it_matters || '').trim();
   const evidence = evidenceUrl
     ? '<a href="' + escHtml(evidenceUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--sc-prime);text-decoration:none">Evidence</a>'
     : '<span style="color:var(--sc-muted)">Evidence retained</span>';
   const detected = s.detected_at ? new Date(s.detected_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '';
+  const cvScore = customerValueScore(s);
+  const cvReasons = customerValueHardRejections(s);
+  const cvLine = cvScore
+    ? '<span class="sc-badge sc-badge-muted">Customer value ' + escHtml(String(cvScore)) + '</span>'
+    : '';
+  const rejectionLine = cvReasons.length
+    ? '<div style="font-size:11px;color:#b45309;line-height:1.4;margin-bottom:8px">Gate: ' + escHtml(cvReasons.join(', ').replace(/_/g, ' ')) + '</div>'
+    : '';
   return '<div style="padding:12px 0;border-bottom:1px solid var(--sc-border)">'
     + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
     + priorityBadge(s.priority)
     + confidenceBadge(s.confidence)
     + '<span class="sc-badge sc-badge-muted">' + escHtml(String(s.signal_type || 'signal').replace(/_/g, ' ')) + '</span>'
     + '<span class="sc-badge sc-badge-muted">' + escHtml(s.quality_label || 'context') + '</span>'
+    + cvLine
     + '<span style="font-size:11px;color:#9b968c;margin-left:auto">' + escHtml(s.source_tier || (s.evidence && s.evidence.source_tier) || 'unclassified') + '</span>'
     + '</div>'
     + '<div style="font-size:14px;font-weight:700;color:var(--sc-heading);line-height:1.35;margin-bottom:4px">' + escHtml(s.decision_summary || s.title || 'Untitled signal') + '</div>'
@@ -350,8 +374,9 @@ function renderGoldenIntelItem(s, compact) {
     + ' · <strong style="color:var(--sc-text)">Horizon:</strong> ' + escHtml(s.action_horizon || 'monitor')
     + ' · <strong style="color:var(--sc-text)">Evidence:</strong> ' + escHtml(s.corroboration || 'single-source')
     + '</div>'
-    + (compact ? '' : '<div style="font-size:12px;color:var(--sc-text);line-height:1.5;margin-bottom:8px">' + escHtml(s.why_it_matters || '') + '</div>')
+    + (why ? '<div style="font-size:12px;color:var(--sc-text);line-height:1.5;margin-bottom:8px">' + escHtml(compact ? truncate(why, 180) : why) + '</div>' : '')
     + '<div style="font-size:11px;color:#9b968c;line-height:1.4;margin-bottom:8px">' + escHtml(s.confidence_rationale || '') + '</div>'
+    + rejectionLine
     + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px">'
     + '<a href="' + escHtml(href) + '" class="sc-btn sc-btn-primary sc-btn-sm">' + escHtml(s.recommended_action || 'Review') + '</a>'
     + evidence

@@ -412,6 +412,18 @@ if (smtpConfigured) {
 // ARKMURUS format even if Seenode's persistent volume has an older telegram.mjs loaded.
 // The old telegram.mjs has `handlers = { '/brief': () => this._handleBrief() }` which
 // calls this method on the instance — patching here wins regardless of prototype version.
+function goldenBriefCustomerScore(signal) {
+  const n = Number(signal?.customer_value?.score ?? signal?.distribution_score ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function goldenBriefHardRejections(signal) {
+  const reasons = Array.isArray(signal?.customer_value?.rejection_reasons)
+    ? signal.customer_value.rejection_reasons
+    : (Array.isArray(signal?.distribution_rejection_reasons) ? signal.distribution_rejection_reasons : []);
+  return reasons.filter(r => !['customer_value_below_distribution_threshold', 'customer_value_below_telegram_threshold'].includes(String(r)));
+}
+
 async function fetchGoldenIntelForBrief(limit = 5) {
   if (!ARIA_SERVICE_URL) return [];
   try {
@@ -421,7 +433,15 @@ async function fetchGoldenIntelForBrief(limit = 5) {
     });
     if (!r.ok) return [];
     const data = await r.json();
-    return Array.isArray(data.signals) ? data.signals : [];
+    const freshness = data?.freshness || {};
+    if (freshness.stale !== false || freshness.backfilled) return [];
+    // R-F2600: the /brief digest publishes to Telegram, so it must clear the
+    // TELEGRAM tier (score>=80), not the looser dashboard-distribution tier (70).
+    // Mirrors data/golden_intel_north_star_rubric.json publication_thresholds.telegram
+    // and the channel-post gate in lib/telegram/channelServerHooks.mjs.
+    return Array.isArray(data.signals)
+      ? data.signals.filter(s => goldenBriefCustomerScore(s) >= 80 && goldenBriefHardRejections(s).length === 0)
+      : [];
   } catch (e) {
     console.warn('[Telegram] Golden Intel brief fetch failed:', e.message);
     return [];
@@ -6263,6 +6283,9 @@ async function runSweepCycle() {
     // (status 'error', updates []). Same drop-and-reattach shape as opensanctions.
     synthesized.ofacActions = (rawData.sources && rawData.sources.OFAC) || null;
     synthesized.exportControlActions = (rawData.sources && rawData.sources.ExportControls) || null;
+    // R-F2601 — trade.gov CSL is search/watchlist based. Re-attach the source
+    // so the Golden Intel promotion bridge can push only concrete official hits.
+    synthesized.csl = (rawData.sources && rawData.sources.CSL) || null;
 
     const delta = memory.addRun(synthesized);
     synthesized.delta = delta;

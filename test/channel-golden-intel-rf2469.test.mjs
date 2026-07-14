@@ -35,6 +35,14 @@ function goodSignal(overrides = {}) {
     source: 'US DoD Daily Contracts',
     url: 'https://example.com/angola-tender',
     detected_at: '2026-07-07T10:00:00Z',
+    customer_value: {
+      score: 88,
+      segments: ['procurement_team'],
+      problems: ['bid_opportunity'],
+      aria_added: ['procurement_implication'],
+      rejection_reasons: [],
+      telegram_ready: true,
+    },
     ...overrides,
   };
 }
@@ -74,6 +82,8 @@ describe('Telegram Golden Intel gate', () => {
     assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ source_tier: 'tier_4' })] }), null);
     assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ recommended_action: '' })] }), null);
     assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ url: '' })] }), null);
+    assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ customer_value: { score: 79, rejection_reasons: ['customer_value_below_telegram_threshold'] } })] }), null);
+    assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ customer_value: { score: 90, rejection_reasons: ['generic_action'] } })] }), null);
   });
 
   it('rejects already-posted Golden Intel even when re-ingested with a new id', () => {
@@ -97,6 +107,21 @@ describe('Telegram Golden Intel gate', () => {
     assert.match(text, /Why it matters:/);
     assert.match(text, /Action: \*Qualify opportunity\*/);
     assert.match(text, /Evidence: US DoD Daily Contracts/);
+  });
+
+  it('R-F2602: blocks / neutralizes evidence-URL Markdown link injection', () => {
+    const base = { ok: true, freshness: { stale: false, backfilled: false } };
+    // Realistic attack: a crafted evidence.url smuggling a Telegram Markdown link.
+    // It is not a valid http(s) URL, so the channel gate drops the whole signal —
+    // the injected hyperlink can never reach the public @ARIAIntelligence channel.
+    const injected = goodSignal({ url: '[Emergency refund click here](https://phishing.example)' });
+    assert.equal(selectTelegramGoldenIntel({ ...base, signals: [injected] }), null);
+    // A URL with a scheme but smuggled Markdown metacharacters passes the gate but
+    // the formatter _md()-escapes it, so no attacker-labelled link ever renders.
+    const smuggled = goodSignal({ url: 'https://evil.example/x[label](https://phishing.example)' });
+    const text = formatGoldenIntelChannelPost(smuggled, {});
+    assert.ok(!text.includes('[label]('), 'raw Markdown link syntax must not survive into the post');
+    assert.ok(text.includes('\\[label\\]'), 'evidence-URL brackets must be backslash-escaped');
   });
 
   it('morning cron posts fresh Golden Intel and no fallback content', async () => {

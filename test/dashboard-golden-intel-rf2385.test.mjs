@@ -24,6 +24,8 @@ for (const marker of [
   'confidence_rationale',
   'action_horizon',
   'corroboration',
+  'customerValueScore',
+  'customerValueHardRejections',
 ]) {
   assert.ok(HTML.includes(marker), `dashboard must include ${marker}`);
 }
@@ -52,6 +54,15 @@ const INTEL = {
     source_tier: 'tier_1b',
     url: 'https://example.com/angola-tender',
     detected_at: '2026-07-07T10:00:00Z',
+    customer_value: {
+      score: 75,
+      segments: ['procurement_team'],
+      problems: ['bid_opportunity'],
+      aria_added: ['procurement_implication'],
+      rejection_reasons: ['customer_value_below_telegram_threshold'],
+      distribution_ready: true,
+      telegram_ready: false,
+    },
   }],
 };
 
@@ -150,5 +161,6 @@ assert.match(html, /single-source/);
 assert.match(html, /high-trust source tier/);
 assert.match(html, /Evidence/);
 assert.match(html, /tier_1b/);
+assert.match(html, /Customer value 75/);
 
 console.log('PASS');

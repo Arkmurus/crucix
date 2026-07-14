@@ -54,6 +54,8 @@ def test_decision_grade_tender_is_distribution_ready():
     assert sig["source_tier"] == "tier_1a"
     # user-visible: passes the same gate the dashboard/Telegram apply
     assert bridge._is_distribution_ready(sig) is True
+    assert sig["customer_value"]["score"] >= 80
+    assert sig["customer_value"]["telegram_ready"] is True
     # schema fidelity — every news_monitor signal key is present
     missing = _SCHEMA_KEYS - set(sig)
     assert not missing, f"signal missing schema keys: {missing}"
@@ -65,6 +67,74 @@ def test_weak_finding_lands_in_mining_queue_not_distribution():
     sig = bridge._normalize_finding_to_signal(f)
     assert sig is not None                       # still a valid signal (Mining Queue)
     assert bridge._is_distribution_ready(sig) is False   # honestly NOT promoted to public
+
+
+def test_generic_customer_action_is_rejected_from_distribution():
+    f = _decision_grade_tender_finding()
+    f.update({
+        "signal_type": "conflict_escalation",
+        "title": "Regional security situation changes",
+        "why_it_matters": "Security reporting indicates elevated operating risk but does not identify a named customer exposure or decision path.",
+        "recommended_action": "Assess country risk",
+        "target": "Regional market",
+    })
+    sig = bridge._normalize_finding_to_signal(f)
+    assert sig is not None
+    assert "generic_action" in sig["customer_value"]["rejection_reasons"]
+    assert sig["customer_value"]["distribution_ready"] is False
+    assert bridge._is_distribution_ready(sig) is False
+
+
+def test_customer_value_dashboard_threshold_is_not_telegram_threshold():
+    f = _decision_grade_tender_finding()
+    f["customer_value"] = {
+        "score": 75,
+        "segments": ["procurement_team"],
+        "problems": ["bid_opportunity"],
+        "aria_added": ["procurement_implication"],
+    }
+    sig = bridge._normalize_finding_to_signal(f)
+    assert sig is not None
+    assert sig["customer_value"]["distribution_ready"] is True
+    assert sig["customer_value"]["telegram_ready"] is False
+    assert bridge._is_distribution_ready(sig) is False
+
+
+def test_trade_gov_csl_finding_is_distribution_ready():
+    finding = {
+        "source_key": "trade_gov_csl",
+        "source": "trade.gov CSL: BIS Entity List",
+        "signal_type": "sanctions_change",
+        "priority": "HIGH",
+        "confidence": "HIGH",
+        "score": 90,
+        "source_tier": "tier_1a",
+        "title": "ACME Defence LLC: official CSL match",
+        "why_it_matters": (
+            "ACME Defence LLC matched public watchlist term \"ACME\" on BIS Entity List. "
+            "This is an official US export/sanctions screening source."
+        ),
+        "recommended_action": "Screen counterparties; pause export or bid activity until compliance review is complete.",
+        "target": "ACME Defence LLC",
+        "entities": {"countries": ["AE"], "products": [], "oems": []},
+        "evidence_url": "https://www.bis.gov/entity-list",
+        "url": "https://www.bis.gov/entity-list",
+        "ref": "csl-1",
+        "detected_at": "2026-07-14T10:00:00+00:00",
+        "evidence_count": 1,
+        "category": "export_control",
+        "customer_value": {
+            "score": 90,
+            "segments": ["compliance_officer", "defence_exporter"],
+            "problems": ["export_control_risk", "sanctions_risk"],
+            "aria_added": ["compliance_implication", "watchlist_match"],
+        },
+    }
+    sig = bridge._normalize_finding_to_signal(finding)
+    assert sig is not None
+    assert sig["customer_value"]["telegram_ready"] is True
+    assert sig["customer_value"]["rejection_reasons"] == []
+    assert bridge._is_distribution_ready(sig) is True
 
 
 def test_finding_without_title_is_invalid():

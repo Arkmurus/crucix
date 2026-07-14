@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2598,
+  "next_available": 2603,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19891,9 +19891,54 @@
       "claimed_at": "2026-07-14T09:56:16Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "pending",
+      "commit_sha": "7c208c2e",
       "notes": null,
-      "shipped_at": "2026-07-14T10:05:16Z"
+      "shipped_at": "2026-07-14T10:05:22Z"
+    },
+    {
+      "r_number": "R-F2598",
+      "title": "golden intel north star model",
+      "claimed_at": "2026-07-14T10:10:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2599",
+      "title": "source coverage north star backlog",
+      "claimed_at": "2026-07-14T10:19:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2600",
+      "title": "golden intel customer value gate",
+      "claimed_at": "2026-07-14T10:24:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2601",
+      "title": "trade gov csl source",
+      "claimed_at": "2026-07-14T10:41:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2602",
+      "title": "golden intel channel evidence-url markdown injection hardening",
+      "claimed_at": "2026-07-14T11:53:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
