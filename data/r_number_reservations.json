@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2611,
+  "next_available": 2612,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -19948,63 +19948,70 @@
       "title": "remove hardcoded dashboard password + wire telegram command-reply outcome",
       "claimed_at": "2026-07-14T12:38:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e2738eff",
+      "notes": null,
+      "shipped_at": "2026-07-14T13:11:55Z"
     },
     {
       "r_number": "R-F2604",
       "title": "central CSP + security headers for web tier XSS defense",
       "claimed_at": "2026-07-14T12:39:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e2738eff",
+      "notes": null,
+      "shipped_at": "2026-07-14T13:11:55Z"
     },
     {
       "r_number": "R-F2605",
       "title": "wire billing auth boot search failures to brain per section21",
       "claimed_at": "2026-07-14T12:39:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4d4b8b1e",
+      "notes": null,
+      "shipped_at": "2026-07-14T13:11:55Z"
     },
     {
       "r_number": "R-F2606",
       "title": "api surface: extract-doc rate-limit + compliance-audit admin gate + rag idor pin",
       "claimed_at": "2026-07-14T12:39:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4d4b8b1e",
+      "notes": null,
+      "shipped_at": "2026-07-14T13:11:56Z"
     },
     {
       "r_number": "R-F2607",
       "title": "frontend XSS: href scheme allowlist + escape enum scalar sinks",
       "claimed_at": "2026-07-14T12:39:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e745a9aa",
+      "notes": null,
+      "shipped_at": "2026-07-14T13:11:57Z"
     },
     {
       "r_number": "R-F2608",
       "title": "web correctness: uncaughtException restart + throttle sweep + zoom timeout",
       "claimed_at": "2026-07-14T12:39:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4d4b8b1e",
+      "notes": null,
+      "shipped_at": "2026-07-14T13:11:57Z"
     },
     {
       "r_number": "R-F2609",
       "title": "conversation-key tenant isolation via injective user-id with legacy fallback",
       "claimed_at": "2026-07-14T12:39:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "acb89a96",
+      "notes": null,
+      "shipped_at": "2026-07-14T13:11:58Z"
     },
     {
       "r_number": "R-F2610",
@@ -20014,6 +20021,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F2611",
+      "title": "DD delete streamline — cascade auto-enrolled watchlist removal so a deleted report doesn't linger in dashboard/watchlist views",
+      "claimed_at": "2026-07-14T12:56:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b8f0089a",
+      "notes": null,
+      "shipped_at": "2026-07-14T13:05:16Z"
     }
   ]
 }
