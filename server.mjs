@@ -4523,8 +4523,21 @@ app.post('/api/auth/register', async (req, res) => {
     // Adds a synthetic delay to match the real-register timing budget.
     const emailExists = !!findUserByEmail(email);
     const usernameExists = !!findUserByUsername(username);
-    if (emailExists || usernameExists) {
-      console.log(`[Auth] Register attempt for existing ${emailExists ? 'email' : 'username'}: ${email} / ${username} — responding with generic success to prevent enumeration`);
+    // R-F2609 — the conversation-history bucket key is a lossy [^A-Za-z0-9] slug of the
+    // email (conversationKeyForUser), so two DISTINCT emails can map to the SAME bucket
+    // (e.g. john.doe@ vs johndoe@) and then read/rename/delete each other's chat + DD
+    // history. Enforce slug-injectivity at the door: refuse a signup whose bucket key
+    // collides with an existing account. Handled exactly like an email/username collision
+    // (silent generic success — anti-enumeration preserved). No key change or data
+    // migration; existing buckets are untouched. Only runs when the email itself is new.
+    const _newBucketKey = slugifyIdentity(email);
+    const slugCollides = !emailExists && !!_newBucketKey &&
+      listUsers().some(u => conversationKeyForUser(u) === _newBucketKey);
+    if (emailExists || usernameExists || slugCollides) {
+      if (slugCollides && !emailExists && !usernameExists) {
+        console.warn(`[Auth] register BLOCKED slug-collision bucket=${_newBucketKey} email=${_maskEmail(email)} — a distinct existing account already owns this conversation bucket (R-F2609)`);
+      }
+      console.log(`[Auth] Register attempt for existing ${emailExists ? 'email' : (usernameExists ? 'username' : 'bucket-slug')}: ${_maskEmail(email)} / ${username} — responding with generic success to prevent enumeration`);
       // Optional: if SMTP is configured and the email exists, email the
       // legitimate owner. This is the security-best-practice flow.
       if (emailExists && process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
