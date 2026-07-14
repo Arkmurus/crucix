@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2610,
+  "next_available": 2611,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20001,6 +20001,15 @@
       "r_number": "R-F2609",
       "title": "conversation-key tenant isolation via injective user-id with legacy fallback",
       "claimed_at": "2026-07-14T12:39:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2610",
+      "title": "csl activation state promotion hardening",
+      "claimed_at": "2026-07-14T12:50:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

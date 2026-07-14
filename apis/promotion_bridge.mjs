@@ -13,6 +13,7 @@
 //  - Opportunities pending export-control review are downgraded + flagged, never HIGH.
 
 const INGEST_PATH = '/api/aria/intel/promote/ingest';
+const PROMOTION_TIMEOUT_MS = 20000;
 
 function _ingestUrl() {
   const base = (process.env.ARIA_SERVICE_URL || process.env.ARIA_BRAIN_URL || '').replace(/\/+$/, '');
@@ -150,7 +151,7 @@ async function _post(source, findings) {
     const res = await fetch(url, {
       method: 'POST', headers: _headers(),
       body: JSON.stringify({ source, findings }),
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(PROMOTION_TIMEOUT_MS),
     });
     if (!res.ok) {
       console.warn(`[PromotionBridge] ingest ${source} -> HTTP ${res.status}`);
@@ -164,6 +165,14 @@ async function _post(source, findings) {
   }
 }
 
+async function _postSequential(batches) {
+  const out = {};
+  for (const batch of batches) {
+    out[batch.source] = await _post(batch.source, batch.findings);
+  }
+  return out;
+}
+
 // Build findings from a completed sweep + push them to the Python bridge.
 export async function pushPromotionsToBrain(synthesized) {
   if (!synthesized) return { opportunities: 0, sanctions: 0, csl: 0 };
@@ -173,14 +182,26 @@ export async function pushPromotionsToBrain(synthesized) {
   const sanctions = sanctionsEntries.map(_mapSanctions).filter(Boolean);
   const cslHits = Array.isArray(synthesized.csl?.recent) ? synthesized.csl.recent : [];
   const csl = cslHits.map(_mapCSLHit).filter(Boolean).slice(0, 20);
-  const [r1, r2, r3] = await Promise.all([
-    _post('bd_intelligence', opps),
-    _post('opensanctions', sanctions),
-    _post('trade_gov_csl', csl),
+  const posted = await _postSequential([
+    { source: 'bd_intelligence', findings: opps },
+    { source: 'opensanctions', findings: sanctions },
+    { source: 'trade_gov_csl', findings: csl },
   ]);
+  const r1 = posted.bd_intelligence || {};
+  const r2 = posted.opensanctions || {};
+  const r3 = posted.trade_gov_csl || {};
   console.log(`[PromotionBridge] pushed opportunities=${r1.accepted || 0} sanctions=${r2.accepted || 0} csl=${r3.accepted || 0}`);
-  return { opportunities: r1.accepted || 0, sanctions: r2.accepted || 0, csl: r3.accepted || 0 };
+  return {
+    opportunities: r1.accepted || 0,
+    sanctions: r2.accepted || 0,
+    csl: r3.accepted || 0,
+    errors: Object.fromEntries(
+      Object.entries(posted)
+        .filter(([, r]) => r && (r.error || r.status))
+        .map(([source, r]) => [source, r.error || `HTTP ${r.status}`])
+    ),
+  };
 }
 
 // exported for unit tests
-export const _test = { _mapOpportunity, _mapSanctions, _mapCSLHit };
+export const _test = { _mapOpportunity, _mapSanctions, _mapCSLHit, _postSequential };

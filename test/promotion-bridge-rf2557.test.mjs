@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { _test } from '../apis/promotion_bridge.mjs';
 
-const { _mapOpportunity, _mapSanctions, _mapCSLHit } = _test;
+const { _mapOpportunity, _mapSanctions, _mapCSLHit, _postSequential } = _test;
 
 test('opportunity: strong sourced non-blocked -> HIGH programme_signal, no OEM/score leak', () => {
   const f = _mapOpportunity({
@@ -110,4 +110,42 @@ test('opportunity ref is stable even without a source url', () => {
 test('opportunity no longer forwards the raw internal composite score', () => {
   const f = _mapOpportunity({ market: 'X', iso2: 'XX', id: 'X-1', score: 88, complianceStatus: 'NOT_SCREENED', sources: [{ url: 'https://x/1', isProcurement: true }] });
   assert.equal(f.score, undefined, 'internal Arkmurus score must not reach the public signal');
+});
+
+test('promotion ingest posts sources sequentially to avoid brain burst timeouts', async () => {
+  const originalFetch = global.fetch;
+  const originalUrl = process.env.ARIA_SERVICE_URL;
+  process.env.ARIA_SERVICE_URL = 'https://aria-intel.example';
+  let active = 0;
+  let maxActive = 0;
+  const sources = [];
+  global.fetch = async (_url, opts = {}) => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    const body = JSON.parse(String(opts.body || '{}'));
+    sources.push(body.source);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    active -= 1;
+    return new Response(JSON.stringify({ accepted: body.findings?.length || 0 }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+
+  try {
+    const out = await _postSequential([
+      { source: 'bd_intelligence', findings: [{ title: 'A' }] },
+      { source: 'opensanctions', findings: [{ title: 'B' }] },
+      { source: 'trade_gov_csl', findings: [{ title: 'C' }] },
+    ]);
+    assert.equal(maxActive, 1);
+    assert.deepEqual(sources, ['bd_intelligence', 'opensanctions', 'trade_gov_csl']);
+    assert.equal(out.bd_intelligence.accepted, 1);
+    assert.equal(out.opensanctions.accepted, 1);
+    assert.equal(out.trade_gov_csl.accepted, 1);
+  } finally {
+    global.fetch = originalFetch;
+    if (originalUrl == null) delete process.env.ARIA_SERVICE_URL;
+    else process.env.ARIA_SERVICE_URL = originalUrl;
+  }
 });

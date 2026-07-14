@@ -149,6 +149,7 @@ export function buildSourceHealthSummary(sources) {
   const partial = items.filter(s => s.status === 'partial');
   const failed = items.filter(s => s.status === 'error' || s.status === 'timeout' || s.status === 'failed');
   const suspended = items.filter(s => s.status === 'suspended');
+  const notConfigured = items.filter(s => s.status === 'not_configured');
 
   const degraded = [
     ...partial.map(s => ({
@@ -175,6 +176,14 @@ export function buildSourceHealthSummary(sources) {
       subStatus: null,
       error: s.error || null,
     })),
+    ...notConfigured.map(s => ({
+      name: s.name || 'unknown',
+      status: 'not_configured',
+      durationMs: s.durationMs || 0,
+      failedSubsources: s.subStatus?.failed || [],
+      subStatus: s.subStatus || null,
+      error: s.error || s.data?.reason || null,
+    })),
   ];
 
   const total = items.length;
@@ -196,6 +205,7 @@ export function buildSourceHealthSummary(sources) {
     partial: partial.length,
     failed: failed.length,
     suspended: suspended.length,
+    notConfigured: notConfigured.length,
     available,
     unavailable,
     degradedRatio: Number(degradedRatio.toFixed(3)),
@@ -255,11 +265,18 @@ export async function runSource(name, fn, ...args) {
     // empty arrays — so this runner sees status='ok' even when every
     // sub-source failed. The "49/49 sources OK" summary then lies.
     //
+    // Sources that are intentionally disabled because an operator credential or
+    // watchlist is missing are activation gaps, not runtime failures. Keep them
+    // visible in source health without poisoning reliability metrics.
+    let status = 'ok';
+    if (['disabled_no_key', 'disabled_no_watchlist', 'not_configured', 'activation_required'].includes(String(data?.status || ''))) {
+      status = 'not_configured';
+    }
+
     // Aggregators that opt in expose `data._subStatus = {ok, total,
     // failed}`. Promote to 'partial' (some sub-sources failed) or
     // 'error' (none returned). Sources without _subStatus stay 'ok' as
     // before — backwards compatible.
-    let status = 'ok';
     let subStatus = null;
     if (data && typeof data === 'object' && data._subStatus
         && typeof data._subStatus.ok === 'number'
@@ -270,8 +287,10 @@ export async function runSource(name, fn, ...args) {
         total:  data._subStatus.total,
         failed: Array.isArray(data._subStatus.failed) ? data._subStatus.failed.slice(0, 20) : [],
       };
-      if (subStatus.ok === 0) status = 'error';
-      else if (subStatus.ok < subStatus.total) status = 'partial';
+      if (status !== 'not_configured') {
+        if (subStatus.ok === 0) status = 'error';
+        else if (subStatus.ok < subStatus.total) status = 'partial';
+      }
     }
 
     // Reliability tracker: count partial as success (we still got SOME
@@ -279,7 +298,7 @@ export async function runSource(name, fn, ...args) {
     // separate concern — the pruner only knows top-level sources.
     if (status === 'error' && _onSourceError) {
       _onSourceError(name, new Error(`all ${subStatus.total} sub-sources failed`), Date.now() - start);
-    } else if (_onSourceSuccess) {
+    } else if (status !== 'not_configured' && _onSourceSuccess) {
       _onSourceSuccess(name, Date.now() - start);
     }
 
@@ -475,6 +494,7 @@ export async function fullBriefing() {
       sourcesOk:       okCount,
       sourcesPartial:  partialCount,
       sourcesFailed:   failedCount,
+      sourcesNotConfigured: sourceHealth.notConfigured,
     },
     sources: Object.fromEntries(
       // Include partial sources too — their data is still usable, just
@@ -484,7 +504,7 @@ export async function fullBriefing() {
       sources.filter(s => s.status === 'ok' || s.status === 'partial').map(s => [s.name, s.data])
     ),
     errors: sources
-      .filter(s => s.status !== 'ok' && s.status !== 'suspended')
+      .filter(s => s.status !== 'ok' && s.status !== 'suspended' && s.status !== 'not_configured')
       .map(s => {
         const entry = { name: s.name, status: s.status, error: s.error };
         if (s.subStatus) entry.subStatus = s.subStatus;
@@ -522,6 +542,9 @@ export async function fullBriefing() {
   const suspendedNames = sources
     .filter(s => s.status === 'suspended')
     .map(s => s.name || 'unknown');
+  const notConfiguredNames = sources
+    .filter(s => s.status === 'not_configured')
+    .map(s => s.name || 'unknown');
   const partialNames = sources
     .filter(s => s.status === 'partial')
     .map(s => {
@@ -534,6 +557,7 @@ export async function fullBriefing() {
   const parts = [];
   if (erroredNames.length)   parts.push(` · failed: ${erroredNames.join(', ')}`);
   if (partialNames.length)   parts.push(` · partial: ${partialNames.join(', ')}`);
+  if (notConfiguredNames.length) parts.push(` · not configured: ${notConfiguredNames.join(', ')}`);
   if (suspendedNames.length) parts.push(` · suspended: ${suspendedNames.join(', ')}`);
   const partialFrag = partialCount ? ` (${partialCount} partial)` : '';
   console.error(`[Crucix] Sweep complete in ${totalMs}ms — ${okCount}/${sources.length} sources fully OK${partialFrag}${parts.join('')}`);
@@ -609,7 +633,7 @@ function _sourceHealthPayload(sourceHealth) {
   });
   const content = [
     `Intel source health is ${sourceHealth.severity}.`,
-    `${sourceHealth.ok}/${sourceHealth.total} sources fully OK; ${sourceHealth.partial} partial; ${sourceHealth.failed} failed; ${sourceHealth.suspended} suspended.`,
+    `${sourceHealth.ok}/${sourceHealth.total} sources fully OK; ${sourceHealth.partial} partial; ${sourceHealth.failed} failed; ${sourceHealth.suspended} suspended; ${sourceHealth.notConfigured || 0} not configured.`,
     top.length ? `Degraded sources: ${top.join(' | ')}` : '',
   ].filter(Boolean).join('\n');
   return {
