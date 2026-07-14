@@ -19669,6 +19669,110 @@ async def audit_key_fingerprint_ep():
     }
 
 
+# ── Inbound marketing leads (R-F2620) ───────────────────────────────────────
+# The public landing form (index.html) previously dropped every sign-up on the
+# floor — it showed "Thanks, we'll be in touch" and POSTed nowhere. These two
+# endpoints capture the lead into the brain (a real limb, §21-wired) and let the
+# operator view them. Both are under /api/aria/* so the auth middleware requires
+# a token — never anonymous. The public landing form POSTs to aria-web /api/leads
+# (public), which forwards here with the service token. GET returns PII
+# (name/email) and is additionally admin-gated at the web tier (requireAdmin).
+_LEADS_INBOUND_INDEX = "crucix:leads:inbound:index"          # zset score=ts member=lead_id
+_LEADS_INBOUND_KEY = "crucix:leads:inbound:{lead_id}"        # json record
+_LEADS_USE_CASES = {
+    "Defence brokerage", "Compliance advisory", "Financial advisory",
+    "Government / institutional", "Other", "Use case", "",
+}
+
+
+@router.post("/leads/inbound")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def leads_inbound_create_ep(request: Request):
+    """Record one inbound marketing lead from the public landing form.
+
+    Wired to the brain on BOTH branches (§21): success → brain_hook.absorb
+    (inbound_leads limb); failure → capability_gaps.record_gap + the @fail_wire
+    decorator. Idempotent per (email,name) so a double-click is one lead."""
+    import hashlib
+    from fastapi.responses import JSONResponse
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    name = str(body.get("name") or "").strip()[:200]
+    email = str(body.get("email") or "").strip()[:200]
+    use_case = str(body.get("use_case") or "").strip()[:120]
+    source = str(body.get("source") or "landing").strip()[:60]
+    # Honest validation — a lead is only real with a name + a plausible email.
+    if not name or "@" not in email or "." not in email.split("@")[-1]:
+        return JSONResponse(
+            {"ok": False, "error": "A name and a valid email are required."},
+            status_code=400,
+        )
+    if use_case not in _LEADS_USE_CASES:
+        use_case = use_case[:120]  # keep unexpected free-text but bounded
+    lead_id = "lead_" + hashlib.sha256(f"{email.lower()}|{name.lower()}".encode()).hexdigest()[:16]
+    record = {
+        "lead_id": lead_id,
+        "name": name,
+        "email": email,
+        "use_case": use_case,
+        "source": source,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        await rs.set_json(_LEADS_INBOUND_KEY.format(lead_id=lead_id), record)
+        await rs.zadd(_LEADS_INBOUND_INDEX, datetime.now(timezone.utc).timestamp(), lead_id)
+    except Exception as _e:
+        try:
+            from ..intel import capability_gaps as _cg
+            await _cg.record_gap(
+                "engine_failure",
+                f"inbound lead capture failed to persist: {_e}",
+                source="leads_inbound",
+                severity="HIGH",
+            )
+        except Exception:
+            pass
+        return JSONResponse(
+            {"ok": False, "error": "Could not record your details right now. Please try again shortly."},
+            status_code=503,
+        )
+    # §21 success wire — the brain learns a lead arrived.
+    try:
+        from ..intel import brain_hook as _bh
+        await _bh.absorb(
+            module="inbound_leads",
+            summary=f"Inbound lead: {name} <{email}>" + (f" · {use_case}" if use_case and use_case != "Use case" else ""),
+            detail=f"Landing-page sign-up from '{source}'. Use case: {use_case or 'unspecified'}.",
+            entity_name=name,
+            success=True,
+            source_id=lead_id,
+            confidence="CONFIRMED",
+        )
+    except Exception:
+        pass  # absorb self-observes its own failure; never fail the user's submit
+    return {"ok": True, "lead_id": lead_id}
+
+
+@router.get("/leads/inbound")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def leads_inbound_list_ep(limit: int = 100):
+    """List recent inbound leads, newest first. Operator-only (PII)."""
+    try:
+        limit = max(1, min(int(limit), 500))
+    except Exception:
+        limit = 100
+    ids = await rs.zrevrange(_LEADS_INBOUND_INDEX, 0, limit - 1)
+    leads = []
+    for lid in ids:
+        rec = await rs.get_json(_LEADS_INBOUND_KEY.format(lead_id=lid))
+        if isinstance(rec, dict):
+            leads.append(rec)
+    total = await rs.zcard(_LEADS_INBOUND_INDEX)
+    return {"leads": leads, "count": len(leads), "total": total}
+
+
 @router.get("/compliance/file/{deal_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def compliance_file_ep(deal_id: str, verify_chain: bool = True):

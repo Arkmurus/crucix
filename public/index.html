@@ -1798,20 +1798,43 @@ window.addEventListener('scroll', function() {
     : 'rgba(250,249,245,0.88)';
 });
 
-// Simple form handling
-document.getElementById('lp-request-btn').addEventListener('click', function() {
+// R-F2620 — the request form now POSTs to /api/leads (aria-web → aria-intel
+// brain) instead of dropping the lead on the floor. Honest states: it only says
+// "Thanks" when the lead was actually recorded; on failure it says so and lets
+// the visitor retry (§22 — never fake a success).
+var ORIGINAL_BTN = 'Find out more <i class="bi bi-arrow-right"></i>';
+document.getElementById('lp-request-btn').addEventListener('click', async function() {
+  var btn = this;
   var inputs = document.querySelectorAll('#contact input, #contact select');
   var name = inputs[0].value.trim();
   var email = inputs[1].value.trim();
-  if (!name || !email) {
-    this.innerHTML = 'Please add your name and email';
-    var self = this;
-    setTimeout(function() { self.innerHTML = 'Find out more <i class="bi bi-arrow-right"></i>'; }, 2000);
+  var useCase = inputs[2] ? inputs[2].value.trim() : '';
+  function flash(txt, ms) { btn.innerHTML = txt; setTimeout(function() { if (!btn.disabled) btn.innerHTML = ORIGINAL_BTN; }, ms || 3000); }
+  if (!name || email.indexOf('@') === -1) {
+    flash('Please add your name and a valid email', 2500);
     return;
   }
-  this.innerHTML = '<i class="bi bi-check-lg"></i> Thanks, we\'ll be in touch';
-  this.style.background = '#16a34a';
-  for (var i = 0; i < inputs.length; i++) { inputs[i].disabled = true; }
+  btn.disabled = true;
+  btn.innerHTML = 'Sending…';
+  try {
+    var r = await fetch('/api/leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, email: email, use_case: (useCase === 'Use case' ? '' : useCase) })
+    });
+    var data = await r.json().catch(function() { return {}; });
+    if (r.ok && data.ok) {
+      btn.innerHTML = '<i class="bi bi-check-lg"></i> Thanks, we\'ll be in touch';
+      btn.style.background = '#16a34a';
+      for (var i = 0; i < inputs.length; i++) { inputs[i].disabled = true; }
+    } else {
+      btn.disabled = false;
+      flash((data && data.error) ? data.error : 'Something went wrong — please try again', 3500);
+    }
+  } catch (e) {
+    btn.disabled = false;
+    flash('Network error — please try again', 3500);
+  }
 });
 </script>
 </body>

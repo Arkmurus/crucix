@@ -2356,6 +2356,56 @@ function _ariaHeaders(extra = {}) {
   return headers;
 }
 
+// ── R-F2620 — inbound marketing leads from the public landing form ───────────
+// The landing form (index.html) used to drop every sign-up on the floor. These
+// two routes give it a real destination: POST /api/leads is PUBLIC (rate-limited
+// like every other route) and forwards the lead to the aria-intel brain with the
+// service token; GET /api/leads is admin-only (leads are PII) and lists them for
+// the operator. The viewing surface is public/leads.html.
+app.post('/api/leads', async (req, res) => {
+  try {
+    if (!ARIA_SERVICE_URL) return res.status(503).json({ ok: false, error: 'Lead capture is temporarily unavailable.' });
+    const body = req.body || {};
+    const name = String(body.name || '').trim().slice(0, 200);
+    const email = String(body.email || '').trim().slice(0, 200);
+    const useCase = String(body.use_case || body.useCase || '').trim().slice(0, 120);
+    if (!name || !email.includes('@')) {
+      return res.status(400).json({ ok: false, error: 'A name and a valid email are required.' });
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12000);
+    try {
+      const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/leads/inbound`, {
+        method: 'POST',
+        headers: _ariaHeaders(),
+        body: JSON.stringify({ name, email, use_case: useCase, source: 'landing' }),
+        signal: ctrl.signal,
+      });
+      const data = await r.json().catch(() => ({}));
+      // Relay the brain's honest verdict — do NOT fake a success on failure (§22).
+      return res.status(r.ok ? 200 : (r.status || 502)).json(
+        r.ok ? { ok: true } : { ok: false, error: data.error || 'Could not record your details right now.' }
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (e) {
+    return res.status(502).json({ ok: false, error: 'Could not reach the lead service. Please try again shortly.' });
+  }
+});
+
+app.get('/api/leads', requireAdmin, async (req, res) => {
+  try {
+    if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'aria service unavailable' });
+    const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 100, 500));
+    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/leads/inbound?limit=${limit}`, { headers: _ariaHeaders() });
+    const data = await r.json().catch(() => ({}));
+    return res.status(r.ok ? 200 : (r.status || 502)).json(data);
+  } catch (e) {
+    return res.status(502).json({ error: 'Could not reach the lead service.' });
+  }
+});
+
 // ── §25a web delivery-outcome (R-F1565) ──────────────────────────────────────
 // Mirrors the WA listener's reportOutcome (services/wa-listener/
 // aria_wa_listener.mjs ~L1023): every output surface reports whether the user

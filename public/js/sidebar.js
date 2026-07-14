@@ -280,6 +280,7 @@ const Sidebar = {
         ${link('brain',      '/aria-brain',      'bi-heart-fill',  'ARIA Brain')}
         ${link('status',     '/status.html',     'bi-lightning-charge', 'Status')}
         ${link('model-card', '/model-card.html', 'bi-file-text',   'Model Card')}
+        <div data-admin style="display:none">${link('leads', '/leads.html', 'bi-inbox', 'Inbound Leads')}</div>
         <div data-admin style="display:none">${link('admin', '/admin.html', 'bi-shield-lock', 'Users')}</div>
       </nav>
 

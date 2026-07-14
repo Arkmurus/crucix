@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inbound Leads | ARIA</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/aria.css?v=15">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+</head>
+<body>
+<div id="sidebar-placeholder"></div>
+<div id="header-placeholder"></div>
+<main id="app-main">
+  <div class="sc-page-header">
+    <h1 class="sc-page-title"><i class="bi bi-inbox"></i> Inbound Leads</h1>
+    <p class="sc-page-sub">Sign-ups from the public landing form — newest first. Admin-only (contains contact details).</p>
+  </div>
+
+  <div id="leads-summary" style="margin-bottom:14px;color:var(--sc-muted);font-size:13px"></div>
+  <div id="leads-state" class="sc-loading-state"><div class="sc-spinner"></div>Loading leads…</div>
+  <div id="leads-content" style="display:none">
+    <div style="overflow-x:auto">
+      <table class="sc-table">
+        <thead>
+          <tr><th>Received</th><th>Name</th><th>Email</th><th>Use case</th><th>Source</th></tr>
+        </thead>
+        <tbody id="leads-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+<script src="js/app.js?v=8"></script>
+<script src="js/sidebar.js?v=12"></script>
+<script>
+Auth.requireAuth();
+Sidebar.init('leads');
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function fmtDate(iso) {
+  if (!iso) return '';
+  try { var d = new Date(iso); return isNaN(d) ? esc(iso) : d.toLocaleString(); } catch (e) { return esc(iso); }
+}
+
+async function load() {
+  var stateEl = document.getElementById('leads-state');
+  var contentEl = document.getElementById('leads-content');
+  // probe() is status-aware — it lets us tell a 403 (not an admin) apart from a
+  // genuine load failure, and both apart from a real empty list (§22).
+  var res = await API.probe('/api/leads');
+  if (res.status === 403) {
+    stateEl.className = '';
+    stateEl.innerHTML = '<p class="text-muted">This page is admin-only. Your account can\'t view inbound leads.</p>';
+    return;
+  }
+  if (!res.ok || res.status === 0 || res.isErrorEnvelope || res.data == null) {
+    stateEl.className = '';
+    var why = res.timedOut ? 'the request timed out' : (res.status ? ('HTTP ' + res.status) : 'the service is unreachable');
+    stateEl.innerHTML = '<p class="text-muted">Couldn\'t load leads — ' + why + '. The page is up but live data is unavailable. Retry shortly.</p>';
+    return;
+  }
+  var data = res.data;
+  var leads = Array.isArray(data.leads) ? data.leads : [];
+  document.getElementById('leads-summary').textContent =
+    leads.length + ' shown' + (data.total != null ? ' · ' + data.total + ' total' : '');
+  if (!leads.length) {
+    stateEl.className = '';
+    stateEl.innerHTML = '<p class="text-muted">No leads yet. New sign-ups from the landing page appear here.</p>';
+    return;
+  }
+  document.getElementById('leads-tbody').innerHTML = leads.map(function (l) {
+    return '<tr>' +
+      '<td style="white-space:nowrap">' + fmtDate(l.created_at) + '</td>' +
+      '<td><strong>' + esc(l.name) + '</strong></td>' +
+      '<td><a href="mailto:' + esc(l.email) + '">' + esc(l.email) + '</a></td>' +
+      '<td>' + esc(l.use_case || '—') + '</td>' +
+      '<td>' + esc(l.source || 'landing') + '</td>' +
+      '</tr>';
+  }).join('');
+  stateEl.style.display = 'none';
+  contentEl.style.display = '';
+}
+
+load();
+</script>
+</body>
+</html>
