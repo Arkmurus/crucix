@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2613,
+  "next_available": 2617,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20041,6 +20041,46 @@
       "commit_sha": "2b7bab93",
       "notes": null,
       "shipped_at": "2026-07-14T13:17:38Z"
+    },
+    {
+      "r_number": "R-F2613",
+      "title": "watchlist manual re-screen must be owner-scoped (was global cross-tenant)",
+      "claimed_at": "2026-07-14T15:23:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c95dbf68",
+      "notes": null,
+      "shipped_at": "2026-07-14T15:32:29Z"
+    },
+    {
+      "r_number": "R-F2614",
+      "title": "dashboard: opts-aware authed (fix dead My-Sources CRUD H1) + honest Active-Deals KPI on pipeline-fail (M2)",
+      "claimed_at": "2026-07-14T15:29:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c95dbf68",
+      "notes": null,
+      "shipped_at": "2026-07-14T15:32:29Z"
+    },
+    {
+      "r_number": "R-F2615",
+      "title": "telegram command-reply degraded outcome — honest section25 delivery reporting",
+      "claimed_at": "2026-07-14T15:29:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "597961c8",
+      "notes": null,
+      "shipped_at": "2026-07-14T15:38:14Z"
+    },
+    {
+      "r_number": "R-F2616",
+      "title": "dd-reports: handle existing_case on repeat DD (show it + Re-run anyway force:true) instead of false forever-Running (H2)",
+      "claimed_at": "2026-07-14T15:30:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c95dbf68",
+      "notes": null,
+      "shipped_at": "2026-07-14T15:32:30Z"
     }
   ]
 }
