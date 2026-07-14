@@ -185,17 +185,22 @@ export function applySecurityHeaders(app) {
         connectSrc:  ["'self'", 'wss:', 'https:'],
         frameSrc:    ["'none'"],
         objectSrc:   ["'none'"],
+        // R-F2604: base-uri stops a <base> tag hijacking relative script/href URLs;
+        // frame-ancestors 'self' is the CSP-native clickjacking guard; form-action
+        // 'self' stops an injected <form> from exfiltrating to a foreign endpoint.
+        baseUri:        ["'self'"],
+        frameAncestors: ["'self'"],
+        formAction:     ["'self'"],
       },
     },
     crossOriginEmbedderPolicy: false,   // allow iframe for share brief
   }));
 
-  // Request size limits — prevents large payload attacks
-  // Override with specific limits on brain routes (need bigger payloads)
-  app.use('/api/aria',       (req, res, next) => {
-    req.headers['content-length-limit'] = '500kb';
-    next();
-  });
+  // R-F2604: removed a dead "content-length-limit" middleware here — it set a
+  // fabricated request header (`req.headers['content-length-limit']='500kb'`) that
+  // Express/undici never honour, so it enforced nothing while reading as protection.
+  // Real body-size enforcement is per-route via express.json({limit})/multer limits;
+  // the one unbounded streaming route (/api/aria/extract-document) is capped in R-F2606.
 }
 
 // ── Input Validation Middleware ───────────────────────────────────────────────
