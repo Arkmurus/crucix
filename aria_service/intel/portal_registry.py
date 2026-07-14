@@ -25,7 +25,7 @@ from .wire import fail_wire  # R-F1789 §21 brain-wiring
 logger = logging.getLogger("aria.portal_registry")
 
 _ENABLED = os.getenv("ARIA_PORTAL_REGISTRY_ENABLED", "1") == "1"
-# R-F1495: portal registration identity. Must contain 'arkmurus' to pass
+# R-F1495: portal registration identity. Must match the real Imaria identity to pass
 # assert_real_identity. The env var ARIA_PORTAL_NAME overrides this default.
 _ARIA_EMAIL = os.getenv("ARIA_PORTAL_EMAIL", "aria@imaria.io")
 _ARIA_NAME = os.getenv("ARIA_PORTAL_NAME", "ARIA Research (Imaria Intelligence)")
@@ -365,19 +365,12 @@ PORTALS: list[PortalDef] = [
     ),
     PortalDef(
         id="trade_gov",
-        name="Trade.gov",
-        url="https://www.trade.gov",
-        description="US International Trade Administration — market intelligence",
-        registration_type="email_form",
-        rate_limit_per_hour=60,
-        register_path="/user/register",
-        signup_fields=[
-            ("mail", "email", "email"),
-            ("name", "text", "name"),
-            ("pass[pass1]", "password", "password"),
-            ("pass[pass2]", "password", "password"),
-        ],
-        success_indicator="Account created",
+        name="trade.gov Developer Portal",
+        url="https://developer.trade.gov",
+        description="International Trade Administration APIs, including the Consolidated Screening List",
+        registration_type="api_key",
+        rate_limit_per_hour=1000,
+        terms_url="https://developer.trade.gov/terms",
     ),
     PortalDef(
         id="export_gov",
@@ -832,8 +825,8 @@ async def store_credential(portal_id: str, credential: dict) -> None:
 
 
 # ── R-F1106: Real-identity assertion ──────────────────────────────────────
-# Every registration uses the real Arkmurus identity. This assertion
-# REJECTS any non-arkmurus / fabricated identity automatically.
+# Every registration uses the real Imaria identity. This assertion
+# REJECTS any non-imaria / fabricated identity automatically.
 
 _ARIA_IDENTITY_NAME = "Imaria Intelligence"
 _ARIA_IDENTITY_EMAIL = "aria@imaria.io"

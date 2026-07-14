@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { _test } from '../apis/promotion_bridge.mjs';
 
-const { _mapOpportunity, _mapSanctions } = _test;
+const { _mapOpportunity, _mapSanctions, _mapCSLHit } = _test;
 
 test('opportunity: strong sourced non-blocked -> HIGH programme_signal, no OEM/score leak', () => {
   const f = _mapOpportunity({
@@ -61,6 +61,32 @@ test('sanctions entry -> sanctions_change in capped MEDIUM/tier_2 shape', () => 
 test('nameless sanctions entry is dropped', () => {
   assert.equal(_mapSanctions({ datasets: ['OFAC'] }), null);
   assert.equal(_mapSanctions(null), null);
+});
+
+test('CSL hit -> official HIGH sanctions_change with customer value metadata', () => {
+  const f = _mapCSLHit({
+    id: 'csl-1',
+    term: 'ACME',
+    name: 'ACME Defence LLC',
+    lists: ['BIS Entity List'],
+    sourceList: 'BIS Entity List',
+    country: 'AE',
+    url: 'https://www.bis.gov/entity-list',
+  });
+  assert.equal(f.signal_type, 'sanctions_change');
+  assert.equal(f.priority, 'HIGH');
+  assert.equal(f.confidence, 'HIGH');
+  assert.equal(f.source_tier, 'tier_1a');
+  assert.equal(f.target, 'ACME Defence LLC');
+  assert.match(f.why_it_matters, /official US export\/sanctions screening source/);
+  assert.match(f.recommended_action, /pause export or bid activity/i);
+  assert.equal(f.customer_value.score, 90);
+  assert.ok(f.customer_value.problems.includes('export_control_risk'));
+});
+
+test('nameless CSL hit is dropped', () => {
+  assert.equal(_mapCSLHit({ sourceList: 'BIS Entity List' }), null);
+  assert.equal(_mapCSLHit(null), null);
 });
 
 // R-F2557 review #1/#2 — the dedup contract: two sweeps of the SAME market opportunity

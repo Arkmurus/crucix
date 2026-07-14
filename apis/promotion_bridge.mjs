@@ -108,6 +108,40 @@ function _mapSanctions(entry) {
   };
 }
 
+function _mapCSLHit(hit) {
+  const name = hit && hit.name ? String(hit.name).trim() : '';
+  if (!name) return null;
+  const lists = Array.isArray(hit.lists) ? hit.lists.filter(Boolean).slice(0, 5) : [];
+  const sourceList = String(hit.sourceList || lists[0] || 'Consolidated Screening List').trim();
+  const url = /^https?:\/\//i.test(String(hit.url || '')) ? hit.url : 'https://developer.trade.gov/';
+  const term = String(hit.term || name).trim();
+  return {
+    signal_type: 'sanctions_change',
+    priority: 'HIGH',
+    confidence: 'HIGH',
+    score: 90,
+    source_tier: 'tier_1a',
+    source: `trade.gov CSL: ${sourceList}`,
+    title: `${name}: official CSL match`,
+    why_it_matters: `${name} matched public watchlist term "${term}" on ${sourceList}. This is an official US export/sanctions screening source.`,
+    recommended_action: 'Screen counterparties; pause export or bid activity until compliance review is complete.',
+    target: name,
+    entities: { countries: hit.country ? [hit.country] : [], products: [], oems: [] },
+    evidence_url: url,
+    url,
+    ref: hit.id || `${name}|${sourceList}|${term}`,
+    detected_at: new Date().toISOString(),
+    evidence_count: 1,
+    category: 'export_control',
+    customer_value: {
+      score: 90,
+      segments: ['compliance_officer', 'defence_exporter', 'broker_or_intermediary'],
+      problems: ['export_control_risk', 'sanctions_risk', 'counterparty_risk'],
+      aria_added: ['compliance_implication', 'watchlist_match'],
+    },
+  };
+}
+
 async function _post(source, findings) {
   const url = _ingestUrl();
   if (!url) return { accepted: 0, skipped: 'no ARIA_SERVICE_URL' };
@@ -132,18 +166,21 @@ async function _post(source, findings) {
 
 // Build findings from a completed sweep + push them to the Python bridge.
 export async function pushPromotionsToBrain(synthesized) {
-  if (!synthesized) return { opportunities: 0, sanctions: 0 };
+  if (!synthesized) return { opportunities: 0, sanctions: 0, csl: 0 };
   const opps = (synthesized.opportunities || []).map(_mapOpportunity).filter(Boolean).slice(0, 30);
   const os = synthesized.opensanctions || {};
   const sanctionsEntries = [...(os.preDesignation || []), ...(os.recent || [])].slice(0, 20);
   const sanctions = sanctionsEntries.map(_mapSanctions).filter(Boolean);
-  const [r1, r2] = await Promise.all([
+  const cslHits = Array.isArray(synthesized.csl?.recent) ? synthesized.csl.recent : [];
+  const csl = cslHits.map(_mapCSLHit).filter(Boolean).slice(0, 20);
+  const [r1, r2, r3] = await Promise.all([
     _post('bd_intelligence', opps),
     _post('opensanctions', sanctions),
+    _post('trade_gov_csl', csl),
   ]);
-  console.log(`[PromotionBridge] pushed opportunities=${r1.accepted || 0} sanctions=${r2.accepted || 0}`);
-  return { opportunities: r1.accepted || 0, sanctions: r2.accepted || 0 };
+  console.log(`[PromotionBridge] pushed opportunities=${r1.accepted || 0} sanctions=${r2.accepted || 0} csl=${r3.accepted || 0}`);
+  return { opportunities: r1.accepted || 0, sanctions: r2.accepted || 0, csl: r3.accepted || 0 };
 }
 
 // exported for unit tests
-export const _test = { _mapOpportunity, _mapSanctions };
+export const _test = { _mapOpportunity, _mapSanctions, _mapCSLHit };

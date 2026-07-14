@@ -1441,6 +1441,17 @@ async def get_recent_intel_signals(limit: int = 20) -> dict:
         stale_reasons.append("missing_poll_state")
     elif poll_age_s > _GOLDEN_POLL_STALE_S:
         stale_reasons.append("poll_stale")
+    poll_total = int(poll_state.get("feeds_polled") or 0)
+    poll_failed = int(poll_state.get("feeds_failed") or 0)
+    poll_failed_ratio = (poll_failed / poll_total) if poll_total else 0.0
+    failed_feed_names: list[str] = []
+    for item in (poll_state.get("results") or [])[:100]:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("status") or "").lower() in {"failed", "error", "unknown_format"}:
+            failed_feed_names.append(str(item.get("name") or "unknown")[:120])
+    if poll_total and poll_failed_ratio > 0.15:
+        stale_reasons.append("source_failure_degraded")
     if not signals:
         stale_reasons.append("no_signals")
     elif newest_signal_age_s is None:
@@ -1464,8 +1475,11 @@ async def get_recent_intel_signals(limit: int = 20) -> dict:
         "backfilled": used_backfill or (bool(signals) and all(bool(sig.get("_backfilled")) for sig in signals)),
         "poll": {
             "status": poll_state.get("status"),
-            "feeds_polled": poll_state.get("feeds_polled"),
-            "feeds_failed": poll_state.get("feeds_failed"),
+            "feeds_polled": poll_total,
+            "feeds_failed": poll_failed,
+            "failed_ratio": round(poll_failed_ratio, 4),
+            "failed_feeds": failed_feed_names[:20],
+            "failure_budget_ratio": 0.15,
             "articles_fetched": poll_state.get("articles_fetched"),
             "articles_new": poll_state.get("articles_new"),
             "signals_promoted": poll_state.get("signals_promoted"),

@@ -483,12 +483,67 @@ async function fetchLusophoneProcurement() {
   return unique.slice(0, 25);
 }
 
+function samDate(d) {
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${mm}/${dd}/${d.getUTCFullYear()}`;
+}
+
+export async function fetchSAMGovOpportunities(now = new Date()) {
+  const apiKey = process.env.SAM_GOV_API_KEY || process.env.SAM_API_KEY || '';
+  if (!apiKey) {
+    console.log('[Procurement] SAM.gov: disabled_no_key');
+    return [];
+  }
+  const postedTo = new Date(now);
+  const postedFrom = new Date(postedTo.getTime() - 14 * 86400 * 1000);
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    postedFrom: samDate(postedFrom),
+    postedTo: samDate(postedTo),
+    limit: '100',
+    offset: '0',
+  });
+  const res = await fetch(`https://api.sam.gov/opportunities/v2/search?${params.toString()}`, {
+    headers: { Accept: 'application/json', 'User-Agent': 'Crucix/1.0' },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.warn(`[Procurement] SAM.gov HTTP ${res.status} — ${body.slice(0, 160)}`);
+    return [];
+  }
+  const data = await res.json();
+  const records = Array.isArray(data?.opportunitiesData) ? data.opportunitiesData : [];
+  const items = records.map(r => {
+    const title = cleanText(r.title || r.solicitationTitle || '');
+    const org = cleanText(r.fullParentPathName || r.organizationName || r.officeAddress?.city || '');
+    const type = cleanText(r.type || r.noticeType || '');
+    const deadline = cleanText(r.responseDeadLine || r.responseDeadline || '');
+    const naics = cleanText(r.naicsCode || '');
+    const psc = cleanText(r.classificationCode || '');
+    const url = r.uiLink || r.link || (r.noticeId ? `https://sam.gov/opp/${encodeURIComponent(r.noticeId)}/view` : 'https://sam.gov/content/opportunities');
+    return {
+      source: 'SAM.gov',
+      title: title || `SAM.gov opportunity ${r.noticeId || r.solicitationNumber || ''}`.trim(),
+      description: [org, type, deadline ? `deadline ${deadline}` : '', naics ? `NAICS ${naics}` : '', psc ? `PSC ${psc}` : '']
+        .filter(Boolean)
+        .join(' · '),
+      url,
+      pubDate: r.postedDate || r.archiveDate || '',
+    };
+  }).filter(i => i.title && i.url);
+  console.log(`[Procurement] SAM.gov: ${items.length} official opportunities`);
+  return items.slice(0, 30);
+}
+
 
 // ── Main briefing export ─────────────────────────────────────────────────────
 export async function briefing() {
   console.log('[Procurement] Fetching live procurement tenders and FMS notifications...');
 
-  const [dsca, ted, dw, africa, un, wb, luso] = await Promise.allSettled([
+  const [sam, dsca, ted, dw, africa, un, wb, luso] = await Promise.allSettled([
+    withTimeout('SAM.gov',       fetchSAMGovOpportunities,        25000),
     withTimeout('DSCA',          fetchDSCA,                       25000),
     withTimeout('EU TED',        fetchEUTED,                      30000),
     withTimeout('DefenceWeb',    fetchDefenceWeb,                 30000),
@@ -504,6 +559,7 @@ export async function briefing() {
   ]);
 
   const allItems = [
+    ...(sam.status    === 'fulfilled' ? sam.value    : []),
     ...(dsca.status   === 'fulfilled' ? dsca.value   : []),
     ...(ted.status    === 'fulfilled' ? ted.value    : []),
     ...(dw.status     === 'fulfilled' ? dw.value     : []),
@@ -573,6 +629,9 @@ export async function briefing() {
   }));
 
   const sourceStatus = {
+    'SAM.gov':      sam.status     === 'fulfilled'
+      ? (process.env.SAM_GOV_API_KEY || process.env.SAM_API_KEY ? (sam.value.length > 0 ? 'ok' : 'empty') : 'disabled_no_key')
+      : 'failed',
     'DSCA/FMS':    dsca.status    === 'fulfilled' && dsca.value.length    > 0 ? 'ok' : 'failed',
     'EU TED':      ted.status     === 'fulfilled' && ted.value.length     > 0 ? 'ok' : 'failed',
     'DefenceWeb':  dw.status      === 'fulfilled' && dw.value.length      > 0 ? 'ok' : 'failed',
@@ -582,10 +641,11 @@ export async function briefing() {
   };
 
   const okCount = Object.values(sourceStatus).filter(s => s === 'ok').length;
+  const healthyCount = Object.values(sourceStatus).filter(s => s === 'ok' || s === 'disabled_no_key').length;
   const failedSubs = Object.entries(sourceStatus)
-    .filter(([, s]) => s !== 'ok')
+    .filter(([, s]) => !['ok', 'disabled_no_key'].includes(s))
     .map(([n]) => n);
-  console.log(`[Procurement] ${top.length} tenders · ${lusophone.length} Lusophone · ${african.length} African · ${okCount}/6 sources OK`);
+  console.log(`[Procurement] ${top.length} tenders · ${lusophone.length} Lusophone · ${african.length} African · ${okCount}/${Object.keys(sourceStatus).length} sources live`);
 
   return {
     source:    'Procurement Tenders',
@@ -600,6 +660,7 @@ export async function briefing() {
       lusophone: lusophone.length,
       african:   african.length,
       bySource: {
+        sam:         sam.status     === 'fulfilled' ? sam.value.length     : 0,
         dsca:        dsca.status    === 'fulfilled' ? dsca.value.length    : 0,
         ted:         ted.status     === 'fulfilled' ? ted.value.length     : 0,
         defenceweb:  dw.status      === 'fulfilled' ? dw.value.length      : 0,
@@ -612,7 +673,7 @@ export async function briefing() {
     // returned 0 items count as failed — World Bank 500s and Breaking
     // Defense blocks now show up in the top-level "X partial" tally.
     _subStatus: {
-      ok:     okCount,
+      ok:     healthyCount,
       total:  Object.keys(sourceStatus).length,
       failed: failedSubs,
     },

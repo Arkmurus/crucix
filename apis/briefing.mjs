@@ -66,6 +66,7 @@ import { briefing as sipriBriefing } from './sources/sipri_arms.mjs';
 import { briefing as opencorporatesBriefing } from './sources/opencorporates.mjs';
 import { briefing as sanctionsBriefing } from './sources/sanctions.mjs';
 import { briefing as exportControlsBriefing } from './sources/export_controls.mjs';
+import { briefing as cslBriefing } from './sources/csl.mjs';
 
 // === Tier 8b: Prediction Markets ===
 import { briefing as polymarket } from './sources/polymarket.mjs';
@@ -351,6 +352,7 @@ export async function fullBriefing() {
     runSource('OpenCorporates', opencorporatesBriefing),
     runSource('Sanctions', sanctionsBriefing),
     runSource('ExportControls', exportControlsBriefing),
+    runSource('CSL', cslBriefing),
 
     // Tier 9: Custom Business Intelligence
     runSource('Arkumurus', arkumurus),
@@ -556,7 +558,7 @@ const BRAIN_SOURCE_WHITELIST = new Set([
   'ProcurementTenders', 'ProcurementPortals', 'DefenseEvents', 'Defense News',
   'SIPRI Arms', 'ExportControlIntel', 'Lusophone', 'AfDB', 'ACLED',
   'ReliefWeb', 'Arkumurus', 'CounterpartyRisk', 'ExportControls',
-  'Sanctions', 'OpenSanctions', 'OFAC', 'EuDualUse', 'CyberThreats',
+  'Sanctions', 'OpenSanctions', 'OFAC', 'CSL', 'EuDualUse', 'CyberThreats',
 ]);
 
 // Map a raw signal/update from a source to the brain signal schema

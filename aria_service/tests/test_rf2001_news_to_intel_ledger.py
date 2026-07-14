@@ -235,6 +235,47 @@ class TestGoldenIntelSignals:
         assert out["freshness"]["newest_signal_age_s"] == 900
 
     @pytest.mark.asyncio
+    async def test_recent_intel_signals_surfaces_source_failure_degradation(self, monkeypatch) -> None:
+        signal = {
+            "signal_type": "active_tender",
+            "priority": "HIGH",
+            "confidence": "HIGH",
+            "quality_label": "decision-grade single-source",
+            "title": "Angola launches armoured vehicle tender",
+            "detected_at": "2026-07-07T10:00:00+00:00",
+        }
+
+        async def _fake_lrange(_key, _start, _end):
+            return [json.dumps(signal)]
+
+        async def _fake_get_json(key):
+            assert key == nm._POLL_STATE_KEY  # noqa: SLF001
+            return {
+                "status": "ok",
+                "last_poll_at": "2026-07-07T10:10:00+00:00",
+                "last_success_at": "2026-07-07T10:10:00+00:00",
+                "feeds_polled": 10,
+                "feeds_failed": 3,
+                "results": [
+                    {"name": "Dead Source A", "status": "failed"},
+                    {"name": "Dead Source B", "status": "error"},
+                    {"name": "Live Source", "status": "ok"},
+                ],
+            }
+
+        monkeypatch.setattr(nm.rs, "lrange", _fake_lrange)
+        monkeypatch.setattr(nm.rs, "get_json", _fake_get_json)
+        monkeypatch.setattr(nm.time, "time", lambda: 1783419300.0)  # 2026-07-07T10:15:00Z
+
+        out = await nm.get_recent_intel_signals(limit=5)
+
+        assert out["freshness"]["stale"] is True
+        assert "source_failure_degraded" in out["freshness"]["stale_reasons"]
+        assert out["freshness"]["poll"]["failed_ratio"] == 0.3
+        assert out["freshness"]["poll"]["failure_budget_ratio"] == 0.15
+        assert out["freshness"]["poll"]["failed_feeds"] == ["Dead Source A", "Dead Source B"]
+
+    @pytest.mark.asyncio
     async def test_recent_intel_signals_backfills_from_existing_articles(self, monkeypatch) -> None:
         """R-F2391: Golden Intel must not stay empty after raw-news-only deploys."""
         article = {

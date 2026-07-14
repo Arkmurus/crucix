@@ -1,0 +1,123 @@
+{
+  "schema_version": "rf2598.golden_intel_north_star.v1",
+  "publication_thresholds": {
+    "telegram": 80,
+    "dashboard_distribution_ready": 70,
+    "mining_queue": 40
+  },
+  "hard_gates": [
+    "fresh_feed",
+    "not_backfilled",
+    "evidence_url_http",
+    "trusted_source_tier",
+    "allowed_signal_type",
+    "no_propaganda_tier_promotion",
+    "no_private_or_user_scoped_leak",
+    "specific_customer_action"
+  ],
+  "allowed_signal_types": [
+    "sanctions_change",
+    "active_tender",
+    "contract_award",
+    "budget_movement",
+    "programme_signal",
+    "competitor_activity",
+    "conflict_escalation"
+  ],
+  "trusted_source_tiers": [
+    "tier_1a",
+    "tier_1b",
+    "tier_2"
+  ],
+  "score_dimensions": {
+    "source_authority": 20,
+    "specificity": 15,
+    "customer_segment_fit": 15,
+    "actionability": 20,
+    "aria_synthesis": 20,
+    "freshness_and_novelty": 10
+  },
+  "customer_segments": [
+    "defence_exporter",
+    "compliance_officer",
+    "procurement_team",
+    "broker_or_intermediary",
+    "investor",
+    "logistics_or_delivery_operator"
+  ],
+  "customer_problems": [
+    "sanctions_risk",
+    "export_control_risk",
+    "bid_opportunity",
+    "contract_award_follow_on",
+    "delivery_or_route_risk",
+    "counterparty_risk",
+    "market_timing",
+    "competitor_positioning"
+  ],
+  "aria_added_value_reasons": [
+    "cross_source_synthesis",
+    "watchlist_match",
+    "customer_curated_source_match",
+    "compliance_implication",
+    "procurement_implication",
+    "market_synthesis",
+    "source_health_warning"
+  ],
+  "generic_action_demotions": [
+    "Monitor signal",
+    "Review if relevant",
+    "Assess country risk",
+    "Monitor procurement path"
+  ],
+  "priority_source_lanes": {
+    "official_compliance_and_sanctions": [
+      "OFAC SDN",
+      "OFAC recent actions",
+      "UK OFSI",
+      "EU financial sanctions",
+      "UN sanctions",
+      "trade.gov CSL",
+      "BIS Entity List",
+      "World Bank debarred"
+    ],
+    "procurement_and_tender_advantage": [
+      "TED",
+      "SAM.gov",
+      "UK Find a Tender",
+      "UK Contracts Finder",
+      "UNGM",
+      "World Bank procurement",
+      "AfDB",
+      "EBRD",
+      "EIB",
+      "IADB",
+      "IsDB",
+      "US DoD Daily Contracts",
+      "USAspending"
+    ],
+    "conflict_and_operating_risk": [
+      "ACLED",
+      "ReliefWeb",
+      "GDELT",
+      "UN OCHA",
+      "verified government updates"
+    ],
+    "corporate_and_network_risk": [
+      "Companies House",
+      "GLEIF",
+      "SEC EDGAR",
+      "corporate registries",
+      "adverse media",
+      "user or vault curated sources"
+    ]
+  },
+  "telegram_post_contract": [
+    "decision",
+    "who_cares",
+    "why_now",
+    "action",
+    "evidence",
+    "aria_added"
+  ]
+}
