@@ -11746,8 +11746,16 @@ async def _fan_out_alert_to_deals(alert: dict) -> list[dict]:
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
-async def rescreen_watchlist(llm=None) -> dict:
-    """Re-screen every watchlist entity (sanctions + PEP only, no LLM).
+async def rescreen_watchlist(llm=None, user_id=None, user_email_domain=None) -> dict:
+    """Re-screen watchlist entities (sanctions + PEP only, no LLM).
+
+    R-F2613 — OWNER-SCOPED when ``user_id`` is set (a manual per-user "Re-screen All").
+    Pre-R-F2613 this ALWAYS read the GLOBAL watchlist and re-screened the first 50
+    entities across ALL tenants — so any authenticated user's click burned the shared
+    50-entity budget and returned entities_screened/changes_detected spanning other
+    tenants (a cross-tenant count leak). Now a per-user call re-screens only the caller's
+    owned/shared entries (via get_watchlist's R-F2355 scoping). ``user_id=None`` = the
+    internal daily loop = full global coverage (unchanged).
 
     Returns summary dict with entities_screened, changes_detected, errors,
     and duration_ms. Alerts are persisted in Redis for later retrieval.
@@ -11756,7 +11764,11 @@ async def rescreen_watchlist(llm=None) -> dict:
     t0 = time.monotonic()
     from . import redis_store as rs
 
-    watchlist = await rs.get_json(WATCHLIST_KEY) or []
+    if user_id is not None:
+        # per-user manual re-screen: owner-scoped (mirror the read path exactly).
+        watchlist = await get_watchlist(user_id, user_email_domain)
+    else:
+        watchlist = await rs.get_json(WATCHLIST_KEY) or []
     if not watchlist:
         return {"entities_screened": 0, "changes_detected": [], "errors": [],
                 "duration_ms": 0}
@@ -11777,7 +11789,11 @@ async def rescreen_watchlist(llm=None) -> dict:
                 if _sanc._looks_like_entity_name((w.get("name") or w.get("entity") or "").strip())
             ]
             removed = before - len(watchlist)
-            if removed:
+            # R-F2613 — only persist the purge on the GLOBAL path (user_id is None).
+            # On a per-user scoped call `watchlist` is the caller's subset; writing it
+            # back to WATCHLIST_KEY would DELETE every other tenant's entries. Keep the
+            # local filter (clean list to re-screen) but never persist a scoped subset.
+            if removed and user_id is None:
                 await rs.set_json(WATCHLIST_KEY, watchlist)
                 logger.info(
                     "[watchlist purge] removed %d polluted entries (search "

@@ -1473,6 +1473,60 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
       }
       const started = await r.json().catch(() => ({}));
       const runId = started.run_id;
+      // R-F2616 — the brain returns {existing_case:true} (NO run_id) when a vault case
+      // already exists and force wasn't set. Pre-fix the panel below rendered a false
+      // "⏳ Running…" that NEVER ran (the poll is guarded by `if (runId)`), and the
+      // "already exists — set force=true" message was discarded. Show the existing case
+      // + a "Re-run anyway" (force:true) action instead.
+      if (started.existing_case && !runId) {
+        const bodyEl = m.querySelector('.sc-mod-body');
+        const footEl = m.querySelector('.sc-mod-foot');
+        if (bodyEl) bodyEl.style.display = 'none';
+        if (footEl) footEl.style.display = 'none';
+        let exEl = document.getElementById('dd-run-confirm');
+        if (!exEl) {
+          exEl = document.createElement('div'); exEl.id = 'dd-run-confirm';
+          if (footEl && footEl.parentNode) footEl.parentNode.insertBefore(exEl, footEl);
+          else if (bodyEl && bodyEl.parentNode) bodyEl.parentNode.appendChild(exEl);
+        }
+        const _nm = String(started.entity_name || name).replace(/</g, '&lt;');
+        const _cnt = started.run_count || 1;
+        const _last = started.last_run_at ? new Date(started.last_run_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'previously';
+        const _risk = String(started.risk_level || 'unknown').replace(/</g, '&lt;');
+        exEl.innerHTML =
+          '<div style="text-align:center;padding:24px 16px">' +
+            '<div style="font-size:34px;color:#2563eb;margin-bottom:6px"><i class="bi bi-folder-check"></i></div>' +
+            '<h3 style="margin:0 0 4px">DD already exists</h3>' +
+            '<p style="margin:0 0 2px;font-weight:600">' + _nm + '</p>' +
+            '<p style="color:#64748b;margin:8px 0 14px;font-size:14px">A due-diligence case already exists (' + _cnt + ' run' + (_cnt === 1 ? '' : 's') + ', last ' + _last + ', risk: ' + _risk + '). Open it in your reports below, or run a fresh screen.</p>' +
+            '<div style="display:flex;gap:10px;justify-content:center">' +
+              '<button type="button" class="sc-btn sc-btn-primary" id="dd-rerun-force"><i class="bi bi-arrow-clockwise"></i> Re-run anyway</button>' +
+              '<button type="button" class="sc-btn" id="dd-existing-close">Close</button>' +
+            '</div>' +
+          '</div>';
+        const _ec = document.getElementById('dd-existing-close');
+        if (_ec) _ec.addEventListener('click', closeRun);
+        const _rf = document.getElementById('dd-rerun-force');
+        if (_rf) _rf.addEventListener('click', async () => {
+          _rf.disabled = true; _rf.innerHTML = '<i class="bi bi-arrow-repeat"></i> Starting…';
+          body.force = true;   // bypass the existing-case gate (aria.py:932)
+          try {
+            const rf2 = await authed('/api/aria/dd/orchestrate', { method: 'POST', body: JSON.stringify(body) });
+            const st2 = await rf2.json().catch(() => ({}));
+            if (rf2.ok && st2.run_id && st2.status === 'running') {
+              addOptimisticRunning(st2, name, { name: name, jurisdiction: body.jurisdiction, jurisdiction_iso2: body.jurisdiction_iso2, registration_number: body.registration_number, type: body.type });
+              Toast.show('Re-run started for ' + _nm + '. It appears below as Running.', 'info', 6000);
+              await loadReports(true); closeRun();
+            } else {
+              Toast.show('Re-run did not start (HTTP ' + rf2.status + ').', 'error', 6000);
+              _rf.disabled = false; _rf.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Re-run anyway';
+            }
+          } catch (e) { Toast.show('Re-run error: ' + e.message, 'error'); _rf.disabled = false; _rf.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Re-run anyway'; }
+        });
+        sb.disabled = false; sb.innerHTML = orig;
+        loadReports(true);
+        return;
+      }
       // R-F2471 — show the running row immediately (resilient to a dropped index write)
       // + refresh the list behind the still-open modal so it's there when the user closes.
       addOptimisticRunning(started, name, {

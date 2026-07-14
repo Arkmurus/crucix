@@ -542,8 +542,15 @@ function buildWatchlistMatcher(wlData) {
 // Promise.allSettled([...]) call, crashing loadData() before a single request
 // fired → the whole dashboard rendered no data. Define it from the shared API
 // token/header helpers in app.js.
-function authed(path) {
-  return fetch(API.BASE + path, { headers: API.headers() });
+// R-F2614 — OPTS-AWARE. The old 1-arg form dropped the 2nd arg, so the My-Sources
+// Add (POST+body) and Remove (DELETE) both silently fired plain GETs → nothing saved,
+// with a misleading "Failed (HTTP 200)". Now merges method/body/headers; a JSON body
+// gets Content-Type so the brain parses it. Read-only GET callers pass no opts (unchanged).
+function authed(path, opts) {
+  opts = opts || {};
+  const headers = Object.assign({}, API.headers(), opts.headers || {});
+  if (opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  return fetch(API.BASE + path, Object.assign({}, opts, { headers: headers }));
 }
 
 async function loadData() {
@@ -628,13 +635,18 @@ async function loadData() {
   }
   document.getElementById('kpi-watchlist').textContent = wlCount;
 
-  // Pipeline count
-  let pipeCount = 0;
+  // Pipeline count — R-F2614: the deal pipeline is admin-only, so a non-admin gets
+  // 401/403. Render '—' on failure instead of a hard '0' that reads as a real
+  // "no active deals". (Not wired to the loud-fail banner: a 403 here is EXPECTED
+  // for non-admins, so it would cry-wolf; '—' is the honest, quiet signal.)
+  let pipeCount = 0, pipeUnavailable = false;
   if (pipeRes.status === 'fulfilled' && pipeRes.value.ok) {
     const pipeData = await pipeRes.value.json();
     pipeCount = Array.isArray(pipeData) ? pipeData.length : 0;
+  } else {
+    pipeUnavailable = true;
   }
-  document.getElementById('kpi-pipeline').textContent = pipeCount;
+  document.getElementById('kpi-pipeline').textContent = pipeUnavailable ? '—' : pipeCount;
 
   // Opportunities count — R-F2079: same shape the opportunities page reads
   // ({opportunities:[...]} live, or a bare array when cached).

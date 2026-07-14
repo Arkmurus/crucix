@@ -1561,10 +1561,26 @@ async def dd_watchlist_delete_ep(name: str, user_id: str = "", user_email_domain
 
 @router.post("/dd/watchlist/rescreen")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_watchlist_rescreen_ep(request: Request):
-    """Trigger manual watchlist re-screen (sanctions + PEP only, no LLM)."""
+async def dd_watchlist_rescreen_ep(request: Request, user_id: str = "", user_email_domain: str = ""):
+    """Trigger manual watchlist re-screen (sanctions + PEP only, no LLM).
+
+    R-F2613 — OWNER-SCOPED. The web tier pins the caller's user_id (R-F2211); a manual
+    per-user re-screen must screen ONLY the caller's entries, not the GLOBAL cross-tenant
+    watchlist (the pre-fix behaviour, which leaked cross-tenant counts + burned the shared
+    50-entity budget). Accepts user_id from the query or the pinned body."""
     from ..intel import dd_orchestrator
-    result = await dd_orchestrator.rescreen_watchlist()
+    _uid = (user_id or "").strip()
+    _dom = (user_email_domain or "").strip()
+    if not _uid:
+        try:
+            _b = await request.json()
+            if isinstance(_b, dict):
+                _uid = (_b.get("user_id") or "").strip()
+                _dom = _dom or (_b.get("user_email_domain") or "").strip()
+        except Exception:
+            pass
+    result = await dd_orchestrator.rescreen_watchlist(
+        user_id=(_uid or None), user_email_domain=(_dom or None))
     return result
 
 
