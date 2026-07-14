@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2618,
+  "next_available": 2619,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20090,6 +20090,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F2618",
+      "title": "pdf export loses info: render markdown tables + stop dropping non-latin entity names",
+      "claimed_at": "2026-07-14T16:02:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5810c1dc",
+      "notes": null,
+      "shipped_at": "2026-07-14T16:13:08Z"
     }
   ]
 }
