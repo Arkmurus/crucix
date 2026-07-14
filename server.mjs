@@ -227,13 +227,16 @@ const sseClients = new Set();
 
 // === Source Health Tracker ===
 // Tracks success/fail counts per source across sweeps for reliability scoring
-const sourceHealth = {}; // { sourceName: { ok: N, fail: N, lastStatus: 'ok'|'error', lastMs: N } }
+const sourceHealth = {}; // { sourceName: { ok: N, fail: N, disabled: N, lastStatus: string, lastMs: N } }
 
 function updateSourceHealth(timingMap) {
   for (const [name, info] of Object.entries(timingMap || {})) {
-    if (!sourceHealth[name]) sourceHealth[name] = { ok: 0, fail: 0, lastStatus: null, lastMs: 0, recent: [] };
-    if (info.status === 'ok') sourceHealth[name].ok++;
-    else                      sourceHealth[name].fail++;
+    if (!sourceHealth[name]) sourceHealth[name] = { ok: 0, fail: 0, disabled: 0, lastStatus: null, lastMs: 0, recent: [] };
+    const status = String(info.status || '');
+    const notConfigured = ['not_configured', 'disabled_no_key', 'disabled_no_watchlist', 'activation_required'].includes(status);
+    if (status === 'ok') sourceHealth[name].ok++;
+    else if (notConfigured) sourceHealth[name].disabled++;
+    else sourceHealth[name].fail++;
     sourceHealth[name].lastStatus = info.status;
     sourceHealth[name].lastMs     = info.ms || 0;
     // R-F2519 (log-review F2) — keep a rolling window of the last 10 sweep outcomes so
@@ -241,7 +244,7 @@ function updateSourceHealth(timingMap) {
     // External-source quality is bursty; a one-sweep view flaps green↔degraded and hides
     // a source that's been intermittently failing.
     const rec = sourceHealth[name].recent || (sourceHealth[name].recent = []);
-    rec.push(info.status === 'ok' ? 1 : 0);
+    rec.push(status === 'ok' || notConfigured ? 1 : 0);
     if (rec.length > 10) rec.shift();
   }
 }
@@ -252,7 +255,7 @@ function getSourceHealthSummary() {
     const reliability = total > 0 ? Math.round((h.ok / total) * 100) : null;
     const recent = h.recent || [];
     const degradedInLastN = recent.filter(v => v === 0).length;  // R-F2519 F2
-    return { name, ok: h.ok, fail: h.fail, reliability, lastStatus: h.lastStatus, lastMs: h.lastMs, degradedInLastN, recentWindow: recent.length };
+    return { name, ok: h.ok, fail: h.fail, disabled: h.disabled || 0, reliability, lastStatus: h.lastStatus, lastMs: h.lastMs, degradedInLastN, recentWindow: recent.length };
   }).sort((a, b) => (a.reliability ?? 100) - (b.reliability ?? 100)); // worst first
 }
 
@@ -1318,6 +1321,11 @@ app.delete('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
   }
 });
 app.post('/api/aria/extract-document', requireAuth, async (req, res) => {
+  // R-F2606 — this streaming upload is registered before the rate limiter and
+  // has no body-size cap; reject oversized uploads up front via Content-Length.
+  if (Number(req.headers['content-length']) > 25 * 1024 * 1024) {
+    return res.status(413).json({ error: 'Document too large (max 25MB)' });
+  }
   const ARIA_URL = process.env.ARIA_SERVICE_URL || '';
   if (!ARIA_URL) {
     return res.status(503).json({ error: 'ARIA service unavailable' });
@@ -1716,6 +1724,7 @@ app.get('/api/search/deep', async (req, res) => {
     send({ type: 'result', data: result });
   } catch (err) {
     console.error('[DeepSearch] Error:', err.message);
+    errorTracker.record('deep_search', 'handler_error', err); // R-F2605
     send({ type: 'error', message: err.message });
   } finally {
     res.end();
@@ -1733,6 +1742,7 @@ app.get('/api/search/entity', requireAuth, async (req, res) => {
     res.json({ success: true, ...result });
   } catch (error) {
     console.error('[EntitySearch] Error:', error);
+    errorTracker.record('entity_search', 'handler_error', error); // R-F2605
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -3358,24 +3368,40 @@ app.post('/api/aria/calibration/baseline', requireAuth, (req, res) =>
 app.get('/api/aria/calibration/baseline', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/calibration/baseline', { fallback: async () => res.status(503).json(_brainFallback()) }));
 
+// R-F2606 — pin user_id on RAG proxy bodies from the JWT (mirror of the
+// /api/aria/document/verify routes) so a client cannot read/write another
+// tenant's RAG namespace by supplying user_id. Non-admins are always forced to
+// their own userId; an admin may target another user_id explicitly.
+function _pinBodyUserId(req) {
+  try {
+    req.body = req.body || {};
+    const isAdmin = req.user?.role === 'admin';
+    if (!isAdmin || !req.body.user_id) {
+      req.body.user_id = req.user?.userId || '';
+    }
+  } catch {}
+}
+
 app.post('/api/aria/rag/search',
   express.json({ limit: '256kb' }),
   requireAuth,
-  (req, res) => ariaProxy(req, res, '/api/aria/rag/search', { method: 'POST', fallback: async () => {
+  (req, res) => { _pinBodyUserId(req); return ariaProxy(req, res, '/api/aria/rag/search', { method: 'POST', fallback: async () => {
     res.status(503).json({ results: [], error: 'RAG search unavailable' });
-  }}));
+  }}); });
 
 app.post('/api/aria/rag/ingest',
   express.json({ limit: '4mb' }),
   requireAuth,
-  (req, res) => ariaProxy(req, res, '/api/aria/rag/ingest', { method: 'POST', fallback: async () => {
+  (req, res) => { _pinBodyUserId(req); return ariaProxy(req, res, '/api/aria/rag/ingest', { method: 'POST', fallback: async () => {
     res.status(503).json({ ingested: false, error: 'RAG ingest unavailable' });
-  }}));
+  }}); });
 
-app.post('/api/aria/rag/backfill', requireAuth, (req, res) =>
-  ariaProxy(req, res, '/api/aria/rag/backfill', { method: 'POST', fallback: async () => {
+app.post('/api/aria/rag/backfill', requireAuth, (req, res) => {
+  _pinBodyUserId(req);
+  return ariaProxy(req, res, '/api/aria/rag/backfill', { method: 'POST', fallback: async () => {
     res.status(503).json({ ok: false, error: 'RAG backfill unavailable' });
-  }}));
+  }});
+});
 
 // ── ARIA reasoning independence (proxy) — the ARIA-LLM trajectory metric ───
 app.get('/api/aria/independence', requireAuth, (req, res) =>
@@ -4566,8 +4592,23 @@ function _loginThrottleFail(emailLower) {
   e.count += 1; e.firstAt = e.firstAt || now;
   if (e.count >= _LOGIN_MAX_ATTEMPTS) e.lockedUntil = now + _LOGIN_LOCKOUT_MS;
   _loginAttempts.set(emailLower, e);
+  // R-F2608 — opportunistic sweep so expired entries don't accumulate. Only
+  // pays the O(n) cost when the map is over the cap; a steady-state login flow
+  // never hits this.
+  if (_loginAttempts.size > 5000) {
+    for (const [k, v] of _loginAttempts) {
+      const lockActive = v.lockedUntil && v.lockedUntil > now;
+      const windowActive = v.firstAt && now - v.firstAt <= _LOGIN_WINDOW_MS;
+      if (!lockActive && !windowActive) _loginAttempts.delete(k);
+    }
+  }
 }
 function _loginThrottleClear(emailLower) { _loginAttempts.delete(emailLower); }
+
+// R-F2605 — mask email in log lines to avoid PII in seenode/fly logs. Keeps
+// enough of the local part to correlate a support ticket without logging the
+// full address.
+function _maskEmail(e){ const s=String(e||''); const [u,d]=s.split('@'); return d ? (u.slice(0,2)+'***@'+d) : '***'; }
 
 app.post('/api/auth/login', async (req, res) => {
   try {
@@ -4578,7 +4619,8 @@ app.post('/api/auth/login', async (req, res) => {
     }
     const _emLower = String(email).trim().toLowerCase();
     if (!_loginThrottleCheck(_emLower).allowed) {
-      console.warn(`[Auth] login LOCKED email=${email} ip=${req.ip}`);
+      console.warn(`[Auth] login LOCKED email=${_maskEmail(email)} ip=${req.ip}`);
+      errorTracker.record('auth', 'login_throttle_lockout', null, null, { ip: req.ip }); // R-F2605 — brute-force signal
       return res.status(429).json({ error: 'Too many failed attempts. Please wait a few minutes and try again.' });
     }
 
@@ -4588,26 +4630,26 @@ app.post('/api/auth/login', async (req, res) => {
     const user = findUserByEmail(email);
     if (!user) {
       _loginThrottleFail(_emLower);   // R-F2383 — throttle enumeration + brute force
-      console.warn(`[Auth] login FAIL no-user email=${email} ip=${req.ip}`);
+      console.warn(`[Auth] login FAIL no-user email=${_maskEmail(email)} ip=${req.ip}`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     if (!verifyPassword(password, user.passwordHash)) {
       _loginThrottleFail(_emLower);   // R-F2383 — per-account lockout after repeated wrong passwords
-      console.warn(`[Auth] login FAIL password-mismatch email=${email} id=${user.id} status=${user.status} ip=${req.ip}`);
+      console.warn(`[Auth] login FAIL password-mismatch email=${_maskEmail(email)} id=${user.id} status=${user.status} ip=${req.ip}`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     _loginThrottleClear(_emLower);    // R-F2383 — successful password clears the counter
 
     if (user.status === 'pending_approval') {
-      console.warn(`[Auth] login BLOCKED pending_approval email=${email} ip=${req.ip}`);
+      console.warn(`[Auth] login BLOCKED pending_approval email=${_maskEmail(email)} ip=${req.ip}`);
       return res.status(403).json({ error: 'Your account is pending admin approval. You will be notified once activated.' });
     }
     if (user.status === 'pending_verification') {
-      console.warn(`[Auth] login BLOCKED pending_verification email=${email} ip=${req.ip}`);
+      console.warn(`[Auth] login BLOCKED pending_verification email=${_maskEmail(email)} ip=${req.ip}`);
       return res.status(403).json({ error: 'Please verify your email first', needsVerification: true });
     }
     if (user.status === 'suspended') {
-      console.warn(`[Auth] login BLOCKED suspended email=${email} ip=${req.ip}`);
+      console.warn(`[Auth] login BLOCKED suspended email=${_maskEmail(email)} ip=${req.ip}`);
       return res.status(403).json({ error: 'Account suspended. Contact an administrator.' });
     }
 
@@ -4619,10 +4661,11 @@ app.post('/api/auth/login', async (req, res) => {
 
     const token = createToken(user.id, user.role, '7d', user.tokenVersion || 0);
     const cleanUser = updateUser(user.id, { lastLogin: new Date().toISOString() });
-    console.log(`[Auth] login OK email=${user.email} id=${user.id} role=${user.role} ip=${req.ip}`);
+    console.log(`[Auth] login OK email=${_maskEmail(user.email)} id=${user.id} role=${user.role} ip=${req.ip}`);
     res.json({ token, user: cleanUser });
   } catch (err) {
     console.error('[Auth] Login error:', err.message);
+    errorTracker.record('auth', 'login_handler_error', err); // R-F2605
     res.status(500).json({ error: 'Login failed' });
   }
 });
@@ -5905,7 +5948,12 @@ app.get('/api/compliance/versions', requireAuth, async (req, res) => {
 });
 
 // ── Compliance audit trail ──────────────────────────────────────────────────
-app.get('/api/compliance/audit', requireAuth, async (req, res) => {
+// R-F2606 — getComplianceAuditLog (lib/aria/complianceAudit.mjs → getAuditLog)
+// returns the org-wide immutable log of EVERY user's compliance actions
+// (screening/sanctions/classification queries + results). `user` is a filter,
+// not an ownership scope — a non-admin caller would see all tenants' entries.
+// Tightened requireAuth → requireAdmin (safe fix; no per-user scoping exists).
+app.get('/api/compliance/audit', requireAdmin, async (req, res) => {
   try {
     const filters = {
       type:     req.query.type,
@@ -5922,7 +5970,8 @@ app.get('/api/compliance/audit', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/compliance/audit/export', requireAuth, async (req, res) => {
+// R-F2606 — same org-wide compliance-log exposure as /api/compliance/audit; gate to admin.
+app.get('/api/compliance/audit/export', requireAdmin, async (req, res) => {
   try {
     const format = req.query.format === 'csv' ? 'csv' : 'json';
     const filters = {
@@ -6814,6 +6863,9 @@ async function start() {
     } else {
       console.error(`[Crucix] Server error:`, err.stack || err.message);
     }
+    // R-F2605 — best-effort brain signal before we exit. errorTracker.record is
+    // synchronous; its POST is fire-and-forget, which is fine on the exit path.
+    try { errorTracker.record('boot', 'listen_error', err, null, { code: err.code, port }); } catch {}
     process.exit(1);
   });
 
@@ -7053,7 +7105,7 @@ if (ZOOM_BOT_URL) {
   const zoomProxy = async (req, res) => {
     const path = req.url;  // e.g. /health, /join, /active
     try {
-      const opts = { method: req.method, headers: { 'Content-Type': 'application/json' } };
+      const opts = { method: req.method, headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20000) }; // R-F2608 — bound the outbound fetch (mirror other proxies)
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         opts.body = JSON.stringify(req.body || {});
       }
@@ -7106,6 +7158,10 @@ process.on('unhandledRejection', (err) => {
 process.on('uncaughtException', (err) => {
   console.error('[Crucix] Uncaught exception:', err?.stack || err?.message || err);
   try { errorTracker.record('web_process', 'uncaught_exception', err); } catch { /* never loop on crash */ }
+  // R-F2608 — deliberately NOT calling process.exit() here: changing prod
+  // crash behaviour (crash-on-throw vs keep-running) is out of scope/risky and
+  // deferred. The signal is recorded above; the process-lifecycle tradeoff is
+  // left as-is intentionally.
 });
 
 start().catch(err => {
