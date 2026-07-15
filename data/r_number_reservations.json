@@ -20186,9 +20186,10 @@
       "title": "ACLED: migrate conflict_tracker to current OAuth API (legacy key+email host is dead)",
       "claimed_at": "2026-07-15T13:41:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "590a37f2",
+      "notes": null,
+      "shipped_at": "2026-07-15T13:59:36Z"
     }
   ]
 }
