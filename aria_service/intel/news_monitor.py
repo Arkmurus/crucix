@@ -192,7 +192,10 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
     # Africa/MENA). All free/native RSS (§6), each verified live returning items
     # with the news_monitor UA. New domains — no collusion with existing feeds.
     # ══════════════════════════════════════════════════════════════════════
-    ("US DoD Daily Contracts", "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=20", "defence_global", "en", "tier_1b",
+    # R-F2634: re-tiered tier_1b -> tier_1a. This is an OFFICIAL US DoD primary source
+    # (it supplied the "Centcom Completes Another Wave of Strikes Against Iran" signal
+    # that corroborated two outlets) — it was mis-tiered below its real authority.
+    ("US DoD Daily Contracts", "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=20", "defence_global", "en", "tier_1a",
      ["defence", "procurement", "contracts", "official"]),
     ("ReliefWeb (UN OCHA)", "https://reliefweb.int/updates/rss.xml", "defence_regional", "en", "tier_1b",
      ["conflict", "humanitarian", "africa", "middle_east"]),
@@ -402,6 +405,64 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
      ["asia", "india", "news"]),
     ("Janes India", "https://www.janes.com/rss/india", "defence_regional", "en", "tier_1b",
      ["defence", "india", "geopolitics"]),
+
+    # ══════════════════════════════════════════════════════════════════════
+    # R-F2634 (2026-07-15) — GRADE-A SOURCE REBUILD.
+    #
+    # A live probe of all 76 configured feeds (same 15s contract poll_feeds uses)
+    # found 46 DEAD (61%): 404 x21 · 403 x9 · NOT_XML x9 · DNS_DEAD x2 · TIMEOUT x2.
+    # Critically the dead ones were the AUTHORITATIVE layer — ~18 of the 20 tier_1b:
+    # Janes x9 (404), RUSI (404), CSIS (404), FT (404), Reuters (401),
+    # IISS/Chatham House/Atlantic Council/Bloomberg (403), Carnegie (NOT_XML).
+    #
+    # WHY they died is the lesson: Janes/FT/Bloomberg/Reuters are PAYWALLED products
+    # that killed free RSS on purpose; the think tanks are Cloudflare-blocked. Chasing
+    # them is fighting the vendor. Decision-grade intel wants OFFICIAL PRIMARY sources:
+    # free, stable, and tier_1a — HIGHER authority than the tier_1b we lost.
+    #
+    # USP: corroboration needs MULTIPLE INDEPENDENT LIVE sources on one event
+    # (verified_intel.SourceIndependenceChecker). A tier_2-only pool can never reach
+    # decision-grade. These feeds are the corroboration FUEL.
+    #
+    # EVERY entry below was PROBED 2026-07-15 and returned 200 + real XML + >0 items.
+    # 20 of 34 candidates were REJECTED and deliberately omitted (NATO, SIPRI, EDA,
+    # OFAC, State Dept, RUSI-alt, CSIS-alt, Janes-alt, EU Council, Lawfare, ...).
+    # NOTHING unverified goes in this list.
+    # ══════════════════════════════════════════════════════════════════════
+
+    # ── tier_1a — OFFICIAL / PRIMARY (governments + IGOs). ARIA had ZERO of these. ──
+    # NOTE: "US DoD Releases" was NOT added here — it resolves to the SAME URL as the
+    # existing "US DoD Daily Contracts" above. Two names on one URL would count the
+    # same article twice => evidence_count=2 => FALSE corroboration, the exact
+    # never-false-clean failure this work exists to prevent. The existing entry is
+    # re-tiered to tier_1a instead (it IS an official primary source, just mis-tiered).
+    ("US DoD News", "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=800&Site=945&max=20",
+     "defence_global", "en", "tier_1a", ["defence", "official", "primary"]),
+    ("US Army News", "https://www.army.mil/rss/static/1.xml",
+     "defence_global", "en", "tier_1a", ["defence", "official", "primary", "land"]),
+    ("UK MOD Announcements", "https://www.gov.uk/government/organisations/ministry-of-defence.atom",
+     "defence_global", "en", "tier_1a", ["defence", "official", "primary", "uk"]),
+    ("UN News Peace and Security", "https://news.un.org/feed/subscribe/en/news/topic/peace-and-security/feed/rss.xml",
+     "geopolitics", "en", "tier_1a", ["geopolitics", "official", "primary", "conflict"]),
+    ("UN News", "https://news.un.org/feed/subscribe/en/news/all/rss.xml",
+     "geopolitics", "en", "tier_1a", ["geopolitics", "official", "primary"]),
+
+    # ── tier_1b — specialist outlets that still publish free RSS (replace the dead) ──
+    ("Defense News", "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml",
+     "defence_global", "en", "tier_1b", ["defence", "procurement", "industry"]),
+    # NOT added (already registered above and healthy — a second entry on the same URL
+    # would count one article twice => FALSE corroboration):
+    #   Breaking Defense, War on the Rocks, Defence Blog.
+    # They probed OK precisely BECAUSE they already work. Caught by
+    # test_rf2634_no_duplicate_feed_urls during this change.
+    ("The War Zone", "https://www.twz.com/feed",
+     "defence_global", "en", "tier_1b", ["defence", "capability", "analysis"]),
+    ("DefenseScoop", "https://defensescoop.com/feed/",
+     "technology", "en", "tier_1b", ["defence", "technology", "procurement"]),
+    ("Bellingcat", "https://www.bellingcat.com/feed/",
+     "geopolitics", "en", "tier_1b", ["osint", "investigation", "conflict"]),
+    ("Crisis Group", "https://www.crisisgroup.org/rss.xml",
+     "geopolitics", "en", "tier_1b", ["geopolitics", "conflict", "analysis"]),
 ]
 
 # ── Feed parsing ──────────────────────────────────────────────────────────────

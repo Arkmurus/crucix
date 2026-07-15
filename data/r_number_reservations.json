@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2634,
+  "next_available": 2635,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20234,14 +20234,24 @@
       "title": "landing legal footer Arkmurus",
       "claimed_at": "2026-07-15T16:00:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c5783d51",
+      "notes": null,
+      "shipped_at": "2026-07-15T16:17:08Z"
     },
     {
       "r_number": "R-F2633",
       "title": "SCOPE: Golden Intel corroboration engine — wire SourceIndependenceChecker to evidence_count",
       "claimed_at": "2026-07-15T16:07:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2634",
+      "title": "Grade-A source rebuild: add 14 VERIFIED tier_1a/1b feeds (18 of 20 tier_1b were dead)",
+      "claimed_at": "2026-07-15T16:23:01Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
