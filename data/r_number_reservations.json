@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2631,
+  "next_available": 2632,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20214,6 +20214,16 @@
       "r_number": "R-F2630",
       "title": "Golden Intel poll: state write lost on timeout + dark feed failures + unnameable dead feeds",
       "claimed_at": "2026-07-15T14:56:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9e76610e",
+      "notes": null,
+      "shipped_at": "2026-07-15T15:57:43Z"
+    },
+    {
+      "r_number": "R-F2631",
+      "title": "dedupe repair no-ops silently when the read conn is unavailable — strict scan + periodic retry",
+      "claimed_at": "2026-07-15T15:28:23Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
