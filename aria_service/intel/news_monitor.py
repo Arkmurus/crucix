@@ -63,6 +63,27 @@ _MAX_SEEN_URLS = 50000
 _GOLDEN_POLL_STALE_S = int(os.getenv("ARIA_GOLDEN_POLL_STALE_S", "5400"))
 _GOLDEN_SIGNAL_STALE_S = int(os.getenv("ARIA_GOLDEN_SIGNAL_STALE_S", str(72 * 3600)))
 
+# ── R-F2630: internal poll budget so the TAIL always runs ─────────────────────
+# poll_feeds is sequential over ~76 feeds at _TIMEOUT_S each, and its two most
+# valuable operations are LAST: _write_poll_state (the freshness heartbeat) and
+# the golden_intel_bridge promotion pass (which sets distribution_ready). Its
+# caller caps it (main.py:519 `wait_for(..., timeout=330)`), so once enough feeds
+# rotted (42/76 failing => ~630s of timeouts alone) the cap ALWAYS killed the
+# tail: last_poll_at froze -> "poll_stale" forever, and the bridge never ran ->
+# the promoted-signal store stayed empty -> the API backfilled signals that carry
+# no distribution_ready -> the dashboard's "Distribution Ready" column read 0
+# permanently. Self-reinforcing: duration scales with FAILURES.
+# Raising the cap is the §1 band-aid (it fails again at the next rot). Instead
+# budget the LOOP to (budget - reserve) and always leave the tail its reserve —
+# the R-F1879 pattern already proven in dd_orchestrator.
+_POLL_BUDGET_S = float(os.getenv("ARIA_NEWS_POLL_BUDGET_S", "300"))
+_POLL_TAIL_RESERVE_S = float(os.getenv("ARIA_NEWS_POLL_TAIL_RESERVE_S", "45"))
+# Truncation without rotation would starve every source after the cut-off: with
+# 15s-per-failure the loop only reaches ~17 of 76 feeds, so feeds 18..76 would
+# NEVER be polled again. Rotate the start offset per poll so coverage is fair
+# over time, and persist it in poll state.
+_POLL_ROTATION_KEY = "rotation_offset"
+
 # ── HTTP client ───────────────────────────────────────────────────────────────
 _TIMEOUT_S = 15
 _MAX_RETRIES = 2
@@ -814,6 +835,18 @@ async def _write_poll_state(summary: dict) -> dict:
         "articles_fetched": int(summary.get("articles_fetched") or 0),
         "articles_new": int(summary.get("articles_new") or 0),
         "signals_promoted": int(summary.get("signals_promoted") or 0),
+        # R-F2630 — persist the per-feed results. The freshness reader builds
+        # `failed_feeds` from poll_state["results"] (see :1449), but this writer
+        # dropped it, so failed_feeds was ALWAYS [] even with 42 feeds failing —
+        # the operator could see THAT sources were dying but never WHICH.
+        # Capped: the reader only reads [:100].
+        "results": list(summary.get("results") or [])[:120],
+        # R-F2630 — a time-boxed poll must say so (R-F1572 honesty), and must
+        # carry the rotation offset so the next poll starts where this one
+        # stopped instead of re-polling the same head of the list forever.
+        "truncated": bool(summary.get("truncated")),
+        "feeds_skipped": int(summary.get("feeds_skipped") or 0),
+        _POLL_ROTATION_KEY: int(summary.get(_POLL_ROTATION_KEY) or 0),
     }
     try:
         await rs.set_json(_POLL_STATE_KEY, state)
@@ -1236,7 +1269,33 @@ async def poll_feeds(
     total_promoted = 0
     feed_results = []
 
+    # ── R-F2630: budget the loop so the TAIL (state write + promotion bridge)
+    # always runs. Rotate the start offset so truncation cannot starve the feeds
+    # after the cut-off.
+    _prev_state = await _read_poll_state() or {}
+    _rot = int(_prev_state.get(_POLL_ROTATION_KEY) or 0)
+    if sources:
+        _rot %= len(sources)
+        sources = sources[_rot:] + sources[:_rot]
+    _loop_deadline = time.monotonic() + max(1.0, _POLL_BUDGET_S - _POLL_TAIL_RESERVE_S)
+    _truncated = False
+    _attempted = 0
+
     for name, url, category, lang, tier, topics in sources:
+        if time.monotonic() >= _loop_deadline:
+            # Out of loop budget. STOP here and let the tail run — a partial poll
+            # whose state + promotions land beats a full poll that is killed and
+            # records nothing (which is what froze last_poll_at at 11:23 for 3h+).
+            _truncated = True
+            logger.warning(
+                "[news_monitor] R-F2630 poll TIME-BOXED after %d/%d feeds "
+                "(budget %.0fs, reserve %.0fs) — tail (state write + promotion "
+                "bridge) will still run; next poll rotates to offset %d",
+                _attempted, len(sources), _POLL_BUDGET_S, _POLL_TAIL_RESERVE_S,
+                (_rot + _attempted) % max(1, len(sources)),
+            )
+            break
+        _attempted += 1
         try:
             xml_text = await _fetch_feed(url, name)
             if not xml_text:
@@ -1322,11 +1381,16 @@ async def poll_feeds(
             feed_results.append({"name": name, "status": "error", "error": str(e)[:100]})
             # R-F1057 — wire failure to brain so ARIA sees it
             try:
+                # R-F2630 §3b — was wire_failure(module=, summary=, detail=,
+                # source_id=). wire_failure takes (module, detail, gap_type,
+                # source): the summary=/source_id= kwargs raised TypeError into
+                # the `except: pass` below, so EVERY feed failure was DARK —
+                # 42 per poll, never reaching the brain, despite R-F1057's intent.
                 wire_failure(
                     module="news_monitor",
-                    summary=f"Feed poll failed: {name}",
-                    detail=str(e)[:300],
-                    source_id=f"news_monitor:feed:{name}",
+                    detail=f"Feed poll failed: {name}: {str(e)[:250]}",
+                    gap_type="source_failure",
+                    source=f"news_monitor:feed:{name}",
                 )
             except Exception:
                 pass
@@ -1334,12 +1398,20 @@ async def poll_feeds(
                 _bump_vault_failstreak(url)   # R-F2217 — dead-source lifecycle
 
     summary = {
-        "feeds_polled": len(sources),
+        # R-F2630 — report the feeds ACTUALLY attempted, not the configured
+        # total. Reporting len(sources) on a time-boxed run would understate the
+        # failure ratio (feeds_failed/feeds_polled) and hide the source rot.
+        "feeds_polled": _attempted,
         "feeds_failed": total_failed,
         "articles_fetched": total_fetched,
         "articles_new": total_new,
         "signals_promoted": total_promoted,
         "results": feed_results,
+        "truncated": _truncated,
+        "feeds_skipped": max(0, len(sources) - _attempted),
+        # Where the NEXT poll should start, so a truncated run cannot starve the
+        # sources after the cut-off.
+        _POLL_ROTATION_KEY: ((_rot + _attempted) % len(sources)) if sources else 0,
         "polled_at": datetime.now(timezone.utc).isoformat(),
     }
     state = await _write_poll_state(summary)

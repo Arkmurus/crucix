@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2629,
+  "next_available": 2631,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20200,6 +20200,24 @@
       "commit_sha": "8e70b810",
       "notes": null,
       "shipped_at": "2026-07-15T14:14:44Z"
+    },
+    {
+      "r_number": "R-F2629",
+      "title": "dedupe repair trusted scan_keys empty-on-error and burnt its sentinel — precise NULL-TTL sweep, idempotent",
+      "claimed_at": "2026-07-15T14:54:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2630",
+      "title": "Golden Intel poll: state write lost on timeout + dark feed failures + unnameable dead feeds",
+      "claimed_at": "2026-07-15T14:56:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
