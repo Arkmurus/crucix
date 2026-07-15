@@ -20128,9 +20128,9 @@
       "claimed_at": "2026-07-15T11:12:58Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "PENDING",
+      "commit_sha": "bd52c98b",
       "notes": null,
-      "shipped_at": "2026-07-15T11:39:27Z"
+      "shipped_at": "2026-07-15T12:07:26Z"
     },
     {
       "r_number": "R-F2622",
@@ -20146,9 +20146,10 @@
       "title": "CLAUDE.md §20 RAG priming snippet is broken (sync fn wrapped in asyncio.run)",
       "claimed_at": "2026-07-15T11:45:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bd52c98b",
+      "notes": null,
+      "shipped_at": "2026-07-15T12:07:26Z"
     }
   ]
 }
