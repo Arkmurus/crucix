@@ -610,6 +610,45 @@ async def hget(key: str, field: str) -> Optional[str]:
         return None
 
 
+async def hincrby(key: str, field: str, amount: int = 1, *, critical: bool = False) -> int:
+    """Atomically increment an integer hash field, returning the new value.
+
+    R-F2625: this method was missing entirely, so `rs.hincrby(...)` at
+    dd_orchestrator.py:8167 (the R-F1914 per-layer stats block) raised
+    AttributeError. That block's `except: pass` swallowed it, so
+    `crucix:dd:layer_stats:<layer>` was NEVER written and the DD health endpoint
+    (routes/aria.py:1699) read {} for all 11 layers — "no failures" that actually
+    meant "never recorded" (DARK per §21a). Mirrors hget/hgetall across the
+    sqlite / Redis / in-memory backends. Same class as R-F2486 (hget).
+
+    Concurrent DD finalizers hit the SAME hash key, so the sqlite and Redis paths
+    are atomic (single UPSERT / native HINCRBY). Only the in-memory fallback is
+    non-atomic — consistent with `incr` above, and it is used only when Redis is
+    offline and sqlite is not the backend.
+    """
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.hincrby(key, field, amount, critical=critical)
+    if _client:
+        try:
+            return int(await _client.hincrby(key, field, amount))
+        except Exception as e:
+            logger.warning("Redis HINCRBY %s.%s failed: %s", key, field, e)
+    # In-memory fallback (NOT atomic — only used when Redis is offline)
+    try:
+        existing = json.loads(_mem_store.get(key, "{}"))
+    except Exception:
+        existing = {}
+    try:
+        current = int(existing.get(field, 0) or 0)
+    except (TypeError, ValueError):
+        current = 0
+    new_val = current + int(amount)
+    existing[field] = str(new_val)
+    _mem_store[key] = json.dumps(existing)
+    return new_val
+
+
 async def scan_keys(pattern: str, count: int = 200) -> list[str]:
     """Return keys matching a glob pattern (uses SCAN for Redis, filter for in-memory)."""
     if _use_sqlite():

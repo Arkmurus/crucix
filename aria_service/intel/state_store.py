@@ -3118,6 +3118,52 @@ async def hget(key: str, field: str) -> str | None:
         return None
 
 
+async def hincrby(key: str, field: str, amount: int = 1, *, critical: bool = False) -> int:
+    """Atomically increment an integer hash field, returning the new value.
+
+    R-F2625: this method was missing (only hset/hgetall/hget/hdel existed), so
+    `rs.hincrby(...)` at dd_orchestrator.py:8167 raised AttributeError; the
+    finalizer's broad `except: pass` swallowed it and the DD per-layer stats
+    (`crucix:dd:layer_stats:<layer>`) were NEVER written. The DD health endpoint
+    (routes/aria.py:1699) therefore read {} for all 11 layers forever — which
+    looks like "no failures" but means "never recorded". Same class as R-F2486.
+
+    Single atomic UPSERT — no Python lock and no read-modify-write, per R-F1518.
+    That matters because concurrent DD finalizers increment the SAME hash key,
+    so a get+set compose would lose increments and under-report failures.
+
+    SQLite `CAST('abc' AS INTEGER)` yields 0, so a non-numeric field resets to
+    `amount` rather than raising (Redis HINCRBY would error). Acceptable here:
+    these are best-effort observability counters, never money or verdicts.
+    """
+    if _conn is None:
+        if critical:
+            raise StateWriteError(f"hincrby {key}.{field}: no connection")
+        return 0
+    # R-F1933 (M4): keep hash UPSERTs ordered against the enqueued set/set_json path.
+    await _flush_write_queue()
+    try:
+        await _conn.execute(
+            "INSERT INTO hash_entries(hash_key, field, value) VALUES(?, ?, ?) "
+            "ON CONFLICT(hash_key, field) DO UPDATE SET "
+            "value = CAST(CAST(hash_entries.value AS INTEGER) + ? AS TEXT)",
+            (key, field, str(int(amount)), int(amount)),
+        )
+        await _conn.commit()
+        cur = await _conn.execute(
+            "SELECT value FROM hash_entries WHERE hash_key = ? AND field = ?",
+            (key, field),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        return int(row[0]) if row is not None else int(amount)
+    except Exception as e:
+        logger.warning("[R-F2625] hincrby %s.%s failed: %s", key, field, e)
+        if critical:
+            raise StateWriteError(f"hincrby {key}.{field}: {e}") from e
+        return 0
+
+
 # ── Glob scan ───────────────────────────────────────────────────────────
 
 async def scan_keys(pattern: str, count: int = 200) -> list[str]:
