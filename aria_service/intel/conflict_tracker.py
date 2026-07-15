@@ -14,15 +14,30 @@ Why ARIA needs this:
   - Counter-IED: tracking IED incidents informs which capabilities are in
     demand and which OEMs should be approached.
 
-ACLED API (free for academic / non-commercial use, requires registration):
-  https://acleddata.com/data/api/
-  - Endpoint: https://api.acleddata.com/acled/read
-  - Auth: ?key=<KEY>&email=<EMAIL>  OR no auth for public tier (heavy rate-limited)
+ACLED API (requires a free myACLED account — https://acleddata.com/register/):
+  Verified against https://acleddata.com/api-documentation/getting-started
+  on 2026-07-15 (R-F2627).
+  - Token:    POST https://acleddata.com/oauth/token
+              username=<ACLED_EMAIL> password=<ACLED_PASSWORD>
+              grant_type=password client_id=acled
+              -> access_token (valid 24h) + refresh_token (valid 14d)
+  - Endpoint: GET https://acleddata.com/api/acled/read
+              Authorization: Bearer <access_token>
   - Returns JSON with event_date, event_type, sub_event_type, country, location,
     fatalities, actors, source.
 
+  R-F2627 — this module previously called the LEGACY endpoint
+  `https://api.acleddata.com/acled/read?key=&email=`. That host + auth model is
+  GONE from ACLED's current documentation, so every call failed and silently
+  degraded to GDELT: ARIA served lower-fidelity data while reporting nothing
+  wrong. `ACLED_API_KEY` is dead — the API it authenticated no longer exists.
+  Credentials are now ACLED_EMAIL + ACLED_PASSWORD (CLAUDE.md §18).
+
 If ACLED credentials are not configured, this module falls back to the GDELT
 Project's free DOC 2.0 API which provides similar (lower-fidelity) event data.
+Unconfigured is NOT an error (gate #5 is operator-owned) and stays quiet; but a
+CONFIGURED provider that fails is reported to the brain (§21a) — silent
+degradation is exactly how the dead legacy endpoint hid for months.
 
 Module-level state:
     Recent events cached in Redis (24h TTL) so repeated queries don't hit the API.
@@ -43,9 +58,18 @@ from . import proactive
 
 logger = logging.getLogger("aria.conflict")
 
-ACLED_BASE = "https://api.acleddata.com/acled/read"
+# R-F2627 — ACLED's CURRENT API (the legacy api.acleddata.com host is dead).
+ACLED_TOKEN_URL = "https://acleddata.com/oauth/token"
+ACLED_BASE = "https://acleddata.com/api/acled/read"
 GDELT_DOC = "https://api.gdeltproject.org/api/v2/doc/doc"
 CACHE_TTL = 6 * 3600  # 6 hours
+
+# ── ACLED OAuth token cache ────────────────────────────────────────────────
+# The access token is valid 24h; re-authenticating on every fetch would hammer
+# ACLED and risk a rate-limit ban. Module-level is sufficient: the brain runs
+# WEB_CONCURRENCY=1, so one process owns all fetches.
+_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": 0.0, "refresh_token": None}
+_TOKEN_SAFETY_MARGIN_S = 300  # renew 5 min early rather than race the expiry
 
 # ── Auto-investigation dedup for CRITICAL escalations ──────────────────────
 # Key: country ISO → timestamp of last auto-investigation trigger.
@@ -91,34 +115,180 @@ def _iso3(country: str) -> str:
 
 # ── ACLED fetch ─────────────────────────────────────────────────────────────
 
-async def _fetch_acled(country_iso3: str, days: int = 30) -> list[dict]:
-    """Fetch recent ACLED events for a country. Falls back to GDELT if ACLED unavailable."""
-    api_key = os.getenv("ACLED_API_KEY", "").strip()
-    api_email = os.getenv("ACLED_EMAIL", "").strip()
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+def _acled_configured() -> bool:
+    """True iff the operator has set up a myACLED account (gate #5).
 
+    ACLED_API_KEY is deliberately NOT accepted: the legacy key+email API it
+    authenticated no longer exists, so honouring it would imply a working
+    provider that cannot work (R-F2627).
+    """
+    return bool(os.getenv("ACLED_EMAIL", "").strip() and os.getenv("ACLED_PASSWORD", "").strip())
+
+
+def _invalidate_token_cache() -> None:
+    """Drop the cached token — used on 401 (revoked/expired) and by tests."""
+    _TOKEN_CACHE.update({"access_token": None, "expires_at": 0.0, "refresh_token": None})
+
+
+async def _acled_token(force: bool = False) -> str | None:
+    """Return a valid ACLED OAuth access token, or None.
+
+    R-F2627 — POST /oauth/token per ACLED's documented password grant. Cached
+    until `expires_in` (minus a safety margin) so repeated country lookups reuse
+    one token. Returns None when unconfigured (quiet — gate #5 is operator-owned)
+    and records a gap when CONFIGURED credentials fail (§21a).
+    """
+    if not _acled_configured():
+        return None
+
+    now = _t.time()
+    if not force and _TOKEN_CACHE["access_token"] and now < float(_TOKEN_CACHE["expires_at"] or 0):
+        return _TOKEN_CACHE["access_token"]
+
+    email = os.getenv("ACLED_EMAIL", "").strip()
+    password = os.getenv("ACLED_PASSWORD", "").strip()
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:  # no-breaker: best-effort OSINT auth; a breaker would hide conflict signals
+            resp = await client.post(
+                ACLED_TOKEN_URL,
+                data={
+                    "username": email,
+                    "password": password,
+                    "grant_type": "password",
+                    "client_id": "acled",
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+    except httpx.HTTPError as e:
+        wire_failure(
+            module="conflict_tracker",
+            detail=f"ACLED OAuth request failed: {e}",
+            gap_type="source_failure",
+            source="conflict_tracker:_acled_token",
+        )
+        return None
+
+    if resp.status_code != 200:
+        wire_failure(
+            module="conflict_tracker",
+            detail=(
+                f"ACLED OAuth rejected the configured credentials (HTTP {resp.status_code}): "
+                f"{str(getattr(resp, 'text', ''))[:200]} — check ACLED_EMAIL/ACLED_PASSWORD "
+                f"against the myACLED account"
+            ),
+            gap_type="source_failure",
+            source="conflict_tracker:_acled_token",
+        )
+        return None
+
+    try:
+        payload = resp.json() or {}
+    except Exception as e:
+        wire_failure(
+            module="conflict_tracker",
+            detail=f"ACLED OAuth returned unparseable JSON: {e}",
+            gap_type="source_failure",
+            source="conflict_tracker:_acled_token",
+        )
+        return None
+
+    token = payload.get("access_token")
+    if not token:
+        wire_failure(
+            module="conflict_tracker",
+            detail=f"ACLED OAuth response missing access_token: {str(payload)[:200]}",
+            gap_type="source_failure",
+            source="conflict_tracker:_acled_token",
+        )
+        return None
+
+    try:
+        expires_in = int(payload.get("expires_in") or 86400)
+    except (TypeError, ValueError):
+        expires_in = 86400
+    _TOKEN_CACHE.update({
+        "access_token": token,
+        "expires_at": now + max(60, expires_in - _TOKEN_SAFETY_MARGIN_S),
+        "refresh_token": payload.get("refresh_token"),
+    })
+    logger.info("ACLED: OAuth token acquired (expires_in=%ss)", expires_in)
+    return token
+
+
+async def _fetch_acled(country_iso3: str, days: int = 30) -> list[dict]:
+    """Fetch recent ACLED events for a country. Falls back to GDELT if unavailable.
+
+    R-F2627 — uses ACLED's CURRENT OAuth API. Unconfigured falls back QUIETLY
+    (gate #5 is operator-owned, not a bug); a CONFIGURED provider that fails is
+    reported to the brain so the degradation can never be silent again.
+    """
+    if not _acled_configured():
+        # Not set up yet — expected state until the operator registers a myACLED
+        # account and sets the secrets. Not a failure; do not spam the brain.
+        return await _fetch_gdelt_fallback(country_iso3, days)
+
+    token = await _acled_token()
+    if not token:
+        # _acled_token already recorded the specific reason via wire_failure.
+        return await _fetch_gdelt_fallback(country_iso3, days)
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
     params: dict[str, str] = {
         "iso3": country_iso3,
         "event_date": f"{cutoff}|{datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
         "event_date_where": "BETWEEN",
         "limit": "200",
+        "_format": "json",
     }
-    if api_key and api_email:
-        params["key"] = api_key
-        params["email"] = api_email
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:  # no-breaker: conflict tracker is best-effort OSINT; breaker would hide conflict signals
-            resp = await client.get(ACLED_BASE, params=params)
+            resp = await client.get(
+                ACLED_BASE, params=params, headers={"Authorization": f"Bearer {token}"}
+            )
+            if resp.status_code == 401:
+                # Token revoked or expired early — re-auth ONCE, then give up.
+                _invalidate_token_cache()
+                token = await _acled_token(force=True)
+                if token:
+                    resp = await client.get(
+                        ACLED_BASE, params=params, headers={"Authorization": f"Bearer {token}"}
+                    )
+
             if resp.status_code != 200:
-                logger.warning("ACLED returned %s for %s — falling back to GDELT", resp.status_code, country_iso3)
+                wire_failure(
+                    module="conflict_tracker",
+                    detail=(
+                        f"ACLED read failed for {country_iso3} (HTTP {resp.status_code}) — "
+                        f"serving GDELT fallback, so conflict data is LOWER fidelity"
+                    ),
+                    gap_type="source_failure",
+                    source="conflict_tracker:_fetch_acled",
+                )
                 return await _fetch_gdelt_fallback(country_iso3, days)
-            data = resp.json()
+
+            data = resp.json() or {}
             events = data.get("data", []) or []
+            # Provenance: GDELT rows carry _provider='gdelt'; tag ACLED rows too so
+            # a consumer can always tell which source backed the verdict.
+            for _e in events:
+                if isinstance(_e, dict):
+                    _e["_provider"] = "acled"
             logger.info("ACLED: fetched %d events for %s (last %dd)", len(events), country_iso3, days)
+            wire_success(
+                module="conflict_tracker",
+                summary=f"ACLED: {len(events)} event(s) for {country_iso3} (last {days}d)",
+                entity_name=country_iso3,
+                source_id="conflict_tracker:_fetch_acled",
+            )
             return events
     except httpx.HTTPError as e:
-        logger.warning("ACLED request failed: %s — using GDELT fallback", e)
+        wire_failure(
+            module="conflict_tracker",
+            detail=f"ACLED request failed for {country_iso3}: {e} — serving GDELT fallback",
+            gap_type="source_failure",
+            source="conflict_tracker:_fetch_acled",
+        )
         return await _fetch_gdelt_fallback(country_iso3, days)
 
 

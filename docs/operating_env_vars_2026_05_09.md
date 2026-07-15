@@ -92,7 +92,7 @@ The more of these you set, the richer ARIA's signal coverage.
 ### Geopolitical / OSINT
 | Var | Server | Status | Notes |
 |---|---|---|---|
-| `ACLED_EMAIL` + `ACLED_PASSWORD` *or* `ACLED_API_KEY` | both | OPERATOR-PENDING | ACLED conflict events. Free academic tier exists. Backlog item from 2026-04-27. |
+| `ACLED_EMAIL` + `ACLED_PASSWORD` | both | OPERATOR-PENDING (code READY — R-F2627) | ACLED conflict events (Phase A gate #5). **BOTH are required; `ACLED_API_KEY` is DEAD** — it authenticated `api.acleddata.com`, which ACLED retired. R-F2627 migrated `conflict_tracker` to the current OAuth password grant (`POST acleddata.com/oauth/token` → Bearer → `acleddata.com/api/acled/read`). Operator action: register a free myACLED account at https://acleddata.com/register/ then `flyctl secrets set ACLED_EMAIL=... ACLED_PASSWORD=... -a aria-intel`. Until set, conflict data silently serves the lower-fidelity GDELT fallback (by design, not a bug). |
 | `BRAVE_API_KEY` *or* `BRAVE_SEARCH_API_KEY` | both | LIVE | General web search backbone. |
 | `BRAVE_ANSWERS_API_KEY` | fly | LIVE | Brave Answers API for memory-first synthesis. |
 | `RAPIDAPI_KEY` | seenode | OFF | Bridge to assorted RapidAPI sources. Optional. |

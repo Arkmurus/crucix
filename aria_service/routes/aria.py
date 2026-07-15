@@ -19243,7 +19243,9 @@ async def sanctions_fuzzy_ep(req: FuzzyScreenRequest):
 async def conflict_events_ep(country: str, days: int = 30, limit: int = 50):
     """Recent conflict / political-violence events for a country.
 
-    Pulls from ACLED if ACLED_API_KEY is set, otherwise falls back to GDELT.
+    Pulls from ACLED if ACLED_EMAIL + ACLED_PASSWORD are set (R-F2627: OAuth
+    password grant; the old ACLED_API_KEY authenticated an API that no longer
+    exists), otherwise falls back to GDELT.
     Returns total events, fatalities, escalation score, and recent event list.
     """
     days = max(1, min(days, 180))

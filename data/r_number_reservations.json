@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2627,
+  "next_available": 2628,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20137,9 +20137,10 @@
       "title": "error-streak gate #3 honest measurement - no vacuous pass",
       "claimed_at": "2026-07-15T11:32:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3a87db1a",
+      "notes": null,
+      "shipped_at": "2026-07-15T13:21:12Z"
     },
     {
       "r_number": "R-F2623",
@@ -20175,6 +20176,15 @@
       "r_number": "R-F2626",
       "title": "autonomous engine DARK — dedupe markers never expired (non-atomic set+expire race)",
       "claimed_at": "2026-07-15T13:06:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2627",
+      "title": "ACLED: migrate conflict_tracker to current OAuth API (legacy key+email host is dead)",
+      "claimed_at": "2026-07-15T13:41:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
