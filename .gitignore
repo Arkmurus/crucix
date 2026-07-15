@@ -1,7 +1,9 @@
 # Dependencies
 node_modules/
-frontend/node_modules/
-# frontend/dist/ — committed so Seenode (no Docker) can serve it directly
+# R-F2624: frontend/ (Angular SPA) DELETED — it existed only so Seenode could
+# serve it directly; Seenode was retired 2026-05-23 (R-F832/F833). aria-web
+# serves public/*.html via server.mjs instead. Recover from git history if an
+# Angular admin UI is ever revived.
 
 # Python bytecode caches
 __pycache__/

@@ -16,11 +16,7 @@
     "diag": "node diag.mjs",
     "clean": "node scripts/clean.mjs",
     "seed:outcomes": "node scripts/seed_outcomes.mjs",
-    "fresh-start": "npm run clean && npm start",
-    "frontend:install": "cd frontend && npm install",
-    "frontend:dev": "cd frontend && npx ng serve --open",
-    "frontend:build": "cd frontend && npx ng build --configuration production",
-    "frontend:watch": "cd frontend && npx ng build --watch --configuration development"
+    "fresh-start": "npm run clean && npm start"
   },
   "keywords": [
     "osint",
