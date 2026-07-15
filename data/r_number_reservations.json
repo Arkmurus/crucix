@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2637,
+  "next_available": 2638,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20274,6 +20274,15 @@
       "r_number": "R-F2636",
       "title": "false-fresh: a scoped poll erases the full-poll source_failure_degraded signal",
       "claimed_at": "2026-07-15T17:01:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2637",
+      "title": "CLAUDE.md/.env.example state Brave is dormant/unset — false; Brave is PRIMARY paid search",
+      "claimed_at": "2026-07-15T17:12:41Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
