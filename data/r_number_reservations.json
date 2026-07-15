@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2628,
+  "next_available": 2629,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20190,6 +20190,16 @@
       "commit_sha": "590a37f2",
       "notes": null,
       "shipped_at": "2026-07-15T13:59:36Z"
+    },
+    {
+      "r_number": "R-F2628",
+      "title": "correct ACLED docs: free Open myACLED tier has NO API access (403 by entitlement)",
+      "claimed_at": "2026-07-15T14:12:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d0cb520c",
+      "notes": null,
+      "shipped_at": "2026-07-15T14:14:12Z"
     }
   ]
 }
