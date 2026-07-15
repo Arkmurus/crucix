@@ -516,6 +516,50 @@ def test_degraded_returns_keep_the_same_dict_shape(monkeypatch):
         assert f in r, f"degraded return dropped field {f!r}"
 
 
+# ── /phase/gates aggregator reads the SAME honest measure ──────────────
+
+
+def test_phase_gates_gate3_is_measurable_and_honest(monkeypatch):
+    """R-F2622: /phase/gates previously reported gate #3 `measurable: False`
+    because "a true ERROR/7d count needs a windowed source" (R-F2375 —
+    which correctly refused to fabricate). R-F2622 BUILDS that source, so
+    the aggregator must now read it — and must report the honest verdict,
+    never coerce an unproven streak to a pass.
+
+    Capability: drives the real `main.phase_gates()` route handler.
+    """
+    _setup_fake_redis(monkeypatch, initial_events=[])  # no evidence at all
+    import aria_service.main as m
+
+    r = asyncio.run(m.phase_gates())
+    g3 = r["gates"]["gate_3_zero_errors"]
+    assert g3["measurable"] is True, (
+        "R-F2622 supplies the windowed source — the gate is measurable now"
+    )
+    assert g3["pass"] is False, (
+        "an unproven streak must report FAIL, not an assumed pass"
+    )
+    assert g3["insufficient_history"] is True
+    assert "error_streak" in g3["source"]
+
+
+def test_phase_gates_gate3_agrees_with_the_endpoint(monkeypatch):
+    """One measure, one verdict: the aggregator and the canonical endpoint
+    (/api/aria/health/error-streak) must never disagree about gate #3."""
+    _setup_fake_redis(
+        monkeypatch,
+        initial_events=[_ev(9 * 24, "warning"), _ev(1, "warning")],
+        genesis_ts=time.time() - 9 * 86400,
+    )
+    import aria_service.main as m
+    from aria_service.intel import error_streak as es
+
+    agg = asyncio.run(m.phase_gates())["gates"]["gate_3_zero_errors"]
+    endpoint = asyncio.run(es.compute_error_streak())
+    assert agg["pass"] == endpoint["phase_a_gate_3_pass"] is True
+    assert agg["value"] == endpoint["consecutive_clean_days"]
+
+
 # ── Write-path integration: record_error → anchor ───────────────────────
 
 

@@ -4696,32 +4696,53 @@ async def phase_gates():
         gates["gate_2_heatmap_floor"] = {"label": "Heatmap floor >= 70%", "value": None, "pass": False, "error": str(e)}
         sources["heatmap"] = f"error: {e}"
 
-    # Gate #3: 0 fly ERRORs/7d. R-F2375 (H6): the old reader looked up
+    # Gate #3: 0 fly ERRORs/7d.
+    #
+    # R-F2375 (H6) correctly refused to fabricate here: the old reader looked up
     # mistake_ledger keys (errors_24h/total_24h) that do NOT exist → -1 sentinel
-    # → a silent fail-by-default that read as "measured 0-errors: FAILED". There
-    # is NO true 7-day ERROR-level counter in the codebase — the only real signal
-    # is the ALL-TIME WARNING+ counter crucix:aria:error_ledger:count. Surface it
-    # for context, but report the gate-as-specified (fly ERROR/7d) as NOT
-    # separately measurable rather than fabricating pass/fail from the wrong data.
+    # → a silent fail-by-default that read as "measured 0-errors: FAILED". It
+    # reported `measurable: False` instead, noting that a true ERROR/7d count
+    # "needs a windowed source". That was the honest call at the time.
+    #
+    # R-F2622 (2026-07-15) BUILDS that windowed source, so the gate becomes
+    # measurable: error_streak now derives the streak from a durable, TTL-less,
+    # never-trimmed anchor written at record_error() time, and reports pass ONLY
+    # when 7 clean days can be PROVEN (else pass=False + insufficient_history).
+    # Read it here so the aggregator and the canonical endpoint
+    # (/api/aria/health/error-streak, R-F969) can never disagree — one measure,
+    # one verdict.
+    #
+    # NOTE: this reader must stay HONEST. compute_error_streak returns pass=False
+    # when the streak is unproven; do not "helpfully" coerce that to True/None.
+    # The whole point of R-F2622 is that absence of evidence is not evidence of
+    # cleanliness — that assumption is what made gate #3 self-certifying for two
+    # months.
     try:
         from .intel import redis_store as _rs1643
+        from .intel import error_streak as _es1643
         _err_total_raw = await _rs1643.get("crucix:aria:error_ledger:count")
         try:
             _err_total = int(_err_total_raw) if _err_total_raw is not None else None
         except (TypeError, ValueError):
             _err_total = None
+        _streak = await _es1643.compute_error_streak()
         gates["gate_3_zero_errors"] = {
             "label": "0 fly ERRORs/7d",
-            "value": None,
-            "pass": None,
-            "measurable": False,
+            "value": _streak.get("consecutive_clean_days"),
+            "pass": _streak.get("phase_a_gate_3_pass"),
+            "measurable": True,
+            "streak_basis": _streak.get("streak_basis"),
+            "insufficient_history": _streak.get("insufficient_history"),
+            "clean_since": _streak.get("clean_since"),
+            "gate_blocked_reason": _streak.get("gate_blocked_reason"),
             "error_ledger_total_all_time": _err_total,
-            "note": "No 7-day ERROR-level counter exists; only an all-time WARNING+ "
-                    "counter (crucix:aria:error_ledger:count). A true fly ERROR/7d "
-                    "count needs a windowed source (Fly log grep).",
-            "source": "error_log_handler (crucix:aria:error_ledger:count, all-time)",
+            "note": "R-F2622: MEASURED from the durable error-streak anchor — the "
+                    "windowed source R-F2375 said was missing. pass=true requires "
+                    "7 PROVEN clean days; an unproven streak reports "
+                    "insufficient_history, never an assumed pass.",
+            "source": "error_streak.compute_error_streak() (R-F2622 anchor)",
         }
-        sources["errors"] = "error_log_handler:count (all-time)"
+        sources["errors"] = "error_streak.compute_error_streak() (R-F2622)"
     except Exception as e:
         gates["gate_3_zero_errors"] = {"label": "0 fly ERRORs/7d", "value": None, "pass": None, "measurable": False, "error": str(e)}
         sources["errors"] = f"error: {e}"
