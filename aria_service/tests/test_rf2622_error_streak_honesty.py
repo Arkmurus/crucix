@@ -543,6 +543,38 @@ def test_phase_gates_gate3_is_measurable_and_honest(monkeypatch):
     assert "error_streak" in g3["source"]
 
 
+def test_phase_gates_gate3_unmeasurable_when_the_store_fails(monkeypatch):
+    """LIVE-OBSERVED (2026-07-15): under state_store saturation the anchor
+    read raises StoreReadError and the endpoint reports
+    error='anchor_fetch_failed:StoreReadError'.
+
+    "Could not measure" is NOT "measured and failed". Reporting
+    measurable=true/pass=false there would assert a verdict the data does
+    not support — the mirror of R-F560's sin. R-F2375's distinction must
+    survive.
+    """
+    from aria_service.intel import redis_store as rs
+    from aria_service.intel import self_improve as si
+    import aria_service.main as m
+
+    async def strict_boom(key):
+        raise RuntimeError("store read timed out")
+
+    async def ok_get(key):
+        return [] if key == si.ERROR_LOG_KEY else None
+
+    monkeypatch.setattr(rs, "get_json_strict", strict_boom)
+    monkeypatch.setattr(rs, "get_json", ok_get)
+    monkeypatch.setattr(rs, "get", ok_get)
+
+    g3 = asyncio.run(m.phase_gates())["gates"]["gate_3_zero_errors"]
+    assert g3["measurable"] is False, (
+        "a store read failure means UNMEASURABLE, not a measured failure"
+    )
+    assert g3["pass"] is None, "do not assert a verdict the data can't support"
+    assert "anchor_fetch_failed" in (g3.get("measure_error") or "")
+
+
 def test_phase_gates_gate3_agrees_with_the_endpoint(monkeypatch):
     """One measure, one verdict: the aggregator and the canonical endpoint
     (/api/aria/health/error-streak) must never disagree about gate #3."""

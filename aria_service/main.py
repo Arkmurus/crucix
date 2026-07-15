@@ -4726,11 +4726,19 @@ async def phase_gates():
         except (TypeError, ValueError):
             _err_total = None
         _streak = await _es1643.compute_error_streak()
+        # A store-layer read failure (StoreReadError under state_store
+        # saturation) means the streak could not be MEASURED — that is not the
+        # same as a measured failure. Reporting `measurable: true, pass: false`
+        # there would read as "we measured it and it failed", which is the
+        # mirror of R-F560's sin: asserting a verdict the data doesn't support.
+        # Keep R-F2375's distinction — unmeasurable stays unmeasurable.
+        _streak_err = _streak.get("error")
         gates["gate_3_zero_errors"] = {
             "label": "0 fly ERRORs/7d",
             "value": _streak.get("consecutive_clean_days"),
-            "pass": _streak.get("phase_a_gate_3_pass"),
-            "measurable": True,
+            "pass": None if _streak_err else _streak.get("phase_a_gate_3_pass"),
+            "measurable": not _streak_err,
+            "measure_error": _streak_err,
             "streak_basis": _streak.get("streak_basis"),
             "insufficient_history": _streak.get("insufficient_history"),
             "clean_since": _streak.get("clean_since"),
