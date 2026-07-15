@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2636,
+  "next_available": 2637,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20265,6 +20265,15 @@
       "r_number": "R-F2635",
       "title": "dedupe window unrelated to cron cadence — bucket the marker to the scheduled slot",
       "claimed_at": "2026-07-15T16:48:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2636",
+      "title": "false-fresh: a scoped poll erases the full-poll source_failure_degraded signal",
+      "claimed_at": "2026-07-15T17:01:03Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

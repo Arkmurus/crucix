@@ -875,9 +875,37 @@ async def _read_poll_state() -> dict:
 
 
 async def _write_poll_state(summary: dict) -> dict:
-    """Persist the last news-monitor heartbeat used by Golden Intel freshness."""
+    """Persist the last news-monitor heartbeat used by Golden Intel freshness.
+
+    R-F2636 — only a FULL poll may refresh the feed's health + freshness.
+    `routes/aria.py:26749` calls poll_feeds(categories=...) — a SUBSET poll — and its
+    summary used to overwrite this state wholesale. Observed live 2026-07-15:
+        full 76-feed poll : feeds_polled=76 feeds_failed=42 ratio=0.55 -> source_failure_degraded
+        then a 3-feed poll: feeds_polled=3  feeds_failed=0  ratio=0.00 -> reasons=[] "fresh"
+    Three clean feeds ERASED the fact that 42 of 76 sources are dead, and the dashboard
+    reported a healthy feed while 73 sources went unpolled — a false-clean of the
+    observability surface (same class as R-F2621 / R-F2622 / R-F2625).
+
+    A scoped poll is a TARGETED operation, not a feed refresh: it records itself under
+    `last_filtered_poll_at` and touches nothing else. `scope` defaults to "full" so
+    existing callers (the boot loop, the autonomous task) are unchanged.
+    """
     existing = await _read_poll_state()
     polled_at = str(summary.get("polled_at") or datetime.now(timezone.utc).isoformat())
+
+    if str(summary.get("scope") or "full") != "full":
+        # Subset poll: record that it happened, preserve the full-poll truth.
+        state = {
+            **existing,
+            "last_filtered_poll_at": polled_at,
+            "last_filtered_feeds_polled": int(summary.get("feeds_polled") or 0),
+            "last_filtered_feeds_failed": int(summary.get("feeds_failed") or 0),
+        }
+        try:
+            await rs.set_json(_POLL_STATE_KEY, state)
+        except Exception:
+            logger.debug("[news_monitor] scoped poll state write failed", exc_info=True)
+        return state
     failed = int(summary.get("feeds_failed") or 0)
     total = int(summary.get("feeds_polled") or 0)
     status = "ok"
@@ -1470,6 +1498,10 @@ async def poll_feeds(
         "results": feed_results,
         "truncated": _truncated,
         "feeds_skipped": max(0, len(sources) - _attempted),
+        # R-F2636 — a category-filtered run polled a SUBSET of the source list, so it
+        # must NOT overwrite the full-poll health/freshness (3 clean feeds erasing a
+        # 42/76 failure ratio is a false-clean). _write_poll_state records it separately.
+        "scope": "filtered" if categories else "full",
         # Where the NEXT poll should start, so a truncated run cannot starve the
         # sources after the cut-off.
         _POLL_ROTATION_KEY: ((_rot + _attempted) % len(sources)) if sources else 0,
