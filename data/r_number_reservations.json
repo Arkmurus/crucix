@@ -20294,9 +20294,10 @@
       "title": "corroboration engine — wire SourceIndependenceChecker to evidence_count (Phase B+, operator override)",
       "claimed_at": "2026-07-15T17:21:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6e35d9e3",
+      "notes": null,
+      "shipped_at": "2026-07-15T17:26:29Z"
     }
   ]
 }
