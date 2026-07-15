@@ -20156,9 +20156,10 @@
       "title": "delete dead Seenode-era Angular SPA (frontend/) + orphaned root Dockerfile",
       "claimed_at": "2026-07-15T12:44:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f6371edc",
+      "notes": null,
+      "shipped_at": "2026-07-15T12:50:57Z"
     }
   ]
 }
