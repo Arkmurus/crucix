@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2635,
+  "next_available": 2636,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20177,9 +20177,10 @@
       "title": "autonomous engine DARK — dedupe markers never expired (non-atomic set+expire race)",
       "claimed_at": "2026-07-15T13:06:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6992a0c0",
+      "notes": null,
+      "shipped_at": "2026-07-15T16:42:53Z"
     },
     {
       "r_number": "R-F2627",
@@ -20206,9 +20207,10 @@
       "title": "dedupe repair trusted scan_keys empty-on-error and burnt its sentinel — precise NULL-TTL sweep, idempotent",
       "claimed_at": "2026-07-15T14:54:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6992a0c0",
+      "notes": null,
+      "shipped_at": "2026-07-15T16:42:54Z"
     },
     {
       "r_number": "R-F2630",
@@ -20225,9 +20227,10 @@
       "title": "dedupe repair no-ops silently when the read conn is unavailable — strict scan + periodic retry",
       "claimed_at": "2026-07-15T15:28:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b6dc7061",
+      "notes": null,
+      "shipped_at": "2026-07-15T16:42:54Z"
     },
     {
       "r_number": "R-F2632",
@@ -20252,6 +20255,16 @@
       "r_number": "R-F2634",
       "title": "Grade-A source rebuild: add 14 VERIFIED tier_1a/1b feeds (18 of 20 tier_1b were dead)",
       "claimed_at": "2026-07-15T16:23:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7de4bf3d",
+      "notes": null,
+      "shipped_at": "2026-07-15T17:00:25Z"
+    },
+    {
+      "r_number": "R-F2635",
+      "title": "dedupe window unrelated to cron cadence — bucket the marker to the scheduled slot",
+      "claimed_at": "2026-07-15T16:48:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
