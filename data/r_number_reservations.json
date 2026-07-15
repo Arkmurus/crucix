@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2638,
+  "next_available": 2639,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20288,6 +20288,15 @@
       "commit_sha": "292e41c3",
       "notes": null,
       "shipped_at": "2026-07-15T17:13:40Z"
+    },
+    {
+      "r_number": "R-F2638",
+      "title": "corroboration engine — wire SourceIndependenceChecker to evidence_count (Phase B+, operator override)",
+      "claimed_at": "2026-07-15T17:21:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
