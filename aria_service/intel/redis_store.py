@@ -669,6 +669,20 @@ async def scan_keys(pattern: str, count: int = 200) -> list[str]:
     return [k for k in list(_mem_store.keys()) if fnmatch.fnmatch(k, pattern)][:count]
 
 
+async def scan_keys_null_ttl(pattern: str, count: int = 500) -> list[str]:
+    """R-F2629 — keys matching `pattern` that carry NO TTL.
+
+    Only the SQLite backend can answer this, which is fine: §6 makes SQLite
+    the production backend (Upstash cancelled). On the Redis/in-memory paths
+    this returns [] — the repair that uses it is idempotent and treats []
+    as "nothing to do this pass", never as "the keyspace is clean".
+    """
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.scan_keys_null_ttl(pattern, count)
+    return []
+
+
 async def scan_json(pattern: str, count: int = 200) -> list[tuple[str, Any]]:
     """R-F1885 — return [(key, parsed-JSON)] for keys matching `pattern` in ONE
     backend round-trip, so callers avoid N separate get_json calls (see

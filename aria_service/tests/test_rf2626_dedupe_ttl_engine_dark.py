@@ -42,7 +42,7 @@ import time
 import pytest
 
 
-def _fake_store(monkeypatch, *, initial=None, race_expire=False):
+def _fake_store(monkeypatch, *, initial=None, race_expire=False, scan_fails=None):
     """In-memory store modelling the REAL semantics that caused the bug:
 
       - set(key, val)            -> row with expires_at = None
@@ -55,6 +55,7 @@ def _fake_store(monkeypatch, *, initial=None, race_expire=False):
     from aria_service.intel import redis_store as rs
 
     store: dict[str, dict] = dict(initial or {})
+    scan_fails = scan_fails if isinstance(scan_fails, dict) else {"on": False}
 
     async def fake_set(key, value, ex=None, keepttl=False):
         store[key] = {
@@ -82,6 +83,17 @@ def _fake_store(monkeypatch, *, initial=None, race_expire=False):
     async def fake_delete(key):
         return store.pop(key, None) is not None
 
+    async def fake_scan_keys_null_ttl(pattern, count=500):
+        # R-F2629: mirrors state_store.scan_keys_null_ttl — ONLY rows with
+        # expires_at IS NULL, honouring `count`. `scan_fails=True` models the
+        # REAL failure mode that broke R-F2626 live: the scan returns [] on
+        # error, indistinguishable from "keyspace clean".
+        if scan_fails["on"]:
+            return []
+        pre = pattern.rstrip("*")
+        return [k for k, r in store.items()
+                if k.startswith(pre) and r.get("expires_at") is None][:count]
+
     async def fake_scan_keys(pattern, count=200):
         # HONOUR `count` — the real scan_keys HARD-TRUNCATES at it
         # (state_store.py:3240 `if len(matched) >= count: break`); it does NOT
@@ -97,6 +109,7 @@ def _fake_store(monkeypatch, *, initial=None, race_expire=False):
     monkeypatch.setattr(rs, "expire", fake_expire)
     monkeypatch.setattr(rs, "delete", fake_delete)
     monkeypatch.setattr(rs, "scan_keys", fake_scan_keys)
+    monkeypatch.setattr(rs, "scan_keys_null_ttl", fake_scan_keys_null_ttl)
     return store
 
 
@@ -218,56 +231,86 @@ def test_repair_clears_MORE_than_one_scan_batch(monkeypatch):
         f"only cleared {out['deleted']} of 1078 — a truncated sweep leaves "
         "most tasks permanently locked out and the engine dark"
     )
-    assert out["complete"] is True
     assert not [k for k in store if k.startswith("crucix:autonomous:dedupe:")]
 
 
-def test_incomplete_sweep_does_not_burn_the_sentinel(monkeypatch):
-    """If the sweep cannot drain, it must NOT record itself complete —
-    otherwise its one attempt is spent and a corrected sweep can never
-    retry. Same class as the discarded expire() return that caused R-F2626."""
+def test_failed_scan_is_not_mistaken_for_a_clean_keyspace(monkeypatch):
+    """THE R-F2629 BUG — proven live on aria-intel.
+
+    `state_store.scan_keys` returns [] on FAILURE (no read conn, or any
+    exception -> `logger.warning("SCAN failed"); return []`) — identical to
+    "no keys match". R-F2626's sweep read [] as "drained", wrote its one-shot
+    sentinel, and burned its only attempt. Live outcome: sentinel set, 926
+    NULL markers still present, engine still dark, logs said success.
+
+    The sweep is now idempotent and sentinel-free, so a failed scan costs
+    nothing but a pass: the NEXT engine start retries and clears them.
+    """
     from aria_service.autonomous import safety
 
-    store = _fake_store(monkeypatch, initial={
+    fails = {"on": True}
+    store = _fake_store(monkeypatch, scan_fails=fails, initial={
         f"crucix:autonomous:dedupe:T{i}:h": {"v": "1", "expires_at": None}
-        for i in range(50)
+        for i in range(30)
     })
-    # Force exhaustion: no rounds allowed to converge.
-    monkeypatch.setattr(safety, "_DEDUPE_REPAIR_MAX_ROUNDS", 1)
-    monkeypatch.setattr(safety, "_DEDUPE_REPAIR_BATCH", 10)
+
+    # Pass 1: the scan fails -> [] -> nothing deleted, NOTHING recorded as done.
+    out1 = asyncio.run(safety.repair_nulled_dedupe_markers())
+    assert out1["deleted"] == 0
+    assert len([k for k in store if k.startswith("crucix:autonomous:dedupe:")]) == 30
+
+    # Pass 2 (next engine start): the store recovers -> the sweep MUST retry
+    # and actually clear them. Under R-F2626 this was impossible: the sentinel
+    # had already been burnt by the failed pass.
+    fails["on"] = False
+    out2 = asyncio.run(safety.repair_nulled_dedupe_markers())
+    assert out2["deleted"] == 30, (
+        "a failed scan must not permanently disable the repair — this is "
+        "exactly how the engine stayed dark after R-F2626 'succeeded'"
+    )
+    assert not [k for k in store if k.startswith("crucix:autonomous:dedupe:")]
+
+
+def test_repair_is_precise_and_never_touches_live_markers(monkeypatch):
+    """R-F2629: targeting ONLY expires_at IS NULL is what makes the sweep
+    idempotent — and idempotent is what removes the need for the sentinel
+    that killed R-F2626. A correctly-TTL'd marker must survive."""
+    from aria_service.autonomous import safety
+
+    live_ttl = time.time() + 3600
+    store = _fake_store(monkeypatch, initial={
+        "crucix:autonomous:dedupe:BROKEN:a": {"v": "1", "expires_at": None},
+        "crucix:autonomous:dedupe:LIVE:b":   {"v": "1", "expires_at": live_ttl},
+        "crucix:autonomous:other:keep":      {"v": "1", "expires_at": None},
+    })
 
     out = asyncio.run(safety.repair_nulled_dedupe_markers())
-    assert out["complete"] is False
-    assert safety._DEDUPE_REPAIR_SENTINEL not in store, (
-        "an incomplete sweep must leave itself ARMED, not claim success"
+    assert out["deleted"] == 1
+    assert "crucix:autonomous:dedupe:BROKEN:a" not in store
+    assert "crucix:autonomous:dedupe:LIVE:b" in store, (
+        "a live TTL'd marker was wiped — dedupe defeated"
     )
-    # Next start (budget restored) finishes the job.
-    monkeypatch.setattr(safety, "_DEDUPE_REPAIR_MAX_ROUNDS", 40)
-    out2 = asyncio.run(safety.repair_nulled_dedupe_markers())
-    assert out2["complete"] is True
-    assert not [k for k in store if k.startswith("crucix:autonomous:dedupe:")]
+    assert "crucix:autonomous:other:keep" in store, "must not touch other keys"
 
 
-def test_repair_is_sentinel_guarded_and_runs_only_once(monkeypatch):
-    """It runs on every engine start, so it MUST be one-time — otherwise each
-    restart wipes live markers and defeats dedupe entirely."""
+def test_repair_is_idempotent_across_restarts(monkeypatch):
+    """It now runs on EVERY engine start (no sentinel). That is only safe if
+    repeated runs are no-ops once the strays are gone — and never eat the
+    live markers written between restarts."""
     from aria_service.autonomous import safety
 
     store = _fake_store(monkeypatch, initial={
-        "crucix:autonomous:dedupe:T:x": {"v": "1", "expires_at": None},
+        "crucix:autonomous:dedupe:BROKEN:a": {"v": "1", "expires_at": None},
     })
-
     first = asyncio.run(safety.repair_nulled_dedupe_markers())
     assert first["deleted"] == 1
-    assert first["skipped"] is False
 
-    # A live marker written after the repair must survive a second call.
-    store["crucix:autonomous:dedupe:T2:y"] = {"v": "1", "expires_at": time.time() + 3600}
-    second = asyncio.run(safety.repair_nulled_dedupe_markers())
-    assert second["skipped"] is True, "repair must not re-arm on restart"
-    assert "crucix:autonomous:dedupe:T2:y" in store, (
-        "a second run would have wiped a LIVE marker — dedupe defeated"
-    )
+    # A live marker written after the first sweep must survive every later one.
+    store["crucix:autonomous:dedupe:LIVE:b"] = {"v": "1", "expires_at": time.time() + 3600}
+    for _ in range(3):
+        again = asyncio.run(safety.repair_nulled_dedupe_markers())
+        assert again["deleted"] == 0
+    assert "crucix:autonomous:dedupe:LIVE:b" in store
 
 
 def test_zero_ttl_env_cannot_recreate_the_permanent_lockout(monkeypatch):
@@ -312,15 +355,20 @@ def test_deleted_count_reports_only_real_deletions(monkeypatch):
         f"reported {out['deleted']} deletions that never happened"
     )
     assert out["delete_failed"] > 0
-    assert out["complete"] is False  # nothing drained → stays armed
 
 
 def test_repair_runs_after_the_startup_delay_not_during_boot(monkeypatch):
-    """VERIFY-PASS-2 #1. state_store.get() returns None on a 5s TIMEOUT
-    (state_store.py:2183) — indistinguishable from 'sentinel absent'. Reading
-    it during peak boot could re-run the sweep and wipe LIVE markers every
-    restart. Pin the ORDER: the repair must sit after the startup-delay sleep
-    and before catch_up_overdue_tasks (which consumes dedupe).
+    """Pin the ORDER of the repair inside _engine_loop.
+
+    AFTER the startup-delay sleep: the sweep deletes serially, each delete a
+    flush+commit on the single state_store writer (R-F2157) — doing that
+    during peak boot (§11c: ~223k facts + 1.2M edges loading) is exactly when
+    the store is least able to serve it, and a failed scan just wastes the
+    pass. BEFORE catch_up_overdue_tasks: that is a dedupe CONSUMER, so it
+    must not be blocked by the very markers being cleared.
+
+    (R-F2626 also needed the delay to keep a sentinel read honest; R-F2629
+    retired the sentinel, but both ordering reasons above still stand.)
     """
     import inspect
     from aria_service.autonomous import engine
@@ -339,16 +387,22 @@ def test_repair_runs_after_the_startup_delay_not_during_boot(monkeypatch):
 
 
 def test_repair_never_raises_into_the_engine(monkeypatch):
-    """It runs in the engine's startup path — it must never stop the engine."""
+    """It runs in the engine's startup path — it must never stop the engine.
+
+    R-F2629: the failure surface is now the scan itself (the sentinel read is
+    gone), so drive THAT. A raising scan must be caught and reported, never
+    propagated into _engine_loop.
+    """
     from aria_service.intel import redis_store as rs
     from aria_service.autonomous import safety
 
     async def boom(*a, **k):
         raise RuntimeError("store wedged")
 
-    monkeypatch.setattr(rs, "get", boom)
+    monkeypatch.setattr(rs, "scan_keys_null_ttl", boom)
     out = asyncio.run(safety.repair_nulled_dedupe_markers())
     assert "error" in out
+    assert out["deleted"] == 0
 
 
 def test_repair_gap_type_is_registered():

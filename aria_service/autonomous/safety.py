@@ -422,125 +422,111 @@ async def check_and_mark_dedupe(task_id: str, entity: str) -> bool:
         return True
 
 
-_DEDUPE_REPAIR_SENTINEL = "crucix:autonomous:dedupe_repair:v1"
 _DEDUPE_SCAN_PATTERN = "crucix:autonomous:dedupe:*"
-# Batch size per scan round. scan_keys HARD-TRUNCATES at `count`
-# (state_store.py:3240 — `if len(matched) >= count: break`), it does NOT page,
-# so a single un-batched scan would silently return only the first N keys in
-# alphabetical order. We therefore scan → delete → re-scan until a round comes
-# back empty, which converges because every round removes what it found.
 _DEDUPE_REPAIR_BATCH = 500
-_DEDUPE_REPAIR_MAX_ROUNDS = 40  # 20k markers — a backstop, not a budget
+_DEDUPE_REPAIR_MAX_ROUNDS = 40  # 20k markers/pass — a backstop, not a budget
+
+# R-F2629 retired _DEDUPE_REPAIR_SENTINEL ("crucix:autonomous:dedupe_repair:v1").
+# Any stale copy of that key in prod is now an inert orphan — do NOT reintroduce
+# a sentinel here; see the docstring below for why it was the defect.
 
 
 async def repair_nulled_dedupe_markers() -> dict:
-    """R-F2626 — one-time sweep that releases the dedupe markers which the
-    old non-atomic set+expire race stranded WITHOUT a TTL.
+    """R-F2626/R-F2629 — release dedupe markers stranded WITHOUT a TTL by the
+    old non-atomic set+expire race.
 
     The atomic set(ex=) above stops NEW markers being written with
-    expires_at = NULL, but it cannot help the ones already on disk: they are
-    permanent by construction and would keep the engine dark forever. Live
+    expires_at = NULL, but cannot help the ones already on disk: they are
+    permanent by construction and keep the engine dark forever. Live
     2026-07-15: 1078 of 1210 markers, 81 of 97 tasks locked out.
 
-    HONEST SCOPE: this deletes EVERY dedupe marker it finds, not only the
-    stranded ones. There is no portable way to read a key's TTL through
-    redis_store, and scan_keys returns none — so "delete only the NULL ones"
-    is not expressible without reaching into state_store's SQL, which is the
-    most wedge-prone module in this tree (R-F2277) and no place for a repair
-    sweep. Deleting the live ones too costs at most ONE extra run for those
-    tasks, once. That is bounded by the guards that actually matter, all of
-    which are checked BEFORE dedupe in can_task_run: the hourly rate bucket
-    (MAX_FIRINGS_PER_HOUR) and the $50/day cost cap (safety.py:66), plus
-    §17's $300/mo cap. A dedupe marker is an efficiency hint, not a safety
-    control — and the alternative is leaving a production outage running to
-    protect one.
+    R-F2629 — WHY THIS IS NO LONGER ONE-SHOT, AND NO LONGER SENTINEL-GUARDED.
 
-    Sentinel-guarded so it runs ONCE, not on every boot — otherwise every
-    restart would wipe live markers and defeat dedupe entirely.
+    R-F2626's sweep deleted EVERY marker under the prefix (it could not see
+    TTLs), so it HAD to be one-shot — otherwise each restart would wipe live
+    markers and defeat dedupe. That one-shot guard is what killed it: it
+    declared itself complete when a scan returned [], and
+    `state_store.scan_keys` returns [] on FAILURE too (no read conn, or any
+    exception → `logger.warning("SCAN failed"); return []`). Under the
+    state_store saturation we were independently observing, a scan failed,
+    the sweep read [] as "drained", wrote its sentinel, and burned its only
+    attempt. Live result: sentinel set, 926 NULL markers still present, the
+    engine still dark — while the code logged success.
 
-    The sentinel is written ONLY if the sweep actually drained: a truncated
-    sweep that recorded itself as complete would clear a fraction, burn its
-    one attempt, and leave the engine dark while logging success.
+    That is the exact failure this R-number family exists to delete: absence
+    of evidence read as evidence of absence (cf. R-F2622, and the discarded
+    expire() return that caused R-F2626 itself).
+
+    The fix is to remove the fragility rather than guard it better. The sweep
+    now targets ONLY rows with expires_at IS NULL (rs.scan_keys_null_ttl),
+    which makes it PRECISE — a live, correctly-TTL'd marker can never be
+    touched. Precise makes it IDEMPOTENT, and idempotent makes the sentinel
+    unnecessary: it runs on every engine start, and a failed scan simply
+    means "nothing done this pass, retry next start" instead of a permanent
+    false completion. There is no longer a one-shot to burn.
+
+    After the atomic set(ex=), no NEW NULL-TTL marker can be created, so
+    anything this finds is by definition broken and safe to drop. Cost: at
+    most one extra run for an affected task, once — bounded by the guards
+    checked BEFORE dedupe in can_task_run (hourly rate bucket, $50/day cap,
+    §17's $300/mo cap). A dedupe marker is an efficiency hint, not a safety
+    control.
     """
-    out = {"scanned": 0, "deleted": 0, "skipped": False, "complete": False}
+    out = {"scanned": 0, "deleted": 0, "delete_failed": 0, "rounds": 0}
     try:
-        if await rs.get(_DEDUPE_REPAIR_SENTINEL):
-            out["skipped"] = True
-            return out
-
-        drained = False
         for _round in range(_DEDUPE_REPAIR_MAX_ROUNDS):
-            keys = await rs.scan_keys(_DEDUPE_SCAN_PATTERN, _DEDUPE_REPAIR_BATCH)
+            keys = await rs.scan_keys_null_ttl(
+                _DEDUPE_SCAN_PATTERN, _DEDUPE_REPAIR_BATCH,
+            )
             if not keys:
-                drained = True
+                # [] means "nothing found THIS pass" — which may be a clean
+                # keyspace OR a failed read. We deliberately do NOT decide
+                # which: the sweep is idempotent, so the next engine start
+                # retries. Never record completion from this signal.
                 break
+            out["rounds"] += 1
             out["scanned"] += len(keys)
             for k in keys:
                 try:
-                    # Count only what was ACTUALLY deleted. state_store.delete
-                    # swallows its own exceptions and returns False
-                    # (state_store.py:2388), so incrementing unconditionally
-                    # would report "cleared N markers — tasks unblocked" while
-                    # clearing nothing. That is the same discarded-return-value
-                    # class as the expire() bug this R-number exists to fix —
-                    # don't reintroduce it in the repair for it.
+                    # Count only real deletions — rs.delete swallows failures
+                    # and returns False (state_store.py delete()).
                     if await rs.delete(k):
                         out["deleted"] += 1
                     else:
-                        out["delete_failed"] = out.get("delete_failed", 0) + 1
+                        out["delete_failed"] += 1
                 except Exception as e:  # noqa: BLE001
-                    out["delete_failed"] = out.get("delete_failed", 0) + 1
+                    out["delete_failed"] += 1
                     logger.debug(
-                        "[R-F2626] dedupe repair: delete %s failed: %s", k, e,
+                        "[R-F2629] dedupe repair: delete %s failed: %s", k, e,
                     )
             # Yield between rounds: delete() flushes + commits per key on the
-            # single state_store writer (R-F2157 saturation risk), so don't
-            # hold it for thousands of keys without letting serving breathe.
+            # single state_store writer (R-F2157 saturation risk).
             await asyncio.sleep(0)
 
-        out["complete"] = drained
-        if not drained:
-            # Round budget exhausted with keys still matching. Do NOT write
-            # the sentinel — leave the sweep armed so the next start finishes
-            # the job rather than declaring victory over a partial clear.
-            logger.warning(
-                "[R-F2626] dedupe repair INCOMPLETE: deleted %d but markers "
-                "remain after %d rounds — sentinel NOT written, sweep stays "
-                "armed for the next engine start",
-                out["deleted"], _DEDUPE_REPAIR_MAX_ROUNDS,
+        if out["deleted"]:
+            logger.info(
+                "[R-F2629] dedupe repair: released %d TTL-less markers "
+                "(%d delete-failures) — tasks locked out by the R-F2626 race "
+                "are unblocked", out["deleted"], out["delete_failed"],
             )
-            return out
-
-        # No TTL on the sentinel: this repair must never run twice (§7 — an
-        # expiring sentinel would silently re-arm the sweep and wipe live
-        # markers).
-        await rs.set(_DEDUPE_REPAIR_SENTINEL, "1")
-
-        logger.info(
-            "[R-F2626] dedupe repair: cleared %d markers — tasks locked out "
-            "by NULL-TTL dedupe are unblocked",
-            out["deleted"],
-        )
-        # §21a — success reaches the brain, not just the console.
-        try:
-            from ..intel.engine_wiring import wire_success
-            wire_success(
-                module="safety",
-                summary=f"R-F2626 dedupe repair: cleared {out['deleted']} stranded markers",
-                source_id="safety:R-F2626",
-            )
-        except Exception:  # noqa: BLE001
-            pass
+            try:
+                from ..intel.engine_wiring import wire_success
+                wire_success(
+                    module="safety",
+                    summary=f"R-F2629 dedupe repair released {out['deleted']} TTL-less markers",
+                    source_id="safety:R-F2629",
+                )
+            except Exception:  # noqa: BLE001
+                pass
         return out
     except Exception as e:  # noqa: BLE001
-        logger.warning("[R-F2626] dedupe repair failed: %s", e)
+        logger.warning("[R-F2629] dedupe repair failed: %s", e)
         try:
             from ..intel.engine_wiring import wire_failure
-            # gap_type verified against capability_gaps.VALID_GAP_TYPES —
-            # "module_bug" is NOT registered and would be rejected.
+            # gap_type verified against capability_gaps.VALID_GAP_TYPES.
             wire_failure(
                 module="safety",
-                detail=f"R-F2626 dedupe repair failed: {e}",
+                detail=f"R-F2629 dedupe repair failed: {e}",
                 gap_type="engine_failure",
                 source="safety:repair_nulled_dedupe_markers",
             )

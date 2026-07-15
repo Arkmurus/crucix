@@ -3242,6 +3242,68 @@ async def scan_keys(pattern: str, count: int = 200) -> list[str]:
     return matched
 
 
+async def scan_keys_null_ttl(pattern: str, count: int = 500) -> list[str]:
+    """R-F2629 — keys matching `pattern` that carry NO TTL (expires_at IS NULL).
+
+    Exists so a repair sweep can target ONLY the rows a non-atomic
+    set+expire race stranded without an expiry, instead of deleting every
+    key under a prefix and hoping. scan_keys() cannot express this: it
+    returns keys but not TTLs, and it deliberately INCLUDES NULL-expiry rows
+    as "live".
+
+    Read-only, and mirrors _scan_conn's prefix-narrowing so it is a range
+    scan on the key PRIMARY KEY index rather than a full keyspace walk
+    (R-F1871). Returns [] on any failure — callers MUST therefore be
+    idempotent and treat [] as "nothing to do THIS pass", never as proof the
+    keyspace is clean. That conflation is precisely what let R-F2626's sweep
+    declare victory over a failed read (R-F2629).
+    """
+    try:
+        await _flush_write_queue()
+        if _HOTCOLD_SPLIT and _cold_queue is not None:
+            await _flush_cold_queue()
+    except Exception:
+        pass
+    conn = _get_read_conn()
+    if conn is None:
+        return []
+
+    _meta = min((pattern.find(_c) for _c in "*?[" if _c in pattern), default=-1)
+    _prefix = pattern if _meta < 0 else pattern[:_meta]
+
+    async def _scan(c) -> list[str]:
+        if c is None:
+            return []
+        try:
+            cur = await c.execute(
+                "SELECT key FROM state WHERE key GLOB ? AND expires_at IS NULL",
+                ((_prefix or "") + "*",),
+            )
+            rows = await cur.fetchall()
+            await cur.close()
+            return [r[0] for r in rows]
+        except Exception as e:
+            logger.warning("state_store: SCAN(null-ttl) failed: %s", e)
+            _schedule_reconnect_if_dead(e)
+            return []
+
+    keys = await _scan(conn)
+    if _HOTCOLD_SPLIT and _cold_read_conn is not None:
+        keys = keys + await _scan(_cold_read_conn)
+
+    matched: list[str] = []
+    seen: set = builtins.set()
+    for k in keys:
+        if k in seen:
+            continue
+        seen.add(k)
+        if fnmatch.fnmatch(k, pattern):
+            matched.append(k)
+            if len(matched) >= count:
+                break
+    return matched
+
+
 async def scan_json(pattern: str, count: int = 200) -> list[tuple[str, "Any"]]:
     """R-F1885 — like scan_keys, but returns (key, parsed-JSON-value) for each
     match in ONE query, so callers don't fan out N separate get_json round-trips.
