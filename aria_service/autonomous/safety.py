@@ -71,6 +71,37 @@ DAILY_COST_CAP_USD = _env_float("ARIA_AUTONOMOUS_DAILY_COST_CAP_USD", 50.00)
 # a day) so that a daily task can re-fire the next day without false
 # dedupe hits at the schedule boundary.
 DEDUPE_WINDOW_SECONDS = _env_int("ARIA_AUTONOMOUS_DEDUPE_WINDOW_S", 23 * 3600)
+# R-F2635 — TTL for SLOT-KEYED dedupe markers. A slot-keyed marker only has to
+# outlive the window in which the SAME scheduled minute could be attempted
+# twice: the tick, a catch-up for that slot, and any restart in between. It
+# must therefore exceed engine._CATCH_UP_MAX_AGE_S (7200s / 2h) so a catch-up
+# cannot re-fire a slot whose marker has already expired; 3h gives headroom.
+# It must NOT be 23h — that flat window is what capped every task at one fire
+# per day regardless of its cron (the bug this fixes). Uniqueness comes from
+# the slot in the key, not from the length of the TTL.
+DEDUPE_SLOT_WINDOW_SECONDS = _env_int("ARIA_AUTONOMOUS_DEDUPE_SLOT_WINDOW_S", 3 * 3600)
+
+# R-F2635 — the invariant above is env-tunable on BOTH sides
+# (ARIA_AUTONOMOUS_DEDUPE_SLOT_WINDOW_S here, ARIA_ENGINE_CATCHUP_MAX_AGE_S in
+# engine.py), so a well-meaning tune can silently re-open a same-slot
+# double-fire. A test pins it, but a test does not run in production — say it
+# out loud at import, in the process that will actually suffer.
+def _warn_if_slot_window_too_short() -> None:
+    try:
+        _lookback = float(os.getenv("ARIA_ENGINE_CATCHUP_MAX_AGE_S", "7200"))
+    except (TypeError, ValueError):
+        return
+    if DEDUPE_SLOT_WINDOW_SECONDS <= _lookback:
+        logger.warning(
+            "[autonomous safety] R-F2635 INVARIANT BROKEN: dedupe slot window "
+            "(%ss) <= catch-up lookback (%ss). A catch-up can re-fire a slot "
+            "whose marker already expired => the SAME scheduled slot can fire "
+            "twice. Raise ARIA_AUTONOMOUS_DEDUPE_SLOT_WINDOW_S above %ss.",
+            DEDUPE_SLOT_WINDOW_SECONDS, _lookback, _lookback,
+        )
+
+
+_warn_if_slot_window_too_short()
 
 
 # ── Redis keys ─────────────────────────────────────────────────────────────
@@ -357,18 +388,49 @@ def _entity_hash(entity: str) -> str:
 
 
 @fail_wire(module="safety", gap_type="agent_cycle_failure")
-async def check_and_mark_dedupe(task_id: str, entity: str) -> bool:
+async def check_and_mark_dedupe(
+    task_id: str, entity: str, *, slot: int | None = None,
+) -> bool:
     """Return True if this task+entity is allowed to run, False if it
     duplicates a recent run.
 
-    The marker is set with TTL = DEDUPE_WINDOW_SECONDS so a daily task
-    can re-fire the next day cleanly.
+    `slot` (R-F2635) — the SCHEDULED CRON SLOT this fire belongs to, as a UTC
+    minute (`epoch // 60`). Pass it for anything cron-driven; omit it for
+    work that has no schedule (the coder's per-gap attempts, manual runs).
+
+    WHY THE SLOT EXISTS. Without it the marker is keyed on task+entity alone
+    and held for a FLAT DEDUPE_WINDOW_SECONDS (23h), which has nothing to do
+    with the task's cadence — so EVERY task fired at most once per 23h no
+    matter what its cron said. Live 2026-07-15: `DRAIN-COLLAB-BRIDGE`
+    (cron `*/2` = 720 slots/day) got ONE fire/day and logged
+    `blocked: duplicate_recent_run` for the other 719; across tasks.yaml the
+    ~964 cron-implied fires/24h collapsed to a ~59/day ceiling. The docstring
+    here used to say "so a DAILY task can re-fire the next day" — that
+    assumption silently became false as sub-hourly crons were added.
+    Bucketing the key to the slot ties dedupe to the SCHEDULE, which is what
+    it was always meant to express: "don't run this task twice for the same
+    scheduled moment" — not "once a day, whatever you asked for".
+    (Per §1 this is the root fix; lowering the 23h constant is the band-aid —
+    the failure class is "window unrelated to schedule".)
+
+    It also retires a latent bug rather than patching it: tasks.py:1790 calls
+    `clear_dedupe(task.id, "")` after a failed run so the slot isn't burned,
+    but that hashes entity="" while the marker was written with
+    `entity or task_id` — the keys can NEVER match (verified), so it has
+    never worked. With slot-keyed markers a failed run cannot burn a future
+    slot at all: the next slot is a different key.
     """
     if not task_id:
         return True
     key = _DEDUPE_KEY_FMT.format(
         task_id=task_id, entity_hash=_entity_hash(entity),
     )
+    window = DEDUPE_WINDOW_SECONDS
+    if slot is not None:
+        # Same task+entity, same scheduled minute => same key => deduped.
+        # Next scheduled minute => different key => allowed.
+        key = f"{key}:{slot}"
+        window = DEDUPE_SLOT_WINDOW_SECONDS
     try:
         existing = await rs.get(key)
         if existing:
@@ -412,7 +474,7 @@ async def check_and_mark_dedupe(task_id: str, entity: str) -> bool:
         # misconfigured ARIA_AUTONOMOUS_DEDUPE_WINDOW_S=0 would write
         # expires_at = NULL and silently recreate the exact permanent lockout
         # this fix exists to remove.
-        await rs.set(key, "1", ex=max(1, DEDUPE_WINDOW_SECONDS))
+        await rs.set(key, "1", ex=max(1, window))
         return True
     except Exception as e:
         logger.warning(
@@ -806,7 +868,9 @@ async def resume_task(task_id: str) -> None:
 # ── Public: composite check (one call) ─────────────────────────────────────
 
 @fail_wire(module="safety", gap_type="agent_cycle_failure")
-async def can_task_run(task_id: str, entity: str, *, coder: bool = False) -> tuple[bool, str]:
+async def can_task_run(
+    task_id: str, entity: str, *, coder: bool = False, slot: int | None = None,
+) -> tuple[bool, str]:
     """Run all five guardrails. Returns (allowed, reason_if_blocked).
 
     Use this at the top of every task execution path. The five checks
@@ -841,7 +905,10 @@ async def can_task_run(task_id: str, entity: str, *, coder: bool = False) -> tup
         allowed_rate, count = await check_and_increment_rate()
     if not allowed_rate:
         return False, f"rate_limit_exceeded:{count}"
-    if not await check_and_mark_dedupe(task_id, entity):
+    # R-F2635 — `slot` ties dedupe to the SCHEDULE. Cron-driven callers pass
+    # the scheduled UTC minute; unscheduled work (coder gaps, manual runs)
+    # omits it and keeps the flat 23h window.
+    if not await check_and_mark_dedupe(task_id, entity, slot=slot):
         return False, "duplicate_recent_run"
     return True, "ok"
 

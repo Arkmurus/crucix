@@ -118,7 +118,10 @@ def _wire_catch_up(monkeypatch, *, enabled=True, paused=False,
     async def _is_paused():
         return paused
 
-    async def _can_task_run(a, b):
+    # R-F2635: must accept the `slot` kwarg the engine now passes — without
+    # **kwargs this raises TypeError, which catch_up's blanket except swallows
+    # into safety_error:TypeError and fired=0.
+    async def _can_task_run(a, b, **kwargs):
         return can_run
 
     async def _exec(task, llm, dry_run):

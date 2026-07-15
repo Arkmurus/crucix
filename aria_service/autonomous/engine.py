@@ -46,6 +46,7 @@ ARIA_AUTONOMOUS_DRY_RUN=0 to enable real delivery.
 from __future__ import annotations
 
 import asyncio
+import calendar
 import logging
 import os
 import time
@@ -395,6 +396,36 @@ async def _get_task_last_fire(task_id: str) -> float | None:
         return None
 
 
+def _resolve_task_entity(task) -> str:
+    """R-F2635 — the dedupe entity for a task, resolved IDENTICALLY everywhere.
+
+    This exists because the tick and catch_up disagreed. The tick passed
+    `entity or task_id` (entity from the tool_chain) while catch_up passed
+    `task_id` — so for the 38 of 97 entity-bearing tasks the two produced
+    DIFFERENT entity_hashes and therefore different dedupe keys FOR THE SAME
+    SLOT. Dedupe could not bind them, and R-F2631's justification for running
+    catch_up concurrently with the tick ("both paths go through can_task_run,
+    whose dedupe marker is exactly the guard against a catch-up and a tick
+    firing the same task twice") was false for exactly those tasks.
+
+    It was latent while catch_up ran BEFORE the loop; R-F2631 made it
+    reachable by running them concurrently — and catch_up only writes
+    _set_task_last_fire AFTER `await execute_task` (which has been observed
+    running >10 min), so the `last_fire >= match_epoch` guard is wide open
+    for that whole window. One resolver, one key, guarantee restored.
+    """
+    if task is not None and getattr(task, "tool_chain", None):
+        first = task.tool_chain[0]
+        if isinstance(first, dict):
+            return (
+                first.get("entity")
+                or first.get("topic")
+                or first.get("query")
+                or ""
+            )
+    return ""
+
+
 def _most_recent_cron_match_epoch(cron: str, now_epoch: float, lookback_s: float) -> float | None:
     """Epoch of the latest whole-minute <= now where `cron` matches, within
     lookback_s; None if it didn't match in the window. Cheap: at most
@@ -500,7 +531,14 @@ async def catch_up_overdue_tasks(llm) -> int:
                 except Exception:
                     pass
             try:
-                allowed, why = await safety.can_task_run(task_id, task_id)
+                # R-F2635 — dedupe on the SCHEDULED SLOT this catch-up is
+                # firing (match_epoch), not on a flat 23h window. Without the
+                # slot, catching up one missed fire burned the task's ONLY
+                # permitted fire for the next 23h regardless of its cron.
+                allowed, why = await safety.can_task_run(
+                    task_id, _resolve_task_entity(task) or task_id,
+                    slot=int(match_epoch // 60),
+                )
             except Exception as e:
                 _skip(f"safety_error:{type(e).__name__}", task_id)
                 continue
@@ -775,17 +813,19 @@ async def _engine_loop(llm) -> None:
                 # Determine the entity used for the dedupe hash. We use
                 # the first tool_chain entry's entity field if present,
                 # otherwise the task id alone.
-                entity = ""
-                if task.tool_chain and isinstance(task.tool_chain[0], dict):
-                    entity = (
-                        task.tool_chain[0].get("entity")
-                        or task.tool_chain[0].get("topic")
-                        or task.tool_chain[0].get("query")
-                        or ""
-                    )
+                entity = _resolve_task_entity(task)
 
                 # Safety guardrails (rate / cost / dedupe / pauses)
-                allowed, reason = await safety.can_task_run(task_id, entity or task_id)
+                # R-F2635 — dedupe on the cron slot we just matched
+                # (`now_utc`, the same minute cron_matches evaluated), so a
+                # task fires once PER SCHEDULED SLOT instead of once per 23h.
+                # timegm() converts the UTC struct_time back to epoch — using
+                # the matched minute (not time.time()) keeps the marker exactly
+                # aligned with the slot that authorised this fire.
+                allowed, reason = await safety.can_task_run(
+                    task_id, entity or task_id,
+                    slot=int(calendar.timegm(now_utc) // 60),
+                )
                 if not allowed:
                     logger.info(
                         "[autonomous engine] task %s blocked: %s",
@@ -1016,14 +1056,10 @@ async def run_task_now(task_id: str, llm) -> dict[str, Any]:
             "ok": False,
             "error": f"task {task_id!r} not found in loaded tasks (have: {sorted(loaded.keys())})",
         }
-    entity = ""
-    if task.tool_chain and isinstance(task.tool_chain[0], dict):
-        entity = (
-            task.tool_chain[0].get("entity")
-            or task.tool_chain[0].get("topic")
-            or task.tool_chain[0].get("query")
-            or ""
-        )
+    # R-F2635 — one resolver, everywhere (verify-pass-2). A verbatim third
+    # copy here is the drift vector the helper exists to kill, even though it
+    # is behaviourally identical today.
+    entity = _resolve_task_entity(task)
     allowed, reason = await safety.can_task_run(task_id, entity or task_id)
     if not allowed:
         return {"ok": False, "blocked": reason, "task_id": task_id}

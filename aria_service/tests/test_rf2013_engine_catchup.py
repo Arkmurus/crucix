@@ -26,6 +26,12 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+# R-F2635 — records the `slot` kwarg catch_up passes to can_task_run, so a
+# future signature drift fails LOUDLY here instead of being swallowed by
+# catch_up's blanket `except Exception` into safety_error:TypeError + fired=0.
+SEEN_SLOTS: list = []
+
+
 def _setup(monkeypatch, tasks, *, last_fire=None, enabled=True, paused=False,
            can_run=True, mode_ok=True):
     last_fire = dict(last_fire or {})
@@ -33,7 +39,17 @@ def _setup(monkeypatch, tasks, *, last_fire=None, enabled=True, paused=False,
     monkeypatch.setattr(engine, "is_dry_run", lambda: True)
     async def _paused(): return paused
     monkeypatch.setattr(safety, "is_engine_paused", _paused)
-    async def _can(tid, ent): return (can_run, "" if can_run else "blocked")
+    # R-F2635: accept (and RECORD) the new `slot` kwarg. This fake used to be
+    # `(tid, ent)`, so when the engine started passing slot= it raised
+    # TypeError — swallowed by catch_up's blanket `except Exception` into
+    # `safety_error:TypeError` and fired=0. The test failed for a reason that
+    # had nothing to do with catch-up. Asserting the slot ARRIVES stops the
+    # next signature drift hiding the same way.
+    SEEN_SLOTS.clear()
+
+    async def _can(tid, ent, **kwargs):
+        SEEN_SLOTS.append(kwargs.get("slot"))
+        return (can_run, "" if can_run else "blocked")
     monkeypatch.setattr(safety, "can_task_run", _can)
     monkeypatch.setattr(tasks_mod, "get_loaded_tasks", lambda: tasks)
     fired = []
@@ -68,6 +84,15 @@ def test_fires_missed_hourly_task(monkeypatch):
     fired = _setup(monkeypatch, {"NEWS": FakeTask("NEWS", "0 * * * *")})
     assert _run(engine.catch_up_overdue_tasks(None)) == 1
     assert fired == ["NEWS"]
+    # R-F2635 — catch_up must dedupe on the SCHEDULED SLOT it is firing, not
+    # on a flat 23h window (which made one catch-up burn the task's only
+    # permitted fire for the next 23h regardless of its cron).
+    assert SEEN_SLOTS and SEEN_SLOTS[0] is not None, (
+        "catch_up did not pass slot= to can_task_run"
+    )
+    now_min = int(time.time() // 60)
+    assert SEEN_SLOTS[0] <= now_min, "slot must be the (past) scheduled minute"
+    assert now_min - SEEN_SLOTS[0] <= 60, "slot should be the most recent :00"
 
 
 def test_skips_task_that_already_ran_since_its_slot(monkeypatch):
