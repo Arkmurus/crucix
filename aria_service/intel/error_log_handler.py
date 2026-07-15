@@ -147,6 +147,14 @@ _SKIP_SUBSTRINGS = (
     # so the timeout itself never spawns a record_error call. The timeout is
     # operational telemetry (the DB is slow), not a coder-actionable defect.
     "timed out",
+    # R-F2622: cascade-killer for the gate-#3 streak anchor. record_error
+    # advances the durable anchor on its SUCCESS path; if only the anchor key
+    # is unwritable, a log line here would feed error_log_handler →
+    # record_error → anchor fails → log → recursion. Unlike F54/R-F1400 the
+    # R-F1510 breaker can't catch it (record_error keeps succeeding). The
+    # anchor failure already reaches the brain via wire_failure, so it is not
+    # lost — it just must not travel back through the logging path.
+    "streak-anchor",
 )
 
 

@@ -2277,6 +2277,12 @@ _INFINITE_KEY_PREFIXES: tuple[str, ...] = (
     "crucix:aria:neural_edges",      # edge weights (variant w/o colon)
     "crucix:aria:neural_meta",       # neuron metadata
     "crucix:aria:neural_conflicts",  # flagged contradictions
+    # R-F2622: the Phase A gate-#3 streak anchor + genesis marker. These
+    # record that an ERROR happened (and when measurement began) — the
+    # durable memory that stops the gate certifying on absence of evidence.
+    # A TTL here would silently restore R-F560's false pass, so make
+    # "never expires" an enforced invariant rather than a convention.
+    "crucix:aria:error_streak",
 )
 
 

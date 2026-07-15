@@ -31,11 +31,18 @@ def _setup_fake_redis(monkeypatch, initial_events: list[dict] | None = None):
         # Match real rs.get_json behaviour: return None when missing.
         return v if v is not None else None
 
-    async def fake_set_json(key, obj, ex=None):
+    async def fake_set_json(key, obj, ex=None, keepttl=False):
         store[key] = obj
 
     monkeypatch.setattr(rs, "get_json", fake_get_json)
+    # R-F2622: compute_error_streak reads the durable anchor through the
+    # STRICT reader (R-F1392). Without this stub these tests would fall
+    # through to the REAL state_store.
+    monkeypatch.setattr(rs, "get_json_strict", fake_get_json)
     monkeypatch.setattr(rs, "set_json", fake_set_json)
+    # R-F2622: drop markers are process-global — isolate each test.
+    monkeypatch.setattr(si, "_SI_ERRORS_DROPPED", 0, raising=False)
+    monkeypatch.setattr(si, "_SI_LAST_DROP_TS", 0.0, raising=False)
     return store
 
 
@@ -53,13 +60,23 @@ def _ev(ts_offset_h: float, level: str = "error", file: str = "x.py") -> dict:
 # ── Streak math ─────────────────────────────────────────────────────────
 
 
-def test_no_errors_at_all_passes_gate(monkeypatch):
+def test_no_errors_at_all_is_unknown_not_clean(monkeypatch):
+    """SUPERSEDED BY R-F2622 (was `test_no_errors_at_all_passes_gate`).
+
+    This test used to assert `consecutive_clean_days == 7` and
+    `phase_a_gate_3_pass is True` for an EMPTY ledger. That was a wrong
+    test: it codified R-F560's assumption that absence of evidence proves
+    cleanliness, so it stayed green while the live gate certified Phase A
+    on no evidence at all. Per §23 the test is widened to the honest
+    contract rather than deleted — an empty ledger is UNKNOWN.
+    """
     _setup_fake_redis(monkeypatch, initial_events=[])
     from aria_service.intel import error_streak as es
 
     r = asyncio.run(es.compute_error_streak())
-    assert r["consecutive_clean_days"] == 7
-    assert r["phase_a_gate_3_pass"] is True
+    assert r["phase_a_gate_3_pass"] is False
+    assert r["consecutive_clean_days"] == 0
+    assert r["insufficient_history"] is True
     assert r["last_error"] is None
     assert r["window_errors_24h"] == 0
     assert r["window_errors_7d"] == 0
@@ -81,17 +98,27 @@ def test_recent_error_resets_streak(monkeypatch):
 
 def test_warnings_dont_reset_streak(monkeypatch):
     """Capability: WARNINGs are in the windowed totals but don't reset
-    the ERROR-only streak. Phase A gate #3 is about ERROR, not noise."""
+    the ERROR-only streak. Phase A gate #3 is about ERROR, not noise.
+
+    R-F2622 widened this test. The intent (warnings never reset) is
+    unchanged and still asserted — but it previously leaned on R-F560's
+    vacuous `days == 7` for a ledger spanning only 4 HOURS. The streak is
+    now measured, so proving the intent needs real evidence: an 8-day-old
+    warning gives an 8-day error-free window, and the gate passes *because
+    the evidence spans 8 days*, not because nothing was found.
+    """
     _setup_fake_redis(monkeypatch, initial_events=[
+        _ev(ts_offset_h=8 * 24, level="warning"),  # evidence starts 8d ago
         _ev(ts_offset_h=1, level="warning"),
         _ev(ts_offset_h=4, level="warning"),
     ])
     from aria_service.intel import error_streak as es
 
     r = asyncio.run(es.compute_error_streak())
-    assert r["consecutive_clean_days"] == 7   # no error → full clean
+    assert r["consecutive_clean_days"] >= 7    # no error across 8d evidence
     assert r["phase_a_gate_3_pass"] is True
-    assert r["window_errors_24h"] == 2        # warnings still counted
+    assert r["last_error"] is None             # warnings never became the anchor
+    assert r["window_errors_24h"] == 2         # warnings still counted
     assert r["window_errors_7d"] == 2
 
 
@@ -201,6 +228,12 @@ def test_rf969_operational_warnings_do_not_reset(monkeypatch):
     gate-3 streak — they are operational, not app ERROR/CRITICAL."""
     base = time.time()
     events = [
+        # R-F2622: evidence anchor — the operational WARNINGs below sit
+        # inside a real 8-day error-free window, so the gate passes on
+        # measured evidence rather than R-F560's assumption.
+        {"type": "log:warning", "file": "aria_service/intel/brain_hook.py",
+         "message": "[circuit_breaker] source-down (8d ago)",
+         "timestamp": base - 8 * 86400},
         {"type": "log:warning", "file": "aria_service/intel/circuit_breaker.py",
          "message": "[circuit_breaker] search:duckduckgo: CLOSED -> OPEN (5 consecutive failures)",
          "timestamp": base - 3600},
@@ -213,7 +246,8 @@ def test_rf969_operational_warnings_do_not_reset(monkeypatch):
 
     r = asyncio.run(es.compute_error_streak())
     assert r["phase_a_gate_3_pass"] is True
-    assert r["consecutive_clean_days"] == 7
+    assert r["consecutive_clean_days"] >= 7
+    assert r["last_error"] is None     # operational WARNINGs never reset it
     assert r["window_errors_7d"] == 2  # still counted in the window
 
 

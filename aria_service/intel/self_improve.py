@@ -1805,6 +1805,23 @@ _RECORD_ERROR_CB_COOLDOWN_S = 30.0
 _record_error_failures = 0
 _record_error_cb_until: float = 0.0
 
+# R-F2622 — ERRORs dropped without ever reaching the ledger (breaker open,
+# or the write itself failed). Read by error_streak.compute_error_streak,
+# which restarts the gate-#3 clean streak at `_SI_LAST_DROP_TS`: we KNOW
+# the clean record has a hole at that moment, so cleanliness cannot be
+# claimed across it.
+#
+# Verify-pass-1 correction: an earlier version kept only the COUNT and was
+# process-local, which was wrong twice over — a restart erased the
+# knowledge (and the gate does NOT re-measure from boot: it measures from
+# genesis/oldest_event, both of which survive a restart), and the count
+# never aged out, so one transient drop blocked the gate forever. The
+# TIMESTAMP fixes both: error_streak also persists it via
+# `record_drop_marker` so it survives restart, and it ages out naturally
+# once the threshold passes. The counter is retained for reporting only.
+_SI_ERRORS_DROPPED = 0
+_SI_LAST_DROP_TS: float = 0.0
+
 
 async def record_error(error_type: str, message: str, file: str = "",
                        function: str = "", traceback: str = "") -> None:
@@ -1817,6 +1834,7 @@ async def record_error(error_type: str, message: str, file: str = "",
     which logs a WARNING, which triggers another record_error call.
     """
     global _SI_ERRORS_RECORDED, _record_error_failures, _record_error_cb_until
+    global _SI_ERRORS_DROPPED, _SI_LAST_DROP_TS
 
     # R-F1510: circuit breaker — if we've failed too many times recently,
     # skip the write entirely. The error is still visible in fly logs.
@@ -1827,6 +1845,33 @@ async def record_error(error_type: str, message: str, file: str = "",
             _record_error_cb_until - time.monotonic(),
             error_type, message[:100],
         )
+        # R-F2622: a dropped ERROR is evidence we no longer have. Phase A
+        # gate #3 reads this ledger to certify "0 ERRORs in 7 days"; if we
+        # drop errors silently, absence-of-record reads as cleanliness and
+        # the gate certifies a lie. Record WHEN, so the streak restarts at
+        # the hole instead of spanning it.
+        # Verify-pass-2: ONLY an ERROR/CRITICAL drop is a hole in the gate-#3
+        # record. Marking a dropped WARNING would restart the clean streak
+        # and — since error_log_handler mirrors ALL WARNING+ logs here, and
+        # state_store saturation drops them routinely — would pin the gate
+        # at False forever. That is R-F560's dishonesty inverted: a false
+        # FAIL instead of a false PASS. The module's contract is explicit
+        # that WARNINGs never reset the streak; honour it here.
+        _SI_ERRORS_DROPPED += 1
+        try:
+            from . import error_streak as _es
+            # is_reset_type (error_streak.py) — the single definition of
+            # "counts as an ERROR", shared so the write and read paths
+            # cannot drift.
+            if _es.is_reset_type(error_type):
+                _SI_LAST_DROP_TS = time.time()
+        except Exception:
+            pass
+        # NOTE: no durable write here. The breaker's whole purpose is to
+        # "skip the write entirely" when the store is failing (see above) —
+        # doing store I/O on this path defeats the breaker and can re-enter
+        # it via the store's own error logs. compute_error_streak persists
+        # this marker on the READ path instead, when the store is healthy.
         return
 
     try:
@@ -1843,10 +1888,49 @@ async def record_error(error_type: str, message: str, file: str = "",
             errors = errors[-MAX_ERRORS:]
         await rs.set_json(ERROR_LOG_KEY, errors, ex=7 * 86400)
         _SI_ERRORS_RECORDED += 1
+        # R-F2622: advance the durable gate-#3 streak anchor. The ledger
+        # above is a 200-slot ring buffer with a 7d TTL, so it forgets;
+        # the anchor is the high-water mark that doesn't. Written here —
+        # at the moment the error is known — so eviction can never erase
+        # the fact that an ERROR happened.
+        try:
+            from . import error_streak as _es
+            await _es.record_streak_anchor(
+                error_type, message=message, file=file, function=function,
+            )
+        except Exception as _anchor_err:
+            # DEBUG, never WARNING. Verify-pass-1 caught this: at WARNING+
+            # error_log_handler mirrors it straight back into record_error →
+            # the ledger write succeeds → the anchor fails again → WARNING →
+            # unbounded recursion, each turn doing a 200-element RMW on the
+            # hot ledger key. The R-F1510 breaker cannot stop it because
+            # record_error itself keeps SUCCEEDING, so its failure counter
+            # never trips. The failure still reaches the brain via
+            # wire_failure inside record_streak_anchor (§21a) — it just must
+            # not travel back through the logging path. The message also
+            # carries "streak-anchor" + "non-fatal", both in
+            # error_log_handler._SKIP_SUBSTRINGS, as defence in depth.
+            logger.debug(
+                "record_error: gate-3 streak-anchor update failed "
+                "(non-fatal) for %s: %s", error_type, _anchor_err,
+            )
         # Success — reset the failure counter
         _record_error_failures = 0
     except Exception as e:
         _record_error_failures += 1
+        # R-F2622: the write failed, so this ERROR never reached the ledger.
+        # Same reasoning as the breaker-open drop above — gate #3 must not
+        # read the resulting silence as cleanliness. ERROR/CRITICAL only
+        # (verify-pass-2): a dropped WARNING is not a hole in an ERROR-only
+        # record, and marking it would pin the gate at False forever. No
+        # durable marker attempted here either: the store just failed.
+        _SI_ERRORS_DROPPED += 1
+        try:
+            from . import error_streak as _es
+            if _es.is_reset_type(error_type):
+                _SI_LAST_DROP_TS = time.time()
+        except Exception:
+            pass
         if _record_error_failures >= _RECORD_ERROR_CB_THRESHOLD:
             _record_error_cb_until = time.monotonic() + _RECORD_ERROR_CB_COOLDOWN_S
             logger.warning(
