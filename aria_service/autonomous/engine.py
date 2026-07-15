@@ -362,6 +362,12 @@ def get_engine_status() -> dict[str, Any]:
 # we fire any task whose most-recent scheduled slot is recent AND hasn't run since.
 _CATCH_UP_MAX_AGE_S = float(os.getenv("ARIA_ENGINE_CATCHUP_MAX_AGE_S", "7200"))   # 2h
 _CATCH_UP_MAX_FIRES = int(os.getenv("ARIA_ENGINE_CATCHUP_MAX_FIRES", "15"))       # burst cap
+
+# R-F2631 — strong ref to the background startup-maintenance task. asyncio only
+# holds a WEAK reference to bare create_task() results, so without this the task
+# can be garbage-collected mid-flight and the repair/catch-up would silently
+# vanish. Module-level so it outlives _engine_loop's frame.
+_startup_maintenance_task: Any = None
 _TASK_LAST_FIRE_KEY = "crucix:autonomous:task_last_fire:{tid}"
 _TASK_LAST_FIRE_TTL = 30 * 86400
 
@@ -577,49 +583,65 @@ async def _engine_loop(llm) -> None:
     except ImportError:
         pass
 
-    # R-F2626 — one-time repair of dedupe markers stranded WITHOUT a TTL by
-    # the old non-atomic set+expire race (safety.check_and_mark_dedupe). Those
-    # markers never expire, so `duplicate_recent_run` blocks the task FOREVER
-    # — live 2026-07-15 that was 81 of 97 tasks and the engine ticked for
-    # hours firing nothing.
+    # R-F2631 — STARTUP MAINTENANCE RUNS IN THE BACKGROUND. The tick loop
+    # below must begin within seconds of the startup delay, not minutes.
     #
-    # Placed HERE deliberately, on both axes:
-    #  - AFTER the STARTUP_DELAY_SECONDS sleep above, not before it. The sweep
-    #    is sentinel-guarded, but state_store.get() returns None on a 5s
-    #    TIMEOUT (state_store.py:2183) — indistinguishable from "key absent".
-    #    Reading the sentinel during peak boot (§11c: ~223k facts + 1.2M edges
-    #    loading) could therefore read it as absent and re-run the sweep,
-    #    wiping LIVE markers on every restart. After the delay the box is warm
-    #    and that read is honest.
-    #  - BEFORE catch_up_overdue_tasks below, which consumes dedupe: the
-    #    catch-up must not be blocked by the very markers we're clearing.
-    #  - In the engine, not main.py's lifespan: the engine is the consumer,
-    #    this is not boot-critical, and main.py's boot path is where a mistake
-    #    takes prod down (§9).
-    # Never fatal — a failed repair must not stop the engine starting.
-    try:
-        _repair = await safety.repair_nulled_dedupe_markers()
-        if _repair.get("deleted"):
-            logger.info(
-                "[autonomous engine] R-F2626 dedupe repair on startup: %s",
-                _repair,
+    # This was the reason the engine was dark, and it dwarfed the dedupe bug:
+    # `repair` and `catch_up_overdue_tasks` sat on the PRE-LOOP path and were
+    # awaited serially, and catch_up executes up to _CATCH_UP_MAX_FIRES (15)
+    # real tasks INLINE (engine.py:506 `await tasks_mod.execute_task(...)`) —
+    # one observed task ran >10 min despite timeout_seconds=180. Measured live
+    # 2026-07-15: time-to-first-tick 19.2 min, and `tick_count=0` 28.7 min
+    # after _started_at. Meanwhile a process crashed (exit_code=1) after 6.6
+    # min. So for long stretches the polling loop DID NOT EXIST — no cron was
+    # ever evaluated. Expected ~964 fires/24h from tasks.yaml's crons;
+    # observed 7. Every restart reset the 19-min clock.
+    #
+    # Running them concurrently with the loop is SAFE: both paths go through
+    # safety.can_task_run, whose dedupe marker is exactly the guard against a
+    # catch-up and a tick firing the same task twice. That is what dedupe is
+    # FOR — this is not a new race, it is the existing one being used as
+    # designed.
+    #
+    # Ordering within the background task is preserved: repair BEFORE catch_up
+    # (catch_up is a dedupe consumer and must not be blocked by the markers
+    # being cleared).
+    async def _startup_maintenance() -> None:
+        # R-F2626/R-F2629 — release dedupe markers stranded WITHOUT a TTL by
+        # the old non-atomic set+expire race. Those never expire, so
+        # `duplicate_recent_run` blocks the task forever. Idempotent and
+        # precise (NULL-TTL only), so it is safe to run on every start.
+        try:
+            _repair = await safety.repair_nulled_dedupe_markers()
+            if _repair.get("deleted"):
+                logger.info(
+                    "[autonomous engine] R-F2629 dedupe repair on startup: %s",
+                    _repair,
+                )
+        except Exception as _rep_err:  # noqa: BLE001
+            logger.warning(
+                "[autonomous engine] R-F2629 dedupe repair failed (non-fatal): %s",
+                _rep_err,
             )
-    except Exception as _rep_err:  # noqa: BLE001
-        logger.warning(
-            "[autonomous engine] R-F2626 dedupe repair failed (non-fatal): %s",
-            _rep_err,
-        )
 
-    # R-F2013 — fire any task that MISSED its scheduled slot while we were down /
-    # restarting (e.g. a restart spanned a once-an-hour task's :00). This is the
-    # permanent fix for the "news_monitor stayed 189h stale because restarts kept
-    # landing on its :00" fragility — no more dependence on a clean top-of-hour.
-    try:
-        n_caught = await catch_up_overdue_tasks(llm)
-        if n_caught:
-            logger.warning("[R-F2013] startup catch-up fired %d missed task(s)", n_caught)
-    except Exception as e:
-        logger.warning("[R-F2013] startup catch-up failed (non-fatal): %s", e)
+        # R-F2013 — fire any task that MISSED its scheduled slot while we were
+        # down / restarting (e.g. a restart spanned a once-an-hour task's :00).
+        try:
+            n_caught = await catch_up_overdue_tasks(llm)
+            if n_caught:
+                logger.warning("[R-F2013] startup catch-up fired %d missed task(s)", n_caught)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[R-F2013] startup catch-up failed (non-fatal): %s", e)
+
+    # Fire-and-forget: a failure in maintenance must never stop the loop, and
+    # a SLOW maintenance must never delay it. Held in a module ref so the task
+    # isn't garbage-collected mid-flight (asyncio only keeps weak refs).
+    global _startup_maintenance_task
+    _startup_maintenance_task = asyncio.create_task(_startup_maintenance())
+    logger.info(
+        "[autonomous engine] startup maintenance dispatched to background — "
+        "tick loop starting now (R-F2631)",
+    )
 
     while True:
         try:
