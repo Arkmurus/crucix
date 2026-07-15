@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2621,
+  "next_available": 2623,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20121,6 +20121,25 @@
       "commit_sha": "13087997",
       "notes": null,
       "shipped_at": "2026-07-14T16:48:32Z"
+    },
+    {
+      "r_number": "R-F2621",
+      "title": "DD synthesis-timeout false-GREEN BLUF — fail closed",
+      "claimed_at": "2026-07-15T11:12:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-07-15T11:39:27Z"
+    },
+    {
+      "r_number": "R-F2622",
+      "title": "error-streak gate #3 honest measurement - no vacuous pass",
+      "claimed_at": "2026-07-15T11:32:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -6793,6 +6793,66 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
     risk = report.risk_classification
     name = report.identity.entity_name or "subject"
 
+    # ── R-F2621: FAIL CLOSED when synthesis did not complete ──────────────
+    # `risk_classification` defaults to GREEN (dd_schema.py:385/435) and is only
+    # ASSIGNED at _run_synthesis:6380. Synthesis is wrapped in
+    # `wait_for(..., timeout=_clamp_final(10))` (:9391); its except (:9392-9394)
+    # marks the layer ERROR but leaves `risk_classification` at that GREEN
+    # default. This function then read the default and emitted a confident
+    # "GREEN — passes baseline due diligence" for a DD whose risk aggregation
+    # NEVER RAN — skipping the sanctions-unverified override at :6389 with it.
+    # Absence of computation must never read as "clean".
+    #
+    # Two fail-OPEN defaults make this reachable, so BOTH are checked:
+    #   1. risk_classification defaults to GREEN  (dd_schema.py:385)
+    #   2. SectionMeta.status defaults to "ok"    (dd_schema.py:75) — so a
+    #      synthesis that never ran looks OK; `layers_run` (appended at :9387
+    #      BEFORE the try) is the honest witness that it was attempted.
+    # Verdict mirrors the proven R-F1628 hard-deadline pattern (:8283):
+    # AMBER-LIGHT + an explicit reason, never GREEN, never empty.
+    # `layers_run` is only EVIDENCE when the caller actually tracks it: the
+    # orchestrator appends "synthesis" at :9387 BEFORE the try, so a populated
+    # list that omits it means the layer was genuinely skipped. An EMPTY list
+    # means "not tracked" (direct callers / focused tests), NOT "never ran" —
+    # inferring a skip from it would fail closed on healthy reports.
+    _synth_errored = report.synthesis.meta.status == LayerStatus.ERROR.value
+    _synth_skipped = bool(report.layers_run) and "synthesis" not in report.layers_run
+    if _synth_errored or _synth_skipped:
+        _why = (
+            (report.synthesis.meta.error or "synthesis layer error")
+            if _synth_errored else "synthesis layer never ran"
+        )
+        report.risk_classification = RiskClassification.AMBER_LIGHT.value
+        report.synthesis.risk_classification = RiskClassification.AMBER_LIGHT.value
+        report.bottom_line = (
+            f"🟠 INSUFFICIENT EVIDENCE — the risk analysis for {name} did not "
+            f"complete ({_why}), so NO clean verdict can be issued. The evidence "
+            f"layers that finished are included below, but the findings were never "
+            f"aggregated into a risk classification — treat this as 'incomplete', "
+            f"NOT as 'nothing found'. Re-run, or narrow scope (supply jurisdiction / "
+            f"registration number / website) for a full result."
+        )
+        report.recommendation = (
+            "Do NOT rely on this run to clear the subject. Re-run the DD; if it "
+            "times out again, narrow the scope or raise ARIA_DD_TOTAL_BUDGET_S. "
+            "Commission commercial DD before onboarding if the deadline is binding."
+        )
+        report.next_actions = [
+            "Re-run the DD (the risk aggregation did not complete)",
+            "Narrow scope — supply jurisdiction / registration number / website",
+            "Do not issue a clean verdict on this run",
+        ]
+        # Surfaces the gate to the evidence-grade scorer (R-F2493) and lets
+        # routes/aria.py:7651 auto-launch a full-depth background re-run.
+        report.confidence_gate_triggered = True
+        if not report.confidence_gate_reasons:
+            report.confidence_gate_reasons = [f"synthesis incomplete — {_why}"]
+        report.data_gaps_summary.append(
+            f"R-F2621: synthesis did not complete ({_why}) — risk classification "
+            f"was never computed; no clean verdict issued"
+        )
+        return
+
     if risk == RiskClassification.HARD_STOP.value:
         report.bottom_line = (
             f"🔴 HARD STOP — {name} triggers a mandatory refusal. "
