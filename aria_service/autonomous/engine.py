@@ -542,6 +542,7 @@ async def _engine_loop(llm) -> None:
         STARTUP_DELAY_SECONDS, POLL_INTERVAL_SECONDS,
     )
 
+
     # R-F1897: register in the agent registry so other agents can see us
     try:
         from ..intel.agent_registry import AgentRegistry
@@ -575,6 +576,39 @@ async def _engine_loop(llm) -> None:
         start_blackout_detector()
     except ImportError:
         pass
+
+    # R-F2626 — one-time repair of dedupe markers stranded WITHOUT a TTL by
+    # the old non-atomic set+expire race (safety.check_and_mark_dedupe). Those
+    # markers never expire, so `duplicate_recent_run` blocks the task FOREVER
+    # — live 2026-07-15 that was 81 of 97 tasks and the engine ticked for
+    # hours firing nothing.
+    #
+    # Placed HERE deliberately, on both axes:
+    #  - AFTER the STARTUP_DELAY_SECONDS sleep above, not before it. The sweep
+    #    is sentinel-guarded, but state_store.get() returns None on a 5s
+    #    TIMEOUT (state_store.py:2183) — indistinguishable from "key absent".
+    #    Reading the sentinel during peak boot (§11c: ~223k facts + 1.2M edges
+    #    loading) could therefore read it as absent and re-run the sweep,
+    #    wiping LIVE markers on every restart. After the delay the box is warm
+    #    and that read is honest.
+    #  - BEFORE catch_up_overdue_tasks below, which consumes dedupe: the
+    #    catch-up must not be blocked by the very markers we're clearing.
+    #  - In the engine, not main.py's lifespan: the engine is the consumer,
+    #    this is not boot-critical, and main.py's boot path is where a mistake
+    #    takes prod down (§9).
+    # Never fatal — a failed repair must not stop the engine starting.
+    try:
+        _repair = await safety.repair_nulled_dedupe_markers()
+        if _repair.get("deleted"):
+            logger.info(
+                "[autonomous engine] R-F2626 dedupe repair on startup: %s",
+                _repair,
+            )
+    except Exception as _rep_err:  # noqa: BLE001
+        logger.warning(
+            "[autonomous engine] R-F2626 dedupe repair failed (non-fatal): %s",
+            _rep_err,
+        )
 
     # R-F2013 — fire any task that MISSED its scheduled slot while we were down /
     # restarting (e.g. a restart spanned a once-an-hour task's :00). This is the
