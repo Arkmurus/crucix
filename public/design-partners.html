@@ -18,7 +18,7 @@
 <main id="app-main">
   <div class="sc-page-header">
     <h1 class="sc-page-title"><i class="bi bi-people"></i> Design Partners</h1>
-    <p class="sc-page-sub">Real prospective users you're working with — Phase A gate #7 closes at 4+. Admin-only (contains contact details). Log genuine conversations only; a self-attested count is only honest if the partners are real.</p>
+    <p class="sc-page-sub">Real prospective users you're working with — Phase A gate #7 closes at 4+ <strong>qualified</strong> partners. Admin-only (contact details). Public applications from <a href="/partners.html" target="_blank" style="color:var(--sc-prime)">partners.html</a> arrive here as <em>applied</em> — they do <strong>not</strong> count toward the gate until you approve them. Only genuine, operator-vouched conversations count.</p>
   </div>
 
   <div id="dp-progress" style="margin-bottom:16px"></div>
@@ -46,7 +46,7 @@
   <div id="dp-content" style="display:none">
     <div style="overflow-x:auto">
       <table class="sc-table">
-        <thead><tr><th>Added</th><th>Name / org</th><th>Contact</th><th>Status</th><th>Notes</th></tr></thead>
+        <thead><tr><th>Added</th><th>Name / org</th><th>Contact</th><th>Source</th><th>Status</th><th>Notes</th><th>Actions</th></tr></thead>
         <tbody id="dp-tbody"></tbody>
       </table>
     </div>
@@ -64,17 +64,23 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 function fmtDate(v){if(v==null||v==='')return '';try{var d=new Date(typeof v==='number'?v*1000:v);return isNaN(d)?esc(v):d.toLocaleString();}catch(e){return esc(v);}}
 
 function renderProgress(stats){
-  var n=(stats&&stats.total)||0, pass=n>=TARGET, pct=Math.min(100,Math.round(n/TARGET*100));
+  // R-F2673 — the gate counts QUALIFIED partners only (contacted/engaged/onboarded).
+  // 'applied' (public) + 'declined' are shown but never move the gate.
+  var qualified=(stats&&(stats.qualified!=null?stats.qualified:stats.total))||0;
+  var applied=(stats&&stats.by_status&&stats.by_status.applied)||0;
+  var pass=qualified>=TARGET, pct=Math.min(100,Math.round(qualified/TARGET*100));
   document.getElementById('dp-progress').innerHTML =
     '<div class="sc-card" style="padding:14px">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px">'+
         '<strong>Gate #7 — design partners</strong>'+
         '<span style="font-weight:600;color:'+(pass?'#2e7d32':'var(--sc-muted,#666)')+'">'+
-          n+' / '+TARGET+(pass?'  ✓ closed':'  — '+(TARGET-n)+' more to close')+'</span>'+
+          qualified+' / '+TARGET+' qualified'+(pass?'  ✓ closed':'  — '+(TARGET-qualified)+' more to close')+'</span>'+
       '</div>'+
       '<div style="height:8px;background:var(--sc-border,#e0e0e0);border-radius:4px;margin-top:10px;overflow:hidden">'+
         '<div style="height:100%;width:'+pct+'%;background:'+(pass?'#2e7d32':'#1565c0')+';transition:width .3s"></div>'+
       '</div>'+
+      (applied>0?'<div style="margin-top:9px;font-size:12.5px;color:#8a6d00;background:#fff8e1;border:1px solid #ffe1a8;border-radius:6px;padding:7px 10px">'+
+        '<strong>'+applied+'</strong> pending application'+(applied===1?'':'s')+' awaiting your review below — approve to count toward the gate.</div>':'')+
     '</div>';
 }
 
@@ -96,18 +102,59 @@ async function load(){
     stateEl.className='';stateEl.innerHTML='<p class="text-muted">No design partners logged yet. Add your first real conversation above.</p>';
     document.getElementById('dp-content').style.display='none';return;
   }
-  document.getElementById('dp-tbody').innerHTML=entries.slice().reverse().map(function(e){
-    return '<tr>'+
+  // Keep the ORIGINAL index (the aria-intel PATCH addresses records by position)
+  // before reversing for newest-first display.
+  var indexed=entries.map(function(e,i){return {e:e,i:i};});
+  document.getElementById('dp-tbody').innerHTML=indexed.slice().reverse().map(function(row){
+    var e=row.e, idx=row.i, st=e.status||'contacted';
+    var isApplied=(st==='applied');
+    var src=(e.source==='public_application')?'public':(e.source||'operator');
+    return '<tr'+(isApplied?' style="background:#fff8e1"':'')+'>'+
       '<td style="white-space:nowrap">'+fmtDate(e.created_at)+'</td>'+
-      '<td><strong>'+esc(e.name)+'</strong></td>'+
+      '<td><strong>'+esc(e.name)+'</strong>'+(e.company?'<br><span style="font-size:12px;color:var(--sc-muted,#666)">'+esc(e.company)+'</span>':'')+'</td>'+
       '<td>'+esc(e.contact)+'</td>'+
-      '<td>'+esc(e.status||'contacted')+'</td>'+
-      '<td>'+esc(e.notes||'—')+'</td>'+
+      '<td>'+(src==='public'?'<span style="font-size:11px;background:#e3f2fd;color:#1565c0;padding:2px 7px;border-radius:10px">public</span>':'<span style="font-size:12px;color:var(--sc-muted,#666)">operator</span>')+'</td>'+
+      '<td>'+statusBadge(st)+'</td>'+
+      '<td style="max-width:280px">'+esc(e.notes||'—')+'</td>'+
+      '<td style="white-space:nowrap">'+actionsCell(idx,st,isApplied)+'</td>'+
     '</tr>';
   }).join('');
   stateEl.style.display='none';
   document.getElementById('dp-content').style.display='';
 }
+
+var COUNTS=['contacted','engaged','onboarded'];
+function statusBadge(st){
+  var counts=COUNTS.indexOf(st)>=0;
+  var color = st==='applied'?'#8a6d00':(st==='declined'?'#9e9e9e':(counts?'#2e7d32':'#666'));
+  var bg    = st==='applied'?'#ffe9b0':(st==='declined'?'#eee':(counts?'#e6f4ea':'#f0f0f0'));
+  return '<span style="font-size:11px;font-weight:600;color:'+color+';background:'+bg+';padding:2px 8px;border-radius:10px">'+esc(st)+
+    (counts?' ✓':'')+'</span>';
+}
+function actionsCell(idx,st,isApplied){
+  if(isApplied){
+    return '<button class="sc-btn sc-btn-primary" style="padding:4px 10px;font-size:12px" data-approve="'+idx+'">Approve</button> '+
+           '<button class="sc-btn sc-btn-outline" style="padding:4px 10px;font-size:12px" data-decline="'+idx+'">Decline</button>';
+  }
+  var opts=['contacted','engaged','onboarded','declined'].map(function(s){
+    return '<option value="'+s+'"'+(s===st?' selected':'')+'>'+s+'</option>';
+  }).join('');
+  return '<select data-setstatus="'+idx+'" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--sc-border,#d5d8de)">'+opts+'</select>';
+}
+
+async function setStatus(idx,status){
+  var res=await API.post('/api/design-partners/'+idx+'/status',{status:status});
+  if(res.ok){ load(); }
+  else{ alert((res.data&&(res.data.detail||res.data.error))||('Failed to update (HTTP '+res.status+')')); }
+}
+document.addEventListener('click',function(ev){
+  var t=ev.target; if(!t)return;
+  if(t.getAttribute&&t.getAttribute('data-approve')!=null){ setStatus(t.getAttribute('data-approve'),'engaged'); }
+  else if(t.getAttribute&&t.getAttribute('data-decline')!=null){ setStatus(t.getAttribute('data-decline'),'declined'); }
+});
+document.addEventListener('change',function(ev){
+  var t=ev.target; if(t&&t.getAttribute&&t.getAttribute('data-setstatus')!=null){ setStatus(t.getAttribute('data-setstatus'),t.value); }
+});
 
 document.addEventListener('click', async function(ev){
   if(!ev.target||ev.target.id!=='dp-add')return;

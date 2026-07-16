@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Become a Design Partner | ARIA Intelligence</title>
+  <meta name="description" content="Join the ARIA Intelligence design-partner program — help shape a genuinely honest security & defence intelligence platform, with free access during the pilot.">
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/aria.css?v=15">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { background: var(--sc-bg); margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: var(--sc-text); }
+
+    .auth-page { display: flex; min-height: 100vh; }
+
+    .auth-left {
+      width: 48%; min-height: 100vh; background: linear-gradient(160deg, #faf7f1, #f1ecfb);
+      display: none; align-items: center; justify-content: center;
+      position: relative; overflow: hidden; padding: 48px;
+    }
+    @media(min-width:900px){ .auth-left { display: flex; } }
+    .auth-left::before {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(145deg, rgba(145,59,255,.08) 0%, rgba(0,102,255,.05) 100%);
+    }
+    .auth-glow-1 { position: absolute; width: 400px; height: 400px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(145,59,255,.12) 0%, transparent 70%); top: -80px; right: -80px; pointer-events: none; }
+    .auth-glow-2 { position: absolute; width: 260px; height: 260px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(0,102,255,.10) 0%, transparent 70%); bottom: 40px; left: 20px; pointer-events: none; }
+    .auth-left-content { position: relative; z-index: 1; max-width: 440px; }
+    .auth-eyebrow { display:inline-flex; align-items:center; gap:8px; font-size:12px; font-weight:600; letter-spacing:.04em;
+      text-transform:uppercase; color:#7b3fe4; background:rgba(145,59,255,.10); padding:6px 12px; border-radius:999px; margin-bottom:20px; }
+    .auth-tagline { font-size: 34px; font-weight: 700; line-height: 1.25; color: var(--sc-heading); margin-bottom: 16px; }
+    .auth-tagline span { background: linear-gradient(90deg, #913BFF, #0066FF);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .auth-desc { font-size: 14px; color: var(--sc-text); line-height: 1.75; margin-bottom: 28px; }
+    .auth-features { display: flex; flex-direction: column; gap: 13px; }
+    .auth-feature { display: flex; align-items: flex-start; gap: 11px; font-size: 13.5px; color: var(--sc-text); line-height:1.5; }
+    .auth-feature-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 6px;
+      background: #913BFF; box-shadow: 0 0 8px rgba(145,59,255,.4); }
+    .auth-feature-dot.blue  { background: #0066FF; box-shadow: 0 0 8px rgba(0,102,255,.4); }
+    .auth-feature-dot.green { background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,.4); }
+
+    .auth-right { flex: 1; display: flex; align-items: center; justify-content: center; padding: 48px 5%; min-height: 100vh; }
+    .auth-form-wrap { width: 100%; max-width: 440px; }
+    .auth-back-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--sc-muted); text-decoration: none; margin-bottom: 26px; transition: color 0.2s; }
+    .auth-back-link:hover { color: var(--sc-prime); }
+    .auth-title { font-size: 28px; font-weight: 700; color: var(--sc-heading); margin-bottom: 6px; }
+    .auth-sub { font-size: 14px; color: var(--sc-muted); margin-bottom: 26px; line-height:1.6; }
+    .w-full { width: 100% !important; justify-content: center !important; }
+    .auth-fineprint { font-size: 12px; color: #9b968c; margin-top: 16px; line-height: 1.6; }
+    .auth-link { color: var(--sc-prime); font-size: 13px; font-weight: 500; text-decoration: none; }
+    /* success state */
+    .dp-done { text-align:center; padding: 12px 0; }
+    .dp-done-mark { width:64px;height:64px;border-radius:16px;background:var(--sc-prime-soft,#f1ecfb);
+      display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:32px; }
+  </style>
+</head>
+<body>
+
+<div class="auth-page">
+  <div class="auth-left">
+    <div class="auth-glow-1"></div>
+    <div class="auth-glow-2"></div>
+    <div class="auth-left-content">
+      <span class="auth-eyebrow">🤝 Design Partner Program</span>
+      <h2 class="auth-tagline">Help build the first <span>genuinely honest</span> intelligence platform.</h2>
+      <p class="auth-desc">
+        ARIA Intelligence is in its founding phase. We're inviting a small group of design
+        partners — real operators in security, defence, compliance and due-diligence — to
+        shape the product with us before general release.
+      </p>
+      <div class="auth-features">
+        <div class="auth-feature"><span class="auth-feature-dot"></span><span><strong>Free access during the pilot</strong> — full platform, no charge while you're a design partner.</span></div>
+        <div class="auth-feature"><span class="auth-feature-dot blue"></span><span><strong>A direct line to the team</strong> — your feedback goes straight into what we build next.</span></div>
+        <div class="auth-feature"><span class="auth-feature-dot green"></span><span><strong>Honest by design</strong> — verified sources, never-false-clean screening, no fabricated confidence.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="auth-right">
+    <div class="auth-form-wrap">
+      <a href="/" class="auth-back-link" aria-label="Back to ARIA home">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Back to ARIA
+      </a>
+
+      <div id="dp-apply-view">
+        <h2 class="auth-title">Apply to be a design partner</h2>
+        <p class="auth-sub">Tell us who you are and how you'd use ARIA. We review every application personally and reach out to talk.</p>
+
+        <div id="error-msg" role="alert" aria-live="polite" style="display:none;padding:12px 16px;border-radius:8px;font-size:13px;margin-bottom:16px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c"></div>
+
+        <form id="dp-form" autocomplete="on">
+          <div class="sc-field">
+            <label for="dp-name">Your name</label>
+            <input type="text" id="dp-name" name="name" placeholder="Jane Okoro" autocomplete="name" required>
+          </div>
+          <div class="sc-field">
+            <label for="dp-email">Work email</label>
+            <input type="email" id="dp-email" name="email" placeholder="you@organisation.com" autocomplete="email" required>
+          </div>
+          <div class="sc-field">
+            <label for="dp-company">Company / organisation <span style="color:var(--sc-muted);font-weight:400">(optional)</span></label>
+            <input type="text" id="dp-company" name="company" placeholder="Acme Risk Advisory" autocomplete="organization">
+          </div>
+          <div class="sc-field">
+            <label for="dp-usecase">How would you use ARIA? <span style="color:var(--sc-muted);font-weight:400">(optional)</span></label>
+            <textarea id="dp-usecase" name="use_case" rows="3" placeholder="e.g. due-diligence on counterparties, sanctions & UBO screening, adverse-media monitoring…" style="resize:vertical"></textarea>
+          </div>
+          <button type="submit" class="sc-btn sc-btn-primary w-full" id="dp-submit">Apply to join</button>
+          <p class="auth-fineprint">
+            We'll only use your details to evaluate and contact you about the design-partner program.
+            Applying doesn't create an account — we'll set you up if it's a fit.
+          </p>
+        </form>
+      </div>
+
+      <div id="dp-done-view" class="dp-done" style="display:none">
+        <div class="dp-done-mark">✓</div>
+        <h2 class="auth-title" style="margin-bottom:10px">Application received</h2>
+        <p class="auth-sub">Thanks — we've got it. We review every application personally and will be in touch by email. In the meantime you're welcome to <a href="/" class="auth-link">explore ARIA</a>.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/app.js?v=8"></script>
+<script>
+(function(){
+  'use strict';
+  function showError(msg){
+    var el=document.getElementById('error-msg');
+    if(!el){console.error('apply error:',msg);return;}
+    el.textContent=msg; el.style.display='block';
+    el.scrollIntoView({behavior:'smooth',block:'nearest'});
+  }
+  function hideError(){var el=document.getElementById('error-msg'); if(el) el.style.display='none';}
+
+  async function submit(){
+    var btn=document.getElementById('dp-submit');
+    var name=document.getElementById('dp-name').value.trim();
+    var email=document.getElementById('dp-email').value.trim();
+    var company=document.getElementById('dp-company').value.trim();
+    var useCase=document.getElementById('dp-usecase').value.trim();
+    if(!name || email.indexOf('@')===-1){ showError('Please enter your name and a valid email.'); return; }
+    hideError(); btn.disabled=true; btn.textContent='Sending…';
+    try{
+      var res=await API.post('/api/design-partners/apply',{name:name,email:email,company:company,use_case:useCase});
+      btn.disabled=false; btn.textContent='Apply to join';
+      if(res.ok){
+        document.getElementById('dp-apply-view').style.display='none';
+        document.getElementById('dp-done-view').style.display='';
+        window.scrollTo(0,0);
+      }else{
+        showError((res.data && (res.data.error||res.data.detail)) || ('Could not send your application (HTTP '+res.status+'). Please try again shortly.'));
+      }
+    }catch(e){
+      btn.disabled=false; btn.textContent='Apply to join';
+      showError('Could not reach the server. Please try again shortly.');
+    }
+  }
+
+  document.getElementById('dp-form').addEventListener('submit',function(ev){ ev.preventDefault(); submit(); });
+})();
+</script>
+</body>
+</html>

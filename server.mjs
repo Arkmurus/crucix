@@ -2435,6 +2435,74 @@ app.post('/api/design-partners', requireAdmin, async (req, res) => {
   }
 });
 
+// R-F2673 — admin: approve/decline/update one design-partner record. Client
+// POSTs {status, notes?}; forwarded to the aria-intel tracker as a PATCH by
+// index. Admin-only (moving a record to a qualifying status is what closes the
+// operator-owned gate #7). POST (not PATCH) so the existing API.post client
+// helper works — app.js has no patch method.
+app.post('/api/design-partners/:index/status', requireAdmin, async (req, res) => {
+  try {
+    if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'aria service unavailable' });
+    const index = parseInt(req.params.index, 10);
+    if (!Number.isInteger(index) || index < 0) return res.status(400).json({ error: 'invalid index' });
+    const patch = {};
+    if (typeof req.body?.status === 'string') patch.status = req.body.status;
+    if (typeof req.body?.notes === 'string') patch.notes = req.body.notes;
+    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/admin/design-partners/${index}`, {
+      method: 'PATCH',
+      headers: { ..._ariaHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const data = await r.json().catch(() => ({}));
+    return res.status(r.ok ? 200 : (r.status || 502)).json(data);
+  } catch (e) {
+    return res.status(502).json({ error: 'Could not reach the design-partner service.' });
+  }
+});
+
+// R-F2673 — PUBLIC "Become a Design Partner" application funnel (partners.html).
+// No login: a prospect applies here. Forwarded to the aria-intel tracker with the
+// service token, FORCING status='applied' + source='public_application' server-
+// side — a self-service applicant can NEVER choose a qualifying status, so this
+// funnel cannot move gate #7 (operator-owned per CLAUDE.md §1; only an operator
+// promoting them to contacted/engaged/onboarded counts). Rate-limited like every
+// route; relays the brain's honest verdict, never a fake success (§22).
+app.post('/api/design-partners/apply', async (req, res) => {
+  try {
+    if (!ARIA_SERVICE_URL) return res.status(503).json({ ok: false, error: 'Applications are temporarily unavailable — please try again shortly.' });
+    const body = req.body || {};
+    const name = String(body.name || '').trim().slice(0, 200);
+    const email = String(body.email || body.contact || '').trim().slice(0, 200);
+    const company = String(body.company || '').trim().slice(0, 200);
+    const useCase = String(body.use_case || body.useCase || body.notes || '').trim().slice(0, 1000);
+    if (!name || !email.includes('@')) {
+      return res.status(400).json({ ok: false, error: 'A name and a valid email are required.' });
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12000);
+    try {
+      const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/admin/design-partners`, {
+        method: 'POST',
+        headers: { ..._ariaHeaders(), 'Content-Type': 'application/json' },
+        // status/source are FORCED here — never taken from the client body.
+        body: JSON.stringify({
+          name, contact: email, company, notes: useCase,
+          status: 'applied', source: 'public_application',
+        }),
+        signal: ctrl.signal,
+      });
+      const data = await r.json().catch(() => ({}));
+      return res.status(r.ok ? 200 : (r.status || 502)).json(
+        r.ok ? { ok: true } : { ok: false, error: data.detail || data.error || 'Could not record your application right now.' }
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (e) {
+    return res.status(502).json({ ok: false, error: 'Could not reach the application service. Please try again shortly.' });
+  }
+});
+
 // ── §25a web delivery-outcome (R-F1565) ──────────────────────────────────────
 // Mirrors the WA listener's reportOutcome (services/wa-listener/
 // aria_wa_listener.mjs ~L1023): every output surface reports whether the user

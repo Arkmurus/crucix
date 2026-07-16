@@ -337,11 +337,16 @@ async def compute_phase_gates() -> dict:
     # Gate #7 does not close from code. That is the point of it.
     try:
         stats = design_partner_tracker.get_tracker().stats()
+        # R-F2673: the gate VALUE is the QUALIFIED count, not total. Public
+        # applications (status='applied', via partners.html) and declined rows
+        # are in `total`/`by_status` for the admin UI but must NOT move the gate
+        # — only an operator qualifying a partner does (CLAUDE.md §1: gate #7 is
+        # operator-owned, does not close from code / public traffic).
         gates["gate_7_design_partners"] = _gate(
             7, "gate_7_design_partners", ">=4 design-partner convos",
             "≥4 design-partner conversations",
-            stats["total"], stats["gate_pass"],
-            "design_partner_tracker.stats() — operator-logged partners (R-F1987)",
+            stats.get("qualified", stats["total"]), stats["gate_pass"],
+            "design_partner_tracker.stats() — QUALIFIED operator-vouched partners (R-F1987/R-F2673)",
             target=GATE_7_TARGET,
             by_status=stats["by_status"],
         )

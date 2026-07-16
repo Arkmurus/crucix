@@ -36,12 +36,27 @@ class DesignPartnerEntry:
     name: str
     contact: str
     notes: str = ""
-    status: str = "contacted"  # contacted | engaged | onboarded | declined
+    status: str = "contacted"  # applied | contacted | engaged | onboarded | declined
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
+    # R-F2673: how the record entered the store — "operator" (manually logged)
+    # or "public_application" (self-service via partners.html). Public
+    # applications land as status="applied" and never count toward the gate
+    # until an operator qualifies them. Optional so legacy rows load unchanged.
+    source: str = "operator"
+    company: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+# R-F2673 — statuses that COUNT toward Gate #7. Only operator-set statuses
+# qualify: an operator moving a record to contacted/engaged/onboarded is
+# vouching that a real design-partner conversation happened. "applied" (a
+# public self-service application) and "declined" are EXCLUDED, so the public
+# application funnel (partners.html) can never move a gate CLAUDE.md §1 defines
+# as operator-owned. Whitelist ⇒ any unknown status fails closed (never counts).
+_QUALIFIED_STATUSES = frozenset({"contacted", "engaged", "onboarded"})
 
 
 class DesignPartnerTracker:
@@ -83,14 +98,18 @@ class DesignPartnerTracker:
         contact: str,
         notes: str = "",
         status: str = "contacted",
+        source: str = "operator",
+        company: str = "",
     ) -> DesignPartnerEntry:
-        """Add a new design-partner conversation."""
+        """Add a new design-partner conversation (or a public application)."""
         self._load()
         entry = DesignPartnerEntry(
             name=name,
             contact=contact,
             notes=notes,
             status=status,
+            source=source,
+            company=company,
         )
         self._entries.append(entry)
         self._save()
@@ -128,25 +147,41 @@ class DesignPartnerTracker:
         return [e.to_dict() for e in self._entries]
 
     def count(self) -> int:
-        """Return total number of entries."""
+        """Return total number of entries (all statuses, incl. applications)."""
         self._load()
         return len(self._entries)
 
+    def qualified_count(self) -> int:
+        """R-F2673 — number of entries in an operator-vouched (qualified) status.
+        This is the ONLY number that moves Gate #7. Public applications
+        (status='applied') and declined records are excluded."""
+        self._load()
+        return sum(1 for e in self._entries if e.status in _QUALIFIED_STATUSES)
+
     def gate_pass(self) -> bool:
-        """Gate #7 passes when >= 4 design-partner conversations are logged."""
-        return self.count() >= 4
+        """Gate #7 passes at >= 4 QUALIFIED design-partner conversations.
+        R-F2673: counts qualified only (contacted/engaged/onboarded) — a public
+        applicant cannot close an operator-owned gate (CLAUDE.md §1). Previously
+        this counted every entry, which the public funnel would have inflated."""
+        return self.qualified_count() >= 4
 
     def stats(self) -> dict[str, Any]:
-        """Return summary stats for the gate check."""
+        """Return summary stats for the gate check.
+        R-F2673: ``qualified`` (not ``total``) is the gate-relevant number;
+        ``gate_pass`` is derived from it. ``total`` and ``by_status`` are kept
+        for the admin UI (applications are visible but non-counting)."""
         self._load()
         by_status: dict[str, int] = {}
         for e in self._entries:
             by_status[e.status] = by_status.get(e.status, 0) + 1
+        qualified = self.qualified_count()
         return {
             "total": self.count(),
+            "qualified": qualified,
             "by_status": by_status,
-            "gate_pass": self.gate_pass(),
+            "gate_pass": qualified >= 4,
             "gate_target": 4,
+            "qualified_statuses": sorted(_QUALIFIED_STATUSES),
         }
 
 

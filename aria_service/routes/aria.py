@@ -14563,15 +14563,22 @@ async def design_partners_add_ep(request: Request):
         raise HTTPException(status_code=400, detail="'name' and 'contact' are required")
     notes = (body.get("notes") or "").strip()
     status = (body.get("status") or "contacted").strip()
-    valid_statuses = {"contacted", "engaged", "onboarded", "declined"}
+    # R-F2673: "applied" = a public self-service application (partners.html).
+    # It is a VALID status but is NON-qualifying (never counts toward gate #7 —
+    # see design_partner_tracker._QUALIFIED_STATUSES). Only an operator moving it
+    # to contacted/engaged/onboarded qualifies it.
+    valid_statuses = {"applied", "contacted", "engaged", "onboarded", "declined"}
     if status not in valid_statuses:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid status '{status}'. Must be one of: {', '.join(sorted(valid_statuses))}",
         )
+    source = (body.get("source") or "operator").strip() or "operator"
+    company = (body.get("company") or "").strip()
     from ..intel.design_partner_tracker import get_tracker
     tracker = get_tracker()
-    entry = tracker.add(name=name, contact=contact, notes=notes, status=status)
+    entry = tracker.add(name=name, contact=contact, notes=notes, status=status,
+                        source=source, company=company)
     return {"added": entry.to_dict(), "stats": tracker.stats()}
 
 
