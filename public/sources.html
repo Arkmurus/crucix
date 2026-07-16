@@ -356,10 +356,12 @@ async function loadOemPool() {
 
 function updateSourceSummary(data, sources, counts) {
   const lastRun = (data && data.last_run) || {};
+  const freshness = (data && data.freshness) || {};
+  const stale = data && (data.stale === true || freshness.stale === true);
   document.getElementById('src-ok').textContent = counts.ok;
   document.getElementById('src-err').textContent = counts.err;
   document.getElementById('src-warn').textContent = counts.warn;
-  document.getElementById('src-last').textContent = lastRun.ran_at ? fmtDateTime(lastRun.ran_at) : '-';
+  document.getElementById('src-last').textContent = lastRun.ran_at ? (stale ? 'STALE ' : '') + fmtDateTime(lastRun.ran_at) : '-';
 }
 
 // R-F58/R-F2384: unified source monitors from /api/aria/sources/uptime
@@ -387,6 +389,12 @@ async function loadSourceMonitors() {
     const warnCount = sources.length - okCount - errCount;
     updateSourceSummary(data, sources, { ok: okCount, err: errCount, warn: warnCount });
 
+    const freshness = data.freshness || {};
+    const isStale = data.stale === true || freshness.stale === true;
+    const ageHours = typeof freshness.age_seconds === 'number'
+      ? Math.round(freshness.age_seconds / 3600)
+      : null;
+
     // Summary row
     let html = '<tr class="pysrc-summary"><td colspan="5" style="padding:12px 16px;background:var(--sc-bg)">' +
       '<div style="display:flex;gap:16px;flex-wrap:wrap">' +
@@ -396,6 +404,13 @@ async function loadSourceMonitors() {
         '<div class="pysrc-stat"><span class="pysrc-stat-dot" style="background:#7c3aed"></span><span class="pysrc-stat-n">' + suspCount + '</span><span class="pysrc-stat-l">Suspended</span></div>' +
         '<div class="pysrc-stat" style="border-left:1px solid var(--sc-border);padding-left:16px"><span class="pysrc-stat-n" style="font-size:13px;color:var(--sc-muted)">' + sources.length + '</span><span class="pysrc-stat-l">Total sources</span></div>' +
       '</div></td></tr>';
+    if (isStale) {
+      html += '<tr><td colspan="5" style="padding:12px 16px;background:#fff7ed;color:#9a3412;border-bottom:1px solid #fed7aa">' +
+        '<i class="bi bi-exclamation-triangle"></i> Source monitor data is stale' +
+        (ageHours == null ? '' : ' (' + ageHours + 'h old)') +
+        '. Run a source check before treating these rows as current.' +
+        '</td></tr>';
+    }
 
     // Source rows — card-style with status badges
     sources.forEach(s => {
@@ -556,8 +571,8 @@ document.getElementById('btn-run-pysrc').addEventListener('click', async functio
     if (!resp.ok) {
       Toast.show('Ping failed (HTTP ' + resp.status + '). Check fly logs for details.', 'error', 7000);
     } else {
-      await loadSourceMonitors();
-      Toast.show('Source check completed.', 'success');
+      Toast.show('Source check started. Refresh this page in about a minute for fresh rows.', 'success', 7000);
+      window.setTimeout(loadSourceMonitors, 60000);
     }
   } catch (err) {
     Toast.show('Ping error: ' + err.message, 'error', 7000);

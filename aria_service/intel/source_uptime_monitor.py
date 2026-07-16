@@ -109,6 +109,7 @@ _CONSECUTIVE_PING_FAILS_THRESHOLD = 3  # AND this many consecutive failures
 # TLS handshake gets room without letting a hung read run long.
 _PING_TIMEOUT = httpx.Timeout(12.0, connect=10.0)
 _MAX_CONCURRENT_PINGS = 40   # R-F2216 — was 10; see timeout note
+_SOURCE_UPTIME_STALE_AFTER_S = 30 * 60 * 60  # daily 02:00 UTC task + 6h grace
 
 # Redis keys
 _K_LAST_RUN = "crucix:source_uptime:last_run"
@@ -161,7 +162,7 @@ async def _get_registered_sources() -> list[dict]:
     return sources
 
 
-async def _ping_one(source: dict) -> dict:
+async def _ping_one(source: dict, client: httpx.AsyncClient | None = None) -> dict:
     """Ping a single source URL. Returns ping result dict."""
     name = source.get("name") or source.get("url") or ""
     url = source.get("url") or source.get("name") or ""
@@ -181,30 +182,33 @@ async def _ping_one(source: dict) -> dict:
     }
     t0 = time.time()
     try:
-        async with httpx.AsyncClient(  # no-breaker: an uptime monitor MUST ping even down sources to detect downtime — a breaker would defeat its purpose
-            timeout=_PING_TIMEOUT, follow_redirects=True,
-        ) as client:
-            # HEAD first — cheap. Many WAFs reject HEAD (405) or challenge it
-            # (403/406/429) while allowing GET → fall back to GET before judging.
-            try:
-                r = await client.head(url, headers=_headers)  # no-ssrf-check: URL is from the curated defence_source_seed catalogue, not user input
-                if r.status_code == 405 or r.status_code in _REACHABLE_BUT_BLOCKED or r.status_code >= 500:
-                    r = await client.get(url, headers=_headers)  # no-ssrf-check: curated catalogue URL, not user input
-            except Exception:
+        if client is None:
+            async with httpx.AsyncClient(  # no-breaker: an uptime monitor MUST ping even down sources to detect downtime — a breaker would defeat its purpose
+                timeout=_PING_TIMEOUT, follow_redirects=True,
+            ) as owned_client:
+                return await _ping_one(source, client=owned_client)
+
+        # HEAD first — cheap. Many WAFs reject HEAD (405) or challenge it
+        # (403/406/429) while allowing GET → fall back to GET before judging.
+        try:
+            r = await client.head(url, headers=_headers)  # no-ssrf-check: URL is from the curated defence_source_seed catalogue, not user input
+            if r.status_code == 405 or r.status_code in _REACHABLE_BUT_BLOCKED or r.status_code >= 500:
                 r = await client.get(url, headers=_headers)  # no-ssrf-check: curated catalogue URL, not user input
-            latency_ms = int((time.time() - t0) * 1000)
-            reachable, classification = _classify_ping(r.status_code, None)
-            return {
-                "name": name, "url": url,
-                "ok": reachable,                 # R-F2266 — reachable (incl. WAF-blocked) is UP, not down
-                "status": r.status_code,
-                "classification": classification,  # up | blocked | not_found | server_error | http_4xx
-                "latency_ms": latency_ms,
-                "error": None if reachable else (
-                    "blocked" if classification == "blocked" else f"HTTP {r.status_code}"
-                ),
-                "checked_at": datetime.now(timezone.utc).isoformat(),
-            }
+        except Exception:
+            r = await client.get(url, headers=_headers)  # no-ssrf-check: curated catalogue URL, not user input
+        latency_ms = int((time.time() - t0) * 1000)
+        reachable, classification = _classify_ping(r.status_code, None)
+        return {
+            "name": name, "url": url,
+            "ok": reachable,                 # R-F2266 — reachable (incl. WAF-blocked) is UP, not down
+            "status": r.status_code,
+            "classification": classification,  # up | blocked | not_found | server_error | http_4xx
+            "latency_ms": latency_ms,
+            "error": None if reachable else (
+                "blocked" if classification == "blocked" else f"HTTP {r.status_code}"
+            ),
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }
     except Exception as e:
         reachable, classification = _classify_ping(None, type(e).__name__)
         return {
@@ -331,14 +335,17 @@ async def run_daily_ping() -> dict:
     # Ping with bounded concurrency
     sem = asyncio.Semaphore(_MAX_CONCURRENT_PINGS)
 
-    async def _guarded_ping(s: dict) -> dict:
+    async def _guarded_ping(client: httpx.AsyncClient, s: dict) -> dict:
         async with sem:
-            return await _ping_one(s)
+            return await _ping_one(s, client=client)
 
-    ping_results = await asyncio.gather(
-        *[_guarded_ping(s) for s in sources],
-        return_exceptions=False,
-    )
+    async with httpx.AsyncClient(  # no-breaker: uptime monitor must test live source reachability
+        timeout=_PING_TIMEOUT, follow_redirects=True,
+    ) as client:
+        ping_results = await asyncio.gather(
+            *[_guarded_ping(client, s) for s in sources],
+            return_exceptions=False,
+        )
 
     # R-F2225 — fold every ping into ONE running-state blob (read once here, written
     # once below) instead of ~400 sequential per-source lpush/lrange ops. reliability
@@ -416,11 +423,24 @@ async def run_daily_ping() -> dict:
         "sources": per_source,
     }
 
+    summary["persisted"] = True
     try:
         from . import redis_store as rs
         await rs.set_json(_K_LAST_RUN, summary)
-    except Exception:
-        pass
+    except Exception as e:
+        summary["persisted"] = False
+        summary["persist_error"] = f"{type(e).__name__}: {str(e)[:160]}"
+        logger.warning("[uptime_monitor] failed to persist last_run: %s", summary["persist_error"])
+        try:
+            from .engine_wiring import wire_failure
+            wire_failure(
+                module="source_uptime_monitor",
+                detail=f"last_run persistence failed: {summary['persist_error']}",
+                gap_type="source_uptime_degraded",
+                source="source_uptime_monitor:R-F2659",
+            )
+        except Exception:
+            pass
 
     # Feed brain
     try:
@@ -471,6 +491,7 @@ async def health() -> dict:
         from . import redis_store as rs
         last = await rs.get_json(_K_LAST_RUN) or {}
         suspended = sorted(await _get_suspended())
+        freshness = _last_run_freshness(last)
         # R-F2022 — expose the per-source array at top level so the sources-page
         # panel (reads data.sources) renders the real up/down rows, not just the
         # aggregate counts it had no way to display before.
@@ -479,6 +500,39 @@ async def health() -> dict:
             "sources": last.get("sources", []),
             "currently_suspended": suspended,
             "suspended_count": len(suspended),
+            "freshness": freshness,
+            "last_run_age_seconds": freshness["age_seconds"],
+            "stale_after_seconds": freshness["stale_after_seconds"],
+            "stale": freshness["stale"],
         }
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
+
+
+def _last_run_freshness(last: dict | None, now_ts: float | None = None) -> dict:
+    """Return freshness metadata for the cached source-uptime sweep."""
+    now_ts = time.time() if now_ts is None else now_ts
+    ran_at = (last or {}).get("ran_at") if isinstance(last, dict) else None
+    if not ran_at:
+        return {
+            "stale": True,
+            "age_seconds": None,
+            "stale_after_seconds": _SOURCE_UPTIME_STALE_AFTER_S,
+            "reason": "missing_last_run",
+        }
+    try:
+        dt = datetime.fromisoformat(str(ran_at).replace("Z", "+00:00"))
+        age_s = max(0, int(now_ts - dt.timestamp()))
+    except Exception:
+        return {
+            "stale": True,
+            "age_seconds": None,
+            "stale_after_seconds": _SOURCE_UPTIME_STALE_AFTER_S,
+            "reason": "invalid_last_run_timestamp",
+        }
+    return {
+        "stale": age_s > _SOURCE_UPTIME_STALE_AFTER_S,
+        "age_seconds": age_s,
+        "stale_after_seconds": _SOURCE_UPTIME_STALE_AFTER_S,
+        "reason": "stale_last_run" if age_s > _SOURCE_UPTIME_STALE_AFTER_S else "fresh",
+    }

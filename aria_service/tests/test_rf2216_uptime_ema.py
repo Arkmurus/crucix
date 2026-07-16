@@ -68,7 +68,7 @@ async def test_rf2225_autosuspend_fires_end_to_end(monkeypatch):
     src = {"name": "DeadSrc", "url": "https://dead.invalid/x", "reliability": 0.5, "tier": "tier_3"}
     monkeypatch.setattr(m, "_get_registered_sources", _areturn([src]))
 
-    async def _fail_ping(s):
+    async def _fail_ping(s, client=None):
         return {"name": "DeadSrc", "url": s["url"], "ok": False, "status": None,
                 "latency_ms": 0, "error": "timeout", "checked_at": "2026-07-01T00:00:00Z"}
     monkeypatch.setattr(m, "_ping_one", _fail_ping)

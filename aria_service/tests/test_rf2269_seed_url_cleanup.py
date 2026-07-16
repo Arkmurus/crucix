@@ -16,6 +16,11 @@ _DEAD_FRAGMENTS = [
     "e-justice.europa.eu/content_business_registers",  # eu_business_registers 404 path
     "aselsan.com/en/press-room",       # aselsan_press 404 path
     "macauhub.com",                    # macauhub — dead .com.mo / broken-cert .com
+    "https://c4defence.com/",          # c4defence apex has cert mismatch; use www path
+    "koneps.go.kr/eng/",               # kr_koneps moved behind PPS English portal
+    "thedrive.com/the-war-zone",       # The War Zone moved to twz.com
+    "qinetiq.com/en/news",             # QinetiQ news path 404s
+    "https://www.helsing.ai/news",     # Helsing moved newsroom path
 ]
 
 
@@ -34,6 +39,11 @@ def test_rf2269_replacements_present():
         "in_ddp": "https://www.ddpmod.gov.in/",
         "sanctionslist_io": "https://www.opensanctions.org/search/",
         "kr_dapa": "https://www.dapa.go.kr/dapa_en/main.do",
+        "c4defence": "https://www.c4defence.com/en/home/",
+        "kr_koneps": "https://www.pps.go.kr/eng/index.do",
+        "the_war_zone": "https://www.twz.com/",
+        "qinetiq_press": "https://www.qinetiq.com/",
+        "helsing_press": "https://helsing.ai/newsroom",
         "macauhub": "https://www.macaubusiness.com/",
     }
     for name, url in expected.items():

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2659,
+  "next_available": 2660,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20488,6 +20488,15 @@
       "r_number": "R-F2658",
       "title": "DD grade Grade-D on registry that ERRORED/clamped is dishonest; grade INCOMPLETE when identity/compliance layer status is error/skipped",
       "claimed_at": "2026-07-16T11:19:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2659",
+      "title": "repair source uptime stale and seed urls",
+      "claimed_at": "2026-07-16T11:49:50Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

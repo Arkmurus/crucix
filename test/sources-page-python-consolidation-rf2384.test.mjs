@@ -34,3 +34,12 @@ test('R-F2384 source summary and table share the Python uptime payload', () => {
   assert.match(body, /updateSourceSummary\(data, sources, \{ ok: okCount, err: errCount, warn: warnCount \}\)/);
   assert.match(body, /document\.getElementById\('pysrc-body'\)/);
 });
+
+test('R-F2659 sources page surfaces stale uptime data honestly', () => {
+  const body = functionBody('loadSourceMonitors');
+
+  assert.match(body, /data\.freshness/);
+  assert.match(body, /Source monitor data is stale/);
+  assert.match(html, /Source check started\. Refresh this page in about a minute/);
+  assert.doesNotMatch(html, /Source check completed\./);
+});

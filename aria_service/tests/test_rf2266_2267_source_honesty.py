@@ -83,7 +83,7 @@ async def test_rf2266_blocked_sources_not_suspended(monkeypatch):
     srcs = [{"name": f"Blocked{i}", "url": f"https://blocked{i}.gov/"} for i in range(3)]
     monkeypatch.setattr(m, "_get_registered_sources", _areturn(srcs))
 
-    async def _blocked_ping(s):
+    async def _blocked_ping(s, client=None):
         # server answered 403 → honest classifier marks reachable
         return {"name": s["name"], "url": s["url"], "ok": True, "status": 403,
                 "classification": "blocked", "latency_ms": 10, "error": "blocked",
@@ -137,3 +137,20 @@ def _areturn(val):
 
 async def _anoop(*a, **k):
     return None
+
+
+async def test_rf2659_health_flags_stale_last_run(monkeypatch):
+    import aria_service.intel.redis_store as rss
+
+    monkeypatch.setattr(rss, "get_json", _areturn({
+        "ran_at": "2026-07-07T07:43:48+00:00",
+        "sources_checked": 200,
+        "sources": [],
+    }))
+    monkeypatch.setattr(m, "_get_suspended", _areturn(set()))
+    monkeypatch.setattr(m.time, "time", lambda: 1784180000.0)
+
+    out = await m.health()
+    assert out["stale"] is True
+    assert out["freshness"]["reason"] == "stale_last_run"
+    assert out["last_run_age_seconds"] > out["stale_after_seconds"]
