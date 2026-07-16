@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2646,
+  "next_available": 2647,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20367,6 +20367,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F2646",
+      "title": "pin 500-Q golden eval set — operator close of Phase A gate #6",
+      "claimed_at": "2026-07-16T08:57:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3b4c4f9c",
+      "notes": null,
+      "shipped_at": "2026-07-16T08:59:28Z"
     }
   ]
 }
