@@ -141,6 +141,46 @@ def in_window(now: Optional[datetime] = None) -> bool:
     return c["start_hour"] <= local.hour < c["stop_hour"]
 
 
+def expected_serving(now: Optional[datetime] = None) -> bool:
+    """Should the sovereign ARIA-LLM pod be SERVING right now? (no network call)
+
+    R-F2648 — the single, cheap signal for "is the sovereign deliberately off".
+    The health probe (resilience._probe) and the chat router (model_router.
+    route_decision) both consult this so that when the pod is DELIBERATELY down
+    (CLAUDE.md §24 stop-only, pre-shadow), NEITHER hits the dead endpoint — no
+    false `aria_llm` breaker, no 404 chat/flywheel traffic.
+
+    True iff EITHER:
+      - a cycle holds an active work-claim (the pod is in use right now), OR
+      - shadow-phase autostart is on AND we are inside the serving window.
+    Otherwise the pod is off by policy → callers treat the sovereign as dormant
+    and route to DeepSeek (which the R-F1957 warm-gate already does fail-closed).
+
+    Deliberately consults the work-claim, NOT `configured()`: pre-shadow,
+    ``ARIA_RUNPOD_POD_ID`` is UNSET (scheduler no-op per §24), so a
+    configured()-gate would never fire — but the weekly-cycle scripts DO set a
+    work-claim while serving, and that is exactly the "pod expected up" truth.
+    Uses only a local file read + env + clock, so it is safe to call on every
+    probe/turn with no RunPod API dependency or latency.
+    """
+    try:
+        c = _cfg()
+        # No RunPod scheduling context (no API key) → the §24 stop-only policy
+        # does not govern this endpoint (e.g. a plain external vLLM host, or a
+        # test). Do NOT suppress — behave exactly as before this gate existed and
+        # let callers probe/route normally.
+        if not c["api_key"]:
+            return True
+        active, _ = _claim_active(now.timestamp() if now else None)
+        if active:
+            return True
+        return bool(c["autostart"]) and in_window(now)
+    except Exception:
+        # Fail SAFE toward "serving" — never suppress a real health signal on an
+        # unexpected error; a spurious probe is cheaper than blinding the gate.
+        return True
+
+
 async def _api(method: str, path: str) -> dict:
     """One RunPod REST call. Raises on transport error / non-2xx."""
     import httpx

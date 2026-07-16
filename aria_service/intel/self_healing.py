@@ -166,6 +166,22 @@ class RecoveryAction:
 # ── Layer 1: Health Monitor ──────────────────────────────────────────────────
 
 
+def _aria_llm_expected_serving() -> bool:
+    """R-F2648 — is the sovereign pod expected to be serving right now?
+
+    Delegates to the ONE shared signal (runpod_scheduler.expected_serving),
+    also consulted by the resilience health probe and the chat router, so a
+    deliberately-stopped pod (§24 stop-only) is not health-probed on ANY path.
+    Intra-package import (intel→intel, no cycle). Fails SAFE toward checking so
+    a schedule error never blinds this monitor to a genuinely-up endpoint.
+    """
+    try:
+        from . import runpod_scheduler as _sched
+        return _sched.expected_serving()
+    except Exception:
+        return True
+
+
 class HealthMonitor:
     """Continuous health checks across all subsystems."""
 
@@ -226,9 +242,15 @@ class HealthMonitor:
             "semantic_search": "http://localhost:8000/api/aria/health/perf",
             "brain_hook": "http://localhost:8000/api/aria/brain/stats",
         }
-        # R-F1224: ARIA-LLM health check — only when configured
+        # R-F1224: ARIA-LLM health check — only when configured AND expected up.
+        # R-F2648: gate on the SAME schedule signal the resilience probe + the
+        # chat router use, so a DELIBERATELY-stopped pod (§24 stop-only) is not
+        # GET /models-probed here either — otherwise this monitor keeps 404ing
+        # the dead endpoint and marking aria_llm CRITICAL when it is merely off
+        # by policy (a §25 false-positive). When a cycle serves (work-claim) or
+        # in a shadow window, the check re-activates automatically.
         _aria_llm_url = (os.getenv("ARIA_LLM_URL") or "").strip()
-        if _aria_llm_url:
+        if _aria_llm_url and _aria_llm_expected_serving():
             # R-F2645: same join as aria_llm_provider + the resilience probe, so
             # a /v1 drift cannot make one of them 404 while the others succeed.
             from ..llm import aria_llm_url as _llm_url

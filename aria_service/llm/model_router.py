@@ -176,6 +176,22 @@ def _sovereign_timeout(default: float) -> float:
 
 # ── Route decision ────────────────────────────────────────────────────────────
 
+def _sovereign_pod_serving() -> bool:
+    """R-F2648 — is the sovereign pod expected to be serving right now?
+
+    Delegates to runpod_scheduler.expected_serving() (active work-claim OR
+    shadow-autostart-in-window) — the SAME no-network signal the health probe
+    (resilience._probe) consults, so routing and health never disagree about a
+    deliberately-stopped pod. Fails SAFE toward serving so an error never
+    silently disables sovereign routing when the pod IS up.
+    """
+    try:
+        from ..intel import runpod_scheduler as _sched
+        return _sched.expected_serving()
+    except Exception:
+        return True
+
+
 def route_decision(message: str = "", context: str = "", *, canary_key: str = "") -> str:
     """Return the routing verdict for a synthesis turn:
         "deepseek"  — closed-book / general / coverage / router off (default today)
@@ -185,6 +201,15 @@ def route_decision(message: str = "", context: str = "", *, canary_key: str = ""
     if not two_track_active():
         return "deepseek"
     if not is_grounded_synthesis(message, context):
+        return "deepseek"
+    # R-F2648 — when the sovereign pod is DELIBERATELY off (CLAUDE.md §24
+    # stop-only: no work-claim, outside any serving window) do not route
+    # grounded turns to it. Without this, shadow/serve verdicts call
+    # aria_llm_provider → the dead RunPod endpoint → 404 on every grounded turn
+    # (the flywheel-capture path), then fall back to DeepSeek — pure latency +
+    # noise. Same single signal the health probe uses, so the two never
+    # disagree about when the pod is up. Fails SAFE toward routing on error.
+    if not _sovereign_pod_serving():
         return "deepseek"
     stage = promotion_stage()
     if stage == "off":

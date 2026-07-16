@@ -193,6 +193,21 @@ class LLMHealthChecker:
             except asyncio.TimeoutError:
                 continue  # normal — time to probe again
 
+    def _pod_expected_up(self) -> bool:
+        """R-F2648 — is the sovereign pod supposed to be serving right now?
+
+        Delegates to the ONE shared signal (runpod_scheduler.expected_serving:
+        active work-claim OR shadow-autostart-in-window), so the probe and the
+        chat router (model_router) agree on when the pod is deliberately off.
+        Lazy import (llm→intel; runpod_scheduler is stdlib-only, no cycle).
+        Fails SAFE toward probing so an import/logic error never blinds health.
+        """
+        try:
+            from ..intel import runpod_scheduler as _sched
+            return _sched.expected_serving()
+        except Exception:
+            return True
+
     async def _probe(self) -> None:
         """Single health probe against the ARIA-LLM endpoint.
 
@@ -201,6 +216,24 @@ class LLMHealthChecker:
         circuit breaker and brain wiring.
         """
         if not self._enabled:
+            return
+
+        # R-F2648 — schedule-aware gate. When the sovereign pod is DELIBERATELY
+        # off (CLAUDE.md §24 stop-only, no work-claim, outside any serving
+        # window) probing it and tripping the aria_llm breaker measures POLICY,
+        # not health — a false "sovereign DOWN". Skip the probe, mark dormant,
+        # and stand the breaker down so /health is honest. is_available() still
+        # fails closed via the R-F1957 warm-gate (last_success_at goes stale),
+        # so traffic keeps routing to DeepSeek. Checked here (not at __init__
+        # :139) so a pod a cycle starts mid-session re-activates without restart.
+        if not self._pod_expected_up():
+            self.last_probe_at = time.time()
+            self.probe_status = "dormant"
+            if self._breaker is not None and self._breaker.is_open():
+                # Was open from prior probing of the now-stopped pod — stand it
+                # down; "deliberately off" is not a failure to alarm on.
+                from ..intel.circuit_breaker import reset_breaker
+                reset_breaker("aria_llm")
             return
 
         start = time.time()
@@ -341,6 +374,11 @@ class LLMHealthChecker:
         cold-starting, or has never answered, is treated as unavailable until the
         probe actually confirms it warm."""
         if not self._enabled:
+            return False
+        # R-F2648 — deliberately off (§24 stop-only) → unavailable, route to
+        # DeepSeek. Redundant with the warm-gate below (a dormant checker never
+        # refreshes last_success_at) but explicit so the intent is unmissable.
+        if self.probe_status == "dormant":
             return False
         # never succeeded yet → cold/unproven → skip
         if self.last_success_at <= 0:
