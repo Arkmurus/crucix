@@ -20325,18 +20325,20 @@
       "title": "LLMHealthChecker double /v1 — probe 404s a healthy sovereign, breaks promotion gate",
       "claimed_at": "2026-07-16T07:21:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1d7f5ec9",
+      "notes": null,
+      "shipped_at": "2026-07-16T07:59:22Z"
     },
     {
       "r_number": "R-F2642",
       "title": "register search_all_engines_blocked gap type — emitted at web_search.py:593 but silently rejected",
       "claimed_at": "2026-07-16T07:21:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1d7f5ec9",
+      "notes": null,
+      "shipped_at": "2026-07-16T07:59:22Z"
     },
     {
       "r_number": "R-F2643",
