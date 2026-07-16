@@ -20569,9 +20569,10 @@
       "title": "C-3 v2 golden-DD independence eval set + scoring harness (false-positive-rate gate for the R-F2413 flip)",
       "claimed_at": "2026-07-16T13:03:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "034373c2",
+      "notes": null,
+      "shipped_at": "2026-07-16T13:06:36Z"
     }
   ]
 }
