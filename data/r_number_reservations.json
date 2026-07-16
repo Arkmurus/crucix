@@ -20591,9 +20591,10 @@
       "title": "gate #3 real blocker: _seed_knowledge_bg is one-shot but _singleton_task respawn-supervises it -> normal completion looks like death -> 5 respawns -> R-F1610 NEEDS OPERATOR ERROR resets streak",
       "claimed_at": "2026-07-16T13:23:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ac77e1f0",
+      "notes": null,
+      "shipped_at": "2026-07-16T13:38:15Z"
     },
     {
       "r_number": "R-F2669",
