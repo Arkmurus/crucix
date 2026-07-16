@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2648,
+  "next_available": 2649,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20384,6 +20384,17 @@
       "r_number": "R-F2647",
       "title": "aria_llm breaker honesty - gate probe on pod-expected-up not bool(URL) (dead-pod false-positive)",
       "claimed_at": "2026-07-16T09:04:46Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-07-16T09:09:16Z",
+      "abandon_reason": "LLM breaker fix reassigned to peer agent (Option B) per operator; peer reserves own R-number"
+    },
+    {
+      "r_number": "R-F2648",
+      "title": "schedule-aware sovereign health probe: suppress aria_llm breaker when pod deliberately stopped (finding #2)",
+      "claimed_at": "2026-07-16T09:07:19Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
