@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2673,
+  "next_available": 2675,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20630,6 +20630,24 @@
       "r_number": "R-F2672",
       "title": "wire defence seed failure branch",
       "claimed_at": "2026-07-16T15:09:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2673",
+      "title": "public design-partner application funnel (partners.html + /apply) + honest qualified-only gate-7 counting",
+      "claimed_at": "2026-07-16T15:34:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2674",
+      "title": "DD independent-verify: exclude subject's own domains (self-sources) from independent-origin count — R-F2671 live-eval FP fix",
+      "claimed_at": "2026-07-16T15:54:00Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
