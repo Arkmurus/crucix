@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2675,
+  "next_available": 2676,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20640,14 +20640,25 @@
       "title": "public design-partner application funnel (partners.html + /apply) + honest qualified-only gate-7 counting",
       "claimed_at": "2026-07-16T15:34:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "24390ffa",
+      "notes": null,
+      "shipped_at": "2026-07-16T16:06:14Z"
     },
     {
       "r_number": "R-F2674",
       "title": "DD independent-verify: exclude subject's own domains (self-sources) from independent-origin count — R-F2671 live-eval FP fix",
       "claimed_at": "2026-07-16T15:54:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "93b857f9",
+      "notes": null,
+      "shipped_at": "2026-07-16T16:17:25Z"
+    },
+    {
+      "r_number": "R-F2675",
+      "title": "fix source monitor head false negatives",
+      "claimed_at": "2026-07-16T16:03:43Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
