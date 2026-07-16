@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2647,
+  "next_available": 2648,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20355,18 +20355,20 @@
       "title": "gap-type registry drift: 42 emitted types unregistered + CI drift guard",
       "claimed_at": "2026-07-16T07:39:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "696acaa9",
+      "notes": null,
+      "shipped_at": "2026-07-16T09:04:10Z"
     },
     {
       "r_number": "R-F2645",
       "title": "ARIA_LLM_URL /v1 ambiguity class: single shared normaliser across provider/self_healing/resilience",
       "claimed_at": "2026-07-16T07:39:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "696acaa9",
+      "notes": null,
+      "shipped_at": "2026-07-16T09:04:10Z"
     },
     {
       "r_number": "R-F2646",
@@ -20377,6 +20379,15 @@
       "commit_sha": "3b4c4f9c",
       "notes": null,
       "shipped_at": "2026-07-16T08:59:28Z"
+    },
+    {
+      "r_number": "R-F2647",
+      "title": "aria_llm breaker honesty - gate probe on pod-expected-up not bool(URL) (dead-pod false-positive)",
+      "claimed_at": "2026-07-16T09:04:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
