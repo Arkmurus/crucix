@@ -281,6 +281,7 @@ const Sidebar = {
         ${link('status',     '/status.html',     'bi-lightning-charge', 'Status')}
         ${link('model-card', '/model-card.html', 'bi-file-text',   'Model Card')}
         <div data-admin style="display:none">${link('leads', '/leads.html', 'bi-inbox', 'Inbound Leads')}</div>
+        <div data-admin style="display:none">${link('design-partners', '/design-partners.html', 'bi-people', 'Design Partners')}</div>
         <div data-admin style="display:none">${link('admin', '/admin.html', 'bi-shield-lock', 'Users')}</div>
       </nav>
 

@@ -1389,7 +1389,7 @@ app.use('/api/whatsapp', ariaWhatsApp);
 
 // ── R-F577 (2026-05-16) — public model-card endpoints ────────────────────
 //
-// intel.arkmurus.com/model-card.html is published-by-design — it's the
+// imaria.io/model-card.html is published-by-design — it's the
 // operator's policy statement (constitution version, audit-log fingerprint,
 // adversarial baseline). The previous seenode catch-all at line 4099+
 // required auth on every /api/aria/*, breaking the public model card and
@@ -2403,6 +2403,35 @@ app.get('/api/leads', requireAdmin, async (req, res) => {
     return res.status(r.ok ? 200 : (r.status || 502)).json(data);
   } catch (e) {
     return res.status(502).json({ error: 'Could not reach the lead service.' });
+  }
+});
+
+// R-F2670 — Design partners (Phase A gate #7): frictionless operator logging.
+// Admin-only (real prospect contact details); proxies to the aria-intel tracker
+// so /design-partners.html can list + add without a raw curl. GET lists +
+// returns gate stats; POST logs one conversation.
+app.get('/api/design-partners', requireAdmin, async (req, res) => {
+  try {
+    if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'aria service unavailable' });
+    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/admin/design-partners`, { headers: _ariaHeaders() });
+    const data = await r.json().catch(() => ({}));
+    return res.status(r.ok ? 200 : (r.status || 502)).json(data);
+  } catch (e) {
+    return res.status(502).json({ error: 'Could not reach the design-partner service.' });
+  }
+});
+app.post('/api/design-partners', requireAdmin, async (req, res) => {
+  try {
+    if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'aria service unavailable' });
+    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/admin/design-partners`, {
+      method: 'POST',
+      headers: { ..._ariaHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body || {}),
+    });
+    const data = await r.json().catch(() => ({}));
+    return res.status(r.ok ? 200 : (r.status || 502)).json(data);
+  } catch (e) {
+    return res.status(502).json({ error: 'Could not reach the design-partner service.' });
   }
 });
 
@@ -5849,7 +5878,7 @@ app.get('/api/admin/env-check', requireAdmin, (req, res) => {
     ? createHash('sha256').update(token).digest('hex').slice(0, 12)
     : '';
   // R-F1286 — DROPPED the first4/last4 disclosure. This endpoint is on a PUBLIC
-  // host (intel.arkmurus.com); exposing a token's prefix+suffix narrows a brute
+  // host (imaria.io); exposing a token's prefix+suffix narrows a brute
   // force and is needless. The non-reversible sha256 fingerprint + length already
   // let a human verify the live token matches an expected value, with zero leak.
   const envState = {
@@ -6622,9 +6651,7 @@ async function start() {
     const set = new Set();
     const add = (u) => { if (u) set.add(u.replace(/\/$/, '')); };
     add(process.env.APP_URL);
-    add('https://intel.imaria.io');   // canonical production host
-    add('https://imaria.io');            // R-F2244: new primary domain (apex) — chat/socket must trust it
-    add('https://www.imaria.io');
+    add('https://imaria.io');         // R-F2655: sole canonical production host.
     add('https://aria-web.fly.dev');
     add('http://localhost:3117');
     add(`http://localhost:${port}`);
