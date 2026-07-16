@@ -119,3 +119,133 @@ def is_independently_corroborated(sources: list, *, min_origins: int = 2) -> boo
     """A claim is independently corroborated iff its sources span >= min_origins
     distinct independent origins (internal echo excluded)."""
     return count_independent_origins(sources) >= min_origins
+
+
+# =============================================================================
+# LIVE RE-FETCH — compute each cited source's CONTENT-STORY fingerprint so that
+# wire-syndicated republications of ONE story collapse to ONE independent origin.
+# This is the piece R-F2413 names ("re-fetch the cited sources") and the reason the
+# offline eval used a golden `story` field: live, we compute it here.
+# =============================================================================
+
+def content_shingles(text: str, *, shingle: int = 5, min_words: int = 20) -> frozenset:
+    """Word-shingle SET of an article body (for near-duplicate detection via Jaccard).
+
+    Returns an empty set for too-little content — such a source cannot be fingerprinted
+    and MUST NOT be treated as an independent origin (conservative: no over-count).
+    """
+    import re
+    words = re.findall(r"[a-z0-9]+", (text or "").lower())
+    if len(words) < max(shingle, min_words):
+        return frozenset()
+    return frozenset(" ".join(words[i:i + shingle]) for i in range(len(words) - shingle + 1))
+
+
+def _jaccard(a: frozenset, b: frozenset) -> float:
+    if not a or not b:
+        return 0.0
+    union = len(a | b)
+    return (len(a & b) / union) if union else 0.0
+
+
+def cluster_stories(url_shingles: dict, *, threshold: float = 0.6) -> dict:
+    """Cluster URLs whose content is near-duplicate (Jaccard >= threshold) → same story id.
+
+    Jaccard is robust to a site's differing header/footer (theunion barely grows), unlike
+    an exact hash — so wire-syndicated republications of ONE story land in ONE cluster =
+    ONE independent origin. URLs with empty shingles (too little content / failed fetch)
+    get NO story id (excluded — never counted). Deterministic (insertion order).
+    """
+    stories: dict = {}
+    reps: list = []  # (story_id, representative shingle set)
+    next_id = 0
+    for url, sh in url_shingles.items():
+        if not sh:
+            continue
+        assigned = None
+        for sid, rep in reps:
+            if _jaccard(sh, rep) >= threshold:
+                assigned = sid
+                break
+        if assigned is None:
+            assigned = f"story_{next_id}"
+            next_id += 1
+            reps.append((assigned, sh))
+        stories[url] = assigned
+    return stories
+
+
+async def refetch_story_ids(
+    urls: list, *, deadline_s: float = 60.0, fetcher=None, threshold: float = 0.6
+) -> dict:
+    """Re-fetch each URL independently, shingle its content, and CLUSTER near-duplicates →
+    {url: story_id | None}. Same story id => same underlying story => one independent
+    origin. None means the re-fetch failed or the page had too little content (excluded —
+    never counted, so it cannot create a false positive).
+
+    Best-effort + bounded by deadline_s (re-fetching is slow — the caller runs this
+    out-of-band). `fetcher(url) -> (status, text)` is injectable for testing; live it
+    defaults to citation_audit._fetch_text.
+    """
+    import time as _t
+    if fetcher is None:
+        from .citation_audit import _fetch_text as fetcher  # noqa: N806
+    url_shingles: dict = {}
+    _start = _t.time()
+    for url in list(dict.fromkeys(u for u in (urls or []) if u)):  # dedupe, keep order
+        if (_t.time() - _start) >= deadline_s:
+            break
+        try:
+            _status, _text = await fetcher(url)
+            url_shingles[url] = content_shingles(_text)
+        except Exception:
+            url_shingles[url] = frozenset()
+    stories = cluster_stories(url_shingles, threshold=threshold)
+    return {u: stories.get(u) for u in url_shingles}  # None where content was too little
+
+
+async def assess_independent_verification(
+    report: dict, *, deadline_s: float = 60.0, fetcher=None
+) -> dict:
+    """LIVE report-level independent verification of the PRESS evidence (where wire
+    syndication / echo actually happens): re-fetch each cited press URL, fingerprint its
+    content, and count DISTINCT independent origins with same-story republications
+    collapsed. Returns the metric + per-URL detail for the LIVE eval / operator review.
+
+    SAFETY (FP-rate 0): a source counts as an independent origin ONLY when it was
+    successfully re-fetched AND yielded a content fingerprint — a failed re-fetch is
+    DROPPED, never counted, so an unverifiable source can never create a false positive.
+
+    Does NOT set independent_source_verification_run — that flip stays operator-gated on
+    a reviewed live eval.
+    """
+    dig = (report or {}).get("digital") or {}
+    press = dig.get("press_coverage") or []
+    items: list[dict] = []
+    for p in press:
+        url = p.get("url") if isinstance(p, dict) else getattr(p, "url", None)
+        if url:
+            items.append({"url": url})
+    story_ids = await refetch_story_ids(
+        [it["url"] for it in items], deadline_s=deadline_s, fetcher=fetcher,
+    )
+    verified_sources: list = []
+    per_url: list[dict] = []
+    for it in items:
+        sid = story_ids.get(it["url"])
+        if sid:  # only re-fetched-and-clustered sources count as an origin
+            verified_sources.append({"domain": it["url"], "story": sid})
+        per_url.append({
+            "url": it["url"],
+            "refetched": bool(sid),
+            "origin": (origin_key({"domain": it["url"], "story": sid}) if sid else None),
+        })
+    origins = count_independent_origins(verified_sources)
+    return {
+        "press_items": len(items),
+        "refetched_ok": sum(1 for v in story_ids.values() if v),
+        "independent_press_origins": origins,
+        "press_independently_corroborated": origins >= 2,
+        "per_url": per_url,
+    }
+
