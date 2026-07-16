@@ -20435,27 +20435,30 @@
       "title": "DD reconcile restores only latest_report_id per entity — non-latest owned reports lost under storm",
       "claimed_at": "2026-07-16T10:42:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d7a6a9fc",
+      "notes": null,
+      "shipped_at": "2026-07-16T11:55:54Z"
     },
     {
       "r_number": "R-F2653",
       "title": "DD delete_report wipes SHARED per-entity vault case+cross-refs for all tenants — remove only this run",
       "claimed_at": "2026-07-16T10:42:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d7a6a9fc",
+      "notes": null,
+      "shipped_at": "2026-07-16T11:55:54Z"
     },
     {
       "r_number": "R-F2654",
       "title": "DD get_report_owner reads volatile index only — fall back to durable dd_report_owners",
       "claimed_at": "2026-07-16T10:42:30Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d7a6a9fc",
+      "notes": null,
+      "shipped_at": "2026-07-16T11:55:54Z"
     },
     {
       "r_number": "R-F2655",
@@ -20471,9 +20474,10 @@
       "title": "DD hard-deadline timeout on async path loses the partial → stuck Running 30min; persist the honest time-boxed partial",
       "claimed_at": "2026-07-16T11:19:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d7a6a9fc",
+      "notes": null,
+      "shipped_at": "2026-07-16T11:55:54Z"
     },
     {
       "r_number": "R-F2657",
@@ -20489,9 +20493,10 @@
       "title": "DD grade Grade-D on registry that ERRORED/clamped is dishonest; grade INCOMPLETE when identity/compliance layer status is error/skipped",
       "claimed_at": "2026-07-16T11:19:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d7a6a9fc",
+      "notes": null,
+      "shipped_at": "2026-07-16T11:55:55Z"
     },
     {
       "r_number": "R-F2659",
