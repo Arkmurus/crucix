@@ -8353,6 +8353,10 @@ async def _run_adverse_media_followup(
     _budget = float(_env_int("ARIA_DD_ADVERSE_FOLLOWUP_S", 180))
     try:
         from . import researcher as _res
+        # R-F2667 — pass deadline_s so the search SELF-BOUNDS and returns PARTIAL findings
+        # on a high-press entity, instead of being cancelled by the wait_for (which lost
+        # every finding + recorded an uninformative empty error — the live-DD defect). The
+        # wait_for is now a generous BACKSTOP (deadline + 30s) that should not normally fire.
         _am_result = await asyncio.wait_for(
             _res.run_adverse_media_deep_search(
                 entity_name=entity_name,
@@ -8362,12 +8366,16 @@ async def _run_adverse_media_followup(
                 years_back=10,
                 max_templates=30,
                 max_results_per_template=5,
+                deadline_s=_budget,
             ),
-            timeout=_budget,
+            timeout=_budget + 30.0,
         )
     except Exception as _e:  # noqa: BLE001 — recorded honestly, never a silent clean
+        # R-F2667 — INFORMATIVE error (str(TimeoutError()) is '' → the old empty message).
+        _reason = "timed out" if isinstance(_e, asyncio.TimeoutError) else f"{type(_e).__name__}: {str(_e)[:150]}"
         _am_result = {
-            "error": str(_e)[:200],
+            "status": "incomplete",
+            "error": f"adverse-media deep search {_reason} (budget {int(_budget)}s)",
             "framework_version": "R-F2657 async follow-up",
             "trigger": trigger_reason,
         }

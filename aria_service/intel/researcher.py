@@ -4248,6 +4248,7 @@ async def run_adverse_media_deep_search(
     years_back: int = 10,
     max_templates: int = 30,
     max_results_per_template: int = 6,
+    deadline_s: float | None = None,
 ) -> dict:
     """Execute the adverse-media discipline deeply, not just superficially.
 
@@ -4326,11 +4327,22 @@ async def run_adverse_media_deep_search(
     findings: list[dict] = []
     coverage_by_class: dict[str, int] = {}
     breaker_skips = 0
+    _templates_done = 0
+    _timed_out = False
 
     # Execute templates sequentially with brief throttle to avoid
     # tripping per-host breakers unnecessarily. Full parallel would be
     # faster but riskier on backend rate-limits.
     for tmpl in templates_to_run:
+        # R-F2667 — self-bounding deadline. On a high-press entity this 30-template
+        # sequential search can exceed the caller's budget; STOP here and return the
+        # PARTIAL findings gathered so far (honest partial adverse-media) instead of being
+        # cancelled by an outer wait_for and losing everything (the live-DD defect where a
+        # BAE Systems follow-up timed out at 180s → 0 findings + an empty error message).
+        if deadline_s is not None and (time.time() - started) >= deadline_s:
+            _timed_out = True
+            break
+        _templates_done += 1
         query = tmpl.get("query", "")
         if not query:
             continue
@@ -4387,9 +4399,13 @@ async def run_adverse_media_deep_search(
     return {
         "ok": True,
         "entity": entity_name,
-        "templates_run": len(templates_to_run),
+        "templates_run": _templates_done,  # R-F2667: ACTUAL templates executed
         "templates_total_in_set": total_templates,
         "templates_capped_at": max_templates,
+        # R-F2667 — True when the deadline stopped the search early; findings below are a
+        # PARTIAL (honest) result, not the full sweep.
+        "partial": _timed_out,
+        "timed_out": _timed_out,
         "findings": findings,
         "findings_count": len(findings),
         "coverage_by_class": coverage_by_class,
