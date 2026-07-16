@@ -262,6 +262,13 @@ class VerificationSection:
     conflicts: list[dict] = field(default_factory=list)
     grounded_rate: Optional[float] = None
     unverified_claim_count: int = 0
+    # R-F2662 — independent-corroboration signal (step toward full independent
+    # verification). Fraction of material claims backed by >=2 DISTINCT EXTERNAL
+    # origins — ARIA's own internal memory/RAG never counts (grounded_rate does count
+    # it, over-stating grounding). This does NOT set independent_source_verification_run
+    # (that still requires full re-fetch re-verification, R-F2413).
+    independent_corroboration_rate: Optional[float] = None
+    independent_corroborated_count: int = 0
     confidence_floor: str = "ASSESSED"
     findings: list[Finding] = field(default_factory=list)
     data_gaps: list[str] = field(default_factory=list)

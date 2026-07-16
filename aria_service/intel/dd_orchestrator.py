@@ -6036,6 +6036,63 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
     report.digital.meta.status = LayerStatus.OK.value
 
 
+# R-F2662 — ARIA's OWN compute / memory / RAG. NEVER an independent external witness;
+# counting it (as grounded_rate does) over-states corroboration. Pass-2 caught that the
+# analysis engines (ghost_scorer / network_walker / tech_classifier) are ARIA's own
+# compute, NOT external sources — they belong here.
+_INTERNAL_VERIFY_SOURCES = frozenset({
+    "aria_knowledge", "neural_memory", "memory", "rag", "internal",
+    "ghost_scorer", "network_walker", "tech_classifier", "risk_indices", "press",
+})
+
+# Named DISTINCT external authorities — each is a genuinely independent origin (a
+# different registry / a specific sanctions list / a specific country-risk index). Two
+# of these corroborate a claim independently. Anything NOT here (press publisher strings,
+# unclassified labels) collapses to a single 'external_unclassified' group, so ambiguous
+# / same-family / wire-syndicated sources can NEVER OVER-count as independent — moat-safe
+# (undercounts press until a v2 does real domain/family-modelling via verified_intel).
+_KNOWN_INDEPENDENT_AUTHORITIES = frozenset({
+    "companies_house", "sec_edgar", "gleif", "opencorporates",
+    "transparency_intl_cpi", "basel_aml_index", "fatf", "worldbank_wgi", "oecd_crc",
+})
+
+
+def _claim_independence_group(source: str) -> str:
+    """R-F2662 — map a triangulation source label to its INDEPENDENCE ORIGIN, CONSERVATIVELY.
+
+    - ARIA's own compute / memory / RAG → 'internal' (never independent).
+    - a NAMED distinct external authority (registry / a specific sanctions list / a
+      specific country-risk index) → its own origin.
+    - anything else (press publisher labels, unclassified) → one 'external_unclassified'
+      group, so we NEVER over-claim independence we cannot verify from a bare label.
+    Deliberately conservative: it undercounts rather than risk a false corroboration.
+    """
+    s = (source or "").strip().lower()
+    if (s in _INTERNAL_VERIFY_SOURCES
+            or s.startswith(("rag:", "neural", "aria_", "ghost", "network_", "tech_classifier"))):
+        return "internal"
+    if s.startswith("sanctions:") or s in _KNOWN_INDEPENDENT_AUTHORITIES:
+        return s  # a specific, named, independent external authority
+    return "external_unclassified"
+
+
+def _independent_corroboration(triangulated: list[dict]) -> tuple[int, "float | None"]:
+    """R-F2662 — count claims backed by >=2 DISTINCT EXTERNAL origins (internal echo
+    excluded). Returns (independently_corroborated_count, rate). Also stamps each claim
+    with independent_source_count so the report can show WHICH claims are corroborated.
+    Pure/synchronous; a step toward — NOT — full independent re-verification (R-F2413)."""
+    if not triangulated:
+        return 0, None
+    _ok = 0
+    for t in triangulated:
+        _groups = {_claim_independence_group(s) for s in (t.get("sources") or [])}
+        _groups.discard("internal")
+        t["independent_source_count"] = len(_groups)
+        if len(_groups) >= 2:
+            _ok += 1
+    return _ok, round(_ok / len(triangulated), 2)
+
+
 async def _run_verification(target: dict, report: ARKDDReport) -> None:
     """Layer 3 — Source triangulation + conflict detection (NOT
     independent source verification).
@@ -6166,6 +6223,15 @@ async def _run_verification(target: dict, report: ARKDDReport) -> None:
         report.verification.grounded_rate = round(grounded / len(triangulated), 2)
     else:
         report.verification.grounded_rate = None
+
+    # R-F2662 — independent-corroboration signal: fraction of claims backed by >=2
+    # DISTINCT EXTERNAL origins (ARIA's own memory/RAG never counts). Stricter + honester
+    # than grounded_rate; a genuine step toward independent verification. Does NOT flip
+    # independent_source_verification_run — that still requires full re-fetch re-check
+    # (R-F2413), so the honest scope flag below stays as source_verifier sets it.
+    _indep_count, _indep_rate = _independent_corroboration(triangulated)
+    report.verification.independent_corroborated_count = _indep_count
+    report.verification.independent_corroboration_rate = _indep_rate
 
     # Conflict detection — look for contradictions in ghost score
     # classification vs country risk headline
