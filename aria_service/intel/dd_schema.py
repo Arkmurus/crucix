@@ -976,7 +976,17 @@ def _quality_metrics(r: dict) -> dict:
         citation_rate = citations_grounded / max(citations_checked, 1)
     adverse_run = bool(adverse and adverse.get("ok") is True)
     adverse_findings = int(adverse.get("findings_count") or len(adverse.get("findings") or []) or 0)
-    adverse_skipped = bool(adverse.get("skipped") or adverse.get("error")) if adverse else True
+    # R-F2657 — the adverse-media search now runs as an OUT-OF-BAND follow-up; while it is
+    # still deferred (status=="in_progress") it has NOT run yet. Treat pending as NOT-RUN
+    # for grading, so a triggered target cannot reach Grade A on adverse-media grounds
+    # until the follow-up actually merges real findings (and a follow-up lost on restart
+    # stays honestly penalised, never over-graded).
+    _adverse_pending = bool(adverse.get("status") == "in_progress") if isinstance(adverse, dict) else False
+    adverse_skipped = (
+        (not adverse)
+        or _adverse_pending
+        or bool(adverse.get("skipped") or adverse.get("error"))
+    )
     sanctions_screen = ident.get("sanctions_screen") or {}
     sanctions_unavailable = bool(
         sanctions_screen.get("source_unavailable")

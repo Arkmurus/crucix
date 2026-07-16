@@ -8259,6 +8259,84 @@ async def _build_run_diagnostics(report: "ARKDDReport", target: dict, mode: str)
     return _diag
 
 
+# R-F2657 — strong refs so the fire-and-forget follow-up tasks are not GC'd mid-flight
+# (anti-hallucination law #12 / R-F1363: a task with no live reference never executes).
+_AM_FOLLOWUP_TASKS: set = set()
+
+
+async def _run_adverse_media_followup(
+    run_id: str,
+    *,
+    entity_name: str,
+    director_names: list,
+    ubo_names: list,
+    sectors: list,
+    trigger_reason: str,
+) -> None:
+    """R-F2657 — run the adverse-media deep search OUT OF BAND (after the main DD has
+    already delivered its verdict) and MERGE the findings into the persisted report.
+
+    Decoupled from the 660s DD budget so this 30×5×10y search no longer competes with
+    synthesis for the final seconds on slow/sparse targets. Gets its OWN bounded budget
+    (ARIA_DD_ADVERSE_FOLLOWUP_S, default 180s). Best-effort + never raises: on failure
+    the report's adverse_media is left honestly marked (error), never a false clean.
+    Merges ONLY the adverse_media field of the stored blob (read-modify-write), so it
+    cannot corrupt the verdict or any other section.
+    """
+    from . import redis_store as rs
+    _budget = float(_env_int("ARIA_DD_ADVERSE_FOLLOWUP_S", 180))
+    try:
+        from . import researcher as _res
+        _am_result = await asyncio.wait_for(
+            _res.run_adverse_media_deep_search(
+                entity_name=entity_name,
+                director_names=list(director_names or [])[:3],
+                ubo_names=list(ubo_names or [])[:2],
+                sectors=list(sectors or []) or ["defence"],
+                years_back=10,
+                max_templates=30,
+                max_results_per_template=5,
+            ),
+            timeout=_budget,
+        )
+    except Exception as _e:  # noqa: BLE001 — recorded honestly, never a silent clean
+        _am_result = {
+            "error": str(_e)[:200],
+            "framework_version": "R-F2657 async follow-up",
+            "trigger": trigger_reason,
+        }
+    # Merge ONLY adverse_media into the stored blob (read-modify-write).
+    try:
+        _body = await get_report(run_id)
+        if isinstance(_body, dict):
+            _body["adverse_media"] = _am_result
+            await rs.set_json(REPORT_REDIS_KEY.format(run_id=run_id), _body, ex=REPORT_TTL_SECONDS)
+            logger.info(
+                "[R-F2657] adverse-media follow-up merged for %s: %d findings (%s-trigger)",
+                run_id, _am_result.get("findings_count", 0), trigger_reason,
+            )
+        else:
+            logger.debug("[R-F2657] follow-up: report %s not found to merge into", run_id)
+    except Exception as _me:
+        logger.debug("[R-F2657] adverse-media follow-up merge failed for %s: %s", run_id, _me)
+
+
+def _launch_adverse_media_followup(report: "ARKDDReport") -> None:
+    """R-F2657 — if the DD marked adverse-media in_progress, launch the out-of-band
+    follow-up (detached, GC-safe). Called by orchestrate_dd AFTER the report is
+    persisted so the merge targets a stored blob. Never blocks / never raises."""
+    try:
+        _amf = getattr(report, "_am_followup", None)
+        _rid = getattr(report, "run_id", None)
+        if not (_amf and _rid):
+            return
+        _t = asyncio.create_task(_run_adverse_media_followup(_rid, **_amf))
+        _AM_FOLLOWUP_TASKS.add(_t)
+        _t.add_done_callback(_AM_FOLLOWUP_TASKS.discard)
+    except Exception as _e:
+        logger.debug("[R-F2657] could not launch adverse-media follow-up: %s", _e)
+
+
 async def orchestrate_dd(
     target: dict,
     *,
@@ -8321,6 +8399,11 @@ async def orchestrate_dd(
             await _finalize_dd_run(_rep, hard_deadline_hit=False)
         except Exception:
             pass
+        # R-F2657 — the report + verdict are now persisted; launch the adverse-media deep
+        # search out of band (detached) so it enriches the STORED report without ever
+        # having competed with synthesis for the 660s budget. Only fires when _impl marked
+        # it in_progress (triggered targets); a no-op otherwise.
+        _launch_adverse_media_followup(_rep)
         return _rep
     except asyncio.TimeoutError:
         _name = str(target.get("name") or target.get("entity") or target.get("query") or "the target")
@@ -9705,24 +9788,21 @@ async def _orchestrate_dd_impl(
         # overrun for sparse targets, because AMBER / <60%-coverage (exactly an
         # NGO/website with no registry footprint) trigger it. Bound it to the
         # overall budget: skip if the budget is spent, else cap the call.
-        _am_budget = _overall_deadline - time.time()
-        if _am_triggered and _am_budget < 20.0:
-            logger.warning(
-                "[R-F1572] adverse-media deep search SKIPPED for %s — overall "
-                "budget exhausted (%.0fs left); report is time-boxed",
-                report.identity.entity_name or "?", _am_budget,
-            )
-            try:
-                report.adverse_media = {
-                    "skipped": "overall_budget_exhausted",
-                    "framework_version": "R-F1572 time-box",
-                }
-            except Exception:
-                pass
-        _should_run_am = _am_triggered and _am_budget >= 20.0
-        if _should_run_am:
-            from . import researcher as _res
-            # Pull director/UBO names from the network layer if present
+        # R-F2657 — adverse-media deep search is now DECOUPLED from the 660s budget.
+        # It used to run INLINE here (a 30×5×10y search), competing with synthesis for the
+        # last seconds on slow/sparse targets — the EXACT population that triggers it — so
+        # it either starved the verdict or got budget-skipped on the runs that needed it
+        # most. Now: mark it in_progress, gather the inputs (which need report/network state
+        # only available here), and let orchestrate_dd kick off an OUT-OF-BAND follow-up
+        # AFTER the report is persisted. The follow-up runs with its OWN budget and MERGES
+        # the findings into the stored report — a triggered target gets a fast verdict AND
+        # the adverse-media depth, without either starving the other.
+        _trigger_reason = (
+            "RED" if _risk_for_am in ("RED", "HARD_STOP", "NO-GO")
+            else f"AMBER ({_risk_for_am})" if _risk_for_am.startswith("AMBER")
+            else f"low-coverage ({_coverage_pct:.0f}%)"
+        )
+        if _am_triggered:
             _director_names: list[str] = []
             _ubo_names: list[str] = []
             try:
@@ -9736,45 +9816,34 @@ async def _orchestrate_dd_impl(
                         _ubo_names.append(_name)
             except Exception:
                 pass
-            # Sector hint from target dict
             _sectors: list[str] = []
             _sec_hint = (target.get("sector") or "").lower()
             if _sec_hint:
                 _sectors.append(_sec_hint)
-            # If commodity entity detected earlier, add commodity sector tag
             try:
                 if report.discipline_coverage and report.discipline_coverage.get("commodity_classification"):
-                    _sectors.append("oil")  # generic commodity hint for trade-press templates
+                    _sectors.append("oil")  # commodity hint for trade-press templates
             except Exception:
                 pass
             if not _sectors:
                 _sectors = ["defence"]  # ARIA's default vertical
-            _am_result = await asyncio.wait_for(
-                _res.run_adverse_media_deep_search(
-                    entity_name=report.identity.entity_name,
-                    director_names=_director_names[:3],  # cap to 3 to bound search cost
-                    ubo_names=_ubo_names[:2],            # cap to 2
-                    sectors=_sectors,
-                    years_back=10,
-                    max_templates=30,
-                    max_results_per_template=5,
-                ),
-                timeout=min(_am_budget, 240.0),  # R-F1572: never exceed the budget
-            )
-            report.adverse_media = _am_result
-            # R-F300 follow-up: log now reflects R-F300 expanded triggers
-            # (AMBER variants + low-coverage), not just RED.
-            _trigger_reason = (
-                "RED" if _risk_for_am in ("RED", "HARD_STOP", "NO-GO")
-                else f"AMBER ({_risk_for_am})" if _risk_for_am.startswith("AMBER")
-                else f"low-coverage ({_coverage_pct:.0f}%)"
-            )
+            report.adverse_media = {
+                "status": "in_progress",
+                "framework_version": "R-F2657 async follow-up",
+                "trigger": _trigger_reason,
+            }
+            # Stashed for orchestrate_dd to launch the follow-up after persist. ARKDDReport
+            # tolerates undeclared attrs (cf. rep.time_boxed at the hard-deadline path).
+            report._am_followup = {  # type: ignore[attr-defined]
+                "entity_name": report.identity.entity_name,
+                "director_names": _director_names[:3],  # bound search cost
+                "ubo_names": _ubo_names[:2],
+                "sectors": _sectors,
+                "trigger_reason": _trigger_reason,
+            }
             logger.info(
-                "[R-F160/F300] adverse-media deep search (%s-trigger): %d findings across %d source classes in %.1fs",
-                _trigger_reason,
-                _am_result.get("findings_count", 0),
-                len(_am_result.get("coverage_by_class", {}) or {}),
-                _am_result.get("execution_time_seconds", 0),
+                "[R-F2657] adverse-media deep search DEFERRED to follow-up for %s (%s-trigger)",
+                report.identity.entity_name or "?", _trigger_reason,
             )
     except Exception as _am_err:
         logger.debug("[R-F160] adverse-media deep search failed (non-fatal): %s", _am_err)

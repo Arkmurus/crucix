@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2660,
+  "next_available": 2662,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20502,6 +20502,24 @@
       "r_number": "R-F2659",
       "title": "repair source uptime stale and seed urls",
       "claimed_at": "2026-07-16T11:49:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2660",
+      "title": "gate #2 honest grader: reading loops credit regional mastery via hardcoded correct=True (participation trophy) -> honest recall grade",
+      "claimed_at": "2026-07-16T12:07:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2661",
+      "title": "gate #2 honesty follow-up: R-F196 article->regional mastery (student.py:1581) also credits correct=True for reading — honest-grade it (cost-guarded for per-article volume)",
+      "claimed_at": "2026-07-16T12:09:48Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
