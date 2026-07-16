@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2670,
+  "next_available": 2671,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20582,9 +20582,10 @@
       "title": "R-F2657 adverse-media follow-up timeout: uninformative empty error + no partial results on high-press entities",
       "claimed_at": "2026-07-16T13:08:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ac77e1f0",
+      "notes": null,
+      "shipped_at": "2026-07-16T13:50:47Z"
     },
     {
       "r_number": "R-F2668",
@@ -20600,6 +20601,15 @@
       "r_number": "R-F2669",
       "title": "C-3 v2: real independent-verification classifier (domain-family + content-story dedup) — closes wire-syndication FP + multi-publisher FN; earns R-F2413 via eval",
       "claimed_at": "2026-07-16T13:27:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2670",
+      "title": "frictionless design-partner logging: operator /design-partners.html page (form+list+gate progress) mirroring /leads.html — gate #7",
+      "claimed_at": "2026-07-16T13:50:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
