@@ -96,6 +96,14 @@ async def test_brave_escalation_credits_cell_free_stack_missed(monkeypatch):
     calls: list = []
     monkeypatch.setattr(student, "update_regional_mastery", _spy_update(calls))
 
+    # R-F2660: crediting now gates on an HONEST recall grade. This test isolates
+    # the Brave-escalation MECHANIC (a missed cell gets sourced + reaches the
+    # credit path), so stub the grader to PASS; grade gating is covered by
+    # test_rf2660.
+    async def _grade_pass(*a, **k):
+        return True
+    monkeypatch.setattr("aria_service.autonomous.tasks._grade_researched_cell", _grade_pass)
+
     # ── Act: drive the real crediting path with the injectable explore ──────────
     result = await student._study_weak_regional_cells(explore=_fake_explore, max_cells=1)
 

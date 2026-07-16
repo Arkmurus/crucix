@@ -47,12 +47,19 @@ async def test_rf2283_throughput_and_grounded_lift(monkeypatch):
         calls.append((list(topics), list(regions), correct))
     monkeypatch.setattr(student, "update_regional_mastery", _spy)
 
+    # R-F2660: crediting now gates on an HONEST recall grade, not a participation
+    # trophy. This test isolates the throughput + grounded-lift MECHANIC, so stub
+    # the grader to PASS; the grade gating itself is covered by test_rf2660.
+    async def _grade_pass(*a, **k):
+        return True
+    monkeypatch.setattr("aria_service.autonomous.tasks._grade_researched_cell", _grade_pass)
+
     studied = await student._study_weak_regional_cells(explore=_explore)
 
     # (1) throughput bump: 6 articles/cell requested
     assert seen.get("max_results") == 6, seen
     assert seen.get("cost_free") is True
-    # (2) grounded content → cell credited correct=True (the measured lift call)
+    # (2) grounded content + PASSING honest grade → cell credited correct=True
     assert (["competitor_intel"], ["southern_africa"], True) in calls, calls
     assert any(x["topic"] == "competitor_intel" and x["region"] == "southern_africa"
                for x in studied), studied

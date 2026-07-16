@@ -1314,16 +1314,43 @@ async def _study_weak_regional_cells(
                         logger.debug("[student] R-F1744 kb store failed: %s", _kse)
 
             if _stored and _grounded:
-                await update_regional_mastery(
-                    [_topic], [_region], correct=True, weight=0.3,
-                )
+                # R-F2660 — HONEST grade, not a participation trophy. Storing
+                # grounded facts improved COVERAGE; regional MASTERY (Phase A
+                # gate #2) only moves on a REAL recall grade: can the local
+                # reasoning stack actually ANSWER about this cell and overlap
+                # what we just read? Pre-R-F2660 this hardcoded correct=True, so
+                # the ~9.6x/day reading loop measured reading VOLUME, not
+                # comprehension (CLAUDE.md §1). Reuse the ONE honest grader the
+                # tasks.py research bridge already uses (autonomous/tasks.py) so
+                # both paths grade identically. A False grade (knowledge didn't
+                # take yet) correctly does NOT lift the cell — §1: close gate #2
+                # by grounded improvement, never by crediting the act of reading.
+                _research_text = " ".join(
+                    str(_ctx or _val) for (_val, _ctx) in (_url_facts or [])
+                )[:4000]
+                _graded = None
+                try:
+                    from ..autonomous.tasks import _grade_researched_cell as _grade_cell
+                    _graded = await _grade_cell(_topic, _region, _research_text)
+                    await update_regional_mastery(
+                        [_topic], [_region], correct=_graded, weight=0.3,
+                    )
+                except Exception as _ge:
+                    # Grader/import failed → do NOT fabricate a pass; skip the
+                    # mastery move entirely (an unmeasured cell must not be
+                    # credited correct=True — the exact bug this fixes).
+                    logger.debug(
+                        "[student] R-F2660 honest grade skipped for %s:%s: %s",
+                        _topic, _region, _ge,
+                    )
                 regional_studied.append({
                     "topic": _topic, "region": _region, "stored": _stored,
-                    "via_brave": _via_brave,
+                    "via_brave": _via_brave, "graded_correct": _graded,
                 })
                 logger.info(
-                    "[student] R-F1744 lifted gate-2 cell %s:%s (read %d grounded facts, brave=%s)",
-                    _topic, _region, _stored, _via_brave,
+                    "[student] R-F2660 gate-2 cell %s:%s read %d grounded facts "
+                    "(brave=%s) -> honest mastery grade=%s",
+                    _topic, _region, _stored, _via_brave, _graded,
                 )
             else:
                 # R-F1947/R-F2392: a cell still NOT credited AFTER the Brave

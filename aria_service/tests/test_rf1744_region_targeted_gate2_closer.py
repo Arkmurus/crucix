@@ -76,6 +76,13 @@ async def test_reading_session_lifts_weak_regional_cell(monkeypatch):
         return await real_update(topics, regions, correct, weight)
     monkeypatch.setattr(student, "update_regional_mastery", _spy_update)
 
+    # R-F2660: the R-F1744 lift now gates on an HONEST recall grade (was hardcoded
+    # correct=True). This test verifies the reading_session→lift MECHANIC end-to-end,
+    # so stub the grader to PASS; the grade gating itself is covered by test_rf2660.
+    async def _grade_pass(*a, **k):
+        return True
+    monkeypatch.setattr("aria_service.autonomous.tasks._grade_researched_cell", _grade_pass)
+
     # ── Act ────────────────────────────────────────────────────────────────
     result = await student.reading_session(num_articles=2)
 
