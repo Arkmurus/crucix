@@ -543,11 +543,14 @@ def _wire_judge_result(result: dict) -> None:
         
         if status == "judge_failed":
             from . import capability_gaps as _cg
-            _cg.record_gap(
+            # R-F2680: record_gap is a coroutine — schedule it (matching the
+            # sibling branch below). A bare call orphaned the coroutine, so the
+            # "honesty judge is broken" gap was silently dropped.
+            asyncio.ensure_future(_cg.record_gap(
                 gap_type="honesty_judge_failure",
                 detail=f"Honesty judge failed: {result.get('error', 'unknown')[:200]}",
                 source="honesty_judge.judge_response",
-            )
+            ))
         elif status == "ok" and score is not None and score < 1.0:
             from . import capability_gaps as _cg
             asyncio.ensure_future(_cg.record_gap(
