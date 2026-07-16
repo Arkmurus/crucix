@@ -202,3 +202,38 @@ async def test_rf2659_health_flags_stale_last_run(monkeypatch):
     assert out["stale"] is True
     assert out["freshness"]["reason"] == "stale_last_run"
     assert out["last_run_age_seconds"] > out["stale_after_seconds"]
+
+
+async def test_rf2678_unsuspend_verifies_persistence(monkeypatch):
+    suspended = {"de_bafa"}
+
+    async def _get_suspended():
+        return set(suspended)
+
+    async def _set_suspended(names):
+        suspended.clear()
+        suspended.update(names)
+        return True
+
+    monkeypatch.setattr(m, "_get_suspended", _get_suspended)
+    monkeypatch.setattr(m, "_set_suspended", _set_suspended)
+
+    out = await m.unsuspend("de_bafa")
+
+    assert out["ok"] is True
+    assert out["changed"] is True
+    assert "de_bafa" not in suspended
+
+
+async def test_rf2678_unsuspend_reports_persistence_failure(monkeypatch):
+    monkeypatch.setattr(m, "_get_suspended", _areturn({"de_bafa"}))
+
+    async def _set_suspended(_names):
+        return False
+
+    monkeypatch.setattr(m, "_set_suspended", _set_suspended)
+
+    out = await m.unsuspend("de_bafa")
+
+    assert out["ok"] is False
+    assert "persist" in out["error"]

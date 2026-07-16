@@ -282,19 +282,23 @@ async def _get_suspended() -> set[str]:
         return set()
 
 
-async def _set_suspended(names: set[str]) -> None:
+async def _set_suspended(names: set[str]) -> bool:
     try:
         from . import redis_store as rs
         await rs.set_json(_K_SUSPENDED, sorted(names))
+        return True
     except Exception as e:
         logger.debug("[uptime_monitor] set_suspended failed: %s", e)
+        return False
 
 
 async def suspend(source: str, reason: str = "manual") -> dict:
     """Manually suspend a source."""
     names = await _get_suspended()
     names.add(source)
-    await _set_suspended(names)
+    persisted = await _set_suspended(names)
+    if persisted is False:
+        return {"ok": False, "error": "failed to persist suspended source", "source": source}
     try:
         from . import brain_hook as _bh
         await _bh.absorb(
@@ -310,15 +314,20 @@ async def suspend(source: str, reason: str = "manual") -> dict:
     except Exception:
         pass
     logger.warning("[uptime_monitor] SUSPENDED %s — %s", source, reason)
-    return {"suspended": source, "reason": reason}
+    return {"ok": True, "suspended": source, "reason": reason}
 
 
 async def unsuspend(source: str) -> dict:
     names = await _get_suspended()
-    if source in names:
-        names.remove(source)
-        await _set_suspended(names)
-    return {"unsuspended": source}
+    if source not in names:
+        return {"ok": True, "unsuspended": source, "changed": False}
+    names.remove(source)
+    persisted = await _set_suspended(names)
+    if persisted is False:
+        return {"ok": False, "error": "failed to persist unsuspended source", "source": source}
+    if source in await _get_suspended():
+        return {"ok": False, "error": "unsuspend verification failed", "source": source}
+    return {"ok": True, "unsuspended": source, "changed": True}
 
 
 async def is_suspended(source: str) -> bool:
