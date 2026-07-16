@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2652,
+  "next_available": 2656,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20429,6 +20429,42 @@
       "commit_sha": "809501b1",
       "notes": null,
       "shipped_at": "2026-07-16T10:31:42Z"
+    },
+    {
+      "r_number": "R-F2652",
+      "title": "DD reconcile restores only latest_report_id per entity — non-latest owned reports lost under storm",
+      "claimed_at": "2026-07-16T10:42:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2653",
+      "title": "DD delete_report wipes SHARED per-entity vault case+cross-refs for all tenants — remove only this run",
+      "claimed_at": "2026-07-16T10:42:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2654",
+      "title": "DD get_report_owner reads volatile index only — fall back to durable dd_report_owners",
+      "claimed_at": "2026-07-16T10:42:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2655",
+      "title": "retire intel arkmurus domain",
+      "claimed_at": "2026-07-16T10:50:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

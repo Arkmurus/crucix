@@ -10597,6 +10597,23 @@ async def get_report_owner(run_id: str) -> dict | None:
                 "user_email_domain": entry.get("user_email_domain"),
                 "share_to_company": entry.get("share_to_company", True),
             }
+    # R-F2654 — the index is VOLATILE (a row is dropped under the R-F2277 write
+    # storm, or aged past the cap). Fall back to the DURABLE dd_report_owners table
+    # (the SAME source list_reports:11242 and the reconcile:10972 already trust), so
+    # a same-company colleague is not wrongly 404'd on a SHARED report whose index
+    # row was evicted. Fail-closed: still returns None (owner-less) when the durable
+    # table has no owner either — an owner-less run stays owner-less.
+    try:
+        from .dd_vault import get_vault as _get_dd_vault
+        _owner = _get_dd_vault().get_report_owner(run_id)
+        if _owner and _owner.get("user_id"):
+            return {
+                "user_id": _owner.get("user_id"),
+                "user_email_domain": _owner.get("user_email_domain"),
+                "share_to_company": _owner.get("share_to_company", True),
+            }
+    except Exception as _e:
+        logger.debug("get_report_owner vault fallback failed for %s: %s", run_id, _e)
     return None
 
 
@@ -10964,31 +10981,50 @@ async def list_reports(
         _ff_uid, _ff_dom = _dd_legacy_owner_fallback()
         _additions: list[dict] = []
         for case in (vault.list_all(limit=max(limit, 200)) or []):
-            _rid = (case.get("latest_report_id") or "").strip()
-            if not _rid or _rid in _existing_runs:
-                continue  # already represented — no owner lookup needed
-            _owner = None
+            # R-F2652 — restore EVERY run in the case (latest AND previous), not only
+            # latest_report_id. A user's OWN run that is no longer the entity's latest
+            # (a colleague later re-ran the same entity, demoting it to a previous id)
+            # would otherwise be lost forever once its index row is dropped under the
+            # R-F2277 storm — absent from the case-file listing here. Restored rows are
+            # collapsed to latest-per-entity in the list view (_collapse_index), so this
+            # recovers reachability WITHOUT spamming the list. Previous runs carry the
+            # case-level metadata (the report BODY, when opened, has the real content).
+            _case_runs: list[str] = []
+            _latest_rid = (case.get("latest_report_id") or "").strip()
+            if _latest_rid:
+                _case_runs.append(_latest_rid)
             try:
-                _owner = vault.get_report_owner(_rid)
+                for _p in json.loads(case.get("previous_report_ids") or "[]"):
+                    if isinstance(_p, str) and _p.strip():
+                        _case_runs.append(_p.strip())
             except Exception:
+                pass
+            for _rid in _case_runs:
+                if _rid in _existing_runs:
+                    continue  # already represented — no owner lookup needed
                 _owner = None
-            _own_uid = (_owner or {}).get("user_id") or case.get("user_id") or _ff_uid
-            _own_dom = (_owner or {}).get("user_email_domain") or case.get("user_email_domain") or _ff_dom
-            _own_share = (_owner or {}).get("share_to_company", True) if _owner else True
-            _additions.append({
-                "run_id": _rid,
-                "entity_name": case.get("entity_name", "unknown"),
-                "entity_type": case.get("entity_type", "company"),
-                "jurisdiction": case.get("jurisdiction", ""),
-                "user_id": _own_uid,
-                "user_email_domain": _own_dom,
-                "share_to_company": _own_share,
-                "canonical_entity_id": case.get("canonical_entity_id"),
-                # R-F2240 — dd_vault last_run_at is a float epoch; store ISO so the
-                # persisted index stays single-type (str) for future reads.
-                "created_at": _iso_ts(case.get("last_run_at")),
-                "severity": case.get("risk_level", "unknown"),
-            })
+                try:
+                    _owner = vault.get_report_owner(_rid)
+                except Exception:
+                    _owner = None
+                _own_uid = (_owner or {}).get("user_id") or case.get("user_id") or _ff_uid
+                _own_dom = (_owner or {}).get("user_email_domain") or case.get("user_email_domain") or _ff_dom
+                _own_share = (_owner or {}).get("share_to_company", True) if _owner else True
+                _existing_runs.add(_rid)  # a run can appear in >1 chain — restore once
+                _additions.append({
+                    "run_id": _rid,
+                    "entity_name": case.get("entity_name", "unknown"),
+                    "entity_type": case.get("entity_type", "company"),
+                    "jurisdiction": case.get("jurisdiction", ""),
+                    "user_id": _own_uid,
+                    "user_email_domain": _own_dom,
+                    "share_to_company": _own_share,
+                    "canonical_entity_id": case.get("canonical_entity_id"),
+                    # R-F2240 — dd_vault last_run_at is a float epoch; store ISO so the
+                    # persisted index stays single-type (str) for future reads.
+                    "created_at": _iso_ts(case.get("last_run_at")),
+                    "severity": case.get("risk_level", "unknown"),
+                })
         if _additions:
             def _merge_missing(idx: list) -> list:
                 _have = {
@@ -11603,7 +11639,12 @@ async def delete_report(run_id: str) -> dict:
                     if cid:
                         canonical_ids.add(cid)
         for cid in canonical_ids:
-            vault_deleted = _vault.delete_case(cid) or vault_deleted
+            # R-F2653 — remove ONLY this run from the (tenant-SHARED) entity case;
+            # delete the whole case + cross-refs only when it was the last report.
+            # The old delete_case(cid) wiped the shared dd_cases row + cross-refs for
+            # every tenant that had DD'd the entity.
+            _res = _vault.remove_report_from_case(cid, run_id)
+            vault_deleted = bool(_res.get("found")) or vault_deleted
     except Exception as e:
         logger.debug("delete_report vault cleanup failed (non-fatal): %s", e)
     # R-F2611 — STREAMLINE: when the owner deletes their LAST DD for an entity, also

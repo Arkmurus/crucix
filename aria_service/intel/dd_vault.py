@@ -455,6 +455,70 @@ class DDVault:
         conn.commit()
         return int(case_cursor.rowcount or 0) + int(ref_cursor.rowcount or 0) > 0
 
+    @fail_wire(module="dd_vault", gap_type="engine_failure")
+    def remove_report_from_case(self, canonical_entity_id: str, run_id: str) -> dict[str, Any]:
+        """R-F2653 — remove ONE report from a case WITHOUT wiping the shared entity.
+
+        dd_cases is keyed by ``canonical_entity_id`` and is SHARED across every
+        tenant that has DD'd the entity — ``latest_report_id`` and each id in
+        ``previous_report_ids`` can belong to a DIFFERENT user. ``delete_case()``
+        dropped the whole row + ALL cross-references, so one tenant deleting THEIR
+        report destroyed the case-file / version-chain / cross-refs for EVERY
+        other tenant. This removes only ``run_id``:
+          - if it is the latest, promote the newest previous run to latest;
+          - else drop it from ``previous_report_ids``;
+          - only when NO reports remain is the case (and its cross-references)
+            deleted — matching the old delete for a genuine last-report delete.
+
+        Returns ``{found, case_deleted, remaining_reports}``.
+        """
+        conn = self._get_conn()
+        existing = self.get_case(canonical_entity_id)
+        if not existing:
+            return {"found": False, "case_deleted": False, "remaining_reports": 0}
+        latest = (existing.get("latest_report_id") or "").strip()
+        try:
+            prev = [p for p in json.loads(existing.get("previous_report_ids") or "[]")
+                    if isinstance(p, str) and p.strip()]
+        except Exception:
+            prev = []
+
+        if run_id != latest and run_id not in prev:
+            # run_id is not part of this case — never touch a shared row we don't own a slot in.
+            return {"found": False, "case_deleted": False,
+                    "remaining_reports": (1 if latest else 0) + len(prev)}
+
+        if run_id == latest:
+            # previous_report_ids is appended oldest→newest by record_case (:160-162),
+            # so the tail is the newest prior run — promote it to latest.
+            new_latest = prev.pop() if prev else ""
+        else:
+            prev = [p for p in prev if p != run_id]
+            new_latest = latest
+
+        remaining = (1 if new_latest else 0) + len(prev)
+        if remaining == 0:
+            # genuinely the entity's LAST report → same effect as delete_case.
+            conn.execute("DELETE FROM dd_cases WHERE canonical_entity_id = ?", (canonical_entity_id,))
+            conn.execute(
+                "DELETE FROM dd_cross_references WHERE source_entity = ? OR target_entity = ?",
+                (canonical_entity_id, canonical_entity_id),
+            )
+            conn.commit()
+            return {"found": True, "case_deleted": True, "remaining_reports": 0}
+
+        conn.execute(
+            """UPDATE dd_cases SET
+                 latest_report_id = ?,
+                 previous_report_ids = ?,
+                 run_count = MAX(1, run_count - 1),
+                 updated_at = ?
+               WHERE canonical_entity_id = ?""",
+            (new_latest, json.dumps(prev[-20:]), time.time(), canonical_entity_id),
+        )
+        conn.commit()
+        return {"found": True, "case_deleted": False, "remaining_reports": remaining}
+
     # ── Cross-references ─────────────────────────────────────────────────
 
     @fail_wire(module="dd_vault", gap_type="engine_failure")
