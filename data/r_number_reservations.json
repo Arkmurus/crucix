@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2649,
+  "next_available": 2652,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20400,6 +20400,33 @@
       "commit_sha": "1a170a7b",
       "notes": null,
       "shipped_at": "2026-07-16T09:30:27Z"
+    },
+    {
+      "r_number": "R-F2649",
+      "title": "Cycle 5 verdict pull: verify+serve aria_llm_grpo_v5 adapter, objective eval + gate",
+      "claimed_at": "2026-07-16T09:38:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2650",
+      "title": "DD re-run stuck on Running — auto-poll suspended while report detail open (dd-reports.html)",
+      "claimed_at": "2026-07-16T09:48:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2651",
+      "title": "DD report page never-false-clean — surface run_diagnostics (layers run/skipped/errored) so failed layers dont read as clean",
+      "claimed_at": "2026-07-16T09:48:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

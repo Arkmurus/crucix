@@ -790,6 +790,67 @@ function removeDeletedReport(runId) {
 // R-F2293 — shared re-run helper: carries identifying context (jurisdiction /
 // entity_type / mode) so a re-run screens the SAME entity, and gives Toast
 // feedback (the async job appears in the list once it completes).
+// R-F2650 — clear any OPEN report detail + its stale `_expandedRow` reference.
+// loadReports()/renderTable() rebuild the row DOM but never reset `_expandedRow`,
+// so a re-run started from inside an open report detail left `_expandedRow`
+// pointing at a now-detached node — still truthy — and the auto-poll guard in
+// scheduleRunningRefresh (`if (_expandedRow) { … return; }`) therefore SUSPENDED
+// the 8s refresh FOREVER. The new "Running" row then never flipped to its verdict
+// until a manual page reload reset `_expandedRow` to null. Collapsing on re-run
+// resumes the poll so the row reconciles automatically.
+function collapseOpenDetail() {
+  if (!_expandedRow) return;
+  try {
+    _expandedRow.classList.remove('expanded');
+    _expandedRow.setAttribute('aria-expanded', 'false');
+    const next = _expandedRow.nextElementSibling;
+    if (next && next.classList.contains('dd-detail-row')) next.remove();
+  } catch (_e) { /* detached node — nulling the ref below is what matters */ }
+  _expandedRow = null;
+}
+
+// R-F2651 — never-false-clean COVERAGE panel. The report already carries
+// `run_diagnostics` (dd_orchestrator._build_run_diagnostics: which layers ran vs
+// were skipped, registry hit/miss + reason, search/Brave state, mode requested vs
+// executed) but the page NEVER showed it — so a run where layers were skipped, the
+// registry missed, or search returned nothing looked as complete as a full one.
+// Surfacing it makes "what actually ran" auditable so an empty-but-incomplete
+// report cannot read as an all-clear.
+function renderRunDiagnostics(rd) {
+  if (!rd || typeof rd !== 'object') return '';
+  const parts = [];
+  const L = rd.layers || {};
+  if (L.count_run != null || L.count_skipped != null) {
+    let s = '<b>' + (L.count_run || 0) + '</b> checks ran';
+    if (L.count_skipped) {
+      s += ' &nbsp;·&nbsp; <b style="color:#fbbf24">' + L.count_skipped + ' skipped</b>';
+      if (Array.isArray(L.skipped) && L.skipped.length) s += ' (' + L.skipped.slice(0, 12).map(escText).join(', ') + ')';
+    }
+    parts.push(s);
+  }
+  const R = rd.registry || {};
+  if (R.attempted) {
+    parts.push('Registry ' + (R.result === 'hit'
+      ? '<b style="color:#34d399">matched</b>' + (R.adapter ? ' (' + escText(String(R.adapter)) + ')' : '')
+      : '<b style="color:#fbbf24">no match</b>' + (R.reason ? ' — ' + escText(String(R.reason).slice(0, 120)) : '')));
+  }
+  const S = rd.search || {};
+  if (S && S.brave) {
+    const b = S.brave;
+    const live = b.configured && !b.globally_disabled;
+    parts.push('Web search ' + (live ? '<b style="color:#34d399">live</b>'
+      : '<b style="color:#fbbf24">' + (b.configured ? 'configured (disabled)' : 'not configured') + '</b>'));
+  }
+  const M = rd.mode || {};
+  if (M && M.requested) parts.push('Mode ' + escText(String(M.executed || M.requested))
+    + (M.auto_escalated ? ' <span style="color:var(--sc-muted)">(auto-escalated from ' + escText(String(M.requested)) + ')</span>' : ''));
+  if (!parts.length) return '';
+  const incomplete = !!(rd.layers && rd.layers.count_skipped);
+  return '<div class="dd-section ' + (incomplete ? 'dd-section-warn' : 'dd-section-info') + '">'
+    + '<div class="dd-section-head"><span class="status-icon">🧭</span>Run coverage — what actually ran</div>'
+    + '<div class="dd-section-body dd-run-coverage" style="font-size:12.5px;line-height:1.8">' + parts.join(' &nbsp;·&nbsp; ') + '</div></div>';
+}
+
 async function startRerun(btn, ctx) {
   const orig = btn.innerHTML;
   // R-F2351 — the tiny 30px row chip can't hold a "Running…" label (it spilled outside the
@@ -820,6 +881,10 @@ async function startRerun(btn, ctx) {
         ctx && ctx.name,
       );
       Toast.show('Re-run started for ' + (rerunEntityName || 'the selected entity') + '. It appears below as Running', 'info', 6000);
+      // R-F2650 — collapse the (now-stale) open report detail BEFORE re-rendering the
+      // list, so `_expandedRow` is null and scheduleRunningRefresh keeps polling → the
+      // new Running row flips to its verdict automatically (no manual refresh needed).
+      collapseOpenDetail();
       // R-F2471 — show the running row IMMEDIATELY, resilient to a dropped server index write.
       addOptimisticRunning(started, rerunEntityName, ctx);
       await loadReports(true);  // R-F2472 — silent: no skeleton flash on re-run
@@ -955,13 +1020,34 @@ async function toggleDetail(row, runId) {
     const sevPill = (sev) => { const m = _sevMap[sev] || _sevMap.info; return '<span style="background:'+m[0]+';color:'+m[1]+';font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:.03em;white-space:nowrap;flex:0 0 auto">'+m[2]+'</span>'; };
     const fmtSource = (f) => { const src = (f.sources && f.sources.length ? f.sources.join(', ') : (f.source||'')); const conf = f.confidence ? (src?' · ':'')+f.confidence : ''; const dem = f.gate_demoted ? ' <span title="'+escAttr(f.gate_reason)+'" style="color:#b45309">(confidence demoted)</span>' : ''; if (!src && !conf) return ''; return '<div style="font-size:11px;color:var(--sc-muted);margin-top:3px">'+(src?'Source: '+escText(src):'')+escText(conf)+dem+'</div>'; };
     const renderSection = (sec) => {
-      const sc = sec.status==='ok'?'dd-section-ok':sec.status==='error'?'dd-section-err':(sec.status==='warn'||sec.status==='degraded')?'dd-section-warn':'dd-section-info';
+      // R-F2651 — the FULL backend LayerStatus enum (dd_schema.py:42-48):
+      // ok / partial / skipped / error / prereq_fail / degraded. The pre-fix code
+      // matched a phantom 'warn' and let partial/skipped/prereq_fail fall through
+      // to the neutral "info" style — so an errored, skipped, or prerequisite-
+      // missing layer looked exactly like a clean one. Every non-ok status is now
+      // both STYLED and BANNER-flagged so absence of findings is never an all-clear.
+      const st = (sec.status || 'ok').toLowerCase();
+      const _STATUS = {
+        ok:          { cls: 'dd-section-ok',   banner: '' },
+        error:       { cls: 'dd-section-err',  banner: '⚠ This check did NOT complete (ERROR)' },
+        prereq_fail: { cls: 'dd-section-err',  banner: '⚠ PREREQUISITE MISSING — this check could not run (zero signal)' },
+        skipped:     { cls: 'dd-section-warn', banner: '⊘ This check was SKIPPED — it did not run' },
+        partial:     { cls: 'dd-section-warn', banner: '◐ PARTIAL — this check did not fully complete' },
+        degraded:    { cls: 'dd-section-warn', banner: '◐ DEGRADED — a prerequisite was missing; results are self-reported / unverified' },
+      };
+      const _si = _STATUS[st] || { cls: 'dd-section-info', banner: '' };
+      const sc = _si.cls;
       let h = '<div class="dd-section '+sc+'"><div class="dd-section-head"><span class="status-icon">'+escText(sec.icon||'')+'</span>'+escText(sec.title);
       if (sec.subcalls) h += '<span style="margin-left:auto;font-size:11px;color:var(--sc-muted);font-weight:400">'+sec.subcalls+' checks</span>';
       h += '</div><div class="dd-section-body">';
+      // R-F2651 — never-false-clean: a layer that did not fully/honestly run must SAY SO.
+      if (_si.banner) {
+        const _emsg = sec.error ? ' — ' + escText(String(sec.error).slice(0,200)) : '';
+        h += '<div class="dd-layer-incomplete" style="background:rgba(245,158,11,.12);border:1px solid #b45309;border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:12px;color:#fbbf24"><b>'+_si.banner+'</b>'+_emsg+' · absence of findings here is NOT an all-clear.</div>';
+      }
       if (sec.highlights && sec.highlights.length) { h += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'; for (const hl of sec.highlights) h += '<span style="background:rgba(148,163,184,.12);border:1px solid var(--sc-border,#334155);border-radius:6px;padding:3px 9px;font-size:12px"><span style="color:var(--sc-muted)">'+escText(hl.label)+'</span> <b>'+escText(hl.value)+'</b></span>'; h += '</div>'; }
       if (sec.findings && sec.findings.length) { for (const f of sec.findings) { h += '<div style="padding:7px 0;border-top:1px solid var(--sc-border,#26324a)"><div style="display:flex;gap:8px;align-items:flex-start">'+sevPill(f.severity)+'<div style="flex:1;min-width:0"><div style="font-weight:600">'+escText(f.title)+'</div>'+(f.detail?'<div style="font-size:12.5px;color:var(--sc-text,#cbd5e1);margin-top:2px;line-height:1.5">'+escText(f.detail)+'</div>':'')+fmtSource(f)+'</div></div></div>'; } }
-      else if (!(sec.highlights&&sec.highlights.length) && !(sec.evidence&&sec.evidence.length)) { h += '<div style="color:var(--sc-muted);font-size:12.5px">No findings recorded.</div>'; }
+      else if (!(sec.highlights&&sec.highlights.length) && !(sec.evidence&&sec.evidence.length)) { h += '<div style="color:var(--sc-muted);font-size:12.5px">' + (st==='ok' ? 'No findings recorded.' : 'No findings captured — but this check did not fully run (see status above); this is NOT an all-clear.') + '</div>'; }
       if (sec.evidence && sec.evidence.length) { h += '<div style="margin-top:9px"><div style="font-size:11px;color:var(--sc-muted);margin-bottom:3px">Cited sources</div>'; for (const ev of sec.evidence) h += '<div style="font-size:12px;margin:2px 0"><a href="'+escAttr(safeHref(ev.url))+'" target="_blank" rel="noopener" style="color:#60a5fa;word-break:break-all">'+escText(ev.source||ev.url)+'</a>'+(ev.tier?' <span style="color:var(--sc-muted)">['+escText(ev.tier)+']</span>':'')+'</div>'; h += '</div>'; }
       if (sec.data_gaps && sec.data_gaps.length) { h += '<div style="margin-top:9px;font-size:12px;color:#f59e0b"><i class="bi bi-exclamation-triangle"></i> Gaps: '+sec.data_gaps.map(escText).join('; ')+'</div>'; }
       h += '</div></div>'; return h;
@@ -1010,6 +1096,7 @@ async function toggleDetail(row, runId) {
     // R-F2331: render each structured section in the backend's decision-first order.
     detailHtml += '<div class="dd-md">';
     if (sv.recommendation) detailHtml += '<div class="dd-recommendation"><i class="bi bi-flag-fill"></i> <b>Recommendation:</b> ' + escText(sv.recommendation) + '</div>';
+    detailHtml += renderRunDiagnostics(sv.run_diagnostics);   // R-F2651 — coverage before findings
     for (const sec of sections) { detailHtml += renderSection(sec); }
     if (sv.next_actions && sv.next_actions.length) detailHtml += '<div class="dd-section dd-section-info"><div class="dd-section-head"><span class="status-icon">✅</span>Recommended next actions</div><div class="dd-section-body"><ul style="margin:0;padding-left:18px">' + sv.next_actions.map(a=>'<li>'+escText(a)+'</li>').join('') + '</ul></div></div>';
     if (sv.data_gaps_summary && sv.data_gaps_summary.length) detailHtml += '<div class="dd-section dd-section-warn"><div class="dd-section-head"><span class="status-icon">⚠️</span>Data gaps</div><div class="dd-section-body"><ul style="margin:0;padding-left:18px">' + sv.data_gaps_summary.map(g=>'<li>'+escText(g)+'</li>').join('') + '</ul></div></div>';
