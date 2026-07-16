@@ -23,6 +23,8 @@ _DEAD_FRAGMENTS = [
     "thedrive.com/the-war-zone",       # The War Zone moved to twz.com
     "qinetiq.com/en/news",             # QinetiQ news path 404s
     "https://www.helsing.ai/news",     # Helsing moved newsroom path
+    "www.dfat.gov.au/international-relations/security/sanctions",
+    "https://www.gem.gov.in/",
 ]
 
 
@@ -47,6 +49,8 @@ def test_rf2269_replacements_present():
         "qinetiq_press": "https://www.qinetiq.com/",
         "helsing_press": "https://helsing.ai/newsroom",
         "macauhub": "https://www.macaubusiness.com/",
+        "au_dfat_sanctions": "https://sanctions.dfat.gov.au/",
+        "in_gem": "https://www.india.gov.in/services/details/explore-business-opportunities-on-government-e-marketplace-gem",
     }
     for name, url in expected.items():
         assert byname.get(name) == url, f"{name} should be {url}, got {byname.get(name)}"

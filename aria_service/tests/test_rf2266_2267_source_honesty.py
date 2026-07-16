@@ -126,6 +126,31 @@ async def test_rf2675_ping_one_readtimeout_uses_light_get(monkeypatch):
     assert res["status"] == 200
 
 
+async def test_rf2679_get_first_source_does_not_call_head(monkeypatch):
+    """GET-live sources with broken HEAD must not be failed before content fetch."""
+    class _Resp:
+        status_code = 200
+
+    class _Client:
+        def __init__(self, *a, **k):
+            self.calls = []
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def head(self, *a, **k):
+            self.calls.append("HEAD")
+            raise AssertionError("GET-first source should not issue HEAD")
+        async def get(self, *a, **k):
+            self.calls.append("GET")
+            return _Resp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    res = await m._ping_one({"name": "kr_dapa", "url": "https://www.dapa.go.kr/dapa_en/main.do"})
+
+    assert res["ok"] is True
+    assert res["classification"] == "up"
+    assert res["status"] == 200
+
+
 # ── R-F2266 end-to-end: blocked sources count as UP and are NOT suspended ─────
 async def test_rf2266_blocked_sources_not_suspended(monkeypatch):
     srcs = [{"name": f"Blocked{i}", "url": f"https://blocked{i}.gov/"} for i in range(3)]

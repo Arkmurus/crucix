@@ -70,6 +70,19 @@ _UA = (
 # count toward the auto-suspend gate.
 _REACHABLE_BUT_BLOCKED = {401, 403, 405, 406, 429, 451}
 
+# R-F2679 — these origins are live with GET but intermittently fail or hang on
+# HEAD from Fly/datacenter egress. A HEAD-first probe turns working sources into
+# false ConnectTimeout/ReadError/RemoteProtocolError rows, so use GET as the
+# primary liveness check for these named curated sources.
+_GET_FIRST_SOURCES = {
+    "de_handelsregister",
+    "gfi",
+    "kr_dapa",
+    "kr_koneps",
+    "the_war_zone",
+    "un_oda",
+}
+
 
 def _classify_ping(status: int | None, exc_name: str | None) -> tuple[bool, str]:
     """Honest reachability verdict for one ping.
@@ -193,20 +206,23 @@ async def _ping_one(source: dict, client: httpx.AsyncClient | None = None) -> di
             ) as owned_client:
                 return await _ping_one(source, client=owned_client)
 
-        # HEAD first — cheap. Many sites lie on HEAD (ABR/QinetiQ return HEAD
-        # 404 while GET 200). Confirm any non-success HEAD with GET before
-        # judging the URL dead.
-        try:
-            r = await client.head(url, headers=_headers)  # no-ssrf-check: URL is from the curated defence_source_seed catalogue, not user input
-            if r.status_code >= 400:
-                r = await client.get(url, headers=_headers)  # no-ssrf-check: curated catalogue URL, not user input
-        except httpx.ReadTimeout:
-            # DFAT hangs on browser-style Accept headers but answers a simple
-            # GET quickly. Keep this narrow to ReadTimeout so ConnectTimeout
-            # sources like GeM do not get a second long network wait.
-            r = await client.get(url, headers=_light_headers)  # no-ssrf-check: curated catalogue URL, not user input
-        except Exception:
+        # HEAD first is cheap for most sources. Some origins are proven
+        # GET-only in practice (R-F2679), so skip HEAD for those to avoid false
+        # transport failures while still using the same honest classifier.
+        if name in _GET_FIRST_SOURCES:
             r = await client.get(url, headers=_headers)  # no-ssrf-check: curated catalogue URL, not user input
+        else:
+            try:
+                r = await client.head(url, headers=_headers)  # no-ssrf-check: URL is from the curated defence_source_seed catalogue, not user input
+                if r.status_code >= 400:
+                    r = await client.get(url, headers=_headers)  # no-ssrf-check: curated catalogue URL, not user input
+            except httpx.ReadTimeout:
+                # DFAT hangs on browser-style Accept headers but answers a simple
+                # GET quickly. Keep this narrow to ReadTimeout so ConnectTimeout
+                # sources like GeM do not get a second long network wait.
+                r = await client.get(url, headers=_light_headers)  # no-ssrf-check: curated catalogue URL, not user input
+            except Exception:
+                r = await client.get(url, headers=_headers)  # no-ssrf-check: curated catalogue URL, not user input
         latency_ms = int((time.time() - t0) * 1000)
         reachable, classification = _classify_ping(r.status_code, None)
         return {
