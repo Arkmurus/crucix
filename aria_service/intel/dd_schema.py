@@ -999,6 +999,19 @@ def _quality_metrics(r: dict) -> dict:
         or ident.get("shareholders")
     )
     identity_authority = bool(registry_substance or sanctions_screen.get("verified_sources"))
+    # R-F2658 — did the identity/registry layer actually RUN, or did it error / get
+    # clamped under load? A missing registry substance means "genuinely thin entity"
+    # ONLY when the layer ran cleanly (status ok/partial). If it errored / was skipped /
+    # its prerequisites failed, the emptiness is a FAILED CHECK, not a thin entity — and
+    # the grade must say so (never-false-clean) instead of a bare Grade D. Read the
+    # LayerStatus already persisted on the section meta (dd_schema LayerStatus enum).
+    _ident_status = str(((ident.get("meta") or {}).get("status") or "ok")).lower()
+    _comp_status = str(((comp.get("meta") or {}).get("status") or "ok")).lower()
+    _incomplete_states = ("error", "skipped", "prereq_fail")
+    registry_incomplete = (
+        not registry_substance
+        and (_ident_status in _incomplete_states or _comp_status in _incomplete_states)
+    )
     return {
         "press_total": press_total,
         "verified_sources": verified_sources,
@@ -1018,6 +1031,7 @@ def _quality_metrics(r: dict) -> dict:
         "sanctions_source_unavailable": sanctions_unavailable,
         "export_control_checked": export_checked,
         "confidence_gate_triggered": bool((r or {}).get("confidence_gate_triggered")),
+        "registry_incomplete": registry_incomplete,
     }
 
 
@@ -1112,11 +1126,26 @@ def _dd_quality_assessment(r: dict) -> dict:
     # must reflect that. Cap below the C floor (50) → Grade D.
     if metrics.get("confidence_gate_triggered"):
         score = min(score, 40)
+    grade = _quality_grade(score, blockers)
+    # R-F2658 — never-false-clean on the GRADE. A Grade D means "we ran the identity /
+    # registry checks and the evidence is genuinely thin". If instead that layer ERRORED
+    # or was CLAMPED under load (registry_incomplete), the low grade reflects a FAILED
+    # CHECK, not a thin entity — so a real company is not mislabelled Grade D purely from
+    # timing. Relabel the GRADE ONLY to INCOMPLETE; confidence_gate_triggered, the AMBER
+    # verdict bump, and the R-F409 re-run all stay untouched (an errored registry SHOULD
+    # still bump to AMBER and SHOULD trigger a re-run). Bounded to the low grades where
+    # the incomplete registry is what pinned the score.
+    if metrics.get("registry_incomplete") and grade in ("D", "C"):
+        grade = "INCOMPLETE"
+        blockers = [
+            "identity/registry check did not complete (errored or clamped) — grade "
+            "WITHHELD, not a thin-evidence verdict; re-run may resolve"
+        ] + blockers
     public_metrics = dict(metrics)
     public_metrics.pop("adverse_media_skipped", None)
     public_metrics.pop("has_search_degradation_gap", None)
     return {
-        "grade": _quality_grade(score, blockers),
+        "grade": grade,
         "score": score,
         "blocking_reasons": blockers,
         "metrics": public_metrics,

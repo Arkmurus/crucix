@@ -8354,6 +8354,38 @@ async def orchestrate_dd(
             )
         except Exception:
             pass
+        # R-F2656 — DELIVER the honest partial. On the async fire-and-poll path
+        # (routes/aria.py:1013) _bg_dd DISCARDS this return value, and _persist_report
+        # never ran (it lives inside the _impl coroutine that wait_for just cancelled).
+        # So WITHOUT this, the state_store keeps the mark_dd_running placeholder → the
+        # poller sees "running" until the R-F2300 reconcile marks it 'failed' ~30 min
+        # later, throwing away every completed layer. Persist the time-boxed AMBER-LIGHT
+        # partial (bounded) so the poll returns a real, honest briefing now; if even that
+        # fails, clear the stuck 'running' state so it never hangs. Still inside the
+        # ~15-min async push window (hard≈810s + ≤25s).
+        if run_id:
+            try:
+                await asyncio.wait_for(_persist_report(rep), timeout=25.0)
+            except Exception as _pe:
+                logger.warning(
+                    "[R-F2656] hard-deadline partial persist did not complete for %s: %s",
+                    run_id, _pe,
+                )
+                # Pass-2 edge: _persist_report writes the report BODY early (rs.set_json)
+                # then does non-critical awaits (watchlist/metrics/VLS). If one of THOSE
+                # hangs past 25s the body may already be persisted — do NOT clobber a
+                # deliverable partial with 'failed'. Only clear the stuck 'running'
+                # placeholder when the body genuinely did not land.
+                _landed = None
+                try:
+                    _landed = await asyncio.wait_for(get_report(run_id), timeout=5.0)
+                except Exception:
+                    _landed = None
+                if not (isinstance(_landed, dict) and _landed.get("risk_classification")):
+                    try:
+                        await mark_dd_failed(run_id, "hard deadline reached before the report could persist")
+                    except Exception:
+                        pass
         # §25 — a slow DD is a self-heal trigger; tell the brain (best-effort, bounded).
                 # R-F1912: wire DD hard-deadline to brain (lightweight, not absorb)
         try:

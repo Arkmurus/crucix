@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2656,
+  "next_available": 2659,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20461,6 +20461,33 @@
       "r_number": "R-F2655",
       "title": "retire intel arkmurus domain",
       "claimed_at": "2026-07-16T10:50:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2656",
+      "title": "DD hard-deadline timeout on async path loses the partial → stuck Running 30min; persist the honest time-boxed partial",
+      "claimed_at": "2026-07-16T11:19:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2657",
+      "title": "DD adverse-media starved by leftover-budget; reserve it UPFRONT inside the 660s (not the hard margin) for triggered targets",
+      "claimed_at": "2026-07-16T11:19:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2658",
+      "title": "DD grade Grade-D on registry that ERRORED/clamped is dishonest; grade INCOMPLETE when identity/compliance layer status is error/skipped",
+      "claimed_at": "2026-07-16T11:19:45Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
