@@ -129,16 +129,28 @@ def _portal_registration_enabled() -> bool:
     )
 
 
-def _singleton_task(factory, name: str) -> "asyncio.Task | None":
+def _singleton_task(factory, name: str, *, respawn: bool = True) -> "asyncio.Task | None":
     """R-F2073 — start a SINGLETON background loop, but ONLY on a process that
     owns the singletons (engine / all-in-one). On a 'web' role process the loop
     is skipped (logged once) so N web workers never each run it. Mirrors
     _bg_task registration so the bg supervisor can still respawn it on the
-    engine process. `factory` is the zero-arg coroutine function for the loop."""
+    engine process. `factory` is the zero-arg coroutine function for the loop.
+
+    R-F2668 — `respawn`: when False, the task is NOT registered with the bg
+    supervisor. Use for ONE-SHOT startup tasks (e.g. the boot-time knowledge
+    seed) that run once and RETURN. The supervisor only knows "not done() = live"
+    (see _bg_supervisor_tick) — it cannot tell a clean one-shot completion from a
+    crash, so a respawn-registered one-shot gets re-spawned on every NORMAL
+    completion until it hits _BG_MAX_RESPAWNS and emits the R-F1610 'NEEDS
+    OPERATOR' ERROR, which reset the gate-#3 streak on every boot. Genuine
+    while-True loops keep respawn=True (the default) so real crashes still heal."""
     if not _runs_singletons():
         logger.info("[R-F2073] singleton loop '%s' SKIPPED (ARIA_ROLE=%s)", name, _aria_role())
         return None
-    return _bg_task(asyncio.create_task(factory(), name=name), factory=factory)
+    return _bg_task(
+        asyncio.create_task(factory(), name=name),
+        factory=(factory if respawn else None),
+    )
 
 
 def _engine_election_enabled() -> bool:
@@ -3661,7 +3673,11 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("[Knowledge Seed] unhandled error (non-fatal): %s", e)
 
-    knowledge_seed_task = _singleton_task(_seed_knowledge_bg, "seed_knowledge")  # R-F2073 singleton (writes shared knowledge store)
+    # R-F2668 — ONE-SHOT (runs run_knowledge_seed once and RETURNS): respawn=False so
+    # its normal completion is not mistaken for a crash and re-spawned to the R-F1610
+    # 'NEEDS OPERATOR' ERROR that reset the gate-#3 streak every boot. Keeps the R-F2073
+    # singleton lock (web-role skip); just does not register for supervisor re-spawn.
+    knowledge_seed_task = _singleton_task(_seed_knowledge_bg, "seed_knowledge", respawn=False)
 
     # ── R-F803 (2026-05-22): autonomous self-coder boot ───────────────────
     # ARIACoder + GapDetector. R-F996: coder is ALWAYS enabled when ARIA_INTERNAL_TOKEN is set.
