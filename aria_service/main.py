@@ -4646,212 +4646,28 @@ async def phase_gates():
     Every gate value reads from a live probe — NOT from CLAUDE.md or any
     human-edited document. Editing markdown does NOT change these values.
 
-    Gates:
-      #1 Composite >= 71%  — from compute_composite()
-      #2 Heatmap floor >= 70% — from student.get_regional_heatmap()
-      #3 0 fly ERRORs/7d — from mistake_ledger (WARNING-level, not ERROR)
-      #4 Quarantined DDs closed — from dd_case_archive
-      #5 Env vars set — from os.environ probe
-      #6 500-Q eval frozen — from eval_runner.get_golden_set()
-      #7 >=4 design-partner convos — from operator_pending (manual)
+    R-F2639: this endpoint no longer MEASURES anything. It renders
+    intel.phase_gates.compute_phase_gates() — the one canonical measure that
+    /api/aria/phase/gates also renders. Two aggregators previously disagreed
+    per-gate (the fork served the vacuous gate-#3 pass R-F2622 killed, and
+    closed operator-owned gate #7 from ARIA's own chat sessions). Do NOT
+    re-add measurement logic here: one measure, one verdict.
     """
+    from .intel.phase_gates import compute_phase_gates
+
+    result = await compute_phase_gates()
+    # Render the canonical records into this endpoint's historical shape:
+    # dict keyed by gate key, with `source` rather than `evidence`.
     gates = {}
-    sources = {}
-
-    # Gate #1: Composite >= 71%
-    try:
-        from .intel.autonomy_scorer import compute_composite
-        comp = await compute_composite()
-        cs = comp.get("composite_score")
-        gates["gate_1_composite"] = {
-            "label": "Composite >= 71%",
-            "value": cs,
-            "pass": cs is not None and cs >= 0.71,
-            "source": "compute_composite()",
-            "confidence": comp.get("confidence"),
-            "low_confidence": comp.get("low_confidence", True),
-        }
-        sources["composite"] = "compute_composite()"
-    except Exception as e:
-        gates["gate_1_composite"] = {"label": "Composite >= 71%", "value": None, "pass": False, "error": str(e)}
-        sources["composite"] = f"error: {e}"
-
-    # Gate #2: Heatmap floor >= 70%
-    try:
-        from .intel import student as _s1892
-        hm_data = await _s1892.get_regional_heatmap()
-        hm = (hm_data or {}).get("heatmap", {}) or {}
-        all_scores = [s for regions in hm.values() for s in regions.values()]
-        floor = min(all_scores) if all_scores else None
-        breach = (hm_data or {}).get("floor_breach_cells", []) or []
-        gates["gate_2_heatmap_floor"] = {
-            "label": "Heatmap floor >= 70%",
-            "value": floor,
-            "pass": floor is not None and floor >= 0.70,
-            "source": "student.get_regional_heatmap()",
-            "floor_breach_cells": breach,
-        }
-        sources["heatmap"] = "student.get_regional_heatmap()"
-    except Exception as e:
-        gates["gate_2_heatmap_floor"] = {"label": "Heatmap floor >= 70%", "value": None, "pass": False, "error": str(e)}
-        sources["heatmap"] = f"error: {e}"
-
-    # Gate #3: 0 fly ERRORs/7d.
-    #
-    # R-F2375 (H6) correctly refused to fabricate here: the old reader looked up
-    # mistake_ledger keys (errors_24h/total_24h) that do NOT exist → -1 sentinel
-    # → a silent fail-by-default that read as "measured 0-errors: FAILED". It
-    # reported `measurable: False` instead, noting that a true ERROR/7d count
-    # "needs a windowed source". That was the honest call at the time.
-    #
-    # R-F2622 (2026-07-15) BUILDS that windowed source, so the gate becomes
-    # measurable: error_streak now derives the streak from a durable, TTL-less,
-    # never-trimmed anchor written at record_error() time, and reports pass ONLY
-    # when 7 clean days can be PROVEN (else pass=False + insufficient_history).
-    # Read it here so the aggregator and the canonical endpoint
-    # (/api/aria/health/error-streak, R-F969) can never disagree — one measure,
-    # one verdict.
-    #
-    # NOTE: this reader must stay HONEST. compute_error_streak returns pass=False
-    # when the streak is unproven; do not "helpfully" coerce that to True/None.
-    # The whole point of R-F2622 is that absence of evidence is not evidence of
-    # cleanliness — that assumption is what made gate #3 self-certifying for two
-    # months.
-    try:
-        from .intel import redis_store as _rs1643
-        from .intel import error_streak as _es1643
-        _err_total_raw = await _rs1643.get("crucix:aria:error_ledger:count")
-        try:
-            _err_total = int(_err_total_raw) if _err_total_raw is not None else None
-        except (TypeError, ValueError):
-            _err_total = None
-        _streak = await _es1643.compute_error_streak()
-        # A store-layer read failure (StoreReadError under state_store
-        # saturation) means the streak could not be MEASURED — that is not the
-        # same as a measured failure. Reporting `measurable: true, pass: false`
-        # there would read as "we measured it and it failed", which is the
-        # mirror of R-F560's sin: asserting a verdict the data doesn't support.
-        # Keep R-F2375's distinction — unmeasurable stays unmeasurable.
-        _streak_err = _streak.get("error")
-        gates["gate_3_zero_errors"] = {
-            "label": "0 fly ERRORs/7d",
-            "value": _streak.get("consecutive_clean_days"),
-            "pass": None if _streak_err else _streak.get("phase_a_gate_3_pass"),
-            "measurable": not _streak_err,
-            "measure_error": _streak_err,
-            "streak_basis": _streak.get("streak_basis"),
-            "insufficient_history": _streak.get("insufficient_history"),
-            "clean_since": _streak.get("clean_since"),
-            "gate_blocked_reason": _streak.get("gate_blocked_reason"),
-            "error_ledger_total_all_time": _err_total,
-            "note": "R-F2622: MEASURED from the durable error-streak anchor — the "
-                    "windowed source R-F2375 said was missing. pass=true requires "
-                    "7 PROVEN clean days; an unproven streak reports "
-                    "insufficient_history, never an assumed pass.",
-            "source": "error_streak.compute_error_streak() (R-F2622 anchor)",
-        }
-        sources["errors"] = "error_streak.compute_error_streak() (R-F2622)"
-    except Exception as e:
-        gates["gate_3_zero_errors"] = {"label": "0 fly ERRORs/7d", "value": None, "pass": None, "measurable": False, "error": str(e)}
-        sources["errors"] = f"error: {e}"
-
-    # Gate #4: Quarantined DDs closed. R-F2375 (H6): the old reader looked up
-    # dd_case_archive keys (quarantined/open) that do NOT exist → -1 sentinel →
-    # silent fail-by-default. The REAL source (the one the /api/aria/phase/gates
-    # fork uses) is the redis list crucix:aria:dd:quarantined — empty = no open
-    # quarantined DDs = closed.
-    try:
-        from .intel import redis_store as _rs1643b
-        _quar = await _rs1643b.get_json("crucix:aria:dd:quarantined") or []
-        _qn = len(_quar) if isinstance(_quar, list) else 0
-        gates["gate_4_quarantine_closed"] = {
-            "label": "Quarantined DDs closed",
-            "value": _qn,
-            "pass": _qn == 0,
-            "source": "redis: crucix:aria:dd:quarantined",
-        }
-        sources["quarantine"] = "redis: crucix:aria:dd:quarantined"
-    except Exception as e:
-        gates["gate_4_quarantine_closed"] = {"label": "Quarantined DDs closed", "value": None, "pass": None, "measurable": False, "error": str(e)}
-        sources["quarantine"] = f"error: {e}"
-
-    # Gate #5: Env vars set
-    try:
-        import os as _os1643
-        required_vars = ["ARIA_OUTPUT_HARVEST_ENABLED", "ARIA_AUTONOMOUS_ENABLED"]
-        # ACLED is deferred per operator 2026-06-07 — not checked here
-        var_status = {}
-        for v in required_vars:
-            val = _os1643.environ.get(v, "")
-            var_status[v] = {"set": bool(val), "value": val[:20] if val else None}
-        all_set = all(v["set"] for v in var_status.values())
-        gates["gate_5_env_vars"] = {
-            "label": "Env vars set",
-            "value": var_status,
-            "pass": all_set,
-            "note": "ACLED deferred per operator 2026-06-07 (MVP launch)",
-            "source": "os.environ",
-        }
-        sources["env_vars"] = "os.environ"
-    except Exception as e:
-        gates["gate_5_env_vars"] = {"label": "Env vars set", "value": None, "pass": False, "error": str(e)}
-        sources["env_vars"] = f"error: {e}"
-
-    # Gate #6: 500-Q eval frozen
-    try:
-        from .intel import eval_runner as _er1643
-        items = await _er1643.get_golden_set()
-        count = len(items)
-        gates["gate_6_eval_frozen"] = {
-            "label": "500-Q eval frozen",
-            "value": count,
-            "target": 500,
-            "pass": count >= 500,
-            "source": "eval_runner.get_golden_set()",
-        }
-        sources["eval"] = "eval_runner.get_golden_set()"
-    except Exception as e:
-        gates["gate_6_eval_frozen"] = {"label": "500-Q eval frozen", "value": None, "pass": False, "error": str(e)}
-        sources["eval"] = f"error: {e}"
-
-    # Gate #7: >=4 design-partner convos
-    # R-F1987: reads from DesignPartnerTracker store instead of operator_pending.
-    try:
-        from .intel.design_partner_tracker import get_tracker as _dpt
-        _dpt_stats = _dpt().stats()
-        gates["gate_7_design_partners"] = {
-            "label": ">=4 design-partner convos",
-            "value": _dpt_stats["total"],
-            "target": 4,
-            "pass": _dpt_stats["gate_pass"],
-            "by_status": _dpt_stats["by_status"],
-            "source": "design_partner_tracker.stats()",
-        }
-        sources["design_partners"] = "design_partner_tracker.stats()"
-    except Exception as e:
-        gates["gate_7_design_partners"] = {"label": ">=4 design-partner convos", "value": None, "pass": False, "error": str(e)}
-        sources["design_partners"] = f"error: {e}"
-
-    # Summary — R-F2375 (H6): a gate whose metric is genuinely not derivable
-    # reports pass=None (measurable=False) and is EXCLUDED from the pass/fail
-    # tally, so an unmeasurable gate is never silently counted as a failure
-    # (nor a pass). all_pass is over the MEASURABLE gates only.
-    _measurable = [g for g in gates.values() if g.get("pass") is not None]
-    passed = sum(1 for g in _measurable if g.get("pass"))
-    measurable_total = len(_measurable)
-    total = len(gates)
+    for key, g in result["gates"].items():
+        rec = {k: v for k, v in g.items() if k not in ("id", "key", "title", "evidence")}
+        rec["source"] = g["evidence"]
+        gates[key] = rec
     return {
         "gates": gates,
-        "summary": {
-            "passed": passed,
-            "measurable": measurable_total,
-            "unmeasurable": total - measurable_total,
-            "total": total,
-            "all_pass": measurable_total > 0 and passed == measurable_total,
-            "generated_at": __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()),
-        },
-        "sources_consulted": sources,
-        "note": "R-F1643: every gate value reads from a live probe. Editing markdown does NOT change these values.",
+        "summary": result["summary"],
+        "sources_consulted": result["sources_consulted"],
+        "note": result["note"],
     }
 
 

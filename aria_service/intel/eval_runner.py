@@ -146,6 +146,144 @@ async def remove_golden_entry(entry_id: str) -> dict:
     return {"ok": True, "removed": entry_id, "remaining": len(new_items)}
 
 
+# ── Freeze pin — Phase A gate #6 (R-F2640) ─────────────────────────────────
+#
+# Gate #6 is "500-Q eval FROZEN". Before R-F2640 nothing measured `frozen`:
+#   * main.py's aggregator passed the gate on `len(get_golden_set()) >= 500`
+#     — that is the SIZE of a mutable, appendable list. It cannot detect a
+#     mutation at all, so it certified "frozen" for a set that was still
+#     being written to. Same class as R-F560's vacuous gate-#3 pass.
+#   * routes/aria.py's fork read `crucix:aria:eval:500q:status`.frozen — a key
+#     that NO code in the tree ever wrote, so it read {} → False → the gate was
+#     structurally UNCLOSEABLE (a fabricated FAIL, the mirror sin).
+#
+# A frozen set is one an operator has PINNED: we record the count + a content
+# hash at freeze time. The gate then passes only while the live set still
+# matches that pin. Drift (an entry added, edited, or removed) re-OPENS the
+# gate, which is the entire point of freezing an eval set — a benchmark you can
+# still edit is not a benchmark. Absence of a pin is reported as `not_frozen`,
+# never assumed either way (CLAUDE.md §1 / R-F2622).
+FREEZE_KEY = "crucix:aria:eval:500q:status"  # reuses the fork's key — now WRITTEN
+GATE_6_TARGET = 500
+
+
+def golden_set_hash(items: list[dict]) -> str:
+    """Stable content hash over the golden set.
+
+    Sorted by id so ordering churn is not drift; covers id + question +
+    expected_answer (the things that define the benchmark). Mutating any of
+    them changes the hash and therefore re-opens gate #6.
+    """
+    import hashlib
+
+    h = hashlib.sha256()
+    for it in sorted(items, key=lambda x: str(x.get("id", ""))):
+        h.update(str(it.get("id", "")).encode())
+        h.update(b"\x1f")
+        h.update(str(it.get("question", "")).encode())
+        h.update(b"\x1f")
+        h.update(str(it.get("expected_answer", "")).encode())
+        h.update(b"\x1e")
+    return h.hexdigest()
+
+
+async def freeze_golden_set(frozen_by: str = "operator", target: int = GATE_6_TARGET) -> dict:
+    """Pin the current golden set — the operator action that CAN close gate #6.
+
+    Refuses to pin a set smaller than the target: freezing 12 questions would
+    otherwise "close" a 500-Q gate.
+    """
+    items = await get_golden_set()
+    if len(items) < target:
+        return {
+            "ok": False,
+            "reason": f"golden set has {len(items)} entries — need >= {target} to freeze",
+            "count": len(items),
+            "target": target,
+        }
+    record = {
+        "frozen": True,
+        "count": len(items),
+        "hash": golden_set_hash(items),
+        "frozen_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "frozen_by": frozen_by,
+        "target": target,
+    }
+    try:
+        await rs.set_json(FREEZE_KEY, record)  # no TTL — a pin that expires is not a pin (§7)
+    except Exception as e:
+        logger.warning("freeze_golden_set persist failed: %s", e)
+        wire_failure(module="eval_runner", detail=f"freeze persist failed: {e}",
+                     source="eval_runner.freeze_golden_set")
+        return {"ok": False, "reason": str(e)}
+    wire_success(module="eval_runner",
+                 summary=f"golden set FROZEN at {len(items)} entries (gate #6 pin) by {frozen_by}")
+    return {"ok": True, **record}
+
+
+async def unfreeze_golden_set(reason: str = "") -> dict:
+    """Release the pin (deliberately re-opens gate #6)."""
+    try:
+        await rs.set_json(FREEZE_KEY, {"frozen": False, "unfrozen_reason": reason,
+                                       "unfrozen_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+    except Exception as e:
+        return {"ok": False, "reason": str(e)}
+    wire_success(module="eval_runner", summary=f"golden set UNFROZEN — gate #6 re-opens ({reason})")
+    return {"ok": True, "frozen": False}
+
+
+async def get_freeze_status() -> dict:
+    """Honest gate-#6 measurement: is the 500-Q eval set frozen AND intact?
+
+    Never raises — but never fabricates either: a store failure reports
+    measurable=False, which is NOT the same as "measured, and it is not
+    frozen" (R-F2375/R-F2622 keep that distinction).
+    """
+    try:
+        # STRICT reads (R-F1392). Both the plain get_json() and get_golden_set()
+        # swallow store failures and yield None/[] — so on a wedged store (the
+        # R-F2277 class) this function would hash an EMPTY set, mismatch the
+        # pin, and report a confident `not_frozen`/`drifted` with
+        # "golden set has 0 entries" — a definite statement about data it never
+        # read. That is the exact mirror-sin this module's docstring claims to
+        # prevent, and the except-branch below would be dead code without these.
+        record = await rs.get_json_strict(FREEZE_KEY) or {}
+        items = await rs.get_json_strict(GOLDEN_SET_KEY) or []
+    except Exception as e:
+        return {"measurable": False, "error": f"store_read_failed:{type(e).__name__}",
+                "gate_pass": None}
+    live_count = len(items)
+    if not record.get("frozen"):
+        return {
+            "measurable": True, "gate_pass": False, "frozen": False,
+            "reason": "not_frozen",
+            "live_count": live_count, "target": GATE_6_TARGET,
+            "detail": (
+                f"golden set has {live_count} entries but has never been pinned. "
+                f"Size is not frozenness — POST /api/aria/eval/golden/freeze to pin it."
+            ),
+        }
+    pinned_hash = record.get("hash")
+    live_hash = golden_set_hash(items)
+    drifted = pinned_hash != live_hash
+    pinned_count = record.get("count")
+    target = record.get("target", GATE_6_TARGET)
+    return {
+        "measurable": True,
+        "gate_pass": bool(not drifted and live_count >= target),
+        "frozen": True,
+        "drifted": drifted,
+        "reason": "drifted_from_pin" if drifted else ("below_target" if live_count < target else "frozen_and_intact"),
+        "live_count": live_count,
+        "pinned_count": pinned_count,
+        "live_hash": live_hash[:16],
+        "pinned_hash": (pinned_hash or "")[:16],
+        "frozen_at": record.get("frozen_at"),
+        "frozen_by": record.get("frozen_by"),
+        "target": target,
+    }
+
+
 async def promote_feedback_to_golden(
     feedback_id: str,
     *,

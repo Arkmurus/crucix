@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2643,
+  "next_available": 2646,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20331,6 +20331,33 @@
       "r_number": "R-F2642",
       "title": "register search_all_engines_blocked gap type — emitted at web_search.py:593 but silently rejected",
       "claimed_at": "2026-07-16T07:21:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2643",
+      "title": "gate 4 read a phantom key with no writer - permanently fabricated pass",
+      "claimed_at": "2026-07-16T07:38:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2644",
+      "title": "gap-type registry drift: 42 emitted types unregistered + CI drift guard",
+      "claimed_at": "2026-07-16T07:39:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2645",
+      "title": "ARIA_LLM_URL /v1 ambiguity class: single shared normaliser across provider/self_healing/resilience",
+      "claimed_at": "2026-07-16T07:39:08Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -3038,6 +3038,51 @@ async def eval_golden_remove_ep(entry_id: str):
     return await eval_runner.remove_golden_entry(entry_id)
 
 
+# ── Gate #6 freeze pin (R-F2640) ───────────────────────────────────────────
+# These are operator-only for free: the router's operator-token path regex
+# already covers `eval/` (see _OPERATOR_ONLY_RE) — the shared service token
+# held by aria-web/aria-wa must never pin or release the benchmark.
+
+
+class GoldenFreezeRequest(BaseModel):
+    frozen_by: str = "operator"
+    target: int = 500
+
+
+class GoldenUnfreezeRequest(BaseModel):
+    reason: str = ""
+
+
+@router.get("/eval/golden/freeze")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def eval_golden_freeze_status_ep():
+    """Gate #6 truth: is the 500-Q eval set frozen AND still intact?
+
+    Reports `not_frozen` when no pin exists and `drifted_from_pin` when the
+    live set no longer matches the pinned hash — never an assumed verdict.
+    """
+    return await eval_runner.get_freeze_status()
+
+
+@router.post("/eval/golden/freeze")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def eval_golden_freeze_ep(req: GoldenFreezeRequest):
+    """Pin the golden set — the operator action that CAN close Phase A gate #6.
+
+    Records count + content hash. After this, ANY edit to the set (add, remove,
+    reword) re-opens the gate, which is what makes the benchmark a benchmark.
+    Refuses to pin below `target`.
+    """
+    return await eval_runner.freeze_golden_set(frozen_by=req.frozen_by, target=req.target)
+
+
+@router.post("/eval/golden/unfreeze")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def eval_golden_unfreeze_ep(req: GoldenUnfreezeRequest):
+    """Release the pin — deliberately re-opens gate #6."""
+    return await eval_runner.unfreeze_golden_set(reason=req.reason)
+
+
 @router.post("/eval/run")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def eval_run_ep(req: RunEvalRequest, request: Request):
@@ -27019,171 +27064,49 @@ async def phase_gates_ep() -> dict:
     autonomous loop to track Phase A → Phase B readiness.
 
     R-F1165 — phase gate endpoint for live verification.
+
+    R-F2639 — this endpoint no longer MEASURES anything; it RENDERS
+    intel.phase_gates.compute_phase_gates(), the same canonical measure the
+    unauthenticated /phase/gates renders. Until R-F2639 this fork measured
+    independently and DISAGREED with it per-gate:
+
+      * gate #3 used `get_error_count(7) == 0 → closed` — the exact vacuous
+        pass R-F2622 killed in the other aggregator, where an empty or evicted
+        ledger reads as a clean week. CLAUDE.md §1: do NOT restore it.
+      * gate #6 read `crucix:aria:eval:500q:status`.frozen — a key nothing in
+        the tree ever wrote → permanently uncloseable. R-F2640 now writes it.
+      * gate #7 counted distinct chat session_ids, so ARIA's own traffic closed
+        a gate §1 defines as operator-owned and uncodeable.
+
+    Do NOT re-add measurement logic here. One measure, one verdict.
     """
-    from ..intel import redis_store as _rs
-    from ..intel import error_log_handler as _elh
-    from ..intel import capability_gaps as _cg
-    from ..intel import mistake_ledger as _ml
-    from ..intel import chat_audit_log as _cal
-    from ..intel import adversarial_challenge as _ac
-    from ..intel import operating_modes as _om
-    from ..intel import autonomy_scorer as _ascorer
-    from ..intel import student as _student
-    from ..intel.engine_wiring import wire_success
     import datetime
 
+    from ..intel.phase_gates import compute_phase_gates, to_status
+    from ..intel.engine_wiring import wire_success
+
+    result = await compute_phase_gates()
+
     gates: list[dict] = []
-
-    # Gate 1: Composite ≥71%
-    # R-F1557: was `_ascorer.composite_score()` — that function does NOT exist
-    # (only `compute_composite()`), so this raised AttributeError → swallowed →
-    # gate silently reported "unknown" and the operator dashboard was blind.
-    # Repointed to the real fn; the key is "composite_score" (not "composite").
-    try:
-        composite = await _ascorer.compute_composite()
-        c_val = (composite or {}).get("composite_score", 0) or 0
-        g1_status = "closed" if c_val >= 0.71 else "open"
-    except Exception:
-        composite = None
-        c_val = None
-        g1_status = "unknown"
-    gates.append({
-        "id": 1,
-        "title": "Composite score ≥71%",
-        "status": g1_status,
-        "value": round(c_val, 3) if c_val is not None else None,
-        "evidence": "autonomy_scorer.compute_composite()['composite_score']",
-    })
-
-    # Gate 2: Heatmap floor ≥70%
-    # R-F1557: was `_ascorer.heatmap()` — also a non-existent function (same
-    # AttributeError→"unknown" failure). The real floor = the minimum mastery
-    # cell from student.get_regional_heatmap(); breaching cells are surfaced.
-    try:
-        hm_data = await _student.get_regional_heatmap()
-        hm = (hm_data or {}).get("heatmap", {}) or {}
-        all_scores = [s for regions in hm.values() for s in regions.values()]
-        floor = min(all_scores) if all_scores else None
-        breach = (hm_data or {}).get("floor_breach_cells", []) or []
-        g2_status = "unknown" if floor is None else ("closed" if floor >= 0.70 else "open")
-    except Exception:
-        floor = None
-        breach = []
-        g2_status = "unknown"
-    gates.append({
-        "id": 2,
-        "title": "Heatmap floor ≥70%",
-        "status": g2_status,
-        "value": round(floor, 3) if floor is not None else None,
-        "evidence": "student.get_regional_heatmap() — min mastery cell",
-        "floor_breach_cells": breach,
-    })
-
-    # Gate 3: 0 fly ERRORs in 7 days
-    try:
-        errors = await _elh.get_error_count(days=7)
-        g3_status = "closed" if (errors or 0) == 0 else "open"
-    except Exception:
-        errors = None
-        g3_status = "unknown"
-    gates.append({
-        "id": 3,
-        "title": "0 fly ERRORs in 7 days",
-        "status": g3_status,
-        "value": errors,
-        "evidence": "error_log_handler.get_error_count(7)",
-    })
-
-    # Gate 4: Quarantined DDs closed
-    try:
-        quarantined = await _rs.get_json("crucix:aria:dd:quarantined") or []
-        g4_status = "closed" if len(quarantined) == 0 else "open"
-    except Exception:
-        quarantined = None
-        g4_status = "unknown"
-    gates.append({
-        "id": 4,
-        "title": "Quarantined DDs closed",
-        "status": g4_status,
-        "value": len(quarantined) if quarantined is not None else None,
-        "evidence": "redis: crucix:aria:dd:quarantined",
-    })
-
-    # Gate 5: Env vars set
-    # R-F1557: the live fly secrets are ARIA_-prefixed (ARIA_AUTONOMOUS_ENABLED,
-    # ARIA_OUTPUT_HARVEST_ENABLED, ARIA_AUTONOMY_LEVEL per CLAUDE.md §17), but the
-    # prior check looked for bare names (HARVEST_ENABLED/AUTONOMOUS_ENABLED/
-    # AUTONOMY_LEVEL) that are NOT set → gate falsely reported "open". Accept the
-    # prefixed name first, fall back to the bare name for back-compat.
-    import os as _os
-
-    def _first_env(*names):
-        for _n in names:
-            _v = _os.environ.get(_n)
-            if _v is not None:
-                return _v
-        return None
-
-    _auto = _first_env("ARIA_AUTONOMOUS_ENABLED", "AUTONOMOUS_ENABLED")
-    _harvest = _first_env("ARIA_OUTPUT_HARVEST_ENABLED", "HARVEST_ENABLED")
-    _level = _first_env("ARIA_AUTONOMY_LEVEL", "AUTONOMY_LEVEL")
-    env_status = {
-        "ARIA_AUTONOMOUS_ENABLED": _auto == "1",
-        "ARIA_OUTPUT_HARVEST_ENABLED": _harvest == "1",
-        "ARIA_AUTONOMY_LEVEL": bool(_level and _level.isdigit() and int(_level) >= 1),
-    }
-    env_missing = [k for k, ok in env_status.items() if not ok]
-    g5_status = "closed" if not env_missing else "open"
-    gates.append({
-        "id": 5,
-        "title": "Required env vars set",
-        "status": g5_status,
-        "value": {"missing": env_missing, "total": len(env_status)},
-        "evidence": "os.environ (ARIA_-prefixed; R-F1557)",
-    })
-
-    # Gate 6: 500-Q eval frozen
-    try:
-        eval_status = await _rs.get_json("crucix:aria:eval:500q:status") or {}
-        frozen = eval_status.get("frozen", False)
-        g6_status = "closed" if frozen else "open"
-    except Exception:
-        frozen = None
-        g6_status = "unknown"
-    gates.append({
-        "id": 6,
-        "title": "500-Q eval frozen",
-        "status": g6_status,
-        "value": frozen,
-        "evidence": "redis: crucix:aria:eval:500q:status",
-    })
-
-    # Gate 7: ≥4 design-partner conversations
-    # R-F1557: was `get_stats().total_entries`, which is the count of chat
-    # audit-log ROWS (every message) — so the gate auto-"closed" after any 4
-    # messages, even all from one session. Count DISTINCT session_ids over the
-    # recent window as a real conversation proxy. NOTE: this is still a proxy —
-    # a distinct session ≠ a verified design-partner; treat as a floor, not a
-    # qualified count.
-    try:
-        recent = await _cal.get_recent(limit=500)
-        sessions = {
-            e.get("session_id")
-            for e in (recent or [])
-            if e.get("session_id") and e.get("session_id") != "unknown"
+    for g in sorted(result["gates"].values(), key=lambda x: x["id"]):
+        rec = {
+            "id": g["id"],
+            "title": g["title"],
+            "status": to_status(g["pass"]),
+            "value": g["value"],
+            "evidence": g["evidence"],
         }
-        convo_count = len(sessions)
-        g7_status = "closed" if convo_count >= 4 else "open"
-    except Exception:
-        convo_count = None
-        g7_status = "unknown"
-    gates.append({
-        "id": 7,
-        "title": "≥4 design-partner conversations",
-        "status": g7_status,
-        "value": convo_count,
-        "evidence": "chat_audit_log distinct session_ids over recent 500 (R-F1557 proxy)",
-    })
+        # Carry per-gate extras (floor_breach_cells, insufficient_history,
+        # drifted, by_status, …) — they are the operator's evidence trail.
+        # "status" is excluded deliberately: this update() runs AFTER status is
+        # set above, so a gate that ever emitted a `status` extra would silently
+        # overwrite the to_status() verdict with its own.
+        rec.update({
+            k: v for k, v in g.items()
+            if k not in ("id", "key", "title", "label", "value", "pass",
+                         "measurable", "evidence", "status")
+        })
+        gates.append(rec)
 
     # Wire success to brain
     wire_success(
