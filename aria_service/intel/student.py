@@ -2077,11 +2077,23 @@ async def _load_regional_mastery() -> dict:
     global _regional_cache
     if _regional_cache is not None:
         return _regional_cache
-    raw = await rs.get_json(REGIONAL_MASTERY_KEY)
-    if isinstance(raw, dict):
-        _regional_cache = raw
-    else:
-        _regional_cache = {}
+    # R-F2664 — STRICT read. The old non-strict get_json() SWALLOWED a
+    # store-not-ready StoreReadError to None → _regional_cache was poisoned to {}
+    # for the whole process lifetime → the next update_regional_mastery persisted
+    # that {} + 1 cell, CLOBBERING the durable key that held every cell (a silent
+    # gate-#2 heatmap WIPE, observed as an empty heatmap after a slow-boot deploy;
+    # the R-F268 dirty-guard can't catch it because a real update sets dirty=True).
+    # Distinguish "store not ready" (transient → return {} but do NOT cache, so the
+    # next call retries and no write can clobber) from "genuinely absent" (→ cache
+    # an empty scaffold; the dirty-guard keeps it from ever persisting on its own).
+    try:
+        raw = await rs.get_json_strict(REGIONAL_MASTERY_KEY)
+    except Exception as _sre:
+        logger.warning(
+            "[R-F2664] regional mastery load deferred — store not ready (%s); "
+            "cache left uninitialised so no write can clobber the durable key", _sre)
+        return {}
+    _regional_cache = raw if isinstance(raw, dict) else {}
     return _regional_cache
 
 
@@ -2105,6 +2117,13 @@ async def update_regional_mastery(
     if not topics or not regions:
         return
     rm = await _load_regional_mastery()
+    if _regional_cache is None:
+        # R-F2664 — the load was DEFERRED (store not ready): _load returned {} but
+        # deliberately did NOT cache it. Skip this update rather than mutate a
+        # transiently-empty map and persist it, which would clobber the durable
+        # key. The observation is lost; the mastery data is protected; the next
+        # warm call resumes normally.
+        return
     alpha = min(0.3, 0.1 * weight)
     for topic in topics:
         if topic not in TOPICS:

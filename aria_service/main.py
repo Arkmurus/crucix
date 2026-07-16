@@ -986,19 +986,57 @@ async def lifespan(app: FastAPI):
                 "(serves via shared RAG + LLM; engine holds the full graphs). "
                 "Saves the per-worker in-memory knowledge+neural footprint.")
             return
-        _heavy_failures = await _run_boot_inits([
-            ("knowledge", knowledge.init),
-            ("neural_memory", neural_memory.init),
-        ])
+        # R-F2663 — this warmup is a DETACHED background task (created below); it
+        # blocks nothing, so it must NOT inherit _run_boot_inits' aggressive 5s
+        # pre-yield timeout. That 5s cap on a ~10-min load (R-F2122: ~223k facts +
+        # ~1.2M edges) made the load ALWAYS time out → the init was CANCELLED
+        # (graphs never loaded → chat stuck on reduced context indefinitely), AND
+        # the umbrella line below logged ERROR on EVERY boot → mirrored to
+        # record_error as log:error → RESET the Phase A gate-#3 7-day streak. At
+        # ~10 deploys/day the streak could never accrue: gate #3 was structurally
+        # un-closeable. Give the background load a generous cap so the normal slow
+        # warmup COMPLETES cleanly (zero log), and log any residual as WARNING — a
+        # recoverable DEGRADATION (app stays up, reduced context, re-warms next
+        # boot), not an ERROR (§14 degraded≠broken; is_reset_type excludes
+        # log:warning per error_streak.py:94, so it no longer resets gate #3).
+        _warm_timeout = max(60.0, float(_os.getenv("ARIA_HEAVY_WARMUP_TIMEOUT_S", "1200")))
+
+        async def _warm_one(_name, _fn):
+            try:
+                await asyncio.wait_for(_fn(), timeout=_warm_timeout)
+                return None
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "[R-F2663] heavy graph '%s' still warming after %.0fs — chat "
+                    "runs with reduced context; re-warms next boot (degraded, not "
+                    "an error)", _name, _warm_timeout,
+                )
+                return _name
+            except Exception as _we:  # noqa: BLE001 — isolate per-subsystem
+                logger.warning(
+                    "[R-F2663] heavy graph '%s' warmup failed (degraded, staying "
+                    "up): %s", _name, _we,
+                )
+                return _name
+
+        _heavy_failures = [
+            _n for _n in await asyncio.gather(
+                _warm_one("knowledge", knowledge.init),
+                _warm_one("neural_memory", neural_memory.init),
+            ) if _n
+        ]
         try:
             app.state.knowledge_ready = "knowledge" not in _heavy_failures
             app.state.neural_ready = "neural_memory" not in _heavy_failures
         except Exception:
             pass
         if _heavy_failures:
-            logger.error(
-                "[R-F2122] heavy graph warmup failed: %s — chat runs with reduced "
-                "context until fixed/restarted.", _heavy_failures,
+            # WARNING, never ERROR (R-F2663): a degraded warmup is recoverable and
+            # must not reset the gate-#3 streak. Reserve ERROR for genuinely
+            # terminal failures elsewhere.
+            logger.warning(
+                "[R-F2122/R-F2663] heavy graph warmup degraded: %s — chat runs with "
+                "reduced context until re-warmed.", _heavy_failures,
             )
         # Freeze the now-loaded graphs out of GC (R-F1621). Runs once, after
         # warmup; a brief one-time GC pass on the serving loop is acceptable.
@@ -4082,12 +4120,12 @@ app = FastAPI(
 #   - default: the real first-party web origins.
 #   - ARIA_CORS_ORIGINS="a,b,c" → exactly those origins (credentials allowed).
 #   - ARIA_CORS_ORIGINS="*"     → wildcard WITHOUT credentials (spec-correct opt-out).
-_cors_env = (_os.getenv("ARIA_CORS_ORIGINS", "https://intel.arkmurus.com,https://aria-web.fly.dev") or "").strip()
+_cors_env = (_os.getenv("ARIA_CORS_ORIGINS", "https://imaria.io,https://aria-web.fly.dev") or "").strip()
 if _cors_env == "*":
     _cors_kwargs = {"allow_origins": ["*"], "allow_credentials": False}
 else:
     _cors_kwargs = {
-        "allow_origins": [o.strip() for o in _cors_env.split(",") if o.strip()] or ["https://intel.arkmurus.com"],
+        "allow_origins": [o.strip() for o in _cors_env.split(",") if o.strip()] or ["https://imaria.io"],
         "allow_credentials": True,
     }
 app.add_middleware(

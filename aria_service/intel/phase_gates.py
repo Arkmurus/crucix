@@ -125,17 +125,25 @@ async def compute_phase_gates() -> dict:
     try:
         comp = await autonomy_scorer.compute_composite()
         cs = (comp or {}).get("composite_score")
+        _low_conf = (comp or {}).get("low_confidence", True)
         gates["gate_1_composite"] = _gate(
             1, "gate_1_composite", "Composite >= 71%", "Composite score ≥71%",
             round(cs, 3) if isinstance(cs, (int, float)) else cs,
-            cs is not None and cs >= GATE_1_TARGET,
+            # R-F2665: pass requires BOTH the score AND real confidence. Pre-R-F2665
+            # `pass` was pure threshold (cs >= 0.71) with NO confidence gate — so a
+            # 0.71 built on mastery ALONE (verification 45% + honesty 25% absent →
+            # 70% of the weight unmeasured and renormalised away) would FALSELY
+            # certify gate #1 on thin evidence, with ARIA's honesty/grounding axis
+            # (the moat) entirely unmeasured. Now a low-confidence score
+            # (confidence < MIN_CONFIDENCE 0.60) cannot pass: gate #1 closes only
+            # when the composite is >= 0.71 AND measured at real confidence (both
+            # honesty signals present with real samples). This TIGHTENS the gate to
+            # be honest; it does not clamp it (CLAUDE.md §1 — measure MORE, not less).
+            (cs is not None and cs >= GATE_1_TARGET and not _low_conf),
             "autonomy_scorer.compute_composite()['composite_score']",
             target=GATE_1_TARGET,
             confidence=(comp or {}).get("confidence"),
-            # R-F2639 audit note: `pass` deliberately does NOT gate on confidence
-            # — that is the pre-existing contract. But a low-confidence score is
-            # surfaced so a 0.71 built on thin evidence is never read as earned.
-            low_confidence=(comp or {}).get("low_confidence", True),
+            low_confidence=_low_conf,
         )
         sources["composite"] = "compute_composite()"
     except Exception as e:
