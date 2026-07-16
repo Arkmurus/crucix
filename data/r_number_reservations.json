@@ -20679,9 +20679,10 @@
       "title": "DD independent-origin: connected-components model (publisher OR story equivalence) — fixes publisher-vs-story over-count",
       "claimed_at": "2026-07-16T16:24:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c21f5089",
+      "notes": null,
+      "shipped_at": "2026-07-16T16:44:47Z"
     },
     {
       "r_number": "R-F2678",
