@@ -180,6 +180,11 @@ async def _ping_one(source: dict, client: httpx.AsyncClient | None = None) -> di
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
     }
+    _light_headers = {
+        "User-Agent": _UA,
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
     t0 = time.time()
     try:
         if client is None:
@@ -188,12 +193,18 @@ async def _ping_one(source: dict, client: httpx.AsyncClient | None = None) -> di
             ) as owned_client:
                 return await _ping_one(source, client=owned_client)
 
-        # HEAD first — cheap. Many WAFs reject HEAD (405) or challenge it
-        # (403/406/429) while allowing GET → fall back to GET before judging.
+        # HEAD first — cheap. Many sites lie on HEAD (ABR/QinetiQ return HEAD
+        # 404 while GET 200). Confirm any non-success HEAD with GET before
+        # judging the URL dead.
         try:
             r = await client.head(url, headers=_headers)  # no-ssrf-check: URL is from the curated defence_source_seed catalogue, not user input
-            if r.status_code == 405 or r.status_code in _REACHABLE_BUT_BLOCKED or r.status_code >= 500:
+            if r.status_code >= 400:
                 r = await client.get(url, headers=_headers)  # no-ssrf-check: curated catalogue URL, not user input
+        except httpx.ReadTimeout:
+            # DFAT hangs on browser-style Accept headers but answers a simple
+            # GET quickly. Keep this narrow to ReadTimeout so ConnectTimeout
+            # sources like GeM do not get a second long network wait.
+            r = await client.get(url, headers=_light_headers)  # no-ssrf-check: curated catalogue URL, not user input
         except Exception:
             r = await client.get(url, headers=_headers)  # no-ssrf-check: curated catalogue URL, not user input
         latency_ms = int((time.time() - t0) * 1000)

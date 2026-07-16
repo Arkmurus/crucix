@@ -78,6 +78,54 @@ async def test_rf2266_ping_one_404_is_down(monkeypatch):
     assert res["ok"] is False and res["classification"] == "not_found"
 
 
+async def test_rf2675_ping_one_confirms_head_404_with_get(monkeypatch):
+    """Sites with broken HEAD but healthy GET must not be reported down."""
+    class _Resp:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+    class _Client:
+        def __init__(self, *a, **k):
+            self.calls = []
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def head(self, *a, **k):
+            self.calls.append("HEAD")
+            return _Resp(404)
+        async def get(self, *a, **k):
+            self.calls.append("GET")
+            return _Resp(200)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    res = await m._ping_one({"name": "qinetiq_press", "url": "https://www.qinetiq.com/"})
+    assert res["ok"] is True
+    assert res["classification"] == "up"
+    assert res["status"] == 200
+
+
+async def test_rf2675_ping_one_readtimeout_uses_light_get(monkeypatch):
+    """ReadTimeout on HEAD can still be a live source if lightweight GET works."""
+    class _Resp:
+        status_code = 200
+
+    class _Client:
+        def __init__(self, *a, **k):
+            self.get_headers = []
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def head(self, *a, **k):
+            raise httpx.ReadTimeout("slow HEAD")
+        async def get(self, *a, **k):
+            self.get_headers.append(k.get("headers") or {})
+            return _Resp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    res = await m._ping_one({"name": "au_dfat_sanctions", "url": "https://www.dfat.gov.au/international-relations/security/sanctions"})
+    assert res["ok"] is True
+    assert res["classification"] == "up"
+    assert res["status"] == 200
+
+
 # ── R-F2266 end-to-end: blocked sources count as UP and are NOT suspended ─────
 async def test_rf2266_blocked_sources_not_suspended(monkeypatch):
     srcs = [{"name": f"Blocked{i}", "url": f"https://blocked{i}.gov/"} for i in range(3)]
