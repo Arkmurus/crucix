@@ -20532,9 +20532,10 @@
       "title": "C-3 independent-source corroboration pass in _run_verification (gated OFF; excludes internal sources); earns R-F2413 flag via eval",
       "claimed_at": "2026-07-16T12:20:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "51582722",
+      "notes": null,
+      "shipped_at": "2026-07-16T12:36:39Z"
     }
   ]
 }
