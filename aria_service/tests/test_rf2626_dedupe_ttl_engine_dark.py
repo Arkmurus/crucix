@@ -411,4 +411,12 @@ def test_repair_gap_type_is_registered():
     from aria_service.intel.capability_gaps import VALID_GAP_TYPES
 
     assert "engine_failure" in VALID_GAP_TYPES
-    assert "module_bug" not in VALID_GAP_TYPES  # the one I nearly shipped
+    # R-F2644 (2026-07-16): this line was `assert "module_bug" not in
+    # VALID_GAP_TYPES  # the one I nearly shipped`. That was a stale SNAPSHOT of
+    # the registry-drift bug, not an invariant: module_bug is the canonical
+    # GapType.MODULE_BUG (gap_detector.py:69) and IS emitted live
+    # (dd_orchestrator.py:102), so it BELONGS in the registry — R-F2644 added it
+    # along with 41 other drifted types. The test's real intent — the repair
+    # path uses a REGISTERED gap_type — is carried by the engine_failure line
+    # above; asserting module_bug's absence merely codified the drift.
+    assert "module_bug" in VALID_GAP_TYPES

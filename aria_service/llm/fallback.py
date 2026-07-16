@@ -587,11 +587,17 @@ def create_fallback_chain(
     _aria_llm_provider = None
     if _aria_llm_url:
         # ARIA-LLM speaks OpenAI-compatible API; reuse the OpenAICompatProvider.
+        # R-F2645: derive the base through the ONE shared normaliser so this
+        # (the 4th consumer of ARIA_LLM_URL) cannot drift from the provider and
+        # the health probe. OpenAICompatProvider appends /chat/completions
+        # (openai_compat.py:81), so the /v1 must already be on the base — which
+        # is the documented shape.
+        from . import aria_llm_url as _aria_llm_url_mod
         _aria_llm_provider = create_llm_provider(
             "openai",
             os.getenv("ARIA_LLM_KEY", "sovereign"),
             os.getenv("ARIA_LLM_MODEL", "aria-llm-v0.1"),
-            base_url=_aria_llm_url.rstrip("/"),
+            base_url=_aria_llm_url_mod.normalise_base(_aria_llm_url),
         )
         if _aria_llm_provider and _aria_llm_provider.is_configured:
             try:

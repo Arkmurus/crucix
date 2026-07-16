@@ -20305,18 +20305,20 @@
       "title": "phase-gate fork consolidation - one measure one verdict",
       "claimed_at": "2026-07-16T07:14:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3b4c4f9c",
+      "notes": null,
+      "shipped_at": "2026-07-16T07:54:12Z"
     },
     {
       "r_number": "R-F2640",
       "title": "gate 6 measures golden-set SIZE not FROZEN - freeze-pin semantics",
       "claimed_at": "2026-07-16T07:17:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3b4c4f9c",
+      "notes": null,
+      "shipped_at": "2026-07-16T07:54:12Z"
     },
     {
       "r_number": "R-F2641",
@@ -20341,9 +20343,10 @@
       "title": "gate 4 read a phantom key with no writer - permanently fabricated pass",
       "claimed_at": "2026-07-16T07:38:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3b4c4f9c",
+      "notes": null,
+      "shipped_at": "2026-07-16T07:54:12Z"
     },
     {
       "r_number": "R-F2644",

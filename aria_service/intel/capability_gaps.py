@@ -226,6 +226,68 @@ VALID_GAP_TYPES = frozenset({
     # (2026-04-27) and "llm_provider_failure" (R-F2551); registering it makes
     # the search-degradation taxonomy first-class and silences the warning.
     "search_all_engines_blocked",
+    # ── R-F2644 (2026-07-16) — registry drift backlog ────────────────────────
+    # 42 gap types were emitted by production code but never registered, so each
+    # logged "Unknown gap type ... — recording anyway" (:259) on every emit.
+    # NOT data loss (record_gap warns then records), but it demoted real signals
+    # to noise and mirrored the warnings into the error ledger.
+    #
+    # ROOT CAUSE — the guard was vacuous, not missing. F74 added
+    # test_all_emitted_gap_types_are_registered whose docstring claims it is
+    # "the set produced by grep -rn 'gap_type=' aria_service/" and that "if a
+    # future commit adds a new gap_type without registering it, this test
+    # fails". It could not: the set was a HARDCODED 24-entry snapshot of
+    # 2026-04-28, so it passed forever while the tree drifted underneath it —
+    # the same vacuous-certification class as gate #3 (R-F2622). R-F2644
+    # replaces it with a real scan of the tree (test_rf2644_gap_type_registry_
+    # drift.py), which is what keeps this list honest from here.
+    #
+    # Every entry below is a real, distinct type from a live emit site; none are
+    # typos. "module_bug"/"missing_capability" are the canonical GapType names
+    # (§21e). Membership only gates the :259 warning — nothing branches on it —
+    # so registering these is behaviourally inert.
+    "agent_registry_failure",           # agent_registry.py:921
+    "all_general_web_dead",             # web_search.py:1767
+    "capability_test_missing",          # self_coder.py:1043
+    "captcha_unsolvable",               # captcha_solver.py:91
+    "code_generation_failure",          # self_improve.py:2948
+    "constitutional_block",             # self_improve.py:831
+    "contract_review_failure",          # routes/aria.py:10812
+    "credential_expired",               # web_integrity_agent.py:1232
+    "critical_failure",                 # self_improve.py:2802
+    "dd_layer_failure",                 # dd_orchestrator.py:8130
+    "deploy_verification_failure",      # main.py:3049
+    "eval_judge_call_failed",           # eval_judge.py:158
+    "eval_judge_unparseable",           # eval_judge.py:168
+    "guardian_audit_failure",           # guardian/audit.py:55
+    "guardian_safety_delivery_failure", # guardian/gateway.py:203
+    "hallucinated_api",                 # self_coder.py:851
+    "ingest_failure",                   # routes/aria.py:22558
+    "input_error",                      # sanctions_canonical/lookup.py:338
+    "llm_failure",                      # self_improve.py:1349
+    "llm_fallback",                     # model_router.py:448
+    "llm_unreachable",                  # aria_llm_provider.py:165
+    "low_confidence_classification",    # dual_use_classifier.py:304
+    "metacognitive_failure",            # metacognitive/engine.py:442
+    "missing_capability",               # competitive_frame.py:127 (GapType)
+    "module_bug",                       # dd_orchestrator.py:102 (GapType)
+    "onboarding_key_unverified",        # portal_registry.py:2343
+    "orphaned_machine",                 # autonomous/fly_deployer.py:352
+    "pdf_fetch_failure",                # crawl_enhancements.py:334
+    "persistence_failure",              # dd_orchestrator.py:7525
+    "procurement_lookup",               # sources/usaspending.py:108
+    "rate_limit_pressure",              # llm/rate_limiter.py:294
+    "sanctions_coverage_drift",         # sanctions_canonical/store.py:254
+    "sanctions_source_unavailable",     # sanctions.py:827
+    "search_backend_failure",           # web_search.py:524 (+7 sites)
+    "shadow_backpressure",              # model_router.py:364
+    "source_uptime_degraded",           # source_uptime_monitor.py:461
+    "source_uptime_no_sources",         # source_uptime_monitor.py:326
+    "strategic_improvement",            # strategic_evolution.py:502
+    "test_framework_gap",               # autonomous/tasks.py:1052
+    "tier_exhaustion",                  # llm/tier_router.py:213
+    "user_model_failure",               # user_model.py:575
+    "web_integrity_failure",            # web_integrity_agent.py:936
 })
 
 

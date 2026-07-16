@@ -40,6 +40,7 @@ import time
 from collections import OrderedDict
 from typing import Any, Optional
 
+from . import aria_llm_url as _aria_llm_url  # R-F2645: the one URL join
 from .provider import LLMProvider, LLMResult
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
@@ -89,30 +90,17 @@ _CACHE_TTL = int(os.getenv("ARIA_LLM_CACHE_TTL", "3600"))
 
 
 def _chat_completions_url(endpoint: str) -> str:
-    """Build the OpenAI-compatible chat/completions URL for ``endpoint``.
+    """Build the probe URL — delegates to the one shared join (R-F2645).
 
-    R-F2641: ARIA_LLM_URL carries the ``/v1`` suffix by convention — the
-    aria_llm_provider docstring documents ``https://aria-llm.runpod.io/v1``,
-    `docs/aria_llm_v01_activation.md` shows that shape throughout, and the live
-    secret ends in ``/v1``. Every other caller therefore appends only the method
-    path (aria_llm_provider:159/:276, self_healing:232). This probe appended
-    ``/v1/chat/completions`` to that already-``/v1`` base and so requested
-    ``/v1/v1/chat/completions`` → 404 against a HEALTHY endpoint, tripping the
-    ``aria_llm`` breaker and reporting the sovereign DOWN while it was UP (the
-    promotion-gate corruption R-F2566 warns about at :195).
-
-    Deliberately NOT tolerant of a missing ``/v1``. A first cut auto-appended
-    one, but Pass-2 review showed that only relocates the bug: the probe would
-    then read HEALTHY on a no-``/v1`` endpoint while aria_llm_provider:159 POSTs
-    to ``{base}/chat/completions`` and 404s on every real call — a false-green
-    that admits a dead provider to the chain head via is_available(). This
-    builds the URL exactly as the provider does, so the probe is UP iff the
-    provider is UP, and a misconfigured endpoint fails CLOSED (never-false-clean).
-    Genuinely killing the /v1 ambiguity means routing all three call sites
-    through one shared normaliser — a wider change than this fix, deliberately
-    left out of scope rather than half-done.
+    R-F2641: this probe used to append ``/v1/chat/completions`` to a base that
+    already ended in ``/v1``, requesting ``/v1/v1/chat/completions`` → 404
+    against a HEALTHY endpoint, which tripped the ``aria_llm`` breaker and
+    reported the sovereign DOWN while it was UP (the promotion-gate corruption
+    R-F2566 warns about at :195). R-F2645 moved the join into aria_llm_url so
+    the probe and aria_llm_provider cannot drift apart again — the probe is now
+    UP iff the provider is UP, by construction.
     """
-    return f"{endpoint.rstrip('/')}/chat/completions"
+    return _aria_llm_url.chat_completions_url(endpoint)
 
 
 class LLMHealthChecker:

@@ -36,6 +36,7 @@ import logging
 import os
 import time
 from typing import Any, AsyncIterator
+from . import aria_llm_url as _aria_llm_url  # R-F2645: the one URL join
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.aria_llm")
@@ -56,10 +57,15 @@ def is_configured() -> bool:
 
 
 def _base_url() -> str | None:
+    """The configured ARIA-LLM base, or None when unset.
+
+    R-F2645: normalisation delegates to aria_llm_url so this module, the health
+    probe (resilience.py) and self_healing all derive URLs from one definition.
+    """
     raw = (os.getenv("ARIA_LLM_URL") or "").strip()
     if not raw:
         return None
-    return raw.rstrip("/")
+    return _aria_llm_url.normalise_base(raw)
 
 
 def _model_name() -> str:
@@ -156,7 +162,7 @@ async def complete(
     try:
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
             resp = await client.post(
-                f"{base}/chat/completions", headers=headers, json=body,
+                _aria_llm_url.chat_completions_url(base), headers=headers, json=body,
             )
     except Exception as e:
         wire_failure(
@@ -273,7 +279,7 @@ async def stream(
     try:
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
             async with client.stream(
-                "POST", f"{base}/chat/completions",
+                "POST", _aria_llm_url.chat_completions_url(base),
                 headers=headers, json=body,
             ) as resp:
                 if resp.status_code != 200:

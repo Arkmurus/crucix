@@ -229,7 +229,10 @@ class HealthMonitor:
         # R-F1224: ARIA-LLM health check — only when configured
         _aria_llm_url = (os.getenv("ARIA_LLM_URL") or "").strip()
         if _aria_llm_url:
-            services["aria_llm"] = _aria_llm_url.rstrip("/") + "/models"
+            # R-F2645: same join as aria_llm_provider + the resilience probe, so
+            # a /v1 drift cannot make one of them 404 while the others succeed.
+            from ..llm import aria_llm_url as _llm_url
+            services["aria_llm"] = _llm_url.models_url(_aria_llm_url)
 
         results = {}
         tasks = []
