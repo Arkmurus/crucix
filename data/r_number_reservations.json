@@ -20542,27 +20542,30 @@
       "title": "gate #3 unblock: per-boot R-F2122 heavy-graph warmup logs ERROR (5s timeout on ~10min load) -> resets 7-day streak every deploy; expected transient must not be ERROR",
       "claimed_at": "2026-07-16T12:50:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5acfad4a",
+      "notes": null,
+      "shipped_at": "2026-07-16T13:13:49Z"
     },
     {
       "r_number": "R-F2664",
       "title": "gate #2 data-loss: _load_regional_mastery uses non-strict get_json -> store-not-ready poisons cache to {} -> next update CLOBBERS durable mastery key (silent heatmap wipe)",
       "claimed_at": "2026-07-16T12:58:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5acfad4a",
+      "notes": null,
+      "shipped_at": "2026-07-16T13:13:50Z"
     },
     {
       "r_number": "R-F2665",
       "title": "gate #1 confidence floor: pass must require confidence >= MIN (not low_confidence) so it can't falsely certify >=71% on mastery-only thin evidence",
       "claimed_at": "2026-07-16T13:00:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5acfad4a",
+      "notes": null,
+      "shipped_at": "2026-07-16T13:13:50Z"
     },
     {
       "r_number": "R-F2666",
