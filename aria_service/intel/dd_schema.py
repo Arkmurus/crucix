@@ -269,6 +269,12 @@ class VerificationSection:
     # (that still requires full re-fetch re-verification, R-F2413).
     independent_corroboration_rate: Optional[float] = None
     independent_corroborated_count: int = 0
+    # R-F2671 — C-3 v2 out-of-band independent verification (re-fetch cited press +
+    # cluster same-story republications). Populated by the followup ONLY when
+    # ARIA_DD_INDEPENDENT_VERIFY is on. independent_source_verification_run flips to True
+    # ONLY in "enforce" mode (operator-gated, after reviewing measure-mode live data) —
+    # R-F2413 stays honestly False otherwise.
+    independent_verification: dict = field(default_factory=dict)
     confidence_floor: str = "ASSESSED"
     findings: list[Finding] = field(default_factory=list)
     data_gaps: list[str] = field(default_factory=list)

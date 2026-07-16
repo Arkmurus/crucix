@@ -8329,6 +8329,14 @@ async def _build_run_diagnostics(report: "ARKDDReport", target: dict, mode: str)
 # (anti-hallucination law #12 / R-F1363: a task with no live reference never executes).
 _AM_FOLLOWUP_TASKS: set = set()
 
+# R-F2671 — the adverse-media and independent-verification follow-ups are BOTH detached
+# tasks that read-modify-write the SAME stored report blob (get_report → mutate one field
+# → set_json). Without serialization their RMW windows can interleave and one clobbers the
+# other's merge (silent loss of adverse_media / independent_verification). This module-wide
+# lock guards ONLY the tiny get→mutate→set critical section (the slow search/re-fetch runs
+# OUTSIDE it), so contention is negligible while lost-updates are impossible.
+_REPORT_MERGE_LOCK: asyncio.Lock = asyncio.Lock()
+
 
 async def _run_adverse_media_followup(
     run_id: str,
@@ -8380,11 +8388,15 @@ async def _run_adverse_media_followup(
             "trigger": trigger_reason,
         }
     # Merge ONLY adverse_media into the stored blob (read-modify-write).
+    # R-F2671 — serialized against the independent-verification follow-up so the two
+    # concurrent RMWs on this blob cannot clobber each other.
     try:
-        _body = await get_report(run_id)
+        async with _REPORT_MERGE_LOCK:
+            _body = await get_report(run_id)
+            if isinstance(_body, dict):
+                _body["adverse_media"] = _am_result
+                await rs.set_json(REPORT_REDIS_KEY.format(run_id=run_id), _body, ex=REPORT_TTL_SECONDS)
         if isinstance(_body, dict):
-            _body["adverse_media"] = _am_result
-            await rs.set_json(REPORT_REDIS_KEY.format(run_id=run_id), _body, ex=REPORT_TTL_SECONDS)
             logger.info(
                 "[R-F2657] adverse-media follow-up merged for %s: %d findings (%s-trigger)",
                 run_id, _am_result.get("findings_count", 0), trigger_reason,
@@ -8409,6 +8421,83 @@ def _launch_adverse_media_followup(report: "ARKDDReport") -> None:
         _t.add_done_callback(_AM_FOLLOWUP_TASKS.discard)
     except Exception as _e:
         logger.debug("[R-F2657] could not launch adverse-media follow-up: %s", _e)
+
+
+async def _run_independent_verification_followup(run_id: str, press_urls: list) -> None:
+    """R-F2671 — C-3 v2: OUT-OF-BAND independent verification of the press evidence.
+
+    Re-fetches each cited press URL, fingerprints its content, and clusters same-story
+    republications so wire syndication collapses to ONE independent origin (see
+    dd_independent_verifier.assess_independent_verification). Runs ONLY when
+    ARIA_DD_INDEPENDENT_VERIFY is on, and OUT OF BAND (like the adverse-media follow-up)
+    because re-fetching is slow and must never compete with the 660s DD budget.
+
+    Merges ONLY verification.independent_verification (read-modify-write). In 'enforce'
+    mode ALSO sets verification.independent_source_verification_run=True (the R-F2413 flag)
+    — but ONLY when the assessment actually ran (no error). In 'measure' mode the flag
+    stays False so the operator can review live data first. Best-effort; never raises.
+    """
+    from . import redis_store as rs
+    from .dd_independent_verifier import (
+        assess_independent_verification,
+        independent_verify_mode,
+    )
+    mode = independent_verify_mode()
+    if mode == "off":
+        return
+    _budget = float(_env_int("ARIA_DD_INDEPENDENT_VERIFY_S", 90))
+    try:
+        _report_shim = {"digital": {"press_coverage": [{"url": u} for u in (press_urls or []) if u]}}
+        _res = await assess_independent_verification(_report_shim, deadline_s=_budget)
+    except Exception as _e:  # noqa: BLE001 — recorded honestly, never silently "verified"
+        _res = {"error": f"{type(_e).__name__}: {str(_e)[:150]}", "press_items": len(press_urls or [])}
+    # R-F2671 — serialized against the adverse-media follow-up (shared blob RMW).
+    try:
+        async with _REPORT_MERGE_LOCK:
+            _body = await get_report(run_id)
+            if isinstance(_body, dict):
+                _ver = _body.setdefault("verification", {})
+                _ver["independent_verification"] = {**_res, "mode": mode}
+                # The R-F2413 flag flips ONLY in enforce mode, only when the re-fetch ran
+                # WITHOUT error, AND only when at least one source was actually re-fetched
+                # and fingerprinted (refetched_ok > 0) — "verification ran" must never mean
+                # "0 sources were actually checked".
+                if mode == "enforce" and not _res.get("error") and _res.get("refetched_ok", 0) > 0:
+                    _ver["independent_source_verification_run"] = True
+                await rs.set_json(REPORT_REDIS_KEY.format(run_id=run_id), _body, ex=REPORT_TTL_SECONDS)
+        if isinstance(_body, dict):
+            logger.info(
+                "[R-F2671] independent-verification (%s) merged for %s: origins=%s corroborated=%s",
+                mode, run_id, _res.get("independent_press_origins"),
+                _res.get("press_independently_corroborated"),
+            )
+        else:
+            logger.debug("[R-F2671] indep-verify: report %s not found to merge into", run_id)
+    except Exception as _me:
+        logger.debug("[R-F2671] independent-verification merge failed for %s: %s", run_id, _me)
+
+
+def _launch_independent_verification_followup(report: "ARKDDReport") -> None:
+    """R-F2671 — launch the out-of-band press re-fetch verification when
+    ARIA_DD_INDEPENDENT_VERIFY is on (no-op by default). Snapshots only the press URLs the
+    follow-up needs. Detached, GC-safe, never blocks / never raises."""
+    try:
+        from .dd_independent_verifier import independent_verify_mode
+        if independent_verify_mode() == "off":
+            return
+        _rid = getattr(report, "run_id", None)
+        if not _rid:
+            return
+        _dig = getattr(report, "digital", None)
+        _press = getattr(_dig, "press_coverage", None) or []
+        _urls = [u for u in (getattr(p, "url", None) for p in _press) if u]
+        if not _urls:
+            return
+        _t = asyncio.create_task(_run_independent_verification_followup(_rid, _urls))
+        _AM_FOLLOWUP_TASKS.add(_t)
+        _t.add_done_callback(_AM_FOLLOWUP_TASKS.discard)
+    except Exception as _e:
+        logger.debug("[R-F2671] could not launch independent-verification follow-up: %s", _e)
 
 
 async def orchestrate_dd(
@@ -8478,6 +8567,9 @@ async def orchestrate_dd(
         # having competed with synthesis for the 660s budget. Only fires when _impl marked
         # it in_progress (triggered targets); a no-op otherwise.
         _launch_adverse_media_followup(_rep)
+        # R-F2671 — C-3 v2: out-of-band press re-fetch independent-verification. No-op unless
+        # ARIA_DD_INDEPENDENT_VERIFY is on; the R-F2413 flag flips only in 'enforce' mode.
+        _launch_independent_verification_followup(_rep)
         return _rep
     except asyncio.TimeoutError:
         _name = str(target.get("name") or target.get("entity") or target.get("query") or "the target")

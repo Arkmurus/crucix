@@ -109,6 +109,23 @@ def origin_key(source: Any) -> str:
     return "external_unclassified"
 
 
+def independent_verify_mode() -> str:
+    """R-F2671 — rollout gate for the C-3 v2 out-of-band re-fetch verification:
+      'off'     (default) — do not re-fetch; independent_source_verification_run stays False.
+      'measure' — re-fetch + surface the metric for the LIVE EVAL; flag stays False.
+      'enforce' — re-fetch + surface + SET independent_source_verification_run=True.
+    Operator flips measure→enforce ONLY after reviewing the measure-mode live data
+    (R-F2413: the flag must be EARNED, never flipped blind).
+    """
+    import os
+    v = (os.getenv("ARIA_DD_INDEPENDENT_VERIFY") or "").strip().lower()
+    if v in ("enforce", "2"):
+        return "enforce"
+    if v in ("measure", "1", "on", "true", "yes"):
+        return "measure"
+    return "off"
+
+
 def count_independent_origins(sources: list) -> int:
     keys = {origin_key(x) for x in (sources or [])}
     keys.discard("internal")
