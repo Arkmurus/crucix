@@ -92,9 +92,12 @@ def origin_key(source: Any) -> str:
     # content-story fingerprint takes precedence, else publisher family.
     if isinstance(source, dict):
         story = (str(source.get("story") or "")).strip() or None
+        loc = str(source.get("url") or source.get("domain") or source.get("source") or "").strip().lower()
+        # Defence-in-depth (Pass-2): a dict-wrapped internal label stays internal.
+        if loc and "." not in loc and "/" not in loc and _is_internal(loc):
+            return "internal"
         if story:
             return f"story:{story}"  # one underlying story = one origin
-        loc = str(source.get("url") or source.get("domain") or source.get("source") or "").strip().lower()
         return publisher_family(loc) if loc else "external_unclassified"
     s = str(source).strip().lower()
     # A domain/url is external — resolve to its publisher family. Do this BEFORE the
@@ -126,10 +129,71 @@ def independent_verify_mode() -> str:
     return "off"
 
 
+def _source_facets(source: Any) -> tuple:
+    """(publisher_key, story_key) for a source — the two independence axes.
+
+    publisher_key is always set ('internal' marks exclusion; an authority/sanctions label
+    is its own publisher; a domain resolves to its publisher family). story_key is the
+    content-cluster id when known, else None. Used by the connected-components origin count.
+    """
+    if isinstance(source, dict):
+        story = (str(source.get("story") or "")).strip() or None
+        loc = str(source.get("url") or source.get("domain") or source.get("source") or "").strip().lower()
+        # Defence-in-depth (Pass-2): an internal provenance label wrapped in a dict
+        # ({"source": "aria_knowledge"}) must still be excluded, not read as a publisher.
+        if loc and "." not in loc and "/" not in loc and _is_internal(loc):
+            return "internal", None
+        pub = publisher_family(loc) if loc else "external_unclassified"
+        return pub, (f"story:{story}" if story else None)
+    s = str(source).strip().lower()
+    if "." in s or "/" in s:
+        return publisher_family(s), None
+    if _is_internal(s):
+        return "internal", None
+    if s.startswith("sanctions:") or s in _AUTHORITIES:
+        return s, None
+    return "external_unclassified", None
+
+
 def count_independent_origins(sources: list) -> int:
-    keys = {origin_key(x) for x in (sources or [])}
-    keys.discard("internal")
-    return len(keys)
+    """R-F2677 — count distinct INDEPENDENT origins as connected components under the
+    equivalence: two sources are the SAME origin if they share a PUBLISHER *or* a STORY.
+
+      - same STORY, different publishers  → wire syndication / verbatim PR → ONE origin.
+      - same PUBLISHER, different stories  → one editorial voice reporting N facts → ONE
+        origin (a publisher is not N independent witnesses — R-F2677 live-eval fix; the old
+        story-only count made 3 turdef.com articles read as 3 independent sources).
+      - internal compute/memory is excluded (never an independent witness).
+
+    Conservative by construction: the publisher∪story transitive merge can only REDUCE the
+    count (bias to 'not corroborated' — the safe error for a DD tool), never inflate it.
+    """
+    facets = [f for f in (_source_facets(s) for s in (sources or [])) if f[0] != "internal"]
+    n = len(facets)
+    parent = list(range(n))
+
+    def _find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(a: int, b: int) -> None:
+        parent[_find(a)] = _find(b)
+
+    pub_seen: dict = {}
+    story_seen: dict = {}
+    for i, (pub, story) in enumerate(facets):
+        if pub in pub_seen:
+            _union(i, pub_seen[pub])
+        else:
+            pub_seen[pub] = i
+        if story is not None:
+            if story in story_seen:
+                _union(i, story_seen[story])
+            else:
+                story_seen[story] = i
+    return len({_find(i) for i in range(n)})
 
 
 def is_independently_corroborated(sources: list, *, min_origins: int = 2) -> bool:

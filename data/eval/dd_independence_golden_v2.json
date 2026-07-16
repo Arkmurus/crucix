@@ -1,54 +1,181 @@
 {
   "description": "R-F2669 — C-3 v2 golden set. Same 12 labelled cases as v1, but press sources carry a `story` fingerprint (what the LIVE DD re-fetch computes) so the OFFLINE eval can test CONTENT-LEVEL de-duplication — the piece raw domain-family cannot do. The gate is unchanged: false_positive_rate MUST be 0 (a claim wrongly 'independently verified' is the USP betrayal). C-3 v2's win over v1: recall rises to 1.0 (genuine multi-publisher now corroborated) WHILE wire syndication stays correctly NOT corroborated (same story = one origin).",
-  "gate": {"metric": "false_positive_rate", "must_be": 0.0, "target_recall": 1.0},
+  "gate": {
+    "metric": "false_positive_rate",
+    "must_be": 0.0,
+    "target_recall": 1.0
+  },
   "cases": [
-    {"id": "multi_sanctions_authorities", "claim": "entity is sanctioned",
-     "sources": ["sanctions:ofac", "sanctions:ofsi", "sanctions:un"],
-     "expected": true, "rationale": "3 distinct independent sanctions authorities"},
-    {"id": "multi_country_indices", "claim": "country risk headline",
-     "sources": ["transparency_intl_cpi", "basel_aml_index", "fatf", "worldbank_wgi"],
-     "expected": true, "rationale": "4 distinct independent risk indices"},
-    {"id": "two_registries", "claim": "cross-registry identity",
-     "sources": ["companies_house", "sec_edgar"],
-     "expected": true, "rationale": "two independent company registries"},
-    {"id": "registry_plus_one_press", "claim": "incorporation corroborated",
-     "sources": ["companies_house", {"domain": "ft.com", "story": "ft_incorp_2011"}],
-     "expected": true, "rationale": "registry + an independent publisher = 2 origins"},
-    {"id": "genuine_multi_publisher", "claim": "press mention",
-     "sources": [
-       {"domain": "bbc.co.uk", "story": "bbc_probe"},
-       {"domain": "theguardian.com", "story": "guardian_investigation"},
-       {"domain": "ft.com", "story": "ft_analysis"},
-       {"domain": "nytimes.com", "story": "nyt_report"}
-     ],
-     "expected": true, "rationale": "4 distinct publishers, 4 distinct stories"},
-    {"id": "single_registry", "claim": "directors known",
-     "sources": ["companies_house"],
-     "expected": false, "rationale": "one source"},
-    {"id": "internal_compute_only", "claim": "ghost + network score",
-     "sources": ["ghost_scorer", "network_walker"],
-     "expected": false, "rationale": "ARIA's OWN compute — not external witnesses"},
-    {"id": "internal_memory_echo", "claim": "kb + neural recall",
-     "sources": ["aria_knowledge", "neural_memory"],
-     "expected": false, "rationale": "internal memory echo — never independent"},
-    {"id": "one_external_plus_internal", "claim": "mixed single external",
-     "sources": ["companies_house", "aria_knowledge"],
-     "expected": false, "rationale": "one external + internal echo = one origin"},
-    {"id": "wire_syndication", "claim": "press mention",
-     "sources": [
-       {"domain": "reuters.com", "story": "reuters_wire_42"},
-       {"domain": "uk.reuters.com", "story": "reuters_wire_42"},
-       {"domain": "somepaper.com", "story": "reuters_wire_42"}
-     ],
-     "expected": false, "rationale": "ONE Reuters wire story syndicated across 3 sites = one origin (content dedup catches it; domain-family alone would NOT)"},
-    {"id": "same_publisher_family", "claim": "press mention",
-     "sources": [
-       {"domain": "bbc.com", "story": "bbc_story_7"},
-       {"domain": "bbc.co.uk", "story": "bbc_story_7"}
-     ],
-     "expected": false, "rationale": "same publisher + same story = one origin"},
-    {"id": "no_sources", "claim": "unbacked assertion",
-     "sources": [],
-     "expected": false, "rationale": "no sources"}
+    {
+      "id": "multi_sanctions_authorities",
+      "claim": "entity is sanctioned",
+      "sources": [
+        "sanctions:ofac",
+        "sanctions:ofsi",
+        "sanctions:un"
+      ],
+      "expected": true,
+      "rationale": "3 distinct independent sanctions authorities"
+    },
+    {
+      "id": "multi_country_indices",
+      "claim": "country risk headline",
+      "sources": [
+        "transparency_intl_cpi",
+        "basel_aml_index",
+        "fatf",
+        "worldbank_wgi"
+      ],
+      "expected": true,
+      "rationale": "4 distinct independent risk indices"
+    },
+    {
+      "id": "two_registries",
+      "claim": "cross-registry identity",
+      "sources": [
+        "companies_house",
+        "sec_edgar"
+      ],
+      "expected": true,
+      "rationale": "two independent company registries"
+    },
+    {
+      "id": "registry_plus_one_press",
+      "claim": "incorporation corroborated",
+      "sources": [
+        "companies_house",
+        {
+          "domain": "ft.com",
+          "story": "ft_incorp_2011"
+        }
+      ],
+      "expected": true,
+      "rationale": "registry + an independent publisher = 2 origins"
+    },
+    {
+      "id": "genuine_multi_publisher",
+      "claim": "press mention",
+      "sources": [
+        {
+          "domain": "bbc.co.uk",
+          "story": "bbc_probe"
+        },
+        {
+          "domain": "theguardian.com",
+          "story": "guardian_investigation"
+        },
+        {
+          "domain": "ft.com",
+          "story": "ft_analysis"
+        },
+        {
+          "domain": "nytimes.com",
+          "story": "nyt_report"
+        }
+      ],
+      "expected": true,
+      "rationale": "4 distinct publishers, 4 distinct stories"
+    },
+    {
+      "id": "single_registry",
+      "claim": "directors known",
+      "sources": [
+        "companies_house"
+      ],
+      "expected": false,
+      "rationale": "one source"
+    },
+    {
+      "id": "internal_compute_only",
+      "claim": "ghost + network score",
+      "sources": [
+        "ghost_scorer",
+        "network_walker"
+      ],
+      "expected": false,
+      "rationale": "ARIA's OWN compute — not external witnesses"
+    },
+    {
+      "id": "internal_memory_echo",
+      "claim": "kb + neural recall",
+      "sources": [
+        "aria_knowledge",
+        "neural_memory"
+      ],
+      "expected": false,
+      "rationale": "internal memory echo — never independent"
+    },
+    {
+      "id": "one_external_plus_internal",
+      "claim": "mixed single external",
+      "sources": [
+        "companies_house",
+        "aria_knowledge"
+      ],
+      "expected": false,
+      "rationale": "one external + internal echo = one origin"
+    },
+    {
+      "id": "wire_syndication",
+      "claim": "press mention",
+      "sources": [
+        {
+          "domain": "reuters.com",
+          "story": "reuters_wire_42"
+        },
+        {
+          "domain": "uk.reuters.com",
+          "story": "reuters_wire_42"
+        },
+        {
+          "domain": "somepaper.com",
+          "story": "reuters_wire_42"
+        }
+      ],
+      "expected": false,
+      "rationale": "ONE Reuters wire story syndicated across 3 sites = one origin (content dedup catches it; domain-family alone would NOT)"
+    },
+    {
+      "id": "same_publisher_family",
+      "claim": "press mention",
+      "sources": [
+        {
+          "domain": "bbc.com",
+          "story": "bbc_story_7"
+        },
+        {
+          "domain": "bbc.co.uk",
+          "story": "bbc_story_7"
+        }
+      ],
+      "expected": false,
+      "rationale": "same publisher + same story = one origin"
+    },
+    {
+      "id": "no_sources",
+      "claim": "unbacked assertion",
+      "sources": [],
+      "expected": false,
+      "rationale": "no sources"
+    },
+    {
+      "id": "same_publisher_multi_story",
+      "expected": false,
+      "note": "R-F2677 — 3 distinct stories from ONE publisher (turdef.com) is ONE independent source, not 3.",
+      "sources": [
+        {
+          "domain": "turdef.com",
+          "story": "serial_production"
+        },
+        {
+          "domain": "turdef.com",
+          "story": "roketsan_buys"
+        },
+        {
+          "domain": "turdef.com",
+          "story": "dynaflow_acq"
+        }
+      ]
+    }
   ]
 }
