@@ -83,6 +83,23 @@ _GET_FIRST_SOURCES = {
     "un_oda",
 }
 
+# R-F2682 — source-specific official fallback monitors. The primary catalogue URL
+# remains the authoritative source, but some official sites are unreachable from
+# Fly/datacenter egress even when current official mirrors/references are live.
+# Fallbacks are only used after the primary transport fails; the result records
+# both the primary and checked URL so the dashboard stays honest.
+_SOURCE_FALLBACK_URLS = {
+    "wassenaar_arrangement": [
+        # Swiss SECO is an official participating-state export-control authority
+        # and publishes a current Wassenaar page linking the WA basic documents
+        # and WA control lists.
+        "https://www.seco.admin.ch/en/wassenaar-arrangement",
+        # Canada GAC publishes the current WA 2025 list references in its export
+        # control list backgrounder; keep as a second official government fallback.
+        "https://www.international.gc.ca/trade-commerce/controls-controles/ecl-lec/backgrounder-document-information-2026.aspx?lang=eng",
+    ],
+}
+
 
 def _classify_ping(status: int | None, exc_name: str | None) -> tuple[bool, str]:
     """Honest reachability verdict for one ping.
@@ -206,30 +223,55 @@ async def _ping_one(source: dict, client: httpx.AsyncClient | None = None) -> di
             ) as owned_client:
                 return await _ping_one(source, client=owned_client)
 
-        # HEAD first is cheap for most sources. Some origins are proven
-        # GET-only in practice (R-F2679), so skip HEAD for those to avoid false
-        # transport failures while still using the same honest classifier.
-        if name in _GET_FIRST_SOURCES:
-            r = await client.get(url, headers=_headers)  # no-ssrf-check: curated catalogue URL, not user input
-        else:
+        async def _request_url(check_url: str) -> httpx.Response:
+            # HEAD first is cheap for most sources. Some origins are proven
+            # GET-only in practice (R-F2679), so skip HEAD for those to avoid
+            # false transport failures while still using the same classifier.
+            if name in _GET_FIRST_SOURCES:
+                return await client.get(check_url, headers=_headers)  # no-ssrf-check: curated catalogue/fallback URL, not user input
             try:
-                r = await client.head(url, headers=_headers)  # no-ssrf-check: URL is from the curated defence_source_seed catalogue, not user input
-                if r.status_code >= 400:
-                    r = await client.get(url, headers=_headers)  # no-ssrf-check: curated catalogue URL, not user input
+                response = await client.head(check_url, headers=_headers)  # no-ssrf-check: curated catalogue/fallback URL, not user input
+                if response.status_code >= 400:
+                    response = await client.get(check_url, headers=_headers)  # no-ssrf-check: curated catalogue/fallback URL, not user input
+                return response
             except httpx.ReadTimeout:
                 # DFAT hangs on browser-style Accept headers but answers a simple
                 # GET quickly. Keep this narrow to ReadTimeout so ConnectTimeout
                 # sources like GeM do not get a second long network wait.
-                r = await client.get(url, headers=_light_headers)  # no-ssrf-check: curated catalogue URL, not user input
+                return await client.get(check_url, headers=_light_headers)  # no-ssrf-check: curated catalogue/fallback URL, not user input
             except Exception:
-                r = await client.get(url, headers=_headers)  # no-ssrf-check: curated catalogue URL, not user input
+                return await client.get(check_url, headers=_headers)  # no-ssrf-check: curated catalogue/fallback URL, not user input
+
+        checked_url = url
+        fallback_url = None
+        primary_error = None
+        try:
+            r = await _request_url(url)
+        except Exception as primary_exc:
+            primary_error = f"{type(primary_exc).__name__}: {str(primary_exc)[:160]}"
+            last_exc: Exception = primary_exc
+            for candidate in _SOURCE_FALLBACK_URLS.get(name, []):
+                try:
+                    r = await _request_url(candidate)
+                    checked_url = candidate
+                    fallback_url = candidate
+                    break
+                except Exception as fallback_exc:
+                    last_exc = fallback_exc
+            else:
+                raise last_exc
         latency_ms = int((time.time() - t0) * 1000)
         reachable, classification = _classify_ping(r.status_code, None)
+        if reachable and fallback_url and classification == "up":
+            classification = "fallback_up"
         return {
             "name": name, "url": url,
             "ok": reachable,                 # R-F2266 — reachable (incl. WAF-blocked) is UP, not down
             "status": r.status_code,
-            "classification": classification,  # up | blocked | not_found | server_error | http_4xx
+            "classification": classification,  # up | fallback_up | blocked | not_found | server_error | http_4xx
+            "checked_url": checked_url,
+            "fallback_url": fallback_url,
+            "primary_error": primary_error,
             "latency_ms": latency_ms,
             "error": None if reachable else (
                 "blocked" if classification == "blocked" else f"HTTP {r.status_code}"
@@ -242,6 +284,9 @@ async def _ping_one(source: dict, client: httpx.AsyncClient | None = None) -> di
             "name": name, "url": url, "ok": reachable,
             "status": None,
             "classification": classification,
+            "checked_url": url,
+            "fallback_url": None,
+            "primary_error": None,
             "latency_ms": int((time.time() - t0) * 1000),
             "error": f"{type(e).__name__}: {str(e)[:160]}",
             "checked_at": datetime.now(timezone.utc).isoformat(),
@@ -434,8 +479,11 @@ async def run_daily_ping() -> dict:
         per_source.append({
             "name": nm,
             "url": p.get("url"),
+            "checked_url": p.get("checked_url"),
+            "fallback_url": p.get("fallback_url"),
+            "primary_error": p.get("primary_error"),
             "status": "ok" if p.get("ok") else "error",
-            "classification": cls,   # R-F2266 — up | blocked | not_found | server_error | http_4xx | <exc>
+            "classification": cls,   # R-F2266 — up | fallback_up | blocked | not_found | server_error | http_4xx | <exc>
             "http_status": p.get("status"),
             "latency_ms": p.get("latency_ms"),
             "last_success": p.get("checked_at") if p.get("ok") else None,

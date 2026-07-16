@@ -151,6 +151,39 @@ async def test_rf2679_get_first_source_does_not_call_head(monkeypatch):
     assert res["status"] == 200
 
 
+async def test_rf2682_wassenaar_uses_official_fallback_after_primary_timeout(monkeypatch):
+    """A primary transport outage can recover through an explicit official fallback."""
+    class _Resp:
+        status_code = 200
+
+    class _Client:
+        def __init__(self, *a, **k):
+            self.calls = []
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def head(self, url, *a, **k):
+            self.calls.append(("HEAD", url))
+            if "wassenaar.org" in url:
+                raise httpx.ConnectTimeout("primary unreachable")
+            return _Resp()
+        async def get(self, url, *a, **k):
+            self.calls.append(("GET", url))
+            if "wassenaar.org" in url:
+                raise httpx.ConnectTimeout("primary unreachable")
+            return _Resp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    res = await m._ping_one({"name": "wassenaar_arrangement", "url": "https://wassenaar.org/"})
+
+    assert res["ok"] is True
+    assert res["classification"] == "fallback_up"
+    assert res["status"] == 200
+    assert res["url"] == "https://wassenaar.org/"
+    assert res["fallback_url"] == "https://www.seco.admin.ch/en/wassenaar-arrangement"
+    assert res["checked_url"] == res["fallback_url"]
+    assert "ConnectTimeout" in res["primary_error"]
+
+
 # ── R-F2266 end-to-end: blocked sources count as UP and are NOT suspended ─────
 async def test_rf2266_blocked_sources_not_suspended(monkeypatch):
     srcs = [{"name": f"Blocked{i}", "url": f"https://blocked{i}.gov/"} for i in range(3)]
