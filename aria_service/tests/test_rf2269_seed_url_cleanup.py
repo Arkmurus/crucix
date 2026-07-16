@@ -3,6 +3,8 @@ the uptime sweep reported as "down" (404 / NXDOMAIN). These were replaced with
 current, reachability-verified URLs. This test guards against the dead ones
 creeping back and asserts the catalogue is intact + well-formed.
 """
+import pytest
+
 import aria_service.intel.defence_source_seed as seed
 
 
@@ -60,3 +62,34 @@ def test_rf2269_catalogue_intact_and_wellformed():
     # names remain unique
     names = [e[1] for e in srcs]
     assert len(names) == len(set(names)), "duplicate source names introduced"
+
+
+@pytest.mark.asyncio
+async def test_rf2672_seed_errors_wire_failure(monkeypatch):
+    """seed_web_atlas reports real seeding failures to the brain wiring sink."""
+    from aria_service.intel import engine_wiring
+    from aria_service.intel import web_atlas
+
+    calls = []
+
+    async def _stats():
+        return {"source_families": 0}
+
+    async def _add_source(**_kwargs):
+        raise RuntimeError("atlas write failed")
+
+    def _wire_failure(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(seed, "_DEFENCE_SOURCES", [("https://example.com/source", "example_source", "tier1", ["test"])])
+    monkeypatch.setattr(web_atlas, "stats", _stats)
+    monkeypatch.setattr(web_atlas, "add_source", _add_source)
+    monkeypatch.setattr(engine_wiring, "wire_failure", _wire_failure)
+
+    out = await seed.seed_web_atlas(skip_if_populated=False)
+
+    assert out["ok"] is False
+    assert out["errors"] == 1
+    assert calls
+    assert calls[0]["module"] == "defence_source_seed"
+    assert calls[0]["gap_type"] == "source_seed_failure"

@@ -670,6 +670,13 @@ async def seed_web_atlas(skip_if_populated: bool = True) -> dict:
         summary="Seed Web Atlas",
         source_id="defence_source_seed:R-F996",
     )
+    if errors:
+        wire_failure(
+            module="defence_source_seed",
+            detail=f"seed_web_atlas: {errors} source(s) failed to seed",
+            gap_type="source_seed_failure",
+            source="defence_source_seed:R-F2672",
+        )
 
     return {
         "ok": errors == 0,
