@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2662,
+  "next_available": 2663,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20513,14 +20513,24 @@
       "title": "gate #2 honest grader: reading loops credit regional mastery via hardcoded correct=True (participation trophy) -> honest recall grade",
       "claimed_at": "2026-07-16T12:07:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "250c663f",
+      "notes": null,
+      "shipped_at": "2026-07-16T12:29:07Z"
     },
     {
       "r_number": "R-F2661",
       "title": "gate #2 honesty follow-up: R-F196 article->regional mastery (student.py:1581) also credits correct=True for reading — honest-grade it (cost-guarded for per-article volume)",
       "claimed_at": "2026-07-16T12:09:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2662",
+      "title": "C-3 independent-source corroboration pass in _run_verification (gated OFF; excludes internal sources); earns R-F2413 flag via eval",
+      "claimed_at": "2026-07-16T12:20:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
