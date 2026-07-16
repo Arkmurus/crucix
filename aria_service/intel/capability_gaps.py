@@ -215,6 +215,17 @@ VALID_GAP_TYPES = frozenset({
     # gap, not a silent "all clear") or when the signal store write fails. First-class
     # so the coder loop can act and no "Unknown gap type" warning is emitted.
     "golden_intel_promotion_failure",
+    # R-F2642 (2026-07-16) — SearXNG returned 0 results for a configured
+    # instance, i.e. every upstream engine blocked us. Emitted by
+    # web_search.py:593 via engine_wiring.wire_failure since R-F1656/R-F1657,
+    # but never registered here — so every emit logged "Unknown gap type
+    # 'search_all_engines_blocked' — recording anyway" (:259). The gap WAS
+    # still recorded (record_gap warns, it does not drop), so this is log
+    # noise + a real search-degradation signal demoted to noise, NOT data
+    # loss. Same class as the already-registered "search_zero_results"
+    # (2026-04-27) and "llm_provider_failure" (R-F2551); registering it makes
+    # the search-degradation taxonomy first-class and silences the warning.
+    "search_all_engines_blocked",
 })
 
 

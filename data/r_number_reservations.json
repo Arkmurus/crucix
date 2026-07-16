@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2639,
+  "next_available": 2643,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20266,9 +20266,10 @@
       "title": "dedupe window unrelated to cron cadence — bucket the marker to the scheduled slot",
       "claimed_at": "2026-07-15T16:48:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b84812cc",
+      "notes": null,
+      "shipped_at": "2026-07-15T17:34:26Z"
     },
     {
       "r_number": "R-F2636",
@@ -20298,6 +20299,42 @@
       "commit_sha": "6e35d9e3",
       "notes": null,
       "shipped_at": "2026-07-15T17:26:29Z"
+    },
+    {
+      "r_number": "R-F2639",
+      "title": "phase-gate fork consolidation - one measure one verdict",
+      "claimed_at": "2026-07-16T07:14:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2640",
+      "title": "gate 6 measures golden-set SIZE not FROZEN - freeze-pin semantics",
+      "claimed_at": "2026-07-16T07:17:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2641",
+      "title": "LLMHealthChecker double /v1 — probe 404s a healthy sovereign, breaks promotion gate",
+      "claimed_at": "2026-07-16T07:21:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2642",
+      "title": "register search_all_engines_blocked gap type — emitted at web_search.py:593 but silently rejected",
+      "claimed_at": "2026-07-16T07:21:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
