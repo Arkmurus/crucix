@@ -561,6 +561,38 @@ class ARKDDReport:
             lines.append(f"*Recommendation:* {self.recommendation}")
             lines.append("")
 
+        # R-F2681 — surface the already-computed EVIDENCE-DEPTH grade + blockers
+        # so the operator reads "Grade B because X — to reach A: Z" in the report
+        # itself, not only in the structured_view JSON. This is an evidence-
+        # sufficiency grade, SEPARATE from the risk classification (a GREEN report
+        # can still be low-grade on sparse/ungrounded evidence). Live-computed each
+        # render (no persisted snapshot → no drift). Must never break the report.
+        try:
+            _qa = _dd_quality_assessment(self.as_dict())
+            _grade = _qa.get("grade", "?")
+            _gscore = _qa.get("score")
+            _gblk = [b for b in (_qa.get("blocking_reasons") or []) if b]
+            _gemoji = {"A": "🟢", "B": "🔵", "C": "🟡",
+                       "D": "🔴", "INCOMPLETE": "⚪"}.get(_grade, "📊")
+            _score_txt = f" ({_gscore}/100)" if isinstance(_gscore, int) else ""
+            lines.append(
+                f"*{_gemoji} Evidence Grade: {_grade}{_score_txt}* "
+                f"— evidence depth, not risk"
+            )
+            if _grade == "A":
+                lines.append("Evidence depth meets all Grade-A thresholds.")
+            elif _gblk:
+                _hdr = "Grade withheld —" if _grade == "INCOMPLETE" else "To reach Grade A:"
+                lines.append(_hdr)
+                _cap = 2 if concise else 8
+                for _b in _gblk[:_cap]:
+                    lines.append(f"  • {_b}")
+                if len(_gblk) > _cap:
+                    lines.append(f"  • …and {len(_gblk) - _cap} more (see full report)")
+            lines.append("")
+        except Exception:
+            pass  # evidence-grade render must never break the report
+
         def _sec_header(emoji: str, name: str, meta: SectionMeta) -> str:
             return f"━━━ {emoji} {name} [{meta.status.upper()}] ━━━"
 
