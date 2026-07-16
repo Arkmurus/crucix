@@ -75,3 +75,23 @@ def run_v1_eval() -> dict[str, Any]:
     """Convenience: score the shipped v1 classifier against the golden set."""
     g = load_golden()
     return score_independence(g.get("cases") or [], v1_corroboration_classifier)
+
+
+_GOLDEN_V2 = (
+    pathlib.Path(__file__).resolve().parents[2]
+    / "data" / "eval" / "dd_independence_golden_v2.json"
+)
+
+
+def v2_verifier_classifier(sources: list) -> bool:
+    """C-3 v2 (R-F2669): the real independent-origin verifier — content-story dedup +
+    publisher-family. In the offline eval the golden set supplies each source's `story`
+    fingerprint (what the LIVE DD re-fetch computes); the classifier logic is identical."""
+    from .dd_independent_verifier import is_independently_corroborated
+    return is_independently_corroborated(list(sources))
+
+
+def run_v2_eval() -> dict[str, Any]:
+    """Score the C-3 v2 verifier against the v2 golden set (with content fingerprints)."""
+    g = load_golden(_GOLDEN_V2)
+    return score_independence(g.get("cases") or [], v2_verifier_classifier)
