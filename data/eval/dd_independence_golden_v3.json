@@ -1,5 +1,5 @@
 {
-  "_comment": "R-F2688 — C-3 v3 independence golden set. SUPERSET of v2: every v2 case is preserved verbatim (so v3 is also a v2 regression), plus the PR-echo residual cases and the independence discriminators. GATE: false_positive_rate MUST be 0 (a claim wrongly marked 'independently corroborated' is the honesty-USP betrayal). The PR-echo cases are EXPECTED to fail the shipped publisher-or-story classifier — that is the residual R-F2677 documented and left open, now MEASURED rather than asserted. Sources carry `text` (the raw body the live re-fetch has) so a classifier can derive shingles, quotes and PR markers itself; v2 cases keep domain+story only and still score.",
+  "_comment": "R-F2688 — C-3 v3 independence golden set. SUPERSET of v2: every v2 case is preserved verbatim (so v3 is also a v2 regression), plus the PR-echo residual cases and the independence discriminators. GATE: false_positive_rate MUST be 0 (a claim wrongly marked 'independently corroborated' is the honesty-USP betrayal). The PR-echo cases are EXPECTED to fail the shipped publisher-or-story classifier — that is the residual R-F2677 documented and left open, now MEASURED rather than asserted. Sources carry `text` (the raw body the live re-fetch has) so a classifier can derive shingles, quotes and PR markers itself; v2 cases keep domain+story only and still score. R-F2698 added independent_investigations_seeking_comment: the PR-marker guard — real investigations seek comment, so pr_marker_both is NOT sufficient for an echo.",
   "version": 3,
   "derived_from": "dd_independence_golden_v2.json",
   "cases": [
@@ -268,6 +268,24 @@
       ],
       "expected": false,
       "rationale": "The HARD tail: both outlets paraphrased the PR and quoted nothing verbatim, so the quote signal finds NOTHING. Only the PR markers ('according to a press release', 'said in a statement', 'announced today') plus near-identical content betray the single origin. Expected to be the last case to fall — keep it labelled honestly rather than dropping it to make a score look good."
+    },
+    {
+      "id": "independent_investigations_seeking_comment",
+      "claim": "company underpaid suppliers",
+      "sources": [
+        {
+          "domain": "bbc.co.uk",
+          "story": "bbc_supplier_probe",
+          "text": "The BBC has spoken to eleven former suppliers who say invoices went unpaid for more than a year. Two provided correspondence supporting their account. Approached for comment, the company said in a statement that it takes its obligations seriously and rejects the characterisation."
+        },
+        {
+          "domain": "ft.com",
+          "story": "ft_supplier_probe",
+          "text": "Analysis of filings by the Financial Times shows payment terms lengthening well beyond the sector norm, a finding corroborated by three suppliers interviewed by this newspaper. In a statement, the firm said it rejects the characterisation and that it takes its obligations seriously."
+        }
+      ],
+      "expected": true,
+      "rationale": "THE PR-MARKER TRAP. Two genuinely independent newsrooms, each with its OWN sourcing (11 former suppliers + correspondence vs. filings analysis + 3 interviews) — but BOTH sought comment, so BOTH carry a PR marker ('said in a statement' / 'In a statement'), and both relay the same corporate line. pr_marker_both is therefore TRUE for a REAL corroboration: seeking comment is what good reporting does, not evidence of a press-release echo. Any fix that treats pr_marker_both as sufficient — e.g. dropping the cosine gate to catch the last FP — merges these two real witnesses and destroys the corroboration. Labelled True deliberately: it is the guard on the only signal left."
     }
   ]
 }

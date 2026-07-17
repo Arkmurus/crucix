@@ -189,6 +189,40 @@ def test_rf2690_v2_cases_score_identically_under_both_classifiers(golden):
         )
 
 
+def test_rf2698_pr_marker_alone_is_rejected_by_the_set(golden):
+    """R-F2698 — the guard on the LAST remaining signal.
+
+    With the last FP (`pr_echo_marker_without_shared_quote`) scoring only 0.572 cosine,
+    the tempting fix is to drop the 0.90 gate and treat "PR marker on BOTH sides" as
+    sufficient for an echo. In the pre-R-F2698 set that looked perfect: every pr_echo_*
+    case had the marker and every discriminator lacked it.
+
+    That was a FIXTURE ARTIFACT. Real investigations SEEK COMMENT — "the company said
+    in a statement that it rejects the findings" is standard practice — so a genuine
+    corroboration carries the marker too. This asserts the set now FAILS a
+    marker-only classifier, so the naive fix cannot pass the eval.
+    """
+    from aria_service.intel.dd_independent_verifier import has_pr_marker
+
+    cases = {c["id"]: c for c in golden["cases"]}
+    guard = cases["independent_investigations_seeking_comment"]
+    assert guard["expected"] is True
+    # The guard must genuinely carry the marker, or it guards nothing.
+    assert all(has_pr_marker(s["text"]) for s in guard["sources"])
+
+    def marker_only(sources):
+        """The naive fix: PR marker on both sides => one origin."""
+        texts = [s.get("text") or "" for s in sources if isinstance(s, dict)]
+        if len(texts) >= 2 and all(has_pr_marker(t) for t in texts):
+            return False  # merged to a single origin => not corroborated
+        return len({s.get("domain") for s in sources if isinstance(s, dict)}) >= 2
+
+    r = score_independence(golden["cases"], marker_only)
+    assert "independent_investigations_seeking_comment" in r["false_negative_cases"], (
+        "the set no longer rejects a marker-only classifier — the guard is dead"
+    )
+
+
 def test_run_v3_eval_accepts_a_candidate_classifier():
     """A candidate (e.g. C-3 v3) must be scorable WITHOUT editing the eval module."""
     always_no = lambda sources: False  # noqa: E731
