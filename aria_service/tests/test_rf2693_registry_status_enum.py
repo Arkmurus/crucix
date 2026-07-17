@@ -99,10 +99,18 @@ def test_stub_result_carries_a_non_authoritative_status(monkeypatch):
     assert m["identity_authority_present"] is False
 
 
-def test_angola_homepage_scrape_branch_is_not_authority(monkeypatch):
-    """The non-stub `angola_gue` branch GETs the portal HOMEPAGE and regexes it for
-    Empresa/NIF — it never searches for THIS entity, so a match is boilerplate, not a
-    confirmation. Its adapter name would otherwise classify it VERIFIED."""
+def test_angola_homepage_response_is_not_authority(monkeypatch):
+    """SUPERSEDED-IN-PLACE by R-F2695, deliberately kept.
+
+    R-F2693 could only MARK the homepage-scrape branch non-authoritative (it returned
+    adapter="angola_gue", a non-stub name that for_adapter() would class VERIFIED).
+    R-F2695 then DELETED that branch outright — it GET'd the portal homepage and
+    reported the boilerplate it found there as the SUBJECT's identifiers.
+
+    So this no longer asserts "the branch is marked non-authority"; it asserts the
+    stronger end state: a homepage response cannot produce authority at all. Kept
+    because the property — not the branch — is what matters.
+    """
     import asyncio
 
     from aria_service.intel import registry_adapters
@@ -120,8 +128,9 @@ def test_angola_homepage_scrape_branch_is_not_authority(monkeypatch):
     monkeypatch.setattr(registry_adapters.httpx, "AsyncClient", _Client)
     result = asyncio.run(registry_adapters._lookup_angola("Some Angolan Co", ""))
 
-    assert result["adapter"] == "angola_gue"          # non-stub name...
-    assert result["registry_status"] == RegistryStatus.MANUAL_REQUIRED.value  # ...but NOT authority
+    assert result["adapter"] == "angola_gue_stub"
+    assert result["registry_status"] == RegistryStatus.MANUAL_REQUIRED.value
+    assert "5417123456" not in str(result["profile"])  # R-F2695: no fabricated identifier
     assert _quality_metrics(_report(
         registration_status="active",  # even if something substantive appeared
         registry_status=result["registry_status"],

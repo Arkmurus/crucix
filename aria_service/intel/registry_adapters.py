@@ -1973,53 +1973,17 @@ async def _lookup_angola(name: str, reg_number: str | None) -> dict | None:
     Returns a minimal result with data_gaps explaining the limitation.
     Recommends manual verification via IGAPE or GUE office.
     """
-    # Attempt a best-effort GET against the GUE portal — it may return
-    # something useful if the site ever exposes a search page, but we
-    # do not rely on it.
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
-            resp = await client.get(
-                "https://gue.gov.ao/",
-                headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)",
-                    "Accept-Language": "pt-AO,pt;q=0.9,en;q=0.5",
-                },
-            )
-            # If the portal is reachable, try to extract any company info
-            if resp.status_code == 200:
-                html = resp.text
-                name_match = re.search(
-                    r'(?:Denomina[çc][ãa]o|Empresa|Raz[ãa]o Social)[:\s]*([^<]{3,120})',
-                    html, re.IGNORECASE,
-                )
-                nif_match = re.search(r'NIF[:\s]*(\d{9,15})', html, re.IGNORECASE)
-                if name_match or nif_match:
-                    return _build_result(
-                        company_name=_html_unescape(name_match.group(1).strip()) if name_match else name,
-                        company_number=nif_match.group(1) if nif_match else reg_number or "",
-                        company_status="unknown",
-                        date_of_creation="",
-                        registered_office_address="",
-                        jurisdiction="AO",
-                        sic_codes=[],
-                        officers=[],
-                        psc=[],
-                        source_url="https://gue.gov.ao",
-                        adapter="angola_gue",
-                        # R-F2693 — NOT authority, despite the non-stub adapter name.
-                        # This branch GETs the portal HOMEPAGE ("https://gue.gov.ao/")
-                        # and regexes it for Empresa/Razão Social/NIF — it never
-                        # searches for THIS entity, so a match is homepage boilerplate,
-                        # not a confirmation. Naming it `angola_gue` would let
-                        # for_adapter() classify it VERIFIED. It is a fallback.
-                        # NOTE (separate R-number): this branch also assigns the
-                        # homepage's company_name/NIF to the SUBJECT — a fabricated
-                        # identifier. Marking the status non-authoritative stops it
-                        # lifting the grade; it does not make the branch correct.
-                        registry_status=RegistryStatus.MANUAL_REQUIRED,
-                    )
-    except Exception as exc:
-        logger.debug("Angola GUE portal unreachable (expected): %s", exc)
+    # R-F2695 — the best-effort homepage scrape that used to live here is GONE.
+    # It GET'd the portal's HOMEPAGE with NO query — the subject's name was never
+    # sent — then regexed that HTML for an identifier + a name label and, on any
+    # match, returned them AS THE SUBJECT'S. dd_orchestrator assigns those to
+    # report.identity.registration_number / entity_name, so boilerplate or a worked
+    # example on the portal's front page could be reported as this entity's
+    # registration number. A lookup that never searched for the entity cannot
+    # confirm it, and no regex on a homepage can fix that — the branch was deleted
+    # rather than tightened. If the portal ever exposes a real search-by-name
+    # endpoint, add a call that SENDS the name (see _lookup_kenya / _lookup_ghana /
+    # _lookup_saudi_arabia, which do). Falls through to the honest stub below.
 
     # Return a stub result so the DD report has a registry entry with
     # explicit data_gaps rather than nothing at all.
@@ -2995,44 +2959,17 @@ async def _lookup_panama(name: str, reg_number: str | None) -> dict | None:
     expose a search-by-name endpoint) and falls back to a stub result so
     the DD orchestrator has an explicit PA registry entry with data_gaps.
     """
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
-            resp = await client.get(
-                _PA_BASE,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)",
-                    "Accept-Language": "es-PA,es;q=0.9,en;q=0.5",
-                },
-            )
-            if resp.status_code == 200:
-                html = resp.text
-                # If the portal happens to show a company name + folio match,
-                # try to extract it. Folio is the Panamanian equivalent of
-                # company number (e.g. "155123456").
-                folio_match = re.search(
-                    r"(?:Folio|N[uú]mero\s+de\s+Folio)[:\s]*(\d{6,12})",
-                    html, re.IGNORECASE,
-                )
-                name_match = re.search(
-                    r"(?:Denominaci[óo]n|Raz[óo]n\s+Social)[:\s]*([^<\n]{3,160})",
-                    html, re.IGNORECASE,
-                )
-                if folio_match or name_match:
-                    return _build_result(
-                        company_name=_html_unescape(name_match.group(1).strip()) if name_match else name,
-                        company_number=folio_match.group(1) if folio_match else reg_number or "",
-                        company_status="unknown",
-                        date_of_creation="",
-                        registered_office_address="",
-                        jurisdiction="PA",
-                        sic_codes=[],
-                        officers=[],
-                        psc=[],
-                        source_url=_PA_BASE,
-                        adapter="panama_registro_publico",
-                    )
-    except Exception as exc:
-        logger.debug("Panama Registro Público unreachable: %s", exc)
+    # R-F2695 — the best-effort homepage scrape that used to live here is GONE.
+    # It GET'd the portal's HOMEPAGE with NO query — the subject's name was never
+    # sent — then regexed that HTML for an identifier + a name label and, on any
+    # match, returned them AS THE SUBJECT'S. dd_orchestrator assigns those to
+    # report.identity.registration_number / entity_name, so boilerplate or a worked
+    # example on the portal's front page could be reported as this entity's
+    # registration number. A lookup that never searched for the entity cannot
+    # confirm it, and no regex on a homepage can fix that — the branch was deleted
+    # rather than tightened. If the portal ever exposes a real search-by-name
+    # endpoint, add a call that SENDS the name (see _lookup_kenya / _lookup_ghana /
+    # _lookup_saudi_arabia, which do). Falls through to the honest stub below.
 
     # Stub fallback so the DD report has a registry entry with data_gaps.
     result = _build_result(
@@ -3083,43 +3020,17 @@ def _is_bg_eik(text: str) -> bool:
 async def _lookup_bulgaria(name: str, reg_number: str | None) -> dict | None:
     """Bulgaria Commercial Register — HTML scrape + stub fallback."""
     eik = (re.sub(r"\D", "", reg_number) if reg_number else "") or None
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
-            resp = await client.get(
-                _BG_BASE,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)",
-                    "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.5",
-                },
-            )
-            if resp.status_code == 200:
-                html = resp.text
-                # If the portal happens to inline a search result (rare),
-                # try to extract the company block.
-                eik_match = re.search(
-                    r"(?:ЕИК|EIK)[:\s]*(\d{9}(?:\d{4})?)",
-                    html, re.IGNORECASE,
-                )
-                name_match = re.search(
-                    r"(?:Наименование|Фирма|Company\s+name)[:\s]*([^<\n]{3,200})",
-                    html, re.IGNORECASE,
-                )
-                if eik_match or name_match:
-                    return _build_result(
-                        company_name=_html_unescape(name_match.group(1).strip()) if name_match else name,
-                        company_number=eik_match.group(1) if eik_match else (eik or ""),
-                        company_status="unknown",
-                        date_of_creation="",
-                        registered_office_address="",
-                        jurisdiction="BG",
-                        sic_codes=[],
-                        officers=[],
-                        psc=[],
-                        source_url=_BG_BASE,
-                        adapter="bulgaria_brra",
-                    )
-    except Exception as exc:
-        logger.debug("Bulgaria BRRA portal unreachable: %s", exc)
+    # R-F2695 — the best-effort homepage scrape that used to live here is GONE.
+    # It GET'd the portal's HOMEPAGE with NO query — the subject's name was never
+    # sent — then regexed that HTML for an identifier + a name label and, on any
+    # match, returned them AS THE SUBJECT'S. dd_orchestrator assigns those to
+    # report.identity.registration_number / entity_name, so boilerplate or a worked
+    # example on the portal's front page could be reported as this entity's
+    # registration number. A lookup that never searched for the entity cannot
+    # confirm it, and no regex on a homepage can fix that — the branch was deleted
+    # rather than tightened. If the portal ever exposes a real search-by-name
+    # endpoint, add a call that SENDS the name (see _lookup_kenya / _lookup_ghana /
+    # _lookup_saudi_arabia, which do). Falls through to the honest stub below.
 
     # Stub fallback.
     result = _build_result(
