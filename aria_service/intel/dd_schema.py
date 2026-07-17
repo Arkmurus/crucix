@@ -158,6 +158,38 @@ class Finding:
     # the start).
     gate_demoted: bool = False
     gate_reason: str = ""
+    # R-F2691 — STRUCTURED provenance (DD Grade-A Phase-0, gap #4). `Evidence` has
+    # carried url/source_tier/retrieved_at since the start; `Finding` — the thing an
+    # analyst actually reads and acts on — carried only a bare `source` string, so
+    # callers that HAD a url could only smuggle it into free text
+    # (`f"{name} [from {url}]"`, dd_orchestrator), recoverable solely by parsing a
+    # display string, and "when was this true?" stayed unanswerable.
+    #
+    # PURELY ADDITIVE, and that is a deliberate constraint, not laziness. These fields
+    # do NOT supersede the `[from {url}]` suffix, which MEASURES as load-bearing:
+    # `origin_key`/`_is_tier_1a_source` match on DOMAINS, so the embedded url is what
+    # makes "bailii [from https://www.bailii.org/…]" resolve to pub:bailii.org and clear
+    # the R-5005 Tier-1a gate, where a bare "bailii" yields external_unclassified and
+    # FAILS it. Removing the suffix silently demotes findings and collapses distinct
+    # sources into one origin. Making those two functions prefer `url` is the real fix
+    # and is a separate R-number (it touches the tier gate + ~127 construction sites).
+    #
+    # All optional → every existing construction site keeps working unchanged; a site
+    # that cannot supply provenance honestly reports none rather than inventing it.
+    #
+    # Vocabulary is deliberately Evidence's, NOT a new one: a second tier spelling
+    # would silently fork the meaning of "OFFICIAL" across the report.
+    url: Optional[str] = None
+    source_tier: str = "UNKNOWN"  # OFFICIAL | INDUSTRY | QUALITY_PRESS | UNVERIFIED
+    retrieved_at: Optional[str] = None
+
+    def has_provenance(self) -> bool:
+        """True when this finding can point at WHERE it came from.
+
+        Deliberately requires a url — a tier alone is a claim about a source we
+        cannot show the analyst, which is the gap this field exists to close.
+        """
+        return bool(self.url)
 
     def __post_init__(self) -> None:
         # Back-fill `sources` from legacy `source` field

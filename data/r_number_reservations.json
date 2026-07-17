@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2691,
+  "next_available": 2692,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20786,9 +20786,10 @@
       "title": "broaden C-3 independence golden eval to v3 (PR-echo + independence discriminator)",
       "claimed_at": "2026-07-17T09:33:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8fa49f43",
+      "notes": null,
+      "shipped_at": "2026-07-17T09:51:56Z"
     },
     {
       "r_number": "R-F2689",
@@ -20803,6 +20804,16 @@
       "r_number": "R-F2690",
       "title": "wire C-3 v3 text-level PR-echo detector into the independence eval + re-score",
       "claimed_at": "2026-07-17T09:49:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0a7d4daa",
+      "notes": null,
+      "shipped_at": "2026-07-17T09:51:57Z"
+    },
+    {
+      "r_number": "R-F2691",
+      "title": "per-Finding structured provenance (url/source_tier/retrieved_at)",
+      "claimed_at": "2026-07-17T09:54:08Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

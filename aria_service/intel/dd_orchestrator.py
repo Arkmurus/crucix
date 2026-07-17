@@ -1758,10 +1758,30 @@ def _emit_court_record_findings(court_records_block: Any) -> list[Finding]:
             severity=case_severity,
             title=f"Litigation [{jurisdiction}] {title[:120]}",
             detail=" · ".join(detail_bits),
+            # R-F2691 — the `[from {url}]` suffix STAYS. It looks like string-stuffing
+            # that the new `url` field supersedes, and this R-number originally removed
+            # it — but MEASURED, it is LOAD-BEARING (R-F600 codified it for a reason):
+            #   origin_key("bailii [from https://www.bailii.org/…]") -> "pub:bailii.org"
+            #   origin_key("bailii")                                 -> "external_unclassified"
+            #   _is_tier_1a_source(...)                              -> True vs FALSE
+            # The Tier-1a allowlist matches DOMAINS, so the embedded url is what lets a
+            # court-record source resolve to a real publisher and clear the R-5005 gate.
+            # Stripping it would silently demote these findings to ASSESSED and collapse
+            # every bare source name into ONE 'external_unclassified' origin — corrupting
+            # the C-3 independent-origin count. Teaching origin_key/_is_tier_1a_source to
+            # read `url` first is the real fix; that touches the tier gate + ~127 sites
+            # and is NOT this R-number.
             source=(
                 f"{source_name} [from {citation_url}]"
                 if citation_url else source_name
             ),
+            # Additive: the same provenance, now machine-readable instead of only
+            # recoverable by parsing a display string.
+            url=citation_url or None,
+            # Court records are primary official documents when we have the citation;
+            # without one we cannot claim that tier, so stay UNKNOWN rather than
+            # asserting authority we cannot show.
+            source_tier="OFFICIAL" if citation_url else "UNKNOWN",
             confidence="PROBABLE",
         ))
 
