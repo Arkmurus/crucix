@@ -95,3 +95,71 @@ def run_v2_eval() -> dict[str, Any]:
     """Score the C-3 v2 verifier against the v2 golden set (with content fingerprints)."""
     g = load_golden(_GOLDEN_V2)
     return score_independence(g.get("cases") or [], v2_verifier_classifier)
+
+
+# =============================================================================
+# R-F2688 — BROADEN the eval so the R-F2677 residual is MEASURED, not asserted.
+#
+# The v2 golden set contains no PR-echo case, so it structurally CANNOT score a
+# PR-echo detector: it would report a clean sheet for a classifier that fabricates
+# independence on the exact input the residual describes. An eval that cannot fail
+# is the same species of vacuous gate as a key nothing writes (cf. gates #3/#4/#6).
+#
+# v3 adds:
+#   - PR-echo cases: one company PR reworded by N outlets → N distinct stories →
+#     the shipped publisher-or-story classifier calls them N independent origins.
+#     Labelled False. These are EXPECTED to score as FALSE POSITIVES today — that
+#     is the residual becoming visible, NOT a regression to fix by relabelling.
+#   - Discriminators: two genuinely independent newsrooms on the SAME event (very
+#     high topical similarity, no shared origin) → labelled True. These are what
+#     stop the fix from being "lower a similarity threshold until the FP vanishes":
+#     cosine measures TOPIC, not ORIGIN, so a naive merge destroys real recall.
+#
+# The GATE remains false_positive_rate == 0 (R-F2413): a claim wrongly marked
+# "independently corroborated" is the honesty-USP betrayal. Report recall honestly
+# alongside it — a recall drop is a real cost to weigh, never a number to hide.
+# =============================================================================
+
+_GOLDEN_V3 = (
+    pathlib.Path(__file__).resolve().parents[2]
+    / "data" / "eval" / "dd_independence_golden_v3.json"
+)
+
+
+def run_v3_eval(classifier: "Callable[[list], bool] | None" = None) -> dict[str, Any]:
+    """Score a corroboration classifier against the BROADENED v3 golden set.
+
+    Defaults to the currently-shipped v2 verifier, which makes the residual visible:
+    the PR-echo cases are expected to land in `false_positive_cases` until a
+    PR-echo-aware classifier (C-3 v3) is passed in. Pass `classifier` to score a
+    candidate without touching this module.
+    """
+    g = load_golden(_GOLDEN_V3)
+    return score_independence(g.get("cases") or [], classifier or v2_verifier_classifier)
+
+
+def residual_report(classifier: "Callable[[list], bool] | None" = None) -> dict[str, Any]:
+    """v3 score split into the PR-echo residual vs the rest, for an at-a-glance verdict.
+
+    `gate_met` is the honest bottom line: the R-F2413 flag may only ever flip while
+    false_positive_rate == 0 across the WHOLE set — the residual cases included.
+    """
+    g = load_golden(_GOLDEN_V3)
+    cases = g.get("cases") or []
+    clf = classifier or v2_verifier_classifier
+    overall = score_independence(cases, clf)
+    residual_ids = {
+        c.get("id") for c in cases
+        if str(c.get("id") or "").startswith("pr_echo_")
+    }
+    return {
+        "overall": overall,
+        "gate_met": overall["false_positive_rate"] == 0.0,
+        "residual_case_ids": sorted(residual_ids),
+        "residual_failures": sorted(
+            residual_ids.intersection(overall["false_positive_cases"])
+        ),
+        "discriminator_failures": sorted(
+            set(overall["false_negative_cases"]) - residual_ids
+        ),
+    }

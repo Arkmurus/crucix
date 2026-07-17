@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2687,
+  "next_available": 2690,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20765,6 +20765,34 @@
       "r_number": "R-F2686",
       "title": "P0.5 residual: wire LLM warm-gate + fix _health_checker_instance None-deref",
       "claimed_at": "2026-07-17T09:11:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5556e5d4",
+      "notes": null,
+      "shipped_at": "2026-07-17T09:26:12Z"
+    },
+    {
+      "r_number": "R-F2687",
+      "title": "DD PR-echo detector: verbatim-quote + PR-marker origin signal (C-3 v3)",
+      "claimed_at": "2026-07-17T09:30:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2688",
+      "title": "broaden C-3 independence golden eval to v3 (PR-echo + independence discriminator)",
+      "claimed_at": "2026-07-17T09:33:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2689",
+      "title": "coder gold lane gate",
+      "claimed_at": "2026-07-17T09:34:09Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

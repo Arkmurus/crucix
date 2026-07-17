@@ -1,0 +1,273 @@
+{
+  "_comment": "R-F2688 — C-3 v3 independence golden set. SUPERSET of v2: every v2 case is preserved verbatim (so v3 is also a v2 regression), plus the PR-echo residual cases and the independence discriminators. GATE: false_positive_rate MUST be 0 (a claim wrongly marked 'independently corroborated' is the honesty-USP betrayal). The PR-echo cases are EXPECTED to fail the shipped publisher-or-story classifier — that is the residual R-F2677 documented and left open, now MEASURED rather than asserted. Sources carry `text` (the raw body the live re-fetch has) so a classifier can derive shingles, quotes and PR markers itself; v2 cases keep domain+story only and still score.",
+  "version": 3,
+  "derived_from": "dd_independence_golden_v2.json",
+  "cases": [
+    {
+      "id": "multi_sanctions_authorities",
+      "claim": "entity is sanctioned",
+      "sources": [
+        "sanctions:ofac",
+        "sanctions:ofsi",
+        "sanctions:un"
+      ],
+      "expected": true,
+      "rationale": "3 distinct independent sanctions authorities"
+    },
+    {
+      "id": "multi_country_indices",
+      "claim": "country risk headline",
+      "sources": [
+        "transparency_intl_cpi",
+        "basel_aml_index",
+        "fatf",
+        "worldbank_wgi"
+      ],
+      "expected": true,
+      "rationale": "4 distinct independent risk indices"
+    },
+    {
+      "id": "two_registries",
+      "claim": "cross-registry identity",
+      "sources": [
+        "companies_house",
+        "sec_edgar"
+      ],
+      "expected": true,
+      "rationale": "two independent company registries"
+    },
+    {
+      "id": "registry_plus_one_press",
+      "claim": "incorporation corroborated",
+      "sources": [
+        "companies_house",
+        {
+          "domain": "ft.com",
+          "story": "ft_incorp_2011"
+        }
+      ],
+      "expected": true,
+      "rationale": "registry + an independent publisher = 2 origins"
+    },
+    {
+      "id": "genuine_multi_publisher",
+      "claim": "press mention",
+      "sources": [
+        {
+          "domain": "bbc.co.uk",
+          "story": "bbc_probe"
+        },
+        {
+          "domain": "theguardian.com",
+          "story": "guardian_investigation"
+        },
+        {
+          "domain": "ft.com",
+          "story": "ft_analysis"
+        },
+        {
+          "domain": "nytimes.com",
+          "story": "nyt_report"
+        }
+      ],
+      "expected": true,
+      "rationale": "4 distinct publishers, 4 distinct stories"
+    },
+    {
+      "id": "single_registry",
+      "claim": "directors known",
+      "sources": [
+        "companies_house"
+      ],
+      "expected": false,
+      "rationale": "one source"
+    },
+    {
+      "id": "internal_compute_only",
+      "claim": "ghost + network score",
+      "sources": [
+        "ghost_scorer",
+        "network_walker"
+      ],
+      "expected": false,
+      "rationale": "ARIA's OWN compute — not external witnesses"
+    },
+    {
+      "id": "internal_memory_echo",
+      "claim": "kb + neural recall",
+      "sources": [
+        "aria_knowledge",
+        "neural_memory"
+      ],
+      "expected": false,
+      "rationale": "internal memory echo — never independent"
+    },
+    {
+      "id": "one_external_plus_internal",
+      "claim": "mixed single external",
+      "sources": [
+        "companies_house",
+        "aria_knowledge"
+      ],
+      "expected": false,
+      "rationale": "one external + internal echo = one origin"
+    },
+    {
+      "id": "wire_syndication",
+      "claim": "press mention",
+      "sources": [
+        {
+          "domain": "reuters.com",
+          "story": "reuters_wire_42"
+        },
+        {
+          "domain": "uk.reuters.com",
+          "story": "reuters_wire_42"
+        },
+        {
+          "domain": "somepaper.com",
+          "story": "reuters_wire_42"
+        }
+      ],
+      "expected": false,
+      "rationale": "ONE Reuters wire story syndicated across 3 sites = one origin (content dedup catches it; domain-family alone would NOT)"
+    },
+    {
+      "id": "same_publisher_family",
+      "claim": "press mention",
+      "sources": [
+        {
+          "domain": "bbc.com",
+          "story": "bbc_story_7"
+        },
+        {
+          "domain": "bbc.co.uk",
+          "story": "bbc_story_7"
+        }
+      ],
+      "expected": false,
+      "rationale": "same publisher + same story = one origin"
+    },
+    {
+      "id": "no_sources",
+      "claim": "unbacked assertion",
+      "sources": [],
+      "expected": false,
+      "rationale": "no sources"
+    },
+    {
+      "id": "same_publisher_multi_story",
+      "expected": false,
+      "note": "R-F2677 — 3 distinct stories from ONE publisher (turdef.com) is ONE independent source, not 3.",
+      "sources": [
+        {
+          "domain": "turdef.com",
+          "story": "serial_production"
+        },
+        {
+          "domain": "turdef.com",
+          "story": "roketsan_buys"
+        },
+        {
+          "domain": "turdef.com",
+          "story": "dynaflow_acq"
+        }
+      ]
+    },
+    {
+      "id": "pr_echo_two_outlets_reworded",
+      "claim": "company acquired a subsidiary",
+      "sources": [
+        {
+          "domain": "defencetradeweekly.com",
+          "story": "defencetrade_rewrite",
+          "text": "Defence Trade Weekly reports that the group has completed its purchase of the subsidiary, according to a company statement issued on Tuesday. \"This acquisition marks a decisive step in our long-term strategy to expand our defence electronics footprint across the region,\" said chief executive Marta Oliveira."
+        },
+        {
+          "domain": "airdefencejournal.com",
+          "story": "airdefencejournal_rewrite",
+          "text": "In a statement, the firm announced today that the deal has now closed, expanding its regional presence. \"This acquisition marks a decisive step in our long-term strategy to expand our defence electronics footprint across the region,\" said chief executive Marta Oliveira."
+        }
+      ],
+      "expected": false,
+      "rationale": "THE RESIDUAL. One company press release, reworded by 2 trade outlets. Each outlet's prose diverges → Jaccard-0.6 does NOT cluster them → the shipped classifier counts 2 independent origins. There is ONE origin: the subject's own announcement. Nobody independently checked the claim. The tell is the VERBATIM shared quote surviving both rewrites."
+    },
+    {
+      "id": "pr_echo_three_outlets_reworded",
+      "claim": "company won a major contract",
+      "sources": [
+        {
+          "domain": "tradeoutletalpha.com",
+          "story": "outlet_a_rewrite",
+          "text": "The company has secured the contract, it said in a statement. The award covers a multi-year support programme. \"This acquisition marks a decisive step in our long-term strategy to expand our defence electronics footprint across the region,\" said chief executive Marta Oliveira."
+        },
+        {
+          "domain": "tradeoutletbravo.com",
+          "story": "outlet_b_rewrite",
+          "text": "A press release issued this morning confirms the contract win, which the firm says strengthens its order book. \"This acquisition marks a decisive step in our long-term strategy to expand our defence electronics footprint across the region,\" said chief executive Marta Oliveira."
+        },
+        {
+          "domain": "tradeoutletcharlie.com",
+          "story": "outlet_c_rewrite",
+          "text": "According to a statement from the company, the programme has been awarded following a competitive tender. \"This acquisition marks a decisive step in our long-term strategy to expand our defence electronics footprint across the region,\" said chief executive Marta Oliveira."
+        }
+      ],
+      "expected": false,
+      "rationale": "Same residual at N=3 — the count the shipped classifier reports (3) is the most dangerous, because 3 'independent origins' reads as strong corroboration for a claim with a single self-interested source."
+    },
+    {
+      "id": "independent_investigations_same_event",
+      "claim": "regulator opened an investigation into the company",
+      "sources": [
+        {
+          "domain": "bbc.co.uk",
+          "story": "bbc_probe_independent",
+          "text": "The BBC has learned that the regulator has opened a formal investigation. Two former employees, speaking on condition of anonymity, described internal concerns raised as early as last year. The company declined to comment when approached."
+        },
+        {
+          "domain": "ft.com",
+          "story": "ft_probe_independent",
+          "text": "A formal inquiry into the group is under way, the Financial Times understands. Documents seen by this newspaper show correspondence between the regulator and the board dating back several months."
+        }
+      ],
+      "expected": true,
+      "rationale": "THE DISCRIMINATOR. Same event, same topic, HIGH semantic similarity — but two genuinely independent newsrooms with their own sourcing (anonymous employees vs. obtained documents), no shared verbatim quote, no PR marker. This IS corroboration and must stay True. A naive embedding-cosine merge would collapse it → recall destroyed. Cosine measures TOPIC, not ORIGIN."
+    },
+    {
+      "id": "independent_reports_sharing_one_official_quote",
+      "claim": "regulator fined the company",
+      "sources": [
+        {
+          "domain": "reuters.com",
+          "story": "reuters_own_report",
+          "text": "The regulator imposed the penalty after a two-year inquiry. \"The firm's conduct fell far below the standard we expect of a licensed operator,\" the regulator said in its published decision. Reuters has reviewed the decision notice and spoken to two people familiar with the case."
+        },
+        {
+          "domain": "theguardian.com",
+          "story": "guardian_own_report",
+          "text": "Campaigners welcomed the fine, the largest of its kind this year. \"The firm's conduct fell far below the standard we expect of a licensed operator,\" the regulator said in its published decision. The Guardian understands further action is under consideration."
+        }
+      ],
+      "expected": true,
+      "rationale": "ADVERSARIAL against the quote signal itself. Two independent newsrooms both quote the SAME official regulator statement verbatim — a shared verbatim quote WITHOUT shared origin. A naive 'shared quote → same origin' rule merges them and loses real corroboration. The distinction that matters: the quote is from an INDEPENDENT AUTHORITY (the regulator), not from the SUBJECT's own spokesperson. Labelled True deliberately — if the C-3 v3 detector cannot hold this, its recall cost is real and must be reported, not hidden."
+    },
+    {
+      "id": "pr_echo_marker_without_shared_quote",
+      "claim": "company opened a new facility",
+      "sources": [
+        {
+          "domain": "regionalbusinessdaily.com",
+          "story": "regional_rewrite",
+          "text": "The group has opened its new facility, according to a press release. The company said the site would create local jobs and expand production capacity."
+        },
+        {
+          "domain": "industrydailyreview.com",
+          "story": "industrydaily_rewrite",
+          "text": "A new plant has been opened by the manufacturer, the firm announced today. It said in a statement that the investment supports its regional growth plans."
+        }
+      ],
+      "expected": false,
+      "rationale": "The HARD tail: both outlets paraphrased the PR and quoted nothing verbatim, so the quote signal finds NOTHING. Only the PR markers ('according to a press release', 'said in a statement', 'announced today') plus near-identical content betray the single origin. Expected to be the last case to fall — keep it labelled honestly rather than dropping it to make a score look good."
+    }
+  ]
+}
