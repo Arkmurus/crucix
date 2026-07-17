@@ -1079,13 +1079,39 @@ def _quality_metrics(r: dict) -> dict:
     # A supplied registration number is only an identifier, not authority. Treat
     # identity as authority-backed only when an independent source confirmed
     # registry substance or a sanctions source was actually verified.
+    #
+    # R-F2693 — "unknown" is a STRING, and `bool("unknown")` is True. The registry
+    # stub adapters (angola_gue_stub, kenya_brs_stub, saudi_moci_stub, …) return
+    # company_status="unknown", which dd_orchestrator copies into
+    # registration_status — so a lookup that established NOTHING, whose own
+    # data_gaps say "no public registry API, recommend manual verification", read as
+    # registry substance and skipped the 25-point no-identity-authority penalty.
+    # Substance means a value that SAYS something; a placeholder does not.
+    _NON_SUBSTANTIVE = {"", "unknown", "n/a", "na", "none", "not available", "unavailable"}
+
+    def _substantive(v) -> bool:
+        return bool(v) and str(v).strip().lower() not in _NON_SUBSTANTIVE
+
     registry_substance = bool(
-        ident.get("registration_status")
-        or ident.get("incorporation_date")
+        _substantive(ident.get("registration_status"))
+        or _substantive(ident.get("incorporation_date"))
         or ident.get("directors")
         or ident.get("shareholders")
     )
-    identity_authority = bool(registry_substance or sanctions_screen.get("verified_sources"))
+    # R-F2693 — and even substantive-LOOKING fields are not authority when they came
+    # from a stub/fallback. Only VERIFIED/PARTIAL is a registry actually answering.
+    # ABSENT (legacy reports predate this field) is NOT treated as a stub: absence of
+    # evidence is not evidence of a stub, and defaulting the other way would demote
+    # every persisted report at once.
+    from .registry_adapters import RegistryStatus as _RegStatus
+
+    _reg_status = _RegStatus.coerce(ident.get("registry_status"))
+    _registry_is_authority = registry_substance and (
+        _reg_status is None or _reg_status.is_authority()
+    )
+    identity_authority = bool(
+        _registry_is_authority or sanctions_screen.get("verified_sources")
+    )
     # R-F2658 — did the identity/registry layer actually RUN, or did it error / get
     # clamped under load? A missing registry substance means "genuinely thin entity"
     # ONLY when the layer ran cleanly (status ok/partial). If it errored / was skipped /

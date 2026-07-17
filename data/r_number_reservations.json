@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2693,
+  "next_available": 2695,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20824,6 +20824,25 @@
       "r_number": "R-F2692",
       "title": "PR-echo FN fix: attribute the shared quote (subject vs authority)",
       "claimed_at": "2026-07-17T09:59:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "dda5b8f6",
+      "notes": null,
+      "shipped_at": "2026-07-17T10:12:03Z"
+    },
+    {
+      "r_number": "R-F2693",
+      "title": "registry adapter status ENUM - stub/fallback never counts as identity authority",
+      "claimed_at": "2026-07-17T10:13:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2694",
+      "title": "P0.5 close: gate model_router sovereign path on the warm-gate (proof, not policy)",
+      "claimed_at": "2026-07-17T10:15:55Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

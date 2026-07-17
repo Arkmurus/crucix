@@ -27,10 +27,71 @@ Design principles:
 from __future__ import annotations
 from .engine_wiring import wire_success, wire_failure
 
+import enum
 import logging
 import re
 import time
 from typing import Any
+
+
+class RegistryStatus(str, enum.Enum):
+    """R-F2693 — what a registry lookup ACTUALLY established (DD Grade-A Phase-0).
+
+    Before this, a lookup's outcome was a free string and the only marker of a
+    stub/fallback was a `_stub` suffix buried in the adapter NAME. Nothing read it,
+    so a stub that looked up NOTHING silently certified identity authority: it
+    returns `company_status="unknown"`, the orchestrator copies that into
+    `identity.registration_status`, and dd_schema's `registry_substance` is a plain
+    `bool(registration_status or …)` — and `bool("unknown")` is True. The grade then
+    skips its 25-point "no identity authority" penalty. An adapter whose own
+    data_gaps read "no public registry API, recommend manual verification" was
+    lifting the evidence grade.
+
+    A closed vocabulary makes "did an authority confirm this?" answerable instead of
+    inferred from string truthiness. Only VERIFIED/PARTIAL are authority — everything
+    else means we did NOT establish identity from a registry, and must never certify
+    it (never-false-clean).
+    """
+
+    VERIFIED = "verified"                    # a real registry answered about this entity
+    PARTIAL = "partial"                      # real registry, incomplete record
+    MANUAL_REQUIRED = "manual_required"      # no API; a human must verify (the `*_stub`s)
+    NOT_AVAILABLE = "not_available"          # no adapter / lookup could not run
+    PROVIDER_REQUIRED = "provider_required"  # only a paid provider could answer (§6/§17)
+
+    def is_authority(self) -> bool:
+        """True ONLY when a real registry actually confirmed something.
+
+        The single question the evidence grade asks. Deliberately a whitelist: a new
+        status added later is NOT authority until someone decides it is.
+        """
+        return self in (RegistryStatus.VERIFIED, RegistryStatus.PARTIAL)
+
+    @classmethod
+    def for_adapter(cls, adapter: str) -> "RegistryStatus":
+        """Classify from the adapter name, reusing the `*_stub` convention already in
+        use by all 8 stub adapters — so no per-adapter edit is needed and a stub added
+        later is classified the moment it is named."""
+        a = (adapter or "").strip().lower()
+        if not a:
+            return cls.NOT_AVAILABLE
+        if a.endswith("_stub") or "_stub_" in a:
+            return cls.MANUAL_REQUIRED
+        return cls.VERIFIED
+
+    @classmethod
+    def coerce(cls, value: Any) -> "RegistryStatus | None":
+        """Parse a persisted string back to the enum; None when absent/unrecognised.
+
+        None means UNKNOWN, never a default — a caller must not read an unparseable
+        status as either authority or its absence.
+        """
+        if isinstance(value, cls):
+            return value
+        try:
+            return cls(str(value).strip().lower())
+        except Exception:
+            return None
 
 import httpx
 
@@ -1945,6 +2006,17 @@ async def _lookup_angola(name: str, reg_number: str | None) -> dict | None:
                         psc=[],
                         source_url="https://gue.gov.ao",
                         adapter="angola_gue",
+                        # R-F2693 — NOT authority, despite the non-stub adapter name.
+                        # This branch GETs the portal HOMEPAGE ("https://gue.gov.ao/")
+                        # and regexes it for Empresa/Razão Social/NIF — it never
+                        # searches for THIS entity, so a match is homepage boilerplate,
+                        # not a confirmation. Naming it `angola_gue` would let
+                        # for_adapter() classify it VERIFIED. It is a fallback.
+                        # NOTE (separate R-number): this branch also assigns the
+                        # homepage's company_name/NIF to the SUBJECT — a fabricated
+                        # identifier. Marking the status non-authoritative stops it
+                        # lifting the grade; it does not make the branch correct.
+                        registry_status=RegistryStatus.MANUAL_REQUIRED,
                     )
     except Exception as exc:
         logger.debug("Angola GUE portal unreachable (expected): %s", exc)
@@ -2417,8 +2489,18 @@ def _build_result(
     psc: list[dict],
     source_url: str,
     adapter: str,
+    registry_status: "RegistryStatus | str | None" = None,
 ) -> dict:
-    """Build the normalised result dict consumed by the DD orchestrator."""
+    """Build the normalised result dict consumed by the DD orchestrator.
+
+    R-F2693 — `registry_status` states whether this result is REGISTRY AUTHORITY or a
+    stub/fallback. Defaults to deriving from the adapter name (the `*_stub` convention
+    the 8 stub adapters already follow), so no adapter needs editing and a NEW stub is
+    classified correctly the moment it is named. Pass it explicitly to override (e.g.
+    a real adapter that degraded to a partial hit).
+    """
+    if registry_status is None:
+        registry_status = RegistryStatus.for_adapter(adapter)
     return {
         "profile": {
             "company_name": company_name,
@@ -2433,6 +2515,7 @@ def _build_result(
         "psc": psc,
         "source_url": source_url,
         "adapter": adapter,
+        "registry_status": getattr(registry_status, "value", registry_status),
     }
 
 
