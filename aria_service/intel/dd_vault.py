@@ -44,6 +44,14 @@ CREATE TABLE IF NOT EXISTS dd_cases (
     findings_summary    TEXT DEFAULT '',
     risk_score          REAL DEFAULT 0.0,
     risk_level          TEXT DEFAULT 'unknown',
+    -- R-F2683 — evidence-grade SNAPSHOT (dd_schema._dd_quality_assessment) as of the
+    -- last run. This is evidence DEPTH, orthogonal to risk_score: a GREEN case can be
+    -- Grade D. NULL/'' means UNGRADED (pre-R-F2683 rows, or a run that could not be
+    -- graded) — never fabricate a grade for them.
+    evidence_grade      TEXT DEFAULT '',
+    evidence_score      REAL,
+    grade_blockers      TEXT DEFAULT '[]',
+    graded_at           REAL,
     status              TEXT NOT NULL DEFAULT 'active',
     tags                TEXT DEFAULT '[]',
     cross_references    TEXT DEFAULT '[]',
@@ -99,6 +107,29 @@ INSERT OR IGNORE INTO vault_meta (key, value) VALUES ('schema_version', '1');
 """
 
 
+def _row_to_case(row: sqlite3.Row) -> dict[str, Any]:
+    """R-F2683 — decode a dd_cases row into its public dict.
+
+    `grade_blockers` is stored as JSON and handed back as a real list so callers
+    never re-parse it. A corrupt/absent value degrades to [] ("no blockers known"),
+    never raises — a bad blocker list must not take down a DD read path. Other JSON
+    columns (tags, previous_report_ids) keep their long-standing raw-string
+    contract; callers already json.loads them and this is not the R-number to
+    change that.
+    """
+    rec = dict(row)
+    raw = rec.get("grade_blockers")
+    if isinstance(raw, str):
+        try:
+            decoded = json.loads(raw or "[]")
+            rec["grade_blockers"] = decoded if isinstance(decoded, list) else []
+        except Exception:
+            rec["grade_blockers"] = []
+    elif raw is None:
+        rec["grade_blockers"] = []
+    return rec
+
+
 class DDVault:
     """Persistent vault of every DD case ever run.
 
@@ -113,16 +144,73 @@ class DDVault:
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
-            self._conn.row_factory = sqlite3.Row
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA foreign_keys=ON")
-            self._init_db()
+            conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            # R-F2683 — a WAL reader/writer that finds the DB locked must WAIT for it
+            # rather than instantly raising SQLITE_BUSY. The DD engine writes this vault
+            # concurrently, and _migrate()'s ALTER TABLE needs a write lock, so a
+            # zero-timeout connection would fail purely on collision timing.
+            conn.execute("PRAGMA busy_timeout=10000")
+            # R-F2683 — publish the connection ONLY once it is fully initialised and
+            # migrated. Assigning self._conn BEFORE _init_db() meant a failed init
+            # (now possible: _migrate() runs ALTER TABLE against the live DB) left a
+            # non-None un-migrated connection that the `is None` guard above would
+            # hand out forever — every subsequent write raising "no such column" with
+            # no retry, i.e. vault persistence wedged until process restart. Failing
+            # closed and resetting to None lets the NEXT call retry the migration.
+            try:
+                self._conn = conn
+                self._init_db()
+            except Exception:
+                self._conn = None
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                raise
         return self._conn
 
     def _init_db(self):
         self._conn.executescript(_CREATE_SQL)
         self._conn.commit()
+        self._migrate()
+
+    # R-F2683 — additive column migrations for ALREADY-EXISTING vault DBs.
+    # `CREATE TABLE IF NOT EXISTS` is a no-op on a live table, so a column added to
+    # _CREATE_SQL reaches fresh DBs ONLY. The prod vault (/data/dd_vault.db) predates
+    # every entry below, so without this each new column would raise "no such column"
+    # on the first write. Additive only — never drops/rewrites a column (§7: no data
+    # loss), and idempotent: the PRAGMA check makes a re-open a no-op.
+    _COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+        ("dd_cases", "evidence_grade", "TEXT DEFAULT ''"),
+        ("dd_cases", "evidence_score", "REAL"),
+        ("dd_cases", "grade_blockers", "TEXT DEFAULT '[]'"),
+        ("dd_cases", "graded_at", "REAL"),
+    )
+    _SCHEMA_VERSION = "2"
+
+    def _migrate(self) -> None:
+        conn = self._conn
+        added: list[str] = []
+        for table, column, decl in self._COLUMN_MIGRATIONS:
+            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if not cols:
+                continue  # table absent (shouldn't happen post-_CREATE_SQL) — nothing to alter
+            if column in cols:
+                continue
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            added.append(f"{table}.{column}")
+        conn.execute(
+            "INSERT INTO vault_meta (key, value) VALUES ('schema_version', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (self._SCHEMA_VERSION,),
+        )
+        conn.commit()
+        if added:
+            logger.info("dd_vault: schema migrated to v%s — added %s",
+                        self._SCHEMA_VERSION, ", ".join(added))
 
     @fail_wire(module="dd_vault", gap_type="engine_failure")
     def close(self):
@@ -145,14 +233,30 @@ class DDVault:
         risk_score: float = 0.0,
         risk_level: str = "unknown",
         tags: list[str] | None = None,
+        evidence_grade: str = "",
+        evidence_score: float | None = None,
+        grade_blockers: list[str] | None = None,
     ) -> dict[str, Any]:
         """Record a DD case. If the entity already exists, update it.
+
+        R-F2683 — `evidence_grade`/`evidence_score`/`grade_blockers` are the
+        dd_schema._dd_quality_assessment SNAPSHOT for THIS run, stamped graded_at.
+        They are history (what the evidence looked like when we ran it), NOT the
+        authority: any live display must RECOMPUTE from the report (R-F2681 does),
+        because the grade moves as sources are added. Callers that cannot grade
+        pass nothing → the case stays honestly UNGRADED rather than defaulting to
+        a grade nobody measured.
 
         Returns the case record with version info.
         """
         conn = self._get_conn()
         now = time.time()
         tags_json = json.dumps(tags or [])
+        # Only stamp graded_at when a grade was actually supplied — an unstamped row
+        # is "never graded", which must stay distinguishable from "graded just now".
+        graded = bool(evidence_grade) or evidence_score is not None
+        graded_at = now if graded else None
+        blockers_json = json.dumps(grade_blockers or [])
 
         existing = self.get_case(canonical_entity_id)
         if existing:
@@ -168,6 +272,8 @@ class DDVault:
                     latest_report_id = ?,
                     previous_report_ids = ?,
                     findings_summary = ?, risk_score = ?, risk_level = ?,
+                    evidence_grade = ?, evidence_score = ?,
+                    grade_blockers = ?, graded_at = ?,
                     tags = ?, status = 'active', updated_at = ?
                 WHERE canonical_entity_id = ?""",
                 (
@@ -176,6 +282,12 @@ class DDVault:
                     latest_report_id,
                     json.dumps(prev_ids[-20:]),  # keep last 20
                     findings_summary, risk_score, risk_level,
+                    # The snapshot always describes the LATEST run, mirroring
+                    # risk_score above. An ungraded re-run therefore CLEARS a prior
+                    # grade rather than leaving last run's grade to masquerade as
+                    # this one's — the grade is recomputable from the report, a
+                    # silently stale one is not detectable.
+                    evidence_grade, evidence_score, blockers_json, graded_at,
                     tags_json, now,
                     canonical_entity_id,
                 ),
@@ -188,14 +300,17 @@ class DDVault:
                      jurisdiction, registration_number,
                      last_run_at, run_count, latest_report_id,
                      previous_report_ids, findings_summary,
-                     risk_score, risk_level, status, tags,
+                     risk_score, risk_level,
+                     evidence_grade, evidence_score, grade_blockers, graded_at,
+                     status, tags,
                      cross_references, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, 1, ?, '[]', ?, ?, ?, 'active', ?, '[]', ?, ?)""",
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?, '[]', ?, ?, ?, ?, ?, ?, ?, 'active', ?, '[]', ?, ?)""",
                 (
                     canonical_entity_id, entity_name, entity_type,
                     jurisdiction, registration_number,
                     now, latest_report_id,
                     findings_summary, risk_score, risk_level,
+                    evidence_grade, evidence_score, blockers_json, graded_at,
                     tags_json, now, now,
                 ),
             )
@@ -292,7 +407,7 @@ class DDVault:
         ).fetchone()
         if row is None:
             return None
-        return dict(row)
+        return _row_to_case(row)
 
     # ── R-F2322: multi-jurisdiction financial-profile registry ───────────────
 
@@ -376,7 +491,7 @@ class DDVault:
                ORDER BY updated_at DESC LIMIT ?""",
             (like, like, limit),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in rows]  # financial_profiles rows carry no grade columns
 
     @fail_wire(module="dd_vault", gap_type="engine_failure")
     def clear_all(self) -> dict[str, int]:
@@ -411,7 +526,7 @@ class DDVault:
                ORDER BY last_run_at DESC LIMIT ?""",
             (like, like, like, limit),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_row_to_case(r) for r in rows]
 
     @fail_wire(module="dd_vault", gap_type="engine_failure")
     def list_by_status(self, status: str = "active", limit: int = 100) -> list[dict[str, Any]]:
@@ -421,7 +536,7 @@ class DDVault:
             "SELECT * FROM dd_cases WHERE status = ? ORDER BY last_run_at DESC LIMIT ?",
             (status, limit),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_row_to_case(r) for r in rows]
 
     @fail_wire(module="dd_vault", gap_type="engine_failure")
     def list_all(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -431,7 +546,7 @@ class DDVault:
             "SELECT * FROM dd_cases ORDER BY last_run_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_row_to_case(r) for r in rows]
 
     @fail_wire(module="dd_vault", gap_type="engine_failure")
     def update_status(self, canonical_entity_id: str, status: str) -> None:
@@ -557,7 +672,7 @@ class DDVault:
                ORDER BY discovered_at DESC""",
             (canonical_entity_id, canonical_entity_id),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in rows]  # dd_cross_references rows carry no grade columns
 
     @fail_wire(module="dd_vault", gap_type="engine_failure")
     def get_related_cases(self, canonical_entity_id: str) -> list[dict[str, Any]]:

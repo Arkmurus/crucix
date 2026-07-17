@@ -7567,6 +7567,35 @@ async def _persist_report(report: ARKDDReport) -> None:
     try:
         from .dd_vault import get_vault as _get_dd_vault
         _vault = _get_dd_vault()
+        # R-F2683 — snapshot the EVIDENCE GRADE alongside the risk score. Graded from
+        # the same assessment the report renders (R-F2681), so vault and report agree.
+        # A grading failure must NOT lose the case: fall through UNGRADED (the vault
+        # then honestly reports "no grade") rather than inventing one or aborting the
+        # whole record_case.
+        _ev_grade, _ev_score, _ev_blockers = "", None, None
+        try:
+            from .dd_schema import _dd_quality_assessment as _dd_qa
+            _qa = _dd_qa(report.as_dict())
+            _ev_grade = _qa.get("grade") or ""
+            _ev_score = _qa.get("score")
+            _ev_blockers = _qa.get("blocking_reasons") or []
+        except Exception as _qa_err:
+            logger.debug("dd_vault: evidence grade unavailable (recorded ungraded): %s", _qa_err)
+            # §21a — a console log is DARK. The case still persists (honestly ungraded),
+            # so nothing else would ever surface a systematic grading breakage: it would
+            # show only as a slow drift of evidence_grade='' rows with no self-heal
+            # trigger. Wire the failure so the coder loop can see it.
+            try:
+                from .engine_wiring import wire_failure as _wf_grade
+                _wf_grade(
+                    module="dd_schema",
+                    detail=(f"evidence grade failed for {getattr(report, 'run_id', '?')}"
+                            f" — case recorded UNGRADED: {_qa_err}"),
+                    gap_type="engine_failure",
+                    source="dd_orchestrator:_persist_report:evidence_grade",
+                )
+            except Exception:
+                pass
         _vault.record_case(
             canonical_entity_id=getattr(report, "canonical_entity_id", None)
                 or _slugify_entity_name(getattr(report.identity, "entity_name", "unknown")),
@@ -7579,6 +7608,9 @@ async def _persist_report(report: ARKDDReport) -> None:
             risk_score=_compute_risk_score(report),
             risk_level=report.risk_classification or "unknown",
             tags=_extract_tags(report),
+            evidence_grade=_ev_grade,
+            evidence_score=_ev_score,
+            grade_blockers=_ev_blockers,
         )
     except Exception as _vault_err:
         logger.debug("dd_vault: record failed (non-fatal): %s", _vault_err)

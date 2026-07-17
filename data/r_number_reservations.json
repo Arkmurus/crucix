@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2679,
+  "next_available": 2687,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20688,6 +20688,82 @@
       "r_number": "R-F2678",
       "title": "verify source unsuspend persistence",
       "claimed_at": "2026-07-16T16:30:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2679",
+      "title": "source monitor operational fixes",
+      "claimed_at": "2026-07-16T21:57:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c6072f2a",
+      "notes": null,
+      "shipped_at": "2026-07-16T22:20:12Z"
+    },
+    {
+      "r_number": "R-F2680",
+      "title": "honesty_judge judge_failed orphan coroutine - schedule record_gap",
+      "claimed_at": "2026-07-16T22:03:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f65f797f",
+      "notes": null,
+      "shipped_at": "2026-07-16T22:15:41Z"
+    },
+    {
+      "r_number": "R-F2681",
+      "title": "render DD evidence grade + blockers in narrative report",
+      "claimed_at": "2026-07-16T22:23:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7b6be454",
+      "notes": null,
+      "shipped_at": "2026-07-16T22:38:00Z"
+    },
+    {
+      "r_number": "R-F2682",
+      "title": "source monitor deep recovery",
+      "claimed_at": "2026-07-16T22:26:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "223e1ee1",
+      "notes": null,
+      "shipped_at": "2026-07-16T22:58:49Z"
+    },
+    {
+      "r_number": "R-F2683",
+      "title": "persist DD evidence grade to vault (dd_cases)",
+      "claimed_at": "2026-07-17T08:41:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2684",
+      "title": "aria web dd proxy audit",
+      "claimed_at": "2026-07-17T08:52:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2685",
+      "title": "source health golden intel review",
+      "claimed_at": "2026-07-17T09:02:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2686",
+      "title": "P0.5 residual: wire LLM warm-gate + fix _health_checker_instance None-deref",
+      "claimed_at": "2026-07-17T09:11:32Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
