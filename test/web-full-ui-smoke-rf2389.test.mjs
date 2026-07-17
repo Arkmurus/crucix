@@ -63,6 +63,7 @@ describe('R-F2389 full public web smoke guard', () => {
 
   it('vault primary actions are wired to the Python vault API and refresh the table', () => {
     const html = read('public/vault.html');
+    const server = read('server.mjs');
     assertHasAll(html, 'vault.html', [
       "document.getElementById('btn-add-site').addEventListener('click', open)",
       "document.getElementById('as-submit').addEventListener('click', async () =>",
@@ -70,6 +71,10 @@ describe('R-F2389 full public web smoke guard', () => {
       "document.getElementById('btn-clear-vault')",
       "authed('/api/aria/vault', { method: 'DELETE' })",
       'loadVault();',
+    ]);
+    assertHasAll(server, 'server.mjs', [
+      "app.get('/vault.htm'",
+      "sendFile(join(PUBLIC_DIR, 'vault.html'))",
     ]);
   });
 

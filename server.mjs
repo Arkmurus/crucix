@@ -1507,6 +1507,13 @@ app.get('/aria-brain', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(join(PUBLIC_DIR, 'aria-brain.html'));
 });
+// R-F2702 — operator-facing vault alias. Some runbooks/operator links use
+// /vault.htm; serve the same admin-gated page as /vault.html so the source
+// ingestion UI is reachable at the requested URL.
+app.get('/vault.htm', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(join(PUBLIC_DIR, 'vault.html'));
+});
 console.log('[Crucix] Static dashboard live at /');
 
 app.get('/api/data', requireAuth, (req, res) => {
