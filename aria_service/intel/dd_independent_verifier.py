@@ -367,6 +367,46 @@ _PR_MARKER_RE = _re.compile(
 _MIN_QUOTE_WORDS = 8          # shorter spans collide by chance ("we are delighted")
 _SEMANTIC_ECHO_THRESHOLD = 0.90  # measured — see the R-F2692 note below; do NOT lower
 
+# R-F2699 — a SAME-STORY sanity bar, NOT the echo discriminator, and NOT a loosening of
+# _SEMANTIC_ECHO_THRESHOLD above (that gate kept its meaning: cosine alone may never
+# merge anything). It exists only so two UNRELATED announcements cannot merge, and it
+# is reachable only after `has_own_reporting` has cleared both sides. Deliberately
+# loose, because the C-3 data proves cosine cannot ORDER echo vs. independent: the last
+# echo scores 0.572 while genuine corroborations score 0.504 / 0.603 / 0.673 — a real
+# one sits BELOW the echo. Tightening this buys no precision; it would only start
+# dropping echoes. If you are tempted to tune it, re-read the numbers in detect_pr_echo.
+_SAME_STORY_THRESHOLD = 0.45
+
+# R-F2699 — evidence that a NEWSROOM DID ITS OWN WORK, rather than relaying an
+# announcement. This is what separates a press-release echo from real corroboration when
+# no verbatim quote is shared and cosine cannot help. Kept to phrases asserting
+# FIRST-HAND effort (spoke to / obtained / analysed / this newspaper's own findings).
+# Deliberately EXCLUDES "said in a statement" / "declined to comment" — a PR relay
+# contains those too, so counting them as reporting would make the signal fire on the
+# very echoes it must catch.
+_OWN_REPORTING_RE = _re.compile(
+    r"has\s+learned|have\s+learned|has\s+spoken\s+to|have\s+spoken\s+to|spoke\s+to"
+    r"|interviewed\s+by|interviews\s+with"
+    r"|according\s+to\s+(?:people|sources|two|three|several)"
+    r"|sources\s+(?:familiar|told|say)|people\s+familiar\s+with"
+    r"|documents\s+(?:seen|obtained|reviewed)|seen\s+by\s+(?:the|this)"
+    r"|obtained\s+by|reviewed\s+by|analysis\s+(?:of|by)|this\s+newspaper"
+    r"|understands|investigation\s+by|reporting\s+by"
+    r"|correspondence\s+(?:seen|supporting|between)"
+    r"|former\s+(?:employees|suppliers|staff|executives)\s+(?:who|say|said|told)",
+    _re.I,
+)
+
+
+def has_own_reporting(text: str) -> bool:
+    """True when the article shows the outlet's OWN sourcing (not a relayed announcement).
+
+    Article text WRAPS, so every pattern tolerates arbitrary whitespace (`\\s+`) — the
+    R-F2687 Pass-2 lesson that a marker regex written for single-line prose is near-dead
+    on live copy.
+    """
+    return bool(_OWN_REPORTING_RE.search(text or ""))
+
 # R-F2692 — WHO is speaking decides whether a shared quote means a shared ORIGIN.
 # R-F2687 treated ANY shared verbatim quote as a PR echo. The C-3 v3 eval (R-F2690)
 # measured the cost: `independent_reports_sharing_one_official_quote` — Reuters and the
@@ -557,13 +597,36 @@ async def detect_pr_echo(
             # and this direction removes claimed independence (never invents it).
             return True, f"shared_quote_{attr_a}_{attr_b}"
         # every shared quote was an authority's → not an echo; fall through.
-    # Secondary: reworded PR with no shared quote. Requires BOTH a very high
-    # cosine AND a PR marker on BOTH sides — cosine alone would collapse two
-    # independent investigations of the same event.
+    # Secondary: reworded PR with no shared quote.
+    #
+    # R-F2699 — the discriminator is PROVENANCE, not similarity. Measured on the C-3
+    # golden set, neither prior signal separates this case:
+    #   - cosine CANNOT: the echo scores 0.572 while genuine corroborations score 0.603
+    #     and 0.673 — the echo is LESS similar than the real ones, so lowering the 0.90
+    #     gate sweeps up real corroboration first (R-F2687 measured the same shape:
+    #     echo .572 / witness .741 / echo .903, the witness BETWEEN the echoes).
+    #   - pr_marker-on-both is NOT sufficient (R-F2698): real investigations SEEK
+    #     COMMENT, so a genuine corroboration carries the marker too (expected=True at
+    #     pr_marker_both=True, sim=0.504 — LOWER than the echo). No threshold orders them.
+    #
+    # What actually differs is whether anyone DID ANY REPORTING. An echo relays only the
+    # announcement; a real story carries its own sourcing. So a PR-marked pair is an echo
+    # only if NEITHER side shows independent sourcing.
+    #
+    # Direction of error: a missed own-reporting phrase merges two real witnesses -> FN
+    # -> "not corroborated", the conservative error this codebase deliberately biases to.
+    # A stray own-reporting phrase inside an echo -> no merge -> the FP that exists
+    # today. So this cannot make the dangerous direction worse than the status quo.
+    #
+    # The cosine stays as a SAME-STORY sanity bar (two unrelated announcements must not
+    # merge), at a bar the data supports rather than the 0.90 that was doing the
+    # separating it could never do.
     if has_pr_marker(a_text) and has_pr_marker(b_text):
+        if has_own_reporting(a_text) or has_own_reporting(b_text):
+            return False, ""  # somebody actually reported — not a pure echo
         sim = await semantic_similarity(a_text, b_text)
-        if sim is not None and sim >= _SEMANTIC_ECHO_THRESHOLD:
-            return True, f"pr_marker_and_semantic_{sim:.2f}"
+        if sim is not None and sim >= _SAME_STORY_THRESHOLD:
+            return True, f"pr_echo_no_own_reporting_{sim:.2f}"
     return False, ""
 
 

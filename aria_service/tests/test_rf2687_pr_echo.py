@@ -243,7 +243,15 @@ def test_missing_embedder_does_not_grant_independence(monkeypatch):
 
 
 def test_semantic_path_fires_when_model_agrees(monkeypatch):
-    """The secondary signal works when the embedder IS available and confident."""
+    """The secondary signal fires on a PR-marked pair that did no reporting of its own.
+
+    R-F2699 kept this VERDICT (is_echo True) but renamed the audit `reason`: cosine is
+    no longer what separates an echo from real corroboration — it could never order
+    them (the last echo scored 0.572 while genuine corroborations scored 0.504/0.603/
+    0.673). `has_own_reporting` does the separating; cosine is now only a same-story
+    sanity bar. The reason string has to name what actually fired, or the per-pair audit
+    trail lies about why two sources collapsed (§22).
+    """
     from aria_service.intel import dd_independent_verifier as _v
 
     async def _high(a, b):
@@ -251,7 +259,7 @@ def test_semantic_path_fires_when_model_agrees(monkeypatch):
 
     monkeypatch.setattr(_v, "semantic_similarity", _high)
     is_echo, reason = asyncio.run(_v.detect_pr_echo(_NOQUOTE_A, _NOQUOTE_B))
-    assert is_echo is True and reason.startswith("pr_marker_and_semantic_")
+    assert is_echo is True and reason.startswith("pr_echo_no_own_reporting_")
 
 
 def test_semantic_signal_requires_pr_markers_on_both_sides(monkeypatch):
