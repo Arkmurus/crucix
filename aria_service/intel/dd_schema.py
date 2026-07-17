@@ -201,7 +201,23 @@ class Finding:
             if len(unique_sources) >= 2:
                 # Multi-source: gate passes
                 pass
-            elif len(unique_sources) == 1 and _is_tier_1a_source(unique_sources[0]):
+            elif len(unique_sources) == 1 and (
+                _is_tier_1a_source(unique_sources[0])
+                # R-F2696 — a single source is ALSO Tier-1a when its STRUCTURED url
+                # is. The allowlist mixes bare labels ("courtlistener") with DOMAINS
+                # ("bailii.org", "fca.org.uk"), so the clean label "bailii" does not
+                # match ("bailii.org" is not a substring of "bailii") and the finding
+                # was silently demoted CONFIRMED -> ASSESSED — even though its url,
+                # https://www.bailii.org/…, IS the authority the allowlist names.
+                # The only thing that had been rescuing it was dd_orchestrator
+                # concatenating the url INTO the source string (f"{name} [from {url}]"),
+                # i.e. the gate's verdict rode on display formatting. Authority now
+                # travels in a field. NOT a bypass: the url is tier-checked against the
+                # same allowlist, so a non-authoritative link still demotes; and it is
+                # only consulted when there IS a source to tier (a bare link certifies
+                # nothing).
+                or _is_tier_1a_source(self.url or "")
+            ):
                 # Single Tier-1a source: gate passes
                 pass
             else:

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2696,
+  "next_available": 2697,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20854,6 +20854,16 @@
       "r_number": "R-F2695",
       "title": "scrape-fallback adapters must not fabricate subject identifiers from a portal homepage",
       "claimed_at": "2026-07-17T10:37:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d48afce5",
+      "notes": null,
+      "shipped_at": "2026-07-17T10:54:11Z"
+    },
+    {
+      "r_number": "R-F2696",
+      "title": "R-5005 tier gate reads structured Finding.url instead of a URL embedded in the display string",
+      "claimed_at": "2026-07-17T10:56:38Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
