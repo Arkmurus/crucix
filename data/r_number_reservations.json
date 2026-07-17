@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2703,
+  "next_available": 2704,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20905,9 +20905,10 @@
       "title": "wire the DD relationship-graph writer (cross-linked entities -> dd_cross_references)",
       "claimed_at": "2026-07-17T11:29:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d0dfe7da",
+      "notes": null,
+      "shipped_at": "2026-07-17T11:52:55Z"
     },
     {
       "r_number": "R-F2701",
@@ -20922,6 +20923,15 @@
       "r_number": "R-F2702",
       "title": "vault htm alias",
       "claimed_at": "2026-07-17T11:47:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2703",
+      "title": "DD graph: write REAL ownership/UBO relationships, drop name-match noise (USP)",
+      "claimed_at": "2026-07-17T12:00:07Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

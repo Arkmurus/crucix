@@ -33,6 +33,21 @@ def vault(tmp_path):
     v.close()
 
 
+@pytest.fixture(autouse=True)
+def _enable_source(request, monkeypatch):
+    """R-F2703 — the name-match source ships DISABLED (it is not a relationship).
+
+    These tests cover the source-AGNOSTIC machinery (anchoring, the placeholder guard,
+    pair normalisation, the cap, fail-closed attribution, the ACL) which must stay correct
+    and ready for the REAL edge (a corporate PSC -> `controlled_by`). So they enable the
+    flag explicitly. `test_name_match_source_is_disabled_by_default` asserts the shipped
+    default — delete that one and this fixture becomes a lie.
+    """
+    if "shipped_default" in request.node.name:
+        return          # that test asserts the REAL constant — never patch it
+    monkeypatch.setattr(_do, "_XREF_NAME_MATCH_ENABLED", True)
+
+
 def _write(report, vault):
     """Drive the writer helper against a real vault (real SQL, no mocks).
 
@@ -253,3 +268,25 @@ def test_persist_report_actually_calls_the_writer(tmp_path, monkeypatch):
     assert len(edges) == 1, "_persist_report must invoke the graph writer"
     assert edges[0]["target_entity"] == "company:GB:22222222"
     assert edges[0]["relationship"] == "name_match_to_officer"
+
+
+# ── R-F2703 — the USP decision, pinned ───────────────────────────────────────
+
+def test_name_match_source_is_disabled_by_default(vault, monkeypatch):
+    """A relationship graph must carry RELATIONSHIPS, not fuzzy name hits.
+
+    R-F2700 made this edge honest (`name_match_to_officer`, not the fabricated
+    "shared_director"). Honest was necessary but NOT sufficient: the upstream lookup is a
+    company-NAME search on an officer's name, so a row means "this company's name resembles
+    a director's name" — truthful noise. Shipping leads under a "Cross-References" heading
+    degrades the evidence grade the product sells, so the source ships OFF and the graph
+    stays honestly empty until a real edge (corporate PSC -> controlled_by) lands.
+    """
+    monkeypatch.setattr(_do, "_XREF_NAME_MATCH_ENABLED", False)   # the shipped default
+    assert _write(_report(), vault) == (0, 0)
+    assert _edges(vault) == [], "truthful-but-useless still fails the USP"
+
+
+def test_shipped_default_is_off():
+    """Guard the constant itself — a stray flip re-enables the noise."""
+    assert _do._XREF_NAME_MATCH_ENABLED is False

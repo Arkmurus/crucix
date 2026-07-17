@@ -99,6 +99,33 @@ _XREF_MAX_PER_RUN = 200
 # not something to paper over with a confident label.
 _XREF_RELATION = "name_match_to_officer"
 
+# R-F2703 — the name-match source is OFF. Operator directive: "we want a product that
+# makes sense and provides necessary and useful data — follow USP."
+#
+# R-F2700 made the edge HONEST (`name_match_to_officer`, not the fabricated
+# "shared_director"). Honest was necessary but not sufficient: a RELATIONSHIP GRAPH whose
+# rows say "this company's NAME resembles a director's name" is truthful noise. A DD
+# analyst needs verified relationships, not fuzzy-search leads, and shipping leads under a
+# "Cross-References" heading degrades the one thing the product sells — evidence grade.
+# Truthful-but-useless still fails the USP, so the source is disabled rather than dressed up.
+#
+# THE REAL EDGE, and exactly what it needs (next R-number):
+#   PSC / beneficial ownership IS the necessary DD fact ("who controls this company?") and
+#   IS registry-sourced. It is one field away: `companies_house.get_psc`
+#   (companies_house.py:261-273) maps name/kind/natures_of_control/nationality but DROPS
+#   the CH `identification` object — which is where a CORPORATE PSC's
+#   registration_number + country_registered live. Carry `identification` through, and a
+#   corporate PSC anchors to company:{ISO}:{regnum} via the same canonicaliser this writer
+#   already uses → a REAL `controlled_by` edge, evidence-backed, that lights up "Related
+#   Cases" against the owner's own DD. That is a relationship worth persisting.
+#   (`walk_ubo_chain`'s has_officer edges are also real — company→person — but persons are
+#   not DD cases, so they need a person-node design first.)
+#
+# Everything below this flag — the ACL (R-F2697), canonical anchoring, the placeholder
+# guard, pair normalisation, the cap, fail-closed attribution, and 16 tests — is source-
+# agnostic and stays ready for that edge. Flip a real source in; do NOT re-enable this one.
+_XREF_NAME_MATCH_ENABLED = False
+
 # R-F2700 — placeholder registration numbers that must NEVER anchor an edge. Scrubbing
 # alone is not enough: `_scrub_regnum` keeps alphanumerics, so "N/A" survives as "NA" and
 # canonical_entity_id happily mints `company:GB:NA` — which looks MORE like a real
@@ -139,6 +166,11 @@ def _write_relationship_edges(report, vault) -> tuple[int, int]:
     user_id = getattr(report, "user_id", None)
     src = getattr(report, "canonical_entity_id", None)
     xrefs = list(getattr(getattr(report, "network", None), "cross_linked_entities", None) or [])
+    # R-F2703 — the only source currently plumbed here is the name-match one, and it is
+    # not a relationship (see _XREF_NAME_MATCH_ENABLED). An empty graph is the honest
+    # state; a graph of fuzzy name hits is worse than none.
+    if not _XREF_NAME_MATCH_ENABLED:
+        return (0, 0)
     if not (user_id and src and xrefs):
         return (0, 0)
 
