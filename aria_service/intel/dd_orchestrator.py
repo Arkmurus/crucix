@@ -75,6 +75,134 @@ from .engine_wiring import wired  # R-F1121 — @wired decorator for brain sinks
 from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 
+# R-F2700 — per-run ceiling on relationship-graph edges. A hub company (a director
+# sitting on hundreds of boards) would otherwise write hundreds of rows per DD into a
+# SQLite vault on the single writer. Generous — real cross-link sets are far smaller —
+# and a truncation is LOGGED, never silent (a capped graph must not read as a complete one).
+_XREF_MAX_PER_RUN = 200
+
+# R-F2700 — the edge is labelled for WHAT THE DATA ACTUALLY IS, not what we wish it were.
+# `cross_linked_entities` looks like a shared-director link and is even tagged
+# link_type="shared_director" upstream (network_walker.py:360) — but follow it:
+#   network_walker:355 -> _other_appointments_for_officer(oname)   (:54)
+#     -> companies_house.search_companies(name)                    (companies_house.py:174)
+#     -> GET /search/companies?q=<officer name>  = a company-NAME full-text search.
+# Its own docstring admits it: "companies_house doesn't expose an officer-search endpoint
+# ... search_companies at least lets us look for entities whose name matches the officer".
+# So an entry means "a company whose NAME matches this officer's name" — there is NO
+# appointments lookup in this repo and ZERO evidence of a shared director. Persisting it
+# as "shared_director" would assert a relationship that does not exist, in SQL, in the UI,
+# in a DD product — a fabrication. The mislabel upstream was inert (an in-memory count);
+# writing it is what would make it a claim. A Pass-2 review caught this.
+# Closing the REAL shared-director edge needs a genuine officer-appointments source
+# (CH /officers/{id}/appointments or an OpenCorporates/Sayari wrapper) — a follow-up,
+# not something to paper over with a confident label.
+_XREF_RELATION = "name_match_to_officer"
+
+# R-F2700 — placeholder registration numbers that must NEVER anchor an edge. Scrubbing
+# alone is not enough: `_scrub_regnum` keeps alphanumerics, so "N/A" survives as "NA" and
+# canonical_entity_id happily mints `company:GB:NA` — which looks MORE like a real
+# registry id than the name-hash fallback and can never match a real case. Same species as
+# R-F2693's `_NON_SUBSTANTIVE` guard (a placeholder string is not an identifier). The
+# length floor catches the rest; a genuine registry number is never 1-3 chars.
+_NON_ANCHOR_REGNUMS = frozenset({
+    "NA", "NONE", "NIL", "NULL", "TBC", "TBD", "UNKNOWN", "UNAVAILABLE", "PENDING",
+})
+_MIN_REGNUM_LEN = 4
+
+
+def _write_relationship_edges(report, vault) -> tuple[int, int]:
+    """R-F2700 — write the DD's cross-links into the relationship graph. (written, dropped)
+
+    A module-level helper (not an inline block) so the real logic + real SQL are directly
+    testable. NOTE the earlier draft of this docstring claimed `_persist_report`'s vault
+    section is "unreachable in a unit test because an earlier statement raises into the
+    outer try" — that was FALSE, and Pass 2 disproved it: the outer `except` only LOGS and
+    execution continues, so record_case AND this writer do run. My probe read the wrong
+    key: `_persist_report` RECOMPUTES canonical_entity_id from `report.identity` (R-F573),
+    so a report built without identity.registration_number persists under
+    company:GB:<name_hash>, not the id set on the object. Left as a helper on its own
+    merits; the call site is exercised by an integration test rather than excused.
+
+    ANCHORING: network_walker emits FREE-TEXT names (`{"name", "via_director",
+    "jurisdiction", "registration_number"}`, network_walker.py:355-359) while
+    dd_cross_references keys on canonical_entity_id and get_related_cases looks cases up
+    by it. Raw names would produce edges matching no case — "Related Cases" blank forever
+    and un-anchored junk in the UI. Resolve through the SAME canonicaliser a DD of that
+    company uses (dd_versioning, R-F573); DROP anything too thin rather than invent an id.
+    An edge to a not-yet-DD'd company is still true — it lights up later.
+
+    Fail CLOSED on attribution, exactly as R-F2469 does for ownership: no user_id → write
+    nothing. An unattributed edge is invisible to the tenant who produced it (R-F2697:
+    NULL user_id is internal-only), so writing one is pure noise.
+    """
+    user_id = getattr(report, "user_id", None)
+    src = getattr(report, "canonical_entity_id", None)
+    xrefs = list(getattr(getattr(report, "network", None), "cross_linked_entities", None) or [])
+    if not (user_id and src and xrefs):
+        return (0, 0)
+
+    from .dd_versioning import canonical_entity_id as _canon_id, _scrub_regnum
+
+    written = dropped = 0
+    for cl in xrefs[:_XREF_MAX_PER_RUN]:
+        if not isinstance(cl, dict):
+            continue
+        name = (cl.get("name") or "").strip()
+        if not name:
+            continue
+        # An edge is only worth writing if it can be ANCHORED to the id a real DD of
+        # that company would produce — i.e. jurisdiction + registration number.
+        # canonical_entity_id does NOT return None for a thin input (its "too thin"
+        # contract needs entity_type missing too, and we always pass "company"); it
+        # falls back to `company:??:<name_hash>`. That fallback is a GUESS: a real DD
+        # of the same company resolves to company:GB:<regnum>, so the ?? id can never
+        # match a case — it would be permanent junk in the graph and in the UI. Require
+        # the anchor instead of trusting the return value.
+        # Check the SCRUBBED registration number, not the raw string. `_scrub_regnum`
+        # (dd_versioning.py:160) strips non-alphanumerics, so "---" scrubs to "" and
+        # canonical_entity_id silently falls back to the company:{ISO}:{name_hash} GUESS
+        # — with jurisdiction present it is never the ":??:" form, so a ??-check does not
+        # catch it (Pass 2 proved "---" and "N/A" both wrote a fabricated anchor).
+        _reg = _scrub_regnum(str(cl.get("registration_number") or "")).upper()
+        if not (
+            str(cl.get("jurisdiction") or "").strip()
+            and _reg
+            and _reg not in _NON_ANCHOR_REGNUMS
+            and len(_reg) >= _MIN_REGNUM_LEN
+        ):
+            dropped += 1
+            continue
+        target = _canon_id(
+            entity_type="company",
+            name=name,
+            jurisdiction_iso2=cl.get("jurisdiction"),
+            registration_number=cl.get("registration_number"),
+        )
+        if not target or ":??:" in target or target == src:
+            dropped += 1        # unanchorable, or the subject itself — never guess an id
+            continue
+        via = (cl.get("via_director") or "").strip()
+        # NORMALISE the pair: this relation is SYMMETRIC, and get_cross_references matches
+        # `source = ? OR target = ?`, so storing A→B and later B→A (when the other company
+        # is DD'd) renders ONE real-world link TWICE and inflates the relationship count.
+        _a, _b = sorted((src, target))
+        vault.add_cross_reference(
+            _a, _b, _XREF_RELATION,
+            (f"Company name matches officer name '{via}' — NOT a verified appointment"
+             if via else "Company name matches an officer name — NOT a verified appointment"),
+            user_id=user_id,
+        )
+        written += 1
+    # No silent caps / no silent drops — a partial graph must not read as a complete one.
+    if dropped or len(xrefs) > _XREF_MAX_PER_RUN:
+        logger.info(
+            "[R-F2700] cross-refs: wrote %d, dropped %d unanchorable, capped %d of %d",
+            written, dropped, max(0, len(xrefs) - _XREF_MAX_PER_RUN), len(xrefs),
+        )
+    return (written, dropped)
+
+
 def _slugify_entity_name(name: str) -> str:
     """Generate a stable canonical ID from an entity name.
     Used when canonical_entity_id is not available (pre-R-F573 reports)."""
@@ -7642,6 +7770,40 @@ async def _persist_report(report: ARKDDReport) -> None:
                 detail=f"record_case failed for {getattr(report, 'run_id', '?')}: {_vault_err}",
                 gap_type="persistence_failure",
                 source="dd_orchestrator:_persist_report",
+            )
+        except Exception:
+            pass
+
+    # ── R-F2700 — POPULATE the relationship graph (DD Grade-A Phase 1, gap #2) ──
+    # `add_cross_reference` existed with a full read side (get_cross_references /
+    # get_related_cases → GET /dd/vault/case/{id} → the "Cross-References" + "Related
+    # Cases" sections of dd-reports.html) but NO prod writer — called only from tests,
+    # so the table was empty and both UI sections always rendered blank. This is the
+    # writer. It runs AFTER R-F2697 gave the table a tenant-safe key: never wire this
+    # before that ACL, or the graph fills with cross-tenant-readable rows.
+    #
+    # ANCHORING (the part that makes it real): network_walker emits cross-links as
+    # FREE-TEXT names — {"name", "via_director", "jurisdiction", "registration_number"}
+    # (network_walker.py:355-359) — while dd_cross_references keys on
+    # canonical_entity_id and get_related_cases does get_case(id). Writing raw names
+    # would produce edges that can never match a case: "Related Cases" would stay empty
+    # forever and the UI would render un-anchored strings. So resolve each target through
+    # the SAME canonicaliser a DD of that company would use (dd_versioning, R-F573) —
+    # company:GB:<regnum> — and DROP anything too thin to canonicalise rather than invent
+    # an id. An edge to a not-yet-DD'd company is still true and still renders; it simply
+    # lights up "Related Cases" later, when that company gets its own case.
+    try:
+        _write_relationship_edges(report, _vault)
+    except Exception as _xref_err:
+        logger.debug("dd_vault: cross-reference write failed (non-fatal): %s", _xref_err)
+        try:
+            from .engine_wiring import wire_failure as _wf_xref
+            _wf_xref(
+                module="dd_vault",
+                detail=(f"cross-reference write failed for "
+                        f"{getattr(report, 'run_id', '?')}: {_xref_err}"),
+                gap_type="persistence_failure",
+                source="dd_orchestrator:_persist_report:cross_refs",
             )
         except Exception:
             pass

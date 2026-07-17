@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2700,
+  "next_available": 2703,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20875,9 +20875,10 @@
       "title": "DD relationship graph: tenant-scope cross-reference reads before wiring the writer",
       "claimed_at": "2026-07-17T11:12:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d3dced80",
+      "notes": null,
+      "shipped_at": "2026-07-17T11:27:02Z"
     },
     {
       "r_number": "R-F2698",
@@ -20893,6 +20894,34 @@
       "r_number": "R-F2699",
       "title": "C-3 own-reporting discriminator: PR-marked pair with no independent sourcing is an echo",
       "claimed_at": "2026-07-17T11:17:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "231e99ee",
+      "notes": null,
+      "shipped_at": "2026-07-17T11:43:01Z"
+    },
+    {
+      "r_number": "R-F2700",
+      "title": "wire the DD relationship-graph writer (cross-linked entities -> dd_cross_references)",
+      "claimed_at": "2026-07-17T11:29:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2701",
+      "title": "gnews api search backend",
+      "claimed_at": "2026-07-17T11:37:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2702",
+      "title": "vault htm alias",
+      "claimed_at": "2026-07-17T11:47:06Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
