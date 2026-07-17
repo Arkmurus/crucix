@@ -504,9 +504,9 @@ def _patch_dd_deps(monkeypatch):
             return self.search("", limit)
         def get_case(self, cid):
             return {"canonical_entity_id": cid, "entity_name": "Test Co"}
-        def get_cross_references(self, cid):
+        def get_cross_references(self, cid, **_kw):   # R-F2697 ACL kwargs
             return []
-        def get_related_cases(self, cid):
+        def get_related_cases(self, cid, **_kw):      # R-F2697 ACL kwargs
             return []
         def delete_case(self, cid):
             return True

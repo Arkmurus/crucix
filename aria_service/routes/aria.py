@@ -26121,8 +26121,20 @@ async def dd_vault_case_ep(canonical_entity_id: str, user_id: str = "", user_ema
         case = vault.get_case(canonical_entity_id)
         if not case:
             return {"success": False, "error": "Case not found"}
-        refs = vault.get_cross_references(canonical_entity_id)
-        related = vault.get_related_cases(canonical_entity_id)
+        # R-F2697 — scope the GRAPH too, not just the case. This route already gated
+        # the requested case on `_owned` (R-F2097), then returned its cross-references
+        # and related cases UNSCOPED: `get_related_cases` fetched every linked id with
+        # no ownership check and handed back full case dicts (risk_level + R-F2683's
+        # evidence_grade) belonging to other tenants — the R-F2401/2402/2456/2458 class.
+        # It was dormant only because nothing writes the table yet; the ACL lands
+        # BEFORE the writer (R-F2698) so the graph is never briefly leaky.
+        # `_owned is None` = internal/service caller → unrestricted, matching
+        # `_dd_owned_entity_ids`; a real user always carries a scope (an empty set
+        # yields [], which is the honest answer for someone who owns nothing).
+        refs = vault.get_cross_references(canonical_entity_id, user_id=user_id or None)
+        related = vault.get_related_cases(
+            canonical_entity_id, user_id=user_id or None, visible_entity_ids=_owned,
+        )
         return {"success": True, "case": case, "cross_references": refs, "related_cases": related}
     except Exception as e:
         return {"success": False, "error": str(e)}

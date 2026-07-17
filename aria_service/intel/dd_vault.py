@@ -66,7 +66,14 @@ CREATE TABLE IF NOT EXISTS dd_cross_references (
     relationship    TEXT NOT NULL,
     finding_summary TEXT DEFAULT '',
     discovered_at   REAL NOT NULL,
-    UNIQUE(source_entity, target_entity, relationship)
+    user_id         TEXT,
+    -- R-F2697 — user_id is IN the key. Without it the graph is physically single-tenant:
+    -- add_cross_reference uses INSERT OR REPLACE, so tenant B writing the same
+    -- (source,target,relationship) DELETES tenant A's row and its finding_summary —
+    -- silent cross-tenant DATA LOSS (§7), not just a bad read. Two tenants running DD on
+    -- the same company pair is the EXPECTED case. (SQLite treats NULLs as distinct in a
+    -- UNIQUE index, so unattributed rows coexist rather than colliding.)
+    UNIQUE(source_entity, target_entity, relationship, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS vault_meta (
@@ -188,8 +195,74 @@ class DDVault:
         ("dd_cases", "evidence_score", "REAL"),
         ("dd_cases", "grade_blockers", "TEXT DEFAULT '[]'"),
         ("dd_cases", "graded_at", "REAL"),
+        # R-F2697 — WHO discovered this relationship. Added BEFORE the writer is wired
+        # (the table is empty in prod, so there is nothing to backfill and no legacy
+        # row to hide) — attribution is impossible to reconstruct after the fact, so
+        # this is the only cheap moment. NULL = unattributed/legacy → visible ONLY to
+        # internal callers, never to a tenant (fail closed; matches the operator's
+        # binding rule on owner-less DD rows: "don't touch what other users created").
+        ("dd_cross_references", "user_id", "TEXT"),
     )
-    _SCHEMA_VERSION = "2"
+    _SCHEMA_VERSION = "3"
+
+    def _migrate_cross_ref_unique_key(self) -> None:
+        """R-F2697 — rebuild dd_cross_references so user_id is IN the UNIQUE key.
+
+        `ALTER TABLE ADD COLUMN` cannot change a constraint, and `CREATE TABLE IF NOT
+        EXISTS` is a no-op on the live table — so the prod vault keeps the old 3-column
+        key (source,target,relationship) unless we rebuild. With that key,
+        `INSERT OR REPLACE` lets tenant B silently DELETE tenant A's edge + its
+        finding_summary (cross-tenant data loss, §7). A Pass-2 review reproduced it.
+
+        SQLite cannot alter a UNIQUE constraint, so this is the 12-step table rebuild —
+        done NOW because the table is EMPTY in prod (nothing to copy, no downtime risk);
+        after the R-F2698 writer lands it would be a real data migration. Idempotent: it
+        inspects the existing unique index and returns if user_id is already in the key.
+        """
+        conn = self._conn
+        try:
+            for idx in conn.execute("PRAGMA index_list(dd_cross_references)").fetchall():
+                if not idx["unique"]:
+                    continue
+                cols = {r["name"] for r in conn.execute(f"PRAGMA index_info({idx['name']})")}
+                if "user_id" in cols:
+                    return  # already rebuilt — no-op
+        except Exception:
+            return  # table absent (fresh DB gets the correct key from _CREATE_SQL)
+        try:
+            conn.executescript(
+                """
+                PRAGMA foreign_keys=off;
+                BEGIN;
+                CREATE TABLE dd_cross_references_new (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_entity   TEXT NOT NULL,
+                    target_entity   TEXT NOT NULL,
+                    relationship    TEXT NOT NULL,
+                    finding_summary TEXT DEFAULT '',
+                    discovered_at   REAL NOT NULL,
+                    user_id         TEXT,
+                    UNIQUE(source_entity, target_entity, relationship, user_id)
+                );
+                INSERT INTO dd_cross_references_new
+                    (source_entity, target_entity, relationship, finding_summary, discovered_at, user_id)
+                    SELECT source_entity, target_entity, relationship, finding_summary, discovered_at, user_id
+                    FROM dd_cross_references;
+                DROP TABLE dd_cross_references;
+                ALTER TABLE dd_cross_references_new RENAME TO dd_cross_references;
+                COMMIT;
+                PRAGMA foreign_keys=on;
+                """
+            )
+            logger.info("dd_vault: R-F2697 rebuilt dd_cross_references — user_id is now in the UNIQUE key")
+        except Exception as e:
+            # Never brick the vault over this. The old key still WORKS; it is only unsafe
+            # once the writer is multi-tenant, and R-F2698 must not ship until this holds.
+            logger.error(
+                "[R-F2697] dd_cross_references UNIQUE-key rebuild FAILED (%s) — the graph "
+                "writer must NOT be wired until this succeeds: tenants would overwrite "
+                "each other's edges", e,
+            )
 
     def _migrate(self) -> None:
         conn = self._conn
@@ -202,6 +275,7 @@ class DDVault:
                 continue
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
             added.append(f"{table}.{column}")
+        self._migrate_cross_ref_unique_key()
         conn.execute(
             "INSERT INTO vault_meta (key, value) VALUES ('schema_version', ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -643,47 +717,90 @@ class DDVault:
         target_entity: str,
         relationship: str,
         finding_summary: str = "",
+        user_id: str | None = None,
     ) -> None:
         """Record a cross-reference between two entities.
 
         Called after a DD run when the report mentions other entities
         that have their own DD cases in the vault.
+
+        R-F2697 — `user_id` attributes the relationship to the tenant whose run
+        discovered it. Pass it: a NULL row is visible to internal callers ONLY, so an
+        unattributed write is invisible to the very tenant who produced it.
         """
         conn = self._get_conn()
         now = time.time()
         try:
             conn.execute(
                 """INSERT OR REPLACE INTO dd_cross_references
-                    (source_entity, target_entity, relationship, finding_summary, discovered_at)
-                VALUES (?, ?, ?, ?, ?)""",
-                (source_entity, target_entity, relationship, finding_summary, now),
+                    (source_entity, target_entity, relationship, finding_summary, discovered_at, user_id)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+                (source_entity, target_entity, relationship, finding_summary, now, user_id or None),
             )
             conn.commit()
         except Exception as e:
             logger.debug("[dd_vault] cross-reference failed: %s", e)
 
     @fail_wire(module="dd_vault", gap_type="engine_failure")
-    def get_cross_references(self, canonical_entity_id: str) -> list[dict[str, Any]]:
-        """Get all cross-references for an entity (both directions)."""
+    def get_cross_references(
+        self, canonical_entity_id: str, *, user_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get cross-references for an entity (both directions).
+
+        R-F2697 — `user_id` scopes to the relationships THAT TENANT's runs discovered.
+        Omitting it returns every tenant's rows and is for INTERNAL/service callers
+        only (mirrors `_dd_owned_entity_ids`, where None means "unrestricted internal
+        caller"). Any user-facing route MUST pass it: a row carries the other party's
+        `canonical_entity_id` + `finding_summary`, i.e. which entities another tenant
+        investigated and what they found (the R-F2401/2402/2456/2458 leak class).
+        """
         conn = self._get_conn()
-        rows = conn.execute(
-            """SELECT * FROM dd_cross_references
-               WHERE source_entity = ? OR target_entity = ?
-               ORDER BY discovered_at DESC""",
-            (canonical_entity_id, canonical_entity_id),
-        ).fetchall()
+        if user_id:
+            rows = conn.execute(
+                """SELECT * FROM dd_cross_references
+                   WHERE (source_entity = ? OR target_entity = ?) AND user_id = ?
+                   ORDER BY discovered_at DESC""",
+                (canonical_entity_id, canonical_entity_id, user_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT * FROM dd_cross_references
+                   WHERE source_entity = ? OR target_entity = ?
+                   ORDER BY discovered_at DESC""",
+                (canonical_entity_id, canonical_entity_id),
+            ).fetchall()
         return [dict(r) for r in rows]  # dd_cross_references rows carry no grade columns
 
     @fail_wire(module="dd_vault", gap_type="engine_failure")
-    def get_related_cases(self, canonical_entity_id: str) -> list[dict[str, Any]]:
-        """Get all DD cases related to this entity via cross-references."""
-        refs = self.get_cross_references(canonical_entity_id)
+    def get_related_cases(
+        self,
+        canonical_entity_id: str,
+        *,
+        user_id: str | None = None,
+        visible_entity_ids: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """DD cases related to this entity via cross-references.
+
+        R-F2697 — this is the sharp one. It returns FULL case dicts (risk_level,
+        risk_score, and since R-F2683 evidence_grade), so an unscoped call hands the
+        caller another tenant's verdicts. Previously it called `get_case()` on every
+        linked id with NO ownership check — dormant only because no prod writer existed.
+        Wiring the writer without this would have shipped the leak.
+
+        `visible_entity_ids` = the caller's owned ids (route: `_dd_owned_entity_ids`).
+        None means "unrestricted internal caller", matching that helper's contract.
+        An EMPTY set is a real answer (an external caller who owns nothing) and
+        correctly yields [] — do not confuse it with None (§1 tri-state).
+        """
+        refs = self.get_cross_references(canonical_entity_id, user_id=user_id)
         related_ids = set()
         for ref in refs:
             if ref["source_entity"] == canonical_entity_id:
                 related_ids.add(ref["target_entity"])
             else:
                 related_ids.add(ref["source_entity"])
+        if visible_entity_ids is not None:
+            related_ids &= set(visible_entity_ids)
 
         cases = []
         for rid in related_ids:
