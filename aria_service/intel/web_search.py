@@ -133,6 +133,7 @@ def get_last_search_ecosystem() -> dict:
 # ── Configuration ───────────────────────────────────────────────────────────
 
 BRAVE_API_KEY = (os.getenv("BRAVE_SEARCH_API_KEY") or os.getenv("BRAVE_API_KEY") or "").strip()
+GNEWS_API_KEY = (os.getenv("GNEWS_API_KEY") or os.getenv("GNEWS_KEY") or "").strip()
 
 # R-F2318 — Brave routing. Brave is the PRIMARY backend for USER-FACING DD +
 # deep-research + chat search ONLY; the continuous/autonomous researcher stays on the
@@ -711,6 +712,68 @@ async def _search_academic(
 
 
 # ── Backend: Google News RSS (free, news-focused) ───────────────────────────
+
+async def _search_gnews_api(query: str, max_results: int = 10, language: str = "en") -> list[SearchResult]:
+    """GNews.io API backend, enabled by GNEWS_API_KEY.
+
+    This is distinct from Google News RSS. It consumes the operator-provided
+    gnews.io key server-side only, returns [] when unconfigured, and wires
+    provider failures so a broken paid source is not mistaken for no news.
+    """
+    if not GNEWS_API_KEY:
+        return []
+    from .circuit_breaker import get_breaker as _get_cb_gnews
+    _cb = _get_cb_gnews("search:gnews_api", failure_threshold=5, cooldown_seconds=300)
+    if _cb.is_open():
+        return []
+
+    params = {
+        "q": query,
+        "lang": (language or "en")[:2],
+        "max": max(1, min(int(max_results or 10), 10)),
+        "apikey": GNEWS_API_KEY,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+            resp = await client.get("https://gnews.io/api/v4/search", params=params)
+            if resp.status_code != 200:
+                _cb.record_failure(reason=classify_status(resp.status_code))
+                wire_failure(
+                    module="web_search._search_gnews_api",
+                    detail=f"gnews_api returned HTTP {resp.status_code}",
+                    gap_type="search_backend_failure",
+                    source="web_search",
+                )
+                return []
+            data = resp.json()
+            results: list[SearchResult] = []
+            for item in (data.get("articles") or [])[:max_results]:
+                url = (item.get("url") or "").strip()
+                title = (item.get("title") or "").strip()
+                if not url or not title:
+                    continue
+                results.append(SearchResult(
+                    title=title[:300],
+                    url=url,
+                    snippet=(item.get("description") or item.get("content") or "")[:500],
+                    source="gnews_api",
+                    credibility_tier=_score_credibility(url),
+                    language=(language or "en")[:2],
+                    timestamp=(item.get("publishedAt") or ""),
+                ))
+            _cb.record_success()
+            return results
+    except Exception as e:
+        _cb.record_failure(reason="timeout")
+        logger.warning("GNews API search failed: %s", e)
+        wire_failure(
+            module="web_search._search_gnews_api",
+            detail=f"gnews_api backend failed (returned [] as if no results): {e}",
+            gap_type="search_backend_failure",
+            source="web_search",
+        )
+        return []
+
 
 async def _search_google_news(query: str, max_results: int = 10, language: str = "en") -> list[SearchResult]:
     """Google News RSS — free, news-specific, ~30 results max.
@@ -1411,6 +1474,7 @@ async def search(
         # SearXNG self-host (R-F183) + DuckDuckGo cover general web.
         _search_searxng(query, MAX_RESULTS_PER_BACKEND, language),
         _search_duckduckgo(query, MAX_RESULTS_PER_BACKEND),
+        _search_gnews_api(query, MAX_RESULTS_PER_BACKEND, language),
         _search_google_news(query, MAX_RESULTS_PER_BACKEND, language),
         _search_bing_news(query, MAX_RESULTS_PER_BACKEND),
         _search_academic(query, MAX_RESULTS_PER_BACKEND, language),
@@ -1468,10 +1532,10 @@ async def search(
         ["memory"]
         # R-F2318: "brave" restored as PRIMARY when _brave_on — prepended to match
         # the backend_tasks prepend above. Order must match _all_tasks (= memory +
-        # backend_tasks): [brave?], searxng, ddg, gnews, bing, academic,
+        # backend_tasks): [brave?], searxng, ddg, gnews_api, google_news, bing, academic,
         # defence_event, gdelt, gnews[langs]...
         + (["brave"] if _brave_on else [])
-        + ["searxng", "duckduckgo", "google_news", "bing_news",
+        + ["searxng", "duckduckgo", "gnews_api", "google_news", "bing_news",
            "academic", "defence_event", "gdelt"]   # R-F2318: added gdelt (was missing → off-by-one label drift)
         + [f"google_news[{l}]" for l in extra_langs[:3]]
     )
@@ -1818,8 +1882,9 @@ async def search(
 
 @fail_wire(module="web_search", gap_type="source_failure")
 async def search_news(query: str, *, max_results: int = 10, language: str = "en") -> list[SearchResult]:
-    """News-specific search — Google News + Bing News in parallel."""
+    """News-specific search — GNews API + Google News + Bing News in parallel."""
     tasks = [
+        _search_gnews_api(query, MAX_RESULTS_PER_BACKEND, language),
         _search_google_news(query, MAX_RESULTS_PER_BACKEND, language),
         _search_bing_news(query, MAX_RESULTS_PER_BACKEND),
     ]
@@ -2183,6 +2248,11 @@ async def get_search_health() -> dict:
         "searxng": False,
         "google_news": False,
         "bing_news": False,
+        "gnews_api": {
+            "configured": bool(GNEWS_API_KEY),
+            "available": bool(GNEWS_API_KEY),
+            "mode": "gnews.io_api_v4_search",
+        },
         "duckduckgo": True,  # always tried, may be rate-limited
         "brave_search": {
             "configured": bool(BRAVE_API_KEY),
