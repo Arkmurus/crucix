@@ -108,7 +108,9 @@ def test_independent_investigation_has_no_pr_marker():
 def test_reworded_pr_is_detected_as_echo():
     is_echo, reason = asyncio.run(detect_pr_echo(_OUTLET_A, _OUTLET_B))
     assert is_echo is True
-    assert reason == "shared_verbatim_quote"
+    # R-F2692: the reason now names WHO was quoted on each side (subject vs authority),
+    # because that is what decides whether a shared quote means a shared origin.
+    assert reason.startswith("shared_quote_subject")
 
 
 def test_independent_investigation_is_not_an_echo():
@@ -128,7 +130,7 @@ def test_echo_clustering_collapses_the_two_echoes():
         "https://trade-b.example/beta": _OUTLET_B,
     }))
     assert len(set(stories.values())) == 1, "two echoes of one PR = ONE origin"
-    assert echoes and echoes[0]["reason"] == "shared_verbatim_quote"
+    assert echoes and echoes[0]["reason"].startswith("shared_quote_subject")
 
 
 def test_echo_clustering_keeps_the_independent_story_separate():
@@ -172,7 +174,7 @@ def test_two_pr_echoes_no_longer_claim_independent_corroboration():
         "R-F2687: claiming independent corroboration from two PR echoes is a fabrication"
     )
     assert res["pr_echoes_collapsed"] == 1
-    assert res["pr_echoes"][0]["reason"] == "shared_verbatim_quote"
+    assert res["pr_echoes"][0]["reason"].startswith("shared_quote_subject")
 
 
 def test_genuine_second_witness_still_corroborates():
@@ -269,6 +271,112 @@ def test_semantic_signal_requires_pr_markers_on_both_sides(monkeypatch):
         "high cosine alone must not collapse an independent witness — that is the "
         "recall failure naive semantic clustering causes"
     )
+
+
+# ── 6b. R-F2692 — WHO said it decides whether a shared quote means one origin ──
+# The FN the C-3 v3 eval measured against R-F2687 (recall 0.857): two INDEPENDENT
+# newsrooms quoting the SAME regulator statement verbatim were merged, destroying
+# genuine corroboration. A shared quote is not always a shared origin.
+
+_OFFICIAL_QUOTE = (
+    "The firm's conduct fell far below the standard we expect of a licensed operator"
+)
+_REUTERS = f"""
+The regulator imposed the penalty after a two-year inquiry.
+"{_OFFICIAL_QUOTE}," the regulator said in its published decision.
+Reuters has reviewed the decision notice and spoken to two people familiar with the case.
+"""
+_GUARDIAN = f"""
+Campaigners welcomed the fine, the largest of its kind this year.
+"{_OFFICIAL_QUOTE}," the regulator said in its published decision.
+The Guardian understands further action is under consideration.
+"""
+
+
+def test_quote_attribution_distinguishes_authority_from_subject():
+    from aria_service.intel.dd_independent_verifier import quote_attribution
+
+    q_official = next(iter(quote_fingerprints(_REUTERS)))
+    assert quote_attribution(_REUTERS, q_official) == "authority"
+
+    q_ceo = next(iter(quote_fingerprints(_OUTLET_A)))
+    assert quote_attribution(_OUTLET_A, q_ceo) == "subject"
+
+
+def test_two_newsrooms_quoting_one_regulator_are_NOT_an_echo():
+    """R-F2692 regression: the measured FN. Quoting an AUTHORITY is not echoing the SUBJECT."""
+    is_echo, _ = asyncio.run(detect_pr_echo(_REUTERS, _GUARDIAN))
+    assert is_echo is False, (
+        "two independent newsrooms reporting the same regulator decision are two real "
+        "witnesses — merging them destroys genuine corroboration (C-3 v3 fn=1)"
+    )
+
+
+def test_independent_regulator_reports_still_corroborate_end_to_end():
+    pages = {
+        "https://reuters.com/x": _REUTERS,
+        "https://theguardian.com/y": _GUARDIAN,
+    }
+
+    async def _fetch(url):
+        return 200, pages[url]
+
+    report = {"entity": "Acme Corp", "digital": {"press_coverage": [{"url": u} for u in pages]}}
+    res = asyncio.run(assess_independent_verification(report, fetcher=_fetch))
+    assert res["independent_press_origins"] == 2
+    assert res["press_independently_corroborated"] is True
+
+
+# R-F2692 Pass-2 regressions. A reviewer PROVED the first cut re-enabled the
+# fabrication: classifying a REGION (window/clause) around the quote let an incidental
+# regulator mention read as "an authority said it", so a real PR echo escaped as 2
+# independent origins. The golden v3 set has NO authority-adjacent PR echo, so it
+# CANNOT see this class — these tests are the only thing standing between us and a
+# silent regression. Do not delete them to make a score green.
+
+def test_leading_attribution_with_regulator_in_next_sentence_is_still_an_echo():
+    """`Acme said in a statement: "Q." The regulator approved...` — the terminator sits
+    INSIDE the quote, which defeated the clause-clip and read "authority" on both sides.
+    """
+    a = ('Acme Corp said in a statement: "The transaction is a decisive step for our '
+         'shareholders and customers." The competition regulator approved the deal Monday.')
+    b = ('In a statement, Acme Corp announced: "The transaction is a decisive step for our '
+         'shareholders and customers." The competition regulator signed off last week.')
+    is_echo, _ = asyncio.run(detect_pr_echo(a, b, subject_tokens=frozenset({"acme"})))
+    assert is_echo is True, (
+        "an incidental regulator mention must not let a subject-quoted PR echo escape "
+        "as two independent origins — that is the fabrication this module prevents"
+    )
+
+
+def test_subject_speaker_with_regulator_as_circumstance_is_still_an_echo():
+    """`said chief executive Jane Doe after the regulator cleared the deal` — the speaker
+    is the CEO; the regulator is circumstance, not attribution."""
+    a = ('"The transaction is a decisive step for our shareholders and customers," said '
+         'chief executive Jane Doe after the competition regulator cleared the deal.')
+    b = ('"The transaction is a decisive step for our shareholders and customers," said '
+         'the company spokesman, after the regulator published its decision.')
+    is_echo, reason = asyncio.run(detect_pr_echo(a, b))
+    assert is_echo is True and reason.startswith("shared_quote_subject")
+
+
+def test_unattributable_shared_quote_defaults_to_echo():
+    """Safe default: if we cannot identify the speaker, remove claimed independence
+    rather than invent it."""
+    from aria_service.intel.dd_independent_verifier import quote_attribution
+
+    t = ('"The firm conduct fell far below the standard we expect of a licensed '
+         'operator." Nobody would say who wrote it.')
+    q = next(iter(quote_fingerprints(t)))
+    assert quote_attribution(t, q) == "unknown"
+    is_echo, _ = asyncio.run(detect_pr_echo(t, t.replace("Nobody would say", "None would say")))
+    assert is_echo is True
+
+
+def test_subject_attributed_shared_quote_is_still_an_echo():
+    """The fix must not disarm the primary signal: the CEO-quote echo still collapses."""
+    is_echo, reason = asyncio.run(detect_pr_echo(_OUTLET_A, _OUTLET_B))
+    assert is_echo is True and reason.startswith("shared_quote_subject")
 
 
 # ── 7. The Pass-2 counterexample: merging must never SPLIT other clusters ─────

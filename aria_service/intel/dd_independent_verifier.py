@@ -365,7 +365,28 @@ _PR_MARKER_RE = _re.compile(
 )
 
 _MIN_QUOTE_WORDS = 8          # shorter spans collide by chance ("we are delighted")
-_SEMANTIC_ECHO_THRESHOLD = 0.90  # UNPROVEN — must be scored by the C-3 eval
+_SEMANTIC_ECHO_THRESHOLD = 0.90  # measured — see the R-F2692 note below; do NOT lower
+
+# R-F2692 — WHO is speaking decides whether a shared quote means a shared ORIGIN.
+# R-F2687 treated ANY shared verbatim quote as a PR echo. The C-3 v3 eval (R-F2690)
+# measured the cost: `independent_reports_sharing_one_official_quote` — Reuters and the
+# Guardian BOTH quoting the same regulator's published decision verbatim — got merged,
+# so genuine corroboration was LOST (fn=1, recall 0.857). A shared quote is NOT always a
+# shared origin: two newsrooms independently reporting an AUTHORITY's statement are two
+# real witnesses; two outlets reprinting the SUBJECT's spokesperson are one echo of a
+# self-interested source. So attribute the quote instead of dropping the signal.
+_AUTHORITY_RE = _re.compile(
+    r"regulator|watchdog|authority|commission|tribunal|ombudsman|inspectorate"
+    r"|ministry|prosecut|court|judge|police|central\s+bank|agency"
+    r"|decision\s+notice|published\s+decision|court\s+filing|indictment",
+    _re.I,
+)
+_SUBJECT_ROLE_RE = _re.compile(
+    r"chief\s+executive|\bceo\b|\bcfo\b|\bcoo\b|chairman|chairwoman|chair\b"
+    r"|\bboss\b|founder|managing\s+director|company\s+statement|the\s+company\s+said"
+    r"|the\s+firm\s+said|spokesperson|spokesman|spokeswoman|a\s+company\s+representative",
+    _re.I,
+)
 
 
 def quote_fingerprints(text: str, *, min_words: int = _MIN_QUOTE_WORDS) -> frozenset:
@@ -391,8 +412,97 @@ def has_pr_marker(text: str) -> bool:
 
 
 def shares_verbatim_quote(a: frozenset, b: frozenset) -> bool:
-    """True when two articles carry the SAME quoted statement → one origin."""
+    """True when two articles carry the SAME quoted statement.
+
+    NOTE (R-F2692): shared != same origin. Ask `quote_attribution` WHO said it before
+    concluding echo — see `detect_pr_echo`. This helper is the set test only.
+    """
     return bool(a and b and (a & b))
+
+
+# Attribution verbs. The speaker sits immediately either side of one of these.
+_ATTRIB_VERB = r"said|says|added|commented|told|noted|wrote|stated|announced|confirmed"
+# `"Q," the regulator said in its decision.`  → speaker precedes the verb
+_SPEAKER_BEFORE_VERB = _re.compile(
+    r"^[\s,\"“”]*(?P<who>[^.,;:]{1,80}?)\s+(?:" + _ATTRIB_VERB + r")\b", _re.I
+)
+# `"Q," said Acme chief executive Jane Roe.`  → speaker follows the verb
+_SPEAKER_AFTER_VERB = _re.compile(
+    r"^[\s,\"“”]*(?:" + _ATTRIB_VERB + r")\s+(?P<who>[^.,;:]{1,80})", _re.I
+)
+# `Acme Corp said in a statement: "Q."`      → leading attribution, before the quote
+_SPEAKER_LEADING = _re.compile(
+    r"(?P<who>[^.!?;]{1,90}?)\s+(?:" + _ATTRIB_VERB + r")\b[^\"“”]{0,40}$", _re.I
+)
+# The speaker phrase ends where the sentence moves on to circumstance. Without this,
+# `said chief executive Jane Doe after the competition regulator cleared the deal`
+# swallows "regulator" and flips a subject quote to "authority".
+_SPEAKER_STOP = _re.compile(
+    r"\b(?:after|when|while|as|following|amid|during|before|because|since)\b", _re.I
+)
+
+
+def _speaker_phrase(after_raw: str, before_raw: str) -> str:
+    """Extract WHO is credited with an adjacent quote. "" when not confidently found.
+
+    Tries the trailing attribution first (`," the regulator said` / `," said the CEO`),
+    then the leading one (`Acme said in a statement: "`). Returning "" (→ "unknown" →
+    treated as an echo) is the SAFE default: it removes claimed independence rather
+    than inventing it.
+    """
+    for rx in (_SPEAKER_BEFORE_VERB, _SPEAKER_AFTER_VERB):
+        m = rx.match(after_raw or "")
+        if m:
+            who = m.group("who").strip()
+            return _SPEAKER_STOP.split(who)[0].strip()
+    m = _SPEAKER_LEADING.search(before_raw or "")
+    if m:
+        who = m.group("who").strip()
+        return _SPEAKER_STOP.split(who)[0].strip()
+    return ""
+
+
+def quote_attribution(
+    text: str, quote_norm: str, *, subject_tokens=frozenset(), window: int = 160
+) -> str:
+    """WHO is credited with `quote_norm` in `text`? → "authority" | "subject" | "unknown".
+
+    R-F2692. Reads the attribution clause AROUND the quote — "…," the regulator said in
+    its published decision' vs '…," said chief executive Marta Oliveira'. The clause that
+    FOLLOWS the quote is checked first (that is where attribution conventionally sits);
+    the preceding sentence is the fallback. Authority is checked before subject because a
+    regulator also has a "spokesperson" — the authority reading must win that collision.
+    """
+    body = text or ""
+    for m in _QUOTE_RE.finditer(body):
+        span = m.group(1) if m.group(1) is not None else (m.group(2) or "")
+        words = _re.findall(r"[a-z0-9]+", span.lower())
+        if " ".join(words) != quote_norm:
+            continue
+        # Identify the SPEAKER, do not classify a region. Scanning a window/clause for
+        # an authority word is unsound in both directions, and a Pass-2 review proved
+        # it re-enabled the fabrication: in the common LEADING-attribution shape
+        # (`Acme said in a statement: "Q." The regulator approved the deal.`) the
+        # sentence terminator sits INSIDE the quote, so a `(?<=[.!?])\s` clip cannot
+        # match at offset 0 and the whole NEXT sentence became the "attribution" —
+        # reading "authority" and letting a real PR echo escape as 2 origins.
+        # So: extract the speaker phrase around the attribution verb, and classify
+        # ONLY that phrase.
+        speaker = _speaker_phrase(
+            body[m.end(): m.end() + window], body[max(0, m.start() - window): m.start()]
+        )
+        if not speaker:
+            return "unknown"
+        # AUTHORITY requires positive evidence that the authority IS the speaker.
+        if _AUTHORITY_RE.search(speaker):
+            return "authority"
+        if _SUBJECT_ROLE_RE.search(speaker):
+            return "subject"
+        low = speaker.lower()
+        if subject_tokens and any(t in low for t in subject_tokens):
+            return "subject"
+        return "unknown"
+    return "unknown"
 
 
 async def semantic_similarity(a_text: str, b_text: str) -> float | None:
@@ -420,16 +530,33 @@ async def semantic_similarity(a_text: str, b_text: str) -> float | None:
         return None
 
 
-async def detect_pr_echo(a_text: str, b_text: str) -> tuple[bool, str]:
-    """Are these two article bodies echoes of ONE origin (a press release)?
+async def detect_pr_echo(
+    a_text: str, b_text: str, *, subject_tokens=frozenset()
+) -> tuple[bool, str]:
+    """Are these two article bodies echoes of ONE origin (the subject's announcement)?
 
     Returns (is_echo, reason). Reason is recorded per-pair so the operator can
     audit WHY two sources collapsed — an unexplained collapse is indistinguishable
     from a bug (§22).
     """
     qa, qb = quote_fingerprints(a_text), quote_fingerprints(b_text)
-    if shares_verbatim_quote(qa, qb):
-        return True, "shared_verbatim_quote"
+    shared = qa & qb
+    if shared:
+        # R-F2692 — a shared quote is an ECHO only when the SUBJECT is the speaker.
+        # If BOTH articles credit an independent AUTHORITY (regulator/court), they are
+        # two newsrooms reporting the same official statement = two real witnesses, and
+        # merging them destroys genuine corroboration (the measured fn=1 in C-3 v3).
+        for q in sorted(shared):
+            attr_a = quote_attribution(a_text, q, subject_tokens=subject_tokens)
+            attr_b = quote_attribution(b_text, q, subject_tokens=subject_tokens)
+            if attr_a == "authority" and attr_b == "authority":
+                continue  # this quote is an authority's — keep looking
+            # Subject-attributed, or unattributable: treat as an echo. UNKNOWN defaults
+            # to echo deliberately — an unattributable shared quote is more likely
+            # syndicated copy than two reporters producing an identical 8+ word span,
+            # and this direction removes claimed independence (never invents it).
+            return True, f"shared_quote_{attr_a}_{attr_b}"
+        # every shared quote was an authority's → not an echo; fall through.
     # Secondary: reworded PR with no shared quote. Requires BOTH a very high
     # cosine AND a PR marker on BOTH sides — cosine alone would collapse two
     # independent investigations of the same event.
@@ -441,7 +568,11 @@ async def detect_pr_echo(a_text: str, b_text: str) -> tuple[bool, str]:
 
 
 async def cluster_stories_with_echo(
-    url_texts: dict, *, threshold: float = 0.6, deadline_s: float | None = None
+    url_texts: dict,
+    *,
+    threshold: float = 0.6,
+    deadline_s: float | None = None,
+    subject_tokens=frozenset(),
 ) -> tuple[dict, list]:
     """Lexical clustering (R-F2669) PLUS the R-F2687 PR-echo merge.
 
@@ -500,7 +631,9 @@ async def cluster_stories_with_echo(
             if deadline_s is not None and (_t.time() - _start) >= deadline_s:
                 complete = False
                 break
-            is_echo, why = await detect_pr_echo(url_texts[a], url_texts[b])
+            is_echo, why = await detect_pr_echo(
+                url_texts[a], url_texts[b], subject_tokens=subject_tokens,
+            )
             if is_echo:
                 _union(a, b)
                 echoes.append({"url": b, "echo_of": a, "reason": why})
@@ -529,6 +662,7 @@ async def refetch_story_ids_detailed(
     fetcher=None,
     threshold: float = 0.6,
     detect_echo: bool = True,
+    subject_tokens=frozenset(),
 ) -> tuple[dict, list]:
     """R-F2687 — as refetch_story_ids, but also returns the PR-echo audit trail.
 
@@ -556,6 +690,7 @@ async def refetch_story_ids_detailed(
         _left = deadline_s - (_t.time() - _start)
         stories, echoes = await cluster_stories_with_echo(
             url_texts, threshold=threshold, deadline_s=max(_left, 0.0),
+            subject_tokens=subject_tokens,
         )
     else:
         stories = cluster_stories(
@@ -625,8 +760,12 @@ async def assess_independent_verification(
         if url:
             items.append({"url": url})
     # R-F2687 — echo-aware clustering + the audit trail of WHY sources collapsed.
+    # R-F2692 — hand the detector the subject tokens (already derived above for the
+    # R-F2674 self-source check) so it can tell "the SUBJECT's spokesperson said" (echo)
+    # from "the REGULATOR said" (two independent witnesses).
     story_ids, pr_echoes = await refetch_story_ids_detailed(
         [it["url"] for it in items], deadline_s=deadline_s, fetcher=fetcher,
+        subject_tokens=subject_tokens,
     )
     verified_sources: list = []
     per_url: list[dict] = []
