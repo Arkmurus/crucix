@@ -312,6 +312,259 @@ def cluster_stories(url_shingles: dict, *, threshold: float = 0.6) -> dict:
     return stories
 
 
+# =============================================================================
+# R-F2687 — PR-ECHO detection (C-3 v3). The residual R-F2677 left open before
+# `enforce`: a company press release REWORDED by >=2 trade outlets escapes the
+# Jaccard-0.6 lexical gate (each outlet writes its own prose → shingles diverge)
+# and counts as 2 INDEPENDENT origins. That is a fabrication: both are echoes of
+# ONE origin — the subject's own announcement — so the report would claim
+# "independently corroborated" for a claim nobody independently checked.
+#
+# WHY NOT PLAIN SEMANTIC SIMILARITY (the obvious answer, and a trap):
+# embedding cosine measures TOPIC, not ORIGIN. Two genuinely INDEPENDENT
+# investigations of the same event are also highly similar — clustering on
+# cosine alone would collapse real corroboration and destroy recall (the very
+# thing the C-3 eval measures). Semantics alone cannot separate "same story"
+# from "same subject".
+#
+# THE SIGNAL THAT ACTUALLY SEPARATES THEM: journalists reword PROSE but copy
+# QUOTES verbatim. A PR's quoted spokesperson line survives the rewrite intact
+# in every outlet that ran it, while two independent reporters almost never
+# produce identical >=8-word quoted spans. So:
+#   - a shared verbatim QUOTE  → same origin (PR echo)   [primary, precise]
+#   - high cosine AND a PR marker on BOTH sides → same origin  [secondary]
+# Both signals only ever MERGE clusters → origins can only go DOWN → the
+# "never over-claim independence" (FP-rate 0) property is preserved by
+# construction. The cost is recall, which is why the secondary signal is
+# deliberately narrow and why the thresholds below are stated as UNPROVEN
+# until the C-3 measure-mode eval scores them on the golden set.
+# =============================================================================
+
+import re as _re
+
+# Quoted spans. CRITICAL: match quote PAIRS with no length bound, then filter by
+# length afterwards. A length-bounded class (["“”]([^"“”]{40,400})["“”]) has no
+# open/close pairing: on `"short" ... "the real PR quote"` it fails at the short
+# quote's opener, restarts at its CLOSER, captures the intervening PROSE as a
+# "quote", and swallows the real quote's opening delimiter — so the PR echo is
+# MISSED and the narrative prose is fingerprinted instead. Pairing straight quotes
+# in sequence (1st-2nd, 3rd-4th) is what the alternation below does naturally.
+_QUOTE_RE = _re.compile(r'"([^"]*)"|“([^”]*)”')
+
+# "This came from an announcement, not from reporting." Deliberately narrow —
+# these phrases are how outlets attribute PR-derived copy.
+# NOTE the \s+ between words: real article bodies WRAP, so "according to a\nstatement"
+# is the normal shape. A single-space pattern silently misses it (caught by a fixture
+# that happened to wrap at exactly that point) — and a marker that never fires makes
+# the whole secondary signal dead code.
+_PR_MARKER_RE = _re.compile(
+    r"press\s+release|in\s+a\s+statement|said\s+in\s+a\s+statement"
+    r"|according\s+to\s+a\s+statement|announced\s+today|prnewswire|businesswire"
+    r"|globenewswire|pr\s+newswire|company\s+statement|issued\s+a\s+statement",
+    _re.I,
+)
+
+_MIN_QUOTE_WORDS = 8          # shorter spans collide by chance ("we are delighted")
+_SEMANTIC_ECHO_THRESHOLD = 0.90  # UNPROVEN — must be scored by the C-3 eval
+
+
+def quote_fingerprints(text: str, *, min_words: int = _MIN_QUOTE_WORDS) -> frozenset:
+    """Normalised verbatim QUOTED spans in an article body.
+
+    The PR-echo tell: outlets reword the surrounding prose but paste the quote
+    verbatim. Spans shorter than `min_words` are dropped — boilerplate like
+    "we are pleased to announce" would collide across unrelated articles and
+    manufacture false echoes (i.e. would UNDER-count independence).
+    """
+    out = set()
+    for m in _QUOTE_RE.finditer(text or ""):
+        span = m.group(1) if m.group(1) is not None else (m.group(2) or "")
+        words = _re.findall(r"[a-z0-9]+", span.lower())
+        if len(words) >= min_words:
+            out.add(" ".join(words))
+    return frozenset(out)
+
+
+def has_pr_marker(text: str) -> bool:
+    """Does the body attribute itself to an announcement/statement (not reporting)?"""
+    return bool(_PR_MARKER_RE.search(text or ""))
+
+
+def shares_verbatim_quote(a: frozenset, b: frozenset) -> bool:
+    """True when two articles carry the SAME quoted statement → one origin."""
+    return bool(a and b and (a & b))
+
+
+async def semantic_similarity(a_text: str, b_text: str) -> float | None:
+    """Cosine similarity of two article bodies — DELEGATES to the existing helper.
+
+    §6-native: ARIA's own local all-MiniLM-L6-v2 (no paid API, no new dependency).
+    Reuses `consistency_suite._similarity`, which is the same function and already
+    does it correctly: `to_thread(_safe_encode, ...)` honours the R-F530/R-F789
+    process-wide encode lock and the R-F1890 offload, and it uses numpy for the
+    cosine. Calling `embedder.encode(...)` directly here would re-introduce exactly
+    the loop-stalling shape R-F703's regression test was written to kill
+    (to_thread does NOT release the GIL — that is why the offload exists).
+
+    Returns None only on error. NOTE the degradation contract: when the embedder is
+    unavailable, `_similarity` falls back to token-overlap Jaccard — a LEXICAL proxy
+    — so a reworded PR scores low and the SECONDARY signal effectively disappears,
+    leaving the quote signal alone (i.e. pre-R-F2687 behaviour). That direction is
+    over-counting independence, never under-counting, so a missing model can never
+    manufacture a new echo — but it also cannot be claimed as coverage.
+    """
+    try:
+        from .consistency_suite import _similarity
+        return await _similarity(a_text[:2000], b_text[:2000])
+    except Exception:
+        return None
+
+
+async def detect_pr_echo(a_text: str, b_text: str) -> tuple[bool, str]:
+    """Are these two article bodies echoes of ONE origin (a press release)?
+
+    Returns (is_echo, reason). Reason is recorded per-pair so the operator can
+    audit WHY two sources collapsed — an unexplained collapse is indistinguishable
+    from a bug (§22).
+    """
+    qa, qb = quote_fingerprints(a_text), quote_fingerprints(b_text)
+    if shares_verbatim_quote(qa, qb):
+        return True, "shared_verbatim_quote"
+    # Secondary: reworded PR with no shared quote. Requires BOTH a very high
+    # cosine AND a PR marker on BOTH sides — cosine alone would collapse two
+    # independent investigations of the same event.
+    if has_pr_marker(a_text) and has_pr_marker(b_text):
+        sim = await semantic_similarity(a_text, b_text)
+        if sim is not None and sim >= _SEMANTIC_ECHO_THRESHOLD:
+            return True, f"pr_marker_and_semantic_{sim:.2f}"
+    return False, ""
+
+
+async def cluster_stories_with_echo(
+    url_texts: dict, *, threshold: float = 0.6, deadline_s: float | None = None
+) -> tuple[dict, list]:
+    """Lexical clustering (R-F2669) PLUS the R-F2687 PR-echo merge.
+
+    {url: text} → ({url: story_id}, [echo_detail]). Two URLs share a story when their
+    content is a near-duplicate (Jaccard >= threshold — the wire-syndication case) OR
+    when one is a PR echo of the other (the reworded case). Empty/failed content gets
+    NO story id — excluded, never counted (unchanged from R-F2669).
+
+    SINGLE-LINKAGE over ALL PAIRS via union-find — deliberately NOT the
+    first-match-against-a-representative loop R-F2669 used. That shape is UNSAFE once
+    echo edges exist, and a Pass-2 counterexample proved it: when an echo merge
+    absorbs B into A, B never becomes a representative, so a later C that matches only
+    B loses its link and FRAGMENTS into a new story. Jaccard-to-rep is not transitive,
+    so merging one cluster could SPLIT two others and RAISE the origin count — flipping
+    `press_independently_corroborated` False→True, the exact fabrication this detector
+    exists to prevent.
+
+    Union-find restores the safety property honestly: clustering is a graph, an origin
+    is a connected component, and ADDING an edge can only MERGE components, never split
+    one. So origins(lexical+echo) <= origins(lexical) always — the echo signal can only
+    ever REMOVE claimed independence. That is what "conservative by construction" has to
+    mean; the old loop only appeared to have it.
+
+    `deadline_s` bounds the pairwise pass (echo detection can load the embedding model),
+    so a slow model can never blow the caller's out-of-band budget. On timeout the
+    remaining pairs are simply not compared → fewer merges → MORE origins, so a partial
+    pass is reported honestly by `echo_pass_complete=False` rather than silently trusted.
+    """
+    import time as _t
+    _start = _t.time()
+    urls = [u for u, t in url_texts.items() if content_shingles(t)]
+    shingles = {u: content_shingles(url_texts[u]) for u in urls}
+    parent = {u: u for u in urls}
+
+    def _find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(a: str, b: str) -> None:
+        ra, rb = _find(a), _find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    echoes: list = []
+    complete = True
+    for i in range(len(urls)):
+        for j in range(i + 1, len(urls)):
+            a, b = urls[i], urls[j]
+            if _find(a) == _find(b):
+                continue  # already one story — no need to pay for the comparison
+            if _jaccard(shingles[a], shingles[b]) >= threshold:
+                _union(a, b)
+                continue
+            if deadline_s is not None and (_t.time() - _start) >= deadline_s:
+                complete = False
+                break
+            is_echo, why = await detect_pr_echo(url_texts[a], url_texts[b])
+            if is_echo:
+                _union(a, b)
+                echoes.append({"url": b, "echo_of": a, "reason": why})
+        if not complete:
+            break
+
+    # Deterministic ids: components numbered by first-seen URL (insertion order).
+    story_of: dict = {}
+    stories: dict = {}
+    for u in urls:
+        root = _find(u)
+        if root not in story_of:
+            story_of[root] = f"story_{len(story_of)}"
+        stories[u] = story_of[root]
+    for e in echoes:
+        e["story"] = stories.get(e["url"])
+    if not complete:
+        echoes.append({"echo_pass_complete": False})
+    return stories, echoes
+
+
+async def refetch_story_ids_detailed(
+    urls: list,
+    *,
+    deadline_s: float = 60.0,
+    fetcher=None,
+    threshold: float = 0.6,
+    detect_echo: bool = True,
+) -> tuple[dict, list]:
+    """R-F2687 — as refetch_story_ids, but also returns the PR-echo audit trail.
+
+    ({url: story_id | None}, [{url, story, reason}]). `detect_echo=False` restores the
+    pure R-F2669 lexical behaviour (used to A/B the echo signal in the C-3 eval).
+    """
+    import time as _t
+    if fetcher is None:
+        from .citation_audit import _fetch_text as fetcher  # noqa: N806
+    url_texts: dict = {}
+    _start = _t.time()
+    for url in list(dict.fromkeys(u for u in (urls or []) if u)):  # dedupe, keep order
+        if (_t.time() - _start) >= deadline_s:
+            break
+        try:
+            _status, _text = await fetcher(url)
+            url_texts[url] = _text or ""
+        except Exception:
+            url_texts[url] = ""
+    if detect_echo:
+        # R-F2687 — the echo pass shares the caller's budget: deadline_s used to bound
+        # ONLY the fetch loop above, so the clustering (which can trigger a ~32s cold
+        # model load + O(n^2) pair encodes) ran unbounded past a deadline the caller
+        # believed it had set. Hand it whatever is LEFT.
+        _left = deadline_s - (_t.time() - _start)
+        stories, echoes = await cluster_stories_with_echo(
+            url_texts, threshold=threshold, deadline_s=max(_left, 0.0),
+        )
+    else:
+        stories = cluster_stories(
+            {u: content_shingles(t) for u, t in url_texts.items()}, threshold=threshold
+        )
+        echoes = []
+    return {u: stories.get(u) for u in url_texts}, echoes
+
+
 async def refetch_story_ids(
     urls: list, *, deadline_s: float = 60.0, fetcher=None, threshold: float = 0.6
 ) -> dict:
@@ -323,22 +576,15 @@ async def refetch_story_ids(
     Best-effort + bounded by deadline_s (re-fetching is slow — the caller runs this
     out-of-band). `fetcher(url) -> (status, text)` is injectable for testing; live it
     defaults to citation_audit._fetch_text.
+
+    R-F2687: now also collapses PR echoes (reworded press releases), not just lexical
+    near-duplicates. Thin wrapper over refetch_story_ids_detailed — kept for the
+    existing callers that do not need the echo audit trail.
     """
-    import time as _t
-    if fetcher is None:
-        from .citation_audit import _fetch_text as fetcher  # noqa: N806
-    url_shingles: dict = {}
-    _start = _t.time()
-    for url in list(dict.fromkeys(u for u in (urls or []) if u)):  # dedupe, keep order
-        if (_t.time() - _start) >= deadline_s:
-            break
-        try:
-            _status, _text = await fetcher(url)
-            url_shingles[url] = content_shingles(_text)
-        except Exception:
-            url_shingles[url] = frozenset()
-    stories = cluster_stories(url_shingles, threshold=threshold)
-    return {u: stories.get(u) for u in url_shingles}  # None where content was too little
+    ids, _echoes = await refetch_story_ids_detailed(
+        urls, deadline_s=deadline_s, fetcher=fetcher, threshold=threshold,
+    )
+    return ids
 
 
 async def assess_independent_verification(
@@ -378,7 +624,8 @@ async def assess_independent_verification(
         url = p.get("url") if isinstance(p, dict) else getattr(p, "url", None)
         if url:
             items.append({"url": url})
-    story_ids = await refetch_story_ids(
+    # R-F2687 — echo-aware clustering + the audit trail of WHY sources collapsed.
+    story_ids, pr_echoes = await refetch_story_ids_detailed(
         [it["url"] for it in items], deadline_s=deadline_s, fetcher=fetcher,
     )
     verified_sources: list = []
@@ -408,5 +655,10 @@ async def assess_independent_verification(
         "independent_press_origins": origins,
         "press_independently_corroborated": origins >= 2,
         "per_url": per_url,
+        # R-F2687 — every PR-echo collapse, with its reason. An unexplained drop in
+        # origins is indistinguishable from a bug; this is the operator's audit trail
+        # and the C-3 measure-mode eval's input for scoring the echo signal.
+        "pr_echoes": pr_echoes,
+        "pr_echoes_collapsed": len(pr_echoes),
     }
 
