@@ -155,6 +155,12 @@ def _force_grounded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(model_router, "two_track_active", lambda: True)
     monkeypatch.setattr(model_router, "is_grounded_synthesis", lambda m="", c="": True)
     monkeypatch.setattr(model_router, "promotion_stage", lambda: "shadow")
+    # R-F2694 — the router now also requires PROOF the pod is warm (a succeeded probe),
+    # and fails closed when that is unmeasurable. These tests isolate the SCHEDULE gate,
+    # so hold the warm signal True: a test that asserts "pod serving → shadow" must not
+    # pass or fail on the probe's state. The dedicated warm-gate cases live in
+    # test_rf2694_router_warm_gate.py.
+    monkeypatch.setattr(model_router, "_sovereign_warm", lambda: True)
 
 
 def test_route_decision_deepseek_when_pod_off(monkeypatch: pytest.MonkeyPatch) -> None:

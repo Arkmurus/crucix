@@ -20835,9 +20835,10 @@
       "title": "registry adapter status ENUM - stub/fallback never counts as identity authority",
       "claimed_at": "2026-07-17T10:13:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0af8618f",
+      "notes": null,
+      "shipped_at": "2026-07-17T10:30:12Z"
     },
     {
       "r_number": "R-F2694",

@@ -42,6 +42,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time  # R-F2694 — throttle the unmeasurable-gate warning
 from collections import deque
 from typing import Any, AsyncGenerator, Callable, Optional
 
@@ -192,6 +193,73 @@ def _sovereign_pod_serving() -> bool:
         return True
 
 
+_WARN_EVERY_S = 300.0
+_last_unmeasurable_warn = 0.0
+
+
+def _sovereign_warm() -> Optional[bool]:
+    """R-F2694 — has a live probe PROVEN the sovereign endpoint warm RIGHT NOW?
+
+    True / False = MEASURED. None = no health checker is running, so this cannot be
+    measured — which is NOT the same as "measured and failed" (the tri-state honesty
+    rule CLAUDE.md §1 codifies for the phase gates: `None` renders `unknown`, never
+    `open`). Callers must treat the three cases distinctly.
+
+    Complements `_sovereign_pod_serving()` rather than replacing it. That signal is
+    POLICY — "the §24 schedule says the pod SHOULD be up" — computed with no network
+    call. This one is PROOF: `LLMHealthChecker.is_available()` is True only if a probe
+    actually COMPLETED against the endpoint within `ARIA_LLM_WARM_TTL_S` and the
+    breaker is closed (R-F1957's warm-gate). A pod that is scheduled-on but cold,
+    hung, or still scaling from zero passes policy and fails proof — and that gap is
+    exactly the traffic R-F2648's comment claims cannot reach a dead pod.
+    """
+    try:
+        from . import resilience as _res
+        hc = _res._health_checker_instance   # bound by LLMHealthChecker.start() (R-F2686)
+        if hc is None:
+            return None
+        # A DISABLED checker (endpoint="") answers is_available()=False forever. That is
+        # NOT "measured cold" — it is "never measured", and reporting it as cold would
+        # send every grounded turn to DeepSeek SILENTLY (the False branch does not warn).
+        # It happens when ARIA_LLM_URL becomes visible only after this module imported:
+        # resilience binds _ARIA_LLM_URL at import (resilience.py:55) while
+        # two_track_active() reads the env at CALL time, so the two can disagree. R-F2686
+        # guards its own copy of this drift with a call-time re-read; do the same here
+        # rather than let the gate fail silently.
+        if not getattr(hc, "_enabled", True):
+            return None
+        return bool(hc.is_available())
+    except Exception:
+        return None
+
+
+def _warn_sovereign_unmeasurable() -> None:
+    """§21a — a gate that cannot measure must never be silent (throttled)."""
+    global _last_unmeasurable_warn
+    now = time.time()
+    if (now - _last_unmeasurable_warn) < _WARN_EVERY_S:
+        return
+    _last_unmeasurable_warn = now
+    logger.warning(
+        "[R-F2694] sovereign warm-gate UNMEASURABLE — no usable LLMHealthChecker while "
+        "ARIA_LLM_URL is set, so nothing can PROVE the pod is up. Failing closed: "
+        "grounded turns route to DeepSeek (coverage is unaffected; sovereign/shadow "
+        "capture is paused until a probe succeeds). Check the resilience layer started."
+    )
+    try:
+        # NB: the 2nd param is `detail`, not `error` (engine_wiring.py:171-176) — the
+        # wrong kwarg raises TypeError, which this try/except would SWALLOW, leaving a
+        # wire that looks present and is dark (§21a). Verified against the signature.
+        wire_failure(
+            module="model_router",
+            detail="sovereign warm-gate unmeasurable (no LLMHealthChecker running)",
+            gap_type="llm_provider_failure",
+            source="model_router:_sovereign_warm",
+        )
+    except Exception:
+        pass
+
+
 def route_decision(message: str = "", context: str = "", *, canary_key: str = "") -> str:
     """Return the routing verdict for a synthesis turn:
         "deepseek"  — closed-book / general / coverage / router off (default today)
@@ -210,6 +278,33 @@ def route_decision(message: str = "", context: str = "", *, canary_key: str = ""
     # noise. Same single signal the health probe uses, so the two never
     # disagree about when the pod is up. Fails SAFE toward routing on error.
     if not _sovereign_pod_serving():
+        return "deepseek"
+    # R-F2694 — POLICY said the pod should be up; now require PROOF that it IS.
+    # `_sovereign_pod_serving()` is a no-network schedule check, so a pod that is
+    # scheduled-on but cold / hung / still scaling from zero passed it and took the
+    # grounded turn — eating the full call timeout before falling back to DeepSeek.
+    # The probe already knows better (10s cadence, R-F1957 warm-gate). Checked AFTER
+    # the schedule gate so a deliberately-stopped pod (§24) still short-circuits with
+    # no dependency on the probe.
+    #
+    # Tri-state, and BOTH non-True cases route to DeepSeek — for different reasons:
+    #   False = measured cold  → the probe proved the pod is not up.
+    #   None  = NOT measurable → nothing has proven it IS up, so admitting it would be
+    #           a claim we cannot back. R-F1957's rule is "unproven = skip", and the
+    #           sibling gate on this exact singleton (resilience._admission, R-F2686)
+    #           already fails CLOSED here; a Pass-2 review caught these two disagreeing
+    #           on identical input. They must not. Note the router does NOT go through
+    #           wrap(), so on None there is no second line of defence — _sovereign_complete
+    #           calls aria_llm_provider directly. None is reachable in the boot window
+    #           before start() binds the singleton, which correlates POSITIVELY with a
+    #           cold scale-from-zero pod: precisely when fail-open is most wrong.
+    # Failing closed costs sovereign/flywheel traffic while unmeasurable — an acceptable
+    # price, loudly warned + brain-wired, never silent (§21a).
+    _warm = _sovereign_warm()
+    if _warm is None:
+        _warn_sovereign_unmeasurable()
+        return "deepseek"
+    if _warm is False:
         return "deepseek"
     stage = promotion_stage()
     if stage == "off":
@@ -600,4 +695,11 @@ def summary() -> dict[str, Any]:
         "primary_all": _primary_all(),
         "router_disabled": _router_disabled(),
         "shadow_inflight": len(_shadow_bg_tasks),  # R-F2520 async compares in flight
+        # R-F2694 — the two gates that can send 100% of grounded traffic to DeepSeek
+        # while everything above still reads "serve". Without these, diagnostics report
+        # an intent ("promotion_stage: serve") and hide the actual routing — the reader
+        # cannot tell a live sovereign from a dormant one (§22: state what is MEASURED).
+        # R-F2648 opened this gap; R-F2694 added a second reason, so both are named here.
+        "sovereign_pod_serving": _sovereign_pod_serving(),   # POLICY (§24 schedule)
+        "sovereign_warm": _sovereign_warm(),                 # PROOF (None = unmeasurable)
     }

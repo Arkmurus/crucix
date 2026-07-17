@@ -35,6 +35,29 @@ def _clean_env(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _pod_proven_warm():
+    """R-F2694 — these tests mean "the sovereign is UP and serving"; say so explicitly.
+
+    The router now requires PROOF the pod is warm (a probe that actually succeeded),
+    not just the §24 schedule's word for it — and it fails CLOSED when that cannot be
+    measured. This file never modelled a health checker, so every "→ sovereign"
+    expectation here silently relied on the un-proven admission R-F2694 removes.
+    Standing up a warm probe preserves each test's INTENT (canary/shadow/stage routing)
+    under the honest contract, rather than weakening the gate to keep them green.
+    """
+    import time as _t
+    from aria_service.llm import resilience as _res
+
+    saved = _res._health_checker_instance
+    hc = _res.LLMHealthChecker(endpoint="https://pod.example/v1")
+    hc.last_success_at = _t.time()      # a probe just succeeded → provably warm
+    hc.probe_status = "healthy"
+    _res._health_checker_instance = hc
+    yield
+    _res._health_checker_instance = saved
+
+
 def test_sovereign_configured_reflects_flag(monkeypatch):
     """R-F2410: sovereign_configured() is the activation gate — False unless ARIA_LLM_URL is set."""
     monkeypatch.delenv("ARIA_LLM_URL", raising=False)
