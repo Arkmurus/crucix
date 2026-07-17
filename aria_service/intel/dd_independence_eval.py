@@ -138,6 +138,72 @@ def run_v3_eval(classifier: "Callable[[list], bool] | None" = None) -> dict[str,
     return score_independence(g.get("cases") or [], classifier or v2_verifier_classifier)
 
 
+# =============================================================================
+# R-F2690 — WIRE the C-3 v3 text-level detector into the eval.
+#
+# Integration gap R-F2687 flagged, and it is real: `v2_verifier_classifier` calls
+# `is_independently_corroborated(sources)`, which reads each source's PRECOMPUTED
+# `story` LABEL. The PR-echo detector works at TEXT level, inside the clustering
+# path (`cluster_stories_with_echo`). So scoring R-F2687 through the v2 classifier
+# would exercise NONE of it and report the residual as still-open — a false
+# negative ABOUT THE FIX, which is as dishonest as a false pass.
+#
+# This classifier reproduces what the LIVE DD path does: re-fetch → cluster the
+# TEXT (lexical near-dup + PR-echo merge) → count origins on the COMPUTED story
+# ids. Sources without text (every v2 case) keep their golden `story` label, so v2
+# cases score exactly as before — v3 stays a strict superset regression.
+# =============================================================================
+
+def _computed_story_sources(sources: list) -> list:
+    """Replace each source's golden `story` with the story id CLUSTERED FROM ITS TEXT.
+
+    Sources lacking `text` are passed through untouched (their golden label stands).
+    """
+    import asyncio
+
+    from .dd_independent_verifier import cluster_stories_with_echo
+
+    texted = {
+        s["domain"]: s["text"]
+        for s in sources
+        if isinstance(s, dict) and s.get("text") and s.get("domain")
+    }
+    if not texted:
+        return list(sources)
+
+    stories, _echo_detail = asyncio.run(cluster_stories_with_echo(texted))
+
+    out = []
+    for s in sources:
+        if not isinstance(s, dict) or not s.get("text"):
+            out.append(s)
+            continue
+        sid = stories.get(s["domain"])
+        c = dict(s)
+        # No story id == content too thin to fingerprint. Keep it story-less rather
+        # than falling back to the golden label: inventing a distinct label here
+        # would manufacture an origin, the exact fabrication under test.
+        c["story"] = sid if sid else None
+        out.append(c)
+    return out
+
+
+def v3_echo_classifier(sources: list) -> bool:
+    """C-3 v3: cluster the TEXT (lexical + PR-echo), then count independent origins.
+
+    This is the shape the live DD path runs, so the score is attributable to the
+    detector rather than to the fixture's precomputed labels.
+    """
+    from .dd_independent_verifier import is_independently_corroborated
+
+    return is_independently_corroborated(_computed_story_sources(sources))
+
+
+def run_v3_echo_eval() -> dict[str, Any]:
+    """Score the C-3 v3 text-level detector (R-F2687) against the v3 golden set."""
+    return run_v3_eval(v3_echo_classifier)
+
+
 def residual_report(classifier: "Callable[[list], bool] | None" = None) -> dict[str, Any]:
     """v3 score split into the PR-echo residual vs the rest, for an at-a-glance verdict.
 

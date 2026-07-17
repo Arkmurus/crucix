@@ -138,6 +138,57 @@ def test_residual_report_runs_and_states_the_gate_honestly():
     assert set(rep["residual_failures"]) <= set(rep["overall"]["false_positive_cases"])
 
 
+def test_rf2690_wiring_passes_textless_v2_sources_through_untouched(golden):
+    """R-F2690: v2 cases have no `text`, so their golden story label must survive.
+
+    If the text-level wiring rewrote them, v3 would stop being a v2 superset
+    regression and the old cases would silently start measuring something else.
+    """
+    from aria_service.intel.dd_independence_eval import _computed_story_sources
+
+    v2_case = next(c for c in golden["cases"] if c["id"] == "wire_syndication")
+    out = _computed_story_sources(v2_case["sources"])
+    assert out == v2_case["sources"]
+
+
+def test_rf2690_wiring_replaces_golden_labels_with_text_clustered_ids(golden):
+    """CAPABILITY: the eval must actually EXERCISE the text-level detector.
+
+    R-F2687's detector lives in the clustering path; scoring it through the
+    label-level classifier would touch none of it and report the residual as
+    still-open — a false negative about the fix. Assert the story ids the
+    classifier sees are DERIVED FROM TEXT, not the fixture's precomputed labels.
+    """
+    from aria_service.intel.dd_independence_eval import _computed_story_sources
+
+    case = next(c for c in golden["cases"] if c["id"] == "pr_echo_two_outlets_reworded")
+    golden_labels = {s["story"] for s in case["sources"]}
+    out = _computed_story_sources(case["sources"])
+
+    assert len(out) == len(case["sources"])
+    seen = {s["story"] for s in out if s.get("story")}
+    assert seen, "no story ids computed — the text path did not run"
+    assert not (seen & golden_labels), (
+        "story ids still equal the fixture's precomputed labels — the classifier is "
+        "not exercising the text-level detector"
+    )
+
+
+def test_rf2690_v2_cases_score_identically_under_both_classifiers(golden):
+    """The text wiring must not disturb any pre-existing v2 verdict."""
+    from aria_service.intel.dd_independence_eval import (
+        _GOLDEN_V2,
+        v2_verifier_classifier,
+        v3_echo_classifier,
+    )
+
+    for c in load_golden(_GOLDEN_V2)["cases"]:
+        src = c.get("sources") or []
+        assert v3_echo_classifier(src) == v2_verifier_classifier(src), (
+            f"v2 case {c['id']} changed verdict under the v3 wiring"
+        )
+
+
 def test_run_v3_eval_accepts_a_candidate_classifier():
     """A candidate (e.g. C-3 v3) must be scorable WITHOUT editing the eval module."""
     always_no = lambda sources: False  # noqa: E731
