@@ -27,8 +27,12 @@ Usage:
     health_checker = LLMHealthChecker()
     await health_checker.start()
 
-    # Wrap the LLM chain:
-    llm = LLMResponseCache(LLMRequestQueue(LLMHealthChecker.wrap(llm)))
+    # Wrap the SOVEREIGN provider only (R-F2686) — never the whole chain:
+    # wrap() fails CLOSED on a cold sovereign, so wrapping the chain would
+    # take DeepSeek down with it. fallback.py:create_fallback_chain does this
+    # at the one point the aria_llm provider is constructed.
+    aria_llm = LLMHealthChecker.wrap(aria_llm)
+    llm = LLMResponseCache(LLMRequestQueue(llm))
 """
 from __future__ import annotations
 
@@ -158,6 +162,14 @@ class LLMHealthChecker:
         R-F1363 pt1 — GC'd tasks never execute). The task is stored as
         self._task so it survives until stop() is called.
         """
+        # R-F2686 — bind the module singleton the wrap()'d provider consults.
+        # Before this, NOTHING ever assigned _health_checker_instance, so the
+        # warm-gate that R-F1957/R-F2648 cite as the reason traffic stays on
+        # DeepSeek was unreachable: wrap()'s `_health_checker_instance.is_available()`
+        # would AttributeError on None the moment it was ever wired. Bound here
+        # (not __init__) so the singleton is the checker that is actually RUNNING.
+        global _health_checker_instance
+        _health_checker_instance = self
         if not self._enabled:
             logger.info("[LLMHealthChecker] ARIA_LLM_URL not set — health checker disabled")
             return
@@ -406,7 +418,11 @@ class LLMHealthChecker:
 
     @staticmethod
     def wrap(inner: LLMProvider) -> LLMProvider:
-        """Wrap an LLMProvider so the health checker's breaker gates calls.
+        """Wrap the SOVEREIGN LLMProvider so the health checker's warm-gate gates calls.
+
+        ⚠️ R-F2686 — wrap ONLY the aria_llm provider, NEVER the fallback chain:
+        this gate fails CLOSED (a cold/unproven sovereign is skipped), so wrapping
+        the chain would fast-fail DeepSeek too and leave ARIA with no LLM at all.
 
         Returns a thin wrapper that checks ``is_available()`` before
         delegating to the inner provider. When the breaker is OPEN, the
@@ -416,8 +432,32 @@ class LLMHealthChecker:
         Only wraps when ARIA_LLM_URL is set. Otherwise returns the inner
         provider unchanged.
         """
-        if not _ARIA_LLM_URL:
+        # R-F2686 — re-read the env as a fallback: the module global is bound at
+        # IMPORT time (:51) but create_fallback_chain reads ARIA_LLM_URL at CALL
+        # time, so a URL set after this module imported would leave the sovereign
+        # SILENTLY ungated (gate vanishes, no log — §21a dark-path). Consult both.
+        if not (_ARIA_LLM_URL or (os.getenv("ARIA_LLM_URL") or "").strip()):
             return inner
+
+        def _admission() -> tuple[bool, str]:
+            """R-F2686 — may the sovereign take this call? Fails CLOSED.
+
+            Resolved at CALL time (not wrap time): the chain is built at
+            main.py:1735 BEFORE the checker starts at :1758, so an eager read
+            would always see None. A missing checker means nothing has PROVEN
+            the endpoint warm — R-F1957's rule is that unproven = skip, so the
+            honest answer is "no" (route to DeepSeek), never an AttributeError.
+            """
+            hc = _health_checker_instance
+            if hc is None:
+                logger.warning(
+                    "[R-F2686] aria_llm call gated: health checker not started — "
+                    "cannot prove the endpoint warm, skipping to fallback"
+                )
+                return False, "health checker not started (unproven)"
+            if not hc.is_available():
+                return False, "cold/unproven or breaker OPEN"
+            return True, ""
 
         class _HealthCheckedProvider(LLMProvider):
             name = getattr(inner, "name", "aria_llm")
@@ -437,11 +477,12 @@ class LLMHealthChecker:
                 # The breaker check happens here — if OPEN, fast-fail
                 # so the fallback chain moves to DeepSeek immediately
                 # instead of waiting for a real timeout.
-                if not _health_checker_instance.is_available():
+                _ok, _why = _admission()
+                if not _ok:
                     from .provider import ProviderError
                     raise ProviderError(
                         "aria_llm",
-                        "ARIA-LLM unavailable (cold/unproven or breaker OPEN) — skipping to fallback",
+                        f"ARIA-LLM unavailable ({_why}) — skipping to fallback",
                         kind="server", retryable=True,
                     )
                 # R-F1957: clamp the deadline so a reached-but-hung endpoint
@@ -455,7 +496,10 @@ class LLMHealthChecker:
                 except Exception:
                     # R-F1957: feed user-call failures into the breaker so it
                     # trips fast (don't wait for the next probe cycle).
-                    _health_checker_instance.record_user_failure()
+                    # R-F2686: None-safe — never mask the real provider error
+                    # with an AttributeError from an unstarted checker.
+                    if _health_checker_instance is not None:
+                        _health_checker_instance.record_user_failure()
                     raise
 
             async def stream(
@@ -467,11 +511,12 @@ class LLMHealthChecker:
                 timeout: float = 120.0,
                 on_done=None,
             ):
-                if not _health_checker_instance.is_available():
+                _ok, _why = _admission()
+                if not _ok:
                     from .provider import ProviderError
                     raise ProviderError(
                         "aria_llm",
-                        "ARIA-LLM unavailable (cold/unproven or breaker OPEN) — skipping to fallback",
+                        f"ARIA-LLM unavailable ({_why}) — skipping to fallback",
                         kind="server", retryable=True,
                     )
                 # R-F1957: clamp streaming deadline (more generous than complete —
@@ -484,7 +529,8 @@ class LLMHealthChecker:
                     ):
                         yield chunk
                 except Exception:
-                    _health_checker_instance.record_user_failure()
+                    if _health_checker_instance is not None:  # R-F2686 None-safe
+                        _health_checker_instance.record_user_failure()
                     raise
 
         return _HealthCheckedProvider()

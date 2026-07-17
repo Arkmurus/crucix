@@ -604,6 +604,37 @@ def create_fallback_chain(
                 _aria_llm_provider.name = "aria_llm"
             except Exception:
                 pass
+            # R-F2686 — gate the sovereign behind the R-F1957 warm-gate at the ONE
+            # point it is constructed, so BOTH chain slots below (SHADOW fallback and
+            # PRIMARY_ALL head) are covered. Before this, wrap() was never called
+            # ANYWHERE in prod, so those slots took the RAW provider gated only on
+            # is_configured: a deliberately-stopped pod (§24) ate a live 404 + the
+            # call timeout before the chain moved on.
+            #
+            # HONEST SCOPE (do not over-read this): under the R-F2410 DEFAULT
+            # two-track config (neither ARIA_LLM_SHADOW nor ARIA_LLM_PRIMARY_ALL set
+            # — the live prod state on 2026-07-17) the sovereign is NOT placed in
+            # this chain at all, so this wrap is INERT today. It arms the two slots
+            # for the moment either flag is flipped (SHADOW=1 is the documented
+            # promotion path). The path that DOES carry sovereign traffic in
+            # two-track is model_router → aria_llm_provider, which has NO warm-gate
+            # — only R-F2648's schedule signal (_sovereign_pod_serving), which is a
+            # POLICY check with no network proof. Gating that path is a separate,
+            # still-open item (to-do list #2 #4).
+            #
+            # Wrap AFTER the rename so the wrapper inherits name="aria_llm"
+            # (breaker/_stats/cooldown keys stay stable). Fails CLOSED → skips to
+            # DeepSeek. Lazy import: fallback→resilience only (no cycle).
+            try:
+                from .resilience import LLMHealthChecker as _LLMHealthChecker
+                _aria_llm_provider = _LLMHealthChecker.wrap(_aria_llm_provider)
+            except Exception as _wrap_e:
+                # Never fail chain construction over the gate — an unwrapped
+                # sovereign is the pre-R-F2686 behaviour, not an outage.
+                logger.warning(
+                    "[R-F2686] sovereign warm-gate wrap failed (non-fatal, "
+                    "provider stays ungated): %s", _wrap_e,
+                )
             if _aria_llm_shadow:
                 logger.info(
                     "ARIA-LLM (R-F1949 SHADOW) at %s — will serve as FALLBACK below primary (canary); DeepSeek stays primary",
