@@ -20,6 +20,7 @@ Safety guardrails:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -570,6 +571,19 @@ async def stage_improvement(
     # that shrinks a substantial existing file below half its current line count;
     # a legitimate autonomous bug_fix never halves a module.
     full_path = _root / file_path
+    # R-F2708 — capture the hash of the file this full-content snapshot is being
+    # built against ("base"). deploy_improvement refuses to write the snapshot if
+    # the live file has since drifted from this base, so a late deploy can't
+    # silently revert an intervening change (blast-radius brake). None for a
+    # brand-new file (nothing to clobber).
+    _base_sha256 = None
+    if full_path.exists():
+        try:
+            _base_sha256 = hashlib.sha256(
+                full_path.read_text(encoding="utf-8").encode("utf-8")
+            ).hexdigest()
+        except Exception:
+            _base_sha256 = None
     if full_path.exists():
         try:
             current_lines = full_path.read_text(encoding="utf-8").count("\n") + 1
@@ -741,6 +755,7 @@ async def stage_improvement(
         "first_staged_at": (prior.get("first_staged_at") or prior.get("staged_at")) if prior else time.time(),
         "supersede_count": _supersede_count,
         "auto_deployable": _auto_deploy_allowed(file_path, change_type),
+        "base_sha256": _base_sha256,  # R-F2708 blast-radius brake anchor
         "status": "staged",
     }
 
@@ -985,6 +1000,51 @@ async def deploy_improvement(improvement_id: str) -> dict:
         module="self_improve",
         summary=f"R-F2256 diff gate passed for {file_path}",
         source_id="self_improve:deploy_improvement")
+
+    # R-F2708 — deploy blast-radius brake. new_content is a FULL-FILE snapshot
+    # captured at stage time against base_sha256. An amendment approve→deploy has a
+    # long, human-paced gap; if the live file drifted since staging (another
+    # amendment/fix/hotfix landed), writing this stale snapshot would SILENTLY REVERT
+    # those intervening edits — blast radius = the whole file, not the intended clause.
+    # Refuse the stale write; the operator re-approves/re-stages, which rebases the
+    # change onto the CURRENT file (a minimal, current-based diff). Mirrors the
+    # truncation guard: no status mutation — a re-stage supersedes this item (R-F1293).
+    # Scoped by presence of base_sha256, so legacy staged items (pre-R-F2708) are
+    # unaffected; a brand-new file has no base and is never gated here.
+    _base_sha256 = target.get("base_sha256")
+    if _base_sha256 and full_path.exists():
+        try:
+            _live_sha256 = hashlib.sha256(
+                full_path.read_text(encoding="utf-8").encode("utf-8")
+            ).hexdigest()
+        except Exception:
+            _live_sha256 = None
+        if _live_sha256 and _live_sha256 != _base_sha256:
+            _SI_FAILURES += 1
+            wire_failure(
+                module="self_improve",
+                detail=(f"R-F2708 blocked deploy of {file_path} (id={improvement_id}): "
+                        f"live file drifted from staged base "
+                        f"({_base_sha256[:12]} != {_live_sha256[:12]})"),
+                gap_type="stale_base_deploy", source="self_improve:deploy_improvement")
+            logger.warning(
+                "[self_improve] R-F2708 BLOCKED deploy of %s (id=%s): base moved since "
+                "staging — refusing stale full-file snapshot that would revert the "
+                "intervening change(s). Re-approve/re-stage to rebase.",
+                file_path, improvement_id)
+            return {
+                "ok": False,   # R-F1960 — explicit failure contract
+                "error": (
+                    f"BLOCKED (stale base): {file_path} changed since this improvement was "
+                    f"staged, so deploying its full-file snapshot would REVERT the "
+                    f"intervening change(s). Re-approve/re-stage to rebase onto the current "
+                    f"file (yields a minimal, current-based diff)."
+                ),
+                "blocked": True,
+                "stale_base": True,
+                "id": improvement_id,
+                "file": file_path,
+            }
 
     # Backup current file — structured backup with metadata for the
     # metacognitive coding_lessons module to track rollback history.
