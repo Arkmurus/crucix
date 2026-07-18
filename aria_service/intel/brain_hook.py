@@ -950,6 +950,7 @@ async def absorb(
             ),
             name=f"bh-{'chat' if _is_interactive else 'bg'}-{module}",
         )
+        _absorb_background_tasks.add(_bh_task)
         _bh_task.add_done_callback(_dec_pending_absorb)  # R-F1342: track backlog
 
     # R-F1483: per-module stats are recorded EXACTLY ONCE per absorb — by the bg
@@ -1501,6 +1502,7 @@ _ABSORB_SEM_ACQUIRE_TIMEOUT_S = (
     float(os.environ.get("ARIA_BRAIN_ABSORB_SEM_ACQUIRE_MS", "2000")) / 1000.0  # R-F1512: raised from 500ms to 2000ms. With 8 concurrent slots, a 2s acquire window lets brief bursts drain without shedding to WAL.
 )
 _absorb_concurrency_sem: Optional[asyncio.Semaphore] = None
+_absorb_concurrency_loop: Optional[asyncio.AbstractEventLoop] = None
 
 # R-F2507 — durable brain-ingest queue. When ON, absorb() ENQUEUES the ingest
 # payload to a SEPARATE SQLite queue file (one cheap INSERT, no state_store
@@ -1520,6 +1522,7 @@ _BRAIN_QUEUE_ENABLED = os.environ.get("ARIA_BRAIN_QUEUE_ENABLED", "0") == "1"
 # durable tiers, while neural work is still bounded on its own lane.
 _NEURAL_CONCURRENCY = int(os.environ.get("ARIA_BRAIN_NEURAL_CONCURRENCY", "2"))
 _neural_concurrency_sem: Optional[asyncio.Semaphore] = None
+_neural_concurrency_loop: Optional[asyncio.AbstractEventLoop] = None
 
 # R-F1342 (Pillar-1 invariant): cap the COUNT of in-flight absorb background
 # tasks. Each task's work is already bounded (tier timeouts, concurrency sem,
@@ -1531,6 +1534,7 @@ _neural_concurrency_sem: Optional[asyncio.Semaphore] = None
 _MAX_PENDING_ABSORB = int(os.environ.get("ARIA_MAX_PENDING_ABSORB", "250"))
 _pending_absorb = 0
 _dropped_absorb = 0
+_absorb_background_tasks: set[asyncio.Task] = set()
 
 
 def _absorb_backlog_stats() -> dict:
@@ -1542,16 +1546,46 @@ def _absorb_backlog_stats() -> dict:
 def _dec_pending_absorb(_task: "asyncio.Task") -> None:
     global _pending_absorb
     _pending_absorb = max(0, _pending_absorb - 1)
+    _absorb_background_tasks.discard(_task)
+    if _task.cancelled():
+        return
+    try:
+        error = _task.exception()
+    except (asyncio.CancelledError, asyncio.InvalidStateError):
+        return
+    if error is not None:
+        logger.error("brain absorption background task failed: %s", error)
+
+
+async def shutdown_background_tasks() -> int:
+    """Cancel and await every in-process brain absorption task.
+
+    Returns the number of tasks owned at shutdown. Completed tasks remove
+    themselves through ``_dec_pending_absorb`` and therefore are not counted.
+    """
+    tasks = tuple(_absorb_background_tasks)
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    return len(tasks)
 
 
 def _get_absorb_concurrency_sem() -> Optional[asyncio.Semaphore]:
     """Lazy-init the per-process concurrency semaphore. Returns None
     when the cap is disabled (ARIA_BRAIN_ABSORB_CONCURRENCY=0)."""
-    global _absorb_concurrency_sem
+    global _absorb_concurrency_sem, _absorb_concurrency_loop
     if _ABSORB_CONCURRENCY <= 0:
         return None
-    if _absorb_concurrency_sem is None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if _absorb_concurrency_sem is None or (
+        loop is not None and _absorb_concurrency_loop is not loop
+    ):
         _absorb_concurrency_sem = asyncio.Semaphore(_ABSORB_CONCURRENCY)
+        _absorb_concurrency_loop = loop
     return _absorb_concurrency_sem
 
 
@@ -1559,11 +1593,18 @@ def _get_neural_concurrency_sem() -> Optional[asyncio.Semaphore]:
     """R-F1665: lazy-init the SEPARATE neural-tier semaphore. Returns None
     when disabled (ARIA_BRAIN_NEURAL_CONCURRENCY=0). Keeps the slow neural
     encode off the main absorb concurrency lane (wedge cure 2)."""
-    global _neural_concurrency_sem
+    global _neural_concurrency_sem, _neural_concurrency_loop
     if _NEURAL_CONCURRENCY <= 0:
         return None
-    if _neural_concurrency_sem is None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if _neural_concurrency_sem is None or (
+        loop is not None and _neural_concurrency_loop is not loop
+    ):
         _neural_concurrency_sem = asyncio.Semaphore(_NEURAL_CONCURRENCY)
+        _neural_concurrency_loop = loop
     return _neural_concurrency_sem
 _LATENCY_WINDOW = 50
 _TRIP_CONSECUTIVE = 3

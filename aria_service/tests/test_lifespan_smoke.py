@@ -131,10 +131,9 @@ def test_lifespan_starts_and_shuts_down_cleanly():
 def test_module_level_os_alias_not_shadowed_in_lifespan():
     """Static guard against the F28-style scoping bug.
 
-    If anyone later adds another reference to `_os` at the top of
-    `lifespan` (BEFORE the local `import os as _os` in the rag_init_bg
-    block), Python will treat `_os` as a function-scope local from the
-    very first line and the early reference will UnboundLocalError.
+    If anyone adds a lifespan-local ``import os as _os``, Python treats
+    ``_os`` as local from the first line and any earlier module-alias use
+    raises ``UnboundLocalError``. No local import is the safest state.
 
     Two safer patterns:
       1. Use a fresh local alias (the `_f28_os` pattern from the hotfix)
@@ -149,32 +148,33 @@ def test_module_level_os_alias_not_shadowed_in_lifespan():
     from aria_service import main
     src = inspect.getsource(main.lifespan)
     tree = ast.parse(src)
-    local_os_import_line = min(
+    local_os_import_lines = [
         node.lineno
         for node in ast.walk(tree)
         if isinstance(node, ast.Import)
         for alias in node.names
         if alias.name == "os" and alias.asname == "_os"
-    )
-    early_os_refs = [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Name)
-        and node.id == "_os"
-        and node.lineno < local_os_import_line
     ]
-    assert early_os_refs == [], (
-        "F28/R-F2378 regression: lifespan references `_os` before its local "
-        f"`import os as _os` on line {local_os_import_line}. Use a fresh local "
-        f"alias such as `_f28_os` instead. Early refs: {early_os_refs}"
-    )
+    if local_os_import_lines:
+        local_os_import_line = min(local_os_import_lines)
+        early_os_refs = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Name)
+            and node.id == "_os"
+            and node.lineno < local_os_import_line
+        ]
+        assert early_os_refs == [], (
+            "F28/R-F2378 regression: lifespan references `_os` before its local "
+            f"`import os as _os` on line {local_os_import_line}. Use a fresh local "
+            f"alias such as `_f28_os` instead. Early refs: {early_os_refs}"
+        )
 
     # The F28 block must use a uniquely-scoped local alias, not _os.
     # If you change the variable name, update this assertion to match.
     if "NODE_OPTIONS" in src:
         # Find the NODE_OPTIONS line — must reference a fresh local alias
-        # (not the function-scope `_os` which gets shadowed by the later
-        # `import os as _os` in the rag_init_bg block).
+        # (not a function-scope `_os` that a future local import could shadow).
         import re as _re
         # Match \b_os\b — word-boundary so `_f28_os.environ` doesn't match
         bare_os_pattern = _re.compile(r"\b_os\b")

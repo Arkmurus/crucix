@@ -843,9 +843,9 @@ async def lifespan(app: FastAPI):
             logger.warning("[R-F2259] reranker prewarm failed (non-fatal): %s", _rr_e)
     _bg_task(asyncio.create_task(_prewarm_heavy_imports(), name="heavy_import_prewarm"))
 
-    # F28/R-F2378: use a fresh local alias before any lifespan env reads. A
-    # later local `import os as _os` makes `_os` function-local, so early `_os`
-    # references raise UnboundLocalError and silently degrade boot.
+    # F28/R-F2378: use a fresh local alias for the boot-state branches below.
+    # R-F2763 removed the later lifespan-local `_os` import so module-level
+    # `_os` references can no longer become unbound through local shadowing.
     import os as _f28_os
     _f28_os.environ.setdefault("NODE_OPTIONS", "--no-deprecation")
 
@@ -1093,7 +1093,7 @@ async def lifespan(app: FastAPI):
     # so this block is byte-identical to legacy when the flag is off. The worker
     # connects the queue db then drains absorb payloads past the state_store writer
     # at bounded concurrency (see brain_hook.brain_queue_drain_loop).
-    import os as _os2507  # local: lifespan has function-local `import os as _os` later
+    import os as _os2507
     if _os2507.environ.get("ARIA_BRAIN_QUEUE_ENABLED", "0") == "1":
         async def _brain_queue_drain():
             await asyncio.sleep(20)  # let the state store + boot settle first
@@ -1274,7 +1274,6 @@ async def lifespan(app: FastAPI):
     # Fix: probe runs in the same background task as the (optional)
     # backfill, after a delay long enough for the server to bind first.
     # Backfill stays opt-in via ARIA_RAG_BACKFILL_ENABLED.
-    import os as _os
     rag_backfill_task = None
     backfill_enabled = (_os.getenv("ARIA_RAG_BACKFILL_ENABLED", "") or "").lower() in ("1", "true", "yes")
     backfill_disabled = (_os.getenv("ARIA_RAG_BACKFILL_DISABLED", "") or "").lower() in ("1", "true", "yes")
@@ -4109,6 +4108,19 @@ async def lifespan(app: FastAPI):
         logger.warning("[R-F2378] supervised background task cancellation exceeded 5.0s")
     except Exception as e:
         logger.warning("[R-F2378] supervised background task cancellation failed: %s", e)
+    # R-F2761: brain_hook absorption tasks are created outside the supervised
+    # lifespan set. Cancel and await their explicit owner before durability
+    # flushes, otherwise they can keep writing while stores are shutting down.
+    try:
+        from .intel import brain_hook as _brain_hook_shutdown
+        _cancelled_absorbs = await _brain_hook_shutdown.shutdown_background_tasks()
+        if _cancelled_absorbs:
+            logger.info(
+                "[R-F2761] cancelled %d brain absorption tasks",
+                _cancelled_absorbs,
+            )
+    except Exception as e:
+        logger.warning("[R-F2761] brain absorption shutdown failed: %s", e)
     # F94: flush any pending knowledge writes to disk before exit so the
     # last <FLUSH_DEBOUNCE_S of in-memory mutations aren't lost on a
     # clean shutdown / deploy.
