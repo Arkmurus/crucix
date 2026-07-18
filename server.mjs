@@ -7148,6 +7148,13 @@ async function start() {
         await channelHooks.handleMorningSignalCron(currentData, bot, { hour: _hour });
       }, { timezone: 'Europe/London' });
     }
+    // R-F2723 — startup catch-up: if the process was down at 07:00/17:00 the slot
+    // was silently lost. Shortly after boot, run any slot that was DUE today but
+    // never executed (idempotent via content-dedup). Delayed so the app is ready.
+    setTimeout(() => {
+      const bot = { botToken: config.telegram.botToken, chatId: config.telegram.chatId, channelId: config.telegram.channelId };
+      channelHooks.runStartupCatchUp(currentData, bot).catch(e => console.warn('[ChannelCron] startup catch-up failed:', e.message));
+    }, 45000);
 
     // R-F2306 — DISABLED (operator: ONE relevant post/day, keep noise down).
     // The Case File / Know-Your-Rights / Country Read / Opportunity crons posted
