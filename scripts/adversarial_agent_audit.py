@@ -4,6 +4,13 @@ import json
 import ssl
 import time
 
+# R-F2727 — window-aware verdicts (not-observed-recently ≠ broken). Works both as
+# `python scripts/adversarial_agent_audit.py` and as an imported module.
+try:
+    from probe_verdict import windowed_ok, recency_ok
+except ImportError:  # pragma: no cover
+    from scripts.probe_verdict import windowed_ok, recency_ok
+
 ctx = ssl.create_default_context()
 base = 'https://aria-intel.fly.dev'
 web = 'https://aria-web.fly.dev'
@@ -69,9 +76,11 @@ section("2", "BRAIN STATS — verify every module's data is real")
 
 d = fetch(f'{base}/api/aria/brain/stats')
 check("Brain stats accessible", isinstance(d, dict) and 'modules' in d)
-check("Total signals > 50k", d.get('total_signals', 0) > 50000, str(d.get('total_signals')))
-check("Modules > 185", len(d.get('modules', {})) > 185, str(len(d.get('modules', {}))))
-check("Healthy > 140", d.get('healthy_count', 0) > 140, str(d.get('healthy_count')))
+# R-F2727 — these are WINDOWED brain stats; below a soft floor is a quiet window, not a
+# broken system → WARN, not FAIL (a broken stats endpoint is caught by "Brain stats accessible").
+check("Total signals above soft floor (windowed)", windowed_ok(d.get('total_signals'), 50000), str(d.get('total_signals')))
+check("Modules in window above soft floor", windowed_ok(len(d.get('modules', {})), 185), str(len(d.get('modules', {}))))
+check("Healthy modules above soft floor (windowed)", windowed_ok(d.get('healthy_count'), 140), str(d.get('healthy_count')))
 cb = d.get('circuit_breaker', {})
 check("Breaker CLOSED", cb.get('open') is False)
 check("Drops reasonable", cb.get('drops_total', 0) < 100, str(cb.get('drops_total')))
@@ -129,7 +138,8 @@ section("5", "SELF-HEALING — actually healing?")
 sh = modules.get('self_healing', {})
 check("Has real calls", sh.get('total', 0) > 1000, str(sh.get('total')))
 check("Success rate real", sh.get('success_rate', 0) >= 0.95, f"{sh.get('success_rate',0):.0%}")
-check("Active recently", sh.get('last_signal_ago_h', 99) < 1, f"{sh.get('last_signal_ago_h')}h ago")
+# R-F2727 — idle ≠ broken: recency is a WARN, never a hard FAIL.
+check("Active recently (WARN if idle)", recency_ok(sh.get('last_signal_ago_h'), 1), f"{sh.get('last_signal_ago_h')}h ago")
 
 # ══════════════════════════════════════════════════════════════════════
 # 6. SANCTIONS — verify they're actually screening
@@ -165,7 +175,8 @@ section("7", "COMPLIANCE — actually watching?")
 cw = modules.get('compliance_watch', {})
 check("Compliance watch has real calls", cw.get('total', 0) > 5000, str(cw.get('total')))
 check("Compliance watch 99% rate", cw.get('success_rate', 0) >= 0.95, f"{cw.get('success_rate',0):.0%}")
-check("Active recently", cw.get('last_signal_ago_h', 99) < 1, f"{cw.get('last_signal_ago_h')}h ago")
+# R-F2727 — idle ≠ broken: recency is a WARN, never a hard FAIL.
+check("Active recently (WARN if idle)", recency_ok(cw.get('last_signal_ago_h'), 1), f"{cw.get('last_signal_ago_h')}h ago")
 
 od = modules.get('opportunity_detector', {})
 check("Opportunity detector has calls", od.get('total', 0) > 600, str(od.get('total')))
@@ -195,7 +206,7 @@ for name, label, min_calls in knowledge:
         rate = m.get('success_rate', 0)
         check(f"{label} has real calls", total >= min_calls, str(total))
         check(f"{label} rate real", rate >= 0.90, f"{rate:.0%}")
-        check(f"{label} active recently", m.get('last_signal_ago_h', 99) < 24, f"{m.get('last_signal_ago_h')}h ago")
+        check(f"{label} active recently (WARN if idle)", recency_ok(m.get('last_signal_ago_h'), 24), f"{m.get('last_signal_ago_h')}h ago")
     else:
         check(f"{label} NOT FOUND", False, "module missing")
 
@@ -399,6 +410,12 @@ if results['fail'] > 0:
             print(f"  {d}")
     print()
     print("  These failures need investigation — they indicate real problems.")
+elif results['warn'] > 0:
+    # R-F2727 — be honest: warnings ≠ "no stale data". Surface them without crying failure.
+    print(f"  ZERO hard failures, {results['warn']} WARNING(S) — idle / quiet-window signals")
+    print("  (not observed recently ≠ broken; review the WARN lines, don't panic).")
+    for d in results['details']:
+        if d.startswith('  [WARN]'):
+            print(f"  {d}")
 else:
-    print("  ZERO FAILURES — every agent is doing its job with real data.")
-    print("  No fabricated results. No silent failures. No stale data.")
+    print("  ZERO failures, ZERO warnings — every agent active with real data.")
