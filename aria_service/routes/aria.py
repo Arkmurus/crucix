@@ -5660,8 +5660,26 @@ def _detect_dd_intent(message: str) -> dict | None:
     # R-F2285 — reject sentence-fragment captures ("is explicitly covered",
     # "and Investigation cognitive and reasoning") that produced junk DD reports.
     # URL-shaped captures are handled by the URL bridge below, so exempt them here.
+    # R-F2771 — but a PRONOUN target ("this company") carrying an [ATTACHED DOCUMENT]
+    # is NOT junk: the document names the real entity. Resolve it via the document
+    # bridge BEFORE this reject — pre-R-F2771 the reject ran first, so the doc bridge
+    # (~line 6071) was DEAD for pronouns and the canonical integration test returned
+    # None. _early_bridged is re-used by that later block for the full field
+    # extraction (jurisdiction/regnum/directors) so the bridge runs only once.
+    _early_bridged = None
     if not _is_plausible_dd_entity(name):
-        return None
+        if "[ATTACHED DOCUMENT" in message:
+            try:
+                from ..intel import document_entity_bridge as _deb0
+                if _deb0.is_pronoun_reference(name):
+                    _early_bridged = _deb0.bridge_from_message(message, entity_hint=name)
+            except Exception:
+                _early_bridged = None
+        if (_early_bridged and _early_bridged.get("name")
+                and _is_plausible_dd_entity(_early_bridged["name"])):
+            name = _early_bridged["name"]
+        else:
+            return None
 
     # ── URL-as-entity bridge (2026-04-17 21:30 fix) ──
     # If the captured name IS a URL (or trivially becomes one when the
@@ -6068,8 +6086,11 @@ def _detect_dd_intent(message: str) -> dict | None:
     # real data (Sunbiz, virtual-office, FinCEN BOI, bright-lines).
     try:
         from ..intel import document_entity_bridge as _deb
-        if _deb.is_pronoun_reference(name):
-            bridged = _deb.bridge_from_message(message, entity_hint=name)
+        # R-F2771 — reuse the result already resolved at the plausibility gate above
+        # (a pronoun+document case); otherwise resolve here for a still-pronoun name.
+        if _early_bridged is not None or _deb.is_pronoun_reference(name):
+            bridged = (_early_bridged if _early_bridged is not None
+                       else _deb.bridge_from_message(message, entity_hint=name))
             if bridged and bridged.get("name"):
                 # Pronoun + attached document → document is authoritative.
                 # Override ALL fields from the document, not just empty ones.
