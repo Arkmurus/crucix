@@ -89,7 +89,7 @@
   <div class="mc-meta">
     <div class="mc-meta-cell">
       <div class="mc-meta-cell-label">Operator</div>
-      <div class="mc-meta-cell-value">ARIA Intelligence Limited</div>
+      <div class="mc-meta-cell-value">Arkmurus Limited</div>
     </div>
     <div class="mc-meta-cell">
       <div class="mc-meta-cell-label">Hosting region</div>
@@ -106,7 +106,7 @@
   </div>
 
   <h2 class="mc-h2">1. What ARIA is</h2>
-  <p>ARIA is a domain-specialised AI assistant for security and defence due-diligence work. It combines reasoning from large language models (Anthropic Claude, DeepSeek, OpenAI, and others in a fail-over chain) with a constrained domain layer: live sanctions data, corporate registries, defence procurement signals, intel ledger, and a <span id="mc-cc-inline">37</span>-clause behavioural constitution that governs every response.</p>
+  <p>ARIA is a domain-specialised AI assistant for security and defence due-diligence work. It combines reasoning from large language models (currently DeepSeek, with a provider-failover architecture that can route to Anthropic Claude, OpenAI and others when configured) with a constrained domain layer: live sanctions data, corporate registries, defence procurement signals, intel ledger, and a <span id="mc-cc-inline">37</span>-clause behavioural constitution that governs every response.</p>
   <p>It is built for: defence brokers, OEM export-control officers, compliance teams at defence buyers, government acquisition cells, and the banking / insurance functions that screen defence-sector counterparties. It is <strong>not</strong> a general-purpose chatbot, an investment-advice tool, or a substitute for licensed legal advice.</p>
 
   <h2 class="mc-h2">2. What ARIA does well</h2>
@@ -115,7 +115,7 @@
     <li><strong>Sanctions screening:</strong> live integration with OpenSanctions, OFAC SDN, UK OFSI, EU consolidated, UN Security Council, Swiss SECO, Canadian SEMA, and other consolidated lists. Daily sanctions-diff against a customer's watchlist.</li>
     <li><strong>Document review:</strong> contract / RFQ / EUC parsing with clause-library comparison, deviation detection, and explicit partial-extraction discipline (a clause cannot be claimed missing if the parser truncated the document past it).</li>
     <li><strong>Procurement &amp; tender intelligence:</strong> autonomous monitoring of TED (EU), SAM.gov (US), GESPI (Portugal), and 15+ regional portals; tender comparator on demand.</li>
-    <li><strong>Audit-grade output:</strong> every reply is signed into a hash-chained audit log (HMAC-SHA256, production fingerprint published below). Every claim carries inline citations to its source. Reports can be exported as PDF with a verifiable signature.</li>
+    <li><strong>Audit-grade output:</strong> replies are signed into a hash-chained audit log (HMAC-SHA256, production fingerprint published below) on a best-effort basis. Tool-derived material claims are required to carry inline citations to their source, and the verifier flags ungrounded output. Reports can be exported as PDF with a verifiable signature when the report-signing key is configured.</li>
     <li><strong>Multi-language source coverage:</strong> Portuguese, French, Spanish, Arabic, Russian, Mandarin sources searched in their native language, not just English translations.</li>
   </ul>
 
@@ -220,7 +220,7 @@
   <ul>
     <li><strong>Hosting region:</strong> United Kingdom (fly.io London region).</li>
     <li><strong>Persistence:</strong> chromadb RAG store and intel ledger live on a fly.io persistent volume mounted at <code>/data</code>. Daily off-host backups to operator email, with configurable retention.</li>
-    <li><strong>LLM processing:</strong> requests are routed through Anthropic, DeepSeek, OpenAI, and other providers; provider terms govern that data plane.</li>
+    <li><strong>LLM processing:</strong> requests are routed through the configured LLM provider (currently DeepSeek); the architecture supports failover to Anthropic, OpenAI and other providers, and provider terms govern that data plane.</li>
     <li><strong>Customer chats:</strong> stored under the customer's user id; deletable by the user via <code>DELETE /api/aria/conversations/:id</code>.</li>
     <li><strong>Audit log:</strong> persisted on the fly.io volume; not exported to third parties.</li>
   </ul>
@@ -243,7 +243,7 @@
   <p>Every report is added to the mistake ledger and used to harden the corresponding constitution clause. The audit log makes the failure replayable.</p>
 
   <div class="mc-footer">
-    Model card last revised: 2026-05-11 (R-F284 added Clause 24, confidence-tag decay; R-F277 + R-F287 + R-5005 closed the EBANO false-positive false-confirm path). Operator: ARIA Intelligence Limited. Contact <a href="mailto:support@imaria.io">support@imaria.io</a>.
+    Model card last revised: 2026-05-11 (R-F284 added Clause 24, confidence-tag decay; R-F277 + R-F287 + R-5005 closed the EBANO false-positive false-confirm path). Operator: Arkmurus Limited. Contact <a href="mailto:support@imaria.io">support@imaria.io</a>.
     <br>
     Companion documents: <a href="/about/privacy.html">Privacy policy</a> · <a href="/about/terms.html">Terms of service</a> · <a href="/status.html">Status page</a> · <a href="/account.html">Account &amp; billing</a>
   </div>
