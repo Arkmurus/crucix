@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2704,
+  "next_available": 2712,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20915,9 +20915,10 @@
       "title": "gnews api search backend",
       "claimed_at": "2026-07-17T11:37:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "aaf0703fd33f76c233254b16f12fb38524f217b7",
+      "notes": null,
+      "shipped_at": "2026-07-17T12:08:30Z"
     },
     {
       "r_number": "R-F2702",
@@ -20932,6 +20933,82 @@
       "r_number": "R-F2703",
       "title": "DD graph: write REAL ownership/UBO relationships, drop name-match noise (USP)",
       "claimed_at": "2026-07-17T12:00:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7f41c218",
+      "notes": null,
+      "shipped_at": "2026-07-17T12:02:48Z"
+    },
+    {
+      "r_number": "R-F2704",
+      "title": "wire delivery-outcome into non-stream chat_ep (B5 §13/§25 stream-bypass mirror)",
+      "claimed_at": "2026-07-18T08:30:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f01df8cb",
+      "notes": null,
+      "shipped_at": "2026-07-18T09:04:31Z"
+    },
+    {
+      "r_number": "R-F2705",
+      "title": "WA log redaction: scrub signal/session keys before pino",
+      "claimed_at": "2026-07-18T08:39:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f01df8cb",
+      "notes": null,
+      "shipped_at": "2026-07-18T08:55:10Z"
+    },
+    {
+      "r_number": "R-F2706",
+      "title": "wire autonomous-task per-channel delivery outcomes to outcome_wire (B6 §25a proprioception)",
+      "claimed_at": "2026-07-18T08:40:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f01df8cb",
+      "notes": null,
+      "shipped_at": "2026-07-18T09:04:31Z"
+    },
+    {
+      "r_number": "R-F2707",
+      "title": "make storm-proof get_direct hot/cold split-aware (close latent cold-key false-None; list-#2 P0.1 residual d)",
+      "claimed_at": "2026-07-18T09:00:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2708",
+      "title": "deploy brake: base-file-hash guard + minimal-patch staging",
+      "claimed_at": "2026-07-18T09:04:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2709",
+      "title": "P_GOV_1 structural fix: name-first/unquoted programme fabrication verifier",
+      "claimed_at": "2026-07-18T09:04:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2710",
+      "title": "amendment triage honesty: un-merge + attack-specific draft + reconcile",
+      "claimed_at": "2026-07-18T09:04:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2711",
+      "title": "amendment operator transparency: card+modal diff + stale colour test",
+      "claimed_at": "2026-07-18T09:04:39Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
