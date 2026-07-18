@@ -12867,6 +12867,12 @@ async def rescreen_watchlist(llm=None, user_id=None, user_email_domain=None) -> 
                     change_type in ("new_hit", "new_pep")
                     or (change_type == "score_change" and new_score > old_score)
                 )
+                # R-F2748 (finding 8) — classify adverse vs informational so the
+                # notifier can reserve URGENT delivery for genuine risk. A removal
+                # or a score DROP is informational (lower fuzzy-match quality is
+                # not itself an adverse-risk event); a new hit / new PEP / rising
+                # score is adverse.
+                alert["category"] = "adverse" if worsening else "informational"
                 if worsening:
                     impacted = await _fan_out_alert_to_deals(alert)
                     if impacted:

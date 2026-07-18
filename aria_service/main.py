@@ -3281,17 +3281,27 @@ async def lifespan(app: FastAPI):
                     len(result.get("errors", [])),
                     result.get("duration_ms", 0),
                 )
-                # If changes detected, fire-and-forget WhatsApp notification
-                if result.get("changes_detected"):
+                # If changes detected, fire-and-forget WhatsApp notification.
+                # R-F2748 (finding 8) — URGENT-notify on ADVERSE changes only. A
+                # removal or a score DROP is informational (still visible in the
+                # UI alert list) and must not trigger urgent delivery — that was
+                # the alert-fatigue source. category is set by rescreen_watchlist;
+                # fall back to change_type for older alerts missing the field.
+                adverse = [
+                    ch for ch in (result.get("changes_detected") or [])
+                    if ch.get("category") == "adverse"
+                    or ch.get("change_type") in ("new_hit", "new_pep")
+                ]
+                if adverse:
                     try:
                         from .intel import whatsapp
                         summary_lines = []
-                        for ch in result["changes_detected"][:10]:
+                        for ch in adverse[:10]:
                             summary_lines.append(
                                 f"  - {ch['entity']}: {ch['old_status']} -> {ch['new_status']} ({ch['change_type']})"
                             )
                         msg = (
-                            f"[ARIA Watchlist Alert] {len(result['changes_detected'])} change(s) detected:\n"
+                            f"[ARIA Watchlist Alert] {len(adverse)} adverse change(s) detected:\n"
                             + "\n".join(summary_lines)
                         )
                         asyncio.create_task(whatsapp.send_message(msg))
