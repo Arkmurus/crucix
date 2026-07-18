@@ -2024,6 +2024,7 @@ async def _lookup_kenya(name: str, reg_number: str | None) -> dict | None:
     """Kenya Business Registration Service — attempt BRS search, stub fallback."""
     from .ua_rotation import random_ua
     query = reg_number or name
+    _unconfirmed = False  # R-F2736 — a page came back but did NOT match the query
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
             # Attempt the BRS public search endpoint
@@ -2061,20 +2062,26 @@ async def _lookup_kenya(name: str, reg_number: str | None) -> dict | None:
                     html, re.IGNORECASE,
                 )
 
+                _ex_name = _html_unescape(name_match.group(1).strip()) if name_match else ""
+                _ex_reg = _html_unescape(reg_match.group(1).strip()) if reg_match else ""
                 if name_match or reg_match:
-                    return _build_result(
-                        company_name=_html_unescape(name_match.group(1).strip()) if name_match else name,
-                        company_number=_html_unescape(reg_match.group(1).strip()) if reg_match else reg_number or "",
-                        company_status=_html_unescape(status_match.group(1).strip()).lower() if status_match else "unknown",
-                        date_of_creation=_html_unescape(date_match.group(1).strip()) if date_match else "",
-                        registered_office_address=_html_unescape(address_match.group(1).strip()) if address_match else "",
-                        jurisdiction="KE",
-                        sic_codes=[],
-                        officers=[],
-                        psc=[],
-                        source_url=f"{_KE_BRS_SEARCH}?q={query}",
-                        adapter="kenya_brs",
-                    )
+                    # R-F2736 — attach ONLY if the page corroborates the query.
+                    if _scrape_confirms_query(name, reg_number, _ex_name, _ex_reg):
+                        return _build_result(
+                            company_name=_ex_name or name,
+                            company_number=_ex_reg or reg_number or "",
+                            company_status=_html_unescape(status_match.group(1).strip()).lower() if status_match else "unknown",
+                            date_of_creation=_html_unescape(date_match.group(1).strip()) if date_match else "",
+                            registered_office_address=_html_unescape(address_match.group(1).strip()) if address_match else "",
+                            jurisdiction="KE",
+                            sic_codes=[],
+                            officers=[],
+                            psc=[],
+                            source_url=f"{_KE_BRS_SEARCH}?q={query}",
+                            adapter="kenya_brs",
+                        )
+                    _unconfirmed = True
+                    logger.debug("Kenya BRS: scraped page did not confirm query %r — not attaching id", query)
     except Exception as exc:
         logger.debug("Kenya BRS search failed (falling back to stub): %s", exc)
 
@@ -2092,7 +2099,10 @@ async def _lookup_kenya(name: str, reg_number: str | None) -> dict | None:
         source_url="https://brs.go.ke",
         adapter="kenya_brs_stub",
     )
-    result["data_gaps"] = [
+    result["data_gaps"] = ([
+        f"Kenya BRS returned a page but its registry data did NOT match '{query}' — "
+        f"no confirmed record; identifier NOT attached (R-F2736)."
+    ] if _unconfirmed else []) + [
         "Kenya BRS (Business Registration Service) public search requires eCitizen session authentication.",
         "Company search available at https://www.ecitizen.go.ke via the BRS service.",
         "Recommend manual verification via eCitizen portal or direct enquiry to the Registrar of Companies, Nairobi.",
@@ -2396,6 +2406,7 @@ async def _lookup_israel(name: str, reg_number: str | None) -> dict | None:
     """
     from .ua_rotation import random_ua
     query = reg_number or name
+    _unconfirmed = False  # R-F2736 — a record came back but did NOT match the query
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
             # data.gov.il CKAN API — shape: /api/3/action/datastore_search
@@ -2415,10 +2426,18 @@ async def _lookup_israel(name: str, reg_number: str | None) -> dict | None:
             if resp.status_code == 200:
                 data = resp.json()
                 records = ((data.get("result") or {}).get("records") or [])
-                for rec in records[:1]:  # take top hit
+                for rec in records[:1]:  # top CKAN hit — but only if it MATCHES the query
+                    _ex_name = str(rec.get("שם חברה") or rec.get("company_name") or "").strip()
+                    _ex_reg = str(rec.get("מספר חברה") or rec.get("company_id") or "").strip()
+                    # R-F2736 — a CKAN full-text `q=` search ranks by relevance; the top hit
+                    # may not be the queried company. Attach ONLY if it corroborates the query.
+                    if not _scrape_confirms_query(name, reg_number, _ex_name, _ex_reg):
+                        _unconfirmed = True
+                        logger.debug("Israel data.gov.il: top record did not confirm query %r — not attaching", query)
+                        break
                     return _build_result(
-                        company_name=(rec.get("שם חברה") or rec.get("company_name") or name),
-                        company_number=str(rec.get("מספר חברה") or rec.get("company_id") or reg_number or "").strip(),
+                        company_name=_ex_name or name,
+                        company_number=_ex_reg or reg_number or "",
                         company_status=(rec.get("סטטוס חברה") or rec.get("status") or "unknown"),
                         date_of_creation=(rec.get("תאריך התאגדות") or rec.get("date_of_registration") or ""),
                         registered_office_address=(
@@ -2447,7 +2466,10 @@ async def _lookup_israel(name: str, reg_number: str | None) -> dict | None:
         source_url=_IL_REGISTRAR_BASE,
         adapter="israel_registrar_stub",
     )
-    result["data_gaps"] = [
+    result["data_gaps"] = ([
+        f"Israel data.gov.il returned a record but it did NOT match '{query}' — "
+        f"no confirmed record; identifier NOT attached (R-F2736)."
+    ] if _unconfirmed else []) + [
         "Official Israel Companies Registrar requires Hebrew-locale forms + CAPTCHA.",
         "data.gov.il exposes a partial mirror but dataset IDs change — "
         "verify the current `resource_id` if the probe fails.",
