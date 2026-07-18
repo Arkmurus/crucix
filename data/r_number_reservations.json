@@ -21692,9 +21692,10 @@
       "title": "adverse-media never-false-clean gate in DD verdict",
       "claimed_at": "2026-07-18T23:12:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "eb3e6e58",
+      "notes": null,
+      "shipped_at": "2026-07-18T23:42:34Z"
     },
     {
       "r_number": "R-F2780",
