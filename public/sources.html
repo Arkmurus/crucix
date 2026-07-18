@@ -47,7 +47,7 @@
   <div class="sc-page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
     <div>
       <h1 class="sc-page-title"><i class="bi bi-reception-4"></i> Source Health</h1>
-      <p class="sc-page-sub">Real-time status of all intelligence data sources</p>
+      <p class="sc-page-sub">Reachability, operational feed reliability, and the seeded catalogue — each measured on its own terms (they are not one provenance chain)</p>
     </div>
     <!-- R-F2194/R-F2386 — add a non-duplicate vault-curated Website/RSS source. -->
     <button id="btn-add-intel-source" class="sc-btn" style="background:#7c3aed;color:#fff;border:none;padding:9px 18px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
@@ -133,6 +133,32 @@
     </div>
   </div>
 
+  <!-- R-F2721 (Codex source-health audit #1) — the page previously OMITTED /api/source-health,
+       the OPERATIONAL feed-health tracker (the ~50 briefing integrations). It showed catalogue
+       reachability + Python uptime but NOT whether the operational feeds actually run reliably.
+       Surfaced here, with unconfigured / never-checked bucketed HONESTLY (NOT "healthy", R-F2719). -->
+  <div class="sc-card mt-24">
+    <div class="sc-card-header">
+      <div class="sc-card-title"><i class="bi bi-hdd-network"></i> Operational feed health (briefing integrations)</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;padding:16px 22px">
+      <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-check-circle"></i></div><div><div class="sc-stat-value" id="opfeed-healthy">-</div><div class="sc-stat-label">Healthy (&ge;80%)</div></div></div>
+      <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-exclamation-triangle"></i></div><div><div class="sc-stat-value" id="opfeed-degraded">-</div><div class="sc-stat-label">Degraded (&lt;80%)</div></div></div>
+      <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-slash-circle"></i></div><div><div class="sc-stat-value" id="opfeed-unconfigured">-</div><div class="sc-stat-label">Unconfigured</div></div></div>
+      <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-question-circle"></i></div><div><div class="sc-stat-value" id="opfeed-notchecked">-</div><div class="sc-stat-label">Not checked</div></div></div>
+    </div>
+    <div style="padding:0 22px">
+      <table class="sc-table" id="opfeed-table">
+        <thead><tr><th>Feed</th><th>Reliability</th><th>State</th></tr></thead>
+        <tbody id="opfeed-body"><tr><td colspan="3" style="text-align:center;padding:30px"><div class="sc-spinner"></div></td></tr></tbody>
+      </table>
+    </div>
+    <div style="padding:10px 22px 14px;font-size:11.5px;color:var(--sc-muted);border-top:1px solid var(--sc-border)">
+      From <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">/api/source-health</code> (Node feed tracker). Reliability = successful sweeps &divide; (success + fail).
+      <strong>Unconfigured</strong> (no API key/watchlist &mdash; e.g. Comtrade/CSL) and <strong>not-checked</strong> feeds are counted separately, NOT as &ldquo;healthy&rdquo; (R-F2719). This measures sweep reliability, not whether a feed produced fresh, unique, citable intelligence.
+    </div>
+  </div>
+
   <!-- R-F143 (2026-05-10) — Curated source catalogue panel.
        The 188 sources ARIA seeds into web_atlas at startup were
        invisible because /sources.html only showed the old sweep
@@ -146,7 +172,7 @@
     <div id="catalogue-body" style="padding:18px 22px;font-size:13.5px;color:var(--sc-text)">Loading…</div>
     <div style="padding:10px 22px 14px;font-size:11.5px;color:var(--sc-muted);border-top:1px solid var(--sc-border)">
       Persistent registry of defence-DD sources seeded into <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">web_atlas</code> at startup.
-      Source for the Tier 1a / 1b / 2 credibility scoring across DD reports + chat retrieval.
+      <strong>Reference registry only</strong> — the per-source ingestion reliability that would feed Tier-1a/1b/2 credibility into DD/chat is <strong>not yet wired in production</strong> (<code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">web_atlas.record_ingest</code> has no live caller, so live coverage is 0). Tier labels here describe the seed classification, not a measured live contribution. (R-F2721 / Codex source-health audit #1–2.)
       View raw via <a href="/api/aria/sources/seed/catalogue" style="color:#7c3aed">/api/aria/sources/seed/catalogue</a>.
     </div>
   </div>
@@ -364,6 +390,36 @@ function updateSourceSummary(data, sources, counts) {
   document.getElementById('src-last').textContent = lastRun.ran_at ? (stale ? 'STALE ' : '') + fmtDateTime(lastRun.ran_at) : '-';
 }
 
+function sourceMonitorState(s) {
+  const status = s.status || s.state || (s.last_ok ? 'ok' : 'unknown');
+  const classification = String(s.classification || '').toLowerCase();
+  const isSusp = !!(s.suspended || s.disabled);
+  const isErr = status === 'error' || status === 'failed' || status === 'down';
+  const isBlocked = classification === 'blocked';
+  const isFallback = classification === 'fallback_up' || !!s.fallback_url;
+  const isHealthy = !isSusp && !isErr && (status === 'ok' || status === 'healthy') && (!classification || classification === 'up');
+
+  if (isErr) return { kind: 'err', badgeClass: 'pysrc-badge-err', badgeLabel: 'Error', isErr, isSusp, isBlocked, isFallback };
+  if (isSusp) return { kind: 'warn', badgeClass: 'pysrc-badge-susp', badgeLabel: 'Suspended', isErr, isSusp, isBlocked, isFallback };
+  if (isBlocked) return { kind: 'warn', badgeClass: 'pysrc-badge-warn', badgeLabel: 'Blocked', isErr, isSusp, isBlocked, isFallback };
+  if (isFallback) return { kind: 'warn', badgeClass: 'pysrc-badge-warn', badgeLabel: 'Fallback', isErr, isSusp, isBlocked, isFallback };
+  if (isHealthy) return { kind: 'ok', badgeClass: 'pysrc-badge-ok', badgeLabel: 'Healthy', isErr, isSusp, isBlocked, isFallback };
+  return { kind: 'warn', badgeClass: 'pysrc-badge-warn', badgeLabel: 'Degraded', isErr, isSusp, isBlocked, isFallback };
+}
+
+function sourceMonitorLastIssue(s, state) {
+  const rawErr = s.last_error || s.last_fail || '';
+  if (rawErr) return String(rawErr);
+  if (state.isBlocked) {
+    return 'Reachable but gated' + (s.http_status ? ' (HTTP ' + s.http_status + ')' : '');
+  }
+  if (state.isFallback) {
+    return 'Primary failed; official fallback responded' + (s.primary_error ? ' — ' + s.primary_error : '');
+  }
+  const cls = String(s.classification || '');
+  return cls && cls !== 'up' ? cls : '';
+}
+
 // R-F58/R-F2384: unified source monitors from /api/aria/sources/uptime
 // R-F2258: redesigned with card layout, status badges, visual hierarchy
 async function loadSourceMonitors() {
@@ -383,8 +439,9 @@ async function loadSourceMonitors() {
     }
 
     // Compute summary stats
-    const okCount   = sources.filter(s => { const st = s.status || s.state || (s.last_ok ? 'ok' : 'unknown'); return st === 'ok' || st === 'healthy'; }).length;
-    const errCount  = sources.filter(s => { const st = s.status || s.state || (s.last_ok ? 'ok' : 'unknown'); return st === 'error' || st === 'failed' || st === 'down'; }).length;
+    const states = sources.map(sourceMonitorState);
+    const okCount   = states.filter(s => s.kind === 'ok').length;
+    const errCount  = states.filter(s => s.kind === 'err').length;
     const suspCount = sources.filter(s => s.suspended || s.disabled).length;
     const warnCount = sources.length - okCount - errCount;
     updateSourceSummary(data, sources, { ok: okCount, err: errCount, warn: warnCount });
@@ -413,32 +470,21 @@ async function loadSourceMonitors() {
     }
 
     // Source rows — card-style with status badges
-    sources.forEach(s => {
-      const status = s.status || s.state || (s.last_ok ? 'ok' : 'unknown');
-      const isOk  = status === 'ok' || status === 'healthy';
-      const isErr = status === 'error' || status === 'failed' || status === 'down';
-      const isSusp = s.suspended || s.disabled;
-
-      // Status badge
-      let badgeClass = 'pysrc-badge-ok';
-      let badgeLabel = 'Healthy';
-      if (isErr) { badgeClass = 'pysrc-badge-err'; badgeLabel = 'Error'; }
-      else if (isSusp) { badgeClass = 'pysrc-badge-susp'; badgeLabel = 'Suspended'; }
-      else if (!isOk) { badgeClass = 'pysrc-badge-warn'; badgeLabel = 'Degraded'; }
-
+    sources.forEach((s, idx) => {
+      const state = states[idx] || sourceMonitorState(s);
       const lastOk  = s.last_success || s.last_ok || s.last_success_at || '';
-      const lastErr = s.last_error || s.last_fail || '';
+      const lastErr = sourceMonitorLastIssue(s, state);
       const errShort = String(lastErr || '').slice(0, 60);
 
       html += '<tr class="pysrc-row">' +
         '<td class="pysrc-name"><strong>' + escHtml(s.name || s.source || '-') + '</strong></td>' +
-        '<td><span class="pysrc-badge ' + badgeClass + '">' + badgeLabel + '</span></td>' +
+        '<td><span class="pysrc-badge ' + state.badgeClass + '">' + state.badgeLabel + '</span></td>' +
         '<td class="pysrc-time">' + (lastOk ? fmtDateTime(lastOk) : '-') + '</td>' +
         '<td class="pysrc-err" title="' + escHtml(String(lastErr || '')) + '">' +
-          (isErr ? '<span class="pysrc-err-icon"><i class="bi bi-exclamation-circle"></i></span>' : '') +
+          (state.kind !== 'ok' ? '<span class="pysrc-err-icon"><i class="bi bi-exclamation-circle"></i></span>' : '') +
           escHtml(errShort || '-') +
         '</td>' +
-        '<td class="pysrc-susp">' + (isSusp ? '<span class="pysrc-badge pysrc-badge-susp">Suspended</span>' : '<span style="color:var(--sc-muted);font-size:12px">Active</span>') + '</td>' +
+        '<td class="pysrc-susp">' + (state.isSusp ? '<span class="pysrc-badge pysrc-badge-susp">Suspended</span>' : '<span style="color:var(--sc-muted);font-size:12px">Active</span>') + '</td>' +
       '</tr>';
     });
 
@@ -610,10 +656,51 @@ document.getElementById('btn-run-adv').addEventListener('click', async function(
   btn.innerHTML = orig;
 });
 
+// R-F2721 (Codex #1) — surface /api/source-health (the operational briefing-feed tracker the
+// page omitted). Same-origin Node endpoint (aria-web serves this page AND the endpoint), so a
+// plain fetch — not API.get (which proxies to the Python brain). Honest buckets from R-F2719.
+async function loadOperationalFeeds() {
+  const body = document.getElementById('opfeed-body');
+  const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  try {
+    const resp = await fetch('/api/source-health', { headers: { Accept: 'application/json' } });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const d = await resp.json();
+    setTxt('opfeed-healthy', d.healthyCount ?? '-');
+    setTxt('opfeed-degraded', d.degradedCount ?? '-');
+    setTxt('opfeed-unconfigured', d.unconfiguredCount ?? '-');
+    setTxt('opfeed-notchecked', d.notCheckedCount ?? '-');
+    const sources = Array.isArray(d.sources) ? d.sources : [];
+    const unconf = new Set(d.unconfigured || []);
+    const notchk = new Set(d.notChecked || []);
+    if (sources.length === 0) {
+      body.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--sc-muted);padding:30px">No operational feeds tracked yet (no sweep since boot).</td></tr>';
+      return;
+    }
+    let html = '';
+    for (const s of sources) {
+      const rel = (s.reliability === null || s.reliability === undefined) ? null : s.reliability;
+      let stateLabel, badgeClass;
+      if (rel === null) { stateLabel = unconf.has(s.name) ? 'Unconfigured' : 'Not checked'; badgeClass = 'pysrc-badge-warn'; }
+      else if (rel >= 80) { stateLabel = 'Healthy'; badgeClass = 'pysrc-badge-ok'; }
+      else { stateLabel = 'Degraded'; badgeClass = 'pysrc-badge-warn'; }
+      html += '<tr class="pysrc-row">' +
+        '<td class="pysrc-name"><strong>' + escHtml(s.name || '-') + '</strong></td>' +
+        '<td>' + (rel === null ? '—' : rel + '%') + '</td>' +
+        '<td><span class="pysrc-badge ' + badgeClass + '">' + stateLabel + '</span></td>' +
+      '</tr>';
+    }
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--sc-muted);padding:30px">/api/source-health unreachable: ' + escHtml(e.message) + '</td></tr>';
+  }
+}
+
 loadBridge();
 loadCatalogue();
 loadOemPool();
 loadSourceMonitors();
+loadOperationalFeeds();
 loadSectorStats();
 loadAdversarial();
 
@@ -622,6 +709,7 @@ loadAdversarial();
 setInterval(() => {
   loadBridge();
   loadSourceMonitors();
+  loadOperationalFeeds();   // R-F2721
   loadCatalogue();   // R-F143
   loadOemPool();     // R-F143
   loadSectorStats();
