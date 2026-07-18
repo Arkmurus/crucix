@@ -178,9 +178,14 @@ async def _save_activities(items: list[dict]) -> None:
     items = [a for a in items if a.get("ts", "") >= cutoff]
     if len(items) > MAX_ACTIVITIES:
         items = items[-MAX_ACTIVITIES:]
-    # R-F1520: fire-and-forget to avoid blocking the caller with a large blob write.
-    # The activity log is rebuilt on next access if the write fails.
-    asyncio.ensure_future(rs.set_json(ACTIVITIES_KEY, {"items": items, "version": 1}))
+    # R-F2770: AWAIT the write — own it. R-F1520's fire-and-forget
+    # (asyncio.ensure_future) returned before the write landed, so any caller on an
+    # isolated/short-lived event loop (asyncio.run per request, the test harness)
+    # closed the loop and CANCELLED the pending write → the activity was silently
+    # LOST (6 failing capability tests + real activity/tender/firm/chat/briefing
+    # loss). The blob is bounded (MAX_ACTIVITIES) and this exact write already ran
+    # under R-F1520; awaiting only guarantees it COMPLETES before the caller returns.
+    await rs.set_json(ACTIVITIES_KEY, {"items": items, "version": 1})
 
 
 # ── Public API ────────────────────────────────────────────────────────────
