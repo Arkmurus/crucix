@@ -293,7 +293,11 @@ function renderTable(entries) {
   // (the backend returns RED/AMBER/AMBER-LIGHT/GREEN), which the table previously
   // never showed; and read the real timestamp field `added_at` (was `last_checked`,
   // which the backend doesn't emit → column was always "-", looking never-screened).
-  let html = '<table class="wl-table"><thead><tr><th>Entity</th><th>Type</th><th>Jurisdiction</th><th>Risk</th><th>Last Checked</th><th>Actions</th></tr></thead><tbody>';
+  // R-F2750 (finding 5) — split "Last Checked" into "Last DD" (added_at, when the
+  // entity entered monitoring) and "Last re-screen" (last_rescreened_at, from the
+  // R-F2744 observation). The old single column showed the add-date even when the
+  // entity had been re-screened today, which read as "never re-screened".
+  let html = '<table class="wl-table"><thead><tr><th>Entity</th><th>Type</th><th>Jurisdiction</th><th>Risk</th><th>Last DD</th><th>Last re-screen</th><th>Actions</th></tr></thead><tbody>';
   for (const e of entries) {
     const risk = String(e.last_risk || '').toUpperCase();
     const riskCls = risk === 'RED' || risk === 'HARD_STOP' ? 'red'
@@ -301,14 +305,20 @@ function renderTable(entries) {
                   : (risk === 'GREEN' || risk === 'CLEAR' ? 'green' : 'muted'));
     const riskColor = riskCls === 'red' ? '#b91c1c' : riskCls === 'amber' ? '#c2410c' : riskCls === 'green' ? '#15803d' : '#9b968c';
     const riskPill = risk ? '<span style="font-weight:600;color:' + riskColor + '">' + escText(risk) + '</span>' : '<span style="color:#9b968c">not screened</span>';
-    const lastTs = e.last_checked || e.added_at;
-    const lastChecked = lastTs ? new Date(lastTs).toLocaleString() : '-';
+    // R-F2750 — "Last DD" = when it entered monitoring; "Last re-screen" = the
+    // last sanctions re-screen observation (never conflate the two again).
+    const lastDdTs = e.added_at || e.last_dd_at;
+    const lastDd = lastDdTs ? new Date(lastDdTs).toLocaleString() : '-';
+    const rescreenTs = e.last_rescreened_at;
+    let lastRescreen = rescreenTs ? new Date(rescreenTs).toLocaleString() : 'not re-screened yet';
+    if (rescreenTs && e.source_complete === false) lastRescreen += ' (source incomplete)';
     html += '<tr class="wl-row">' +
       '<td><strong style="color:var(--sc-heading)">' + escText(e.name || e.entity_name || '(unnamed)') + '</strong></td>' +
       '<td style="color:var(--sc-muted)">' + escText(e.entity_type || '-') + '</td>' +
       '<td style="color:var(--sc-muted)">' + escText(e.jurisdiction || '-') + '</td>' +
       '<td>' + riskPill + '</td>' +
-      '<td style="color:var(--sc-muted);font-size:12px">' + lastChecked + '</td>' +
+      '<td style="color:var(--sc-muted);font-size:12px">' + escText(lastDd) + '</td>' +
+      '<td style="color:var(--sc-muted);font-size:12px">' + escText(lastRescreen) + '</td>' +
       '<td>' +
         // R-F1569 — these buttons formerly used inline onclick handlers that
         // interpolated the user-stored entity name into a single-quoted JS

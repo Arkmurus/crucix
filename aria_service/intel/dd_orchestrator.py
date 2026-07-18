@@ -12444,6 +12444,34 @@ async def _release_rescreen_lock(scope: str) -> None:
         logger.debug("[watchlist] rescreen lock release failed (TTL will clear): %s", e)
 
 
+async def enrich_watchlist_with_observations(entries: list[dict]) -> list[dict]:
+    """R-F2750 (finding 5) — attach re-screen observation provenance to each
+    watchlist entry so the UI can show "Last re-screen" DISTINCT from "Last DD".
+
+    Before this, watchlist.html fell back to ``added_at`` for "Last Checked"
+    because nothing wrote a re-screen timestamp — so an entity re-screened daily
+    still displayed its add-date. R-F2744 now persists a per-entity observation
+    (status / score / source_complete / ts); this surfaces it. Non-destructive:
+    entries without an observation are left untouched.
+    """
+    from . import redis_store as rs
+    for e in entries:
+        try:
+            name = (e.get("name") or e.get("entity") or "").strip()
+            if not name:
+                continue
+            obs = await rs.get_json(
+                WATCHLIST_OBS_KEY.format(obs_id=_watchlist_obs_id(e, name)))
+            if obs:
+                e["last_rescreened_at"] = obs.get("ts")
+                e["rescreen_status"] = obs.get("status")
+                e["rescreen_score"] = obs.get("score")
+                e["source_complete"] = obs.get("source_complete", True)
+        except Exception:
+            continue  # provenance is best-effort; never break the list read
+    return entries
+
+
 def _derive_status(classified: dict) -> str:
     """Map classify_matches worst_severity to a simple tri-state."""
     sev = classified.get("worst_severity", "clean")

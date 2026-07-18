@@ -1531,8 +1531,12 @@ async def dd_watchlist_get_ep(user_id: str = "", user_email_domain: str = ""):
     # proxy from the JWT (client-supplied values are stripped there). Empty user_id =
     # internal/admin caller → full list.
     from ..intel import dd_orchestrator
-    return {"watchlist": await dd_orchestrator.get_watchlist(
-        user_id=user_id or None, user_email_domain=user_email_domain or None)}
+    wl = await dd_orchestrator.get_watchlist(
+        user_id=user_id or None, user_email_domain=user_email_domain or None)
+    # R-F2750 (finding 5) — attach re-screen observation provenance so the UI can
+    # show "Last re-screen" distinct from "Last DD" (add-date).
+    wl = await dd_orchestrator.enrich_watchlist_with_observations(wl)
+    return {"watchlist": wl}
 
 
 @router.post("/dd/watchlist")
