@@ -16,7 +16,9 @@
     "diag": "node diag.mjs",
     "clean": "node scripts/clean.mjs",
     "seed:outcomes": "node scripts/seed_outcomes.mjs",
-    "fresh-start": "npm run clean && npm start"
+    "fresh-start": "npm run clean && npm start",
+    "lint": "node scripts/lint.mjs",
+    "lint:changed": "node scripts/lint.mjs --changed"
   },
   "keywords": [
     "osint",
