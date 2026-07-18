@@ -156,6 +156,29 @@ def dry_run(ds_path: Path) -> int:
           f"unanswerable={len(rows) - n_ans}, with expected_keywords={n_kw}), "
           f"all have prompt+context+answerable")
 
+    # R-F2762 — BULLETPROOF the §24 pre-flight. A recall-WEIGHTED cycle
+    # (GROUNDING_PRECISION_WEIGHT < 1.0 — the default is 0.5, so recall carries
+    # (1-pw) of the answering-row score) trained on a dataset with (near-)zero
+    # expected_keywords silently DROPS the recall objective: the reward's recall
+    # term is 0 on every row, so the run CLAIMS to optimise recall but cannot. Before
+    # this guard, dry_run() merely SKIPPED the recall assertion (the `if kw_row`
+    # block below) and still printed PASS — green-lighting exactly such a no-op cycle
+    # (live footgun: run_grpo_cycle.sh defaulted to a keyword-less prompt file). §24
+    # "training must be REAL" + the honesty mandate ("ARIA is 100% what she says she
+    # is") → FAIL, don't skip. An intentional precision-only cycle is exempt:
+    # set GROUNDING_PRECISION_WEIGHT=1.0 (recall weight 0).
+    _pw = float(os.environ.get("GROUNDING_PRECISION_WEIGHT", "0.5") or 0.5)
+    _kw_floor = float(os.environ.get("GROUNDING_MIN_KEYWORD_COVERAGE", "0.5") or 0.5)
+    _kw_cov = (n_kw / n_ans) if n_ans else 0.0
+    if _pw < 1.0 and _kw_cov < _kw_floor:
+        raise AssertionError(
+            f"R-F2762: recall-weighted cycle (GROUNDING_PRECISION_WEIGHT={_pw} < 1.0) "
+            f"but only {n_kw}/{n_ans} answerable rows carry expected_keywords "
+            f"({_kw_cov:.0%} < {_kw_floor:.0%} floor) — the recall reward term would be "
+            f"DEAD, so the cycle would silently NO-OP its recall objective. Use a "
+            f"keyworded dataset (e.g. data/training/grpo_grounded_prompts_v2.jsonl) or "
+            f"set GROUNDING_PRECISION_WEIGHT=1.0 for an intentional precision-only cycle.")
+
     rf = make_reward_fn()
     ans_row = next((r for r in rows if _to_bool(r.get("answerable"))), rows[0])
     unans_row = next((r for r in rows if _to_bool(r.get("answerable")) is False), None)

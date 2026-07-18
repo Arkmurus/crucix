@@ -14,7 +14,13 @@ API_KEY=$(grep -E "^RUNPOD_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"' |
 DSK=$(grep -E "^DEEPSEEK_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r')
 [ -n "$API_KEY" ] || { echo "[driver] FATAL: RUNPOD_API_KEY missing"; exit 1; }
 
-PROMPTS="${PROMPTS:-data/training/aria_grpo_prompts_v1.jsonl}"
+# R-F2762 — default to the KEYWORDED prompt set. aria_grpo_prompts_v1.jsonl has the
+# same 664 prompts but ZERO expected_keywords, so it silently kills the recall reward
+# term (the whole point of the R-F2558 grounded cycle). grpo_grounded_prompts_v2.jsonl
+# = the identical prompts + keywords (verified: same 664 questions). The grpo_train.py
+# --dry-run now HARD-FAILS a recall-weighted cycle on a keyword-less set, so this default
+# and that guard together make a silent no-op recall cycle impossible.
+PROMPTS="${PROMPTS:-data/training/grpo_grounded_prompts_v2.jsonl}"
 EVAL_LOCAL="${EVAL_LOCAL:-data/eval_reports/aria_eval_500q_openbook.jsonl}"
 INIT_ADAPTER="${INIT_ADAPTER:-data/training/checkpoints/aria_llm_grounded_dpo_v1/aria_llm_v0_4_dpo}"
 [ -s "$PROMPTS" ] || { echo "[driver] FATAL: prompts missing: $PROMPTS"; exit 1; }
