@@ -6834,6 +6834,37 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
             _entity_name = report.identity.entity_name or target.get("name", "?")
             logger.info("Confidence gate: GREEN → AMBER for %s (%s)", _entity_name, "; ".join(_gate_reasons))
 
+    # ── 6b3. R-F2779 — adverse-media never-false-clean disclosure ──
+    # A GREEN / clean-looking verdict must NOT imply "no adverse media" unless a
+    # dedicated adverse-media pass actually produced a result. The DEAD/DEGRADED
+    # web-search case is already disclosed in _run_digital; this covers the case
+    # where search WORKED but no adverse-media screen ran (or was skipped) — so the
+    # ABSENCE of adverse-media findings is NOT evidence of a clean entity. Mirrors
+    # the sanctions / Companies-House never-false-clean guards. Company path only;
+    # the person path has its own PEP/adverse handling.
+    if not _is_person:
+        _wf = report.digital.web_footprint if isinstance(report.digital.web_footprint, dict) else {}
+        _am_inline = _wf.get("adverse_media_hits")            # list (even empty) once R-F445 executed
+        _am_deep = getattr(report, "adverse_media", None)     # deep follow-up blob
+        _am_deep_ran = (isinstance(_am_deep, dict) and bool(_am_deep)
+                        and not _am_deep.get("error"))
+        _am_screened = (_am_inline is not None) or _am_deep_ran
+        if not _am_screened:
+            _am_gap = ("R-F2779: adverse-media screening did NOT complete this run — the ABSENCE of "
+                       "adverse-media / litigation / corruption findings is NOT a clean bill. A dedicated "
+                       "adverse-media check is required before relying on this verdict.")
+            if _am_gap not in report.digital.data_gaps:
+                report.digital.data_gaps.append(_am_gap)
+            # Attach to digital.findings (persists) — synthesis.key_findings is
+            # rebuilt later in this function, so an append there would be discarded.
+            report.digital.findings.append(Finding(
+                severity="info",
+                title="Adverse-media screening incomplete — verdict does NOT certify absence of adverse media",
+                detail=_am_gap,
+                source="dd_orchestrator._run_synthesis:R-F2779",
+                confidence="ASSESSED",
+            ))
+
     # ── 6c. SAR trigger — UK POCA / FATF typology ──
     # Triggers (original):
     #   - sanctions hit on subject OR director

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2779,
+  "next_available": 2784,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21686,6 +21686,51 @@
       "commit_sha": "1d835f1a",
       "notes": null,
       "shipped_at": "2026-07-18T22:07:19Z"
+    },
+    {
+      "r_number": "R-F2779",
+      "title": "adverse-media never-false-clean gate in DD verdict",
+      "claimed_at": "2026-07-18T23:12:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2780",
+      "title": "make adverse-media a first-class DD verdict input with inline deep search",
+      "claimed_at": "2026-07-18T23:20:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2781",
+      "title": "registry verification must fire for known-jurisdiction companies (Companies House)",
+      "claimed_at": "2026-07-18T23:20:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2782",
+      "title": "financial health for non-US LSE/EU companies in DD",
+      "claimed_at": "2026-07-18T23:20:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2783",
+      "title": "honesty: CONFIRMED/LEDGER tags must resolve to a real evidence id",
+      "claimed_at": "2026-07-18T23:20:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
