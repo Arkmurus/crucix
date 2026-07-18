@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowLoopbackNetwork } from './helpers/net_guard.mjs';
+import { stopServer } from './helpers/proc.mjs';
 allowLoopbackNetwork();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -64,14 +65,6 @@ function startServer(envOverrides) {
     proc.on('exit', code => {
       if (!resolved) { clearTimeout(timer); reject(new Error(`fixture exited (${code}). stderr=${stderr}`)); }
     });
-  });
-}
-
-function stopServer(proc) {
-  if (proc.exitCode !== null) return Promise.resolve();
-  return new Promise(resolveP => {
-    proc.once('exit', resolveP);
-    proc.kill();
   });
 }
 

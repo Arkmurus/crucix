@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowLoopbackNetwork } from './helpers/net_guard.mjs';
+import { stopServer } from './helpers/proc.mjs';
 allowLoopbackNetwork();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -108,7 +109,7 @@ console.log('1. Empty store + no ADMIN_* env -> anomaly=no-admin');
   check('recoveryReset.enabled = false', r.recoveryReset.enabled === false);
   check('buildRev present', typeof r.buildRev === 'string' && r.buildRev.length > 0);
   check('boot log warns about no admin', /no admin rows exist/.test(getStderr()));
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -127,7 +128,7 @@ console.log('\n2. Empty store + valid bootstrap env -> initAdminUser creates adm
   check('admin.envEmailSet = true', r.admin.envEmailSet === true);
   check('admin.matchesEnv = true', r.admin.matchesEnv === true);
   check('boot log marks identity confirmed', /admin identity confirmed/.test(getStderr()));
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -144,7 +145,7 @@ console.log('\n3. Pre-existing matching admin -> anomaly=ok');
   check('users.admins = 1', r.users.admins === 1);
   check('admin.anomaly = ok', r.admin.anomaly === 'ok');
   check('admin.matchesEnv = true', r.admin.matchesEnv === true);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -159,7 +160,7 @@ console.log('\n4. Admin email differs from ADMIN_EMAIL -> anomaly=env-mismatch')
   check('admin.anomaly = env-mismatch', r.admin.anomaly === 'env-mismatch');
   check('admin.matchesEnv = false', r.admin.matchesEnv === false);
   check('boot log warns about mismatch', /does not match/.test(getStderr()));
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -176,7 +177,7 @@ console.log('\n5. Multiple admin rows -> anomaly=multiple-admins');
   check('admin.anomaly = multiple-admins', r.admin.anomaly === 'multiple-admins');
   check('admin.matchesEnv = false', r.admin.matchesEnv === false);
   check('boot log warns about multiple admins', /admin rows present/.test(getStderr()));
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -199,7 +200,7 @@ console.log('\n6. SMTP resolution -> aria-fallback when ARIA_EMAIL_* set');
   check('smtp.host = ox.livemail.co.uk', r.smtp.host === 'ox.livemail.co.uk');
   check('smtp.user = aria@arkmurus.com', r.smtp.user === 'aria@arkmurus.com');
   check('smtp.port = 465 (SSL default)', r.smtp.port === 465);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -225,7 +226,7 @@ console.log('\n7. SMTP resolution -> dedicated wins when both sets present');
   check('smtp.host = smtp.dedicated.example', r.smtp.host === 'smtp.dedicated.example');
   check('smtp.user = auth@example.com', r.smtp.user === 'auth@example.com');
   check('smtp.port = 587', r.smtp.port === 587);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -243,7 +244,7 @@ console.log('\n8. ADMIN_RECOVERY_TOKEN >= 32 chars -> recoveryReset.enabled=true
   check('recoveryReset.tokenSet = true', r.recoveryReset.tokenSet === true);
   check('recoveryReset.tokenLengthOk = true', r.recoveryReset.tokenLengthOk === true);
   check('recoveryReset.enabled = true', r.recoveryReset.enabled === true);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -261,7 +262,7 @@ console.log('\n9. ADMIN_RECOVERY_TOKEN too short -> enabled=false');
   check('recoveryReset.tokenSet = true', r.recoveryReset.tokenSet === true);
   check('recoveryReset.tokenLengthOk = false', r.recoveryReset.tokenLengthOk === false);
   check('recoveryReset.enabled = false', r.recoveryReset.enabled === false);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -283,7 +284,7 @@ console.log('\n10. Response leaks no emails / hashes / secrets');
   check('response does not contain password hash', !text.includes('leaky-hash'));
   check('response does not contain ARIA_EMAIL_PASS', !text.includes('super-secret-password-value'));
   check('response does not contain recovery token', !text.includes(RECOVERY_TOKEN));
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 

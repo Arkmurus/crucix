@@ -16,6 +16,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pbkdf2Sync } from 'node:crypto';
 import { allowLoopbackNetwork } from './helpers/net_guard.mjs';
+import { stopServer } from './helpers/proc.mjs';
 allowLoopbackNetwork();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -126,7 +127,7 @@ console.log('1. Endpoint hidden (404) when ADMIN_RECOVERY_TOKEN is not set');
   const after = JSON.parse(readFileSync(file, 'utf8'));
   check('users.json untouched', verifyPassword(OLD_PASSWORD, after[0].passwordHash));
   check('tokenVersion unchanged', after[0].tokenVersion === 7);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -137,7 +138,7 @@ console.log('\n2. Short ADMIN_RECOVERY_TOKEN also returns 404');
   const { proc, port } = await startServer({ USERS_FILE_OVERRIDE: file, ADMIN_RECOVERY_TOKEN: 'tooshort' });
   const r = await post(port, { email: TARGET_EMAIL, newPassword: NEW_PASSWORD, recoveryToken: 'tooshort' });
   check('status 404', r.status === 404);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -151,7 +152,7 @@ console.log('\n3. Wrong recovery token returns 401');
   const after = JSON.parse(readFileSync(file, 'utf8'));
   check('old password still works', verifyPassword(OLD_PASSWORD, after[0].passwordHash));
   check('tokenVersion unchanged', after[0].tokenVersion === 7);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -169,7 +170,7 @@ console.log('\n4. Valid recovery resets password, bumps tokenVersion, preserves 
   check('status forced to active', after[0].status === 'active');
   check('createdAt preserved', after[0].createdAt === '2026-01-01T00:00:00Z');
   check('username preserved', after[0].username === 'admin');
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -180,7 +181,7 @@ console.log('\n5. Valid token but unknown email returns 404');
   const { proc, port } = await startServer({ USERS_FILE_OVERRIDE: file, ADMIN_RECOVERY_TOKEN: VALID_TOKEN });
   const r = await post(port, { email: 'nobody@example.com', newPassword: NEW_PASSWORD, recoveryToken: VALID_TOKEN });
   check('status 404', r.status === 404);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -193,7 +194,7 @@ console.log('\n6. Short new password returns 400');
   check('status 400', r.status === 400);
   const after = JSON.parse(readFileSync(file, 'utf8'));
   check('password unchanged', verifyPassword(OLD_PASSWORD, after[0].passwordHash));
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -204,7 +205,7 @@ console.log('\n7. Token of wrong length returns 401 before timing-safe compare')
   const { proc, port } = await startServer({ USERS_FILE_OVERRIDE: file, ADMIN_RECOVERY_TOKEN: VALID_TOKEN });
   const r = await post(port, { email: TARGET_EMAIL, newPassword: NEW_PASSWORD, recoveryToken: 'a'.repeat(63) });
   check('status 401', r.status === 401);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 

@@ -23,6 +23,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowLoopbackNetwork } from './helpers/net_guard.mjs';
+import { stopServer } from './helpers/proc.mjs';
 allowLoopbackNetwork();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -101,7 +102,7 @@ console.log('1. Empty store + valid ADMIN_EMAIL/PASSWORD -> bootstrap succeeds')
   check('bootstrap.envPasswordLen matches env', bt.envPasswordLen === STRONG_PASS.length);
   check('bootstrap.ranAt is ISO timestamp', /^\d{4}-\d{2}-\d{2}T/.test(bt.ranAt));
   check('users.admins = 1 (row was minted)', s.users.admins === 1);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -119,7 +120,7 @@ console.log('\n2. Short ADMIN_PASSWORD -> skipReason=env-password-short');
   check('bootstrap.skipReason = env-password-short', bt.skipReason === 'env-password-short', `got "${bt.skipReason}"`);
   check('envPasswordLen = 9 (the short value)', bt.envPasswordLen === SHORT_PASS.length);
   check('users.admins still 0', s.users.admins === 0);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -134,7 +135,7 @@ console.log('\n3. ADMIN_EMAIL+PASSWORD both unset -> skipReason=env-missing');
   check('bootstrap.skipReason = env-missing', bt.skipReason === 'env-missing');
   check('envEmailLen = 0', bt.envEmailLen === 0);
   check('envPasswordLen = 0', bt.envPasswordLen === 0);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -156,7 +157,7 @@ console.log('\n4. Existing admin row -> attempted=false, skipReason=admin-alread
   // needs that visibility to detect "we wouldn't bootstrap even if admin
   // were missing because env is misconfigured" pre-emptively.
   check('envPasswordLen still reflects env', bt.envPasswordLen === STRONG_PASS.length);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -178,7 +179,7 @@ console.log('\n5. ADMIN_PASSWORD with whitespace -> envPasswordLen reflects trim
         `raw=${padded.length} trimmed=${padded.trim().length} got=${bt.envPasswordLen}`);
   check('skipReason = env-password-short (trimmed value is below 12)',
         bt.skipReason === 'env-password-short');
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -193,7 +194,7 @@ console.log('\n6. Response leaks no env values');
   const text = JSON.stringify(await getStatus(port));
   check('response does not contain ADMIN_PASSWORD value', !text.includes(secret));
   check('response does not contain ADMIN_EMAIL value', !text.includes(ADMIN_EMAIL));
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 

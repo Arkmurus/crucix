@@ -16,6 +16,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pbkdf2Sync } from 'node:crypto';
 import { allowLoopbackNetwork } from './helpers/net_guard.mjs';
+import { stopServer } from './helpers/proc.mjs';
 allowLoopbackNetwork();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -107,7 +108,7 @@ console.log('1. Empty store + createIfMissing=true -> mints admin');
   check('hash verifies against new password', verifyPassword(NEW_PASS, after[0].passwordHash));
   check('createdAt present', !!after[0].createdAt);
   check('id present (12-char hex)', /^[0-9a-f]{12}$/.test(after[0].id));
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -120,7 +121,7 @@ console.log('\n2. createIfMissing default (false) + empty store -> 404, no mint'
   check('status 404', r.status === 404);
   const after = JSON.parse(readFileSync(file, 'utf8'));
   check('store still empty', after.length === 0);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -142,7 +143,7 @@ console.log('\n3. createIfMissing=true + matching row exists -> falls through to
   check('new password verifies', verifyPassword(NEW_PASS, after[0].passwordHash));
   check('tokenVersion bumped 5 -> 6', after[0].tokenVersion === 6);
   check('createdAt preserved', after[0].createdAt === '2026-01-01T00:00:00Z');
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -159,7 +160,7 @@ console.log('\n4. createIfMissing=true blocked by existing admin with different 
   const after = JSON.parse(readFileSync(file, 'utf8'));
   check('still 1 row (no parallel admin minted)', after.length === 1);
   check('still the original admin', after[0].email === 'someone-else@example.com');
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -178,7 +179,7 @@ console.log('\n5. createIfMissing=true with only non-admin rows present -> mints
   const admin = after.find(u => u.email === ADMIN_EMAIL);
   check('new admin row present', !!admin);
   check('viewer untouched', after.find(u => u.email === 'viewer@example.com')?.role === 'viewer');
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -191,7 +192,7 @@ console.log('\n6. createIfMissing=true with wrong token -> 401 (no mint)');
   check('status 401', r.status === 401);
   const after = JSON.parse(readFileSync(file, 'utf8'));
   check('store still empty', after.length === 0);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -204,7 +205,7 @@ console.log('\n7. createIfMissing=true with short password -> 400 (no mint)');
   check('status 400', r.status === 400);
   const after = JSON.parse(readFileSync(file, 'utf8'));
   check('store still empty', after.length === 0);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -221,7 +222,7 @@ console.log('\n8. Mixed-case email is normalised -> same row, no duplicate');
   const after = JSON.parse(readFileSync(file, 'utf8'));
   check('only 1 row exists', after.length === 1);
   check('row stored with lower-cased email', after[0].email === 'acorrea@arkmurus.com');
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
