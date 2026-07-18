@@ -119,14 +119,19 @@ async function fetchDSCA() {
     'DSCA Africa military sale',
   ];
   const items = [];
+  let attempts = 0, failures = 0;
   for (const q of queries) {
     const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`;
+    attempts++;
     try {
       const fetched = await fetchRSS(url, 'DSCA/FMS');
       items.push(...fetched);
       if (items.length >= 10) break;
-    } catch {}
+    } catch { failures++; }
   }
+  // R-F2722 — if EVERY attempted query ERRORED (not merely returned empty), this is a real
+  // failure, not a legitimately-empty result — throw so withTimeout tags 'error', not 'empty'.
+  if (items.length === 0 && failures > 0 && failures === attempts) throw new Error(`DSCA: all ${attempts} queries failed`);
   console.log(`[Procurement] DSCA/FMS: ${items.length} items via Google News`);
   return items.slice(0, 10);
 }
@@ -212,7 +217,7 @@ async function fetchEUTED() {
     return items;
   } catch (e) {
     console.warn(`[Procurement] EU TED failed: ${enrichFetchError(e)}`);
-    return [];
+    throw e;  // R-F2722 — TED API failed AND the Google News fallback failed = a real error, not empty
   }
 }
 
@@ -235,14 +240,18 @@ async function fetchDefenceWeb() {
   for (const r of results) {
     if (r.status === 'fulfilled' && Array.isArray(r.value)) items.push(...r.value);
   }
+  const allFeedsErrored = results.length > 0 && results.every(r => r.status === 'rejected');
+  let gnErrored = false;
   // Fall back to Google News only when every direct feed returned empty.
   if (items.length === 0) {
     const gnUrl = `https://news.google.com/rss/search?q=site:defenceweb.co.za+contract+OR+tender+OR+procurement&hl=en-US&gl=ZA&ceid=ZA:en`;
     try {
       const gnItems = await fetchRSS(gnUrl, 'DefenceWeb Africa');
       if (Array.isArray(gnItems)) items.push(...gnItems);
-    } catch {}
+    } catch { gnErrored = true; }
   }
+  // R-F2722 — every direct feed ERRORED and the fallback errored → real failure, not empty.
+  if (items.length === 0 && allFeedsErrored && gnErrored) throw new Error('DefenceWeb: all feeds + fallback failed');
   console.log(`[Procurement] DefenceWeb: ${items.length} items`);
   return items.slice(0, 15);
 }
@@ -256,13 +265,17 @@ async function fetchAfricaDefenseProcurement() {
     'breakingdefense.com Africa OR Angola OR Mozambique',
   ];
   const items = [];
+  let attempts = 0, failures = 0;
   for (const q of queries) {
     const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`;
+    attempts++;
     try {
       const fetched = await fetchRSS(url, 'Africa Defense Procurement');
       items.push(...fetched);
-    } catch {}
+    } catch { failures++; }
   }
+  // R-F2722 — every attempted query ERRORED (not merely empty) → real failure, not empty.
+  if (items.length === 0 && failures > 0 && failures === attempts) throw new Error(`Africa: all ${attempts} queries failed`);
   // Deduplicate
   const seen = new Set();
   const unique = [];
@@ -283,7 +296,7 @@ async function fetchUNProcurement() {
     return items.slice(0, 8);
   } catch (e) {
     console.warn(`[Procurement] UN procurement failed: ${enrichFetchError(e)}`);
-    return [];
+    throw e;  // R-F2722 — a real fetch error, not a legitimately-empty result
   }
 }
 
@@ -345,7 +358,7 @@ async function fetchWorldBankProcurement() {
     return items;
   } catch (e) {
     console.warn(`[Procurement] World Bank failed: ${enrichFetchError(e)}`);
-    return [];
+    throw e;  // R-F2722 — real error (incl. the !res.ok throw above), not a legitimately-empty result
   }
 }
 
@@ -354,6 +367,29 @@ async function fetchWorldBankProcurement() {
 // fallback attempts (3 per RSS) compound to ~45s worst-case. This wraps
 // each source in a 30s ceiling — the slowest still finishes, the slowest
 // failures fail fast, and the sweep completes inside its 90s budget.
+// R-F2722 (Codex #11) — tag the resolved ARRAY with its outcome so the classifier can tell a
+// real failure (the fetch THREW) or a TIMEOUT apart from a genuinely-empty result. The value
+// stays a real Array (every `.value.length` / spread / `.map` / `Array.isArray` consumer keeps
+// working) and just carries a non-enumerable `_fetchStatus` ∈ {ok, timeout, error}. This is
+// what makes it SAFE to treat a 0-item 'ok' as successful-empty: a 500 now surfaces as 'error',
+// not as a hidden empty (avoids the Codex #5 band-aid).
+const _tagStatus = (arr, status) => {
+  try { Object.defineProperty(arr, '_fetchStatus', { value: status, enumerable: false, configurable: true }); } catch { /* frozen array — ignore */ }
+  return arr;
+};
+export function fetchStatusOf(value) {
+  return (value && value._fetchStatus) || 'ok';
+}
+// R-F2722 — pure, testable per-source classifier (Codex #11). A rejected settle or a fetch that
+// THREW is 'failed'; a hard-cap 'timeout' is distinct; a fulfilled fetch is 'ok' (data) or
+// 'empty' (genuine successful-empty — NOT a failure, and NOT a hidden error since errors are 'failed').
+export function classifyTenderSource(settled) {
+  if (!settled || settled.status !== 'fulfilled') return 'failed';
+  const st = fetchStatusOf(settled.value);
+  if (st === 'error') return 'failed';
+  if (st === 'timeout') return 'timeout';
+  return (Array.isArray(settled.value) && settled.value.length > 0) ? 'ok' : 'empty';
+}
 function withTimeout(label, promiseFactory, ms = 30000) {
   return new Promise((resolve) => {
     let done = false;
@@ -361,7 +397,7 @@ function withTimeout(label, promiseFactory, ms = 30000) {
       if (done) return;
       done = true;
       console.warn(`[Procurement] ${label} hit ${ms}ms hard cap — returning empty`);
-      resolve([]);
+      resolve(_tagStatus([], 'timeout'));
     }, ms);
     Promise.resolve()
       .then(promiseFactory)
@@ -369,14 +405,14 @@ function withTimeout(label, promiseFactory, ms = 30000) {
         if (done) return;
         done = true;
         clearTimeout(timer);
-        resolve(Array.isArray(val) ? val : []);
+        resolve(_tagStatus(Array.isArray(val) ? val : [], 'ok'));
       })
       .catch((err) => {
         if (done) return;
         done = true;
         clearTimeout(timer);
         console.warn(`[Procurement] ${label} failed: ${enrichFetchError(err)}`);
-        resolve([]);
+        resolve(_tagStatus([], 'error'));
       });
   });
 }
@@ -511,7 +547,7 @@ export async function fetchSAMGovOpportunities(now = new Date()) {
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     console.warn(`[Procurement] SAM.gov HTTP ${res.status} — ${body.slice(0, 160)}`);
-    return [];
+    throw new Error(`SAM.gov HTTP ${res.status}`);  // R-F2722 — a rejected request is a real error, not empty
   }
   const data = await res.json();
   const records = Array.isArray(data?.opportunitiesData) ? data.opportunitiesData : [];
@@ -628,22 +664,32 @@ export async function briefing() {
     timestamp: i.pubDate ? new Date(i.pubDate).getTime() || Date.now() : Date.now(),
   }));
 
+  // R-F2722 (Codex #11) — honest per-source status from the fetch-status contract:
+  //   error   → 'failed'   (the fetch THREW — a real problem)
+  //   timeout → 'timeout'  (hit the hard cap — distinct from a failure or an empty)
+  //   ok + data     → 'ok'
+  //   ok + 0 items  → 'empty' (genuine successful-empty — a legitimate "no current tenders"
+  //                   result). Safe to treat as healthy: a 500 is now 'failed', so 'empty' can
+  //                   no longer HIDE an error (the Codex #5 band-aid this avoids).
+  const tenderStatus = classifyTenderSource;
   const sourceStatus = {
-    'SAM.gov':      sam.status     === 'fulfilled'
-      ? (process.env.SAM_GOV_API_KEY || process.env.SAM_API_KEY ? (sam.value.length > 0 ? 'ok' : 'empty') : 'disabled_no_key')
-      : 'failed',
-    'DSCA/FMS':    dsca.status    === 'fulfilled' && dsca.value.length    > 0 ? 'ok' : 'failed',
-    'EU TED':      ted.status     === 'fulfilled' && ted.value.length     > 0 ? 'ok' : 'failed',
-    'DefenceWeb':  dw.status      === 'fulfilled' && dw.value.length      > 0 ? 'ok' : 'failed',
-    'Africa News': africa.status  === 'fulfilled' && africa.value.length  > 0 ? 'ok' : 'failed',
-    'UN':          un.status      === 'fulfilled' && un.value.length      > 0 ? 'ok' : 'failed',
-    'World Bank':  wb.status      === 'fulfilled' && wb.value.length      > 0 ? 'ok' : 'failed',
+    'SAM.gov':      sam.status !== 'fulfilled' ? 'failed'
+      : (!(process.env.SAM_GOV_API_KEY || process.env.SAM_API_KEY) ? 'disabled_no_key' : tenderStatus(sam)),
+    'DSCA/FMS':    tenderStatus(dsca),
+    'EU TED':      tenderStatus(ted),
+    'DefenceWeb':  tenderStatus(dw),
+    'Africa News': tenderStatus(africa),
+    'UN':          tenderStatus(un),
+    'World Bank':  tenderStatus(wb),
   };
 
   const okCount = Object.values(sourceStatus).filter(s => s === 'ok').length;
-  const healthyCount = Object.values(sourceStatus).filter(s => s === 'ok' || s === 'disabled_no_key').length;
+  // R-F2722 — operationally healthy = the source WORKED: data ('ok'), a genuine empty ('empty'),
+  // or unconfigured ('disabled_no_key'). Only 'failed' / 'timeout' are real problems.
+  const HEALTHY_STATES = new Set(['ok', 'empty', 'disabled_no_key']);
+  const healthyCount = Object.values(sourceStatus).filter(s => HEALTHY_STATES.has(s)).length;
   const failedSubs = Object.entries(sourceStatus)
-    .filter(([, s]) => !['ok', 'disabled_no_key'].includes(s))
+    .filter(([, s]) => !HEALTHY_STATES.has(s))
     .map(([n]) => n);
   console.log(`[Procurement] ${top.length} tenders · ${lusophone.length} Lusophone · ${african.length} African · ${okCount}/${Object.keys(sourceStatus).length} sources live`);
 
