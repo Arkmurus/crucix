@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2724,
+  "next_available": 2728,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21133,9 +21133,50 @@
       "title": "TG missed-slot catch-up: persisted slot-ledger + startup reconciliation",
       "claimed_at": "2026-07-18T11:01:25Z",
       "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8f7c4620",
+      "notes": null,
+      "shipped_at": "2026-07-18T11:08:18Z"
+    },
+    {
+      "r_number": "R-F2724",
+      "title": "signin security and defence intelligence wording",
+      "claimed_at": "2026-07-18T11:03:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ac39fd40",
+      "notes": null,
+      "shipped_at": "2026-07-18T11:26:59Z"
+    },
+    {
+      "r_number": "R-F2725",
+      "title": "fix verified executable-contract errors: feedback.get_stats rename + dormant nonexistent-call remediation (Prospector batch 2)",
+      "claimed_at": "2026-07-18T11:11:03Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-07-18T11:15:26Z",
+      "abandon_reason": "Prospector batch-2 contract errors verified DEAD CODE (truth_verifier/knowledge_learner/llm_builder = 0 prod importers) + 1 false positive (function-local rs); nothing production-reachable to fix"
+    },
+    {
+      "r_number": "R-F2726",
+      "title": "DD Grade-A: anchored controlled_by from corporate-PSC identification regnum",
+      "claimed_at": "2026-07-18T11:14:56Z",
+      "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F2727",
+      "title": "Batch 3 diagnostic honesty: window-aware probe verdicts — not-observed-recently ≠ broken (adversarial_agent_audit)",
+      "claimed_at": "2026-07-18T11:23:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "84951c2e",
+      "notes": null,
+      "shipped_at": "2026-07-18T11:28:17Z"
     }
   ]
 }
