@@ -3294,7 +3294,18 @@ async def lifespan(app: FastAPI):
                 ]
                 if adverse:
                     try:
-                        from .intel import whatsapp
+                        # R-F2749 (finding 10) — the old import target in this
+                        # block ('.intel' had no such submodule) DID NOT EXIST, so
+                        # this alert silently never sent (ImportError swallowed
+                        # below) and the brain never knew. Use the real WANotifier
+                        # (→ aria-wa.internal) AND record the delivery OUTCOME to
+                        # the §25 proprioception ledger: a queued task is not
+                        # delivery — ARIA must KNOW whether the operator got it, so
+                        # a non-delivery becomes a self-heal signal.
+                        import hashlib as _hl
+                        import time as _wa_t
+                        from .autonomous.wa_notifier import WANotifier
+                        from .intel.outcome_wire import record_outcome, OutcomeRecord
                         summary_lines = []
                         for ch in adverse[:10]:
                             summary_lines.append(
@@ -3304,16 +3315,39 @@ async def lifespan(app: FastAPI):
                             f"[ARIA Watchlist Alert] {len(adverse)} adverse change(s) detected:\n"
                             + "\n".join(summary_lines)
                         )
-                        asyncio.create_task(whatsapp.send_message(msg))
+                        # Stable request_id per alert batch → outcome_wire dedupes
+                        # retries and the reconcile can spot a never-delivered batch.
+                        _req_id = "watchlist:" + _hl.sha1(
+                            "|".join(a.get("fingerprint") or a.get("entity", "")
+                                     for a in adverse).encode("utf-8")
+                        ).hexdigest()[:16]
+
+                        async def _send_and_record(_msg=msg, _rid=_req_id):
+                            _t0 = _wa_t.monotonic()
+                            outcome = await WANotifier().notify(_msg)
+                            _lat = int((_wa_t.monotonic() - _t0) * 1000)
+                            if outcome == "ok":
+                                await record_outcome(OutcomeRecord(
+                                    surface="wa", request_id=_rid,
+                                    intended_result="watchlist_alert",
+                                    actual_outcome="delivered_real_answer",
+                                    latency_ms=_lat, detail=""))
+                            elif str(outcome).startswith("error"):
+                                # attempted but the operator did NOT get it → self-heal
+                                await record_outcome(OutcomeRecord(
+                                    surface="wa", request_id=_rid,
+                                    intended_result="watchlist_alert",
+                                    actual_outcome="send_failed",
+                                    latency_ms=_lat, detail=str(outcome)))
+                            else:
+                                # skipped:* = dry-run / not configured — a known
+                                # config state, not a per-request delivery failure.
+                                logger.debug("[Watchlist] WA notify skipped: %s", outcome)
+
+                        asyncio.create_task(_send_and_record())
                     except Exception as _wa_e:
-                        # R-F672 (2026-05-17): keep at debug not warning
-                        # — most fires here ARE "WA not configured"
-                        # which is operationally fine. But promote out
-                        # of silent-pass so a real WA outage isn't
-                        # invisible.
-                        logger.debug(
-                            "R-F672: watchlist WA notification skipped: %s",
-                            _wa_e,
+                        logger.warning(
+                            "[Watchlist] WA notification wiring failed: %s", _wa_e,
                         )
             except Exception as e:
                 await _wire_agent_failure("watchlist_rescreen", f"Re-screen failed: {e}")
