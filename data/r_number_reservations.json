@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2752,
+  "next_available": 2755,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21419,6 +21419,36 @@
       "commit_sha": "5c93dc83",
       "notes": null,
       "shipped_at": "2026-07-18T15:20:09Z"
+    },
+    {
+      "r_number": "R-F2752",
+      "title": "watchlist re-screen rotation cursor — cover all 200 entries, not first 50",
+      "claimed_at": "2026-07-18T16:21:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b235630b",
+      "notes": null,
+      "shipped_at": "2026-07-18T16:48:22Z"
+    },
+    {
+      "r_number": "R-F2753",
+      "title": "free tier acquisition uplift — 5 DD/mo, 50 msg/day, 5MB, deep research on",
+      "claimed_at": "2026-07-18T16:28:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bd35b9ab",
+      "notes": null,
+      "shipped_at": "2026-07-18T16:48:22Z"
+    },
+    {
+      "r_number": "R-F2754",
+      "title": "state_store: reap superseded aiosqlite conns on reconnect/read-pool-rebuild (54-thread leak → event-loop stalls)",
+      "claimed_at": "2026-07-18T16:43:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fa05c260",
+      "notes": null,
+      "shipped_at": "2026-07-18T16:48:08Z"
     }
   ]
 }
