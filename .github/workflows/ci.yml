@@ -129,6 +129,12 @@ print('All files pass syntax check.')
       - name: Install deps (clean, from lockfile)
         run: npm ci
 
+      # R-F2734 — Node syntax gate (R-F2729): `node --check` over every tracked .mjs. Blocks
+      # the R-F2119/2120 outage class (autonomous edits pushed 31 syntax errors → the whole
+      # tree un-importable). Fast, deterministic; a real hard failure, not continue-on-error.
+      - name: Node lint (syntax gate)
+        run: npm run lint
+
       - name: npm audit — supply-chain (block on CRITICAL prod vulns)
         run: |
           echo "Auditing production dependencies for CRITICAL vulnerabilities..."
@@ -136,9 +142,14 @@ print('All files pass syntax check.')
           echo "--- high+ (informational; Dependabot raises PRs) ---"
           npm audit --omit=dev --audit-level=high || true
 
+      # R-F2734 — use `npm test` (R-F2731): `--test-force-exit` so the suite TERMINATES past
+      # any lingering open handle (Prospector #3: the global node --test never terminated), and
+      # `--import ./test/helpers/net_guard.mjs` so CI can NEVER hit a live service (a briefing
+      # test had been POSTing real signals to the production brain). Integration suites needing
+      # a running service (test_compliance.mjs) are not matched by default discovery → `npm run test:live`.
       - name: Node tests (aria-web)
         continue-on-error: true
-        run: node --test test/
+        run: npm test
 
       # R-F1835: DD quality scorer.  R-F1840: dropped the `|| true` that hid the
       # exit code entirely — a real regression (or "no golden entries" because
