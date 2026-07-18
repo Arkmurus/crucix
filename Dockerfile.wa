@@ -43,6 +43,12 @@ COPY services/wa-listener/send-retry.mjs ./services/wa-listener/send-retry.mjs
 # (ERR_MODULE_NOT_FOUND on boot). Dependency-free (Node only).
 COPY services/wa-listener/doc-resubmit.mjs ./services/wa-listener/doc-resubmit.mjs
 
+# R-F2705 — the listener imports `./log-redact.mjs` (recursive secret redaction
+# applied before pino serializes any object — scrubs signal/session key material).
+# Same sibling-file cherry-pick trap: MISSING it crash-loops aria-wa
+# (ERR_MODULE_NOT_FOUND on boot). Dependency-free (Node only).
+COPY services/wa-listener/log-redact.mjs ./services/wa-listener/log-redact.mjs
+
 # Cross-module dependency: the listener imports `../../lib/aria/complianceAudit.mjs`.
 # That file only uses Node stdlib (fs/path/url), so copying just it is safe.
 COPY lib/aria/complianceAudit.mjs ./lib/aria/complianceAudit.mjs

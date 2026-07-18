@@ -139,6 +139,7 @@ import { logComplianceAction } from '../../lib/aria/complianceAudit.mjs';
 import { isDegraded, classifyDeliveryOutcome, degradedDetail } from '../../lib/aria/deliveryOutcome.mjs';  // R-F1965
 import { sendChunkWithRetry } from './send-retry.mjs';  // R-F2069
 import { runDocWithResubmit } from './doc-resubmit.mjs';  // R-F2070: auto-resubmit a died doc extraction
+import { redactSecrets } from './log-redact.mjs';  // R-F2705: scrub signal/session key material before it reaches pino
 
 // R-F1870 (audit DD-15): collect a media stream with a hard cumulative cap so a
 // stream that lies about its declared size cannot exhaust memory before the
@@ -345,13 +346,16 @@ const log = pino({
 // into {msg}. The QR code is printed via qrcode.generate() straight to stdout,
 // not console.*, so it stays raw and scannable.
 function _waLogFields(args) {
+  // R-F2705 — redactSecrets scrubs signal/session key material (privKey, rootKey,
+  // ratchet state, raw Buffers, tokens…) on BOTH branches before pino serializes
+  // anything. It is non-mutating, so the live Baileys creds object is untouched.
   if (args.length === 1 && args[0] !== null && typeof args[0] === 'object' && !(args[0] instanceof Error)) {
-    return args[0];
+    return redactSecrets(args[0]);
   }
   return {
     msg: args.map((a) => (
       a instanceof Error ? (a.stack || a.message)
-        : (a !== null && typeof a === 'object' ? (() => { try { return JSON.stringify(a); } catch { return String(a); } })()
+        : (a !== null && typeof a === 'object' ? (() => { try { return JSON.stringify(redactSecrets(a)); } catch { return String(a); } })()
           : String(a))
     )).join(' '),
   };
