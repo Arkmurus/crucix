@@ -1356,6 +1356,50 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         return {"error": f"unknown direct tool: {tool_kind}"}
 
 
+async def _wire_task_delivery_outcomes(
+    task: "Task", delivery_result: Any, session_id: str, latency_ms: int,
+) -> None:
+    """R-F2706 (§25a) — report each autonomous-task delivery channel's outcome to the
+    proprioception outcome-wire so the brain KNOWS whether each limb actually delivered,
+    and a non-success triggers a self-heal gap.
+
+    Before this, ``delivery.deliver()`` returned a per-channel result map
+    (``{"whatsapp": "ok:...", "intel_ledger": "error:..."}``) that was stored on the run
+    record but NEVER reached ``outcome_wire`` — so ``engine.py`` wired success on
+    EXECUTION, not DELIVERY, and a WhatsApp push that failed still read as ``status=ok``.
+
+    Follows the R-F1969 "dd" engine-surface precedent: all channels roll up under one
+    dashboard-visible surface ("autotask"), with the channel in request_id + detail so
+    per-channel failures are still distinct and de-duped. Deliberate non-deliveries
+    (``skipped:``/``suppressed:``/``dry_run``) are NOT recorded as failures. Never raises."""
+    try:
+        if not isinstance(delivery_result, dict):
+            return  # "dry_run_skipped" string, or nothing delivered
+        from ..intel.outcome_wire import OutcomeRecord, record_outcome
+        for ch, val in delivery_result.items():
+            if not isinstance(val, str):
+                continue
+            v = val.strip().lower()
+            if ch == "error":            # total-raise shape {"error": "<Type>: msg"}
+                outcome, ch_name = "send_failed", "delivery"
+            elif v.startswith("ok"):
+                outcome, ch_name = "delivered_real_answer", ch
+            elif v.startswith("error"):
+                outcome, ch_name = "send_failed", ch
+            else:
+                continue                 # skipped:/suppressed: — deliberate, not a failure
+            await record_outcome(OutcomeRecord(
+                surface="autotask",
+                request_id=f"{task.id}:{session_id}:{ch_name}",
+                intended_result=f"deliver:{ch_name}",
+                actual_outcome=outcome,
+                latency_ms=int(latency_ms),
+                detail=f"{ch_name}:{str(val)[:180]}",
+            ))
+    except Exception as e:
+        logger.debug("[autonomous] delivery-outcome wire failed (non-fatal): %s", e)
+
+
 # ── Task execution wrapper ─────────────────────────────────────────────────
 
 @fail_wire(module="tasks", gap_type="agent_cycle_failure")
@@ -1760,6 +1804,14 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                     task.id, type(e).__name__, e,
                 )
                 record["delivery"] = {"error": f"{type(e).__name__}: {e}"}
+
+            # R-F2706 (§25a) — report per-channel delivery outcomes to the proprioception
+            # wire (covers both the per-channel result map AND the total-raise shape above),
+            # so a delivery failure is VISIBLE and triggers a self-heal gap instead of
+            # hiding behind status=ok. Execution status is unchanged (see 1799 hooks gate).
+            await _wire_task_delivery_outcomes(
+                task, record.get("delivery"), session_id, int((time.time() - t0) * 1000),
+            )
 
         record["status"] = "ok"
     except Exception as e:

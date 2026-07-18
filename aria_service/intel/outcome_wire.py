@@ -355,7 +355,7 @@ async def get_surface_health(surface: str, hours: int = _DEFAULT_HEALTH_WINDOW_H
 # R-F1967 — the surfaces ARIA delivers on (for the all-surfaces dashboard roll-up).
 # R-F1969 — "dd" is an ENGINE production surface (did the DD produce a real report),
 # generalizing §25a beyond user-facing channels.
-KNOWN_SURFACES = ("wa", "web", "tg", "email", "cli", "api", "dd")
+KNOWN_SURFACES = ("wa", "web", "tg", "email", "cli", "api", "dd", "autotask")
 
 
 async def get_all_surface_health(hours: int = _DEFAULT_HEALTH_WINDOW_H) -> dict:
