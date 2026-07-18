@@ -705,6 +705,67 @@ def _quality_label(priority: str, confidence: str, evidence_count: int) -> str:
     return "context"
 
 
+def _compute_intel_grade(
+    *,
+    source_tier: str,
+    signal_type: str,
+    priority: str,
+    evidence_count: int,
+    url: str,
+    entities: dict,
+) -> tuple[str, str]:
+    """R-F2714 — formal publication grade A|B|C|REJECT for channel intelligence.
+
+    Derived ONLY from evidence signals that already exist — source tier,
+    corroboration count, a valid evidence URL, a specific named entity, and
+    operational relevance — NOT the customer_value score, which is never computed
+    (that absence made every raw-news signal structurally unpublishable). This is
+    the single authority the Telegram selector gates on.
+
+    A       decision-grade: official/primary (Tier 1A/1B) OR ≥2 independent
+            sources, at HIGH relevance, with a named entity and a valid URL.
+    B       one CREDIBLE source (Tier 1B at medium, or Tier 2), high relevance —
+            publishable ONLY when labelled 'single-source, corroboration pending'
+            (honest uncertainty disclosure, NOT confirmation).
+    C       actionable but weak (Tier 3 / medium-without-credible-tier); hold.
+    REJECT  context-only, no evidence URL, no named entity, or low relevance;
+            never publish.
+
+    USP note: an OFFICIAL primary source (OFAC designation, gov.uk tender) is
+    Grade A even single-source — the source IS the authority. A Tier-2 press
+    single-source is Grade B and must never imply confirmation.
+    """
+    tier = (source_tier or "").strip().lower()
+    prio = (priority or "").strip().upper()
+    stype = (signal_type or "").strip().lower()
+    has_url = str(url or "").lower().startswith("http")
+    ents = entities or {}
+    has_entity = bool(ents.get("countries") or ents.get("oems") or ents.get("products"))
+    actionable = stype not in ("situational_awareness", "market_watch", "context", "")
+    corroborated = int(evidence_count or 1) >= 2
+    official = tier in ("tier_1a", "tier_1b")
+    credible = official or tier == "tier_2"
+
+    # Honesty floor — no evidence, no publish (never negotiable).
+    if not has_url:
+        return "REJECT", "no valid evidence URL"
+    if not has_entity:
+        return "REJECT", "no specific named entity / programme / designation"
+    if not actionable or prio == "LOW":
+        return "REJECT", "context-only / low operational relevance"
+
+    # Grade A — official/primary OR corroborated, at HIGH relevance.
+    if prio == "HIGH" and (tier == "tier_1a" or corroborated or official):
+        return "A", "official-or-corroborated primary evidence at high relevance"
+
+    # Grade B — one credible source, high relevance; corroboration pending.
+    if prio in ("HIGH", "MEDIUM") and credible:
+        return "B", "single credible source; independent corroboration pending"
+
+    # Actionable but weak.
+    return "C", "watch-grade weak single source"
+
+
 def _confidence_rationale(
     *,
     source_tier: str,
@@ -757,6 +818,15 @@ def _build_intel_signal(article: dict) -> dict:
     )
     action_horizon = _action_horizon(signal_type, priority)
     quality_label = _quality_label(priority, confidence, evidence_count)
+    # R-F2714 — formal publication grade (the authority the channel selector gates on).
+    intel_grade, grade_reason = _compute_intel_grade(
+        source_tier=tier,
+        signal_type=signal_type,
+        priority=priority,
+        evidence_count=evidence_count,
+        url=article.get("url", ""),
+        entities=entities,
+    )
     return {
         "id": _article_hash(f"{article.get('url', '')}|{signal_type}|{title}"),
         "signal_type": signal_type,
@@ -764,6 +834,8 @@ def _build_intel_signal(article: dict) -> dict:
         "confidence": confidence,
         "score": score,
         "quality_label": quality_label,
+        "intel_grade": intel_grade,
+        "grade_reason": grade_reason,
         "confidence_rationale": _confidence_rationale(
             source_tier=tier,
             signal_type=signal_type,
@@ -847,6 +919,18 @@ def _normalise_intel_signal(signal: dict) -> dict:
     normalised_evidence.setdefault("count", evidence_count)
     normalised_evidence.setdefault("corroboration", corroboration)
     sig["evidence"] = normalised_evidence
+    # R-F2714 — grade persisted signals on read (recompute, never trust a stale
+    # grade: freshness/evidence can change, and pre-R-F2714 signals have none).
+    grade, grade_reason = _compute_intel_grade(
+        source_tier=source_tier,
+        signal_type=signal_type,
+        priority=priority,
+        evidence_count=evidence_count,
+        url=sig.get("url") or normalised_evidence.get("url") or "",
+        entities=entities,
+    )
+    sig["intel_grade"] = grade
+    sig["grade_reason"] = grade_reason
     return sig
 
 

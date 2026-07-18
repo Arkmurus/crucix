@@ -26,6 +26,7 @@ function goodSignal(overrides = {}) {
     priority: 'HIGH',
     confidence: 'HIGH',
     quality_label: 'decision-grade single-source',
+    intel_grade: 'A',   // R-F2714 — the formal grade the selector now gates on
     source_tier: 'tier_1b',
     score: 88,
     decision_summary: 'Angola launches armoured vehicle tender',
@@ -75,15 +76,20 @@ describe('Telegram Golden Intel gate', () => {
     assert.equal(selectTelegramGoldenIntel({ ...fresh, signals: [goodSignal({ _backfilled: true })] }), null);
   });
 
-  it('rejects weak public-channel signals even when the feed is fresh', () => {
+  it('rejects non-Grade-A and incomplete public-channel signals even when fresh', () => {
     const base = { ok: true, freshness: { stale: false, backfilled: false } };
-    assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ quality_label: 'watch-grade' })] }), null);
-    assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ priority: 'MEDIUM' })] }), null);
-    assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ source_tier: 'tier_4' })] }), null);
+    // R-F2714 — the formal grade is the authority: only Grade A auto-selects here
+    // (Grade B is the caller's A→B fallback policy, R-F2716). Non-A never selects.
+    assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ intel_grade: 'B' })] }), null);
+    assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ intel_grade: 'C' })] }), null);
+    assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ intel_grade: 'REJECT' })] }), null);
+    assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ intel_grade: undefined })] }), null);
+    // Completeness + evidence-URL integrity checks still gate a Grade-A signal.
     assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ recommended_action: '' })] }), null);
+    assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ why_it_matters: '' })] }), null);
     assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ url: '' })] }), null);
-    assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ customer_value: { score: 79, rejection_reasons: ['customer_value_below_telegram_threshold'] } })] }), null);
-    assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ customer_value: { score: 90, rejection_reasons: ['generic_action'] } })] }), null);
+    // A disallowed signal_type never publishes even at Grade A.
+    assert.equal(selectTelegramGoldenIntel({ ...base, signals: [goodSignal({ signal_type: 'situational_awareness' })] }), null);
   });
 
   it('rejects already-posted Golden Intel even when re-ingested with a new id', () => {
