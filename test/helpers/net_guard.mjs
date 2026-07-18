@@ -29,6 +29,16 @@ export function allowRealNetwork() {
   globalThis.fetch = _realFetch;
 }
 
+// R-F2739 — local capability tests deliberately boot an isolated server. Give
+// them a narrow escape hatch that can never reach production or the LAN.
+export function allowLoopbackNetwork() {
+  globalThis.fetch = async (url, options) => {
+    const parsed = new URL(String(url && url.url ? url.url : url));
+    if (!['127.0.0.1', 'localhost', '[::1]', '::1'].includes(parsed.hostname)) return _blocked(url);
+    return _realFetch(url, options);
+  };
+}
+
 export function blockRealNetwork() {
   globalThis.fetch = async (url) => _blocked(url);
 }

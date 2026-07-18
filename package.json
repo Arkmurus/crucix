@@ -19,8 +19,9 @@
     "fresh-start": "npm run clean && npm start",
     "lint": "node scripts/lint.mjs",
     "lint:changed": "node scripts/lint.mjs --changed",
-    "test": "node --test --test-force-exit --import ./test/helpers/net_guard.mjs test/",
-    "test:live": "node --test --test-force-exit test/"
+    "test": "node --test --test-force-exit --test-concurrency=2 --import ./test/helpers/net_guard.mjs \"test/**/*.test.mjs\"",
+    "test:offline": "node --test --test-force-exit --test-concurrency=2 --import ./test/helpers/net_guard.mjs \"test/**/*.test.mjs\"",
+    "test:live": "node --test --test-force-exit --test-concurrency=2 \"test/**/*.test.mjs\""
   },
   "keywords": [
     "osint",

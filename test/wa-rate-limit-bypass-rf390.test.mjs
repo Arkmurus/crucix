@@ -26,6 +26,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import express from 'express';
 import { applyRateLimiting } from '../middleware/rateLimiter.mjs';
+import { allowLoopbackNetwork } from './helpers/net_guard.mjs';
+allowLoopbackNetwork();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const RL_SRC = readFileSync(join(__dirname, '..', 'middleware', 'rateLimiter.mjs'), 'utf8');

@@ -27,11 +27,11 @@ const STATUS_RT = read('lib', 'status', 'routes.mjs');
 let failures = 0;
 const check = (label, cond) => { console.log((cond ? '  ✓ ' : '  ✗ ') + label); if (!cond) failures++; };
 
-console.log('R-F971 — home dashboard labelled as OSINT sweep (not brain):');
-check('dashboard names the OSINT market sweep as the source',
-  /OSINT\s+market\s+sweep/i.test(DASH));
-check('dashboard distinguishes it from the brain + links to /aria-brain',
-  /brain knowledge base/i.test(DASH) && /href="\/aria-brain"/.test(DASH));
+console.log('R-F971 — home dashboard distinguishes decision intelligence from raw collection:');
+check('dashboard names the decision layer and its material inputs',
+  /decision layer/i.test(DASH) && /material DD, watchlist, deal/i.test(DASH));
+check('dashboard distinguishes raw collection and links to source health',
+  /raw collection remains in the Research Monitor/i.test(DASH) && /href="\/aria-brain"/.test(DASH));
 
 console.log('\nR-F972 — share footer points at the correct domain:');
 check('bd-intelligence no longer references intel.sursec.co.uk',

@@ -15,6 +15,8 @@ import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pbkdf2Sync } from 'node:crypto';
+import { allowLoopbackNetwork } from './helpers/net_guard.mjs';
+allowLoopbackNetwork();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');

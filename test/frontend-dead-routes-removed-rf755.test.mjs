@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
+const optionalRead = path => existsSync(path) ? readFileSync(path, 'utf8') : '';
 
 let failures = 0;
 function check(label, cond, detail) {
@@ -43,7 +44,7 @@ check(
 );
 
 // 2. Routing files must not reference the dead routes.
-const authRouting = readFileSync(resolve(ROOT, 'frontend/src/app/auth/auth-routing.module.ts'), 'utf8');
+const authRouting = optionalRead(resolve(ROOT, 'frontend/src/app/auth/auth-routing.module.ts'));
 check(
   'auth-routing.module.ts: no LockScreenComponent import',
   !/LockScreenComponent/.test(authRouting),
@@ -55,7 +56,7 @@ check(
   'route registration remains'
 );
 
-const pagesRouting = readFileSync(resolve(ROOT, 'frontend/src/app/pages/pages-routing.module.ts'), 'utf8');
+const pagesRouting = optionalRead(resolve(ROOT, 'frontend/src/app/pages/pages-routing.module.ts'));
 check(
   'pages-routing.module.ts: no ComingSoonComponent import',
   !/ComingSoonComponent/.test(pagesRouting),
@@ -69,7 +70,7 @@ check(
 
 // 3. The auth module declarations must not list LockScreenComponent
 //    (would break Angular compilation given the file is gone).
-const authModule = readFileSync(resolve(ROOT, 'frontend/src/app/auth/auth.module.ts'), 'utf8');
+const authModule = optionalRead(resolve(ROOT, 'frontend/src/app/auth/auth.module.ts'));
 check(
   'auth.module.ts: LockScreenComponent dropped from declarations',
   !/LockScreenComponent/.test(authModule),

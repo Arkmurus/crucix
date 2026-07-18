@@ -15,6 +15,8 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { allowLoopbackNetwork } from './helpers/net_guard.mjs';
+allowLoopbackNetwork();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -65,6 +67,14 @@ function startServer(envOverrides) {
   });
 }
 
+function stopServer(proc) {
+  if (proc.exitCode !== null) return Promise.resolve();
+  return new Promise(resolveP => {
+    proc.once('exit', resolveP);
+    proc.kill();
+  });
+}
+
 async function getStatus(port) {
   const r = await fetch(`http://127.0.0.1:${port}/api/auth/system-status`);
   return await r.json();
@@ -106,7 +116,7 @@ console.log('1. Boot empty -> mint admin -> system-status reflects new state wit
   check('after admin.matchesEnv=true', after.admin.matchesEnv === true);
   check('after admin.envEmailSet=true', after.admin.envEmailSet === true);
   check('bootedAt is stable across requests', after.bootedAt === bootedAtBefore);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -120,7 +130,7 @@ console.log('\n2. Runtime mint of non-admin user does NOT flip admin counts');
   check('users.total=1', s.users.total === 1);
   check('users.admins=0', s.users.admins === 0);
   check('admin.anomaly=no-admin (still)', s.admin.anomaly === 'no-admin');
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -139,7 +149,7 @@ console.log('\n3. Runtime mint of 2nd admin -> anomaly=multiple-admins');
   check('after users.admins=2', after.users.admins === 2);
   check('after admin.anomaly=multiple-admins', after.admin.anomaly === 'multiple-admins');
   check('after admin.matchesEnv=false', after.admin.matchesEnv === false);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -153,7 +163,7 @@ console.log('\n4. Runtime mint of admin with email != ADMIN_EMAIL -> anomaly=env
   check('users.admins=1', s.users.admins === 1);
   check('admin.anomaly=env-mismatch', s.admin.anomaly === 'env-mismatch');
   check('admin.matchesEnv=false', s.admin.matchesEnv === false);
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -167,7 +177,7 @@ console.log('\n5. No ADMIN_EMAIL env + runtime admin -> envEmailSet=false, anoma
   check('admin.envEmailSet=false', s.admin.envEmailSet === false);
   check('admin.matchesEnv=false', s.admin.matchesEnv === false);
   check('admin.anomaly=ok (no env to compare against)', s.admin.anomaly === 'ok');
-  proc.kill();
+  await stopServer(proc);
   rmSync(dir, { recursive: true, force: true });
 }
 

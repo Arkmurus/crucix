@@ -23,6 +23,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import http from 'node:http';
+import { allowLoopbackNetwork } from './helpers/net_guard.mjs';
+allowLoopbackNetwork();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(__dirname, '..', 'server.mjs'), 'utf8');
