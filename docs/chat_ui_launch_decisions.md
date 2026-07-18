@@ -1,5 +1,15 @@
 # ARIA launch decisions — operator brief
 
+> ⚠️ **SUPERSEDED for tier/pricing figures (2026-07-18, R-F2764).** The LIVE source
+> of truth for tiers is **`lib/billing/tiers.mjs`** (served at `/api/billing/config`):
+> Free £0 — 50 msg/day · 5 DD/mo · 5 MB · deep research · no API ·
+> Essentials £79 — 200 msg/day · 20 DD/mo · 5 MB ·
+> Pro Intel £199 — 2000 msg/day · 100 DD/mo · 50 MB · deep research · API.
+> The "two tiers / $20 Pro / free 10 msg-day, no DD" figures below are the ORIGINAL
+> launch decision and are **no longer current** — do NOT regenerate any pricing page
+> or entitlement from this doc; read `tiers.mjs`. (Tiers are under review pending the
+> DeepSeek→Claude cost switch — see [[llm_switch_claude_and_cycle5_2026_07_18]].)
+
 **Purpose**: concrete recommendations for the 5 open decisions in
 `chat_ui_scope_2026-10.md` so the operator can sign off in one pass.
 
