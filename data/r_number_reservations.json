@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2728,
+  "next_available": 2729,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21164,9 +21164,10 @@
       "title": "DD Grade-A: anchored controlled_by from corporate-PSC identification regnum",
       "claimed_at": "2026-07-18T11:14:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4c9936ff",
+      "notes": null,
+      "shipped_at": "2026-07-18T11:30:32Z"
     },
     {
       "r_number": "R-F2727",
@@ -21177,6 +21178,16 @@
       "commit_sha": "84951c2e",
       "notes": null,
       "shipped_at": "2026-07-18T11:28:17Z"
+    },
+    {
+      "r_number": "R-F2728",
+      "title": "Batch 3 diagnostic honesty (sibling): every_agent_probe residual false-failures → probe_verdict (total_signals + Active NOW recency)",
+      "claimed_at": "2026-07-18T11:29:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e59c2e31",
+      "notes": null,
+      "shipped_at": "2026-07-18T11:32:04Z"
     }
   ]
 }
