@@ -2194,13 +2194,22 @@ def _get_direct_sync(key: str) -> str | None:
     get()'s lazy-TTL + 'string' kind semantics. Best-effort — None on any error."""
     if _DB_PATH is None:
         return None
+    # R-F2707 — route cold-prefix keys to the COLD db file so the storm-proof direct
+    # reader doesn't silently return a false None for a value that lives in
+    # aria_knowledge_store.db when the hot/cold split is on. Latent today (the only
+    # get_direct caller reads a HOT dd:report key), but a cold-key reader added later
+    # would get "absent" for a present fact → data-blindness/fabrication. Byte-identical
+    # when the split is off or the key is hot.
+    _db = _DB_PATH
+    if _HOTCOLD_SPLIT and _COLD_DB_PATH is not None and _route_db(key) == "cold":
+        _db = _COLD_DB_PATH
     import sqlite3
     try:
         # NOT mode=ro: a read-only URI connection can't read UNCHECKPOINTED WAL data
         # (a just-written blob still in the -wal file). A normal connection + query_only
         # reads the WAL like any reader (WAL readers never block on the writer) while
         # still rejecting writes — so this is storm-proof for freshly-written values too.
-        conn = sqlite3.connect(str(_DB_PATH), timeout=2.0)
+        conn = sqlite3.connect(str(_db), timeout=2.0)
         try:
             conn.execute("PRAGMA query_only=ON")
             row = conn.execute(
