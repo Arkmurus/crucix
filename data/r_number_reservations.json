@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2767,
+  "next_available": 2769,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21565,6 +21565,26 @@
       "commit_sha": "23a449c7",
       "notes": null,
       "shipped_at": "2026-07-18T17:52:16Z"
+    },
+    {
+      "r_number": "R-F2767",
+      "title": "Phase 3 — per-tier Claude cost attribution (set_tier contextvar + by_tier rollup + unit-economics endpoint + Node->Python tier plumbing)",
+      "claimed_at": "2026-07-18T17:59:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "76824081",
+      "notes": null,
+      "shipped_at": "2026-07-18T18:31:20Z"
+    },
+    {
+      "r_number": "R-F2768",
+      "title": "Phase 2 — model-level Claude routing (Haiku extraction / Sonnet DD+chat / Opus audit-grade) via tier_router + per-call model override",
+      "claimed_at": "2026-07-18T17:59:21Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "02eb1dfb",
+      "notes": null,
+      "shipped_at": "2026-07-18T18:31:20Z"
     }
   ]
 }
