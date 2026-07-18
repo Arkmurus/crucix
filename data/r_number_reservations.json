@@ -21484,9 +21484,10 @@
       "title": "brain semaphore event loop ownership",
       "claimed_at": "2026-07-18T17:11:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "48860313",
+      "notes": null,
+      "shipped_at": "2026-07-18T22:07:19Z"
     },
     {
       "r_number": "R-F2759",
@@ -21513,9 +21514,10 @@
       "title": "brain absorption task lifecycle",
       "claimed_at": "2026-07-18T17:20:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "48860313",
+      "notes": null,
+      "shipped_at": "2026-07-18T22:07:19Z"
     },
     {
       "r_number": "R-F2762",
@@ -21532,9 +21534,10 @@
       "title": "lifespan os alias shadow",
       "claimed_at": "2026-07-18T17:25:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "48860313",
+      "notes": null,
+      "shipped_at": "2026-07-18T22:07:19Z"
     },
     {
       "r_number": "R-F2764",
@@ -21669,18 +21672,20 @@
       "title": "exclude public-webmail domains from DD same-company share (cross-tenant leak fix)",
       "claimed_at": "2026-07-18T21:32:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c3fc0d37",
+      "notes": null,
+      "shipped_at": "2026-07-18T22:07:19Z"
     },
     {
       "r_number": "R-F2778",
       "title": "external-token fail-closed on DD report index + access-by-id (R-F2138 residual)",
       "claimed_at": "2026-07-18T21:40:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1d835f1a",
+      "notes": null,
+      "shipped_at": "2026-07-18T22:07:19Z"
     }
   ]
 }
