@@ -114,6 +114,34 @@ CHANGE_TYPES = {
     "optimisation":      {"auto_deploy": _R462_AUTO_DEPLOY_DEFAULT, "description": "Performance or quality optimisation"},
 }
 
+CODER_SCOREBOARD_KEY = "crucix:aria:coder:scoreboard"
+
+
+def _gold_lane_int_env(name: str, default: int) -> int:
+    """Read a non-negative integer threshold, failing closed to default."""
+    try:
+        return max(0, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _gold_lane_float_env(name: str, default: float) -> float:
+    """Read a float threshold, failing closed to default."""
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    if value < 0:
+        return default
+    return value
+
+
+GOLD_LANE_MIN_FIXED = _gold_lane_int_env("ARIA_CODER_GOLD_LANE_MIN_FIXED", 20)
+GOLD_LANE_MIN_GOLD = _gold_lane_int_env("ARIA_CODER_GOLD_LANE_MIN_GOLD", 10)
+GOLD_LANE_MAX_BLOCKED_RATIO = _gold_lane_float_env(
+    "ARIA_CODER_GOLD_LANE_MAX_BLOCKED_RATIO", 0.25
+)
+
 # R-F851 (2026-05-24) — honesty-foundation files that may be STAGED for a
 # human to review+deploy, but must NEVER auto-deploy regardless of change_type
 # or ARIA_SELF_IMPROVE_AUTO_DEPLOY. These files ARE the constitution / the
@@ -309,6 +337,62 @@ def _auto_deploy_allowed(file_path: str, change_type: str) -> bool:
     if ct is None:
         return False  # unknown change_type → require human review (fail-closed)
     return bool(ct.get("auto_deploy", False))
+
+
+def _autonomous_gold_lane_decision(scoreboard: dict | None) -> dict:
+    """Whether autonomous self-improvement has earned direct deploy."""
+    counts = (scoreboard or {}).get("counts") or {}
+
+    def _as_int(value: object) -> int:
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            return 0
+
+    fixed = _as_int(counts.get("fixed"))
+    gold = _as_int(counts.get("gold"))
+    blocked = _as_int(counts.get("blocked"))
+    claimed = _as_int(counts.get("claimed"))
+    attempts = max(claimed, fixed + blocked)
+    blocked_ratio = (blocked / attempts) if attempts else 1.0
+
+    reasons: list[str] = []
+    if fixed < GOLD_LANE_MIN_FIXED:
+        reasons.append(f"fixed {fixed} < {GOLD_LANE_MIN_FIXED}")
+    if gold < GOLD_LANE_MIN_GOLD:
+        reasons.append(f"gold {gold} < {GOLD_LANE_MIN_GOLD}")
+    if blocked_ratio > GOLD_LANE_MAX_BLOCKED_RATIO:
+        reasons.append(
+            f"blocked_ratio {blocked_ratio:.3f} > {GOLD_LANE_MAX_BLOCKED_RATIO:.3f}"
+        )
+
+    return {
+        "allowed": not reasons,
+        "reasons": reasons,
+        "counts": {
+            "claimed": claimed,
+            "fixed": fixed,
+            "gold": gold,
+            "blocked": blocked,
+            "attempts": attempts,
+        },
+        "blocked_ratio": blocked_ratio,
+    }
+
+
+async def _autonomous_gold_lane_allows_deploy() -> dict:
+    """Read the live coder scoreboard and decide direct-deploy maturity."""
+    try:
+        scoreboard = await rs.get_json(CODER_SCOREBOARD_KEY) or {}
+    except Exception as e:
+        wire_failure(
+            module="self_improve",
+            detail=f"Gold-lane scoreboard read failed: {e}",
+            gap_type="autonomous_gold_lane_unavailable",
+            source="self_improve:gold_lane_gate",
+        )
+        scoreboard = {}
+    return _autonomous_gold_lane_decision(scoreboard)
 
 
 # Root directory
@@ -1964,7 +2048,7 @@ async def autonomous_improvement_cycle(llm) -> dict:
       1. Check recent errors → detect patterns → generate bug fixes
       2. Analyse conversation quality → evolve prompts if needed
       3. Review neural memory health → prune or strengthen
-      4. Auto-deploy safe fixes (bug_fix, optimisation)
+      4. Auto-deploy eligible fixes only after the gold-lane maturity gate
       5. Stage risky changes for human review (prompt_evolution, enhancement)
     """
     if not llm or not llm.is_configured:
@@ -2061,7 +2145,12 @@ async def autonomous_improvement_cycle(llm) -> dict:
                         # False for these (stage_improvement → _auto_deploy_allowed);
                         # this second check guards against a future path that sets
                         # the flag directly.
-                        if stage_result.get("auto_deployable") and file_path not in NO_AUTODEPLOY_FILES:
+                        gold_lane = await _autonomous_gold_lane_allows_deploy()
+                        if (
+                            stage_result.get("auto_deployable")
+                            and file_path not in NO_AUTODEPLOY_FILES
+                            and gold_lane.get("allowed")
+                        ):
                             deploy_result = await deploy_improvement(stage_result["id"])
                             if deploy_succeeded(deploy_result):   # R-F1960 — canonical contract
                                 results["auto_deployed"] += 1
@@ -2074,6 +2163,21 @@ async def autonomous_improvement_cycle(llm) -> dict:
                                 "[Self-Improve] R-F851 BLOCKED auto-deploy of "
                                 "honesty-critical file %s — staged for human approval only",
                                 file_path,
+                            )
+                        elif stage_result.get("auto_deployable"):
+                            logger.warning(
+                                "[Self-Improve] R-F2689 blocked auto-deploy of %s: %s",
+                                file_path,
+                                "; ".join(gold_lane.get("reasons") or ["gold lane not earned"]),
+                            )
+                            wire_failure(
+                                module="self_improve",
+                                detail=(
+                                    "Auto-deploy blocked by gold-lane maturity gate: "
+                                    + "; ".join(gold_lane.get("reasons") or ["not earned"])
+                                ),
+                                gap_type="autonomous_gold_lane_not_earned",
+                                source="self_improve:gold_lane_gate",
                             )
     except Exception as e:
         logger.warning("[Self-Improve] Error analysis failed: %s", e)

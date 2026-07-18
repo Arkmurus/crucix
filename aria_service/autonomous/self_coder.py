@@ -18,13 +18,14 @@ Per the operator's audit mandate (R-F462, 2026-05-14), the existing
 `aria_service/intel/self_improve.py` staging queue is the official
 operator-approval surface. ARIACoder runs FIX_GAP end-to-end but
 deposits the result into `self_improve.py`'s staged queue rather than
-deploying directly — UNLESS:
+deploying directly — UNLESS all eligibility and maturity gates pass:
 
   (a) `gap.gap_type` is in the deterministic auto-fixable set
       (see `gap_detector.AUTONOMY_LEVEL`),
   (b) `ARIA_SELF_IMPROVE_AUTO_DEPLOY=1` is set on the host,
   (c) the change is `bug_fix` change_type, and
-  (d) the constitutional validator passed with risk_score < 0.3.
+  (d) the live coder scoreboard has earned the R-F2689 gold-lane gate
+      (enough fixed/gold outcomes with a low blocked ratio).
 
 All four must hold for direct deploy. Otherwise: stage for operator.
 
@@ -92,6 +93,32 @@ SCOREBOARD_KEY = "crucix:aria:coder:scoreboard"
 SCOREBOARD_BUCKETS = ("claimed", "fixed", "staged", "gold", "blocked")
 
 
+def _gold_lane_int_env(name: str, default: int) -> int:
+    """Read a non-negative integer threshold, failing closed to default."""
+    try:
+        return max(0, int(os.environ.get(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _gold_lane_float_env(name: str, default: float) -> float:
+    """Read a float threshold, failing closed to default."""
+    try:
+        value = float(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    if value < 0:
+        return default
+    return value
+
+
+GOLD_LANE_MIN_FIXED = _gold_lane_int_env("ARIA_CODER_GOLD_LANE_MIN_FIXED", 20)
+GOLD_LANE_MIN_GOLD = _gold_lane_int_env("ARIA_CODER_GOLD_LANE_MIN_GOLD", 10)
+GOLD_LANE_MAX_BLOCKED_RATIO = _gold_lane_float_env(
+    "ARIA_CODER_GOLD_LANE_MAX_BLOCKED_RATIO", 0.25
+)
+
+
 @dataclass
 class FixPlan:
     fix_id: str
@@ -143,6 +170,58 @@ GAP_TYPE_TO_CHANGE_TYPE: dict[str, str] = {
 def gap_type_to_change_type(gap_type: str) -> str:
     """Map a Gap.gap_type to a self_improve.CHANGE_TYPES key."""
     return GAP_TYPE_TO_CHANGE_TYPE.get(gap_type, "enhancement")
+
+
+@fail_wire(module="self_coder", gap_type="agent_cycle_failure")
+def autonomous_gold_lane_decision(scoreboard: dict | None) -> dict:
+    """Return whether autonomous code is mature enough to auto-deploy.
+
+    This is an evidence gate, not a feature flag. ARIA may still write and stage
+    fixes, but direct deploy is held until the live scoreboard shows enough
+    proven fixed/gold outcomes and a low blocked ratio.
+    """
+    counts = (scoreboard or {}).get("counts") or {}
+
+    def _as_int(value: object) -> int:
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            return 0
+
+    fixed = _as_int(counts.get("fixed"))
+    gold = _as_int(counts.get("gold"))
+    blocked = _as_int(counts.get("blocked"))
+    claimed = _as_int(counts.get("claimed"))
+    attempts = max(claimed, fixed + blocked)
+    blocked_ratio = (blocked / attempts) if attempts else 1.0
+
+    reasons: list[str] = []
+    if fixed < GOLD_LANE_MIN_FIXED:
+        reasons.append(f"fixed {fixed} < {GOLD_LANE_MIN_FIXED}")
+    if gold < GOLD_LANE_MIN_GOLD:
+        reasons.append(f"gold {gold} < {GOLD_LANE_MIN_GOLD}")
+    if blocked_ratio > GOLD_LANE_MAX_BLOCKED_RATIO:
+        reasons.append(
+            f"blocked_ratio {blocked_ratio:.3f} > {GOLD_LANE_MAX_BLOCKED_RATIO:.3f}"
+        )
+
+    return {
+        "allowed": not reasons,
+        "reasons": reasons,
+        "counts": {
+            "claimed": claimed,
+            "fixed": fixed,
+            "gold": gold,
+            "blocked": blocked,
+            "attempts": attempts,
+        },
+        "blocked_ratio": blocked_ratio,
+        "thresholds": {
+            "min_fixed": GOLD_LANE_MIN_FIXED,
+            "min_gold": GOLD_LANE_MIN_GOLD,
+            "max_blocked_ratio": GOLD_LANE_MAX_BLOCKED_RATIO,
+        },
+    }
 
 
 @fail_wire(module="self_coder", gap_type="agent_cycle_failure")
@@ -1135,6 +1214,7 @@ class ARIACoder:
                 plan=plan, change_type=change_type,
                 force_stage=force_stage,
                 force_deploy=force_deploy,
+                gold_lane=autonomous_gold_lane_decision(await self.get_scoreboard()),
             )
             if not stage_ok:
                 return FixResult(
@@ -1810,6 +1890,7 @@ class ARIACoder:
         change_type: str,
         force_stage: bool = False,
         force_deploy: bool = False,
+        gold_lane: dict | None = None,
     ) -> tuple[bool, str, list[str]]:
         """Route code changes through `self_improve.stage_improvement`.
 
@@ -1817,7 +1898,8 @@ class ARIACoder:
         the existing operator-facing pipeline. If the change_type is in
         the auto-deployable set per `self_improve.CHANGE_TYPES`
         (gated by `ARIA_SELF_IMPROVE_AUTO_DEPLOY=1` per R-F462), call
-        `deploy_improvement` immediately. Otherwise items remain at
+        `deploy_improvement` immediately only if the live coder scoreboard has
+        earned the gold-lane maturity gate. Otherwise items remain at
         `/api/aria/self/staged` for operator review.
 
         Returns: (success, status, staged_ids) where status is one of:
@@ -1859,13 +1941,14 @@ class ARIACoder:
         # review returned FLAGGED. Even a bug_fix with R-F462 open will
         # stay staged so the operator gets eyes on Claude's concerns.
         #
-        # R-F821: force_deploy overrides the R-F462 gate when ticket-mode
-        # is enabled (ARIA_CODER_AUTO_DEPLOY_AND_TICKET=1). In that mode
-        # we auto-deploy ALL approved-or-unreviewed changes (the gate
-        # is GitHub Issue audit, not pre-deploy approval).
+        # R-F2689: the R-F462 flag and ticket-mode force_deploy only make a
+        # change eligible. Direct deploy still requires a live scoreboard
+        # maturity gate; current live evidence with zero gold fixes must stage.
         ct_cfg = _si.CHANGE_TYPES.get(change_type, {})
         gate_open = bool(ct_cfg.get("auto_deploy")) or force_deploy
-        batch_eligible = gate_open and not force_stage
+        gold_lane = gold_lane or autonomous_gold_lane_decision({})
+        gold_lane_allowed = bool(gold_lane.get("allowed"))
+        batch_eligible = gate_open and gold_lane_allowed and not force_stage
 
         # R-F851 (2026-05-24) — per-FILE constitution guard. Honesty-critical
         # files (self_improve.NO_AUTODEPLOY_FILES: aria_engine.py, v3_prompts.py,
@@ -1896,6 +1979,28 @@ class ARIACoder:
                 reason = "claude_flagged"
             elif blocked_critical and batch_eligible:
                 reason = "constitution_guard_r_f851"
+            elif gate_open and not gold_lane_allowed:
+                reason = "gold_lane_not_earned"
+                logger.warning(
+                    "[aria_coder] R-F2689 blocked auto-deploy: %s",
+                    "; ".join(gold_lane.get("reasons") or ["gold lane not earned"]),
+                )
+                try:
+                    from aria_service.intel.engine_wiring import wire_failure as _wf2689
+                    _wf2689(
+                        module="aria_coder",
+                        detail=(
+                            "Auto-deploy blocked by gold-lane maturity gate: "
+                            + "; ".join(gold_lane.get("reasons") or ["not earned"])
+                        ),
+                        gap_type="autonomous_gold_lane_not_earned",
+                        source="aria_coder:gold_lane_gate",
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "[aria_coder] R-F2689 gold-lane wire_failure failed: %s",
+                        e,
+                    )
             else:
                 reason = "r_f462_gate_closed"
             logger.info(

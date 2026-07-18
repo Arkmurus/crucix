@@ -188,10 +188,11 @@ class TestStageOrDeploy:
             assert "stage_failed" in status
             assert "schema validation failed" in status
 
-    def test_auto_deploy_when_r_f462_gate_open(self) -> None:
+    def test_auto_deploy_when_r_f462_gate_open_and_gold_lane_earned(self) -> None:
         """When CHANGE_TYPES[change_type]["auto_deploy"] is True (i.e.
-        ARIA_SELF_IMPROVE_AUTO_DEPLOY=1 at module import), auto-deploy
-        each staged item via self_improve.deploy_improvement."""
+        ARIA_SELF_IMPROVE_AUTO_DEPLOY=1 at module import) AND the R-F2689
+        gold-lane maturity gate is earned, auto-deploy each staged item via
+        self_improve.deploy_improvement."""
         coder = _make_coder()
         plan = _make_plan()
         with patch(
@@ -210,7 +211,9 @@ class TestStageOrDeploy:
             mock_deploy.return_value = {"ok": True}
 
             async def body():
-                return await coder._stage_or_deploy(plan, "bug_fix")
+                return await coder._stage_or_deploy(
+                    plan, "bug_fix", gold_lane={"allowed": True, "reasons": []}
+                )
 
             ok, status, ids = _run(body())
             assert ok
@@ -298,7 +301,9 @@ class TestStageOrDeploy:
             mock_deploy.return_value = {"ok": False, "error": "git push failed"}
 
             async def body():
-                return await coder._stage_or_deploy(plan, "bug_fix")
+                return await coder._stage_or_deploy(
+                    plan, "bug_fix", gold_lane={"allowed": True, "reasons": []}
+                )
 
             ok, status, ids = _run(body())
             assert not ok
