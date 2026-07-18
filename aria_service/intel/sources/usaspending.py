@@ -28,6 +28,26 @@ def is_available() -> bool:
     return True
 
 
+def _recipient_confirms(query_tokens: set, recipient: str) -> bool:
+    """R-F2741 — does a federal award's recipient name confirm the queried entity?
+
+    Mirrors the sec_edgar R-F572 name-overlap gate so a fuzzy `recipient_search_text`
+    hit for a DIFFERENT company (Acme Ltd → "ACME WIDGETS LLC") is not attributed to
+    the subject. Exact token-set match, OR ≥2 shared meaningful tokens, OR 1 shared
+    token of ≥5 chars (handles single-word names like "EMBRAER"); else reject.
+    """
+    from .._sanctions_classify import _tokenize_entity_name
+    ct = _tokenize_entity_name(recipient)
+    if not query_tokens or not ct:
+        return False
+    if query_tokens == ct:
+        return True
+    shared = query_tokens & ct
+    if len(shared) >= 2:
+        return True
+    return len(shared) == 1 and len(next(iter(shared))) >= 5
+
+
 async def lookup(name: str, max_awards: int = 8) -> dict | None:
     """Return a US-federal-contract summary for ``name`` (or None if no awards / on failure).
 
@@ -61,10 +81,22 @@ async def lookup(name: str, max_awards: int = 8) -> dict | None:
         cb.record_success()
         if not results:
             return None  # no US federal contracts — honest signal, not an error
+        # R-F2741 — `recipient_search_text` is a FUZZY search: it returns awards for
+        # companies whose name merely RESEMBLES the query. Attaching all of them (and
+        # summing their dollar totals) attributes OTHER firms' federal contracts to the
+        # subject. Gate each award on its own recipient name confirming the query — the
+        # same token-overlap discipline sec_edgar uses (R-F572) — and drop the rest.
+        from .._sanctions_classify import _tokenize_entity_name
+        _qtok = _tokenize_entity_name(q)
         awards: list = []
         total = 0.0
         agencies: dict = {}
+        _dropped = 0
         for a in results:
+            recipient = a.get("Recipient Name", "") or ""
+            if not _recipient_confirms(_qtok, recipient):
+                _dropped += 1
+                continue
             try:
                 amtf = float(a.get("Award Amount") or 0)
             except (TypeError, ValueError):
@@ -75,11 +107,15 @@ async def lookup(name: str, max_awards: int = 8) -> dict | None:
                 agencies[ag] = agencies.get(ag, 0) + 1
             awards.append({
                 "award_id": a.get("Award ID", "") or "",
-                "recipient": a.get("Recipient Name", "") or "",
+                "recipient": recipient,
                 "amount_usd": amtf,
                 "agency": ag,
                 "start_date": a.get("Period of Performance Start Date", "") or "",
             })
+        if _dropped:
+            logger.debug("[usaspending] R-F2741 dropped %d award(s) whose recipient did not match %r", _dropped, q)
+        if not awards:
+            return None  # the search matched only DIFFERENT companies — honest: no awards for THIS entity
         top_agencies = sorted(agencies, key=lambda k: agencies[k], reverse=True)[:4]
         summary = {
             "recipient": awards[0]["recipient"] if awards else q,
