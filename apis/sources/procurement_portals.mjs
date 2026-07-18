@@ -216,6 +216,17 @@ async function monitorMarket(market) {
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
+// R-F2720 (Codex #11) — honest per-market classification. `method` is the retrieval
+// method that ran ('portal_rss'/'google_site'/'google_country'), or 'none' (no method
+// produced) / 'error' (an exception, see the per-market catch). Distinguishing these is
+// what makes the fix safe here (unlike procurement_tenders, which can't tell a 500 that
+// returned [] from a genuine empty): 'error'/'none' → failed; a real method with data →
+// ok; a real method with no data → 'empty' (successful-empty, a legitimate result).
+export function classifyMarketResult(method, itemCount) {
+  if (method === 'none' || method === 'error') return 'failed';
+  return itemCount > 0 ? 'ok' : 'empty';
+}
+
 export async function briefing() {
   console.log(`[Portals] Monitoring ${PRIORITY_MARKETS.length} government procurement portals...`);
 
@@ -296,8 +307,14 @@ export async function briefing() {
     const { market, items, method } = result.value;
     if (market?.name === '__timeout__') continue;
 
-    sourceStatus[market.name] = method !== 'none' ? 'ok' : 'failed';
-    marketCoverage[market.name] = { count: items.length, method };
+    // R-F2720 (Codex #11) — honest per-market status. Was `method !== 'none' ? 'ok' : 'failed'`,
+    // which counted an EXCEPTION (method='error', line ~248) as 'ok' and a method that ran but
+    // returned ZERO items as 'ok' too (yield-blind). Now: an error/no-method is 'failed'; a real
+    // method with data is 'ok'; a real method with no data is 'empty' (successful-empty — a
+    // legitimate result, tracked distinctly so it never inflates coverage). Only 'ok' counts
+    // toward okCount/_subStatus, so ProcurementPortals' real 0-yield reads honestly as low coverage.
+    sourceStatus[market.name] = classifyMarketResult(method, items.length);
+    marketCoverage[market.name] = { count: items.length, method, yielded: items.length > 0 };
 
     for (const item of items) {
       const rel = scoreItem(item.title, item.description, market);
@@ -311,6 +328,16 @@ export async function briefing() {
         relevanceScore: rel,
       });
     }
+  }
+
+  // R-F2720 (Codex #11) — a market that produced no classifiable result (its promise did
+  // not settle before the outer time budget, or rejected uncaught) was silently DROPPED
+  // from sourceStatus (it "disappeared"), so the operator couldn't tell it from one never
+  // attempted. Name them 'unresolved' so they are visible and correctly count against
+  // coverage (ok < total → the R-F552 partial demotion). Honest label: we don't assert
+  // "timeout" specifically because a bare rejection lands here too.
+  for (const m of PRIORITY_MARKETS) {
+    if (!(m.name in sourceStatus)) sourceStatus[m.name] = 'unresolved';
   }
 
   // Deduplicate and sort
