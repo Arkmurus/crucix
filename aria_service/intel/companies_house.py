@@ -258,8 +258,15 @@ async def get_psc(company_number: str) -> list[dict]:
     if not data:
         return []
     items = data.get("items") or []
-    return [
-        {
+    out: list[dict] = []
+    for item in items:
+        # R-F2726 — preserve `identification` for CORPORATE PSCs. For a
+        # corporate-entity PSC the API returns its own registry identifier
+        # (registration_number + country/place registered) — the ANCHOR that turns
+        # "controlled by X" from a name-match guess into a VERIFIED controlled_by
+        # edge (Grade A). Individual PSCs have no identification; that field is None.
+        _ident = item.get("identification") or {}
+        out.append({
             "name": item.get("name"),
             "kind": item.get("kind"),
             "natures_of_control": item.get("natures_of_control") or [],
@@ -268,9 +275,14 @@ async def get_psc(company_number: str) -> list[dict]:
             "notified_on": item.get("notified_on"),
             "ceased_on": item.get("ceased_on"),
             "is_current": item.get("ceased_on") is None,
-        }
-        for item in items
-    ]
+            "identification": {
+                "registration_number": _ident.get("registration_number"),
+                "country_registered": _ident.get("country_registered"),
+                "legal_form": _ident.get("legal_form"),
+                "place_registered": _ident.get("place_registered"),
+            } if _ident else None,
+        })
+    return out
 
 
 @fail_wire(module="companies_house", gap_type="api_missing")
@@ -470,6 +482,29 @@ async def investigate_uk_entity(
     current_officers = [o for o in officers if o.get("is_current")]
     current_psc = [p for p in psc if p.get("is_current")]
 
+    # R-F2726 — ANCHORED controlled_by relationships. A corporate PSC that carries
+    # its own registry number is a VERIFIED control edge (Grade A: the controller
+    # is identified by a primary-source registry id, not a name match — cf. R-F2703,
+    # which correctly refused to publish name-match "relationships"). Individual /
+    # legal-person PSCs remain in psc.current as ownership facts, but are NOT emitted
+    # as corporate control edges (no anchor → not Grade A).
+    controlled_by = []
+    for p in current_psc:
+        ident = p.get("identification") or {}
+        regno = str(ident.get("registration_number") or "").strip()
+        kind = str(p.get("kind") or "").lower()
+        if regno and "corporate" in kind:
+            controlled_by.append({
+                "relationship": "controlled_by",
+                "controller_name": p.get("name"),
+                "controller_registration_number": regno,
+                "controller_country_registered": ident.get("country_registered"),
+                "controller_legal_form": ident.get("legal_form"),
+                "natures_of_control": p.get("natures_of_control", []),
+                "anchor": "companies_house_psc_identification",
+                "grade": "A",  # anchored to a primary-source registry number
+            })
+
     # Ghost detection signals
     ghost_signals = []
     creation_date = profile.get("date_of_creation", "")
@@ -532,6 +567,7 @@ async def investigate_uk_entity(
             "current": current_psc,
             "total": len(psc),
         },
+        "controlled_by": controlled_by,  # R-F2726 — anchored (Grade-A) corporate control edges
         "filings": {
             "recent": filings,
             "total_shown": len(filings),
@@ -610,6 +646,21 @@ def format_for_prompt(investigation: dict) -> str:
             lines.append(f"  - {p['name']} — {controls}")
     else:
         lines.append("\nPSC: NONE DISCLOSED")
+
+    # R-F2726 — anchored control edges: a corporate PSC identified by its own
+    # registry number is a VERIFIED "controlled_by" relationship (Grade A). Present
+    # it as such so the LLM can state it as fact (with the anchor), never as a guess.
+    controlled_by = investigation.get("controlled_by") or []
+    if controlled_by:
+        lines.append(f"\nAnchored control (VERIFIED via corporate-PSC registry number):")
+        for c in controlled_by[:5]:
+            natures = ", ".join(c.get("natures_of_control", []))[:80]
+            lines.append(
+                f"  - Controlled by {c.get('controller_name')} "
+                f"(reg {c.get('controller_registration_number')}, "
+                f"{c.get('controller_country_registered') or '?'})"
+                + (f" — {natures}" if natures else "")
+            )
 
     if filings.get("recent"):
         lines.append(f"\nRecent filings ({filings['total_shown']}):")
