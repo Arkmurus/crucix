@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2757,
+  "next_available": 2767,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21469,6 +21469,102 @@
       "commit_sha": "8833ca69",
       "notes": null,
       "shipped_at": "2026-07-18T16:59:26Z"
+    },
+    {
+      "r_number": "R-F2757",
+      "title": "full aria ecosystem 360 due diligence",
+      "claimed_at": "2026-07-18T17:01:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2758",
+      "title": "brain semaphore event loop ownership",
+      "claimed_at": "2026-07-18T17:11:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2759",
+      "title": "cost_tracker PRICING rows for Claude switch (opus-4-8/4-7, sonnet-5) — cap-safety before flip",
+      "claimed_at": "2026-07-18T17:13:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6ae99f28",
+      "notes": null,
+      "shipped_at": "2026-07-18T17:52:14Z"
+    },
+    {
+      "r_number": "R-F2760",
+      "title": "enable Anthropic prompt caching on system prompt — compounding input-cost cut for Claude switch",
+      "claimed_at": "2026-07-18T17:13:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6ae99f28",
+      "notes": null,
+      "shipped_at": "2026-07-18T17:52:15Z"
+    },
+    {
+      "r_number": "R-F2761",
+      "title": "brain absorption task lifecycle",
+      "claimed_at": "2026-07-18T17:20:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2762",
+      "title": "GRPO cycle: guard against keyword-less recall training + fix driver default to keyworded set",
+      "claimed_at": "2026-07-18T17:20:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1129a6e0",
+      "notes": null,
+      "shipped_at": "2026-07-18T17:25:13Z"
+    },
+    {
+      "r_number": "R-F2763",
+      "title": "lifespan os alias shadow",
+      "claimed_at": "2026-07-18T17:25:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2764",
+      "title": "tier display accuracy — advertise enforced msg/day + upload caps on Essentials/Pro Intel cards before enforcement goes live",
+      "claimed_at": "2026-07-18T17:30:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "55615211",
+      "notes": null,
+      "shipped_at": "2026-07-18T17:52:15Z"
+    },
+    {
+      "r_number": "R-F2765",
+      "title": "enforce per-tier message/DD quotas on web proxy (checkAndConsume) — close the runaway-Claude-spend hole; internal-token exempt",
+      "claimed_at": "2026-07-18T17:31:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fa06f70f",
+      "notes": null,
+      "shipped_at": "2026-07-18T17:52:15Z"
+    },
+    {
+      "r_number": "R-F2766",
+      "title": "cost_tracker DEFAULT_PRICING -> conservative Claude rate (Claude-era unknown models must not under-count the cap)",
+      "claimed_at": "2026-07-18T17:36:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "23a449c7",
+      "notes": null,
+      "shipped_at": "2026-07-18T17:52:16Z"
     }
   ]
 }
