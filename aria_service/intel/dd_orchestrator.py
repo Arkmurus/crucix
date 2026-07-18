@@ -12676,12 +12676,11 @@ async def rescreen_watchlist(llm=None, user_id=None, user_email_domain=None) -> 
     except Exception as e:
         logger.debug("[watchlist purge] non-fatal: %s", e)
 
-    # Enforce cost cap: max 50 entities per cycle
-    entities = watchlist[:_RESCREEN_MAX_ENTITIES]
-
     # R-F2746 — atomic cross-trigger guard: skip if a same-scope re-screen is
     # already running (daily loop vs autonomous sweep vs manual click). Released
     # before the normal return below; a crash self-heals via the lock TTL.
+    # Acquired BEFORE the rotation ordering below so a skipped run does not spend
+    # up to 200 observation reads only to bail.
     _lock_scope = user_id or "global"
     if not await _acquire_rescreen_lock(_lock_scope):
         logger.info(
@@ -12690,6 +12689,35 @@ async def rescreen_watchlist(llm=None, user_id=None, user_email_domain=None) -> 
         )
         return {"entities_screened": 0, "changes_detected": [], "errors": [],
                 "duration_ms": 0, "skipped": "locked"}
+
+    # R-F2752 — ROTATION CURSOR: fair least-recently-rescreened ordering so ALL
+    # watchlist entries are covered over successive cycles within the 50/cycle
+    # cost cap. Before this, watchlist[:50] always took the 50 MOST-RECENTLY-ADDED
+    # entries (add_to_watchlist front-inserts at index 0; get_watchlist preserves
+    # that order), so with up to 200 entries (the WATCHLIST cap) positions 51..200
+    # were NEVER re-screened — an oldest-enrolled counterparty newly added to a
+    # sanctions list would never alert (a silent miss in a compliance-monitoring
+    # feature, and the operator's P0). We order the cycle by last_rescreened_at
+    # ASC (never-rescreened first, then oldest) using the per-entity observation
+    # ts that R-F2744 persists after EVERY source-complete screen (see the
+    # set_json(_obs_key, {..., "ts": ...}) below). Each cycle therefore advances
+    # the screened entities' ts to now, and the next cycle rotates to the next 50.
+    # ISO-8601 UTC timestamps sort lexicographically == chronologically, so a
+    # plain string sort is correct. enrich_watchlist_with_observations is
+    # best-effort (a missing observation leaves last_rescreened_at unset =>
+    # never-rescreened => screened first) and never raises. Degraded/timeout
+    # screens deliberately do NOT persist an observation, so they keep sorting to
+    # the front and are retried preferentially — the correct behaviour.
+    await enrich_watchlist_with_observations(watchlist)
+
+    def _rescreen_rotation_key(_w: dict):
+        _ts = _w.get("last_rescreened_at")
+        return (1, str(_ts)) if _ts else (0, "")
+
+    watchlist = sorted(watchlist, key=_rescreen_rotation_key)
+
+    # Enforce cost cap: max 50 entities per cycle (least-recently-rescreened first)
+    entities = watchlist[:_RESCREEN_MAX_ENTITIES]
 
     changes: list[dict] = []
     errors: list[dict] = []
