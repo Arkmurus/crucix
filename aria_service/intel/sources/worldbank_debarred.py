@@ -228,6 +228,24 @@ async def lookup(
             records, name, name_key="name",
             threshold=threshold, max_hits=max_hits,
         )
+        # R-F2747 — name-overlap gate after the fuzzy filter (mirrors sec_edgar R-F572).
+        # A 0.72 fuzzy match must NOT attribute a World Bank debarment — a SEVERE adverse
+        # finding — to a same-named-but-different firm. Near-exact (score>=0.95) passes;
+        # otherwise require token overlap with the debarred name (≥2 shared, or 1 of ≥5).
+        from .._sanctions_classify import _tokenize_entity_name
+        _qtok = _tokenize_entity_name(name)
+        _gated = []
+        for _h in hits:
+            if float(_h.get("_match_score") or 0.0) >= 0.95:
+                _gated.append(_h)
+                continue
+            _shared = _qtok & _tokenize_entity_name(_h.get("name") or "")
+            if len(_shared) >= 2 or (len(_shared) == 1 and len(next(iter(_shared))) >= 5):
+                _gated.append(_h)
+            else:
+                logger.debug("[worldbank_debarred] R-F2747 gate dropped %r vs query %r",
+                             _h.get("name"), name)
+        hits = _gated
         # Annotate each hit with active/expired status vs. today
         from datetime import date
         today = date.today().isoformat()
