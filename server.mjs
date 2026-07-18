@@ -1485,6 +1485,33 @@ setTelegramLLM(llmProvider);
 // stay cacheable. HTML is the only file that gets aggressively held by
 // browsers without a fingerprint.
 const PUBLIC_DIR = join(ROOT, 'public');
+
+// ── R-F2774: OPERATOR/INFRA PAGE GATE ───────────────────────────────────────
+// MUST be registered BEFORE express.static below, or static serves these .html
+// anonymously first (the express.static mount is top-level middleware — whichever
+// route matches first wins). View pages → poweruser or admin; mutating/admin pages
+// → admin only. Non-authorized navigations are redirected (signin / dashboard).
+// Every URL form of each page is covered. Operator (admin) always passes.
+const _sendOperatorPage = (file) => (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(join(PUBLIC_DIR, file));
+};
+const _OPERATOR_VIEW_PAGES = [
+  ['/aria-brain', 'aria-brain.html'], ['/aria-brain.html', 'aria-brain.html'],
+  ['/sources.html', 'sources.html'],
+  ['/vls-chain.html', 'vls-chain.html'],
+  ['/bd-intelligence.html', 'bd-intelligence.html'],
+  ['/leads.html', 'leads.html'],
+  ['/design-partners.html', 'design-partners.html'],
+];
+const _OPERATOR_ADMIN_PAGES = [
+  ['/vault.html', 'vault.html'], ['/vault.htm', 'vault.html'],
+  ['/wa-connections.html', 'wa-connections.html'],
+  ['/admin.html', 'admin.html'],
+];
+for (const [route, file] of _OPERATOR_VIEW_PAGES) app.get(route, requirePageRole('poweruser', 'admin'), _sendOperatorPage(file));
+for (const [route, file] of _OPERATOR_ADMIN_PAGES) app.get(route, requirePageRole('admin'), _sendOperatorPage(file));
+
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {
@@ -1504,21 +1531,11 @@ authPages.forEach(function(page) {
     res.sendFile(join(PUBLIC_DIR, page + '.html'));
   });
 });
-// ARIA Brain dashboard — served from public/ like all other pages.
-// Auth handled client-side via Auth.requireAuth() (same as dashboard.html).
-// Explicit route for /aria-brain (without .html) — express.static only
-// handles /aria-brain.html, not the extensionless URL.
-app.get('/aria-brain', (req, res) => {
-  res.setHeader('Cache-Control', 'no-cache');
-  res.sendFile(join(PUBLIC_DIR, 'aria-brain.html'));
-});
-// R-F2702 — operator-facing vault alias. Some runbooks/operator links use
-// /vault.htm; serve the same admin-gated page as /vault.html so the source
-// ingestion UI is reachable at the requested URL.
-app.get('/vault.htm', (req, res) => {
-  res.setHeader('Cache-Control', 'no-cache');
-  res.sendFile(join(PUBLIC_DIR, 'vault.html'));
-});
+// R-F2774 — /aria-brain and /vault.htm are now served by the OPERATOR PAGE GATE
+// registered above (before express.static), which requires poweruser/admin (brain)
+// or admin (vault). The old ungated app.get routes here were removed — they were
+// dead code (the gated routes win by earlier registration) and served the pages
+// anonymously.
 console.log('[Crucix] Static dashboard live at /');
 
 app.get('/api/data', requireAuth, (req, res) => {
@@ -4691,6 +4708,58 @@ function requireAdmin(req, res, next) {
   return requireRole('admin')(req, res, next);
 }
 
+// ── R-F2774: server-side operator-page gate + auth cookie ────────────────────
+// Auth is normally localStorage/Bearer, sent ONLY on API fetches — a page
+// NAVIGATION carries no Bearer header, so the server can't authenticate someone
+// typing /vault.html. We mirror the JWT into an httpOnly `crucix_token` cookie at
+// login so the server CAN gate page navigations by role. This is the REAL page
+// gate; the in-page Auth.require*() calls are cosmetic (they run only after the
+// HTML is already delivered). APIs are unchanged — they still use the Bearer
+// header from localStorage, NOT this cookie.
+const _AUTH_COOKIE = 'crucix_token';
+function _setAuthCookie(res, token) {
+  // Secure: HTTPS only (trust proxy set at :1209). SameSite=Lax: sent on top-level
+  // navigations, blocked on cross-site POST → CSRF-safe (and the cookie only gates
+  // GET page reads — it never authenticates a mutating API; those use the Bearer).
+  res.cookie(_AUTH_COOKIE, token, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: 7 * 24 * 3600 * 1000, path: '/' });
+}
+function _clearAuthCookie(res) {
+  res.clearCookie(_AUTH_COOKIE, { httpOnly: true, secure: true, sameSite: 'lax', path: '/' });
+}
+function _cookieToken(req) {
+  const raw = req.headers.cookie || '';
+  for (const part of raw.split(';')) {
+    const i = part.indexOf('=');
+    if (i < 0) continue;
+    if (part.slice(0, i).trim() === _AUTH_COOKIE) return decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return '';
+}
+// Gate an operator/infra PAGE by role. Fail → REDIRECT (browser UX): no/invalid
+// session → /signin.html; authenticated-but-insufficient-role → /dashboard.html.
+// The operator (admin) always passes (admin ⊇ poweruser). Localhost bypass mirrors
+// requireAuth so same-process operator tooling is unaffected.
+function requirePageRole(...allowed) {
+  return (req, res, next) => {
+    const ip = req.ip || req.socket?.remoteAddress || '';
+    const bypassDisabled = (process.env.ARIA_DISABLE_LOCALHOST_BYPASS || '').toLowerCase() === '1';
+    if (!bypassDisabled && (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')) return next();
+    const token = _cookieToken(req);
+    if (!token) return res.redirect(302, '/signin.html');
+    let payload;
+    try {
+      payload = verifyToken(token);
+      if (payload.ver !== undefined) {
+        const u = findUserById(payload.userId);
+        if (u && (u.tokenVersion || 0) !== payload.ver) return res.redirect(302, '/signin.html');
+      }
+    } catch { return res.redirect(302, '/signin.html'); }
+    if (!roleSatisfies(payload.role, allowed)) return res.redirect(302, '/dashboard.html');
+    req.user = payload;
+    return next();
+  };
+}
+
 // ── Auth Routes ───────────────────────────────────────────────────────────────
 
 app.post('/api/auth/register', async (req, res) => {
@@ -4888,6 +4957,7 @@ app.post('/api/auth/login', async (req, res) => {
     const token = createToken(user.id, user.role, '7d', user.tokenVersion || 0);
     const cleanUser = updateUser(user.id, { lastLogin: new Date().toISOString() });
     console.log(`[Auth] login OK email=${_maskEmail(user.email)} id=${user.id} role=${user.role} ip=${req.ip}`);
+    _setAuthCookie(res, token);   // R-F2774 — mirror JWT to httpOnly cookie for server-side page gating
     res.json({ token, user: cleanUser });
   } catch (err) {
     console.error('[Auth] Login error:', err.message);
@@ -4910,6 +4980,7 @@ app.post('/api/auth/2fa/authenticate', async (req, res) => {
     if (!valid) return res.status(401).json({ error: 'Invalid authenticator code' });
     const token = createToken(user.id, user.role, '7d', user.tokenVersion || 0);
     const cleanUser = updateUser(user.id, { lastLogin: new Date().toISOString() });
+    _setAuthCookie(res, token);   // R-F2774
     res.json({ token, user: cleanUser });
   } catch (err) {
     console.error('[Auth] 2FA authenticate error:', err.message);
@@ -4918,6 +4989,13 @@ app.post('/api/auth/2fa/authenticate', async (req, res) => {
 });
 
 // ── 2FA: generate secret + QR code (setup step 1) ────────────────────────────
+// R-F2774 — server-side logout: clears the httpOnly auth cookie (the client can't
+// touch an httpOnly cookie). The client also clears its localStorage token.
+app.post('/api/auth/logout', (req, res) => {
+  _clearAuthCookie(res);
+  res.json({ ok: true });
+});
+
 app.post('/api/auth/2fa/setup', requireAuth, async (req, res) => {
   try {
     const user = findUserById(req.user.userId);

@@ -142,7 +142,10 @@ const Auth = {
     return !!localStorage.getItem('crucix_token');
   },
 
-  logout() {
+  async logout() {
+    // R-F2774 — also clear the httpOnly auth cookie server-side (JS can't touch an
+    // httpOnly cookie), so a logged-out session can't still load operator pages.
+    try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
     localStorage.removeItem('crucix_token');
     localStorage.removeItem('crucix_user');
     window.location.href = '/signin.html';
