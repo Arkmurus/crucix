@@ -40,13 +40,25 @@ class _FakeRS:
 
 
 @pytest.fixture
-def fake_rs_for_dd(monkeypatch):
+def fake_rs_for_dd(monkeypatch, tmp_path):
     """Patch the redis_store module's get_json/set_json with the in-mem
-    fake so list_reports doesn't reach for a real Redis connection."""
+    fake so list_reports doesn't reach for a real Redis connection.
+
+    R-F2777/C8 — ALSO inject an isolated temp DD vault. list_reports
+    reconciles the volatile index against the DURABLE vault on every read
+    (dd_orchestrator ~11672), so mocking Redis alone left the machine's real
+    vault cases (dd_test_*, …) bleeding into the assertions — the no-filter
+    'returns everything' assert was invalid. A temp vault makes the index the
+    sole source, as the test intends."""
     from aria_service.intel import redis_store as real_rs
+    from aria_service.intel import dd_vault
     fake = _FakeRS()
     monkeypatch.setattr(real_rs, "get_json", fake.get_json)
     monkeypatch.setattr(real_rs, "set_json", fake.set_json)
+    monkeypatch.setattr(
+        dd_vault, "_vault_instance",
+        dd_vault.DDVault(db_path=tmp_path / "dd_vault_test.db"),
+    )
     return fake
 
 

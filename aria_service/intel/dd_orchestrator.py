@@ -1504,6 +1504,35 @@ ORCHESTRATOR_ENABLED = (os.getenv("ARIA_DD_ORCHESTRATOR_ENABLED", "1") or "1").s
 
 REPORT_REDIS_KEY = "crucix:dd:report:{run_id}"
 REPORT_INDEX_KEY = "crucix:dd:report_index"
+
+# R-F2777 — CROSS-TENANT LEAK FIX. The R-F608 "same-company" share treats any two
+# users with the SAME email domain as colleagues who may see each other's DDs. That
+# is correct for a corporate domain (acme.com) but a CROSS-TENANT DISCLOSURE for a
+# PUBLIC WEBMAIL domain: two unrelated strangers on gmail.com are NOT one company, so
+# sharing "share_to_company" DDs across gmail.com leaks one user's due-diligence to
+# another. A public-webmail user must therefore get OWNER-EXACT access only — never a
+# domain-share. This set is the exclusion list; extend it as new consumer providers
+# appear. All entries are lower-cased bare domains (no '@').
+_PUBLIC_WEBMAIL_DOMAINS: frozenset[str] = frozenset({
+    "gmail.com", "googlemail.com",
+    "outlook.com", "outlook.co.uk", "hotmail.com", "hotmail.co.uk", "hotmail.fr",
+    "live.com", "live.co.uk", "msn.com",
+    "yahoo.com", "yahoo.co.uk", "yahoo.fr", "yahoo.de", "ymail.com", "rocketmail.com",
+    "icloud.com", "me.com", "mac.com",
+    "proton.me", "protonmail.com", "pm.me",
+    "gmx.com", "gmx.net", "gmx.de",
+    "aol.com", "zoho.com", "mail.com", "yandex.com", "yandex.ru",
+    "fastmail.com", "tutanota.com", "tuta.com", "hey.com",
+})
+
+
+def _is_public_webmail_domain(domain: str | None) -> bool:
+    """R-F2777 — True if ``domain`` is a public/free webmail provider whose users are
+    NOT a single company. Same-company DD sharing (R-F608) must be DISABLED for these
+    domains so a free-webmail user only ever sees their OWN reports. Case/space-safe;
+    None/empty → False (no domain → no domain-share anyway)."""
+    d = (domain or "").strip().lower()
+    return bool(d and d in _PUBLIC_WEBMAIL_DOMAINS)
 # R-F2469 — run_ids whose ownership this process has already backfilled into the
 # wipe-surviving vault (dd_report_owners). Bounds the on-read backfill to one
 # vault upsert per run_id per process (not per dashboard poll). Vault-DB writes,
@@ -11087,7 +11116,9 @@ async def remove_from_watchlist(name: str, user_id: str = "",
             if w_owner == user_id:
                 return True
             w_dom = (w.get("user_email_domain") or "").strip().lower()
+            # R-F2777 — no domain-share delete across a public webmail domain.
             return bool(_cdom and w_dom and _cdom == w_dom
+                        and not _is_public_webmail_domain(_cdom)
                         and w.get("share_to_company", True) is not False)
         # owner-less entry: only the configured legacy operator may remove it
         return bool(_legacy_uid and user_id == _legacy_uid)
@@ -11170,7 +11201,9 @@ async def get_watchlist(user_id: str | None = None,
         w_uid = w.get("user_id")
         if w_uid and w_uid == user_id:
             out.append(w)
+        # R-F2777 — no domain-share across a public webmail domain (owner-exact only).
         elif (user_email_domain and w.get("user_email_domain") == user_email_domain
+              and not _is_public_webmail_domain(user_email_domain)
               and w.get("share_to_company", True)):
             out.append(w)
     return out
@@ -12033,10 +12066,14 @@ async def list_reports(
             # (missing key) is shared, matching the operator requirement
             # that DD is company-visible by default for users on the
             # same email domain.
+            # R-F2777 — never domain-share across a PUBLIC WEBMAIL domain (two
+            # strangers on gmail.com are not one company). Requester on a free
+            # webmail domain → owner-exact only.
             if (
                 _norm_domain
                 and entry_domain
                 and entry_domain == _norm_domain
+                and not _is_public_webmail_domain(_norm_domain)
                 and entry.get("share_to_company", True) is not False
             ):
                 filtered.append(entry)

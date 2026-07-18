@@ -1106,8 +1106,13 @@ def _dd_report_access_allowed(report: dict, user_id: str, user_email_domain: str
             return True  # owner match
         caller_domain = (user_email_domain or "").strip().lower()
         rep_domain = (report.get("user_email_domain") or "").strip().lower()
+        # R-F2777 — never domain-share across a PUBLIC WEBMAIL domain. Two strangers
+        # on gmail.com are not one company, so a company-shared report must NOT be
+        # visible to another free-webmail user by id (mirrors list_reports).
+        from ..intel.dd_orchestrator import _is_public_webmail_domain
         return bool(
             caller_domain and rep_domain and caller_domain == rep_domain
+            and not _is_public_webmail_domain(caller_domain)
             and report.get("share_to_company", True) is not False
         )
     # R-F2402 — OWNER-LESS report + a scoped requester: FAIL CLOSED (was fail-open:
