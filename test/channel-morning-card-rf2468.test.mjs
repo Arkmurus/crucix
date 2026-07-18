@@ -38,11 +38,13 @@ describe('Channel morning cron cards', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('does not publish editorial fallback when Golden Intel is unavailable', async () => {
-    const result = await handleMorningSignalCron({}, { botToken: 'test-token', chatId: '1234567890', channelId: '1234567890' });
+  it('morning (07:00) holds — no publish — when no Grade A Golden Intel exists', async () => {
+    // R-F2716: the morning slot never publishes a fallback; it holds for
+    // corroboration (a Grade B may firm up to A by the evening slot).
+    const result = await handleMorningSignalCron({}, { botToken: 'test-token', chatId: '1234567890', channelId: '1234567890' }, { hour: 7 });
 
     const telegramCalls = calls.filter(c => c.url.includes('api.telegram.org'));
-    assert.equal(result?.reason, 'no_golden_intel');
+    assert.equal(result?.reason, 'held_for_corroboration');
     assert.equal(telegramCalls.length, 0);
   });
 });

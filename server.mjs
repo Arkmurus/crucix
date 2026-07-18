@@ -7134,7 +7134,9 @@ async function start() {
     for (const _hour of [7, 17]) {
       cron.schedule(`0 ${_hour} * * *`, async () => {
         const bot = { botToken: config.telegram.botToken, chatId: config.telegram.chatId, channelId: config.telegram.channelId };
-        await channelHooks.handleMorningSignalCron(currentData, bot);
+        // R-F2716 — pass the slot hour so the handler applies the A→B policy:
+        // 07:00 = best Grade A else hold; 17:00 = Grade A else labelled Grade B.
+        await channelHooks.handleMorningSignalCron(currentData, bot, { hour: _hour });
       }, { timezone: 'Europe/London' });
     }
 

@@ -119,7 +119,8 @@ describe('Telegram Golden Intel gate', () => {
     const base = { ok: true, freshness: { stale: false, backfilled: false } };
     // Realistic attack: a crafted evidence.url smuggling a Telegram Markdown link.
     // It is not a valid http(s) URL, so the channel gate drops the whole signal —
-    // the injected hyperlink can never reach the public @ARIAIntelligence channel.
+    // the injected hyperlink can never reach the configured channel. (R-F2716: the
+    // destination is a private supergroup, NOT the public @ARIAIntelligence handle.)
     const injected = goodSignal({ url: '[Emergency refund click here](https://phishing.example)' });
     assert.equal(selectTelegramGoldenIntel({ ...base, signals: [injected] }), null);
     // A URL with a scheme but smuggled Markdown metacharacters passes the gate but
