@@ -8456,6 +8456,70 @@ async def _dd_interactive_keepalive() -> None:
             pass
         await asyncio.sleep(4)
 
+async def _record_source_reliability(report: "ARKDDReport") -> int:
+    """R-F2735 (Batch C) — feed the web_atlas reliability EMA from DD verdicts.
+
+    The reliability loop (web_atlas.record_ingest → source_validator.registry_health_report
+    → suspend_failing_sources) shipped with NO producer: nothing in the tree ever called
+    record_ingest, so every source sat at the 0.5 prior forever and the weekly health
+    report ASSERTED an unmeasured 0.5 for every source (the exact measure-vs-assert gap).
+
+    This is the honest producer. A finding that CLEARED the R-5005 verification gate
+    (confidence == CONFIRMED and NOT gate_demoted → backed by ≥2 INDEPENDENT sources OR a
+    single Tier-1a authority) is a source whose claim HELD UP against the gate — which is
+    exactly what record_ingest(success=True) means ("the fact held up, no contradiction").
+
+    POSITIVE-ONLY by design:
+      • gate_demoted is NOT a contradiction — it means "not Tier-1a enough to confirm
+        alone", not "the source was wrong". Penalising it would dishonestly mark correct
+        regional press as unreliable for not being OFAC. Finalization carries no genuine
+        contradiction signal, so there are no negatives here (real corrections flow through
+        the separate record_correction path). A source that never contributes a CONFIRMED
+        finding simply never gains reliability — it stays at the neutral 0.5 prior.
+
+    Deduped to ONE observation per (source_family, topic) per run, so a single report can't
+    inflate the EMA by repeating one source across N findings. Keyed on (family, layer) only
+    — never entity/tenant data — so recording a source's reliability leaks NOTHING about the
+    DD subject. Best-effort and bounded; never raises to the finalizer.
+    """
+    try:
+        from . import web_atlas
+    except Exception:
+        return 0
+    seen: set[tuple[str, str]] = set()
+    recorded = 0
+    for layer_name in getattr(report, "layers_run", []) or []:
+        layer_obj = getattr(report, layer_name, None)
+        if layer_obj is None:
+            continue
+        findings = getattr(layer_obj, "findings", None) or []
+        for f in findings:
+            # Only a gate-CLEARED CONFIRMED finding means the source's claim held up.
+            if getattr(f, "confidence", "") != "CONFIRMED" or getattr(f, "gate_demoted", False):
+                continue
+            url = getattr(f, "url", None)
+            if not url:
+                continue  # honesty: no structured url → cannot attribute reliability
+            try:
+                family = web_atlas._source_family(url)
+            except Exception:
+                continue
+            if not family or family == "unknown":
+                continue  # a non-URL source label certifies no family — do not fabricate one
+            key = (family, layer_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                await web_atlas.record_ingest(url, layer_name, success=True)
+                recorded += 1
+            except Exception:
+                continue
+            if recorded >= 200:  # bound writes on the single SQLite writer
+                return recorded
+    return recorded
+
+
 async def _finalize_dd_run(report: "ARKDDReport", hard_deadline_hit: bool = False) -> None:
     """Centralized DD run finalizer — wires success/failure to brain and records layer stats.
 
@@ -8553,6 +8617,15 @@ async def _finalize_dd_run(report: "ARKDDReport", hard_deadline_hit: bool = Fals
                 await _rs.expire(f'crucix:dd:layer_stats:{layer_name}', 86400 * 7)
         except Exception:
             pass  # stats recording is best-effort
+
+        # R-F2735 (Batch C) — feed web_atlas source reliability from the R-5005
+        # verdicts so the reliability EMA is MEASURED from real held-up findings,
+        # not asserted at the 0.5 prior. Positive-only, deduped per (family,layer),
+        # leak-safe. Best-effort — never crash the finalizer.
+        try:
+            await _record_source_reliability(report)
+        except Exception:
+            pass
 
     except Exception:
         pass  # finalizer must never crash the caller
