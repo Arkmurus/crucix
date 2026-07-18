@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2735,
+  "next_available": 2752,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21224,18 +21224,20 @@
       "title": "bulletproof network group chat",
       "claimed_at": "2026-07-18T12:01:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "05a0d726",
+      "notes": null,
+      "shipped_at": "2026-07-18T13:00:01Z"
     },
     {
       "r_number": "R-F2733",
       "title": "DD Grade-A #2: query-match guard on saudi/ghana registry scrapers — no fabricated subject id",
       "claimed_at": "2026-07-18T12:05:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2bb043ad",
+      "notes": null,
+      "shipped_at": "2026-07-18T12:18:28Z"
     },
     {
       "r_number": "R-F2734",
@@ -21246,6 +21248,175 @@
       "commit_sha": "d7bff433",
       "notes": null,
       "shipped_at": "2026-07-18T12:08:27Z"
+    },
+    {
+      "r_number": "R-F2735",
+      "title": "wire DD confirmed-finding source reliability into web_atlas (Batch C honest measure)",
+      "claimed_at": "2026-07-18T12:27:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3c37c0dc",
+      "notes": null,
+      "shipped_at": "2026-07-18T12:50:33Z"
+    },
+    {
+      "r_number": "R-F2736",
+      "title": "DD Grade-A: extend query-match guard to kenya + israel registry adapters (complete the class)",
+      "claimed_at": "2026-07-18T12:28:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f66f4a1b",
+      "notes": null,
+      "shipped_at": "2026-07-18T15:20:07Z"
+    },
+    {
+      "r_number": "R-F2737",
+      "title": "DD Grade-A: close the registry fabrication class — query-match guard on gibraltar/turkey/nigeria/india/hungary",
+      "claimed_at": "2026-07-18T12:49:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "34c7daaa",
+      "notes": null,
+      "shipped_at": "2026-07-18T15:20:07Z"
+    },
+    {
+      "r_number": "R-F2738",
+      "title": "portfolio intelligence truth and tenant isolation",
+      "claimed_at": "2026-07-18T12:53:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2739",
+      "title": "fix Node 24 full test collection",
+      "claimed_at": "2026-07-18T13:06:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b385df9c",
+      "notes": null,
+      "shipped_at": "2026-07-18T13:34:05Z"
+    },
+    {
+      "r_number": "R-F2740",
+      "title": "DD Grade-A: GLEIF name-match guard — no wrong LEI/national-id attached to subject",
+      "claimed_at": "2026-07-18T13:11:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2ab5d4ce",
+      "notes": null,
+      "shipped_at": "2026-07-18T15:20:08Z"
+    },
+    {
+      "r_number": "R-F2741",
+      "title": "DD Grade-A: usaspending recipient-name gate — don't attribute other firms' federal awards to the subject",
+      "claimed_at": "2026-07-18T13:33:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fa926f71",
+      "notes": null,
+      "shipped_at": "2026-07-18T15:20:08Z"
+    },
+    {
+      "r_number": "R-F2742",
+      "title": "synchronize child-server shutdown in web capability tests",
+      "claimed_at": "2026-07-18T13:51:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "87a0173f",
+      "notes": null,
+      "shipped_at": "2026-07-18T14:05:42Z"
+    },
+    {
+      "r_number": "R-F2743",
+      "title": "DD Grade-A: court_records party gate — attribute litigation only when the subject is in the caption, not merely mentioned",
+      "claimed_at": "2026-07-18T13:59:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fa926f71",
+      "notes": null,
+      "shipped_at": "2026-07-18T15:20:08Z"
+    },
+    {
+      "r_number": "R-F2744",
+      "title": "watchlist re-screen integrity: advancing baseline + source-complete gate + idempotency",
+      "claimed_at": "2026-07-18T14:16:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cb967581",
+      "notes": null,
+      "shipped_at": "2026-07-18T14:56:21Z"
+    },
+    {
+      "r_number": "R-F2745",
+      "title": "DD Grade-A: adverse-media entity-relevance gate — a finding must name the subject/director/UBO, not just the topic",
+      "claimed_at": "2026-07-18T14:20:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fa926f71",
+      "notes": null,
+      "shipped_at": "2026-07-18T15:20:08Z"
+    },
+    {
+      "r_number": "R-F2746",
+      "title": "atomic cross-trigger lock for watchlist rescreen",
+      "claimed_at": "2026-07-18T14:33:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d2d47554",
+      "notes": null,
+      "shipped_at": "2026-07-18T14:56:21Z"
+    },
+    {
+      "r_number": "R-F2747",
+      "title": "DD Grade-A: worldbank_debarred token gate — complete the class (severe false-debarment if key set)",
+      "claimed_at": "2026-07-18T14:39:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "60fda18c",
+      "notes": null,
+      "shipped_at": "2026-07-18T15:20:09Z"
+    },
+    {
+      "r_number": "R-F2748",
+      "title": "classify watchlist alerts adverse vs informational + gate WA to adverse",
+      "claimed_at": "2026-07-18T14:39:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ed4c68c3",
+      "notes": null,
+      "shipped_at": "2026-07-18T14:56:21Z"
+    },
+    {
+      "r_number": "R-F2749",
+      "title": "watchlist WA delivery-outcome records (proprioception)",
+      "claimed_at": "2026-07-18T14:42:10Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "32acedc2",
+      "notes": null,
+      "shipped_at": "2026-07-18T15:15:46Z"
+    },
+    {
+      "r_number": "R-F2750",
+      "title": "expose watchlist re-screen observation provenance + UI Last DD vs Last re-screen",
+      "claimed_at": "2026-07-18T14:48:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "932f87e1",
+      "notes": null,
+      "shipped_at": "2026-07-18T15:15:46Z"
+    },
+    {
+      "r_number": "R-F2751",
+      "title": "acled actor-name gate — no substring LIKE attribution of political-violence events",
+      "claimed_at": "2026-07-18T14:59:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5c93dc83",
+      "notes": null,
+      "shipped_at": "2026-07-18T15:20:09Z"
     }
   ]
 }
