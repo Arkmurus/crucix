@@ -343,11 +343,39 @@ OEMS = [
 ]
 
 
+# R-F2715 — a defence CONTEXT anchor. Product tags (which include common English
+# words like "round"/"training"/"vessel"/"sam") are only applied when the article
+# is genuinely defence-related, so a World Cup or film article can never fabricate
+# a "missiles"/"ammunition" tag. Recall is preserved: real defence articles almost
+# always carry one unambiguous military term or a matched OEM.
+_DEFENCE_ANCHOR_RE = re.compile(
+    r"\b(?:defen[cs]e|militar|\barmy\b|\bnavy\b|naval|air\s?force|artillery|infantry|"
+    r"troops|combat|warfare|weapon|munition|missile|warship|frigate|corvette|"
+    r"submarine|destroyer|howitzer|mrap|\bapc\b|\bifv\b|gunship|procurement|tender|"
+    r"\bmod\b|ministry\s+of\s+defen[cs]e|arms\s+(?:deal|sale|export)|export\s+licen[cs]e|"
+    r"\bnato\b|sanction|ordnance|calibre|caliber)\b",
+    re.IGNORECASE,
+)
+
+
+def _kw_present(kw: str, tl: str) -> bool:
+    """Word-boundary keyword match. `"sam"` no longer matches "same"/"sample",
+    `"round"` no longer matches "around"/"ground", `"oman"` no longer matches
+    "romania" — the substring-match class that fabricated defence tags."""
+    return re.search(r"\b" + re.escape(kw.lower()) + r"\b", tl) is not None
+
+
 def _extract_entities(text: str) -> dict:
-    tl = text.lower()
-    countries = [c for c in COUNTRIES if c.lower() in tl]
-    products = [cat for cat, kws in PRODUCTS.items() if any(k in tl for k in kws)]
-    oems = [o for o in OEMS if o.lower() in tl]
+    tl = (text or "").lower()
+    countries = [c for c in COUNTRIES if _kw_present(c, tl)]
+    oems = [o for o in OEMS if _kw_present(o, tl)]
+    # Products require a defence context (a matched OEM or a military anchor term)
+    # AND a word-boundary keyword hit — never a bare substring in unrelated prose.
+    defence_context = bool(oems) or _DEFENCE_ANCHOR_RE.search(text or "") is not None
+    products = (
+        [cat for cat, kws in PRODUCTS.items() if any(_kw_present(k, tl) for k in kws)]
+        if defence_context else []
+    )
     return {"countries": countries, "products": products, "oems": oems}
 
 
