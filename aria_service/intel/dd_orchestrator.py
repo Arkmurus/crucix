@@ -12361,8 +12361,51 @@ async def delete_report(run_id: str) -> dict:
 # =============================================================================
 
 WATCHLIST_ALERTS_KEY = "crucix:aria:dd:watchlist:alerts"
+# R-F2744 — durable, per-entity re-screen observation baseline. Keyed by an
+# owner-scoped hash of the canonical entity identity so a tenant's baseline can
+# never bleed into another's. This is what makes the baseline ADVANCE across
+# re-screens; before it, every cycle re-diffed the frozen DD-report score and
+# re-fired the same transition forever (the repeated-alert defect).
+WATCHLIST_OBS_KEY = "crucix:aria:dd:watchlist:obs:{obs_id}"
 _RESCREEN_MAX_ENTITIES = 50
 _RESCREEN_ALERT_TTL_SECONDS = 30 * 24 * 3600  # 30 days
+_RESCREEN_OBS_TTL_SECONDS = 180 * 24 * 3600   # 180 days — outlives the alert window
+
+
+def _watchlist_obs_id(entry: dict, name: str) -> str:
+    """R-F2744 — stable, owner-scoped id for an entity's re-screen observation.
+
+    Tenant-scoped (owner + canonical entity identity) so one tenant's baseline
+    can never bleed into another's. Falls back to the normalised name when no
+    canonical id is available, mirroring the DD-report match key used below.
+    """
+    import hashlib as _hl
+    owner = (entry.get("user_id") or "").strip()
+    cid = (entry.get("canonical_entity_id") or "").strip()
+    if not cid:
+        try:
+            from . import dd_versioning as _ver
+            cid = _ver.canonical_entity_id(
+                entity_type=entry.get("entity_type"),
+                name=name,
+                jurisdiction_iso2=entry.get("jurisdiction") or entry.get("jurisdiction_iso2"),
+                registration_number=entry.get("registration_number"),
+            ) or _ver.normalize_name(name)
+        except Exception:
+            cid = name.strip().lower()
+    return _hl.sha1(f"{owner}|{cid}".encode("utf-8")).hexdigest()[:16]
+
+
+def _watchlist_obs_fingerprint(obs_id: str, change_type: str,
+                               old_status: str, new_status: str,
+                               old_score: float, new_score: float) -> str:
+    """R-F2744 — deterministic idempotency key for a transition, so an identical
+    repeat (same entity, same status + score buckets) is suppressed even if two
+    triggers overlap. Buckets scores at the DISPLAYED 2dp precision."""
+    import hashlib as _hl
+    raw = (f"{obs_id}|{change_type}|{old_status}->{new_status}"
+           f"|{round(old_score, 2):.2f}->{round(new_score, 2):.2f}")
+    return _hl.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
 def _derive_status(classified: dict) -> str:
@@ -12633,7 +12676,32 @@ async def rescreen_watchlist(llm=None, user_id=None, user_email_domain=None) -> 
             new_status = _derive_status(classified)
             new_score = _derive_score_from_matches(matches)
 
+            # --- R-F2744: never-false-clean gate (finding 6) ---
+            # A degraded/partial sanctions source returns matches=[] which reads
+            # as CLEAN/0.0. NEVER emit a removed / score-drop / clean transition
+            # from an UNPERFORMED screen, and never advance the stored baseline
+            # on it. The completeness primitive is sanctions.fuzzy_screen's
+            # R-F1696 `screened` / `source_unavailable` flags (also propagated by
+            # screen_with_aliases). Fail closed: any error ⇒ not source-complete.
+            _screen_ok = (
+                screen.get("error") is None
+                and not screen.get("source_unavailable")
+                and screen.get("screened", True) is not False
+            )
+            if not _screen_ok:
+                errors.append({
+                    "entity": name,
+                    "error": screen.get("error") or "sanctions_source_unavailable",
+                    "degraded": True,  # unperformed screen — NOT a clearance
+                })
+                continue
+
+            # --- R-F2744: advancing per-entity observation baseline (finding 1/4) ---
+            _obs_key = WATCHLIST_OBS_KEY.format(obs_id=_watchlist_obs_id(entry, name))
+            _prior_obs = await rs.get_json(_obs_key) or {}
+
             # --- Load previous status from the most recent DD report ---
+            # (bootstrap only; overridden by _prior_obs below when one exists)
             old_status = "CLEAN"
             old_score = 0.0
             old_run_id = None
@@ -12680,6 +12748,15 @@ async def rescreen_watchlist(llm=None, user_id=None, user_email_domain=None) -> 
                     prev_screen = identity.get("sanctions_screen") or {}
                     old_score = _derive_score_from_matches(prev_screen.get("matches") or [])
 
+            # R-F2744 — prefer the PRECEDING source-complete observation as the
+            # baseline; the DD-report lookup above is only the bootstrap for the
+            # first re-screen after a report. Without this the baseline is frozen
+            # at the report score and the same transition re-fires every cycle.
+            if _prior_obs:
+                old_status = _prior_obs.get("status", old_status)
+                old_score = float(_prior_obs.get("score", old_score) or 0.0)
+                old_run_id = _prior_obs.get("run_id") or old_run_id
+
             # --- Compare ---
             change_type = None
             detail = ""
@@ -12693,11 +12770,28 @@ async def rescreen_watchlist(llm=None, user_id=None, user_email_domain=None) -> 
             elif old_status != "PEP" and new_status == "PEP":
                 change_type = "new_pep"
                 detail = f"New PEP/adverse-media match. {classified.get('summary', '')[:200]}"
-            elif abs(new_score - old_score) > 0.1:
+            elif abs(round(new_score, 2) - round(old_score, 2)) > 0.10:
+                # R-F2744 (finding 7) — compare at the DISPLAYED 2dp precision so
+                # the threshold and the rendered "X.XX → Y.YY" can never disagree
+                # (a raw 0.899 vs 1.0 that renders as 0.90 must not fire a phantom
+                # 1.00 → 0.90 change).
                 change_type = "score_change"
-                detail = f"Best match score changed from {old_score:.2f} to {new_score:.2f}."
+                detail = f"Best match score changed from {round(old_score, 2):.2f} to {round(new_score, 2):.2f}."
 
+            # R-F2744 (finding 2) — idempotency: fingerprint the transition and
+            # suppress an identical repeat (same entity, same status + 2dp score
+            # buckets) even if two triggers overlap. Belt-and-suspenders given the
+            # advancing baseline above; closes the concurrent-run window until the
+            # cross-trigger lock (finding 3) lands.
+            _fingerprint = None
+            _emit = False
             if change_type:
+                _fingerprint = _watchlist_obs_fingerprint(
+                    _obs_key, change_type, old_status, new_status, old_score, new_score,
+                )
+                _emit = _fingerprint != _prior_obs.get("last_fingerprint")
+
+            if change_type and _emit:
                 alert = {
                     "entity": name,
                     "run_id": old_run_id or "none",
@@ -12714,6 +12808,7 @@ async def rescreen_watchlist(llm=None, user_id=None, user_email_domain=None) -> 
                     "user_id": (entry.get("user_id") or "").strip() or None,
                     "user_email_domain": (entry.get("user_email_domain") or "").strip() or None,
                     "share_to_company": entry.get("share_to_company", True),
+                    "fingerprint": _fingerprint,  # R-F2744 idempotency key
                 }
 
                 # Fan out to linked deals on worsening changes only — don't
@@ -12735,6 +12830,21 @@ async def rescreen_watchlist(llm=None, user_id=None, user_email_domain=None) -> 
                 await rs.lpush(WATCHLIST_ALERTS_KEY, _json.dumps(alert, default=str))
                 await rs.ltrim(WATCHLIST_ALERTS_KEY, 0, 499)  # cap at 500
                 await rs.expire(WATCHLIST_ALERTS_KEY, _RESCREEN_ALERT_TTL_SECONDS)
+
+            # R-F2744 (finding 4) — persist the observation after EVERY
+            # source-complete screen, whether or not it alerted. This is the
+            # state the next cycle compares against (advancing baseline) instead
+            # of the frozen DD report, and it carries the last emitted fingerprint
+            # so a repeat transition is deduped.
+            await rs.set_json(_obs_key, {
+                "status": new_status,
+                "score": round(new_score, 3),
+                "run_id": old_run_id,
+                "source_complete": True,
+                "last_fingerprint": _fingerprint or _prior_obs.get("last_fingerprint"),
+                "ts": datetime.now(timezone.utc).isoformat(),
+            })
+            await rs.expire(_obs_key, _RESCREEN_OBS_TTL_SECONDS)
 
         except Exception as e:
             errors.append({"entity": name, "error": str(e)})
