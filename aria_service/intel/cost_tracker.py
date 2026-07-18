@@ -123,10 +123,17 @@ PRICING: dict[str, tuple[float, float]] = {
     "llama3.1:70b":       (0.0, 0.0),
 }
 
-# Conservative default for unknown models — picks deepseek-chat rates so
-# we don't silently underbill. Easier to fix an over-estimate than a
-# silent under-estimate.
-DEFAULT_PRICING = (0.27, 1.10)
+# Conservative default for unknown models. R-F2766: raised from deepseek-chat
+# rates (0.27/1.10) to Claude Sonnet rates ahead of the DeepSeek->Claude switch.
+# The primary provider is becoming Claude, so an unrecognised model ID is now far
+# more likely to be a Claude variant than a DeepSeek one — defaulting to DeepSeek
+# rates would SILENTLY UNDER-COUNT it (and the $300/mo cap reads these numbers, so
+# it would go blind). Over-estimating a genuinely-cheap unknown model only trips
+# the cap slightly early (safe); under-estimating Claude is the failure this
+# guards against. All current Claude model IDs are listed explicitly above, so
+# this default rarely fires. Same module philosophy: easier to fix an
+# over-estimate than a silent under-estimate.
+DEFAULT_PRICING = (3.00, 15.00)
 
 COST_INDEX_KEY = "crucix:aria:cost:index"
 COST_RECORD_PREFIX = "crucix:aria:cost:record:"

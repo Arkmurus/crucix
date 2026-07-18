@@ -23,25 +23,36 @@ from aria_service.llm.anthropic import AnthropicProvider
 
 # ── R-F2759: cap-safety — the switch models must price at real Claude rates ──────
 def test_claude_switch_models_priced_not_default():
+    # These must be EXPLICIT rows in the table (exact match) — not resolved via the
+    # unknown-model fallback. That is the cap-safety guarantee: the $300 cap reads
+    # these numbers, so they must be the true Claude rates, pinned in the table.
+    assert ct.PRICING.get("claude-opus-4-8") == (5.00, 25.00)
+    assert ct.PRICING.get("claude-opus-4-7") == (5.00, 25.00)
+    assert ct.PRICING.get("claude-sonnet-5") == (3.00, 15.00)
     assert ct._get_price("claude-opus-4-8") == (5.00, 25.00)
-    assert ct._get_price("claude-opus-4-7") == (5.00, 25.00)
     assert ct._get_price("claude-sonnet-5") == (3.00, 15.00)
-    # dated snapshot variants must PREFIX-match, not fall to default
+    # dated snapshot variants must PREFIX-match the explicit row, not fall through
     assert ct._get_price("claude-sonnet-5-20260215") == (3.00, 15.00)
     assert ct._get_price("claude-opus-4-8-20260601") == (5.00, 25.00)
-    # and none of them collapse to the DeepSeek default (the blind-cap failure)
-    assert ct._get_price("claude-opus-4-8") != ct.DEFAULT_PRICING
-    assert ct._get_price("claude-sonnet-5") != ct.DEFAULT_PRICING
 
 
 def test_claude_cost_estimate_reflects_real_rate():
     # A realistic DD midpoint (~55k in / ~18k out) on Sonnet-5 must cost ~$0.44 —
-    # NOT the ~$0.035 the DeepSeek default would have produced. The $300 cap reads
+    # NOT the ~$0.035 the DeepSeek rate would have produced. The $300 cap reads
     # estimate_cost_usd, so this is what keeps the cap honest under Claude.
     usd = ct.estimate_cost_usd("claude-sonnet-5", 55_000, 18_000)
     assert 0.40 < usd < 0.48, usd
-    default_usd = (55_000 / 1e6) * ct.DEFAULT_PRICING[0] + (18_000 / 1e6) * ct.DEFAULT_PRICING[1]
-    assert usd > default_usd * 5, (usd, default_usd)  # real rate dwarfs the stale default
+    # dwarfs the DeepSeek rate it would have been mispriced at before R-F2759
+    ds_in, ds_out = ct.PRICING["deepseek-chat"]
+    ds_usd = (55_000 / 1e6) * ds_in + (18_000 / 1e6) * ds_out
+    assert usd > ds_usd * 5, (usd, ds_usd)
+
+
+def test_default_pricing_is_conservative_claude_not_deepseek():
+    # R-F2766 — an UNKNOWN model must default to a Claude rate, not DeepSeek, so a
+    # Claude-era model ID we forgot to list can't silently under-count the cap.
+    assert ct.DEFAULT_PRICING == (3.00, 15.00)
+    assert ct._get_price("some-unlisted-future-model") == (3.00, 15.00)
 
 
 # ── R-F2760: the Anthropic request actually asks for prompt caching ─────────────
