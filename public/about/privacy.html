@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ARIA | Privacy Policy</title>
-  <link rel="icon" type="image/png" href="../images/fav-icon/icon.png">
-  <link rel="stylesheet" href="../css/aria.css?v=15">
-  <link rel="stylesheet" href="../fonts/bootstrap-icons/font-css.css">
+  <link rel="icon" type="image/png" href="/images/fav-icon/icon.png">
+  <link rel="stylesheet" href="/css/aria.css?v=15">
+  <link rel="stylesheet" href="/fonts/bootstrap-icons/font-css.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body { background: #0c0919; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: rgba(255,255,255,0.85); line-height: 1.7; }
@@ -44,7 +44,7 @@
 
   <div class="legal-eyebrow">Legal</div>
   <h1 class="legal-title">Privacy Policy</h1>
-  <div class="legal-meta">Effective date: <strong>To be determined upon legal review.</strong> Operator: ARIA Intelligence Limited.</div>
+  <div class="legal-meta">Effective date: <strong>To be determined upon legal review.</strong> Operator: Arkmurus Limited.</div>
 
   <div class="draft-banner">
     <strong>DRAFT: pending legal counsel review</strong>
@@ -52,7 +52,7 @@
   </div>
 
   <h2>1. Who we are</h2>
-  <p>ARIA is operated by <strong>ARIA Intelligence Limited</strong>, a company registered in England &amp; Wales. ARIA is a domain-specialised AI assistant for security and defence due-diligence work. See <a href="/model-card.html">the model card</a> for the capability statement.</p>
+  <p>ARIA is operated by <strong>Arkmurus Limited</strong>, a company registered in England &amp; Wales. ARIA is a domain-specialised AI assistant for security and defence due-diligence work. See <a href="/model-card.html">the model card</a> for the capability statement.</p>
   <p>Contact for any privacy enquiry, data subject access request (DSAR), or data deletion request: <a href="mailto:support@imaria.io">support@imaria.io</a> (alias of <code>support@imaria.io</code> until a dedicated mailbox is provisioned).</p>
 
   <h2>2. What this policy covers</h2>
@@ -88,7 +88,7 @@
       <tr><td><strong>Usage telemetry</strong></td><td>Daily message counts, daily upload counts, monthly DD-run counts (the per-user quota counters in <code>lib/billing/quotas.mjs</code> and <code>aria_service/intel/user_quota.py</code>)</td></tr>
       <tr><td><strong>Audit-log entries</strong></td><td>Each material claim ARIA produces with timestamp, source citations, confidence tag, source-tier breakdown: hash-chained and HMAC-signed (see model card §7)</td></tr>
       <tr><td><strong>Cost telemetry</strong></td><td>Per-call LLM cost (provider, model, input/output tokens, latency), used for the monthly cap enforcement</td></tr>
-      <tr><td><strong>Server logs</strong></td><td>HTTP request method / path / status / IP address / user-agent for the duration the host (fly.io / seenode) retains them</td></tr>
+      <tr><td><strong>Server logs</strong></td><td>HTTP request method / path / status / IP address / user-agent for the duration the host (fly.io) retains them</td></tr>
     </tbody>
   </table>
 
@@ -105,15 +105,14 @@
   <table class="legal-table">
     <thead><tr><th>Processor</th><th>Purpose</th><th>What's shared</th></tr></thead>
     <tbody>
-      <tr><td><strong>Anthropic</strong> (Claude)</td><td>Primary LLM provider for chat reasoning</td><td>Conversation content + system prompt, sent at request time. Subject to Anthropic's terms.</td></tr>
-      <tr><td><strong>DeepSeek, OpenAI, Mistral, Groq, OpenRouter</strong></td><td>Fallback LLM providers</td><td>Same as Anthropic when a fallback is invoked.</td></tr>
+      <tr><td><strong>DeepSeek</strong></td><td>Primary LLM provider for chat reasoning</td><td>Conversation content + system prompt, sent at request time. Subject to DeepSeek's terms.</td></tr>
+      <tr><td><strong>Anthropic, OpenAI, Mistral, Groq, OpenRouter</strong></td><td>Fallback LLM providers (used only when configured / invoked)</td><td>Same as the primary provider when a fallback is invoked.</td></tr>
       <tr><td><strong>OpenSanctions</strong></td><td>Sanctions screening</td><td>Counterparty entity names submitted via DD orchestrator.</td></tr>
       <tr><td><strong>Companies House (UK)</strong></td><td>Corporate registry lookup</td><td>UK company numbers / names submitted during DD.</td></tr>
       <tr><td><strong>Stripe</strong></td><td>Subscription billing (when activated)</td><td>Email + name (for the Stripe customer object); Stripe stores card data directly.</td></tr>
       <tr><td><strong>Fly.io</strong> (LHR region)</td><td>Hosting the Python brain + persistent volume</td><td>All your data at rest.</td></tr>
-      <tr><td><strong>Seenode</strong></td><td>Hosting the Node front-end + sweep + WhatsApp listener</td><td>All your data at rest.</td></tr>
-      <tr><td><strong>Upstash Redis</strong></td><td>Cache + dual-write store for sessions, watchlist, intel ledger</td><td>Cached content (conversation summaries, fact records, audit-log entries); content is at rest in Redis.</td></tr>
-      <tr><td><strong>Twilio / Baileys WhatsApp</strong></td><td>WhatsApp message transport (when WA channel is active)</td><td>Your messages and our replies; subject to Meta's WhatsApp Business terms.</td></tr>
+      <tr><td><strong>Fly.io</strong> (LHR region)</td><td>Hosting the Node front-end + sweep + WhatsApp listener</td><td>All your data at rest.</td></tr>
+      <tr><td><strong>Baileys</strong> (WhatsApp)</td><td>WhatsApp message transport (when WA channel is active)</td><td>Your messages and our replies; subject to Meta's WhatsApp Business terms.</td></tr>
       <tr><td><strong>Email providers</strong> (operator's IMAP/SMTP)</td><td>Inbound email ingestion + transactional email</td><td>Email content sent to <code>aria@imaria.io</code>; outbound notifications.</td></tr>
     </tbody>
   </table>
@@ -128,7 +127,7 @@
       <tr><td>Document uploads</td><td>Bound to the conversation that ingested them; deleted when that conversation is deleted.</td></tr>
       <tr><td>Audit-log entries</td><td>Retained as long as the account exists for evidentiary integrity (these are the hash-chained entries; deleting them would break the chain). On account closure, your audit-log entries are retained in pseudonymised form (user_id only, no email) for 6 years to satisfy potential compliance/legal hold periods.</td></tr>
       <tr><td>Telemetry counters</td><td>Daily counters keyed by UTC date with TTL of 36 hours; monthly counters with 35-day TTL.</td></tr>
-      <tr><td>Server logs</td><td>Per host retention (fly.io / seenode default; typically 7-30 days).</td></tr>
+      <tr><td>Server logs</td><td>Per host retention (fly.io default; typically 7-30 days).</td></tr>
       <tr><td>Backup snapshots</td><td>Off-host email backups retained per <code>ARIA_BACKUP_RETENTION_DAYS</code> (default 30 days).</td></tr>
     </tbody>
   </table>
@@ -147,7 +146,7 @@
   </ul>
 
   <h2>8. International transfers</h2>
-  <p>Our primary infrastructure is in the United Kingdom (fly.io LHR region) and the EU (Upstash, seenode). LLM provider calls may transfer your conversation content to the United States (Anthropic, OpenAI), other EU regions (Mistral, DeepSeek), or Singapore (Groq). All transfers rely on the UK / EU Standard Contractual Clauses (SCCs) where applicable, and on the UK / EU adequacy regulations for the relevant jurisdiction where adequacy applies. We do not transfer data to jurisdictions without an adequacy decision or SCC coverage.</p>
+  <p>Our primary infrastructure is in the United Kingdom (fly.io LHR region). LLM provider calls may transfer your conversation content outside the UK/EU depending on the configured provider: the current primary provider is <strong>DeepSeek</strong> (processing may occur in China, which is <strong>not</strong> covered by a UK/EU adequacy decision); fail-over providers, when enabled, include Anthropic and OpenAI (United States), Mistral (EU) and Groq (Singapore). Where available, transfers rely on the UK / EU Standard Contractual Clauses (SCCs) or the applicable adequacy regulations. <em>This international-transfer analysis — in particular the lawful-transfer basis for the DeepSeek (China) data plane — is pending confirmation in legal review.</em></p>
 
   <h2>9. Security</h2>
   <ul>
@@ -181,7 +180,7 @@
   <div class="legal-footer">
     Companion documents: <a href="/about/terms.html">Terms of service</a> · <a href="/model-card.html">Model card</a> · <a href="/status.html">Status page</a>
     <br><br>
-    Operator: ARIA Intelligence Limited, England &amp; Wales · Privacy contact: <a href="mailto:support@imaria.io">support@imaria.io</a>
+    Operator: Arkmurus Limited, England &amp; Wales · Privacy contact: <a href="mailto:support@imaria.io">support@imaria.io</a>
   </div>
 </div>
 </body>
