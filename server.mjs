@@ -42,6 +42,7 @@ import { issueSseTicket, redeemSseTicket } from './lib/auth/sseTickets.mjs'; // 
 import { conversationKeyForUser, slugifyIdentity } from './lib/auth/conversationKey.mjs';  // R-F1687
 import { ROLES, roleSatisfies } from './lib/auth/roles.mjs';  // R-F2170
 import { classifyDeliveryOutcome, degradedDetail } from './lib/aria/deliveryOutcome.mjs';  // R-F1965
+import { classifySourceHealth } from './lib/source/healthBuckets.mjs';  // R-F2719
 import { createBillingRouter } from './lib/billing/routes.mjs';
 import { createReportsRouter } from './lib/reports/routes.mjs';
 import { createStatusRouter } from './lib/status/routes.mjs';
@@ -1658,14 +1659,21 @@ app.get('/api/health/cross', async (req, res) => {
 
 app.get('/api/source-health', (req, res) => {
   const summary = getSourceHealthSummary();
-  const degraded = summary.filter(s => s.reliability !== null && s.reliability < 80);
+  // R-F2719 (Codex #6) — an unconfigured integration (no API key/watchlist → reliability
+  // null) or one not yet swept is NOT healthy. Bucket them separately so the count
+  // MEASURES health instead of asserting it (was: null || >=80 counted as healthy).
+  const b = classifySourceHealth(summary, 80);
   res.json({
-    sources:       summary,
-    degraded:      degraded.map(s => s.name),
-    totalTracked:  summary.length,
-    healthyCount:  summary.filter(s => s.reliability === null || s.reliability >= 80).length,
-    degradedCount: degraded.length,
-    asOf:          lastSweepTime,
+    sources:           summary,
+    degraded:          b.degradedNames,
+    unconfigured:      b.unconfiguredNames,   // R-F2719 — Comtrade/CSL etc.: never feeding, not "healthy"
+    notChecked:        b.notCheckedNames,     // R-F2719 — configured but not yet swept
+    totalTracked:      summary.length,
+    healthyCount:      b.counts.healthy,      // R-F2719 — only reliability >= 80
+    degradedCount:     b.counts.degraded,
+    unconfiguredCount: b.counts.unconfigured,
+    notCheckedCount:   b.counts.notChecked,
+    asOf:              lastSweepTime,
   });
 });
 
