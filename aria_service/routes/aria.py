@@ -1099,7 +1099,16 @@ def _dd_report_access_allowed(report: dict, user_id: str, user_email_domain: str
     list already shares same-domain, so view/delete-by-id must match it.
     """
     if not user_id:
-        return True  # admin / autonomous / no-filter path
+        # R-F2778 (R-F2138 residual) — an EXTERNAL user-facing API-token caller with
+        # no user_id must NOT read/delete an arbitrary report by id. Only the INTERNAL
+        # service token (WA/web/CLI/autonomous) keeps the unrestricted admin path. This
+        # mirrors _dd_owned_entity_ids; without it, the by-id GET/DELETE fell open for
+        # external tokens even after the list view was scoped. _auth_is_internal_var
+        # defaults True for auth-bypass callers (tests / public-bypass), so their
+        # behaviour is unchanged.
+        if not _auth_is_internal_var.get():
+            return False
+        return True  # internal / autonomous / no-filter path
     owner = (report.get("user_id") or "").strip()
     if owner:
         if owner == user_id:
@@ -1237,6 +1246,13 @@ async def dd_reports_index_ep(
     seed fake findings on a compliance product or ARIA learns from them.)
     """
     from ..intel import dd_orchestrator
+    # R-F2778 (R-F2138 residual) — an EXTERNAL user-facing API-token caller with no
+    # user_id must NOT receive every tenant's reports (list_reports' admin no-filter
+    # path). Only the INTERNAL service token keeps that unrestricted path. Mirrors the
+    # _dd_owned_entity_ids / _dd_report_access_allowed fail-closed. _auth_is_internal_var
+    # defaults True for auth-bypass callers (tests / public-bypass) — unchanged there.
+    if not (user_id or "").strip() and not _auth_is_internal_var.get():
+        return {"reports": []}
     reports = await dd_orchestrator.list_reports(
         limit=limit,
         user_id=user_id or None,

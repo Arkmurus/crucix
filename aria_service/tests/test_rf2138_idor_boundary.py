@@ -170,6 +170,57 @@ def test_rf2456_contextvar_isolates_concurrent_requests():
     assert external_res == set(), f"external caller must stay denied despite interleave, got {external_res!r}"
 
 
+# ── R-F2778 (R-F2138 residual) — the by-id + report-index surfaces ──────────
+# The vault/search + dd/case surfaces above were scoped in R-F2138, but the DD
+# report INDEX (GET /dd/reports) and the by-id access helper still fell OPEN for an
+# external token with no user_id. R-F2778 mirrors the fail-closed onto both.
+
+
+def test_rf2778_reports_index_external_no_user_id_empty(monkeypatch):
+    """CAPABILITY: external (API-token) caller with no user_id → GET /dd/reports
+    returns NO reports (was: every tenant's reports via the admin no-filter path)."""
+    _patch(monkeypatch)
+    from fastapi.testclient import TestClient
+    with TestClient(_make_app(internal=False)) as c:
+        r = c.get("/api/aria/dd/reports")
+        assert r.status_code == 200
+        assert r.json()["reports"] == [], (
+            f"external caller with no user_id must see no reports, got {r.json()['reports']}"
+        )
+
+
+def test_rf2778_reports_index_internal_no_user_id_unrestricted(monkeypatch):
+    """Internal (service-token) caller with no user_id → full index (unchanged)."""
+    _patch(monkeypatch)
+    from fastapi.testclient import TestClient
+    with TestClient(_make_app(internal=True)) as c:
+        r = c.get("/api/aria/dd/reports")
+        assert r.status_code == 200
+        ids = {e["canonical_entity_id"] for e in r.json()["reports"]}
+        assert ids == {OWNED, OTHER}, (
+            f"internal caller with no user_id must see the full index, got {ids}"
+        )
+
+
+def test_rf2778_access_allowed_external_no_user_id_denied():
+    """_dd_report_access_allowed: external token + empty user_id → DENY (view/delete
+    by id). Internal token + empty user_id → ALLOW. Bypass default (True) → ALLOW."""
+    from aria_service.routes import aria as aria_routes
+
+    report = {"user_id": "someone", "user_email_domain": "x.com"}
+
+    async def _external():
+        aria_routes._auth_is_internal_var.set(False)
+        return aria_routes._dd_report_access_allowed(report, "", "")
+
+    async def _internal():
+        aria_routes._auth_is_internal_var.set(True)
+        return aria_routes._dd_report_access_allowed(report, "", "")
+
+    assert asyncio.run(_external()) is False, "external no-user_id must be denied by id"
+    assert asyncio.run(_internal()) is True, "internal no-user_id must stay unrestricted"
+
+
 if __name__ == "__main__":
     test_rf2456_contextvar_isolates_concurrent_requests()
     print("PASS test_rf2456_contextvar_isolates_concurrent_requests")
