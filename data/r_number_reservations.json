@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2755,
+  "next_available": 2757,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21449,6 +21449,26 @@
       "commit_sha": "fa05c260",
       "notes": null,
       "shipped_at": "2026-07-18T16:48:08Z"
+    },
+    {
+      "r_number": "R-F2755",
+      "title": "reconcile public claims to reality — landing DD limits, model-card provider/citation/audit overclaims",
+      "claimed_at": "2026-07-18T16:50:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6c81b339",
+      "notes": null,
+      "shipped_at": "2026-07-18T16:59:26Z"
+    },
+    {
+      "r_number": "R-F2756",
+      "title": "privacy/terms accuracy — correct stale processor list; prep effective-date + audit-guarantee for legal sign-off",
+      "claimed_at": "2026-07-18T16:50:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8833ca69",
+      "notes": null,
+      "shipped_at": "2026-07-18T16:59:26Z"
     }
   ]
 }
