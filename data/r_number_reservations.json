@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2714,
+  "next_available": 2721,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21037,6 +21037,71 @@
       "commit_sha": "ee57169b",
       "notes": null,
       "shipped_at": "2026-07-18T09:58:42Z"
+    },
+    {
+      "r_number": "R-F2714",
+      "title": "TG grade core: formal intel_grade A/B/C/REJECT (py compute + node consume)",
+      "claimed_at": "2026-07-18T10:00:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2715",
+      "title": "TG per-candidate freshness + grade-before-paginate + classification word-boundary guard",
+      "claimed_at": "2026-07-18T10:00:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2716",
+      "title": "TG A->B publish policy + labeled Grade B + manual recovery + honest channel comments",
+      "claimed_at": "2026-07-18T10:00:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2717",
+      "title": "TG delivery durability + proprioception (atomic, catch-up, admin state, outcome wire)",
+      "claimed_at": "2026-07-18T10:00:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2718",
+      "title": "TG promotion bridge parallel + isolated + fast enqueue",
+      "claimed_at": "2026-07-18T10:00:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2719",
+      "title": "Batch A #6: source-health endpoint stops counting unconfigured/never-checked as healthy (honest buckets)",
+      "claimed_at": "2026-07-18T10:02:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ba2078c4",
+      "notes": null,
+      "shipped_at": "2026-07-18T10:14:06Z"
+    },
+    {
+      "r_number": "R-F2720",
+      "title": "Batch D: procurement status honesty — error!=ok, successful-empty!=failed, timed-out markets visible",
+      "claimed_at": "2026-07-18T10:06:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ba2078c4",
+      "notes": null,
+      "shipped_at": "2026-07-18T10:14:07Z"
     }
   ]
 }
