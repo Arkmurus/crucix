@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2769,
+  "next_available": 2770,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21585,6 +21585,16 @@
       "commit_sha": "02eb1dfb",
       "notes": null,
       "shipped_at": "2026-07-18T18:31:20Z"
+    },
+    {
+      "r_number": "R-F2769",
+      "title": "Phase 2 activation — thread model= through cache/ratelimit/metered/fallback + wire DD-extraction->Haiku, audit->Opus",
+      "claimed_at": "2026-07-18T18:35:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f5bde415",
+      "notes": null,
+      "shipped_at": "2026-07-18T18:52:25Z"
     }
   ]
 }
