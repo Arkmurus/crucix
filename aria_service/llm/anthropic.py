@@ -42,10 +42,24 @@ class AnthropicProvider(LLMProvider):
         }
 
     def _payload(self, system_prompt: str, user_message: str, max_tokens: int) -> dict:
+        # R-F2760 — prompt caching. Send the system prompt as a cacheable text block
+        # (Anthropic Messages API accepts `system` as a string OR a list of blocks) so
+        # ARIA's large, stable persona/constitution prefix is cached. Cache reads bill
+        # at ~0.1x input; on the DeepSeek->Claude switch this cuts the dominant input
+        # cost ~10x whenever the same prefix recurs within the 5-min TTL (high hit-rate
+        # under real chat load). Below the model's minimum cacheable prefix it silently
+        # no-ops — additive and safe. Prompt caching is GA (no beta header). The writers
+        # path (_resilient_llm.py) already uses this pattern.
         return {
             "model": self._model,
             "max_tokens": max_tokens,
-            "system": system_prompt,
+            "system": [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
             "messages": [{"role": "user", "content": user_message}],
         }
 

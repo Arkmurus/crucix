@@ -85,7 +85,17 @@ PRICING: dict[str, tuple[float, float]] = {
     "deepseek-reasoner":  (0.55, 2.19),
     "deepseek-v3":        (0.27, 1.10),
 
-    # Anthropic
+    # Anthropic — R-F2759: current-generation rows added ahead of the DeepSeek->Claude
+    # switch. WITHOUT these, claude-opus-4-8 / claude-sonnet-5 fall through _get_price to
+    # DEFAULT_PRICING (DeepSeek rates), so Claude spend would be under-counted ~5-25x AND
+    # the $300/mo cap (assert_monthly_cap reads these same numbers) would go blind. Prices
+    # are the standard published per-1M rates (input, output). Sonnet 5 has an intro rate
+    # of $2/$10 through 2026-08-31 — deliberately priced here at the STANDARD $3/$15 so the
+    # cap OVER-estimates during the intro window (over-estimate is safe; under-estimate is
+    # the failure this module exists to prevent — see DEFAULT_PRICING note below).
+    "claude-opus-4-8":    (5.00, 25.00),
+    "claude-opus-4-7":    (5.00, 25.00),
+    "claude-sonnet-5":    (3.00, 15.00),
     "claude-sonnet-4-6":  (3.00, 15.00),
     "claude-opus-4-6":    (15.00, 75.00),
     "claude-haiku-4-5":   (1.00, 5.00),
