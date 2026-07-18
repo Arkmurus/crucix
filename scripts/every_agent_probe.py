@@ -6,6 +6,12 @@ import time
 import os
 import re
 
+# R-F2728 — window-aware verdicts (completes R-F2548: not-observed-recently ≠ broken).
+try:
+    from probe_verdict import windowed_ok, recency_ok
+except ImportError:  # pragma: no cover
+    from scripts.probe_verdict import windowed_ok, recency_ok
+
 # R-F2548 — brain_hook.get_stats().modules is a CURRENT-WINDOW surface (modules that
 # emitted a signal recently), NOT the full §21 wiring inventory. An event-driven engine
 # (company_investigator, sanctions sources, ledgers, knowledge readers) is ABSENT from the
@@ -99,7 +105,7 @@ check("Diagnostic 0 fails", diag.get('counts', {}).get('fail', 99) == 0, f"{diag
 # 1c. Brain stats
 d = fetch(f'{base}/api/aria/brain/stats')
 check("Brain stats accessible", isinstance(d, dict) and 'modules' in d)
-check("Total signals > 50k", d.get('total_signals', 0) > 50000, str(d.get('total_signals')))
+check("Total signals above soft floor (windowed)", windowed_ok(d.get('total_signals'), 50000), str(d.get('total_signals')))  # R-F2728 — windowed → WARN if low, not FAIL
 # R-F2548 — window-realistic thresholds. `modules` is the current-active window (~40+),
 # NOT the full inventory; the old >185/>140 expectations compared a WINDOW to an INVENTORY
 # and always failed. Wiring completeness is assessed by the source-aware section below.
@@ -120,7 +126,7 @@ section("2", "WEB INTEGRITY AGENT")
 wi = modules.get('web_integrity', {})
 check("Has cycles", wi.get('total', 0) > 4000, str(wi.get('total')))
 check("Success rate >= 95%", wi.get('success_rate', 0) >= 0.95, f"{wi.get('success_rate',0):.0%}")
-check("Active NOW", wi.get('last_signal_ago_h', 99) < 1, f"{wi.get('last_signal_ago_h')}h ago")
+check("Active recently (WARN if idle)", recency_ok(wi.get('last_signal_ago_h'), 1), f"{wi.get('last_signal_ago_h')}h ago")  # R-F2728 — idle ≠ broken
 check("Fail rate < 5%", wi.get('fail', 0) / max(wi.get('total', 1), 1) < 0.05, f"{wi.get('fail')} fails")
 
 # ══════════════════════════════════════════════════════════════════════
@@ -132,7 +138,7 @@ section("3", "AUTONOMOUS CODER")
 coder = modules.get('aria_coder', {})
 check("Has calls", coder.get('total', 0) > 900, str(coder.get('total')))
 check("Success rate >= 95%", coder.get('success_rate', 0) >= 0.95, f"{coder.get('success_rate',0):.0%}")
-check("Active NOW", coder.get('last_signal_ago_h', 99) < 1, f"{coder.get('last_signal_ago_h')}h ago")
+check("Active recently (WARN if idle)", recency_ok(coder.get('last_signal_ago_h'), 1), f"{coder.get('last_signal_ago_h')}h ago")  # R-F2728 — idle ≠ broken
 check("Fail rate < 5%", coder.get('fail', 0) / max(coder.get('total', 1), 1) < 0.05, f"{coder.get('fail')} fails")
 
 # ══════════════════════════════════════════════════════════════════════

@@ -111,7 +111,7 @@ section("3", "WEB INTEGRITY — actually monitoring?")
 wi = modules.get('web_integrity', {})
 check("Has real cycles", wi.get('total', 0) > 4000, str(wi.get('total')))
 check("Success rate real", wi.get('success_rate', 0) >= 0.95, f"{wi.get('success_rate',0):.0%}")
-check("Active NOW", wi.get('last_signal_ago_h', 99) < 1, f"{wi.get('last_signal_ago_h')}h ago")
+check("Active recently (WARN if idle)", recency_ok(wi.get('last_signal_ago_h'), 1), f"{wi.get('last_signal_ago_h')}h ago")  # R-F2728 — idle ≠ broken
 # Verify the fail count is consistent
 check("Fail count matches rate", abs(wi.get('fail', 0) / max(wi.get('total', 1), 1) - (1 - wi.get('success_rate', 0))) < 0.02, f"fails={wi.get('fail')} rate={wi.get('success_rate',0):.0%}")
 
@@ -124,7 +124,7 @@ section("4", "AUTONOMOUS CODER — actually coding?")
 coder = modules.get('aria_coder', {})
 check("Has real calls", coder.get('total', 0) > 1000, str(coder.get('total')))
 check("Success rate real", coder.get('success_rate', 0) >= 0.95, f"{coder.get('success_rate',0):.0%}")
-check("Active NOW", coder.get('last_signal_ago_h', 99) < 1, f"{coder.get('last_signal_ago_h')}h ago")
+check("Active recently (WARN if idle)", recency_ok(coder.get('last_signal_ago_h'), 1), f"{coder.get('last_signal_ago_h')}h ago")  # R-F2728 — idle ≠ broken
 # Verify fail count is consistent
 coder_fail_rate = coder.get('fail', 0) / max(coder.get('total', 1), 1)
 check("Fail rate < 5%", coder_fail_rate < 0.05, f"{coder.get('fail')} fails out of {coder.get('total')}")
