@@ -94,6 +94,9 @@
   .net-seg button.on{background:var(--n-panel2);color:var(--n-ink);border-color:var(--n-line);}
   .net-seg .cnt{font-family:'SF Mono',Consolas,monospace;font-size:11px;color:var(--n-faint);}
   .net-seg button.on .cnt{color:var(--n-prime);}
+  .net-new-group{margin:8px 12px 0;width:calc(100% - 24px);border:1px solid var(--n-line2);background:var(--n-panel2);color:var(--n-prime);border-radius:9px;padding:9px;font:600 12.5px/1 inherit;cursor:pointer;}
+  .gm-members{max-height:220px;overflow:auto;border:1px solid var(--n-line);border-radius:9px;padding:6px;}
+  .gm-member{display:flex;align-items:center;gap:9px;padding:8px;border-radius:7px;font-size:13px;}.gm-member:hover{background:var(--n-panel2);}.gm-member input{width:auto;}
 
   .net-scroll{flex:1;overflow-y:auto;min-height:0;padding:6px 8px 16px;}
   .net-grouplbl{font:600 10px/1 'SF Mono',Consolas,monospace;letter-spacing:.12em;
@@ -324,6 +327,7 @@
         <button data-view="members" class="on">Members <span class="cnt" id="cnt-members">0</span></button>
         <button data-view="chats">Chats <span class="cnt" id="cnt-chats">0</span></button>
       </div>
+      <button class="net-new-group" id="net-new-group"><i class="bi bi-people-fill"></i> New group chat</button>
       <div class="net-scroll">
         <div id="view-members"><div class="net-hollow">Loading the network…</div></div>
         <div id="view-chats" hidden><div class="net-hollow">No conversations yet.</div></div>
@@ -392,6 +396,11 @@
     </aside>
   </div>
 </main>
+<div class="pm-overlay" id="gm-overlay" role="dialog" aria-modal="true" aria-labelledby="gm-title">
+  <div class="pm-card"><div class="pm-head"><h3 id="gm-title">Create a group chat</h3><button class="pm-x" id="gm-close" aria-label="Close">×</button></div>
+    <div class="pm-body"><div class="pm-field"><label for="gm-name">Group name</label><input id="gm-name" maxlength="80" autocomplete="off"></div><div class="pm-field"><label>Select at least two people</label><div class="gm-members" id="gm-members"></div></div><div class="pm-msg" id="gm-msg" role="status"></div></div>
+    <div class="pm-foot"><button class="pm-btn ghost" id="gm-cancel">Cancel</button><button class="pm-btn primary" id="gm-create">Create group</button></div></div>
+</div>
 
 <!-- R-F2356 — Edit profile modal (fields feed the roster + sidebar) -->
 <div class="pm-overlay" id="pm-overlay" role="dialog" aria-modal="true" aria-labelledby="pm-title">
@@ -443,6 +452,6 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="js/network.js?v=10"></script>
+<script src="js/network.js?v=11"></script>
 </body>
 </html>

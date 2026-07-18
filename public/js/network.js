@@ -27,6 +27,7 @@
   let connected = false;
   let typingTimer = null, typingSent = false, peerTypingTimer = null;
   let activePeer = null;         // R-F2371 — current conversation partner (for bubble avatars + profile pane)
+  let activeConversation = null; // R-F2732 — direct or group conversation summary
   let filterText = '';           // R-F2371 — left-list search query (lower-cased)
   let attachTimer = null;        // R-F2371 — attach "coming soon" hint timer
 
@@ -221,18 +222,20 @@
   function renderChats() {
     const host = $('view-chats');
     if (!convos.length) { host.innerHTML = `<div class="net-hollow">No conversations yet.<br>Pick a member to start one.</div>`; return; }
-    const shown = convos.filter(s => memMatch(userInfo.get(s.userId) || s));
+    const shown = convos.filter(s => memMatch(s.type === 'group' ? { fullName: s.name } : (userInfo.get(s.userId) || s)));
     if (!shown.length) { host.innerHTML = `<div class="net-hollow">No conversations match “<b>${esc(filterText)}</b>”.</div>`; return; }
     host.innerHTML = shown.map(s => {
-      const u = userInfo.get(s.userId) || s;
+      const isGroup = s.type === 'group';
+      const u = isGroup ? { fullName: s.name || 'Group chat' } : (userInfo.get(s.userId) || s);
       const isOnline = online.has(s.userId);
       const last = s.lastMessage || {};
       const mine = last.from === myId;
       const prev = (mine ? 'You: ' : '') + (last.text || '');
-      return `<div class="row ${activeId === s.userId ? 'active' : ''}" data-open="${esc(s.userId)}" role="button" tabindex="0">
-        ${avatar({ id: s.userId, fullName: u.fullName || u.username, avatarUrl: u.avatarUrl }, { isOnline })}
+      const openId = isGroup ? s.conversationId : s.userId;
+      return `<div class="row ${activeId === openId ? 'active' : ''}" data-open="${esc(openId)}" role="button" tabindex="0">
+        ${avatar({ id: openId, fullName: u.fullName || u.username, avatarUrl: u.avatarUrl }, { isOnline: isGroup ? false : isOnline })}
         <div class="bd"><div class="nm">${esc(u.fullName || u.username)}</div>
-        <div class="sub">${esc(prev.slice(0, 42))}</div></div>
+        <div class="sub">${isGroup ? `${(s.members || []).length} members · ` : ''}${esc(prev.slice(0, 42))}</div></div>
         ${s.unread ? `<span class="unread">${s.unread}</span>` : `<span class="time">${fmtTime(last.ts)}</span>`}
       </div>`;
     }).join('');
@@ -246,18 +249,21 @@
   // ---------- rendering: thread ----------
   function openConversation(id) {
     activeId = id;
+    activeConversation = convos.find(c => c.conversationId === id || c.userId === id) || { type: 'direct', userId: id };
     document.getElementById('net-wrap').classList.add('showing-thread');
     $('net-empty').hidden = true; $('net-convo').hidden = false;
+    const isGroup = activeConversation.type === 'group';
     const isAria = id === ARIA.id;
-    const u = isAria ? ARIA : (userInfo.get(id) || { id, fullName: 'Member' });
+    const u = isGroup ? { id, fullName: activeConversation.name || 'Group chat' } : (isAria ? ARIA : (userInfo.get(id) || { id, fullName: 'Member' }));
     const isOnline = isAria ? true : online.has(id);   // ARIA is always on
     paintAvatar($('convo-av'), { id, fullName: u.fullName || u.username, isAria, avatarUrl: u.avatarUrl }, { size: 'sm', isOnline });
     $('convo-who').textContent = u.fullName || u.username || 'Member';
-    setConvoPresence(isOnline, u.lastSeenAt, isAria);
+    if (isGroup) { $('convo-pres').textContent = `${(activeConversation.members || []).length} members`; $('convo-pres').className = 'pres on'; }
+    else setConvoPresence(isOnline, u.lastSeenAt, isAria);
     // R-F2371 — remember the peer (bubble avatars) + populate the profile pane
     activePeer = Object.assign({ id }, u, { isAria });
     renderProfilePanel(activePeer, isOnline, isAria);
-    document.getElementById('net-wrap').classList.add('has-profile');
+    document.getElementById('net-wrap').classList.toggle('has-profile', !isGroup);
     $('net-messages').innerHTML = '<div class="net-hollow">Loading…</div>';
     $('net-typing').textContent = '';
     $('net-input').placeholder = isAria
@@ -306,13 +312,15 @@
   }
   async function loadHistory(id) {
     try {
-      const msgs = await API.get('/api/chat/messages/' + encodeURIComponent(id));
+      const isGroup = activeConversation?.type === 'group';
+      const result = await API.get(isGroup ? '/api/chat/conversation/' + encodeURIComponent(id) : '/api/chat/messages/' + encodeURIComponent(id));
+      const msgs = isGroup ? result?.messages : result;
       if (activeId !== id) return;
       renderMessages(Array.isArray(msgs) ? msgs : []);
       // mark read locally + notify peer
-      const s = convos.find(c => c.userId === id); if (s) s.unread = 0;
+      const s = convos.find(c => c.userId === id || c.conversationId === id); if (s) s.unread = 0;
       renderChats(); updateCounts();
-      if (socket && connected) socket.emit('mark_read', { fromId: id });
+      if (socket && connected) socket.emit('mark_read', isGroup ? { conversationId: id } : { fromId: id });
     } catch (e) {
       $('net-messages').innerHTML = '<div class="net-hollow">Could not load this conversation.</div>';
     }
@@ -368,7 +376,11 @@
     const input = $('net-input');
     const text = input.value.trim();
     if (!text || !activeId || !connected) return;
-    socket.emit('send_message', { toId: activeId, text });
+    const clientId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    const payload = activeConversation?.type === 'group' ? { conversationId: activeId, text, clientId } : { toId: activeId, text, clientId };
+    socket.emit('send_message', payload, result => {
+      if (!result?.ok) { input.value = text; $('net-typing').textContent = result?.error || 'Message was not sent.'; updateSendEnabled(); }
+    });
     input.value = ''; input.style.height = 'auto';
     const _m = $('net-messages'); if (_m) _m.classList.remove('typing');  // R-F2357
     stopTyping();
@@ -377,13 +389,13 @@
   function onTyping() {
     updateSendEnabled();
     if (!activeId || !connected) return;
-    if (!typingSent) { socket.emit('typing', { toId: activeId, typing: true }); typingSent = true; }
+    if (!typingSent) { socket.emit('typing', { ...(activeConversation?.type === 'group' ? { conversationId: activeId } : { toId: activeId }), typing: true }); typingSent = true; }
     clearTimeout(typingTimer);
     typingTimer = setTimeout(stopTyping, 1800);
   }
   function stopTyping() {
     clearTimeout(typingTimer);
-    if (typingSent && activeId && connected) socket.emit('typing', { toId: activeId, typing: false });
+    if (typingSent && activeId && connected) socket.emit('typing', { ...(activeConversation?.type === 'group' ? { conversationId: activeId } : { toId: activeId }), typing: false });
     typingSent = false;
   }
 
@@ -420,17 +432,23 @@
     socket.on('new_message', (m) => {
       if (!m) return;
       const partner = m.from === myId ? m.to : m.from;
-      const summary = convos.find(c => c.userId === partner);
-      if (partner === activeId) {
+      const messageKey = m.conversationId?.startsWith('grp:') ? m.conversationId : partner;
+      const summary = convos.find(c => c.conversationId === m.conversationId || c.userId === partner);
+      if (messageKey === activeId) {
         appendMessage(m);
         if (summary) summary.lastMessage = m;   // keep preview fresh
-        if (m.from !== myId && socket && connected) socket.emit('mark_read', { fromId: partner });
+        if (m.from !== myId && socket && connected) socket.emit('mark_read', m.conversationId?.startsWith('grp:') ? { conversationId: m.conversationId } : { fromId: partner });
       } else if (m.from !== myId) {
         if (summary) { summary.unread = (summary.unread || 0) + 1; summary.lastMessage = m; }
-        else convos.unshift({ userId: partner, lastMessage: m, unread: 1 });
+        else if (!m.conversationId?.startsWith('grp:')) convos.unshift({ userId: partner, conversationId: m.conversationId, type: 'direct', lastMessage: m, unread: 1 });
+        else loadConversations();
         renderChats(); updateCounts();
       }
     });
+    socket.on('messages_read', ({ conversationId }) => {
+      if (conversationId && activeConversation?.conversationId === conversationId) loadHistory(activeId);
+    });
+    socket.on('conversation_created', () => loadConversations());
     socket.on('typing', ({ fromId, typing }) => {
       if (fromId !== activeId) return;
       const el = $('net-typing');
@@ -609,6 +627,27 @@
     });
     $('net-send').addEventListener('click', sendMessage);
 
+    // R-F2732 — accessible multi-select group creation, persisted by the server.
+    const groupOverlay = $('gm-overlay');
+    const closeGroup = () => groupOverlay.classList.remove('open');
+    $('net-new-group').addEventListener('click', () => {
+      $('gm-name').value = ''; $('gm-msg').textContent = '';
+      $('gm-members').innerHTML = members.map(m => `<label class="gm-member"><input type="checkbox" value="${esc(m.id)}"><span>${esc(m.fullName || m.username)}</span></label>`).join('') || '<div class="net-hollow">No available members.</div>';
+      groupOverlay.classList.add('open'); setTimeout(() => $('gm-name').focus(), 30);
+    });
+    $('gm-close').addEventListener('click', closeGroup); $('gm-cancel').addEventListener('click', closeGroup);
+    $('gm-create').addEventListener('click', async () => {
+      const memberIds = [...$('gm-members').querySelectorAll('input:checked')].map(x => x.value);
+      const name = $('gm-name').value.trim();
+      if (!name || memberIds.length < 2) { $('gm-msg').textContent = 'Enter a name and select at least two people.'; return; }
+      $('gm-create').disabled = true;
+      try {
+        await postJson('/api/chat/groups', { name, memberIds }); closeGroup(); await loadConversations();
+        view = 'chats'; $('net-seg').querySelector('[data-view="chats"]').click();
+      } catch (e) { $('gm-msg').textContent = 'Could not create the group. Check its members and try again.'; }
+      $('gm-create').disabled = false;
+    });
+
     // R-F2371 — left-list search filter
     const search = $('net-search-input');
     if (search) search.addEventListener('input', () => {
@@ -684,7 +723,7 @@
     $('net-back').addEventListener('click', () => {
       const w = document.getElementById('net-wrap');
       w.classList.remove('showing-thread', 'has-profile', 'profile-open');   // R-F2371 — also drop the profile pane
-      activeId = null; activePeer = null; highlightActive();
+      activeId = null; activePeer = null; activeConversation = null; highlightActive();
     });
   }
 

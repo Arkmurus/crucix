@@ -59,7 +59,10 @@ import { initComplianceAudit, getAuditLog as getComplianceAuditLog, exportAuditL
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
-import { storeMessage, getConversation, markRead, getConversationSummaries, unreadCount } from './lib/messages.mjs';
+import {
+  storeMessage, getConversation, markRead, getConversationSummaries, unreadCount,
+  createGroup, getConversationById, storeConversationMessage, markConversationRead,
+} from './lib/messages.mjs';
 import { ariaChat as ariaLocalChat, ariaThink as ariaLocalThink } from './lib/aria/aria.mjs';
 import { applyRateLimiting, applyInputValidation, applySecurityHeaders } from './middleware/rateLimiter.mjs';
 import { handleTelegramWebhook, setLLMProvider as setTelegramLLM, handleAriaCommand, buildArkmursBrief } from './lib/telegram/telegramCommands.mjs';
@@ -6334,12 +6337,14 @@ app.post('/api/push/test', requireAdmin, async (req, res) => {
 
 // GET /api/chat/users — list all users (id, username, fullName) for contact list
 app.get('/api/chat/users', requireAuth, (req, res) => {
+  if (!req.user?.userId) return res.status(401).json({ error: 'Authentication required' });
   const users = listUsers().filter(u => u.status === 'active' && u.id !== req.user.userId);
   res.json(users.map(u => ({ id: u.id, username: u.username, fullName: u.fullName, role: u.role })));
 });
 
 // GET /api/chat/conversations — summary list for sidebar
 app.get('/api/chat/conversations', requireAuth, (req, res) => {
+  if (!req.user?.userId) return res.status(401).json({ error: 'Authentication required' });
   const summaries = getConversationSummaries(req.user.userId);
   // Enrich with user info
   const enriched = summaries.map(s => {
@@ -6356,13 +6361,44 @@ app.get('/api/chat/conversations', requireAuth, (req, res) => {
 
 // GET /api/chat/messages/:userId — conversation history
 app.get('/api/chat/messages/:userId', requireAuth, (req, res) => {
+  if (!req.user?.userId) return res.status(401).json({ error: 'Authentication required' });
+  if (!findUserById(req.params.userId) && req.params.userId !== 'aria') return res.status(404).json({ error: 'User not found' });
   const msgs = getConversation(req.user.userId, req.params.userId, 100);
   markRead(req.user.userId, req.params.userId);
   res.json(msgs);
 });
 
+// R-F2732 — group lifecycle is server-authoritative; membership is checked in
+// the store on every read and send, never trusted from client-side state.
+let notifyNetworkConversation = () => {};
+app.post('/api/chat/groups', requireAuth, (req, res) => {
+  if (!req.user?.userId) return res.status(401).json({ error: 'Authentication required' });
+  try {
+    const requested = Array.isArray(req.body?.memberIds) ? req.body.memberIds.map(String) : [];
+    const valid = [...new Set(requested)].filter(id => {
+      const user = findUserById(id);
+      return id !== req.user.userId && user?.status === 'active' && user.networkVisible;
+    });
+    if (valid.length !== new Set(requested.filter(id => id !== req.user.userId)).size) return res.status(400).json({ error: 'Every group member must be an active user' });
+    const group = createGroup(req.user.userId, req.body?.name, valid);
+    notifyNetworkConversation(group);
+    res.status(201).json(group);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.get('/api/chat/conversation/:conversationId', requireAuth, (req, res) => {
+  if (!req.user?.userId) return res.status(401).json({ error: 'Authentication required' });
+  const conversation = getConversationById(req.params.conversationId, req.user.userId, 100);
+  if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+  markConversationRead(req.user.userId, conversation.id);
+  res.json(conversation);
+});
+
 // GET /api/chat/unread — total unread count for badge
 app.get('/api/chat/unread', requireAuth, (req, res) => {
+  if (!req.user?.userId) return res.status(401).json({ error: 'Authentication required' });
   res.json({ count: unreadCount(req.user.userId) });
 });
 
@@ -6805,6 +6841,9 @@ async function start() {
     const s = onlineUsers.get(id);
     if (s) for (const sid of s) io.to(sid).emit(event, data);
   }
+  notifyNetworkConversation = group => {
+    for (const memberId of group.members) _deliverToUser(memberId, 'conversation_created', { conversationId: group.id });
+  };
   function _ariaChunks(text, max = 1900) {
     const t = String(text || '');
     if (t.length <= max) return [t];
@@ -6869,17 +6908,31 @@ async function start() {
       Array.from(onlineUsers.keys()).filter(id => _visibleIds.has(id)));
 
     // Send message
-    socket.on('send_message', ({ toId, text }) => {
-      if (!toId || !text || typeof text !== 'string') return;
+    socket.on('send_message', ({ toId, conversationId, text, clientId } = {}, ack = () => {}) => {
+      if ((!toId && !conversationId) || !text || typeof text !== 'string') return ack({ ok: false, error: 'Invalid message' });
       const safeText = text.trim().slice(0, 2000);
-      if (!safeText) return;
+      if (!safeText) return ack({ ok: false, error: 'Message is empty' });
       // R-F2342 — per-socket send rate limit (abuse / runaway-loop guard).
       const _now = Date.now();
       socket._sendTimes = socket._sendTimes.filter(t => _now - t < _SEND_WINDOW_MS);
-      if (socket._sendTimes.length >= _SEND_MAX) return;
+      if (socket._sendTimes.length >= _SEND_MAX) return ack({ ok: false, error: 'Rate limit exceeded' });
       socket._sendTimes.push(_now);
-
-      const msg = storeMessage(uid, toId, safeText);
+      if (!conversationId && toId !== ARIA_ID && findUserById(toId)?.status !== 'active') return ack({ ok: false, error: 'Recipient not found' });
+      let msg, recipientIds;
+      try {
+        if (conversationId) {
+          const conversation = getConversationById(conversationId, uid, 1);
+          if (!conversation) return ack({ ok: false, error: 'Conversation not found' });
+          msg = storeConversationMessage(conversationId, uid, safeText, clientId);
+          recipientIds = conversation.members;
+        } else {
+          msg = storeMessage(uid, toId, safeText, clientId);
+          recipientIds = [uid, toId];
+        }
+      } catch (error) {
+        errorTracker.record('network', 'message_store_failed', error);
+        return ack({ ok: false, error: 'Message could not be stored' });
+      }
       const enrichFrom = findUserById(uid);
       const payload = {
         ...msg,
@@ -6888,43 +6941,37 @@ async function start() {
       };
 
       // Deliver to recipient (all their sockets)
-      const toSockets = onlineUsers.get(toId);
-      if (toSockets) {
-        for (const sid of toSockets) {
-          io.to(sid).emit('new_message', payload);
-        }
+      for (const recipientId of new Set(recipientIds)) {
+        const sockets = onlineUsers.get(recipientId);
+        if (sockets) for (const sid of sockets) io.to(sid).emit('new_message', payload);
       }
-
-      // Echo back to sender (all their tabs)
-      const fromSockets = onlineUsers.get(uid);
-      if (fromSockets) {
-        for (const sid of fromSockets) {
-          io.to(sid).emit('new_message', payload);
-        }
-      }
+      ack({ ok: true, message: payload });
 
       // R-F2345 — if this DM is addressed to ARIA, route it to her brain and
       // push her reply back into the thread (fire-and-forget; emits when ready).
       // .catch so a rare store/emit throw can't become an unhandled rejection.
-      if (toId === ARIA_ID) {
+      if (!conversationId && toId === ARIA_ID) {
         _ariaChannelReply(uid, safeText).catch(e =>
           console.warn('[network] ARIA channel reply failed:', e?.message || e));
       }
     });
 
     // Typing indicator
-    socket.on('typing', ({ toId, typing }) => {
-      const toSockets = onlineUsers.get(toId);
-      if (toSockets) {
-        for (const sid of toSockets) {
-          io.to(sid).emit('typing', { fromId: uid, typing });
-        }
+    socket.on('typing', ({ toId, conversationId, typing } = {}) => {
+      const recipients = conversationId ? getConversationById(conversationId, uid, 1)?.members : [toId];
+      for (const recipientId of recipients || []) {
+        if (!recipientId || recipientId === uid) continue;
+        const sockets = onlineUsers.get(recipientId);
+        if (sockets) for (const sid of sockets) io.to(sid).emit('typing', { fromId: uid, conversationId, typing: !!typing });
       }
     });
 
     // Mark read
-    socket.on('mark_read', ({ fromId }) => {
-      markRead(uid, fromId);
+    socket.on('mark_read', ({ fromId, conversationId } = {}) => {
+      const id = conversationId || (fromId ? getConversationSummaries(uid).find(s => s.userId === fromId)?.conversationId : null);
+      if (!id || !markConversationRead(uid, id)) return;
+      const conversation = getConversationById(id, uid, 1);
+      for (const memberId of conversation?.members || []) if (memberId !== uid) _deliverToUser(memberId, 'messages_read', { conversationId: id, userId: uid });
     });
 
     socket.on('disconnect', () => {
