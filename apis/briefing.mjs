@@ -313,6 +313,38 @@ export async function runSource(name, fn, ...args) {
   }
 }
 
+// ── R-F2713 (Batch B, §north-star: measure independence, not repetition) ─────
+// Canonical text key + PUBLISHER FAMILY for corroboration-integrity. The old code
+// counted corroboration by array length / occurrence count, so N repeats of one
+// item from ONE collector (or several mirrors of one publisher) masqueraded as N
+// independent confirmations — inflating ARIA's confidence on non-independent intel.
+// These derive the true independence unit: the item's registrable publisher domain
+// (two mirrors of one outlet collapse to one family); an item with no URL falls back
+// to its COLLECTOR name so a single collector's repeats can NEVER read as cross-source.
+function _normText(t) {
+  return (t || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+const _COMPOUND_TLDS = new Set([
+  'co.uk', 'gov.uk', 'org.uk', 'ac.uk', 'com.au', 'gov.au', 'org.au', 'co.za',
+  'gov.za', 'com.br', 'gov.br', 'co.jp', 'or.jp', 'go.jp', 'gov.sa', 'com.sa',
+  'gov.ao', 'com.ng', 'gov.ng', 'com.sg', 'gov.sg', 'co.ke', 'go.ke', 'gov.in',
+]);
+export function publisherFamily(item, collectorName) {
+  const url = (item && (item.url || item.link || item.href || item.guid)) || '';
+  try {
+    if (url && /^https?:\/\//i.test(url)) {
+      const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+      const parts = host.split('.');
+      if (parts.length >= 3) {
+        const lastTwo = parts.slice(-2).join('.');
+        return _COMPOUND_TLDS.has(lastTwo) ? parts.slice(-3).join('.') : lastTwo;
+      }
+      return host;
+    }
+  } catch { /* malformed URL → fall back to the collector identity */ }
+  return `collector:${(collectorName || 'unknown').toString().toLowerCase().trim()}`;
+}
+
 export async function fullBriefing() {
   console.error('[Crucix] Starting intelligence sweep — 48 sources...');
   const start = Date.now();
@@ -403,24 +435,22 @@ export async function fullBriefing() {
   const allMarkers = [];
   const allAlerts  = [];
 
-  // Track title/text seen per source for cross-source boosting
-  const titleIndex = {}; // normalised title → [sourceName, ...]
+  // R-F2713 — track DISTINCT independent publisher families per normalised title.
+  // (Was an ARRAY of collector names with repeats → length used as "confirmations".)
+  const titleFamilies = {}; // normalised title → Set<publisherFamily>
 
-  function normTitle(t) {
-    return (t || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
-  }
+  function normTitle(t) { return _normText(t); }
 
   for (const source of sources) {
     if (source.status !== 'ok' || !source.data) continue;
     const d = source.data;
 
-    // Updates — tag with source name; track for cross-source boosting
+    // Updates — tag with source name; track independent families for corroboration
     for (const u of (d.updates || [])) {
       const tagged = { ...u, _sourceName: source.name };
       const nt = normTitle(u.title || u.headline || u.text);
       if (nt) {
-        if (!titleIndex[nt]) titleIndex[nt] = [];
-        titleIndex[nt].push(source.name);
+        (titleFamilies[nt] || (titleFamilies[nt] = new Set())).add(publisherFamily(u, source.name));
       }
       allUpdates.push(tagged);
     }
@@ -434,29 +464,28 @@ export async function fullBriefing() {
   const PRIORITY_RANK = { critical: 4, high: 3, medium: 2, normal: 1, low: 0 };
   function prank(item) { return PRIORITY_RANK[(item.priority || 'normal').toLowerCase()] ?? 1; }
 
-  // For updates: group by normalised title; keep highest-priority version, tag confirmCount
+  // For updates: group by normalised title; keep highest-priority version.
   const updateGroups = {};
   for (const u of allUpdates) {
     const nt = normTitle(u.title || u.headline || u.text);
     if (!updateGroups[nt]) { updateGroups[nt] = u; continue; }
-    const existing = updateGroups[nt];
-    // Keep higher-priority; if equal keep first; always add confirmation count
-    if (prank(u) > prank(existing)) updateGroups[nt] = u;
-    updateGroups[nt]._confirmedBy = (updateGroups[nt]._confirmedBy || 1) + 1;
+    if (prank(u) > prank(updateGroups[nt])) updateGroups[nt] = u;
   }
 
-  // Cross-source boost: if title seen from 2+ independent sources → elevate priority
+  // R-F2713 — cross-source boost keyed on the count of DISTINCT independent publisher
+  // FAMILIES, never on occurrence count. Three repeats from one collector → confirmed=1
+  // (no boost); two genuinely different outlets → confirmed=2. `_crossSourceConfirmed`
+  // now truthfully means "independent families that carried this item".
   const deduped = Object.values(updateGroups).map(u => {
     const nt = normTitle(u.title || u.headline || u.text);
-    const srcCount = titleIndex[nt]?.length || 1;
-    const confirmed = u._confirmedBy || srcCount;
+    const confirmed = titleFamilies[nt]?.size || 1;
     if (confirmed >= 3 && (!u.priority || u.priority === 'normal' || u.priority === 'medium')) {
       return { ...u, priority: 'high', _crossSourceConfirmed: confirmed };
     }
     if (confirmed >= 2 && (!u.priority || u.priority === 'normal')) {
       return { ...u, priority: 'medium', _crossSourceConfirmed: confirmed };
     }
-    return u;
+    return { ...u, _crossSourceConfirmed: confirmed };
   });
 
   // Sort: critical → high → medium → normal → low; then by timestamp desc
@@ -470,9 +499,26 @@ export async function fullBriefing() {
     });
   }
 
+  // R-F2713 — dedup signals + alerts within the sweep (previously only SORTED, so a
+  // source emitting the same signal N times both cluttered the feed AND multiplied into
+  // the 30-signal brain-delivery budget). Keep the highest-priority instance per title.
+  function dedupByTitle(items) {
+    const seen = new Map(); const noKey = []; let suppressed = 0;
+    for (const it of items) {
+      const key = _normText(it.title || it.headline || it.text || it.content || it.message);
+      if (!key) { noKey.push(it); continue; }        // no title → cannot dedup, keep
+      if (!seen.has(key)) { seen.set(key, it); continue; }
+      suppressed++;
+      if (prank(it) > prank(seen.get(key))) seen.set(key, it);
+    }
+    return { unique: [...seen.values(), ...noKey], suppressed };
+  }
+  const sigDedup   = dedupByTitle(allSignals);
+  const alertDedup = dedupByTitle(allAlerts);
+
   const sortedUpdates  = sortByPriority(deduped);
-  const sortedSignals  = sortByPriority([...allSignals]);
-  const sortedAlerts   = sortByPriority([...allAlerts]);
+  const sortedSignals  = sortByPriority(sigDedup.unique);
+  const sortedAlerts   = sortByPriority(alertDedup.unique);
 
   const confirmedCount = sortedUpdates.filter(u => u._crossSourceConfirmed >= 2).length;
 
@@ -520,12 +566,16 @@ export async function fullBriefing() {
       markers: allMarkers.slice(0, 300),       // More map markers (was 100)
       alerts:  sortedAlerts.slice(0, 100),     // Full alert set (was 30)
       counts: {
-        totalUpdates:     allUpdates.length,
-        dedupedUpdates:   sortedUpdates.length,
-        totalSignals:     allSignals.length,
-        totalMarkers:     allMarkers.length,
-        totalAlerts:      allAlerts.length,
-        crossConfirmed:   confirmedCount,
+        totalUpdates:      allUpdates.length,
+        dedupedUpdates:    sortedUpdates.length,
+        totalSignals:      allSignals.length,
+        uniqueSignals:     sortedSignals.length,   // R-F2713 — after intra-sweep dedup
+        suppressedSignals: sigDedup.suppressed,     // R-F2713 — repeats dropped
+        totalMarkers:      allMarkers.length,
+        totalAlerts:       allAlerts.length,
+        uniqueAlerts:      sortedAlerts.length,     // R-F2713
+        suppressedAlerts:  alertDedup.suppressed,   // R-F2713
+        crossConfirmed:    confirmedCount,          // R-F2713 — items with ≥2 INDEPENDENT publisher families
       }
     },
     sourceHealth,
@@ -670,20 +720,35 @@ export async function pushSignalsToBrain(sweepOutput) {
   try {
     const signals = [];
     const sources = sweepOutput?.sources || {};
+    // R-F2713 — dedup delivered intel within AND across sources, so repeated items
+    // (the same headline emitted N times by one source, or mirrored across several
+    // whitelisted sources) can't consume the 30-signal budget multiple times or be
+    // absorbed into the brain as if independent. The brain then never mistakes
+    // repetition for corroboration.
+    const seenBrainKeys = new Set();
 
     for (const [sourceName, sourceData] of Object.entries(sources)) {
       if (!BRAIN_SOURCE_WHITELIST.has(sourceName)) continue;
       if (!sourceData) continue;
 
       // Collect updates + signals from this source
-      const items = [
+      const rawItems = [
         ...(sourceData.updates || []),
         ...(sourceData.signals || []),
         ...(sourceData.tenders || []),
         ...(sourceData.events  || []),
       ];
+      // R-F2713 — drop repeats before spending the per-source and global budget.
+      const items = [];
+      for (const item of rawItems) {
+        const key = _normText(item.title || item.headline || item.text || item.content || '')
+          || String(item.url || item.link || '');
+        if (key && seenBrainKeys.has(key)) continue;
+        if (key) seenBrainKeys.add(key);
+        items.push(item);
+      }
 
-      for (const item of items.slice(0, 5)) { // max 5 per source
+      for (const item of items.slice(0, 5)) { // max 5 UNIQUE items per source
         const s = tobrainSignal(item, sourceName);
         if (s.title || s.content) signals.push(s);
         if (signals.length >= BRAIN_SIGNAL_LIMIT) break;
