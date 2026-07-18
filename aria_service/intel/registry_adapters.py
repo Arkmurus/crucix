@@ -2115,6 +2115,7 @@ async def _lookup_saudi_arabia(name: str, reg_number: str | None) -> dict | None
     """Saudi Arabia Ministry of Commerce — attempt CR lookup, stub fallback."""
     from .ua_rotation import random_ua
     query = reg_number or name
+    _unconfirmed = False  # R-F2733 — a page came back but did NOT match the query
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
             # Attempt the MOCI commercial data page
@@ -2156,20 +2157,27 @@ async def _lookup_saudi_arabia(name: str, reg_number: str | None) -> dict | None
                     html, re.IGNORECASE,
                 )
 
+                _ex_name = _html_unescape(name_match.group(1).strip()) if name_match else ""
+                _ex_reg = cr_match.group(1) if cr_match else ""
                 if name_match or cr_match:
-                    return _build_result(
-                        company_name=_html_unescape(name_match.group(1).strip()) if name_match else name,
-                        company_number=cr_match.group(1) if cr_match else reg_number or "",
-                        company_status=_html_unescape(status_match.group(1).strip()).lower() if status_match else "unknown",
-                        date_of_creation=_html_unescape(date_match.group(1).strip()) if date_match else "",
-                        registered_office_address=_html_unescape(address_match.group(1).strip()) if address_match else "",
-                        jurisdiction="SA",
-                        sic_codes=[_html_unescape(activity_match.group(1).strip())] if activity_match else [],
-                        officers=[],
-                        psc=[],
-                        source_url=_SA_MC_SEARCH,
-                        adapter="saudi_moci",
-                    )
+                    # R-F2733 — only attach the scraped CR/name to the subject if it
+                    # CORROBORATES the query; a non-matching page must not fabricate an id.
+                    if _scrape_confirms_query(name, reg_number, _ex_name, _ex_reg):
+                        return _build_result(
+                            company_name=_ex_name or name,
+                            company_number=_ex_reg or reg_number or "",
+                            company_status=_html_unescape(status_match.group(1).strip()).lower() if status_match else "unknown",
+                            date_of_creation=_html_unescape(date_match.group(1).strip()) if date_match else "",
+                            registered_office_address=_html_unescape(address_match.group(1).strip()) if address_match else "",
+                            jurisdiction="SA",
+                            sic_codes=[_html_unescape(activity_match.group(1).strip())] if activity_match else [],
+                            officers=[],
+                            psc=[],
+                            source_url=_SA_MC_SEARCH,
+                            adapter="saudi_moci",
+                        )
+                    _unconfirmed = True
+                    logger.debug("Saudi MOCI: scraped page did not confirm query %r — not attaching id", query)
     except Exception as exc:
         logger.debug("Saudi MOCI search failed (falling back to stub): %s", exc)
 
@@ -2193,6 +2201,10 @@ async def _lookup_saudi_arabia(name: str, reg_number: str | None) -> dict | None
         "Recommend verification via the MOCI portal or a local legal representative with NAFATH access.",
         "700-number (unified licence) or CR number is required for official verification.",
     ]
+    if _unconfirmed:
+        result["data_gaps"].insert(
+            0, f"MOCI portal returned a page but its registry data did NOT match '{query}' — "
+               f"no confirmed record; identifier NOT attached (R-F2733).")
     return result
 
 
@@ -2210,6 +2222,7 @@ async def _lookup_ghana(name: str, reg_number: str | None) -> dict | None:
     """Ghana Registrar General's Department — attempt RGD search, stub fallback."""
     from .ua_rotation import random_ua
     query = reg_number or name
+    _unconfirmed = False  # R-F2733 — a page came back but did NOT match the query
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
             # Attempt the RGD online search
@@ -2251,20 +2264,26 @@ async def _lookup_ghana(name: str, reg_number: str | None) -> dict | None:
                     html, re.IGNORECASE,
                 )
 
+                _ex_name = _html_unescape(name_match.group(1).strip()) if name_match else ""
+                _ex_reg = _html_unescape(reg_num_match.group(1).strip()) if reg_num_match else ""
                 if name_match or reg_num_match:
-                    return _build_result(
-                        company_name=_html_unescape(name_match.group(1).strip()) if name_match else name,
-                        company_number=_html_unescape(reg_num_match.group(1).strip()) if reg_num_match else reg_number or "",
-                        company_status=_html_unescape(status_match.group(1).strip()).lower() if status_match else "unknown",
-                        date_of_creation=_html_unescape(date_match.group(1).strip()) if date_match else "",
-                        registered_office_address=_html_unescape(address_match.group(1).strip()) if address_match else "",
-                        jurisdiction="GH",
-                        sic_codes=[],
-                        officers=[],
-                        psc=[],
-                        source_url=f"{_GH_RGD_SEARCH}?search={query}",
-                        adapter="ghana_rgd",
-                    )
+                    # R-F2733 — only attach the scraped id/name if it CORROBORATES the query.
+                    if _scrape_confirms_query(name, reg_number, _ex_name, _ex_reg):
+                        return _build_result(
+                            company_name=_ex_name or name,
+                            company_number=_ex_reg or reg_number or "",
+                            company_status=_html_unescape(status_match.group(1).strip()).lower() if status_match else "unknown",
+                            date_of_creation=_html_unescape(date_match.group(1).strip()) if date_match else "",
+                            registered_office_address=_html_unescape(address_match.group(1).strip()) if address_match else "",
+                            jurisdiction="GH",
+                            sic_codes=[],
+                            officers=[],
+                            psc=[],
+                            source_url=f"{_GH_RGD_SEARCH}?search={query}",
+                            adapter="ghana_rgd",
+                        )
+                    _unconfirmed = True
+                    logger.debug("Ghana RGD: scraped page did not confirm query %r — not attaching id", query)
     except Exception as exc:
         logger.debug("Ghana RGD search failed (falling back to stub): %s", exc)
 
@@ -2288,6 +2307,10 @@ async def _lookup_ghana(name: str, reg_number: str | None) -> dict | None:
         "Recommend manual verification via the RGD office in Accra or through a local legal representative.",
         "Ghana company registration numbers typically follow the format CS123456789.",
     ]
+    if _unconfirmed:
+        result["data_gaps"].insert(
+            0, f"RGD portal returned a page but its registry data did NOT match '{query}' — "
+               f"no confirmed record; identifier NOT attached (R-F2733).")
     return result
 
 
@@ -2439,6 +2462,45 @@ async def _lookup_israel(name: str, reg_number: str | None) -> dict | None:
 # ╔══════════════════════════════════════════════════════════════════════╗
 # ║  Shared helpers                                                    ║
 # ╚══════════════════════════════════════════════════════════════════════╝
+
+# R-F2733 — generic company-name tokens ignored when matching a scraped result to
+# the query (they carry no identifying signal).
+_REG_GENERIC_TOKENS = frozenset({
+    "ltd", "limited", "llc", "inc", "incorporated", "plc", "company", "co", "corp",
+    "corporation", "sa", "sarl", "gmbh", "group", "holdings", "holding", "the", "and",
+    "trading", "services", "international", "enterprises", "est", "establishment",
+})
+
+
+def _scrape_confirms_query(
+    query_name: str | None, query_reg: str | None,
+    extracted_name: str | None, extracted_reg: str | None,
+) -> bool:
+    """R-F2733 — may a scraped registry result be attached to the SUBJECT?
+
+    A best-effort portal scrape must CORROBORATE the query before its registry
+    number / name is lent to the subject. A portal that returns a different company,
+    a generic landing page, or a form placeholder must NOT fabricate a subject
+    identifier (the R-F2695 / R-F2703 honesty class). The rule:
+      * If a registration number was queried, the page's registration number is the
+        strong anchor — it must be PRESENT and MATCH (absence is inconclusive → no).
+      * Otherwise (name search), require a meaningful shared token between the queried
+        and extracted names (ignoring generic company suffixes).
+    """
+    def _norm_reg(s: str | None) -> str:
+        return re.sub(r"[^0-9a-z]", "", str(s or "").lower())
+
+    def _sig_tokens(s: str | None) -> set[str]:
+        return {t for t in re.split(r"[^0-9a-z]+", str(s or "").lower())
+                if len(t) >= 3 and t not in _REG_GENERIC_TOKENS}
+
+    if query_reg and _norm_reg(query_reg):
+        er = _norm_reg(extracted_reg)
+        return bool(er) and er == _norm_reg(query_reg)
+    qn = _sig_tokens(query_name)
+    en = _sig_tokens(extracted_name)
+    return bool(qn) and bool(en) and bool(qn & en)
+
 
 def _build_result(
     *,
