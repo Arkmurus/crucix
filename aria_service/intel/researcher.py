@@ -4239,6 +4239,34 @@ async def get_research_summary(llm: LLMProvider) -> dict:
 # in place per R-F150 for backends that 202/429).
 
 @fail_wire(module="researcher", gap_type="source_failure")
+def _adverse_relevance_token_sets(names: list[str]) -> list[set[str]]:
+    """R-F2745 — meaningful token set per subject name (entity + directors + UBOs)."""
+    from ._sanctions_classify import _tokenize_entity_name
+    out: list[set[str]] = []
+    for n in names:
+        ts = _tokenize_entity_name(n or "")
+        if ts:
+            out.append(ts)
+    return out
+
+
+def _adverse_hit_names_subject(text: str, name_token_sets: list[set[str]]) -> bool:
+    """R-F2745 — does the article actually NAME the subject (or a named director/UBO)?
+
+    The adverse-media templates are entity-anchored, but a web backend returns results
+    that match the adverse TOPIC (fraud/sanctions/…) even when the entity is absent —
+    or a DIFFERENT same-named entity. Attributing those to the subject fabricates its
+    adverse exposure (and inflates the count that feeds the evidence grade). A finding
+    is the subject's only if the FULL token set of one of its names appears in the
+    title/snippet. If no subject name is usable (all too short to tokenise), the gate
+    cannot apply and returns True — preserve behaviour rather than fabricate a drop.
+    """
+    if not name_token_sets:
+        return True
+    tt = {t for t in re.split(r"[^0-9a-z]+", (text or "").lower()) if len(t) >= 3}
+    return any(ns <= tt for ns in name_token_sets)
+
+
 async def run_adverse_media_deep_search(
     entity_name: str,
     *,
@@ -4329,6 +4357,12 @@ async def run_adverse_media_deep_search(
     breaker_skips = 0
     _templates_done = 0
     _timed_out = False
+    # R-F2745 — the subject's names (entity + directors + UBOs). A finding is only the
+    # subject's adverse media if the article NAMES one of these, not just the topic.
+    _name_token_sets = _adverse_relevance_token_sets(
+        [entity_name, *(director_names or []), *(ubo_names or [])]
+    )
+    _off_subject_dropped = 0
 
     # Execute templates sequentially with brief throttle to avoid
     # tripping per-host breakers unnecessarily. Full parallel would be
@@ -4367,6 +4401,11 @@ async def run_adverse_media_deep_search(
             snippet = r.get("snippet", "")
             tier = r.get("_credibility_tier", "")
             if not url or not title:
+                continue
+            # R-F2745 — drop results that match the adverse TOPIC but do not name the
+            # subject (or a director/UBO): they are not the subject's adverse media.
+            if not _adverse_hit_names_subject(f"{title} {snippet}", _name_token_sets):
+                _off_subject_dropped += 1
                 continue
             findings.append({
                 "source_class": source_class,
@@ -4408,6 +4447,9 @@ async def run_adverse_media_deep_search(
         "timed_out": _timed_out,
         "findings": findings,
         "findings_count": len(findings),
+        # R-F2745 — results that matched the adverse topic but did not name the subject
+        # (a different same-named entity, or generic topic news) were NOT attributed.
+        "off_subject_dropped": _off_subject_dropped,
         "coverage_by_class": coverage_by_class,
         "execution_time_seconds": duration,
         "circuit_breaker_skips": breaker_skips,

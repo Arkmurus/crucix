@@ -30,7 +30,9 @@ async def test_deadline_returns_partial_findings_not_all_lost(monkeypatch) -> No
 
     async def _slow(query, timeout=10.0):
         await asyncio.sleep(0.08)
-        return [{"link": f"http://x/{query}", "title": query, "snippet": "s",
+        # R-F2745 — the hit must NAME the subject to survive the entity-relevance gate;
+        # this test is about deadline-partial preservation, not off-subject filtering.
+        return [{"link": f"http://x/{query}", "title": f"TestCo {query}", "snippet": "s",
                  "_credibility_tier": "tier_2"}]
 
     monkeypatch.setattr(R, "_web_search", _slow)
