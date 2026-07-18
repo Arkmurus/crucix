@@ -44,6 +44,7 @@ import { ROLES, roleSatisfies } from './lib/auth/roles.mjs';  // R-F2170
 import { classifyDeliveryOutcome, degradedDetail } from './lib/aria/deliveryOutcome.mjs';  // R-F1965
 import { classifySourceHealth } from './lib/source/healthBuckets.mjs';  // R-F2719
 import { createBillingRouter } from './lib/billing/routes.mjs';
+import { enforceQuota } from './lib/billing/enforce.mjs';  // R-F2765 — per-tier quota enforcement on the web path
 import { createReportsRouter } from './lib/reports/routes.mjs';
 import { createStatusRouter } from './lib/status/routes.mjs';
 // R-F42 (2026-05-09): public API surface — env-gated on ENABLE_PUBLIC_API.
@@ -3467,14 +3468,32 @@ app.get('/api/aria/verify/:verification_id', requireAuth, (req, res, next) => {
 // (and user_email + derived domain for R-F608 same-company sharing).
 // Pinning to the JWT-resolved values means the client can't forge
 // these on the wire.
-app.post('/api/aria/dd/orchestrate', requireAuth, (req, res) => {
+// R-F2765 — resolve the caller's tier and enforce one unit of a per-tier quota on
+// the web path. Returns null when ALLOWED or EXEMPT (system / internal token /
+// localhost bypass have no JWT userId → enforceQuota exempts them). Returns the
+// checkAndConsume verdict when the cap is hit. Keeps the load-bearing exemption
+// in one place; see lib/billing/enforce.mjs.
+async function _quotaBlock(req, kind) {
+  const uid = req.user?.userId;
+  const tier = uid ? (findUserById(uid)?.tier) : null;
+  return enforceQuota(uid, tier, kind);
+}
+
+app.post('/api/aria/dd/orchestrate', requireAuth, async (req, res) => {
   const userId = req.user?.userId || '';
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
   let userEmail = '';
+  let userTier = null;
   try {
     const u = findUserById(userId);
     userEmail = String(u?.email || '').trim();
+    userTier = u?.tier || null;
   } catch {}
+  // R-F2765 — enforce the tier DD-runs/month cap before dispatching the expensive
+  // DD orchestrator (userId guaranteed by the 401 above). Prevents runaway Claude
+  // spend post-switch. System callers never reach this route (requireAuth).
+  const _ddq = await enforceQuota(userId, userTier, 'ddRun');
+  if (_ddq) return res.status(429).json({ error: _ddq.reason, quota: { current: _ddq.current, cap: _ddq.cap } });
   req.body = req.body || {};
   req.body.user_id = userId;
   if (userEmail) req.body.user_email = userEmail;
@@ -3873,6 +3892,12 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
     });
   }
 
+  // R-F2765 — enforce the tier messages/day cap (skipped for system/internal
+  // callers, e.g. the WhatsApp listener on the internal token). AFTER the trivial
+  // short-circuit so greetings / liveness probes never count against quota.
+  const _mq = await _quotaBlock(req, 'message');
+  if (_mq) return res.status(429).json({ error: _mq.reason, quota: { current: _mq.current, cap: _mq.cap } });
+
   // Persist session to Redis for cross-browser recovery
   const sessionKey = `crucix:chat:session:${sid}`;
 
@@ -4109,6 +4134,15 @@ app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
     res.write(`data: ${JSON.stringify({type:'done',session_id:sid,trivial:true})}\n\n`);
     _reportChat('delivered_real_answer', 'trivial');
     return res.end();
+  }
+
+  // R-F2765 — enforce the tier messages/day cap BEFORE flushing SSE headers, so a
+  // limit hit returns a clean JSON 429 rather than a half-open stream. System /
+  // internal callers (no JWT userId) are exempt.
+  const _mq = await _quotaBlock(req, 'message');
+  if (_mq) {
+    _reportChat('send_failed', 'quota_exceeded');
+    return res.status(429).json({ error: _mq.reason, quota: { current: _mq.current, cap: _mq.cap } });
   }
 
   if (!ARIA_SERVICE_URL) {

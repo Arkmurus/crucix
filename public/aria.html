@@ -1599,6 +1599,16 @@ async function send(text, opts) {
     });
 
     if (!resp.ok) {
+      // R-F2765 — clean "plan limit reached" message for the enforced per-tier
+      // quota 429 (instead of a raw "Error: 429: {json}" bubble).
+      if (resp.status === 429) {
+        var _qbody = await resp.json().catch(function(){ return {}; });
+        var _qmsg = (_qbody && _qbody.error) ? String(_qbody.error) : 'plan limit reached';
+        streamBody.innerHTML = md('**Plan limit reached.** ' + _qmsg + ' — [manage your plan](/account.html).');
+        streamBadge.remove();
+        sending = false; resize(); ta.focus();
+        return;
+      }
       streamBody.innerHTML = md('Error: ' + resp.status + ': ' + (await resp.text().catch(function(){return '';})).slice(0,200));
       streamBadge.remove();
       sending = false; resize(); ta.focus();
