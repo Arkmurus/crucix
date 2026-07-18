@@ -47,6 +47,7 @@ class OpenAICompatProvider(LLMProvider):
         *,
         max_tokens: int = 4096,
         timeout: float = 0,
+        model: str | None = None,   # R-F2768 — accept the routing override (a Claude id is ignored)
     ) -> LLMResult:
         timeout = timeout or self._default_timeout
 
@@ -66,8 +67,12 @@ class OpenAICompatProvider(LLMProvider):
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
 
+        # R-F2768 — accept the per-call routing override but NEVER send a Claude
+        # model id to an OpenAI-compatible API (it would 400). A non-Claude
+        # override (e.g. an explicit OpenAI model) is honoured; else configured.
+        _eff_model = model if (model and not str(model).startswith("claude")) else self._model
         payload = {
-            "model": self._model,
+            "model": _eff_model,
             "max_tokens": max_tokens,
             "messages": [
                 {"role": "system", "content": system_prompt},

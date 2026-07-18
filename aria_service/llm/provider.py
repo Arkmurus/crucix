@@ -102,6 +102,7 @@ class LLMProvider(ABC):
         *,
         max_tokens: int = 4096,
         timeout: float = 60.0,
+        model: str | None = None,   # R-F2768 — per-call model override (Claude-era routing)
     ) -> LLMResult: ...
 
     async def stream(
@@ -112,6 +113,7 @@ class LLMProvider(ABC):
         max_tokens: int = 4096,
         timeout: float = 120.0,
         on_done: "Optional[Callable]" = None,
+        model: str | None = None,   # R-F2768 — per-call model override (Claude-era routing)
     ) -> AsyncGenerator[str, None]:
         """Yield text chunks as the LLM generates them.
 
@@ -124,7 +126,7 @@ class LLMProvider(ABC):
         """
         result = await self.complete(
             system_prompt, user_message,
-            max_tokens=max_tokens, timeout=timeout,
+            max_tokens=max_tokens, timeout=timeout, model=model,
         )
         yield result.text
         if on_done:

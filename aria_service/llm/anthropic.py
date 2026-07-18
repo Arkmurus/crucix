@@ -41,7 +41,8 @@ class AnthropicProvider(LLMProvider):
             "anthropic-version": "2023-06-01",
         }
 
-    def _payload(self, system_prompt: str, user_message: str, max_tokens: int) -> dict:
+    def _payload(self, system_prompt: str, user_message: str, max_tokens: int,
+                 model: str | None = None) -> dict:
         # R-F2760 — prompt caching. Send the system prompt as a cacheable text block
         # (Anthropic Messages API accepts `system` as a string OR a list of blocks) so
         # ARIA's large, stable persona/constitution prefix is cached. Cache reads bill
@@ -50,8 +51,13 @@ class AnthropicProvider(LLMProvider):
         # under real chat load). Below the model's minimum cacheable prefix it silently
         # no-ops — additive and safe. Prompt caching is GA (no beta header). The writers
         # path (_resilient_llm.py) already uses this pattern.
+        # R-F2768 — per-call model override for Claude-era model routing: use the
+        # routed Claude model when the caller supplied one, else this provider's
+        # configured model. Guarding on the "claude" prefix means a routed id
+        # meant for a different provider can never mis-target Anthropic.
+        _eff_model = model if (model and str(model).startswith("claude")) else self._model
         return {
-            "model": self._model,
+            "model": _eff_model,
             "max_tokens": max_tokens,
             "system": [
                 {
@@ -93,8 +99,9 @@ class AnthropicProvider(LLMProvider):
         *,
         max_tokens: int = 4096,
         timeout: float = 60.0,
+        model: str | None = None,   # R-F2768 — per-call Claude model override
     ) -> LLMResult:
-        payload = self._payload(system_prompt, user_message, max_tokens)
+        payload = self._payload(system_prompt, user_message, max_tokens, model=model)
         last_error = None
 
         for attempt in range(_MAX_RETRIES):
@@ -160,6 +167,7 @@ class AnthropicProvider(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 120.0,
         on_done: "Optional[Callable]" = None,
+        model: str | None = None,   # R-F2768 — per-call Claude model override
     ) -> AsyncGenerator[str, None]:
         """Yield text chunks as Anthropic generates them.
 
@@ -171,7 +179,7 @@ class AnthropicProvider(LLMProvider):
         on_done(LLMResult) is called after the stream finishes with
         final token counts and model info for cost tracking.
         """
-        payload = {**self._payload(system_prompt, user_message, max_tokens), "stream": True}
+        payload = {**self._payload(system_prompt, user_message, max_tokens, model=model), "stream": True}
         last_error = None
 
         for attempt in range(_MAX_RETRIES):

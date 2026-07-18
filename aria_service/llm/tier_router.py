@@ -148,6 +148,70 @@ INTENT_TO_TIER: dict[str, str] = {
 INTENTS = frozenset(INTENT_TO_TIER.keys())
 
 
+# ── R-F2768: model-level Claude routing ─────────────────────────────────────
+# Once DeepSeek is removed (the switch to Claude), the cheap PROVIDER tiers
+# (ollama/deepseek/groq) collapse UP to a single anthropic primary — so without
+# model-level routing every call, including bulk article extraction and
+# classification, would hit full-price Sonnet, losing the cost win. This maps
+# each intent to a Claude MODEL CLASS: Haiku for cheap/high-volume work, Sonnet
+# for customer DD synthesis + chat, Opus for audit-grade / constitutional
+# verdicts. Env-overridable so the operator can retune the cost/quality dial
+# without a deploy. A caller passes claude_model_for_intent(intent) as the
+# per-call `model=` override; non-Claude providers ignore a claude id, so this
+# is a safe no-op pre-switch (DeepSeek keeps serving its own model).
+def _model_cheap() -> str:
+    return (os.getenv("ARIA_MODEL_CHEAP") or "claude-haiku-4-5").strip()
+
+
+def _model_standard() -> str:
+    return (os.getenv("ARIA_MODEL_STANDARD") or "claude-sonnet-5").strip()
+
+
+def _model_premium() -> str:
+    return (os.getenv("ARIA_MODEL_PREMIUM") or "claude-opus-4-8").strip()
+
+
+# tier → model class. TIER_PREMIUM defaults to 'standard' (Sonnet — chat + DD
+# synthesis); specific audit-grade intents escalate to 'premium' (Opus) below.
+_TIER_TO_MODEL_CLASS: dict[str, str] = {
+    TIER_LOCAL_FAST:   "cheap",
+    TIER_LOCAL_REASON: "cheap",
+    TIER_FAST_CHEAP:   "cheap",
+    TIER_FAST_GOOD:    "standard",
+    TIER_PREMIUM:      "standard",
+}
+# Per-intent overrides (finer than tier): audit-grade / constitutional → Opus.
+_INTENT_TO_MODEL_CLASS: dict[str, str] = {
+    "audit_grade_dd":          "premium",
+    "constitutional_decision": "premium",
+    "compliance_opinion":      "premium",
+}
+
+
+@fail_wire(module="tier_router", gap_type="engine_failure")
+def claude_model_for_intent(intent: str) -> str:
+    """Return the Claude model ID to use for this intent (Claude-era model
+    routing). Honours ARIA_MODEL_CHEAP/STANDARD/PREMIUM env overrides; falls
+    back to the tier→class map, then 'standard' (Sonnet). Pass the result as a
+    per-call ``model=`` override — providers that aren't Claude ignore it."""
+    if _disabled():
+        return _model_standard()
+    # Safety: a truly-unknown intent routes to STANDARD (Sonnet), never
+    # accidentally to cheap Haiku — a mislabelled customer-facing call must not
+    # be silently down-modelled.
+    if intent not in INTENTS:
+        return _model_standard()
+    cls = _INTENT_TO_MODEL_CLASS.get(intent)
+    if cls is None:
+        tier = INTENT_TO_TIER.get(intent, INTENT_TO_TIER["default"])
+        cls = _TIER_TO_MODEL_CLASS.get(tier, "standard")
+    return {
+        "cheap": _model_cheap(),
+        "standard": _model_standard(),
+        "premium": _model_premium(),
+    }[cls]
+
+
 # ── Override env var ──────────────────────────────────────────────
 
 def _override_provider() -> str | None:
