@@ -207,7 +207,7 @@ function userCard(u) {
       '</div>'+
       '<span class="sc-badge '+statusClass+'">'+escHtml(u.status||'')+'</span>'+
       '<select class="role-sel" data-action="role" data-id="'+u.id+'">'+
-        ['viewer','analyst','admin'].map(function(r){return '<option value="'+r+'"'+(u.role===r?' selected':'')+'>'+r+'</option>';}).join('')+
+        ['viewer','support','poweruser','admin'].map(function(r){return '<option value="'+r+'"'+(u.role===r?' selected':'')+'>'+r+'</option>';}).join('')+
       '</select>'+
     '</div>'+
     '<div class="user-actions">'+actions+login+'</div>'+

@@ -29,7 +29,7 @@ check('non-array allowed -> deny', roleSatisfies('admin', null) === false);
 check('unknown role denied', roleSatisfies('hacker', ['admin']) === false);
 
 // ── Backend role validation (PUT /api/admin/users/:id) ───────────────────────
-check('ROLES is exactly [viewer,support,admin]', JSON.stringify(ROLES) === JSON.stringify(['viewer', 'support', 'admin']));
+check('ROLES is exactly [viewer,support,poweruser,admin]', JSON.stringify(ROLES) === JSON.stringify(['viewer', 'support', 'poweruser', 'admin']));  // R-F2773 added poweruser
 check('ROLES frozen', Object.isFrozen(ROLES));
 check('isValidRole(support) true', isValidRole('support') === true);
 check('isValidRole(viewer) true', isValidRole('viewer') === true);
