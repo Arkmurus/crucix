@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2729,
+  "next_available": 2731,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21188,6 +21188,25 @@
       "commit_sha": "e59c2e31",
       "notes": null,
       "shipped_at": "2026-07-18T11:32:04Z"
+    },
+    {
+      "r_number": "R-F2729",
+      "title": "Batch 4 quality-gate: runnable Node lint (node --check) + terminating test script + diagnose node --test open handle",
+      "claimed_at": "2026-07-18T11:39:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "dbbe1309",
+      "notes": null,
+      "shipped_at": "2026-07-18T11:46:00Z"
+    },
+    {
+      "r_number": "R-F2730",
+      "title": "DD Grade-A #1: wire anchored PSC controlled_by into relationship graph + ACL cross-tenant fix",
+      "claimed_at": "2026-07-18T11:43:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
