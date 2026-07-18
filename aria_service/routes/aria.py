@@ -9996,6 +9996,7 @@ async def chat_ep(req: ChatRequest, request: Request):
     if not req.message:
         raise HTTPException(status_code=400, detail="message required")
     session_id = req.session_id or str(uuid.uuid4())[:12]
+    _deliv_t0 = time.monotonic()  # R-F2704 (§25) — non-stream delivery-outcome latency
     try:  # R-F860 — interactive traffic yields the encoder from autonomous absorbs
         from ..intel import brain_hook as _bh860
         _bh860.mark_interactive()
@@ -11600,6 +11601,28 @@ async def chat_ep(req: ChatRequest, request: Request):
         except Exception as e:
             _log.debug("finish_trace failed: %s", e)
 
+        # R-F2704 (§13 stream-bypass / §25): mirror the SSE path's delivery-outcome
+        # wire into the non-stream handler so Telegram / web-nonstream / internal
+        # callers no longer reach the brain as silence on a produce-failure. Classify
+        # on the SAME `response_text` signal finish_trace uses above, so the trace and
+        # the outcome never disagree. Runs for both the normal return AND a propagating
+        # exception (try/finally, no except in between). Never blocks/raises.
+        try:
+            import sys as _sys2704
+            _exc2704 = _sys2704.exc_info()[1]
+            if _exc2704 is not None:
+                _out2704, _det2704 = "error", f"exception:{type(_exc2704).__name__}"
+            elif response_text and response_text.strip():
+                _out2704, _det2704 = "delivered_real_answer", ""
+            else:
+                _out2704, _det2704 = "error", "empty_response"
+            _fire_chat_delivery_outcome(
+                session_id, _out2704, _det2704,
+                int((time.monotonic() - _deliv_t0) * 1000),
+            )
+        except Exception:
+            pass
+
 
 def _fire_web_delivery_outcome(session_id: str, outcome: str, detail: str = "", latency_ms: int = 0) -> None:
     """R-F1918 (G5/§25): fire-and-forget the WEB chat delivery outcome so the brain
@@ -11613,6 +11636,51 @@ def _fire_web_delivery_outcome(session_id: str, outcome: str, detail: str = "", 
                 from ..intel.outcome_wire import OutcomeRecord, record_outcome
                 await record_outcome(OutcomeRecord(
                     surface="web", request_id=session_id or "web",
+                    intended_result="chat_response", actual_outcome=outcome,
+                    latency_ms=int(latency_ms), detail=str(detail)[:200],
+                ))
+            except Exception:
+                pass
+        asyncio.create_task(_bg())
+    except Exception:
+        pass
+
+
+def _derive_delivery_surface(session_id: str) -> str:
+    """R-F2704 (§25) — map a chat session_id prefix to its output surface so the
+    non-stream chat_ep records the delivery outcome against the RIGHT channel.
+    Mirrors the R-F1953 channel-prefix convention: WhatsApp sessions are
+    ``wa_<jid>`` / ``auto_<jid>`` → "wa"; Telegram ``telegram_<chatid>`` → "tg";
+    everything else (web frontend, curl, api/internal) → "web"."""
+    sid = (session_id or "").lower()
+    if sid.startswith("wa_") or sid.startswith("auto_"):
+        return "wa"
+    if sid.startswith("telegram_") or sid.startswith("tg_"):
+        return "tg"
+    return "web"
+
+
+def _fire_chat_delivery_outcome(
+    session_id: str, outcome: str, detail: str = "", latency_ms: int = 0,
+) -> None:
+    """R-F2704 (§13 stream-bypass / §25 proprioception): the SSE ``chat_stream_ep``
+    already fires ``_fire_web_delivery_outcome`` on success/timeout/error, but the
+    non-stream ``chat_ep`` — which serves the web-nonstream UI, Telegram (via
+    ariaChatProxy) and internal/api callers — recorded NO server-side outcome, so a
+    produce-failure on those channels reached the brain as silence and the §25
+    self-heal loop was blind to them. Mirror the hook here, attributing the outcome to
+    the derived surface. WhatsApp/auto sessions are SKIPPED: the WA listener already
+    reports their end-to-end delivery (the §25 WA template), so firing here would
+    double-count that surface. Never blocks/raises."""
+    surface = _derive_delivery_surface(session_id)
+    if surface == "wa":  # WA listener self-reports (§25 template) — don't double-count
+        return
+    try:
+        async def _bg():
+            try:
+                from ..intel.outcome_wire import OutcomeRecord, record_outcome
+                await record_outcome(OutcomeRecord(
+                    surface=surface, request_id=session_id or surface,
                     intended_result="chat_response", actual_outcome=outcome,
                     latency_ms=int(latency_ms), detail=str(detail)[:200],
                 ))
