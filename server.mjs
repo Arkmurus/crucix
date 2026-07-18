@@ -5526,7 +5526,16 @@ app.post('/api/admin/test-telegram', requireAdmin, async (req, res) => {
 // ── Admin Channel Publisher — delegated to channelServerHooks ─────────────────
 app.get('/api/admin/channel/state', requireAdmin, (req, res) => {
   try {
-    res.json(channelHooks.getSchedulerState());
+    // R-F2717 (#12) — the scheduled Golden path updates the CRON scheduler
+    // (getSchedulerState2 via markPosted), NOT the legacy publisher (getSchedulerState
+    // via recordPost). Reading only the publisher made this report "no posts" after a
+    // successful scheduled Golden post. Include the cron scheduler + the durable
+    // outcome ledger (§25) so a delivered post is actually visible here.
+    res.json({
+      ...(channelHooks.getSchedulerState() || {}),
+      scheduler: channelHooks.getSchedulerState2 ? channelHooks.getSchedulerState2() : null,
+      recent_outcomes: channelHooks.getRecentChannelOutcomes ? channelHooks.getRecentChannelOutcomes(25) : [],
+    });
   } catch (err) {
     res.status(500).json({ error: 'Failed to get channel state', detail: err.message });
   }
