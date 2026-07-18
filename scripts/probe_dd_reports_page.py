@@ -4,7 +4,7 @@ import ssl
 import re
 
 ctx = ssl.create_default_context()
-web = 'https://intel.arkmurus.com'
+web = 'https://imaria.io'
 
 r = urllib.request.urlopen(web + '/dd-reports.html', context=ctx, timeout=15)
 html = r.read().decode('utf-8', errors='replace')

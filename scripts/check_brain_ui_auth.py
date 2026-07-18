@@ -1,7 +1,7 @@
 """Check if the brain command center sends auth tokens."""
 import urllib.request, ssl, re
 ctx = ssl.create_default_context()
-r = urllib.request.urlopen('https://intel.arkmurus.com/aria-brain', context=ctx, timeout=15)
+r = urllib.request.urlopen('https://imaria.io/aria-brain', context=ctx, timeout=15)
 html = r.read().decode()
 
 # Find all API paths the page calls

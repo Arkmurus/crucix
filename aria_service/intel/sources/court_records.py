@@ -63,7 +63,7 @@ _BAILII_GNEWS = (
 
 _DEFAULT_TIMEOUT = 12.0
 _USER_AGENT = (
-    "Mozilla/5.0 (compatible; ARIA-DD/1.0; +https://intel.arkmurus.com) "
+    "Mozilla/5.0 (compatible; ARIA-DD/1.0; +https://imaria.io) "
     "Court-records lookup R-F579"
 )
 

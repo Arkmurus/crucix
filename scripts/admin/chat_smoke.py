@@ -23,7 +23,7 @@ Backend (fly aria-intel.fly.dev):
   • POST /api/aria/chat/stream   (auth gate; expect 401 without token)
   • GET /api/aria/operating-mode (auth-gated; 401 without token)
 
-Frontend (seenode intel.arkmurus.com):
+Frontend (seenode imaria.io):
   • GET /aria.html               (expect 200)
   • R-F738 input-hint string in served HTML (deploy-verification —
     confirms the latest aria.html bundle reached seenode)
@@ -38,11 +38,11 @@ Usage
   python scripts/admin/chat_smoke.py
   python scripts/admin/chat_smoke.py --token "$ARIA_ADMIN_TOKEN"
   python scripts/admin/chat_smoke.py --backend https://aria-intel.fly.dev \\
-                                      --frontend https://intel.arkmurus.com
+                                      --frontend https://imaria.io
 
 Defaults:
   --backend   https://aria-intel.fly.dev
-  --frontend  https://intel.arkmurus.com
+  --frontend  https://imaria.io
 
 Exit codes:
   0 — all probes PASS
@@ -60,7 +60,7 @@ import urllib.request
 from typing import Optional
 
 DEFAULT_BACKEND = "https://aria-intel.fly.dev"
-DEFAULT_FRONTEND = "https://intel.arkmurus.com"
+DEFAULT_FRONTEND = "https://imaria.io"
 
 # Latency thresholds (seconds). Above WARN = WARN; above FAIL = FAIL.
 THRESHOLDS = {

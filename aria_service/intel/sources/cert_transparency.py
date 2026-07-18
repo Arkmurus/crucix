@@ -70,7 +70,7 @@ logger = logging.getLogger("aria.intel.sources.cert_transparency")
 _CRTSH_BASE = "https://crt.sh/"
 _DEFAULT_TIMEOUT = 15.0
 _USER_AGENT = (
-    "Mozilla/5.0 (compatible; ARIA-DD/1.0; +https://intel.arkmurus.com) "
+    "Mozilla/5.0 (compatible; ARIA-DD/1.0; +https://imaria.io) "
     "Cert-transparency lookup R-F580"
 )
 _MAX_RESULTS = 50

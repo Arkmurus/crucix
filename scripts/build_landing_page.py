@@ -1158,7 +1158,7 @@ def build_body() -> str:
         <div class="lp-demo-dot" style="background:#ff5f57"></div>
         <div class="lp-demo-dot" style="background:#febc2e"></div>
         <div class="lp-demo-dot" style="background:#28c840"></div>
-        <div class="lp-demo-title">ARIA Intelligence Agent — intel.arkmurus.com</div>
+        <div class="lp-demo-title">ARIA Intelligence Agent — imaria.io</div>
       </div>
       <div class="lp-demo-body">
         <div><span class="lp-d-dim">◆ ARIA  </span><span class="lp-d-gold">v1.0  </span><span class="lp-d-dim">Sovereign LLM  AUTO  </span></div>
