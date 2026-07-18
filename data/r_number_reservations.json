@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2770,
+  "next_available": 2777,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21595,6 +21595,74 @@
       "commit_sha": "f5bde415",
       "notes": null,
       "shipped_at": "2026-07-18T18:52:25Z"
+    },
+    {
+      "r_number": "R-F2770",
+      "title": "competitor_tracker: own the _save_activities write (fix fire-and-forget persistence loss)",
+      "claimed_at": "2026-07-18T18:58:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "47917fdc",
+      "notes": null,
+      "shipped_at": "2026-07-18T19:01:53Z"
+    },
+    {
+      "r_number": "R-F2771",
+      "title": "route doc-pronoun DD-intent: run doc bridge before plausibility rejection",
+      "claimed_at": "2026-07-18T19:02:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "678b8a5c",
+      "notes": null,
+      "shipped_at": "2026-07-18T19:05:07Z"
+    },
+    {
+      "r_number": "R-F2772",
+      "title": "self_diagnostic: add inbound_leads to catalogue + registry parity guard",
+      "claimed_at": "2026-07-18T19:05:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7c91f4e5",
+      "notes": null,
+      "shipped_at": "2026-07-18T19:11:14Z"
+    },
+    {
+      "r_number": "R-F2773",
+      "title": "aria-web hardening A — add poweruser role (roles.mjs superset + admin.html dropdown drift fix)",
+      "claimed_at": "2026-07-18T19:14:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "de853f1c",
+      "notes": null,
+      "shipped_at": "2026-07-18T19:37:27Z"
+    },
+    {
+      "r_number": "R-F2774",
+      "title": "aria-web hardening B — server-side operator-page gate (choke-point before express.static)",
+      "claimed_at": "2026-07-18T19:14:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "85dcb6e2",
+      "notes": null,
+      "shipped_at": "2026-07-18T19:37:27Z"
+    },
+    {
+      "r_number": "R-F2775",
+      "title": "aria-web hardening C — infra-API role gate (prefix + anon endpoints + wa-listener) + generic proxy error",
+      "claimed_at": "2026-07-18T19:14:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2776",
+      "title": "cross-health: slow-but-reachable brain is online-degraded not offline (false_offline invariant)",
+      "claimed_at": "2026-07-18T19:23:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
