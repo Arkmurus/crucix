@@ -91,6 +91,28 @@ def _norm_entity(entity: str) -> str:
     return e
 
 
+def _entity_in_caption(query_name: str, caption: str) -> bool:
+    """R-F2743 — is the queried entity a PARTY in this case (its name in the caption),
+    or merely MENTIONED somewhere in the opinion text?
+
+    CourtListener `q=` / bailii-via-RSS are FULL-TEXT/index searches: they return
+    opinions that mention a name anywhere — a cited precedent, an attorney's other
+    client, an unrelated same-named entity. Counting those as the subject's own
+    "litigation history" inflates the case count and tags a mere mention Tier-1a.
+    Require token overlap with the case CAPTION (the parties) — the same gate
+    sec_edgar (R-F572) and usaspending (R-F2741) use.
+    """
+    from .._sanctions_classify import _tokenize_entity_name
+    qt = _tokenize_entity_name(query_name)
+    ct = _tokenize_entity_name(caption)
+    if not qt or not ct:
+        return False
+    if qt <= ct:  # every query token appears in the caption — strongest party signal
+        return True
+    shared = qt & ct
+    return len(shared) >= 2 or (len(shared) == 1 and len(next(iter(shared))) >= 5)
+
+
 async def search_us_courts(
     entity: str,
     *,
@@ -120,6 +142,7 @@ async def search_us_courts(
         return []
 
     hits: list[dict[str, Any]] = []
+    _dropped = 0
     for row in (data.get("results") or [])[:limit]:
         # CourtListener opinion record. Fields vary by document type;
         # we only keep what the DD layer can cite.
@@ -137,6 +160,12 @@ async def search_us_courts(
         )
         if not case_name:
             continue
+        # R-F2743 — only attribute a case to the subject when it is a PARTY (name in the
+        # caption), not merely mentioned in the opinion body — else the litigation count
+        # is inflated by unrelated opinions that cite/mention a similar name.
+        if not _entity_in_caption(name, case_name):
+            _dropped += 1
+            continue
         hits.append({
             "title":        case_name,
             "court":        court or "US (court_id unspecified)",
@@ -147,15 +176,21 @@ async def search_us_courts(
             "source":       "courtlistener",
             "tier":         "1a",
         })
+    if _dropped:
+        logger.debug("[R-F2743] courtlistener: dropped %d mention-only hit(s) (subject not a party) for %r", _dropped, name)
     return hits
 
 
-def _parse_bailii_rss(xml: str, limit: int) -> list[dict[str, Any]]:
+def _parse_bailii_rss(xml: str, limit: int, entity_name: str = "") -> list[dict[str, Any]]:
     """Strip-and-extract title/link/date from a Google-News RSS feed
     that searched site:bailii.org. Conservative regex — fails to []
-    if the shape isn't recognised rather than throwing."""
+    if the shape isn't recognised rather than throwing.
+
+    R-F2743 — `entity_name` (when given) gates each hit on the subject being a PARTY
+    in the case CAPTION (the RSS title), not merely surfaced by the name search."""
     items = re.findall(r"<item>([\s\S]*?)</item>", xml or "", re.I)
     out: list[dict[str, Any]] = []
+    _dropped = 0
     for body in items[:limit]:
         title = (re.search(r"<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?</title>", body, re.I) or [None, ""])[1]
         link = (re.search(r"<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?</link>", body, re.I) or [None, ""])[1]
@@ -165,6 +200,10 @@ def _parse_bailii_rss(xml: str, limit: int) -> list[dict[str, Any]]:
         # Strip the trailing publisher to keep the case name clean.
         title = re.sub(r"\s*[-—–]\s*bailii\.org\s*$", "", title or "", flags=re.I).strip()
         if not title:
+            continue
+        # R-F2743 — only keep captions where the subject is a party, not a mere mention.
+        if entity_name and not _entity_in_caption(entity_name, title):
+            _dropped += 1
             continue
         out.append({
             "title":        title[:200],
@@ -176,6 +215,8 @@ def _parse_bailii_rss(xml: str, limit: int) -> list[dict[str, Any]]:
             "source":       "bailii",
             "tier":         "1a",
         })
+    if _dropped:
+        logger.debug("[R-F2743] bailii: dropped %d mention-only hit(s) (subject not a party) for %r", _dropped, entity_name)
     return out
 
 
@@ -206,7 +247,7 @@ async def search_uk_courts(
                     r.status_code, name,
                 )
                 return []
-            return _parse_bailii_rss(r.text, limit=limit)
+            return _parse_bailii_rss(r.text, limit=limit, entity_name=name)
     except Exception as e:
         logger.debug("[R-F579] bailii fetch failed: %s", e)
         return []
