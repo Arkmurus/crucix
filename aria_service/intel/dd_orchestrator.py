@@ -2716,13 +2716,19 @@ async def _identity_primary_source_screen(
             elif _lbl == "acled":
                 _sev = _r.get("severity_hint") or ""
                 if _sev.startswith("RED"):
+                    # R-F2751 — count/cite ONLY events where the subject is genuinely a
+                    # PARTY (source-confirmed), not the country-tempo context events that
+                    # may be mixed into _hits. Prevents the RED detail from citing a
+                    # different actor's event as "the entity named in violence".
+                    _party = [h for h in _hits if h.get("subject_is_party")]
+                    _ex = _party[0] if _party else _hits[0]
                     report.identity.findings.append(Finding(
                         severity="red",
                         title=f"ACLED: entity named in political-violence events",
                         detail=(
-                            f"{len(_hits)} events in last 180d involve similar actor name. "
-                            f"Most recent: {_hits[0].get('event_date','?')} "
-                            f"{_hits[0].get('event_type','?')} in {_hits[0].get('country','?')}."
+                            f"{len(_party)} event(s) in last 180d name the entity as a party. "
+                            f"Most recent: {_ex.get('event_date','?')} "
+                            f"{_ex.get('event_type','?')} in {_ex.get('country','?')}."
                         ),
                         source="sources.acled",
                         confidence="PROBABLE",

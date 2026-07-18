@@ -63,6 +63,31 @@ _SESSION: dict[str, Any] = {
 _SESSION_LOCK = asyncio.Lock()
 
 
+def _actor_confirms(query_name: str, *actors: str) -> bool:
+    """True iff `query_name` genuinely NAMES one of the ACLED actor fields.
+
+    R-F2751 — the actor query uses `actor1_where=LIKE`, a substring match, so a
+    subject like "Orion" substring-matches an unrelated "Orion Brigade". Attaching
+    that actor's political-violence events (a SEVERE RED finding) to the subject is
+    the same entity-attribution fabrication class closed for the registry/GLEIF/
+    court/adverse-media/debarred sources. This gate mirrors the R-F2747 token test:
+    near-exact (similarity>=0.9) OR token overlap (>=2 shared, or 1 shared of >=5).
+    """
+    from .._sanctions_classify import _tokenize_entity_name
+    q = _tokenize_entity_name(query_name or "")
+    if not q:
+        return False
+    for a in actors:
+        if not a:
+            continue
+        if _common.similarity(query_name, a) >= 0.9:
+            return True
+        shared = q & _tokenize_entity_name(a)
+        if len(shared) >= 2 or (len(shared) == 1 and len(next(iter(shared))) >= 5):
+            return True
+    return False
+
+
 def _creds() -> tuple[str, str] | None:
     email = (os.getenv("ACLED_EMAIL") or "").strip()
     password = (os.getenv("ACLED_PASSWORD") or "").strip()
@@ -247,10 +272,23 @@ async def lookup(
 
         results_lists = await asyncio.gather(*tasks, return_exceptions=False)
 
+        # R-F2751 — tag each result segment's ORIGIN so the substring-LIKE actor
+        # queries can be gated WITHOUT dropping legitimate country-tempo context.
+        # Task order mirrors how they were appended above: actor1, actor2 (if
+        # `name`), then country-tempo (if `country`).
+        segments: list[tuple[list[dict] | None, bool]] = []  # (events, is_country_tempo)
+        _seg = 0
+        if name:
+            segments.append((results_lists[_seg], False)); _seg += 1  # actor1 LIKE
+            segments.append((results_lists[_seg], False)); _seg += 1  # actor2 LIKE
+        if country:
+            segments.append((results_lists[_seg], True)); _seg += 1    # country tempo
+
         # Flatten + dedupe by data_id
         seen_ids: set[str] = set()
         hits: list[dict] = []
-        for events in results_lists:
+        _off_subject_dropped = 0
+        for events, is_tempo in segments:
             if not events:
                 continue
             for e in events:
@@ -258,6 +296,18 @@ async def lookup(
                 if eid in seen_ids:
                     continue
                 seen_ids.add(eid)
+                is_party = bool(name) and _actor_confirms(
+                    name, e.get("actor1") or "", e.get("actor2") or "")
+                # R-F2751 gate: an actor-query hit where the subject is NOT genuinely
+                # a party (substring false-match) and which is NOT country-tempo
+                # context is a fabricated attribution → drop it. A country-tempo
+                # event is kept as operational-environment context (context_only).
+                if name and not is_party and not is_tempo:
+                    _off_subject_dropped += 1
+                    logger.debug(
+                        "[acled] R-F2751 gate dropped substring-only actor false-match "
+                        "%r/%r vs query %r", e.get("actor1"), e.get("actor2"), name)
+                    continue
                 hits.append({
                     "name": (e.get("actor1") or e.get("actor2") or "").strip(),
                     "event_date": e.get("event_date") or "",
@@ -268,6 +318,10 @@ async def lookup(
                     "fatalities": e.get("fatalities") or 0,
                     "actor1": e.get("actor1") or "",
                     "actor2": e.get("actor2") or "",
+                    # R-F2751 — the honest distinction the report must render:
+                    # is the subject NAMED as a party, or is this jurisdiction context?
+                    "subject_is_party": is_party,
+                    "context_only": bool(is_tempo and not is_party),
                     "notes": (e.get("notes") or "")[:500],
                     "source": e.get("source") or "",
                     "citation_url": (
@@ -279,13 +333,15 @@ async def lookup(
         # Sort newest-first
         hits.sort(key=lambda h: h.get("event_date", ""), reverse=True)
         result["hits"] = hits[:limit]
+        if _off_subject_dropped:
+            result["off_subject_dropped"] = _off_subject_dropped
 
-        # Severity hint for downstream: if name matched actor fields, RED
+        # Severity hint for downstream: RED only if the subject is genuinely a
+        # PARTY to a violence event (R-F2751 — keys off the confirmed flag, not the
+        # old loose similarity>0.7 recompute that could still flag a substring match).
         if name:
-            actor_hits = [h for h in result["hits"] if
-                          _common.similarity(name, h["actor1"]) > 0.7 or
-                          _common.similarity(name, h["actor2"]) > 0.7]
-            if actor_hits:
+            party_hits = [h for h in result["hits"] if h.get("subject_is_party")]
+            if party_hits:
                 result["severity_hint"] = "RED — entity named in political-violence events"
             elif country and result["hits"]:
                 result["severity_hint"] = (
