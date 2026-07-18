@@ -741,10 +741,13 @@ async function loadAmendments() {
                        (d.queue_depth || 0) > 5 ? 'warn' : 'neutral');
   html += '<div style="margin-top:8px;font-size:0.8em;color:#6b6862;line-height:1.55">'
         + 'Operator triage: each amendment is a constitutional change candidate '
-        + 'staged from a failed adversarial attack. Reject invalid ones with a '
-        + 'reason (audit-logged). Accepting means deploying via '
-        + 'self_improve.deploy_improvement per aria_autonomy_doctrine.md. '
-        + 'Do that from the CLI (no UI button; manual deploy is the safety gate).</div>';
+        + 'staged from a failed adversarial attack. Review the proposed text below '
+        + 'before acting. Reject invalid ones with a reason (audit-logged). '
+        + '<strong>Approve only STAGES</strong> the change (R-F2710) — it is then '
+        + 'committed, pushed, deployed, and finally verified live as separate '
+        + 'steps. Approving here is NOT a live deploy: it stages via '
+        + 'self_improve, and a separate <code>POST /api/aria/self/deploy/{id}</code> '
+        + '(the manual safety gate) applies it.</div>';
   // Bulk-reject UI
   // R-F527 (2026-05-14): data-action delegation replaces inline onclick.
   // Operator reported "no engagement" on Approve/Reject even after R-F471
@@ -767,8 +770,12 @@ async function loadAmendments() {
   // underneath, and Approve / Reject buttons on the right of the same
   // strip. Pure flex layout, no overflow scrolling, scales cleanly to
   // any card width.
+  // R-F2711 — stash each amendment so the approve modal can show the proposed
+  // text the operator is about to stage (finding #1: approve was blind).
+  window.__amendmentsById = {};
   amendments.forEach((a, idx) => {
     const attackId = a.attack_id || '?';
+    window.__amendmentsById[attackId] = a;
     const attackName = a.attack_name || '';
     const clauses = (a.anchor_clauses || []).join(', ');
     // R-F422 (2026-05-13): fail-count colouring. >=5 = critical (red),
@@ -777,6 +784,9 @@ async function loadAmendments() {
     const failColor = failCount >= 5 ? '#dc2626' : failCount >= 3 ? '#ca8a04' : '#6b6862';
     const lastFailed = (a.last_failed_at || a.staged_at || '').slice(0, 16).replace('T', ' ');
     const safeAttackId = attackId.replace(/[^A-Za-z0-9_.-]/g, '');
+    // R-F2711 — surface the previously-hidden fields the operator needs.
+    const proposed = a.proposed_amendment || '';
+    const merged = Array.isArray(a.merged_attacks) ? a.merged_attacks.filter(Boolean) : [];
 
     html +=
       `<div style="margin-top:${idx === 0 ? '12px' : '8px'};padding:14px 16px;`
@@ -803,6 +813,13 @@ async function loadAmendments() {
       + `<span style="color:#6b6862">Last failed: `
       + `<span style="color:#3d3a34;font-family:'SF Mono','Menlo','Consolas',monospace">`
       + `${escapeHtml(lastFailed) || '-'}</span></span>`
+      // R-F2711 — merged-attack IDs: the fail count aggregates these, so the
+      // operator must see which distinct attacks a row represents.
+      + (merged.length
+          ? `<span style="color:#6b6862">Merged: `
+            + `<span style="color:#b45309;font-family:'SF Mono','Menlo','Consolas',monospace" `
+            + `title="${escapeHtml(merged.join(', '))}">${merged.length} attack(s)</span></span>`
+          : '')
       + `</div>`
       // Right: actions
       // R-F527 (2026-05-14): data-action delegation. See bulk-reject
@@ -818,6 +835,18 @@ async function loadAmendments() {
       + `font-weight:600">Reject</button>`
       + `</div>`
       + `</div>`  // close metadata+actions row
+      // R-F2711 — the PROPOSED CHANGE, visible before approving (finding #1:
+      // the operator was approving a change they could not see). Collapsible so
+      // the queue stays scannable.
+      + (proposed
+          ? `<details style="margin-top:10px"><summary style="cursor:pointer;`
+            + `font-size:0.8em;color:#6b6862">Proposed constitution change `
+            + `(review before approving)</summary>`
+            + `<pre style="margin:6px 0 0;padding:10px;background:#fff;border:1px solid #e9e6df;`
+            + `border-radius:4px;font-size:0.8em;line-height:1.5;white-space:pre-wrap;`
+            + `overflow-wrap:anywhere;color:#3d3a34">${escapeHtml(proposed)}</pre></details>`
+          : `<div style="margin-top:8px;font-size:0.78em;color:#b45309">`
+            + `No proposed-amendment text on this entry — do not approve blind.</div>`)
       + `</div>`; // close amendment card
   });
   el.innerHTML = html;
@@ -1060,12 +1089,25 @@ async function approveAmendment(attackId) {
   }
   let r;
   try {
+    // R-F2711 — show the proposed change IN the modal so approval is informed,
+    // not blind (finding #1). Pulled from the stash populated in loadAmendments.
+    const _amd = (window.__amendmentsById || {})[attackId] || {};
+    const _proposed = _amd.proposed_amendment || '';
+    const _proposedBlock = _proposed
+      ? `<div style="margin-top:8px;font-size:0.82em;color:#6b6862">Proposed change:</div>`
+        + `<pre style="margin:4px 0 0;padding:8px;background:#f5f4ef;border:1px solid #e9e6df;`
+        + `border-radius:4px;font-size:0.8em;line-height:1.5;white-space:pre-wrap;`
+        + `overflow-wrap:anywhere;max-height:220px;overflow:auto;color:#3d3a34">${escapeHtml(_proposed)}</pre>`
+      : `<div style="margin-top:8px;font-size:0.82em;color:#b45309">`
+        + `⚠ No proposed-amendment text on this entry — you would be approving a `
+        + `change you cannot see. Reject or investigate instead.</div>`;
     r = await showOperatorModal({
       title: `Approve amendment`,
       sub: `<span style="font-family:'SF Mono',monospace;color:#3d3a34">${attackId}</span><br>`
          + `This <strong>stages</strong> a constitution change in self_improve. `
          + `It is <strong>not live</strong> until you separately `
-         + `<code>POST /api/aria/self/deploy/{id}</code> from the CLI (the safety gate).`,
+         + `<code>POST /api/aria/self/deploy/{id}</code> from the CLI (the safety gate).`
+         + _proposedBlock,
       phrase: 'APPROVE',
       notesLabel: 'Approval notes (required, audit-logged)',
       notesPlaceholder: 'e.g. "ARIA failed this attack pattern reliably, needs new clause"',

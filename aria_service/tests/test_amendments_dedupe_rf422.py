@@ -199,9 +199,11 @@ def test_rf422_dashboard_colour_codes_recurrence():
     assert "failCount >= 5" in block
     # Yellow threshold
     assert "failCount >= 3" in block
-    # The actual colour codes (red + yellow from the design system)
-    assert "#f85149" in block  # red
-    assert "#d29922" in block  # yellow
+    # The actual colour codes (red + yellow from the CURRENT design system).
+    # R-F2711: the old GitHub-dark tokens (#f85149 / #d29922) were replaced by
+    # the design-system tokens below; this assertion drifted, not the UI.
+    assert "#dc2626" in block  # red
+    assert "#ca8a04" in block  # yellow
 
 
 def test_rf422_dashboard_shows_last_failed_column():
