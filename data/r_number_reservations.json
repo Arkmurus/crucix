@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2721,
+  "next_available": 2722,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21102,6 +21102,16 @@
       "commit_sha": "ba2078c4",
       "notes": null,
       "shipped_at": "2026-07-18T10:14:07Z"
+    },
+    {
+      "r_number": "R-F2721",
+      "title": "Batch A-UI: sources.html integrates /api/source-health + drops unsupported catalogue-feeds-DD claims (Codex #1)",
+      "claimed_at": "2026-07-18T10:32:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "23b51702",
+      "notes": null,
+      "shipped_at": "2026-07-18T10:43:55Z"
     }
   ]
 }
