@@ -137,6 +137,66 @@ _NON_ANCHOR_REGNUMS = frozenset({
 })
 _MIN_REGNUM_LEN = 4
 
+# R-F2730 — a corporate PSC's registry number belongs to the jurisdiction named in
+# its CH `identification.country_registered`. CH corporate PSCs are overwhelmingly
+# UK-registered; a country we cannot map to an ISO2 is DROPPED, not guessed —
+# minting a wrong jurisdiction would anchor the edge to the wrong company's DD.
+_COUNTRY_TO_ISO2 = {
+    "england": "GB", "scotland": "GB", "wales": "GB", "northern ireland": "GB",
+    "united kingdom": "GB", "great britain": "GB", "uk": "GB", "gb": "GB",
+}
+
+
+def _write_controlled_by_edges(report, vault, user_id, src) -> tuple[int, int]:
+    """R-F2730 — write ANCHORED `controlled_by` edges into the relationship graph.
+
+    A corporate PSC identified by its own registry number (R-F2726) is a VERIFIED
+    control relationship — the real, evidence-backed source R-F2703 disabled the
+    name-match one in favour of. Reuses the same anchoring discipline: resolve the
+    controller to canonical_entity_id (jurisdiction + regnum), drop placeholders and
+    un-mappable jurisdictions rather than invent an id, and fail CLOSED on attribution
+    (no user_id → write nothing). The edge is DIRECTIONAL (subject `controlled_by`
+    controller) — NOT symmetric, so the pair is not sorted.
+    """
+    edges = list(getattr(getattr(report, "network", None), "controlled_by", None) or [])
+    if not (user_id and src and edges):
+        return (0, 0)
+    from .dd_versioning import canonical_entity_id as _canon_id, _scrub_regnum
+    written = dropped = 0
+    for e in edges[:_XREF_MAX_PER_RUN]:
+        if not isinstance(e, dict):
+            continue
+        name = str(e.get("controller_name") or "").strip()
+        raw_reg = str(e.get("controller_registration_number") or "")
+        reg = _scrub_regnum(raw_reg).upper()
+        iso2 = _COUNTRY_TO_ISO2.get(str(e.get("controller_country_registered") or "").strip().lower(), "")
+        if not (
+            name and iso2 and reg
+            and reg not in _NON_ANCHOR_REGNUMS
+            and len(reg) >= _MIN_REGNUM_LEN
+        ):
+            dropped += 1
+            continue
+        target = _canon_id(
+            entity_type="company", name=name,
+            jurisdiction_iso2=iso2, registration_number=raw_reg,
+        )
+        if not target or ":??:" in target or target == src:
+            dropped += 1
+            continue
+        natures = ", ".join(e.get("natures_of_control") or [])[:120]
+        vault.add_cross_reference(
+            src, target, "controlled_by",
+            (f"Controlled by {name} (reg {raw_reg}) — corporate PSC, VERIFIED via "
+             f"registry number" + (f"; {natures}" if natures else "")),
+            user_id=user_id,
+        )
+        written += 1
+    if dropped:
+        logger.info("[R-F2730] controlled_by: wrote %d anchored edges, dropped %d unanchorable",
+                    written, dropped)
+    return (written, dropped)
+
 
 def _write_relationship_edges(report, vault) -> tuple[int, int]:
     """R-F2700 — write the DD's cross-links into the relationship graph. (written, dropped)
@@ -165,18 +225,24 @@ def _write_relationship_edges(report, vault) -> tuple[int, int]:
     """
     user_id = getattr(report, "user_id", None)
     src = getattr(report, "canonical_entity_id", None)
+    written = dropped = 0
+
+    # R-F2730 — ANCHORED controlled_by edges: the REAL, evidence-backed source the
+    # source-agnostic machinery here was built for. Runs regardless of the name-match
+    # flag below.
+    _cw, _cd = _write_controlled_by_edges(report, vault, user_id, src)
+    written += _cw
+    dropped += _cd
+
     xrefs = list(getattr(getattr(report, "network", None), "cross_linked_entities", None) or [])
-    # R-F2703 — the only source currently plumbed here is the name-match one, and it is
-    # not a relationship (see _XREF_NAME_MATCH_ENABLED). An empty graph is the honest
-    # state; a graph of fuzzy name hits is worse than none.
-    if not _XREF_NAME_MATCH_ENABLED:
-        return (0, 0)
-    if not (user_id and src and xrefs):
-        return (0, 0)
+    # R-F2703 — the name-match source stays OFF (see _XREF_NAME_MATCH_ENABLED): a graph
+    # of fuzzy name hits is truthful noise that degrades the evidence grade. An empty
+    # name-match contribution is the honest state.
+    if not (_XREF_NAME_MATCH_ENABLED and user_id and src and xrefs):
+        return (written, dropped)
 
     from .dd_versioning import canonical_entity_id as _canon_id, _scrub_regnum
 
-    written = dropped = 0
     for cl in xrefs[:_XREF_MAX_PER_RUN]:
         if not isinstance(cl, dict):
             continue
@@ -3434,6 +3500,13 @@ async def _run_identity(
                     report.identity.directors = (_off.get("current") if isinstance(_off, dict) else _off) or []
                     _psc_raw = ch_result.get("psc")
                     report.identity.shareholders = (_psc_raw.get("current") if isinstance(_psc_raw, dict) else _psc_raw) or []
+                    # R-F2730 — carry the ANCHORED controlled_by edges (R-F2726) onto the
+                    # report so the relationship-graph writer can persist them. These are
+                    # grade-A (a corporate PSC anchored by its own registry number), the
+                    # REAL source R-F2703 was waiting for — NOT the disabled name-match one.
+                    _cb = ch_result.get("controlled_by")
+                    if isinstance(_cb, list) and _cb:
+                        report.network.controlled_by.extend(_cb)
                     # never-false-clean: an empty CH result caused by a rate-limit/timeout
                     # (after retries) must SURFACE as a gap, not read as "verified: no
                     # directors/PSC". A genuine not-found still surfaces its error.

@@ -278,6 +278,11 @@ class NetworkSection:
     meta: SectionMeta = field(default_factory=SectionMeta)
     director_graph: dict = field(default_factory=dict)       # nodes + edges
     cross_linked_entities: list[dict] = field(default_factory=list)
+    # R-F2730 — ANCHORED controlled_by edges (grade A): a corporate PSC identified by
+    # its own registry number is a VERIFIED control relationship. Populated from
+    # companies_house.investigate_uk_entity (R-F2726) and written to the relationship
+    # graph. Distinct from cross_linked_entities (the disabled name-match source).
+    controlled_by: list[dict] = field(default_factory=list)
     address_cluster: dict = field(default_factory=dict)       # addresses with shared entities
     pep_connections: list[dict] = field(default_factory=list)
     sanctions_network: list[dict] = field(default_factory=list)  # flagged entities in the chain
