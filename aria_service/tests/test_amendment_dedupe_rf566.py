@@ -147,10 +147,14 @@ def _build_attack(attack_id: str, category, anchor_clauses: list[int]):
     )
 
 
-def test_two_same_category_attacks_merge_into_single_entry(monkeypatch):
-    """Capability: two A_FALSE_INFO attacks (which produce identical
-    `_draft_amendment` text) MUST collapse to a single queue entry
-    with merged_attacks listing the second attack_id."""
+def test_two_same_category_attacks_stay_distinct_entries(monkeypatch):
+    """R-F2710 (supersedes the R-F566 merge): two DISTINCT A_FALSE_INFO attacks
+    MUST produce TWO distinct, attributable queue entries — NOT one merged row.
+
+    The old R-F566 behaviour merged distinct attacks by draft-text similarity and
+    summed their failures into a single mis-attributed count (the verified "68×
+    across 7 families" defect). Drafts are now attack-specific and the cross-attack
+    merge is removed, so each attack owns its own row and fail_count."""
     from aria_service.intel import adversarial_challenge as ac
     from aria_service.intel.adversarial_challenge import AttackCategory
 
@@ -171,10 +175,6 @@ def test_two_same_category_attacks_merge_into_single_entry(monkeypatch):
          "responses": ["some response that bypassed"], "broke_at_turn": None},
     ]
 
-    # Patch the constitution check to return False so we hit the merge
-    # path (the prod constitution already has this rule, which would
-    # cause skip-staging not merge — we want to exercise the merge
-    # branch specifically here).
     with patch.object(ac, "_already_in_constitution", return_value=False), \
          patch.object(ac, "mistake_ledger", create=True) as _ml:
         async def _noop_record(**kwargs):
@@ -183,16 +183,16 @@ def test_two_same_category_attacks_merge_into_single_entry(monkeypatch):
         asyncio.run(ac._stage_amendments_for_failures(results))
 
     queue = fake_rs.store.get("aria:adversarial:amendments_queue", [])
-    assert len(queue) == 1, (
-        f"R-F566: 2 same-category attacks should produce 1 queue "
-        f"entry. Got {len(queue)}: "
-        f"{[q.get('attack_id') for q in queue]}"
+    ids = {q.get("attack_id") for q in queue}
+    assert len(queue) == 2, (
+        f"R-F2710: 2 distinct attacks must produce 2 distinct entries. "
+        f"Got {len(queue)}: {[q.get('attack_id') for q in queue]}"
     )
-    entry = queue[0]
-    # The first attack wins as the entry-owner; the second is merged.
-    assert entry["attack_id"] == "FAKE_FALSE_INFO_1"
-    assert "FAKE_FALSE_INFO_2" in entry["merged_attacks"]
-    assert entry["fail_count"] == 2
+    assert ids == {"FAKE_FALSE_INFO_1", "FAKE_FALSE_INFO_2"}
+    # Each row owns its own fail_count (=1); nothing is mis-aggregated / merged.
+    for q in queue:
+        assert q["fail_count"] == 1
+        assert q["merged_attacks"] == []
 
 
 def test_two_different_category_attacks_stay_separate(monkeypatch):
