@@ -121,6 +121,15 @@ _read_pool: list = []
 _read_pool_rr = 0  # round-robin cursor
 _READ_POOL_SIZE = max(1, int(os.getenv("ARIA_STATE_READ_POOL_SIZE", "3")))
 
+# R-F2754 — superseded-connection reaper. _reconnect() (write) and
+# _ensure_read_conn() (read pool) both open a REPLACEMENT connection and swap it
+# in, but historically never CLOSED the old one — so every self-heal cycle
+# orphaned the old aiosqlite worker thread (each connection owns one). Live
+# forensic (wedge_679, 2026-07-18): 54 live _connection_worker_thread threads vs
+# ~6 intended → thread oversubscription starves the event loop (2–5s heartbeat
+# stalls). Strong refs are held so the detached close tasks aren't GC'd mid-flight.
+_reap_tasks: set = set()
+
 # R-F1541: bounded write queue replaces the timeout-and-drop _upsert model.
 # Instead of every write going through _conn.execute() with a 30s timeout
 # (which silently drops writes when the worker thread is saturated), writes
@@ -718,6 +727,36 @@ async def _bounded_wal_checkpoint(reason: str = "maintenance") -> None:
     await asyncio.wait_for(_run(), timeout=timeout_s)
 
 
+def _reap_old_conns(*conns) -> None:
+    """R-F2754 — close superseded aiosqlite connections so their worker threads
+    terminate, reclaiming the leak that grew to 54 live connection threads.
+
+    Fire-and-forget + bounded, NEVER awaited on the hot/self-heal path: a wedged
+    connection's close() queues behind its stuck op and would hang, so we must not
+    block reconnect/read-refresh on it. For a merely-slow (recovered) conn the
+    close runs promptly and reclaims the thread; for a still-wedged one the queued
+    close applies once the wedge clears — strictly better than never closing it.
+    The task is tracked in a module set (strong ref) so it can't be GC'd before it
+    runs, with a done-callback to drop it."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # no running loop (interpreter shutdown) — nothing to reap
+    for _c in conns:
+        if _c is None:
+            continue
+
+        async def _close(c=_c) -> None:
+            try:
+                await asyncio.wait_for(c.close(), timeout=30.0)
+            except Exception:
+                pass  # a wedged close must never surface or block
+
+        t = loop.create_task(_close())
+        _reap_tasks.add(t)
+        t.add_done_callback(_reap_tasks.discard)
+
+
 async def _reconnect() -> None:
     """Single-flight: drop the wedged aiosqlite connection and reopen it.
     Does NOT touch the lock (callers may hold it). Safe to call concurrently —
@@ -775,6 +814,7 @@ async def _reconnect() -> None:
         await conn.execute("PRAGMA foreign_keys=OFF")
         await conn.commit()
         _conn = conn  # R-F1397: swap only once the replacement is ready
+        _reap_old_conns(old)  # R-F2754: close the superseded conn (reclaim its thread)
         _op_timeout_counts["reconnect"] += 1
         logger.warning("[R-F1341] state_store connection reset (self-heal) #%d",
                        _op_timeout_counts["reconnect"])
@@ -1941,6 +1981,7 @@ async def _ensure_read_conn() -> None:
         # R-F2242: rebuild the whole read pool (a write-side reset / 'closed
         # database' typically kills all read connections together). PRAGMAs via
         # the shared helper (R-F2132 boot-deadlock guard).
+        _old_pool = list(_read_pool)  # R-F2754: capture BEFORE swap to reap after
         new_pool = []
         for _ in range(_READ_POOL_SIZE):
             _rc = await aiosqlite.connect(str(_DB_PATH))
@@ -1948,6 +1989,10 @@ async def _ensure_read_conn() -> None:
             new_pool.append(_rc)
         _read_pool = new_pool
         _read_conn = new_pool[0]
+        # R-F2754: close the superseded read connections so their worker threads
+        # terminate (this rebuild leaked _READ_POOL_SIZE threads on every call —
+        # the dominant contributor to the 54-thread oversubscription).
+        _reap_old_conns(*_old_pool)
     except Exception as e:
         logger.warning("[R-F1449/R-F2242] _ensure_read_conn failed: %s", e)
 async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, float | None] | None:
