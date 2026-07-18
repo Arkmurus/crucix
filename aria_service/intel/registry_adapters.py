@@ -311,6 +311,15 @@ async def _lookup_gibraltar(name: str, reg_number: str | None) -> dict | None:
                         "appointed_on": "",
                     })
 
+            # R-F2737 — only attach a Gibraltar hit if the search result corroborates
+            # the query. Without this the adapter returned a "hit" for ANY page (incl. a
+            # no-results page), with scraped officers/status attached to the subject.
+            _ex_name = _html_unescape(name_match.group(1).strip()) if name_match else ""
+            _ex_reg = num_match.group(1) if num_match else ""
+            if not _scrape_confirms_query(name, reg_number, _ex_name, _ex_reg):
+                logger.debug("Gibraltar CH: search result did not confirm query — not attaching")
+                return None
+
             source_url = f"{_GI_BASE}/?q={reg_number or name}"
 
             return _build_result(
@@ -734,6 +743,14 @@ async def _lookup_turkey(name: str, reg_number: str | None) -> dict | None:
                         "appointed_on": "",
                     })
 
+            # R-F2737 — only attach a MERSIS hit if the search result corroborates the
+            # query; otherwise any page returned scraped officers/status for the subject.
+            _ex_name = _html_unescape(name_match.group(1).strip()) if name_match else ""
+            _ex_reg = mersis_match.group(1) if mersis_match else ""
+            if not _scrape_confirms_query(name, reg_number, _ex_name, _ex_reg):
+                logger.debug("Turkey MERSIS: search result did not confirm query — not attaching")
+                return None
+
             source_url = f"{_TR_MERSIS_SEARCH}/?q={search_term}"
 
             return _build_result(
@@ -915,6 +932,13 @@ async def _lookup_nigeria(name: str, reg_number: str | None) -> dict | None:
 
             if not name_match and not rc_match:
                 return None  # No match found
+            # R-F2737 — the CAC search result must corroborate the query; a page for a
+            # different company must not fabricate a subject identifier.
+            if not _scrape_confirms_query(name, reg_number,
+                                          company_name if name_match else "",
+                                          company_number if rc_match else ""):
+                logger.debug("Nigeria CAC: search result did not confirm query %r — not attaching", query)
+                return None
 
             return _build_result(
                 company_name=company_name,
@@ -1124,6 +1148,13 @@ async def _lookup_india(name: str, reg_number: str | None) -> dict | None:
             company_number = _html_unescape(cin_match.group(1).strip()) if cin_match else reg_number or ""
 
             if not name_match and not cin_match:
+                return None
+            # R-F2737 — the MCA result must corroborate the query (searched by
+            # companyName OR companyID); a different company must not be attached.
+            if not _scrape_confirms_query(name, reg_number,
+                                          company_name if name_match else "",
+                                          company_number if cin_match else ""):
+                logger.debug("India MCA: result did not confirm query %r — not attaching", query)
                 return None
 
             return _build_result(
@@ -1498,6 +1529,7 @@ async def _lookup_hungary(name: str, reg_number: str | None) -> dict | None:
     """Hungarian company registry (e-cegjegyzek.hu) — HTML scraping.
     Cégjegyzékszám format: NN-NN-NNNNNN (e.g. 01-10-046896)
     """
+    _query_reg = reg_number  # R-F2737 — capture BEFORE the page reg overwrites it below
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
             if reg_number:
@@ -1574,6 +1606,11 @@ async def _lookup_hungary(name: str, reg_number: str | None) -> dict | None:
 
             if not company_name and not address:
                 return None  # page didn't contain company data
+            # R-F2737 — a NAME search must be corroborated (a keyed cégjegyzékszám URL is
+            # an exact lookup — the key itself is the corroboration, so it is trusted).
+            if not _query_reg and not _scrape_confirms_query(name, None, company_name, ""):
+                logger.debug("Hungary e-cégjegyzék: name search did not confirm query %r — not attaching", name)
+                return None
 
             return _build_result(
                 company_name=company_name or f"Reg {reg_number}",
