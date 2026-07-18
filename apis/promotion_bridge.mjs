@@ -165,12 +165,16 @@ async function _post(source, findings) {
   }
 }
 
-async function _postSequential(batches) {
-  const out = {};
-  for (const batch of batches) {
-    out[batch.source] = await _post(batch.source, batch.findings);
-  }
-  return out;
+// R-F2718 — send each source batch CONCURRENTLY with per-source isolation. Each
+// _post carries its OWN AbortSignal timeout + try/catch and never throws, so a slow
+// or failing source (e.g. OpenSanctions timing out at 20s) can no longer delay or
+// zero-out the others (e.g. the stronger official Trade.gov CSL feed). Wall-clock
+// becomes the slowest SINGLE source, not the sum of all sources.
+async function _postParallel(batches) {
+  const results = await Promise.all(
+    batches.map(async (batch) => [batch.source, await _post(batch.source, batch.findings)]),
+  );
+  return Object.fromEntries(results);
 }
 
 // Build findings from a completed sweep + push them to the Python bridge.
@@ -182,7 +186,7 @@ export async function pushPromotionsToBrain(synthesized) {
   const sanctions = sanctionsEntries.map(_mapSanctions).filter(Boolean);
   const cslHits = Array.isArray(synthesized.csl?.recent) ? synthesized.csl.recent : [];
   const csl = cslHits.map(_mapCSLHit).filter(Boolean).slice(0, 20);
-  const posted = await _postSequential([
+  const posted = await _postParallel([
     { source: 'bd_intelligence', findings: opps },
     { source: 'opensanctions', findings: sanctions },
     { source: 'trade_gov_csl', findings: csl },
@@ -204,4 +208,4 @@ export async function pushPromotionsToBrain(synthesized) {
 }
 
 // exported for unit tests
-export const _test = { _mapOpportunity, _mapSanctions, _mapCSLHit, _postSequential };
+export const _test = { _mapOpportunity, _mapSanctions, _mapCSLHit, _postParallel };

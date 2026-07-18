@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { _test } from '../apis/promotion_bridge.mjs';
 
-const { _mapOpportunity, _mapSanctions, _mapCSLHit, _postSequential } = _test;
+const { _mapOpportunity, _mapSanctions, _mapCSLHit, _postParallel } = _test;
 
 test('opportunity: strong sourced non-blocked -> HIGH programme_signal, no OEM/score leak', () => {
   const f = _mapOpportunity({
@@ -112,7 +112,7 @@ test('opportunity no longer forwards the raw internal composite score', () => {
   assert.equal(f.score, undefined, 'internal Arkmurus score must not reach the public signal');
 });
 
-test('promotion ingest posts sources sequentially to avoid brain burst timeouts', async () => {
+test('R-F2718 — promotion ingest posts sources CONCURRENTLY with per-source isolation', async () => {
   const originalFetch = global.fetch;
   const originalUrl = process.env.ARIA_SERVICE_URL;
   process.env.ARIA_SERVICE_URL = 'https://aria-intel.example';
@@ -133,16 +133,48 @@ test('promotion ingest posts sources sequentially to avoid brain burst timeouts'
   };
 
   try {
-    const out = await _postSequential([
+    const out = await _postParallel([
       { source: 'bd_intelligence', findings: [{ title: 'A' }] },
       { source: 'opensanctions', findings: [{ title: 'B' }] },
       { source: 'trade_gov_csl', findings: [{ title: 'C' }] },
     ]);
-    assert.equal(maxActive, 1);
-    assert.deepEqual(sources, ['bd_intelligence', 'opensanctions', 'trade_gov_csl']);
+    // R-F2718 — sources are now sent CONCURRENTLY (was strictly sequential, which
+    // let one slow source delay the rest). All three overlap; order-independent.
+    assert.ok(maxActive > 1, `expected concurrent sends, saw maxActive=${maxActive}`);
+    assert.deepEqual([...sources].sort(), ['bd_intelligence', 'opensanctions', 'trade_gov_csl']);
     assert.equal(out.bd_intelligence.accepted, 1);
     assert.equal(out.opensanctions.accepted, 1);
     assert.equal(out.trade_gov_csl.accepted, 1);
+  } finally {
+    global.fetch = originalFetch;
+    if (originalUrl == null) delete process.env.ARIA_SERVICE_URL;
+    else process.env.ARIA_SERVICE_URL = originalUrl;
+  }
+});
+
+test('R-F2718 — a failing source does NOT zero out the other sources', async () => {
+  const originalFetch = global.fetch;
+  const originalUrl = process.env.ARIA_SERVICE_URL;
+  process.env.ARIA_SERVICE_URL = 'http://brain.internal:8000';
+  global.fetch = async (url, opts = {}) => {
+    const body = JSON.parse(String(opts.body || '{}'));
+    if (body.source === 'opensanctions') throw new Error('The operation was aborted due to timeout');
+    return new Response(JSON.stringify({ accepted: body.findings?.length || 0 }), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    });
+  };
+  try {
+    const out = await _postParallel([
+      { source: 'bd_intelligence', findings: [{ title: 'A' }] },
+      { source: 'opensanctions', findings: [{ title: 'B' }] },
+      { source: 'trade_gov_csl', findings: [{ title: 'C' }] },
+    ]);
+    // The slow/failing OpenSanctions batch is isolated — the stronger official CSL
+    // feed and BD still land, instead of being delayed/zeroed by the failure.
+    assert.equal(out.bd_intelligence.accepted, 1);
+    assert.equal(out.trade_gov_csl.accepted, 1);
+    assert.equal(out.opensanctions.accepted, 0);
+    assert.match(String(out.opensanctions.error || ''), /timeout/i);
   } finally {
     global.fetch = originalFetch;
     if (originalUrl == null) delete process.env.ARIA_SERVICE_URL;
