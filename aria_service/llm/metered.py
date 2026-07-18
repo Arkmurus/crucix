@@ -222,6 +222,7 @@ class MeteredProvider(LLMProvider):
         timeout: float = 60.0,
         prefer_provider: str = "",
         autonomous: bool = False,
+        model: str = "",   # R-F2769 — per-call Claude model override
     ) -> LLMResult:
         # R-F1568 — kill switch first: refuse autonomous spend BEFORE the
         # provider is invoked. autonomous defaults False so interactive
@@ -235,7 +236,11 @@ class MeteredProvider(LLMProvider):
         # R-F1366 — forward the per-call provider preference to the fallback
         # chain. Only when non-empty: a single (non-chain) inner provider
         # doesn't accept the kwarg, and the default path must stay identical.
-        extra = {"prefer_provider": prefer_provider} if prefer_provider else {}
+        extra = {}
+        if prefer_provider:
+            extra["prefer_provider"] = prefer_provider
+        if model:
+            extra["model"] = model   # R-F2769 — forward the routed model to the chain
         try:
             result = await self._inner.complete(
                 system_prompt,
@@ -264,6 +269,7 @@ class MeteredProvider(LLMProvider):
         timeout: float = 120.0,
         on_done=None,
         autonomous: bool = False,
+        model: str = "",   # R-F2769 — per-call Claude model override
     ):
         """Metered streaming — yields chunks, records cost after stream ends."""
         # R-F1568 — kill switch first (see complete()). Default False keeps
@@ -284,6 +290,7 @@ class MeteredProvider(LLMProvider):
                 system_prompt, user_message,
                 max_tokens=max_tokens, timeout=timeout,
                 on_done=_capture_done,
+                **({"model": model} if model else {}),   # R-F2769
             ):
                 yield chunk
             self._record_cost(started, final_result, True, "")

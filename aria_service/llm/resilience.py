@@ -600,8 +600,13 @@ class LLMRequestQueue(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 60.0,
         prefer_provider: str = "",
+        model: str = "",   # R-F2769 — per-call Claude model override
     ) -> LLMResult:
-        extra = {"prefer_provider": prefer_provider} if prefer_provider else {}
+        extra = {}
+        if prefer_provider:
+            extra["prefer_provider"] = prefer_provider
+        if model:
+            extra["model"] = model   # R-F2769 — forward the routed model
 
         # Fast-fail if queue is saturated
         if self._queued_count >= self._max_queue_size:
@@ -636,6 +641,7 @@ class LLMRequestQueue(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 120.0,
         on_done=None,
+        model: str = "",   # R-F2769 — per-call Claude model override
     ):
         if self._queued_count >= self._max_queue_size:
             self._dropped_count += 1
@@ -657,6 +663,7 @@ class LLMRequestQueue(LLMProvider):
                 async for chunk in self._inner.stream(
                     system_prompt, user_message,
                     max_tokens=max_tokens, timeout=timeout, on_done=on_done,
+                    **({"model": model} if model else {}),   # R-F2769
                 ):
                     yield chunk
         finally:
@@ -790,6 +797,7 @@ class LLMResponseCache(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 60.0,
         prefer_provider: str = "",
+        model: str = "",   # R-F2769 — per-call Claude model override
     ) -> LLMResult:
         key = self._cache_key(system_prompt, user_message)
 
@@ -806,7 +814,11 @@ class LLMResponseCache(LLMProvider):
             )
 
         self._misses += 1
-        extra = {"prefer_provider": prefer_provider} if prefer_provider else {}
+        extra = {}
+        if prefer_provider:
+            extra["prefer_provider"] = prefer_provider
+        if model:
+            extra["model"] = model   # R-F2769 — forward the routed model
         result = await self._inner.complete(
             system_prompt, user_message,
             max_tokens=max_tokens, timeout=timeout, **extra,
@@ -827,11 +839,13 @@ class LLMResponseCache(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 120.0,
         on_done=None,
+        model: str = "",   # R-F2769 — per-call Claude model override
     ):
         # Streaming is not cached (can't know the full response upfront)
         async for chunk in self._inner.stream(
             system_prompt, user_message,
             max_tokens=max_tokens, timeout=timeout, on_done=on_done,
+            **({"model": model} if model else {}),   # R-F2769
         ):
             yield chunk
 

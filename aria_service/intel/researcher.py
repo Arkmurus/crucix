@@ -1938,6 +1938,16 @@ Return STRICT JSON (no comments, no trailing commas):
 If the page is genuinely empty or off-topic, set skip=true. Otherwise produce
 the maximum number of facts the content supports."""
 
+    # R-F2769 — route article fact-extraction (the DD token bulk: up to ~24 calls
+    # per run) to the CHEAP Claude model (Haiku) via the model-routing policy.
+    # A non-Claude provider ignores a claude id, so this is a safe no-op until the
+    # switch flips; post-switch it roughly halves the per-DD Claude cost. Extraction
+    # is a mechanical high-recall task Haiku handles well.
+    try:
+        from ..llm import tier_router as _tr2769
+        _extract_model = _tr2769.claude_model_for_intent("research_extraction")
+    except Exception:
+        _extract_model = ""
     try:
         result = await llm.complete(
             "You are ARIA — a global defence procurement intelligence analyst. "
@@ -1947,6 +1957,7 @@ the maximum number of facts the content supports."""
             extract_prompt,
             max_tokens=3000,  # bumped from 1500 to fit ~15-20 facts
             timeout=90.0,
+            model=_extract_model,   # R-F2769 — Haiku for extraction (ignored by non-Claude)
         )
         # Use the multi-strategy LLM JSON repair instead of plain json.loads.
         # The al-monitor.com Iran-FM article observed 2026-04-27 fails every

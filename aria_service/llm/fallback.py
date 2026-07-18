@@ -357,6 +357,7 @@ class FallbackProvider(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 90.0,  # bumped from 60s — DeepSeek needs more for complex queries
         prefer_provider: str = "",
+        model: str = "",   # R-F2769 — per-call Claude model override, passed to the chosen provider
     ) -> LLMResult:
         """Try each non-cooling provider with its OWN `timeout`-second
         budget, up to ``_MAX_FALLBACK_ATTEMPTS`` providers.
@@ -423,6 +424,7 @@ class FallbackProvider(LLMProvider):
                 result = await provider.complete(
                     system_prompt, user_message,
                     max_tokens=max_tokens, timeout=per_call,
+                    **({"model": model} if model else {}),   # R-F2769 — routed model when set
                 )
                 self._record_success(provider, stats)
                 result.routed_via = f"fallback:{provider.name}"
@@ -448,6 +450,7 @@ class FallbackProvider(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 120.0,
         on_done=None,
+        model: str = "",   # R-F2769 — per-call Claude model override
     ):
         """Streaming with fallback — tries providers in order.
 
@@ -481,6 +484,7 @@ class FallbackProvider(LLMProvider):
                 async for chunk in provider.stream(
                     system_prompt, user_message,
                     max_tokens=max_tokens, timeout=timeout, on_done=on_done,
+                    **({"model": model} if model else {}),   # R-F2769 — routed model when set
                 ):
                     yield chunk
                 self._record_success(provider, stats)
