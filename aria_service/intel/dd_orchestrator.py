@@ -12408,6 +12408,42 @@ def _watchlist_obs_fingerprint(obs_id: str, change_type: str,
     return _hl.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
+# R-F2746 — atomic cross-trigger execution guard. rescreen_watchlist is invoked
+# by THREE unlocked paths (main.py daily loop, autonomous/tasks.py sweep, and the
+# routes/aria.py manual API). Overlapping same-scope runs both read the same prior
+# observation before either persists, so they can double-emit. A per-scope INCR
+# lock (rs.incr is atomic — see redis_store) serialises same-scope runs while
+# still letting different tenants re-screen concurrently. TTL self-heals a lock a
+# crashed holder never released.
+_RESCREEN_LOCK_KEY = "crucix:aria:dd:watchlist:rescreen:lock:{scope}"
+_RESCREEN_LOCK_TTL_SECONDS = 3900  # > the 50-entity × 60s worst-case run time
+
+
+async def _acquire_rescreen_lock(scope: str) -> bool:
+    """Atomically claim the re-screen lock for ``scope``. True iff acquired."""
+    from . import redis_store as rs
+    key = _RESCREEN_LOCK_KEY.format(scope=scope or "global")
+    try:
+        n = await rs.incr(key)
+        if n == 1:
+            await rs.expire(key, _RESCREEN_LOCK_TTL_SECONDS)  # auto-release guard
+            return True
+        return False
+    except Exception as e:
+        # Fail OPEN: a lock-store hiccup must never stop re-screening entirely
+        # (R-F2744's fingerprint dedup still suppresses duplicate emits).
+        logger.debug("[watchlist] rescreen lock acquire failed (proceeding): %s", e)
+        return True
+
+
+async def _release_rescreen_lock(scope: str) -> None:
+    from . import redis_store as rs
+    try:
+        await rs.delete(_RESCREEN_LOCK_KEY.format(scope=scope or "global"))
+    except Exception as e:
+        logger.debug("[watchlist] rescreen lock release failed (TTL will clear): %s", e)
+
+
 def _derive_status(classified: dict) -> str:
     """Map classify_matches worst_severity to a simple tri-state."""
     sev = classified.get("worst_severity", "clean")
@@ -12608,6 +12644,18 @@ async def rescreen_watchlist(llm=None, user_id=None, user_email_domain=None) -> 
 
     # Enforce cost cap: max 50 entities per cycle
     entities = watchlist[:_RESCREEN_MAX_ENTITIES]
+
+    # R-F2746 — atomic cross-trigger guard: skip if a same-scope re-screen is
+    # already running (daily loop vs autonomous sweep vs manual click). Released
+    # before the normal return below; a crash self-heals via the lock TTL.
+    _lock_scope = user_id or "global"
+    if not await _acquire_rescreen_lock(_lock_scope):
+        logger.info(
+            "[watchlist] re-screen already running for scope=%s — skipping (R-F2746)",
+            _lock_scope,
+        )
+        return {"entities_screened": 0, "changes_detected": [], "errors": [],
+                "duration_ms": 0, "skipped": "locked"}
 
     changes: list[dict] = []
     errors: list[dict] = []
@@ -12880,6 +12928,10 @@ async def rescreen_watchlist(llm=None, user_id=None, user_email_domain=None) -> 
         )
     except Exception as e:
         logger.debug("rescreen brain_hook absorb failed (non-fatal): %s", e)
+
+    # R-F2746 — release the cross-trigger lock on the normal path (a crash before
+    # here leaves the TTL to self-heal).
+    await _release_rescreen_lock(_lock_scope)
 
     return {
         "entities_screened": len(entities),
