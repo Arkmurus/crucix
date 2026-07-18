@@ -3497,6 +3497,7 @@ app.post('/api/aria/dd/orchestrate', requireAuth, async (req, res) => {
   req.body = req.body || {};
   req.body.user_id = userId;
   if (userEmail) req.body.user_email = userEmail;
+  if (userTier) req.body.user_tier = userTier;   // R-F2767 — per-tier Claude cost attribution
   const t0 = Date.now();
   const requestId = req.body.request_id || `web_dd_${userId.replace(/[^a-zA-Z0-9_]/g, '_')}_${Date.now()}`;
   return ariaProxy(req, res, '/api/aria/dd/orchestrate', {
@@ -4095,7 +4096,12 @@ app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
   // DD run via CHAT shares to same-company colleagues like the /dd/orchestrate button
   // (R-F608). The JWT carries no email, so look it up from the user store by id.
   let _userEmail = '';
-  try { _userEmail = String(findUserById(req.user?.userId || '')?.email || '').trim(); } catch {}
+  let _userTier = '';   // R-F2767 — forwarded to Python for per-tier Claude cost attribution
+  try {
+    const _u2202 = findUserById(req.user?.userId || '');
+    _userEmail = String(_u2202?.email || '').trim();
+    _userTier = String(_u2202?.tier || '').trim();
+  } catch {}
   // R-F48b: resolve persona from authenticated user record (sector
   // field captured at registration). Empty → Python falls back to
   // broker overlay = current default behaviour.
@@ -4167,6 +4173,7 @@ app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
         session_id: sid,
         user_id: _stableUid,   // R-F1687: was `req.user?.id` (undefined → '')
         ...(_userEmail ? { user_email: _userEmail } : {}),   // R-F2202: chat-DD company sharing
+        ...(_userTier ? { user_tier: _userTier } : {}),      // R-F2767: per-tier Claude cost attribution
         persona: _persona,
         auto_tools: auto_tools !== false,
         group_context: group_context || '',

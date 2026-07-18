@@ -510,6 +510,7 @@ class ChatRequest(BaseModel):
     session_id: str = ""
     user_id: str = ""         # authenticated user ID (injected by Node proxy)
     user_email: str = ""      # R-F2202: JWT-pinned email (Node proxy) → chat-DD company sharing
+    user_tier: str = ""       # R-F2767: subscription tier (Node proxy) → per-tier Claude cost attribution
     auto_tools: bool = True   # auto-detect intent and call investigate/crawl/read tools
     # R-F48a: persona overlay key. Tunes which constitution clauses are
     # weighted most heavily in the system prompt. Recognised values:
@@ -882,6 +883,18 @@ async def dd_orchestrate_ep(req: Request):
     body = await req.json()
     if not isinstance(body, dict) or not (body.get("name") or body.get("entity")):
         raise HTTPException(status_code=400, detail="request body must include 'name' or 'entity'")
+
+    # R-F2767 — attribute this DD's Claude spend to the caller's subscription tier
+    # (forwarded by the Node proxy as body.user_tier). DD is the cost-heavy path, so
+    # per-tier attribution matters most here; the contextvar propagates to the ~15-25
+    # parallel LLM calls the orchestrator fires.
+    try:
+        _dd_tier = (body.get("user_tier") or "").strip()
+        if _dd_tier:
+            from ..intel import cost_tracker as _ct2767
+            _ct2767.set_tier(_dd_tier)
+    except Exception:
+        pass
 
     # Map website_url -> website for the orchestrator before lineage repair so
     # route-level validation and downstream canonicalisation see one identity.
@@ -10220,6 +10233,11 @@ async def chat_ep(req: ChatRequest, request: Request):
     # cleanly if they're already over their monthly budget.
     from ..intel import cost_tracker as _ct1954
     _ct1954.set_user(_quota_user)
+    # R-F2767 — attribute this turn's Claude spend to the caller's subscription tier
+    # (forwarded by the Node proxy as ChatRequest.user_tier). The contextvar propagates
+    # to the parallel tool/DD calls this turn spawns → per-tier cost + margin.
+    if getattr(req, "user_tier", ""):
+        _ct1954.set_tier(req.user_tier)
     _um_over, _um_spent, _um_cap = await _ct1954.user_month_cap_exceeded(_quota_user)
     if _um_over:
         raise HTTPException(
@@ -11732,6 +11750,11 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
     # R-F1954 — per-user monthly sub-cap (same as chat_ep).
     from ..intel import cost_tracker as _ct1954
     _ct1954.set_user(_quota_user)
+    # R-F2767 — attribute this turn's Claude spend to the caller's subscription tier
+    # (forwarded by the Node proxy as ChatRequest.user_tier). The contextvar propagates
+    # to the parallel tool/DD calls this turn spawns → per-tier cost + margin.
+    if getattr(req, "user_tier", ""):
+        _ct1954.set_tier(req.user_tier)
     _um_over, _um_spent, _um_cap = await _ct1954.user_month_cap_exceeded(_quota_user)
     if _um_over:
         raise HTTPException(

@@ -250,6 +250,29 @@ def get_current_user() -> str:
     return _current_user.get()
 
 
+# ── R-F2767: per-TIER attribution ───────────────────────────────────────────
+# The global + per-user caps bound spend, but the operator could not see COST
+# PER SUBSCRIPTION TIER (free vs Essentials vs Pro Intel) — the brain never
+# received the caller's tier. This contextvar carries it (set by the chat / DD
+# handlers from the tier the Node proxy forwards), so record_call buckets spend
+# by_tier. Precision monitoring of Claude spend per tier + margin, exactly what
+# the switch-to-Claude cost model needs. Same contextvar mechanics as set_user
+# so it propagates through the parallel LLM calls a DD run fires.
+_current_tier: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "aria_cost_tier", default="",
+)
+
+
+def set_tier(name: str) -> contextvars.Token:
+    """Attribute subsequent LLM calls to this subscription tier (free / pro /
+    proIntel). Propagates through child asyncio tasks like set_user/set_feature."""
+    return _current_tier.set((name or "").strip())
+
+
+def get_current_tier() -> str:
+    return _current_tier.get()
+
+
 def _user_month_key(user: str, month: str | None = None) -> str:
     return f"{COST_USER_MONTH_PREFIX}{user}:{month or _current_month_key()}"
 
@@ -529,6 +552,7 @@ async def record_call(
         "model": model or "",
         "provider": provider_name or "",
         "feature": feat,
+        "tier": get_current_tier() or "unattributed",  # R-F2767 — per-tier cost
         "input_tokens": int(input_tokens or 0),
         "output_tokens": int(output_tokens or 0),
         "total_tokens": int((input_tokens or 0) + (output_tokens or 0)),
@@ -603,6 +627,7 @@ def _new_rollup(month: str, ts: float) -> dict:
         "by_provider": {},
         "by_feature": {},
         "by_model": {},
+        "by_tier": {},  # R-F2767 — per-subscription-tier spend
         "top_calls": [],
     }
 
@@ -620,6 +645,7 @@ def _merge_record_into_rollup(roll: dict, record: dict) -> None:
         ("by_provider", record.get("provider") or "unknown"),
         ("by_feature", record.get("feature") or "uncategorized"),
         ("by_model", record.get("model") or "unknown"),
+        ("by_tier", record.get("tier") or "unattributed"),  # R-F2767
     ):
         bucket = roll.setdefault(bucket_key, {})
         cell = bucket.get(val) or {"calls": 0, "tokens": 0, "cost_usd": 0.0}
@@ -1001,6 +1027,7 @@ async def _breakdown_from_index(target_month: str) -> dict:
     by_provider: dict[str, dict] = {}
     by_feature: dict[str, dict] = {}
     by_model: dict[str, dict] = {}
+    by_tier: dict[str, dict] = {}  # R-F2767
     all_calls: list[dict] = []
     for e in index:
         ts = float(e.get("ts") or 0.0)
@@ -1022,6 +1049,7 @@ async def _breakdown_from_index(target_month: str) -> dict:
             (by_provider, provider),
             (by_feature, feat),
             (by_model, model),
+            (by_tier, e.get("tier") or "unattributed"),  # R-F2767
         ):
             cell = bucket.get(key) or {"calls": 0, "tokens": 0, "cost_usd": 0.0}
             cell["calls"] += 1
@@ -1048,6 +1076,7 @@ async def _breakdown_from_index(target_month: str) -> dict:
         "by_provider": by_provider,
         "by_feature": by_feature,
         "by_model": by_model,
+        "by_tier": by_tier,  # R-F2767
         "top_calls": all_calls[:20],
         "_source": "index_fallback",
     }
@@ -1100,6 +1129,7 @@ async def get_month_breakdown(month: str | None = None) -> dict:
         "by_provider": roll.get("by_provider", {}),
         "by_feature": roll.get("by_feature", {}),
         "by_model": roll.get("by_model", {}),
+        "by_tier": roll.get("by_tier", {}),  # R-F2767 — Claude spend per subscription tier
         "top_calls": roll.get("top_calls", []),
         "warn_only": _warn_only(),
         "_source": roll.get("_source", "rollup"),
