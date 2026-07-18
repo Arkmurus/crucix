@@ -658,6 +658,19 @@ _MODULES: list[dict] = [
         "brain_registered": True,
         "critical": True,  # grounded reasoning engine
     },
+    {
+        # R-F2772 — the inbound_leads limb is a brain topic (brain_hook._MODULE_TOPICS)
+        # wired at the POST /api/aria/leads/inbound endpoint, but was ABSENT from this
+        # self-diagnostic catalogue (Codex R-F2757-verified) — so that limb was
+        # invisible to diagnostic/source-health surfaces. Represented here as its
+        # endpoint handler (leads_inbound_create_ep exists in routes.aria).
+        "name": "inbound_leads",
+        "module": "aria_service.routes.aria",
+        "entry": "leads_inbound_create_ep",
+        "brain_registered": True,
+        "endpoint": "/api/aria/leads/inbound",
+        "critical": False,
+    },
 ]
 
 
