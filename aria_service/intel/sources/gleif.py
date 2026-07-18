@@ -11,6 +11,7 @@ it has NO director data, so officers/psc stay blank.
 from __future__ import annotations
 
 import logging
+import re
 
 import httpx
 
@@ -26,6 +27,31 @@ _TIMEOUT = 15.0
 def is_available() -> bool:
     """Free + open — always available (no key)."""
     return True
+
+
+# R-F2740 — generic company tokens carry no identifying signal; ignored when
+# confirming a GLEIF match against the query name.
+_GENERIC_NAME_TOKENS = frozenset({
+    "ltd", "limited", "llc", "inc", "incorporated", "plc", "company", "co", "corp",
+    "corporation", "sa", "sarl", "gmbh", "ag", "bv", "nv", "spa", "srl", "oy", "ab",
+    "group", "holdings", "holding", "the", "and", "trading", "services", "international",
+})
+
+
+def _name_confirms(query: str, candidate: str) -> bool:
+    """R-F2740 — does the GLEIF record's legal name actually match the queried name?
+
+    A fulltext search returns the best-SCORING record even when NONE matches (score
+    can come from ACTIVE status alone). Attaching such a record's LEI + national
+    registry id to the subject fabricates its identity — and worse, drives a
+    national-registry (KRS/SIREN) lookup for the WRONG company. Require a meaningful
+    shared token (ignoring generic company suffixes) before trusting the match.
+    """
+    def toks(s: str) -> set[str]:
+        return {t for t in re.split(r"[^0-9a-z]+", (s or "").lower())
+                if len(t) >= 3 and t not in _GENERIC_NAME_TOKENS}
+    qt, ct = toks(query), toks(candidate)
+    return bool(qt) and bool(ct) and bool(qt & ct)
 
 
 def _best_match(recs: list, q: str) -> dict:
@@ -77,6 +103,13 @@ async def lookup(name: str, jurisdiction_iso2: str = "", reg_number: str | None 
         e = a.get("entity", {}) or {}
         lei = a.get("lei", "") or ""
         nm = (e.get("legalName") or {}).get("name", "") or ""
+        # R-F2740 — the fulltext search returned records, but only attach the best one
+        # if its legal name actually confirms the query. Otherwise the LEI + national
+        # registry id would be a fabricated subject identity (and mis-drive KRS/SIREN).
+        if not _name_confirms(q, nm):
+            logger.debug("GLEIF: best record %r does not confirm query %r — not attaching", nm, q)
+            cb.record_success()  # the search worked; there was just no matching entity
+            return None
         addr = e.get("legalAddress") or {}
         addr_str = ", ".join(x for x in [
             " ".join(addr.get("addressLines") or []) or None,
