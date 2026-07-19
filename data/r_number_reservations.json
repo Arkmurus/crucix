@@ -21702,9 +21702,10 @@
       "title": "make adverse-media a first-class DD verdict input with inline deep search",
       "claimed_at": "2026-07-18T23:20:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5017ebe2",
+      "notes": null,
+      "shipped_at": "2026-07-19T00:13:40Z"
     },
     {
       "r_number": "R-F2781",
