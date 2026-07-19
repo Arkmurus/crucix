@@ -8796,6 +8796,115 @@ _AM_FOLLOWUP_TASKS: set = set()
 _REPORT_MERGE_LOCK: asyncio.Lock = asyncio.Lock()
 
 
+# ── R-F2780 — adverse media becomes a first-class VERDICT input ──────────────
+# The deep adverse-media search's findings are subject-attributed (R-F2745 names
+# guard) and credibility-tiered (web_search int scale, 1=official..5=general).
+# R-F2780 lets CREDIBLE (official / institution / quality-press) adverse
+# findings ESCALATE the stored verdict (GREEN/AMBER-LIGHT -> AMBER-LIGHT). It
+# ONLY escalates — never downgrades — because a false AMBER is a safe error
+# (flags for human review) while a false clean is the never-false-clean breach
+# this whole line exists to prevent. Pure functions (no I/O) so they are unit-
+# testable directly; the async follow-up calls them under its merge lock.
+_RISK_RANK_FOR_ADVERSE = {
+    "GREEN": 0, "AMBER-LIGHT": 1, "AMBER": 1, "AMBER-DARK": 2, "RED": 3, "HARD_STOP": 4,
+}
+
+
+def _adverse_finding_tier(f: dict) -> int:
+    """Normalise a finding's credibility_tier to a 1-5 int (1 = most credible).
+
+    The deep search's findings carry the web_search INT scale
+    (1=official, 2=institution, 3=industry, 4=quality-press, 5=general — see
+    web_search.SearchResult.credibility_tier), threaded via researcher._web_search.
+    This also defensively maps the legacy string scale ('tier_1a/1b/2/3') and
+    numeric strings, so a tier-convention drift can never silently make adverse
+    media un-material (which would reintroduce a false-clean)."""
+    t = f.get("credibility_tier") if isinstance(f, dict) else None
+    if isinstance(t, bool):
+        return 5
+    if isinstance(t, int):
+        return min(5, max(1, t))
+    s = str(t if t is not None else "").strip().lower()
+    if s.isdigit():
+        return min(5, max(1, int(s)))
+    return {"tier_1a": 1, "tier_1b": 2, "tier_2": 3, "tier_3": 4}.get(s, 5)
+
+
+def _adverse_media_materiality(am_result: dict) -> dict:
+    """Classify how material the deep adverse-media findings are. Material when
+    there is >=1 OFFICIAL-tier (tier 1: regulator/court/gov) finding, OR >=N
+    credible findings, where credible = official + institution + quality-press
+    (tiers 1, 2, 4) and N = ARIA_DD_ADVERSE_MIN_CREDIBLE (default 2). Industry
+    (3) and general (5) are treated as weak and do not, alone, move the verdict —
+    the guard against single-source / low-quality false positives."""
+    findings = (am_result.get("findings") or []) if isinstance(am_result, dict) else []
+    official = [f for f in findings if _adverse_finding_tier(f) == 1]
+    credible = [f for f in findings if _adverse_finding_tier(f) in (1, 2, 4)]
+    try:
+        _min_credible = int(os.getenv("ARIA_DD_ADVERSE_MIN_CREDIBLE", "2"))
+    except (TypeError, ValueError):
+        _min_credible = 2
+    material = (len(official) >= 1) or (len(credible) >= _min_credible)
+    return {
+        "material": material, "official": len(official),
+        "credible_count": len(credible), "examples": credible[:3],
+    }
+
+
+def _append_adverse_verdict_finding(body: dict, mat: dict, *, escalated: bool) -> None:
+    syn = body.setdefault("synthesis", {})
+    if not isinstance(syn, dict):
+        return
+    kf = syn.setdefault("key_findings", [])
+    if not isinstance(kf, list):
+        return
+    titles = " | ".join((e.get("title") or "")[:80] for e in (mat.get("examples") or [])[:3])
+    kf.append({
+        "severity": "amber" if escalated else "info",
+        "title": ("Adverse-media escalation — credible adverse coverage names this entity"
+                  if escalated else
+                  "Adverse-media: credible coverage present (verdict already elevated)"),
+        "detail": (f"{mat['credible_count']} credible subject-named adverse-media item(s) "
+                   f"[{mat['official']} official-tier]. Examples: {titles}"),
+        "source": "dd_orchestrator._run_adverse_media_followup:R-F2780",
+        "confidence": "ASSESSED",
+    })
+
+
+def _apply_adverse_media_to_verdict(body: dict, am_result: dict) -> dict:
+    """R-F2780 — escalate the STORED verdict when the deep adverse-media search
+    surfaced credible, subject-named adverse findings. Mutates ``body`` in place.
+    ESCALATE-ONLY (never downgrades). Returns a summary dict."""
+    if not isinstance(body, dict) or not isinstance(am_result, dict):
+        return {"escalated": False, "reason": "no-op"}
+    if not am_result.get("ok"):
+        return {"escalated": False, "reason": "search-not-ok"}
+    mat = _adverse_media_materiality(am_result)
+    if not mat["material"]:
+        return {"escalated": False, "reason": "no-material-adverse", **mat}
+    cur = str(body.get("risk_classification") or "GREEN").upper()
+    if _RISK_RANK_FOR_ADVERSE.get(cur, 0) >= _RISK_RANK_FOR_ADVERSE["AMBER-LIGHT"]:
+        # already at/above AMBER-LIGHT — record the finding, do NOT change the verdict
+        _append_adverse_verdict_finding(body, mat, escalated=False)
+        return {"escalated": False, "reason": "already-at-or-above-amber", "new_risk": cur, **mat}
+    # escalate GREEN -> AMBER-LIGHT
+    body["risk_classification"] = "AMBER-LIGHT"
+    syn = body.setdefault("synthesis", {})
+    if isinstance(syn, dict):
+        syn["risk_classification"] = "AMBER-LIGHT"
+    reason = (f"{mat['credible_count']} credible adverse-media item(s) name this entity "
+              f"({mat['official']} from official-tier sources) — verdict raised GREEN → "
+              f"AMBER-LIGHT; human review of the adverse-media findings required before clearance.")
+    body["adverse_media_escalated"] = True
+    body["adverse_media_escalation_reason"] = reason
+    _ident = body.get("identity") if isinstance(body.get("identity"), dict) else {}
+    _name = _ident.get("entity_name") or (body.get("target") or {}).get("name") or "the entity"
+    body["bottom_line"] = (f"🟡 AMBER-LIGHT — {_name}: credible adverse-media coverage found "
+                           f"(R-F2780). {reason} This is NOT a clearance — review the adverse-media section.")
+    _append_adverse_verdict_finding(body, mat, escalated=True)
+    return {"escalated": True, "reason": reason, "new_risk": "AMBER-LIGHT", **mat}
+
+
 async def _run_adverse_media_followup(
     run_id: str,
     *,
@@ -8804,6 +8913,7 @@ async def _run_adverse_media_followup(
     ubo_names: list,
     sectors: list,
     trigger_reason: str,
+    max_templates: int = 30,
 ) -> None:
     """R-F2657 — run the adverse-media deep search OUT OF BAND (after the main DD has
     already delivered its verdict) and MERGE the findings into the persisted report.
@@ -8830,7 +8940,7 @@ async def _run_adverse_media_followup(
                 ubo_names=list(ubo_names or [])[:2],
                 sectors=list(sectors or []) or ["defence"],
                 years_back=10,
-                max_templates=30,
+                max_templates=max_templates,
                 max_results_per_template=5,
                 deadline_s=_budget,
             ),
@@ -8853,11 +8963,18 @@ async def _run_adverse_media_followup(
             _body = await get_report(run_id)
             if isinstance(_body, dict):
                 _body["adverse_media"] = _am_result
+                # R-F2780 — credible adverse findings ESCALATE the stored verdict
+                # (never downgrade). Runs under the same merge lock as the write.
+                _esc = _apply_adverse_media_to_verdict(_body, _am_result)
                 await rs.set_json(REPORT_REDIS_KEY.format(run_id=run_id), _body, ex=REPORT_TTL_SECONDS)
+            else:
+                _esc = {"escalated": False, "reason": "report-not-found"}
         if isinstance(_body, dict):
             logger.info(
-                "[R-F2657] adverse-media follow-up merged for %s: %d findings (%s-trigger)",
+                "[R-F2657] adverse-media follow-up merged for %s: %d findings (%s-trigger); "
+                "[R-F2780] verdict_escalated=%s (%s)",
                 run_id, _am_result.get("findings_count", 0), trigger_reason,
+                _esc.get("escalated"), _esc.get("reason", ""),
             )
         else:
             logger.debug("[R-F2657] follow-up: report %s not found to merge into", run_id)
@@ -10402,11 +10519,29 @@ async def _orchestrate_dd_impl(
                 )
         except Exception:
             pass
+        # R-F2780 — also screen adverse media on GREEN company DDs so a clean-
+        # looking entity is actually checked. Before R-F2780 the deep search fired
+        # ONLY on already-AMBER/RED/low-coverage runs, so the verdict it could flip
+        # gated the search that would flip it (chicken-and-egg). Bounded + flag-
+        # gated (ARIA_DD_ADVERSE_ON_GREEN, default on) since it adds out-of-band
+        # search cost; the follow-up escalates the stored verdict on credible
+        # findings. Person DDs keep their own PEP/adverse path.
+        _adverse_on_green = os.getenv("ARIA_DD_ADVERSE_ON_GREEN", "1").strip().lower() not in ("0", "false", "no", "off")
+        _is_company_dd = (report.identity.entity_type or "").lower() not in ("person", "")
+        _green_adverse = (_risk_for_am == "GREEN" and _is_company_dd and _adverse_on_green)
         _am_triggered = (
             _risk_for_am in ("RED", "HARD_STOP", "NO-GO")
             or _risk_for_am.startswith("AMBER")
             or _coverage_pct < 60.0
+            or _green_adverse
         )
+        # GREEN screens are cost-bounded to fewer templates than the full
+        # AMBER/RED sweep (tunable ARIA_DD_ADVERSE_GREEN_TEMPLATES, default 12).
+        try:
+            _green_tmpls = int(os.getenv("ARIA_DD_ADVERSE_GREEN_TEMPLATES", "12"))
+        except (TypeError, ValueError):
+            _green_tmpls = 12
+        _am_max_templates = _green_tmpls if _green_adverse else 30
         # R-F1572: this 30-template × 5-result × 10-year deep search runs AFTER
         # the layers + BLUF and is OUTSIDE the layer clamp — it was the dominant
         # overrun for sparse targets, because AMBER / <60%-coverage (exactly an
@@ -10424,7 +10559,8 @@ async def _orchestrate_dd_impl(
         _trigger_reason = (
             "RED" if _risk_for_am in ("RED", "HARD_STOP", "NO-GO")
             else f"AMBER ({_risk_for_am})" if _risk_for_am.startswith("AMBER")
-            else f"low-coverage ({_coverage_pct:.0f}%)"
+            else f"low-coverage ({_coverage_pct:.0f}%)" if _coverage_pct < 60.0
+            else "GREEN-screen"
         )
         if _am_triggered:
             _director_names: list[str] = []
@@ -10464,6 +10600,7 @@ async def _orchestrate_dd_impl(
                 "ubo_names": _ubo_names[:2],
                 "sectors": _sectors,
                 "trigger_reason": _trigger_reason,
+                "max_templates": _am_max_templates,  # R-F2780 — bounded for GREEN screens
             }
             logger.info(
                 "[R-F2657] adverse-media deep search DEFERRED to follow-up for %s (%s-trigger)",
