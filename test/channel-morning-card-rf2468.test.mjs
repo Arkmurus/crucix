@@ -23,6 +23,9 @@ describe('Channel morning cron cards', () => {
   before(() => {
     global.fetch = async (url, opts = {}) => {
       calls.push({ url: String(url), opts });
+      if (String(url).includes('/getChat')) {
+        return new Response(JSON.stringify({ ok: true, result: { id: -1001, type: 'channel', title: 'ARIA Intelligence' } }), { status: 200 });
+      }
       const contentType = String(opts.headers?.['Content-Type'] || opts.headers?.['content-type'] || '');
       if (String(url).includes('/sendPhoto') && contentType.includes('multipart/form-data')) {
         return new Response(JSON.stringify({ ok: true, result: { photo: [{ file_id: 'card-file-id' }] } }), { status: 200 });
@@ -43,7 +46,7 @@ describe('Channel morning cron cards', () => {
     // corroboration (a Grade B may firm up to A by the evening slot).
     const result = await handleMorningSignalCron({}, { botToken: 'test-token', chatId: '1234567890', channelId: '1234567890' }, { hour: 7 });
 
-    const telegramCalls = calls.filter(c => c.url.includes('api.telegram.org'));
+    const telegramCalls = calls.filter(c => c.url.includes('/sendMessage') || c.url.includes('/sendPhoto'));
     assert.equal(result?.reason, 'held_for_corroboration');
     assert.equal(telegramCalls.length, 0);
   });

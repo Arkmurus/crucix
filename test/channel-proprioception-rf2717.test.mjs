@@ -26,6 +26,9 @@ const HOOKS_SRC = fs.readFileSync(
 const originalFetch = global.fetch;
 before(() => {
   global.fetch = async (url) => {
+    if (String(url).includes('/getChat')) {
+      return new Response(JSON.stringify({ ok: true, result: { id: -1001, type: 'channel', title: 'ARIA Intelligence' } }), { status: 200 });
+    }
     // empty feed → the cron records an outcome but sends nothing
     if (String(url).includes('/api/aria/intel/signals/recent')) {
       return new Response(JSON.stringify({ ok: true, signals: [], freshness: { stale: false, stale_reasons: [] } }), { status: 200 });
@@ -57,6 +60,9 @@ describe('R-F2717 #13 durable outcome ledger', () => {
     // brain POST throws; the local record must still exist.
     const f = global.fetch;
     global.fetch = async (url) => {
+      if (String(url).includes('/getChat')) {
+        return new Response(JSON.stringify({ ok: true, result: { id: -1001, type: 'channel', title: 'ARIA Intelligence' } }), { status: 200 });
+      }
       if (String(url).includes('/intel/signals/recent')) {
         return new Response(JSON.stringify({ ok: true, signals: [], freshness: { stale: false, stale_reasons: [] } }), { status: 200 });
       }

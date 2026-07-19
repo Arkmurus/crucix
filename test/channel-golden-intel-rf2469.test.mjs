@@ -16,6 +16,7 @@ const {
   handleMorningSignalCron,
   runChannelSweep,
   selectTelegramGoldenIntel,
+  validatePublicChannelDestination,
 } = await import('../lib/telegram/channelServerHooks.mjs');
 const { dedupKey, recordPosted } = await import('../lib/telegram/postDedup.mjs');
 
@@ -136,6 +137,9 @@ describe('Telegram Golden Intel gate', () => {
     const calls = [];
     global.fetch = async (url, opts = {}) => {
       calls.push({ url: String(url), opts });
+      if (String(url).includes('/getChat')) {
+        return new Response(JSON.stringify({ ok: true, result: { id: -1001, type: 'channel', title: 'ARIA Intelligence' } }), { status: 200 });
+      }
       if (String(url).includes('/api/aria/intel/signals/recent')) {
         return new Response(JSON.stringify({
           signals: [goodSignal()],
@@ -155,6 +159,22 @@ describe('Telegram Golden Intel gate', () => {
     assert.equal(telegramMessages.length, 1);
     assert.match(String(telegramMessages[0].opts.body), /GOLDEN INTEL/);
     assert.doesNotMatch(String(telegramMessages[0].opts.body), /Hidden in the supply chain/);
+  });
+
+  it('R-F2789: blocks a supergroup configured as the public intel channel', async () => {
+    global.fetch = async () => new Response(JSON.stringify({
+      ok: true,
+      result: { id: -1003836086295, type: 'supergroup', title: '@ARIAIntelligence' },
+    }), { status: 200 });
+
+    const result = await validatePublicChannelDestination({ botToken: 'test-token', channelId: '-1003836086295' });
+
+    assert.deepEqual(result, {
+      ok: false,
+      reason: 'destination_not_channel',
+      type: 'supergroup',
+      title: '@ARIAIntelligence',
+    });
   });
 
   it('morning cron sends nothing when Golden Intel is missing or stale', async () => {

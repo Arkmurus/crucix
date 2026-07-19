@@ -31,6 +31,9 @@ const bot = { botToken: 't', chatId: '1', channelId: '1' };
 const originalFetch = global.fetch;
 before(() => {
   global.fetch = async (url) => {
+    if (String(url).includes('/getChat')) {
+      return new Response(JSON.stringify({ ok: true, result: { id: -1001, type: 'channel', title: 'ARIA Intelligence' } }), { status: 200 });
+    }
     if (String(url).includes('/api/aria/intel/signals/recent')) {
       return new Response(JSON.stringify({ ok: true, signals: [], freshness: { stale: false, stale_reasons: [] } }), { status: 200 });
     }
