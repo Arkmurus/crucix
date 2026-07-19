@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2791,
+  "next_available": 2795,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21790,9 +21790,10 @@
       "title": "fix Telegram public channel destination validation",
       "claimed_at": "2026-07-19T13:27:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4168f554",
+      "notes": null,
+      "shipped_at": "2026-07-19T13:49:09Z"
     },
     {
       "r_number": "R-F2790",
@@ -21803,6 +21804,46 @@
       "commit_sha": "c4cc33e6",
       "notes": null,
       "shipped_at": "2026-07-19T13:42:12Z"
+    },
+    {
+      "r_number": "R-F2791",
+      "title": "adverse-media completion requires a SEARCHED template not an ENTERED one (closes the R-F2786 false-clean: 30/30 failed templates scored as a clean screening)",
+      "claimed_at": "2026-07-19T13:47:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "12a45364",
+      "notes": null,
+      "shipped_at": "2026-07-19T14:39:08Z"
+    },
+    {
+      "r_number": "R-F2792",
+      "title": "reconcile R-F2621 completed-green contract with R-F2786 decision-readiness gating (test asserts the superseded contract)",
+      "claimed_at": "2026-07-19T13:47:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "12a45364",
+      "notes": null,
+      "shipped_at": "2026-07-19T14:39:08Z"
+    },
+    {
+      "r_number": "R-F2793",
+      "title": "decision-readiness identity requires a LIVE registry status and ownership requires a substantive holder (dissolved/empty-shareholder answered ANSWERED)",
+      "claimed_at": "2026-07-19T13:47:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "12a45364",
+      "notes": null,
+      "shipped_at": "2026-07-19T14:39:09Z"
+    },
+    {
+      "r_number": "R-F2794",
+      "title": "refresh index row + rendered snapshot on DD follow-up merge so an escalated AMBER never shows GREEN on list surfaces or in the training corpus",
+      "claimed_at": "2026-07-19T13:47:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "12a45364",
+      "notes": null,
+      "shipped_at": "2026-07-19T14:39:09Z"
     }
   ]
 }
