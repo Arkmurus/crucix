@@ -71,8 +71,16 @@ def make_reward_fn():
     _cov_w = _envf("GROUNDING_COVERAGE_WEIGHT", 0.0)
     _cov_tgt = _envf("GROUNDING_COVERAGE_TARGET", 2.0)
     _nocite_pen = _envf("GROUNDING_ANSWERABLE_NOCITE_PENALTY", 0.1)
+    # R-F2788 cycle-6 RECALL BONUS lever — precision-PRESERVING recall lift (holds
+    # precision_weight at 0.5; does NOT re-slice the reallocation blend like cycle 5's
+    # backfired pw=0.4). Default 0.0 = OFF = backward-compatible. Cycle 6 sets
+    # GROUNDING_RECALL_BONUS_WEIGHT (~0.15). Double-gated in score() so it can never
+    # reward fabrication; recall_bonus_cap hard-ceilings recall's share of the band.
+    _recall_bw = _envf("GROUNDING_RECALL_BONUS_WEIGHT", 0.0)
+    _recall_cap = _envf("GROUNDING_RECALL_BONUS_CAP", 0.25)
     print(f"[grpo] reward: precision_weight={_prec_w} coverage_weight={_cov_w} "
-          f"coverage_target={_cov_tgt} answerable_nocite_penalty={_nocite_pen}")
+          f"coverage_target={_cov_tgt} answerable_nocite_penalty={_nocite_pen} "
+          f"recall_bonus_weight={_recall_bw} recall_bonus_cap={_recall_cap}")
 
     def grounding_reward_fn(prompts=None, completions=None, **kwargs):
         contexts = kwargs.get("context")
@@ -97,7 +105,9 @@ def make_reward_fn():
                                        precision_weight=_prec_w,
                                        coverage_weight=_cov_w,
                                        coverage_target=_cov_tgt,
-                                       answerable_nocite_penalty=_nocite_pen)))
+                                       answerable_nocite_penalty=_nocite_pen,
+                                       recall_bonus_weight=_recall_bw,
+                                       recall_bonus_cap=_recall_cap)))
         return out
     grounding_reward_fn.__name__ = "grounding_reward"
     return grounding_reward_fn

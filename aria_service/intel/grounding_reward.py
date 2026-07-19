@@ -124,6 +124,7 @@ class RewardBreakdown:
     answerable: bool | None = None       # R-F2033 — was this question answerable from ctx?
     keyword_recall: float = 0.0          # R-F2033 — substance signal (expected_keywords hit)
     coverage_bonus: float = 0.0          # cycle-4 — grounded-citation coverage bonus applied
+    recall_bonus: float = 0.0            # R-F2788 cycle-6 — additive-capped recall reward earned
     reasons: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -138,6 +139,7 @@ class RewardBreakdown:
             "answerable": self.answerable,
             "keyword_recall": round(self.keyword_recall, 4),
             "coverage_bonus": round(self.coverage_bonus, 4),
+            "recall_bonus": round(self.recall_bonus, 4),
             "reasons": self.reasons,
         }
 
@@ -146,7 +148,9 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
           answerable: bool | None = None, expected_keywords=None,
           precision_weight: float = 0.5, coverage_weight: float = 0.0,
           coverage_target: float = 2.0,
-          answerable_nocite_penalty: float = 0.1) -> RewardBreakdown:
+          answerable_nocite_penalty: float = 0.1,
+          recall_bonus_weight: float = 0.0,
+          recall_bonus_cap: float = 0.25) -> RewardBreakdown:
     """Objective grounding reward in [0,1]. Higher = better grounded / honestly
     abstained; near 0 = fabricated sources, OR abstained when the answer WAS available.
 
@@ -177,6 +181,35 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
         question with ZERO citations (the coverage failure). Default 0.1 = current;
         a cycle may lower it, but it must stay >= the fabrication floor (0.05) so
         honest silence is never scored worse than inventing a source.
+
+    GRPO cycle 6 — RECALL BONUS lever (R-F2788). Cycle 5 tried to lift keyword
+    recall by LOWERING ``precision_weight`` 0.5->0.4, which just re-weighted the
+    REALLOCATION blend (``pw*precision + (1-pw)*recall``) to hand recall a bigger
+    slice of the SAME budget — it TRADED precision away (precision fell below the
+    0.750 floor AND below same-run DeepSeek) and recall did not even rise. Cycle 6
+    keeps ``precision_weight`` at its cycle-4 winner (0.5) and adds an ADDITIVE,
+    CAPPED recall lever that does NOT subtract precision the way the blend does:
+      - ``recall_bonus_weight`` (>0) REPLACES the reallocation blend with a
+        HEADROOM formula on answering, keyworded, grounded rows:
+            score = precision_score * (1 - rbw + rbw*keyword_recall)
+                  = precision_score * (1 - rbw*(1 - keyword_recall))
+        where ``rbw`` = recall_bonus_weight clamped to [0, ``recall_bonus_cap``].
+        This reserves only a SMALL ``rbw`` band below precision_score for a recall
+        gradient, so a terse grounded answer keeps ``(1-rbw)`` of its precision
+        (e.g. 0.85 at rbw=0.15) instead of the blend's ``pw``=0.5 — precision is
+        preserved, not traded. Crucially it solves the SATURATION problem: when
+        precision_score is 1.0 (fully grounded), a naive ``min(1.0, P+bonus)`` has
+        ZERO gradient, but the headroom band means substantive-grounded (recall 1.0
+        -> 1.0) still beats terse-grounded (recall 0 -> 1-rbw). The whole recall
+        term is MULTIPLIED by precision_score (which already folds in
+        citation_precision and the fabrication penalty) AND gated on
+        ``grounded_citations > 0`` — double-gated exactly like the coverage lever,
+        so a fabricated / keyword-stuffed uncited answer can never farm the bonus.
+      - ``recall_bonus_cap`` hard-ceilings ``rbw`` so recall can never dominate the
+        answering-row score (default 0.25 = recall may move at most 25% of the band).
+      DEFAULT-OFF: with ``recall_bonus_weight=0.0`` the headroom branch is skipped
+      and the reallocation blend runs exactly as before, so score() is byte-
+      identical to R-F2586 (the frozen objective eval stays comparable).
     """
     ctx_sources = extract_context_sources(context)  # R-F2397 — production + synthetic
     ans_cites = extract_citations(answer)
@@ -246,7 +279,24 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
         # at-all (see coverage regression above) — cycle 4 restores 0.5 and adds the
         # coverage_weight lever instead of pushing precision_weight further.
         pw = min(1.0, max(0.0, precision_weight))
-        b.score = pw * precision_score + (1.0 - pw) * b.keyword_recall
+        # R-F2788 (cycle 6) — additive-capped recall lever. When ON it REPLACES the
+        # reallocation blend (below) rather than adding on top: adding on top would
+        # keep the blend's harsh precision trade (a terse grounded answer stuck at
+        # pw*precision=0.5*P) that cycle 5 proved backfires. The headroom formula
+        # keeps precision as the dominant MULTIPLICATIVE factor and only reserves a
+        # small `rbw` band for recall, so precision is preserved, not traded — and it
+        # still has a recall gradient at precision_score=1.0 (the saturation case).
+        # Recall term is scaled by precision_score (double-gated with grounded>0) so a
+        # fabricated / keyword-stuffed answer can never farm it.
+        rbw = min(max(0.0, recall_bonus_cap), max(0.0, recall_bonus_weight))
+        if rbw > 0.0:
+            floor = precision_score * (1.0 - rbw)          # terse/zero-recall keeps (1-rbw) of precision
+            recall_term = precision_score * rbw * b.keyword_recall
+            b.score = floor + recall_term                   # = precision_score*(1 - rbw*(1-recall))
+            b.recall_bonus = recall_term
+            b.reasons.append(f"recall_bonus={recall_term:.3f}")
+        else:
+            b.score = pw * precision_score + (1.0 - pw) * b.keyword_recall
         if b.keyword_recall > 0:
             b.reasons.append(f"keyword_recall={b.keyword_recall:.2f}")
     # Cycle-4 COVERAGE bonus — reward citing MORE grounded facts on answerable rows
@@ -286,10 +336,14 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
 def reward(answer: str, context: str, *, answerable: bool | None = None,
            expected_keywords=None, precision_weight: float = 0.5,
            coverage_weight: float = 0.0, coverage_target: float = 2.0,
-           answerable_nocite_penalty: float = 0.1) -> float:
+           answerable_nocite_penalty: float = 0.1,
+           recall_bonus_weight: float = 0.0,
+           recall_bonus_cap: float = 0.25) -> float:
     """Scalar reward (for GRPO / DPO ranking). ``precision_weight`` (R-F2586) tunes
     the precision/recall split; ``coverage_weight``/``answerable_nocite_penalty``
-    (cycle-4) tune answerable-row citation coverage. All defaults = backward-compatible."""
+    (cycle-4) tune answerable-row citation coverage; ``recall_bonus_weight``/
+    ``recall_bonus_cap`` (R-F2788 cycle-6) add a precision-preserving recall lever.
+    All defaults = backward-compatible."""
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="grounding_reward",
@@ -307,4 +361,6 @@ def reward(answer: str, context: str, *, answerable: bool | None = None,
                  precision_weight=precision_weight,
                  coverage_weight=coverage_weight,
                  coverage_target=coverage_target,
-                 answerable_nocite_penalty=answerable_nocite_penalty).score
+                 answerable_nocite_penalty=answerable_nocite_penalty,
+                 recall_bonus_weight=recall_bonus_weight,
+                 recall_bonus_cap=recall_bonus_cap).score
