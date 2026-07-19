@@ -97,6 +97,9 @@ $SSH -p "$PORT" root@"$HOST" \
    GRPO_OUT='${GRPO_OUT:-/workspace/checkpoints/aria_llm_grpo_v1}' \
    GRPO_REPORT='${GRPO_REPORT:-/workspace/eval/aria_llm_grpo_v1_eval.json}' \
    MAX_PROMPTS='${MAX_PROMPTS:-220}' \
+   GROUNDING_PRECISION_WEIGHT='${GROUNDING_PRECISION_WEIGHT:-0.5}' \
+   GROUNDING_RECALL_BONUS_WEIGHT='${GROUNDING_RECALL_BONUS_WEIGHT:-0.0}' \
+   GROUNDING_RECALL_BONUS_CAP='${GROUNDING_RECALL_BONUS_CAP:-0.25}' \
    DEEPSEEK_API_KEY='$DSK' \
    setsid nohup bash /workspace/$POD_RUN_SCRIPT > /workspace/logs/grpo_cycle.log 2>&1 < /dev/null & echo STARTED" || { echo "[driver] FATAL launch"; exit 1; }
 # R-F2558: the _cycle_status-based self-stop watcher misfired on STALE cross-cycle
