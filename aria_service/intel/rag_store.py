@@ -290,9 +290,26 @@ def _get_client():
             embedding_function=embed_fn,
             metadata={"hnsw:space": "cosine"},
         )
+        # R-F2798 — do NOT count the collections here. `.count()` on documents/
+        # facts is an O(collection-size) NATIVE scan (~38s cold over ~215K chunks);
+        # R-F1911 established exactly that at :1488 and memoised it behind a TTL
+        # cache for /health, but missed this call site. So every RAG client init
+        # paid a full native scan purely to print three numbers.
+        #
+        # It was also FATAL: on a collection whose native scan faults, the scan
+        # takes the whole process down with a Windows access violation — which a
+        # Python try/except cannot catch. That silently killed the binding
+        # CLAUDE.md §20 coding-RAG priming step (the process exits 0 with no
+        # output unless faulthandler is on), the second silent failure in that
+        # step after R-F2623.
+        #
+        # The counts are slowly-changing diagnostics and are already exposed,
+        # cached and single-flight, via get_stats(). Log what init actually
+        # established — that the store opened and which collections exist —
+        # and let anyone who wants numbers pay for them through the cached path.
         logger.info(
-            "RAG store ready at %s — documents: %d, facts: %d, cold: %d",
-            RAG_PATH, local_docs.count(), local_facts.count(), local_cold.count(),
+            "RAG store ready at %s — collections: %s, %s, %s (counts via get_stats)",
+            RAG_PATH, local_docs.name, local_facts.name, local_cold.name,
         )
     except ImportError:
         _chromadb_failed = True     # PERMANENT — package missing, retrying is pointless
