@@ -45,11 +45,16 @@ def test_rf407_endpoint_registered():
 def test_rf407_endpoint_combines_both_sources():
     """The handler must call BOTH self_claim_guard.get_stats AND
     stream_guard_observer.get_stats — operator needs one panel that
-    shows everything."""
+    shows everything.
+
+    R-F2784 (2026-07-19): R-F2438 split the endpoint into a thin 60s-cache
+    wrapper (`hallucination_stats_ep`) delegating to `_compute_hallucination_stats`,
+    which is where the two-source composition now lives — target that."""
     src = pathlib.Path(
         "C:/code/crucix/aria_service/routes/aria.py"
     ).read_text(encoding="utf-8", errors="ignore")
-    idx = src.find("async def hallucination_stats_ep")
+    idx = src.find("async def _compute_hallucination_stats")
+    assert idx > 0, "R-F407: _compute_hallucination_stats not found"
     block = src[idx:idx + 3000]
     assert "self_claim_guard" in block
     assert "stream_guard_observer" in block
@@ -64,7 +69,9 @@ def test_rf407_endpoint_has_summary_block():
     src = pathlib.Path(
         "C:/code/crucix/aria_service/routes/aria.py"
     ).read_text(encoding="utf-8", errors="ignore")
-    idx = src.find("async def hallucination_stats_ep")
+    # R-F2784: summary block now lives in _compute_hallucination_stats (R-F2438).
+    idx = src.find("async def _compute_hallucination_stats")
+    assert idx > 0, "R-F407: _compute_hallucination_stats not found"
     block = src[idx:idx + 3000]
     assert '"summary"' in block
     assert "total_violations_24h" in block

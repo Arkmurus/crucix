@@ -13,6 +13,28 @@ from __future__ import annotations
 import pathlib
 
 
+def _cultural_section() -> str:
+    """The `4a-CULTURAL` wiring block inside `_run_compliance`, bounded by its
+    stable section markers.
+
+    R-F2784 (2026-07-19): the PART B/C pins previously sliced a fixed
+    `src[run_idx:run_idx + 8000]` window from `async def _run_compliance` and
+    then searched around `find("cultural_atlas")`. `_run_compliance` has since
+    grown (risk_indices + WB overlay + expert layers) so the cultural wiring —
+    still present at dd_orchestrator.py — fell PAST the 8000-char window,
+    making `find(...)` return -1 and the source-pins false-fail. Bounding to the
+    real section asserts the same wiring contract without the fragile char count.
+    """
+    src = pathlib.Path(
+        "C:/code/crucix/aria_service/intel/dd_orchestrator.py"
+    ).read_text(encoding="utf-8", errors="ignore")
+    start = src.find("4a-CULTURAL")
+    assert start > 0, "R-F635: 4a-CULTURAL section marker missing from _run_compliance"
+    end = src.find("4a-EXPERT-KNOWLEDGE", start)
+    assert end > start, "R-F635: cultural section not bounded by the expert-knowledge marker"
+    return src[start:end]
+
+
 # ══════════════════════════════════════════════════════════════════
 # PART A — schema field present + defaults safe
 # ══════════════════════════════════════════════════════════════════
@@ -38,12 +60,7 @@ def test_rf635_cultural_context_accepts_string_assignment():
 def test_rf635_run_compliance_calls_cultural_atlas_render():
     """Source-level pin: _run_compliance must invoke
     cultural_atlas.render_context_block when iso2 is non-UK/US."""
-    src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/dd_orchestrator.py"
-    ).read_text(encoding="utf-8", errors="ignore")
-    run_idx = src.find("async def _run_compliance")
-    assert run_idx > 0
-    block = src[run_idx:run_idx + 8000]
+    block = _cultural_section()
     assert "cultural_atlas" in block, (
         "R-F635: _run_compliance must import cultural_atlas"
     )
@@ -58,14 +75,7 @@ def test_rf635_run_compliance_calls_cultural_atlas_render():
 def test_rf635_excludes_uk_and_us():
     """The wiring must explicitly exclude GB and US from cultural
     injection — those are the operator's default-familiar baseline."""
-    src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/dd_orchestrator.py"
-    ).read_text(encoding="utf-8", errors="ignore")
-    run_idx = src.find("async def _run_compliance")
-    block = src[run_idx:run_idx + 8000]
-    # Look for the GB/US exclusion in the cultural section
-    cult_idx = block.find("cultural_atlas")
-    region = block[max(0, cult_idx - 500):cult_idx + 1000]
+    region = _cultural_section()
     assert '"GB"' in region or "'GB'" in region
     assert '"US"' in region or "'US'" in region
 
@@ -73,11 +83,7 @@ def test_rf635_excludes_uk_and_us():
 def test_rf635_cultural_block_attached_to_compliance_not_identity():
     """Cultural read goes on ComplianceSection (jurisdictional context),
     not IdentitySection (entity-level facts)."""
-    src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/dd_orchestrator.py"
-    ).read_text(encoding="utf-8", errors="ignore")
-    run_idx = src.find("async def _run_compliance")
-    block = src[run_idx:run_idx + 8000]
+    block = _cultural_section()
     assert "report.compliance.cultural_context" in block
 
 
@@ -88,13 +94,7 @@ def test_rf635_cultural_block_attached_to_compliance_not_identity():
 def test_rf635_cultural_lookup_wrapped_in_try_except():
     """A failure in cultural_atlas (import, render, etc.) must NOT
     break the compliance layer. Defensive try/except is mandatory."""
-    src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/dd_orchestrator.py"
-    ).read_text(encoding="utf-8", errors="ignore")
-    run_idx = src.find("async def _run_compliance")
-    block = src[run_idx:run_idx + 8000]
-    cult_idx = block.find("cultural_atlas")
-    region = block[max(0, cult_idx - 500):cult_idx + 500]
+    region = _cultural_section()
     assert "try:" in region
     assert "except" in region
 

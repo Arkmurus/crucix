@@ -126,17 +126,67 @@ def test_rf398_bluf_suffix_when_hits_found():
     )
 
 
-def test_rf398_does_not_lift_the_gate():
-    """The gate is triggered by missing registry/director data — not
-    by missing web hits. R-F398 must NOT lift the INSUFFICIENT_EVIDENCE
-    verdict when fallback hits are found; that would be dishonest.
-    The hits are surfaced in data_gaps, not promoted to the verdict."""
-    block = _bluf_block()
-    # The BLUF still says INSUFFICIENT EVIDENCE even with hits
-    assert "INSUFFICIENT EVIDENCE" in block, (
-        "R-F398 regression: INSUFFICIENT EVIDENCE verdict removed — "
-        "the gate must stay honest about the registry/director gap."
+def test_rf398_does_not_lift_the_gate(monkeypatch):
+    """The gate is triggered by missing registry/director data — not by missing
+    web hits. R-F398 must NOT lift the INSUFFICIENT/gate verdict when fallback
+    hits are found; that would be dishonest. The hits are surfaced in data_gaps,
+    not promoted to the verdict.
+
+    Rewritten R-F2784 (2026-07-19): the previous check asserted the historical
+    source phrase ``"AMBER is a placeholder"`` inside an 8000-char source window.
+    The phrase still exists (dd_orchestrator.py) but the AMBER_LIGHT handler grew
+    past the window, so the match drifted off the end — a stale source-coupling,
+    not a real defect. Worse, the old claim "the BLUF is the SAME string
+    regardless of fallback success" is itself obsolete: R-F1592 reframes to
+    "LIMITED REGISTRY DATA" once OSINT (incl. fallback hits) exists. This drives
+    _assemble_bluf and asserts the actual invariant instead (§23).
+    """
+    import asyncio
+
+    from aria_service.intel import researcher
+    from aria_service.intel.dd_orchestrator import _assemble_bluf
+    from aria_service.intel.dd_schema import ARKDDReport, RiskClassification
+
+    _AMBER = RiskClassification.AMBER_LIGHT.value
+
+    async def _fake_web_search(query, *_a, **_k):
+        # Public hits DO exist — the honest question is whether they lift the gate.
+        return [{
+            "title": f"hit for {query}",
+            "url": "https://www.linkedin.com/in/example",
+            "snippet": "public profile",
+        }]
+
+    # Production does `from .researcher import _web_search` at call time, so
+    # patching the attribute on the module is picked up by the handler.
+    monkeypatch.setattr(researcher, "_web_search", _fake_web_search)
+
+    r = ARKDDReport(target={"name": "Zephyr Holdings Ltd", "type": "company"})
+    r.identity.entity_name = "Zephyr Holdings Ltd"  # != 'subject' → R-F398 fallback fires
+    r.risk_classification = _AMBER
+    r.confidence_gate_triggered = True
+    # data-starved: no directors / registration_status / incorporation_date set
+
+    asyncio.run(_assemble_bluf(r))
+
+    # 1. Fallback hits are surfaced as a breadcrumb in data_gaps (not hidden).
+    assert any("R-F398 fallback" in g for g in r.verification.data_gaps), (
+        "R-F398: fallback hits not stitched into data_gaps."
     )
-    # And the BLUF is the SAME string regardless of fallback success —
-    # only the suffix changes.
-    assert "AMBER is a placeholder" in block
+    # 2. The gate is NOT lifted — the verdict stays AMBER-LIGHT + gate triggered.
+    assert r.risk_classification == _AMBER, (
+        f"R-F398 regression: fallback hits LIFTED the risk classification to "
+        f"{r.risk_classification!r} — dishonest; registry/director data still missing."
+    )
+    assert r.confidence_gate_triggered is True, (
+        "R-F398 regression: fallback hits cleared the confidence gate."
+    )
+    # 3. The headline never reads as clean/reassuring and still flags the gap.
+    bl = r.bottom_line.lower()
+    assert "can proceed" not in bl, (
+        f"R-F398 regression: BLUF over-reassures despite the registry gap: "
+        f"{r.bottom_line[:200]}"
+    )
+    assert "registry" in bl, (
+        f"R-F398: BLUF dropped the honest registry-gap statement: {r.bottom_line[:200]}"
+    )

@@ -12,6 +12,12 @@ CLAUDE.md §3c this drives the broken path, not a helper.
 """
 import asyncio
 
+# R-F2784 (2026-07-19): these tests drove the real endpoint via
+# `asyncio.get_event_loop().run_until_complete(...)`, which raises
+# "no current event loop" on Python 3.10+ when no loop is running in the thread
+# — the traceback fired BEFORE the endpoint, so the gate looked broken when only
+# the harness was. Switched to `asyncio.run(...)`; the assertions (real
+# phase_gates_ep contract) are unchanged (§23).
 import pytest
 
 from aria_service.intel import autonomy_scorer, student
@@ -34,7 +40,7 @@ def test_real_functions_exist_old_names_gone():
 def test_phase_gates_gate1_resolves_not_unknown():
     """Gate #1: composite always computes (neutral-prior fallback), so the real
     endpoint must give a verdict, not 'unknown' (the old AttributeError symptom)."""
-    result = asyncio.get_event_loop().run_until_complete(phase_gates_ep())
+    result = asyncio.run(phase_gates_ep())
     gates = {g["id"]: g for g in result["gates"]}
     assert set(gates) == {1, 2, 3, 4, 5, 6, 7}, "all 7 gates present"
     assert gates[1]["status"] in {"open", "closed"}, (
@@ -67,14 +73,14 @@ def test_phase_gates_gate2_floor_verdict(monkeypatch):
         }
 
     monkeypatch.setattr(student, "get_regional_heatmap", _fake_open)
-    res_open = asyncio.get_event_loop().run_until_complete(phase_gates_ep())
+    res_open = asyncio.run(phase_gates_ep())
     g2_open = next(g for g in res_open["gates"] if g["id"] == 2)
     assert g2_open["status"] == "open"
     assert g2_open["value"] == 0.55
     assert g2_open["floor_breach_cells"]
 
     monkeypatch.setattr(student, "get_regional_heatmap", _fake_closed)
-    res_closed = asyncio.get_event_loop().run_until_complete(phase_gates_ep())
+    res_closed = asyncio.run(phase_gates_ep())
     g2_closed = next(g for g in res_closed["gates"] if g["id"] == 2)
     assert g2_closed["status"] == "closed"
     assert g2_closed["value"] == 0.82
@@ -90,7 +96,7 @@ def test_gate5_reads_aria_prefixed_env(monkeypatch):
     monkeypatch.delenv("HARVEST_ENABLED", raising=False)
     monkeypatch.delenv("AUTONOMY_LEVEL", raising=False)
 
-    result = asyncio.get_event_loop().run_until_complete(phase_gates_ep())
+    result = asyncio.run(phase_gates_ep())
     g5 = next(g for g in result["gates"] if g["id"] == 5)
     assert g5["status"] == "closed", f"gate #5 should close on ARIA_ names: {g5}"
     assert g5["value"]["missing"] == []
@@ -103,7 +109,7 @@ def test_gate5_open_when_unset(monkeypatch):
         "ARIA_AUTONOMY_LEVEL", "AUTONOMY_LEVEL",
     ):
         monkeypatch.delenv(n, raising=False)
-    result = asyncio.get_event_loop().run_until_complete(phase_gates_ep())
+    result = asyncio.run(phase_gates_ep())
     g5 = next(g for g in result["gates"] if g["id"] == 5)
     assert g5["status"] == "open"
     assert len(g5["value"]["missing"]) == 3

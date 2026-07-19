@@ -41,6 +41,26 @@ def _src() -> str:
     ).read_text(encoding="utf-8", errors="ignore")
 
 
+def _detect_intent_body() -> str:
+    """Full source of `_detect_tool_intent` (signature → next module-level def).
+
+    R-F2784 (2026-07-19): replaces the fixed `src[idx:idx + 2000/10000]` windows.
+    R-F1759 later inserted a `/help` guard at the TOP of _detect_tool_intent,
+    pushing the introspection import/dispatch past the old 2000-char window and
+    making the old ordering check compare against the FIRST `"tool":` — now the
+    benign `/help` dispatch, not a competing research path. Bounding to the real
+    function body keeps the R-F399 contract honest (§23) without a fragile count.
+    """
+    import re
+    src = _src()
+    i = src.find("def _detect_tool_intent")
+    assert i > 0, "R-F399: _detect_tool_intent not found"
+    rest = src[i + len("def _detect_tool_intent"):]
+    m = re.search(r"\n(?:async def |def )\w", rest)  # next module-level def bounds it
+    end = i + len("def _detect_tool_intent") + (m.start() if m else len(rest))
+    return src[i:end]
+
+
 # ── 1. Detector tests — positive cases ─────────────────────────────
 
 def test_rf399_detector_catches_neuron_count_question():
@@ -137,11 +157,7 @@ def test_rf399_detector_handles_empty():
 
 def test_rf399_router_imports_capability_detector():
     """_detect_tool_intent must import the new detector."""
-    src = _src()
-    intent_idx = src.find("def _detect_tool_intent")
-    assert intent_idx > 0
-    # Look in the first 2000 chars after the def for the import
-    block = src[intent_idx:intent_idx + 2000]
+    block = _detect_intent_body()
     assert "is_capability_introspection_query" in block, (
         "R-F399 regression: chat router doesn't import the capability "
         "introspection detector. Capability questions still route to "
@@ -165,23 +181,34 @@ def test_rf399_router_returns_self_introspect_tool():
 
 
 def test_rf399_router_fires_before_spawn_research_task():
-    """CRITICAL: the introspection branch MUST run BEFORE the
-    spawn_research_task / OEM batch paths, otherwise the chat router
-    keeps picking sentence fragments and the bug regresses."""
-    src = _src()
-    intent_idx = src.find("def _detect_tool_intent")
-    block = src[intent_idx:intent_idx + 10000]
-    intro_idx = block.find("is_capability_introspection_query")
-    # spawn_research_task was renamed; check against the first tool dispatch
-    # that should come after introspection
-    first_tool = block.find('"tool": "')
-    oem_idx = block.find("_OEM_BATCH_KW")
-    batch_idx = block.find("_BATCH_RE")
+    """CRITICAL: the introspection branch MUST run BEFORE the web-search /
+    deep_research / spawn_research_task paths, otherwise the chat router keeps
+    picking sentence fragments and the bug regresses.
+
+    R-F2784 (2026-07-19): the old check asserted introspection came before the
+    FIRST `"tool":` dispatch. R-F1759 later added a `/help` guard that dispatches
+    `"tool": "help"` EARLIER — a benign slash-command that never competes for a
+    capability question — so the naive first-dispatch check false-failed. Assert
+    the real invariant: introspection precedes the competing research/search
+    dispatches (§23)."""
+    body = _detect_intent_body()
+    intro_idx = body.find("is_capability_introspection_query")
     assert intro_idx > 0, "introspection detector call not found"
-    assert intro_idx < first_tool, (
-        "R-F399 CRITICAL: introspection check runs AFTER "
-        "tool dispatch — the bug regresses."
+    # The competing research/search dispatches that stole the query pre-R-F399.
+    deep_idx = body.find('"tool": "deep_research"')
+    spawn_idx = body.find('"tool": "spawn_research_task"')
+    assert deep_idx > 0, "deep_research dispatch not found — marker drifted"
+    assert intro_idx < deep_idx, (
+        "R-F399 CRITICAL: introspection check runs AFTER the deep_research "
+        "dispatch — capability questions regress to web search."
     )
+    if spawn_idx > 0:
+        assert intro_idx < spawn_idx, (
+            "R-F399 CRITICAL: introspection check runs AFTER spawn_research_task."
+        )
+    # Also honour the OEM-batch / batch-RE paths when those markers are present.
+    oem_idx = body.find("_OEM_BATCH_KW")
+    batch_idx = body.find("_BATCH_RE")
     if oem_idx > 0:
         assert intro_idx < oem_idx, "introspection must run before OEM batch"
     if batch_idx > 0:

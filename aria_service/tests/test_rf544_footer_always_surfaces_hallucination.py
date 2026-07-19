@@ -36,9 +36,15 @@ def test_rf544_hallucination_surfaces_when_verification_none_and_no_tag():
         "R-F544 regression: footer dropped on chat-path (verification=None, "
         "no inline tag). Hallucination would pass through silently."
     )
-    assert "R-F401" in footer, (
-        "R-F544 CRITICAL: 18-month TTL hallucination present but R-F401 "
-        "guard block missing from footer."
+    # R-F2784 (2026-07-19): R-F919 (after a 2026-05-26 WhatsApp leak) deliberately
+    # STOPS leaking the internal "[R-F401 SELF-CLAIM GUARD …]" block to end users;
+    # a BLOCK-severity self-claim violation now surfaces as a short user-facing
+    # caveat instead. Asserting "R-F401" would re-demand the very leak R-F919 fixed.
+    # The doctrine (a self-claim violation MUST surface in the footer) is unchanged —
+    # assert the honest user-visible caveat (§23).
+    assert "couldn't be self-verified" in footer, (
+        "R-F544 CRITICAL: 18-month TTL hallucination present but the R-F919 "
+        "self-verification caveat is missing from the footer."
     )
 
 
@@ -58,7 +64,9 @@ def test_rf544_hallucination_surfaces_via_chat_stream_args():
         trace_id="abc12345",
     )
     assert footer
-    assert "R-F401" in footer
+    # R-F2784: R-F919 surfaces the violation as a user-safe caveat, not the
+    # internal "R-F401" block (see the sibling test above).
+    assert "couldn't be self-verified" in footer
 
 
 def test_rf544_no_tools_disclosure_always_appears():

@@ -60,12 +60,51 @@ def test_rf394_handler_uses_anchor_in_web_explorer_call():
     )
 
 
-def test_rf394_handler_logs_when_anchor_differs():
-    """The handler must log when extraction actually changed the query
-    so we can see in fly logs whether the fix is firing."""
-    block = _handler_block()
-    assert "R-F394" in block
-    assert "logger.info" in block or "logging.info" in block
+def test_rf394_handler_logs_when_anchor_differs(caplog, monkeypatch):
+    """Driving the brave_answer tool with a full-sentence query must emit an
+    INFO log on the module logger carrying the R-F394 marker, so fly logs show
+    whether the anchor-extraction fix is firing.
+
+    Rewritten R-F2784 (2026-07-19): the previous check matched the literal
+    source spelling ``logger.info``/``logging.info``; production logs via the
+    module alias ``_log.info`` (routes/aria.py ``_log = getLogger("aria.routes")``),
+    so the static string-match was a spelling false-negative — a stale gate,
+    not a real defect. This exercises the real handler instead (§23: assert the
+    production contract, do not weaken).
+    """
+    import asyncio
+    import logging
+
+    from aria_service.intel import web_explorer
+
+    async def _explore_boom(*_a, **_k):
+        # Stub explore to raise: the R-F394 anchor log fires BEFORE explore is
+        # awaited, and the handler's own try/except returns a graceful string —
+        # so we prove the log without building a full ExploreResult.
+        raise RuntimeError("web_explorer.explore stubbed for R-F2784")
+
+    monkeypatch.setattr(web_explorer, "explore", _explore_boom)
+
+    from aria_service.routes.aria import _execute_tool
+
+    intent = {"tool": "brave_answer", "query": "what has Saudi imported last year?"}
+
+    with caplog.at_level(logging.INFO, logger="aria.routes"):
+        out = asyncio.run(_execute_tool(intent, llm=None))
+
+    # Handler stayed on its feet after the stubbed explore error.
+    assert "brave_answer" in out
+    # The anchor-extraction log fired on the module logger with the R-F394 marker.
+    rf394_logs = [
+        r for r in caplog.records
+        if r.name == "aria.routes" and "R-F394" in r.getMessage()
+    ]
+    assert rf394_logs, (
+        "R-F394 regression: brave_answer handler did not log the extracted "
+        "anchor — the anchor-extraction fix is not firing / not observable "
+        "in fly logs."
+    )
+    assert rf394_logs[0].levelno == logging.INFO
 
 
 def test_rf394_handler_falls_back_safely_on_anchor_error():

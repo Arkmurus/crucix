@@ -19,6 +19,26 @@ def _src() -> str:
     ).read_text(encoding="utf-8", errors="ignore")
 
 
+def _expert_section() -> str:
+    """The `4a-EXPERT-KNOWLEDGE` block of `_run_compliance` (marker → end of fn).
+
+    R-F2784 (2026-07-19): replaces the fixed `src[run_idx:run_idx + 20000]` /
+    `[expert_idx:expert_idx + 12000]` windows. `_run_compliance` has grown, so the
+    later expert render-calls and `findings.append` sites (all still present at
+    dd_orchestrator.py) fell PAST those char windows and the source-pins
+    false-failed. Bounding to the real section asserts the same wiring contract
+    without the fragile char count.
+    """
+    import re
+    src = _src()
+    start = src.find("4a-EXPERT-KNOWLEDGE")
+    assert start > 0, "R-F644: 4a-EXPERT-KNOWLEDGE marker missing from _run_compliance"
+    rest = src[start:]
+    m = re.search(r"\n(?:async def |def )\w", rest)  # next module-level def bounds the fn
+    end = start + (m.start() if m else len(rest))
+    return src[start:end]
+
+
 # ══════════════════════════════════════════════════════════════════
 # PART A — source-level wiring pins
 # ══════════════════════════════════════════════════════════════════
@@ -64,9 +84,7 @@ def test_rf644_block_before_export_control_classification():
 
 
 def test_rf644_render_finding_calls_for_all_six_modules():
-    src = _src()
-    run_idx = src.find("async def _run_compliance")
-    block = src[run_idx:run_idx + 20000]
+    block = _expert_section()
     # F638
     assert "_woc.render_finding_for_text" in block
     # F639
@@ -82,12 +100,8 @@ def test_rf644_render_finding_calls_for_all_six_modules():
 
 
 def test_rf644_findings_appended_to_compliance_findings():
-    src = _src()
-    run_idx = src.find("async def _run_compliance")
-    block = src[run_idx:run_idx + 20000]
-    expert_idx = block.find("4a-EXPERT-KNOWLEDGE")
-    expert_region = block[expert_idx:expert_idx + 12000]
-    # Count appends within the expert region — should be multiple
+    expert_region = _expert_section()
+    # Count appends within the expert region — should be multiple (6 in prod).
     appends = expert_region.count("report.compliance.findings.append")
     assert appends >= 5, (
         f"R-F644: expected >=5 findings.append in expert block, got {appends}"

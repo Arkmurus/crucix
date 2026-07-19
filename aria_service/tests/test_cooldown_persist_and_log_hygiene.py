@@ -127,6 +127,13 @@ def test_mixed_existing_signals_do_not_fire_conflict():
         "confidence": "VERIFIED",
     }
     nm._edges.setdefault("test:un-sc", {})
+    # R-F2784 (2026-07-19): detect_conflict resolves the entity via
+    # _find_neuron → _concept_to_id (R-F1932), NOT by scanning _neurons. A
+    # fixture that only writes _neurons is invisible, so detect_conflict
+    # returned None for the WRONG reason (neuron not found) and this test
+    # passed vacuously — it never actually exercised the mixed-signal guard.
+    # Index it so the real suppression logic runs.
+    nm._index_neuron(nm._neurons["test:un-sc"])
 
     try:
         # New text containing only HIGH-risk signal — would have fired a
@@ -138,6 +145,9 @@ def test_mixed_existing_signals_do_not_fire_conflict():
     finally:
         del nm._neurons["test:un-sc"]
         nm._edges.pop("test:un-sc", None)
+        nm._concept_to_id.pop("un security council", None)
+        for _w in "un security council".split():
+            nm._word_to_ids.get(_w, set()).discard("test:un-sc")
         nm._loaded = saved_loaded
 
     assert result is None, (
@@ -165,6 +175,10 @@ def test_genuine_opposite_signal_still_fires_conflict():
         "confidence": "VERIFIED",
     }
     nm._edges.setdefault("test:vega", {})
+    # R-F2784: index the fixture so _find_neuron (via _concept_to_id, R-F1932)
+    # can resolve it — otherwise detect_conflict returns None because the entity
+    # is unreachable, masking a genuine opposite-signal conflict.
+    nm._index_neuron(nm._neurons["test:vega"])
     try:
         result = nm.detect_conflict(
             "Vega Industries",
@@ -173,6 +187,9 @@ def test_genuine_opposite_signal_still_fires_conflict():
     finally:
         del nm._neurons["test:vega"]
         nm._edges.pop("test:vega", None)
+        nm._concept_to_id.pop("vega industries", None)
+        for _w in "vega industries".split():
+            nm._word_to_ids.get(_w, set()).discard("test:vega")
         nm._loaded = saved_loaded
 
     assert result is not None, "genuine opposite-signal conflict was missed"
@@ -216,9 +233,21 @@ def test_opensanctions_search_rejects_prompt_fragment():
         return result
 
     result = asyncio.run(run())
-    assert result == [], (
-        f"prompt-fragment search should return [] without hitting "
-        f"OpenSanctions, got {result!r}"
+    # R-F2784 (2026-07-19): `_opensanctions_search` returns a `_SourceQuery`
+    # (results/ok/reason) since R-F1696 — a bare `== []` no longer holds and
+    # would WEAKEN never-false-clean (it collapses 'rejected' into 'clean
+    # empty'). Assert the structured contract: the guard rejected the input,
+    # so ok is False, reason is 'input_rejected', and no hits were produced.
+    assert result.results == [], (
+        f"prompt-fragment search should yield no hits, got {result.results!r}"
+    )
+    assert result.ok is False, (
+        f"rejected input must NOT report ok=True (would read as a clean "
+        f"screen); got {result!r}"
+    )
+    assert result.reason == "input_rejected", (
+        f"rejected prompt fragment should carry reason='input_rejected', "
+        f"got {result!r}"
     )
     assert sent_to_http == [], (
         f"prompt-fragment query reached OpenSanctions HTTP call: "
