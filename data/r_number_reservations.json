@@ -21799,9 +21799,10 @@
       "title": "Codify enforced fail-closed Cycle-6 promotion gate in objective_citation_eval --gate",
       "claimed_at": "2026-07-19T13:39:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c4cc33e6",
+      "notes": null,
+      "shipped_at": "2026-07-19T13:42:12Z"
     }
   ]
 }
