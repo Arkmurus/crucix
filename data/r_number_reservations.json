@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2800,
+  "next_available": 2801,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21894,6 +21894,16 @@
       "commit_sha": "a6d21ddc",
       "notes": null,
       "shipped_at": "2026-07-19T17:06:45Z"
+    },
+    {
+      "r_number": "R-F2800",
+      "title": "purge the parked corrupt aria_documents collection + its orphaned HNSW index dir (safety-gated, verifies the replacement first)",
+      "claimed_at": "2026-07-19T17:08:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6da861bf",
+      "notes": null,
+      "shipped_at": "2026-07-19T17:15:01Z"
     }
   ]
 }
