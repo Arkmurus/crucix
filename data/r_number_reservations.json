@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2795,
+  "next_available": 2796,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21844,6 +21844,16 @@
       "commit_sha": "12a45364",
       "notes": null,
       "shipped_at": "2026-07-19T14:39:09Z"
+    },
+    {
+      "r_number": "R-F2795",
+      "title": "D10: real rendered browser E2E for aria-web (hydration/console/interaction/auth/responsive/network) — closes the UNVERIFIED classification from R-F2757",
+      "claimed_at": "2026-07-19T14:43:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f82ff720",
+      "notes": null,
+      "shipped_at": "2026-07-19T14:46:23Z"
     }
   ]
 }
