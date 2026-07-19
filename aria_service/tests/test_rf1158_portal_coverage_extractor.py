@@ -10,9 +10,41 @@ Verifies that the extractor:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+
+def _vault_mock(*, pending=None, needs_operator=None):
+    """A status-aware agent_signup_vault stub.
+
+    extract() calls vault.list(status="pending") AND vault.list(status="needs_operator")
+    (R-F1684). A MagicMock with a single return_value answers both identically and
+    double-counts every row, so the stub must dispatch on the status kwarg.
+    """
+    rows = {"pending": list(pending or []), "needs_operator": list(needs_operator or [])}
+    vault = MagicMock()
+    vault.cleanup_test_data.return_value = None
+    vault.list.side_effect = lambda status=None, limit=None: rows.get(status, [])
+    return vault
+
+
+def _empty_signup_vault():
+    """R-F2801 — neutralise the agent_signup_vault gap source.
+
+    `PortalCoverageExtractor.extract()` reads TWO sources: portal_coverage_audit
+    (what this file tests) and, since R-F1233, the agent signup vault
+    (gap_detector.py:1456+). These tests predate that second source and never
+    stubbed it, so they picked up ~20 real pending-signup gaps from local vault
+    state and asserted 22 == 2. That made them non-hermetic AND wrong about what
+    they were measuring.
+
+    Stubbing the vault to empty isolates the portal-coverage source under test.
+    The vault source is NOT ignored — it gets its own dedicated test below, so
+    coverage went up rather than down.
+    """
+    return patch("aria_service.intel.agent_signup_vault.get_vault",
+                 return_value=_vault_mock())
 
 
 class TestPortalCoverageExtractor:
@@ -36,7 +68,7 @@ class TestPortalCoverageExtractor:
             "tier_2_gaps": 0,
         }
 
-        with patch(
+        with _empty_signup_vault(), patch(
             "aria_service.intel.portal_coverage_audit.audit_portal_coverage",
             new_callable=AsyncMock,
             return_value=mock_audit,
@@ -75,7 +107,7 @@ class TestPortalCoverageExtractor:
             "tier_2_gaps": 0,
         }
 
-        with patch(
+        with _empty_signup_vault(), patch(
             "aria_service.intel.portal_coverage_audit.audit_portal_coverage",
             new_callable=AsyncMock,
             return_value=mock_audit,
@@ -116,7 +148,7 @@ class TestPortalCoverageExtractor:
             "tier_2_gaps": 0,
         }
 
-        with patch(
+        with _empty_signup_vault(), patch(
             "aria_service.intel.portal_coverage_audit.audit_portal_coverage",
             new_callable=AsyncMock,
             return_value=mock_audit,
@@ -132,7 +164,7 @@ class TestPortalCoverageExtractor:
         """Extractor must return [] when the audit function fails."""
         from aria_service.autonomous.gap_detector import PortalCoverageExtractor
 
-        with patch(
+        with _empty_signup_vault(), patch(
             "aria_service.intel.portal_coverage_audit.audit_portal_coverage",
             new_callable=AsyncMock,
             side_effect=RuntimeError("audit failed"),
@@ -142,3 +174,60 @@ class TestPortalCoverageExtractor:
             gaps = await extractor.extract(since)
 
         assert len(gaps) == 0
+
+    # ── R-F2801: the SECOND gap source, previously untested ────────────────
+    # R-F1233 added the agent-signup-vault source to extract(). Nothing covered
+    # it — it was only ever observed as noise leaking into the assertions above.
+    # Now it is a contract in its own right.
+
+    @pytest.mark.asyncio
+    async def test_pending_signups_become_gaps(self) -> None:
+        """A stale pending signup must surface as a portal_registration gap."""
+        from aria_service.autonomous.gap_detector import PortalCoverageExtractor
+
+        # extract() queries the vault TWICE with different statuses — "pending"
+        # and, since R-F1684, "needs_operator". A mock that ignores the status
+        # kwarg returns the same row for both and double-counts, so it must be
+        # status-aware to model the real vault.
+        vault = _vault_mock(pending=[
+            {"site_id": "acme_portal", "site_name": "Acme Portal",
+             "site_url": "https://acme.test", "agent_id": "aria",
+             "created_at": 1_600_000_000},
+        ])
+        empty_audit = {"total": 0, "registered": 0, "unregistered": [],
+                       "tier_1_gaps": 0, "tier_2_gaps": 0}
+
+        with patch("aria_service.intel.agent_signup_vault.get_vault", return_value=vault), \
+             patch("aria_service.intel.portal_coverage_audit.audit_portal_coverage",
+                   new_callable=AsyncMock, return_value=empty_audit):
+            extractor = PortalCoverageExtractor(redis_client=None)
+            gaps = await extractor.extract(datetime.now(timezone.utc) - timedelta(hours=1))
+
+        assert len(gaps) == 1, "a pending signup must produce exactly one gap"
+        g = gaps[0]
+        assert g.gap_type == "portal_registration"
+        assert g.module == "agent_signup_vault", "must be attributed to the vault, not the audit"
+        assert g.evidence["site_id"] == "acme_portal"
+        assert g.evidence["source"] == "vault"
+
+    @pytest.mark.asyncio
+    async def test_test_agent_signups_are_not_reported_as_gaps(self) -> None:
+        """R-F1684 guard: test artifacts must never become phantom gaps."""
+        from aria_service.autonomous.gap_detector import PortalCoverageExtractor
+
+        vault = _vault_mock(pending=[
+            {"site_id": "x", "site_name": "X", "site_url": "", "agent_id": "test_agent",
+             "created_at": 1_600_000_000},
+            {"site_id": "y", "site_name": "Y", "site_url": "", "agent_id": "test",
+             "created_at": 1_600_000_000},
+        ])
+        empty_audit = {"total": 0, "registered": 0, "unregistered": [],
+                       "tier_1_gaps": 0, "tier_2_gaps": 0}
+
+        with patch("aria_service.intel.agent_signup_vault.get_vault", return_value=vault), \
+             patch("aria_service.intel.portal_coverage_audit.audit_portal_coverage",
+                   new_callable=AsyncMock, return_value=empty_audit):
+            extractor = PortalCoverageExtractor(redis_client=None)
+            gaps = await extractor.extract(datetime.now(timezone.utc) - timedelta(hours=1))
+
+        assert gaps == [], "test-agent signups must be filtered out (R-F1684)"

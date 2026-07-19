@@ -366,15 +366,52 @@ class TestLLMHealthChecker:
         status = hc.get_status()
         assert status["enabled"] is False
 
-    def test_initial_state_available(self):
-        """Before first probe, health checker assumes available."""
+    def test_unproven_endpoint_is_NOT_admitted(self):
+        """R-F2801 — an unproven endpoint must be SKIPPED, not assumed available.
+
+        This test previously asserted the opposite ("before first probe, assume
+        available"). R-F1957 deliberately REVERSED that contract, because
+        "breaker is None -> assume available" is exactly what let a cold/hung
+        ARIA-LLM endpoint stall user traffic on 2026-06-26. Admission now
+        REQUIRES a successful completion probe within ARIA_LLM_WARM_TTL_S.
+
+        So the old assertion was encoding the incident. Asserting the warm gate
+        is strictly safer, per §23 — fix by asserting the CORRECT contract.
+        """
         from aria_service.llm.resilience import LLMHealthChecker
 
         hc = LLMHealthChecker(endpoint="http://localhost:9999")
-        # Before any probe, no breaker yet — assume available
-        assert hc.is_available() is True
+        assert hc.last_success_at == 0.0, "no probe has succeeded yet"
+        assert hc.is_available() is False, (
+            "a cold/unproven endpoint must fast-fail to the fallback provider"
+        )
         status = hc.get_status()
-        assert status["enabled"] is True
+        assert status["enabled"] is True, "configured-but-cold is still ENABLED"
+
+    def test_warm_gate_admits_only_a_recently_proven_endpoint(self):
+        """The other half of the R-F1957 contract: proven-warm IS admitted."""
+        import time as _t
+
+        from aria_service.llm import resilience as _res
+        from aria_service.llm.resilience import LLMHealthChecker
+
+        hc = LLMHealthChecker(endpoint="http://localhost:9999")
+
+        # A probe just succeeded -> warm -> admitted.
+        hc.last_success_at = _t.time()
+        hc.probe_status = "healthy"
+        assert hc.is_available() is True
+
+        # The SAME success, but older than the warm TTL -> cold again.
+        hc.last_success_at = _t.time() - (_res._ARIA_LLM_WARM_TTL + 60)
+        assert hc.is_available() is False, (
+            "a stale success must not keep a cold endpoint admitted"
+        )
+
+        # Deliberately dormant (§24 stop-only) -> never admitted.
+        hc.last_success_at = _t.time()
+        hc.probe_status = "dormant"
+        assert hc.is_available() is False
 
     def test_probe_classify_status(self):
         """_classify_status maps HTTP codes correctly."""
@@ -538,14 +575,23 @@ class TestCapabilityLLMResilience:
             cooldown_seconds=300,
         )
 
-        # Simulate probe failures
+        # R-F2801: start from a PROVEN-WARM endpoint. Since R-F1957 an unproven
+        # endpoint is unavailable regardless of failures, so asserting
+        # availability mid-degradation only means anything once the warm gate is
+        # satisfied — otherwise the test passes for the wrong reason.
+        import time as _t
+        hc.last_success_at = _t.time()
+        hc.probe_status = "healthy"
+        assert hc.is_available() is True, "a proven-warm endpoint starts admitted"
+
+        # First failure: degraded, but under the threshold — still admitted.
         hc._record_failure("timeout")
         assert hc.probe_status == "degraded"
-        assert hc.is_available() is True  # not yet at threshold
+        assert hc.is_available() is True, "one failure must not eject a warm endpoint"
 
+        # Second failure crosses the threshold: breaker opens, traffic stops.
         hc._record_failure("timeout")
         assert hc.probe_status == "unhealthy"
-        # Breaker should be OPEN now
         if hc._breaker:
             assert hc._breaker.state == "OPEN"
         assert hc.is_available() is False

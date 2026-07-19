@@ -57,30 +57,93 @@ class TestLLMBuilder:
 
 
 class TestSelfHealer:
-    """Test the Self Healing system."""
+    """Test the Self Healing system.
+
+    R-F2801: these previously imported `SelfHealer` with `check_health()` /
+    `auto_heal()`. That class was real — R-F1001 (e5bb8a4d) added it — but
+    R-F1051 (e07ecc37) replaced it with the current two-part design:
+
+        HealthMonitor.check_all()          -> dict[str, HealthCheck]
+        EcosystemSelfRepair.check_and_repair() -> summary dict
+
+    So the tests died on ImportError and had been asserting an API that no longer
+    exists. Rewritten against the REAL contract per §23 — this is strictly
+    stronger than the old version, which only checked that two keys were present
+    in a dict; it now asserts the actual repair-summary shape and that an
+    unhealthy subsystem triggers a recovery attempt.
+    """
 
     @pytest.mark.asyncio
-    async def test_check_health(self):
-        """check_health should return service statuses."""
-        from aria_service.intel.self_healing import SelfHealer
-        healer = SelfHealer()
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_client.return_value.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
-            result = await healer.check_health()
-        assert "status" in result
-        assert "services" in result
+    async def test_check_all_reports_every_subsystem_status(self):
+        """HealthMonitor must report a typed HealthCheck per subsystem."""
+        from aria_service.intel.self_healing import HealthCheck, HealthMonitor, HealthStatus
+
+        monitor = HealthMonitor()
+        with patch.object(
+            monitor, "check_subsystem",
+            AsyncMock(side_effect=lambda name, url, timeout=10.0: HealthCheck(
+                subsystem=name, status=HealthStatus.HEALTHY, latency_ms=1.0,
+            )),
+        ):
+            result = await monitor.check_all()
+
+        assert isinstance(result, dict) and result, "check_all must report subsystems"
+        for name, check in result.items():
+            assert isinstance(check, HealthCheck), f"{name} must be a typed HealthCheck"
+            assert check.subsystem, "every check names its subsystem"
+            assert check.is_healthy() is True
 
     @pytest.mark.asyncio
-    async def test_auto_heal_healthy(self):
-        """auto_heal should return healthy when all services are up."""
-        from aria_service.intel.self_healing import SelfHealer
-        healer = SelfHealer()
-        with patch.object(healer, "check_health", AsyncMock(return_value={"status": "healthy", "services": {}})):
-            result = await healer.auto_heal()
-        assert result["status"] == "healthy"
-        assert result["action"] == "none"
+    async def test_check_and_repair_summary_shape_when_all_healthy(self):
+        """A fully healthy ecosystem attempts NO repairs and says so."""
+        from aria_service.intel.self_healing import (
+            AutoRecoveryEngine, CircuitBreakerManager, EcosystemSelfRepair,
+            HealthCheck, HealthMonitor, HealthStatus,
+        )
+
+        # EcosystemSelfRepair takes its collaborators by injection — construct the
+        # real ones so this exercises the production wiring, not a stand-in.
+        repair = EcosystemSelfRepair(HealthMonitor(), AutoRecoveryEngine(CircuitBreakerManager()))
+        healthy = {
+            "redis": HealthCheck(subsystem="redis", status=HealthStatus.HEALTHY),
+            "aria_intel": HealthCheck(subsystem="aria_intel", status=HealthStatus.HEALTHY),
+        }
+        with patch.object(repair._health, "check_all", AsyncMock(return_value=healthy)):
+            summary = await repair.check_and_repair()
+
+        assert summary["total_checks"] == 2
+        assert summary["healthy"] == 2
+        assert summary["critical"] == 0
+        assert summary["repairs_attempted"] == 0, "nothing to repair when all healthy"
+        assert summary["repairs"] == []
+        assert "contract_violations" in summary
+
+    @pytest.mark.asyncio
+    async def test_check_and_repair_attempts_recovery_on_a_critical_subsystem(self):
+        """The capability that matters: an unhealthy subsystem gets a recovery attempt."""
+        from aria_service.intel.self_healing import (
+            AutoRecoveryEngine, CircuitBreakerManager, EcosystemSelfRepair,
+            HealthCheck, HealthMonitor, HealthStatus,
+        )
+
+        repair = EcosystemSelfRepair(HealthMonitor(), AutoRecoveryEngine(CircuitBreakerManager()))
+        checks = {
+            "redis": HealthCheck(subsystem="redis", status=HealthStatus.HEALTHY),
+            "aria_intel": HealthCheck(
+                subsystem="aria_intel", status=HealthStatus.CRITICAL, error="connection refused",
+            ),
+        }
+        with patch.object(repair._health, "check_all", AsyncMock(return_value=checks)), \
+             patch.object(repair._recovery, "attempt_recovery",
+                          AsyncMock(return_value={"ok": True})) as attempt:
+            summary = await repair.check_and_repair()
+
+        attempt.assert_awaited_once()
+        assert attempt.await_args.args[0] == "aria_intel", "must recover the FAILING subsystem"
+        assert summary["critical"] == 1
+        assert summary["repairs_attempted"] == 1
+        assert summary["repairs"][0]["subsystem"] == "aria_intel"
+        assert summary["repairs"][0]["error"] == "connection refused"
 
 
 class TestWiringCoverage:

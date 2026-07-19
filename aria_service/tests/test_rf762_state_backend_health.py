@@ -31,10 +31,48 @@ def _main_src() -> str:
 
 
 def test_rf762_lifespan_captures_connect_result():
-    src = _main_src()
-    assert "_state_connect_ok = await rs.connect" in src, (
-        "R-F762 regression: lifespan no longer captures rs.connect() "
-        "result. Boot-time failure becomes invisible again."
+    """R-F762: a boot-time state-backend failure must not be invisible.
+
+    R-F2801: this asserted the literal source text
+    ``_state_connect_ok = await rs.connect``. A later change wrapped the call in
+    ``asyncio.wait_for(rs.connect(...), timeout=...)`` to bound a slow connect —
+    the RESULT IS STILL CAPTURED, so the R-F762 contract holds, but the string
+    match broke. That is a source-spelling gate, not a contract gate.
+
+    Asserted structurally instead: the lifespan must ASSIGN the awaited
+    ``rs.connect(...)`` to ``_state_connect_ok`` and then ACT on it. Parsed with
+    ast so any equivalent spelling (wrapped, reordered, reformatted) passes,
+    while genuinely dropping the result fails.
+    """
+    import ast
+
+    tree = ast.parse(_main_src())
+
+    assigns_result = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        targets = {t.id for t in node.targets if isinstance(t, ast.Name)}
+        if "_state_connect_ok" not in targets:
+            continue
+        # the value must (somewhere inside it) await rs.connect(...)
+        for sub in ast.walk(node.value):
+            if isinstance(sub, ast.Attribute) and sub.attr == "connect" and \
+               isinstance(sub.value, ast.Name) and sub.value.id == "rs":
+                assigns_result = True
+    assert assigns_result, (
+        "R-F762 regression: lifespan no longer assigns the awaited rs.connect() "
+        "result to _state_connect_ok. Boot-time failure becomes invisible again."
+    )
+
+    # …and the captured result must actually be USED, or capturing it is theatre.
+    used = any(
+        isinstance(n, ast.Name) and n.id == "_state_connect_ok" and isinstance(n.ctx, ast.Load)
+        for n in ast.walk(tree)
+    )
+    assert used, (
+        "R-F762 regression: _state_connect_ok is captured but never read — a "
+        "boot-time failure would still be invisible."
     )
 
 

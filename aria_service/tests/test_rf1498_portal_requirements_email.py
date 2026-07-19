@@ -11,8 +11,22 @@ from unittest.mock import patch
 
 import pytest
 
-os.environ.setdefault("ARIA_OPERATOR_EMAIL", "op@imaria.io")
 from aria_service.intel import portal_registry as pr  # noqa: E402
+
+
+# R-F2801 — this module used to do `os.environ.setdefault("ARIA_OPERATOR_EMAIL",
+# "op@imaria.io")` AT IMPORT TIME. That is a process-global mutation no
+# monkeypatch ever undoes, so it leaked into every later test in the run. It
+# silently broke test_memory_replication::test_stats_reports_live_when_smtp_configured,
+# whose `email_destination` resolves ARIA_OPERATOR_EMAIL ahead of ARIA_SMTP_USER
+# (memory_replication.py:632-637) — that test passed alone and failed in-suite,
+# which is the signature of exactly this anti-pattern.
+#
+# Scoped to the tests that need it instead. autouse keeps them working unchanged
+# while monkeypatch guarantees teardown.
+@pytest.fixture(autouse=True)
+def _operator_email(monkeypatch):
+    monkeypatch.setenv("ARIA_OPERATOR_EMAIL", "op@imaria.io")
 
 
 @pytest.mark.asyncio

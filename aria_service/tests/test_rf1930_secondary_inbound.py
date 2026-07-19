@@ -33,17 +33,57 @@ def test_handler_is_factored_and_bound_on_every_socket():
 
 
 def test_reply_path_uses_arriving_socket_via_async_local_storage():
+    """R-F1930: a secondary number must reply on ITS OWN socket, not the primary.
+
+    R-F2801: the last assertion used to be the literal ``await _s.sendMessage(chatId``.
+    R-F2459 replaced that raw send with ``_sendChunkWithRetry(target, msg,
+    () => ({ sock, connected }))`` so a mid-send reconnect re-resolves the live
+    socket instead of writing to a dead one. The R-F1930 contract is UNCHANGED —
+    the reply still resolves the arriving socket out of AsyncLocalStorage — but
+    the string moved. That was a source-spelling gate.
+
+    Asserted as the contract instead: the ALS context is established per inbound
+    batch, and the send path resolves its socket FROM that context rather than
+    capturing the module-level `sock`.
+    """
     assert "AsyncLocalStorage" in WA and "new AsyncLocalStorage()" in WA
     # the handler establishes the per-batch context
     assert "_waCtx.run({ sock, account }" in WA
-    # sendReply resolves the socket from the context (falls back to primary)
+    # the resolver reads the arriving socket out of that context, with the
+    # primary as fallback (account=null means the global connection)
     assert "_waCtx.getStore()" in WA
-    assert "await _s.sendMessage(chatId" in WA
+    assert "function _resolveLiveSock()" in WA, (
+        "R-F1930 regression: no resolver that maps the ALS context to a socket"
+    )
+    assert "(_ctx && _ctx.sock) || sock" in WA, (
+        "R-F1930 regression: the reply no longer prefers the ARRIVING socket "
+        "over the module-level primary — secondary numbers would reply on the "
+        "wrong account"
+    )
+    # and the resolver's result is what sends actually use
+    assert "_resolveLiveSock()" in WA
 
 
 def test_async_callback_delivers_on_the_right_account_socket():
+    """The async DD callback must land on the account that ASKED, not the primary.
+
+    R-F2801: the last assertion was the literal ``await _dsock.sendMessage(chatId``.
+    R-F2459 replaced the raw send with ``_sendChunkWithRetry(chatId, msg,
+    _resolveDsock)`` — a RE-RESOLVING thunk, so a reconnect mid-delivery picks up
+    the new socket instead of writing to a dead one. The contract is unchanged and
+    in fact stronger; only the spelling moved. Asserted as the contract.
+    """
     # the job map records which account the request came in on...
     assert "accountId:" in WA
-    # ...and /callback resolves that account's socket (fallback to primary)
+    # ...and the callback resolves THAT account's socket, falling back to primary
     assert "_accounts.get(mapping.accountId)" in WA
-    assert "await _dsock.sendMessage(chatId" in WA
+    assert "const _resolveDsock = () =>" in WA, (
+        "R-F1930 regression: no per-callback socket resolver"
+    )
+    assert "(_acct && _acct.sock) || sock" in WA, (
+        "R-F1930 regression: callback no longer prefers the REQUESTING account's "
+        "socket — a secondary number's DD result would be delivered on the wrong "
+        "account"
+    )
+    # …and delivery goes through the re-resolving retry path, not a captured socket
+    assert "_sendChunkWithRetry(chatId, { text: chunks[i] }, _resolveDsock)" in WA

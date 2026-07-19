@@ -298,13 +298,33 @@ def test_stats_reports_live_when_smtp_configured(monkeypatch):
     monkeypatch.setenv("ARIA_SMTP_USER", "test@example.com")
     monkeypatch.setenv("ARIA_SMTP_PASS", "password")
     monkeypatch.setenv("ARIA_BACKUP_EMAIL_ENABLED", "1")
+    # R-F2801 — email_destination resolves ARIA_BACKUP_EMAIL_TO, then
+    # ARIA_OPERATOR_EMAIL, and only THEN falls back to ARIA_SMTP_USER
+    # (memory_replication.py:632-637). This test set only SMTP_USER and so passed
+    # alone but failed in-suite once any other test put an operator address in the
+    # environment. Control the whole precedence chain instead of assuming the
+    # fallback wins.
+    monkeypatch.delenv("ARIA_BACKUP_EMAIL_TO", raising=False)
+    monkeypatch.delenv("ARIA_OPERATOR_EMAIL", raising=False)
 
     async def run():
         return await mr.get_stats()
 
     s = asyncio.run(run())
     assert s["email_shipping_status"] == "LIVE"
-    assert "test@example.com" in s["email_destination"]
+    assert "test@example.com" in s["email_destination"], (
+        "with no explicit destination configured, shipping must fall back to the SMTP user"
+    )
+
+    # R-F2801 — and assert the PRECEDENCE itself, which this test previously
+    # depended on without ever checking.
+    monkeypatch.setenv("ARIA_OPERATOR_EMAIL", "operator@example.com")
+    s = asyncio.run(run())
+    assert s["email_destination"] == "operator@example.com", "operator email outranks the SMTP user"
+
+    monkeypatch.setenv("ARIA_BACKUP_EMAIL_TO", "backups@example.com")
+    s = asyncio.run(run())
+    assert s["email_destination"] == "backups@example.com", "an explicit backup address outranks both"
 
 
 def test_stats_reports_disabled_when_flag_off(monkeypatch):

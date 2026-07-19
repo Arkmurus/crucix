@@ -56,7 +56,16 @@ def test_store_fact_default_runs_rag_ingest():
          patch("aria_service.intel.knowledge._save", side_effect=fake_save):
         result = asyncio.run(knowledge.store_fact(
             topic="test_topic",
-            content="some content longer than ten characters",
+            content=(
+                # R-F2801: R-F1526 requires >=50 chars for non-brain_hook sources
+                # (short content is treated as a FAILED extraction and rejected).
+                # This fixture predates that and was 39 chars, so store_fact
+                # returned rejected_no_content and never reached the rag path
+                # the test exists to measure. The guard is correct; the fixture
+                # was stale.
+                "some content that is comfortably longer than the fifty "
+                "character minimum enforced by R-F1526"
+            ),
             source="test",
         ))
 
@@ -88,7 +97,16 @@ def test_store_fact_skip_flag_skips_rag_ingest():
          patch("aria_service.intel.knowledge._save", side_effect=fake_save):
         result = asyncio.run(knowledge.store_fact(
             topic="test_topic",
-            content="some content longer than ten characters",
+            content=(
+                # R-F2801: R-F1526 requires >=50 chars for non-brain_hook sources
+                # (short content is treated as a FAILED extraction and rejected).
+                # This fixture predates that and was 39 chars, so store_fact
+                # returned rejected_no_content and never reached the rag path
+                # the test exists to measure. The guard is correct; the fixture
+                # was stale.
+                "some content that is comfortably longer than the fifty "
+                "character minimum enforced by R-F1526"
+            ),
             source="test",
             skip_rag_ingest=True,
         ))
