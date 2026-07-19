@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2796,
+  "next_available": 2798,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21854,6 +21854,25 @@
       "commit_sha": "f82ff720",
       "notes": null,
       "shipped_at": "2026-07-19T14:46:23Z"
+    },
+    {
+      "r_number": "R-F2796",
+      "title": "D9: ARIA CLI terminal output contract — redact secrets before printing to a customer terminal (mirrors R-F2705 log-redact on the WA tier)",
+      "claimed_at": "2026-07-19T16:05:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "50ff7278",
+      "notes": null,
+      "shipped_at": "2026-07-19T16:15:44Z"
+    },
+    {
+      "r_number": "R-F2797",
+      "title": "GRPO driver forwards GROUNDING reward config (precision_weight/recall_bonus) to the pod - was silently defaulting the lever OFF",
+      "claimed_at": "2026-07-19T16:11:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
