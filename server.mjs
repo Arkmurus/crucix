@@ -41,7 +41,7 @@ import { pinNonAdminUserId, isPrivileged } from './lib/auth/proxyPin.mjs';   // 
 import { issueSseTicket, redeemSseTicket } from './lib/auth/sseTickets.mjs'; // R-F1793
 import { conversationKeyForUser, slugifyIdentity } from './lib/auth/conversationKey.mjs';  // R-F1687
 import { ROLES, roleSatisfies } from './lib/auth/roles.mjs';  // R-F2170
-import { requiredRoleForAriaPath } from './lib/auth/infraRoutes.mjs';  // R-F2775
+import { requiredRoleForAriaPath, isDoubleEncodedPath } from './lib/auth/infraRoutes.mjs';  // R-F2775 + R-F2802
 import { probeFlyHealth, combineCrossOk } from './lib/health/crossHealth.mjs';  // R-F2776
 import { OPERATOR_VIEW_PAGES, OPERATOR_ADMIN_PAGES } from './lib/auth/operatorPages.mjs';  // R-F2785
 import { classifyDeliveryOutcome, degradedDetail } from './lib/aria/deliveryOutcome.mjs';  // R-F1965
@@ -1461,6 +1461,13 @@ applyInputValidation(app);
 // Default is PASS-THROUGH: an unlisted path keeps exactly its prior gate, so the
 // failure mode is "not yet gated", never "customer locked out".
 app.use('/api/aria', (req, res, next) => {
+  // R-F2802 (SECURITY) — a path still percent-encoded after ONE decode is
+  // double-encoded, i.e. deliberately crafted to walk past a single-decode
+  // classifier. Refuse it outright rather than guess which form the upstream
+  // will route on. No legitimate ARIA path contains a literal '%'.
+  if (isDoubleEncodedPath(req.path)) {
+    return res.status(400).json({ error: 'Malformed request path' });
+  }
   const needed = requiredRoleForAriaPath(req.method, req.path);
   if (!needed) return next();               // customer surface — untouched
   return requireInfraRole(needed)(req, res, next);

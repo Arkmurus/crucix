@@ -23,7 +23,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 
-import { requiredRoleForAriaPath, isInfraAriaPath, INFRA_ARIA_PATHS } from '../lib/auth/infraRoutes.mjs';
+import { requiredRoleForAriaPath, isInfraAriaPath, isDoubleEncodedPath, INFRA_ARIA_PATHS } from '../lib/auth/infraRoutes.mjs';
 import { roleSatisfies } from '../lib/auth/roles.mjs';
 // R-F2739 hatch: this test boots an isolated Express app and drives it over the
 // wire, so it needs loopback — and ONLY loopback. The guard still blocks anything
@@ -176,6 +176,41 @@ check('/trace/recent gated but /trace/:id NOT (customer)',
 check('/memory/health gated but /memory/other NOT (kept narrow)',
   requiredRoleForAriaPath('GET', '/memory/health') === 'poweruser'
   && requiredRoleForAriaPath('GET', '/memory/recall') === null);
+
+
+// ── 1d. R-F2802 (SECURITY) — PERCENT-ENCODING BYPASS, reproduced live ───────
+// Express's req.path is NOT percent-decoded, but uvicorn/Starlette unquote
+// before routing — so the gate classified the raw encoded string while the
+// brain served the decoded one. Encoding ONE character walked past the gate.
+// Live, with a viewer token, before the fix:
+//   GET /api/aria/%73tudent/mastery/heatmap -> 200  (plain form -> 403)
+//   GET /api/aria/%63ost/monthly            -> 200  (plain form -> 403)
+//   GET /api/aria/%77a-auth/backup          -> 405  (gate bypassed)
+// %77a-auth is the Baileys device auth bundle — the R-F2705 asset.
+for (const [enc, plain, method, expected] of [
+  ['/%73tudent/mastery/heatmap', '/student/mastery/heatmap', 'GET', 'poweruser'],
+  ['/%63ost/monthly', '/cost/monthly', 'GET', 'poweruser'],
+  ['/%77a-auth/backup', '/wa-auth/backup', 'GET', 'poweruser'],
+  ['/%53OURCES/uptime/run', '/sources/uptime/run', 'POST', 'admin'],
+  ['/co%73t/monthly', '/cost/monthly', 'GET', 'poweruser'],
+]) {
+  check(`ENCODED still gated: ${method} ${enc} -> ${expected}`,
+    requiredRoleForAriaPath(method, enc) === expected);
+  check(`  …classifies same as plain ${plain}`,
+    requiredRoleForAriaPath(method, enc) === requiredRoleForAriaPath(method, plain));
+}
+// Fully-encoded path must classify identically too.
+check('fully percent-encoded /cost still gated',
+  requiredRoleForAriaPath('GET', '/%63%6f%73%74/monthly') === 'poweruser');
+// Encoding must NOT newly capture customer surface.
+check('ENCODED customer path stays ungated (/%64d/reports)',
+  requiredRoleForAriaPath('GET', '/%64d/reports') === null);
+
+// DOUBLE-encoding is refused outright rather than decoded in a loop.
+check('double-encoded path detected', isDoubleEncodedPath('/%2573tudent/mastery') === true);
+check('malformed percent escape treated as hostile', isDoubleEncodedPath('/%zz/cost') === true);
+check('plain path is not flagged', isDoubleEncodedPath('/cost/monthly') === false);
+check('single-encoded path is not flagged', isDoubleEncodedPath('/%73tudent') === false);
 
 // ── 2. LIVE GATE over the wire, all four roles ───────────────────────────────
 // Wired exactly as server.mjs wires it: public model-card routes registered FIRST
