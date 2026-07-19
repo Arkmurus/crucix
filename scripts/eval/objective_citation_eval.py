@@ -35,6 +35,18 @@ if str(_ROOT) not in sys.path:
 
 from aria_service.intel import grounding_reward as gr  # noqa: E402
 
+# R-F2790 — the ENFORCED Cycle-6 promotion gate (was a manual eyeball decision, which
+# is exactly where a false "it's better" slips through — the opposite of ARIA's USP).
+# A checkpoint is promoted ONLY if it clears every honesty+precision floor AND beats
+# the SAME-RUN DeepSeek baseline on precision AND recall. Single source of truth so the
+# thresholds cannot drift between the eval and whoever reads it.
+_GATE = {
+    "precision_floor": 0.750,      # citation_precision absolute floor (the moat)
+    "recall_floor": 0.238,         # keyword_recall absolute floor
+    "fabrication_ceiling": 0.18,   # mean fabricated citations per answer, upper bound
+    "zero_fab_floor": 0.847,       # fraction of answers with ZERO fabricated citations
+}
+
 _PROMPT = (
     "[CONTEXT — answer ONLY from this evidence; cite each fact inline using its "
     "[Source: ...] label; if the context does not contain the answer, say so]\n"
@@ -165,6 +177,55 @@ async def run(args) -> int:
     return 0
 
 
+def _promotion_gate(aggs) -> tuple[bool, list[str]]:
+    """R-F2790 — fail-closed Cycle-6 promotion verdict from the report aggregates.
+
+    Returns (promote, lines). Promote is True ONLY when the sovereign checkpoint
+    clears every criterion below. FAIL-CLOSED: no sovereign side, or no same-run
+    DeepSeek baseline (so ">= DeepSeek" cannot be PROVEN), is NO-PROMOTE — ARIA never
+    promotes on incomplete evidence, the same 'never a false clean' rule she applies
+    to a DD verdict, applied to her own model.
+    """
+    sov = aggs.get("sovereign")
+    ds = aggs.get("deepseek")
+    if not sov:
+        return False, ["NO-PROMOTE — no `sovereign` aggregates in this report (nothing to gate)."]
+    if not ds:
+        return False, [
+            "NO-PROMOTE — no same-run `deepseek` baseline in this report, so "
+            ">= DeepSeek cannot be proven (fail-closed). Re-run the eval with the "
+            "DeepSeek side populated before gating."
+        ]
+    checks = [
+        ("precision >= 0.750 floor",
+         sov["citation_precision"] >= _GATE["precision_floor"],
+         f"{sov['citation_precision']} vs floor {_GATE['precision_floor']}"),
+        ("precision >= DeepSeek (same-run)",
+         sov["citation_precision"] >= ds["citation_precision"],
+         f"{sov['citation_precision']} vs DeepSeek {ds['citation_precision']}"),
+        ("recall >= 0.238 floor",
+         sov["keyword_recall"] >= _GATE["recall_floor"],
+         f"{sov['keyword_recall']} vs floor {_GATE['recall_floor']}"),
+        ("recall >= DeepSeek (same-run)",
+         sov["keyword_recall"] >= ds["keyword_recall"],
+         f"{sov['keyword_recall']} vs DeepSeek {ds['keyword_recall']}"),
+        ("mean_fabricated <= 0.18",
+         sov["mean_fabricated"] <= _GATE["fabrication_ceiling"],
+         f"{sov['mean_fabricated']} vs ceiling {_GATE['fabrication_ceiling']}"),
+        ("pct_zero_fabrication >= 0.847",
+         sov["pct_zero_fabrication"] >= _GATE["zero_fab_floor"],
+         f"{sov['pct_zero_fabrication']} vs floor {_GATE['zero_fab_floor']}"),
+    ]
+    lines = [f"  [{'PASS' if ok else 'FAIL'}] {name}  ({detail})" for name, ok, detail in checks]
+    promote = all(ok for _, ok, _ in checks)
+    lines.append(
+        f">>> {'PROMOTE' if promote else 'NO-PROMOTE'} — "
+        + ("all promotion gates cleared." if promote
+           else "at least one gate failed; v1/v4 stays the base (rollback).")
+    )
+    return promote, lines
+
+
 def report(args) -> int:
     recs = [json.loads(l) for l in open(args.out, encoding="utf-8") if l.strip()]
     if not recs:
@@ -201,6 +262,15 @@ def report(args) -> int:
         if both:
             print(f"\nhead-to-head {a} vs {b} (n={len(both)}): {a}>{b} {aw} | ties {ties} | "
                   f"{b}>{a} {len(both)-aw-ties}")
+    # R-F2790 — enforced, fail-closed promotion verdict. Backward-compatible: only runs
+    # under --gate, and drives the process exit code so an automated cycle CANNOT promote
+    # a checkpoint that did not clear every gate (exit 1 on NO-PROMOTE).
+    if getattr(args, "gate", False):
+        promote, glines = _promotion_gate(aggs)
+        print("\n=== CYCLE-6 PROMOTION GATE (R-F2790 — enforced, fail-closed) ===")
+        for line in glines:
+            print(line)
+        return 0 if promote else 1
     return 0
 
 
@@ -213,6 +283,10 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--concurrency", type=int, default=6)
     ap.add_argument("--report", action="store_true")
+    ap.add_argument("--gate", action="store_true",
+                    help="R-F2790: with --report, apply the enforced Cycle-6 promotion "
+                         "gate (sovereign vs same-run DeepSeek) and EXIT 1 on NO-PROMOTE. "
+                         "Fail-closed: missing DeepSeek baseline => NO-PROMOTE.")
     ap.add_argument("--store-text", action="store_true",
                     help="persist generated answers + question + truncated context per row "
                          "(default off; enables offline re-scoring / coverage-gap diagnosis)")

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2790,
+  "next_available": 2791,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21789,6 +21789,15 @@
       "r_number": "R-F2789",
       "title": "fix Telegram public channel destination validation",
       "claimed_at": "2026-07-19T13:27:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2790",
+      "title": "Codify enforced fail-closed Cycle-6 promotion gate in objective_citation_eval --gate",
+      "claimed_at": "2026-07-19T13:39:39Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
