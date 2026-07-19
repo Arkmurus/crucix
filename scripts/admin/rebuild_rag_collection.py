@@ -204,6 +204,92 @@ def rebuild(rag_path: str, name: str, *, apply: bool, batch: int) -> int:
     return 0
 
 
+def purge_parked(rag_path: str, parked: str, live: str, *, apply: bool) -> int:
+    """R-F2800 — delete a PARKED collection and its orphaned index dir.
+
+    Only ever run against a collection that has already been superseded. The
+    gates below exist because this is the one genuinely destructive operation in
+    this tool, and CLAUDE.md §7 forbids losing knowledge:
+
+      1. the LIVE replacement must exist, be non-empty, and answer a real query
+         — if the replacement is not demonstrably good, the fallback stays;
+      2. EVERY record id in the parked collection must already exist in the live
+         one, so nothing unique is destroyed. Set comparison, not counts: equal
+         counts with different ids would still lose data;
+      3. only the parked collection's OWN rows and OWN index directory are
+         touched. Each collection has a distinct segment uuid, so the dirs are
+         separable — deleting the wrong one would destroy the good index.
+
+    Deliberately does NOT VACUUM: the sqlite file keeps its free pages. The
+    reclaim target is the orphaned HNSW directory, and a manual VACUUM on a live
+    store is exactly the operation that caused a past incident.
+    """
+    db = _db(rag_path)
+    try:
+        pcid = collection_id(db, parked)
+        lcid = collection_id(db, live)
+        if not pcid:
+            _log(f"  nothing to purge — no collection named {parked!r}")
+            return 0
+        if not lcid:
+            _log(f"  REFUSING: live collection {live!r} does not exist")
+            return 2
+
+        pseg = metadata_segment(db, pcid)
+        lseg = metadata_segment(db, lcid)
+        pids = {r["embedding_id"] for r in db.execute(
+            "select embedding_id from embeddings where segment_id=?", (pseg,))}
+        lids = {r["embedding_id"] for r in db.execute(
+            "select embedding_id from embeddings where segment_id=?", (lseg,))}
+        missing = pids - lids
+        _log(f"  parked {parked}: {len(pids)} record(s)")
+        _log(f"  live   {live}: {len(lids)} record(s)")
+        _log(f"  in parked but NOT in live: {len(missing)}")
+        if missing:
+            _log("  REFUSING: the parked copy holds records the live one does not — "
+                 "purging would destroy knowledge (§7)")
+            return 3
+
+        # Gate 1: the replacement must be demonstrably healthy.
+        if apply:
+            rc = verify(rag_path, live)
+            if rc != 0:
+                _log("  REFUSING: the live replacement failed verification — keeping the fallback")
+                return rc
+
+        seg_rows = db.execute("select id, scope from segments where collection=?", (pcid,)).fetchall()
+        dirs = [(r["id"], os.path.join(rag_path, r["id"])) for r in seg_rows]
+        for sid, d in dirs:
+            _log(f"  segment {sid}: {'index dir present' if os.path.isdir(d) else 'no dir'}")
+
+        if not apply:
+            _log("\nDRY RUN — nothing removed. Re-run with --apply to purge.")
+            return 0
+
+        # Delete the parked collection's rows, innermost first.
+        for sid, _ in dirs:
+            db.execute(
+                "delete from embedding_metadata where id in "
+                "(select id from embeddings where segment_id=?)", (sid,))
+            db.execute("delete from embeddings where segment_id=?", (sid,))
+            db.execute("delete from max_seq_id where segment_id=?", (sid,))
+            db.execute("delete from segment_metadata where segment_id=?", (sid,))
+        db.execute("delete from segments where collection=?", (pcid,))
+        db.execute("delete from collection_metadata where collection_id=?", (pcid,))
+        db.execute("delete from collections where id=?", (pcid,))
+        db.commit()
+        _log(f"  removed sqlite rows for {parked}")
+    finally:
+        db.close()
+
+    # Only this collection's own directories.
+    for sid, d in dirs:
+        if os.path.isdir(d):
+            shutil.rmtree(d, ignore_errors=True)
+            _log(f"  removed index dir {sid} ({'gone' if not os.path.isdir(d) else 'STILL PRESENT'})")
+    return 0
+
+
 def verify(rag_path: str, name: str) -> int:
     """Prove the rebuilt collection works through the REAL chromadb API."""
     import chromadb
@@ -228,12 +314,27 @@ def main() -> int:
     ap.add_argument("--backup-dir", default="")
     ap.add_argument("--i-have-a-backup", action="store_true")
     ap.add_argument("--verify-only", action="store_true")
+    ap.add_argument("--purge-parked", default="",
+                    help="R-F2800: delete this PARKED collection and its index dir. "
+                         "--collection names the LIVE replacement it was superseded by.")
     args = ap.parse_args()
 
     _log(f"=== R-F2799 rag collection rebuild — {args.rag_path} ===")
 
     if args.verify_only:
         return verify(args.rag_path, args.collection)
+
+    if args.purge_parked:
+        if args.apply:
+            ok = args.i_have_a_backup
+            if args.backup_dir:
+                ok = os.path.isfile(os.path.join(args.backup_dir, "chroma.sqlite3"))
+                _log(f"  backup check    : {args.backup_dir} -> {'OK' if ok else 'NOT A VALID BACKUP'}")
+            if not ok:
+                _log("REFUSING: --apply requires a verified --backup-dir or --i-have-a-backup. "
+                     "Nothing was removed.")
+                return 1
+        return purge_parked(args.rag_path, args.purge_parked, args.collection, apply=args.apply)
 
     if args.apply:
         ok = args.i_have_a_backup

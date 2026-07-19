@@ -167,3 +167,109 @@ def test_refuses_to_swap_when_nothing_is_recoverable(tmp_path: Path):
     root = _fixture_store(tmp_path, records=3, with_docs=False)
     rc = mod.rebuild(str(root), "aria_documents", apply=True, batch=8)
     assert rc == 3, "must refuse rather than swap in an empty collection"
+
+
+# ── R-F2800: purge gates (the one genuinely destructive path) ───────────────
+
+def _two_collection_store(tmp_path: Path, *, parked_ids, live_ids) -> Path:
+    """A store holding a PARKED collection and its LIVE replacement."""
+    root = tmp_path / "rag2"
+    root.mkdir()
+    db = sqlite3.connect(root / "chroma.sqlite3")
+    db.executescript(
+        """
+        create table collections (id text primary key, name text);
+        create table collection_metadata (collection_id text, key text);
+        create table segments (id text primary key, collection text, scope text);
+        create table segment_metadata (segment_id text, key text);
+        create table max_seq_id (segment_id text, seq_id integer);
+        create table embeddings (id integer primary key, segment_id text, embedding_id text);
+        create table embedding_metadata (
+            id integer, key text, string_value text,
+            int_value integer, float_value real, bool_value integer
+        );
+        """
+    )
+    n = 0
+    for cid, cname, seg_v, seg_m, ids in (
+        ("cid-old", "aria_documents__corrupt_x", "segv-old", "segm-old", parked_ids),
+        ("cid-new", "aria_documents", "segv-new", "segm-new", live_ids),
+    ):
+        db.execute("insert into collections values (?,?)", (cid, cname))
+        db.execute("insert into segments values (?,?,?)", (seg_v, cid, "VECTOR"))
+        db.execute("insert into segments values (?,?,?)", (seg_m, cid, "METADATA"))
+        (root / seg_v).mkdir()
+        (root / seg_v / "data_level0.bin").write_bytes(b"x" * 16)
+        for eid in ids:
+            n += 1
+            db.execute("insert into embeddings values (?,?,?)", (n, seg_m, eid))
+            db.execute("insert into embedding_metadata values (?,?,?,?,?,?)",
+                       (n, "chroma:document", f"body {eid}", None, None, None))
+    db.commit()
+    db.close()
+    return root
+
+
+def test_purge_refuses_when_parked_holds_unique_records(tmp_path: Path):
+    """Equal-or-not, what matters is that nothing unique is destroyed (§7)."""
+    mod = _load_tool()
+    root = _two_collection_store(tmp_path, parked_ids=["a", "b", "c"], live_ids=["a", "b"])
+    rc = mod.purge_parked(str(root), "aria_documents__corrupt_x", "aria_documents", apply=True)
+    assert rc == 3, "must refuse — 'c' exists only in the parked copy"
+    db = sqlite3.connect(root / "chroma.sqlite3")
+    still = db.execute("select count(*) from collections where name=?",
+                       ("aria_documents__corrupt_x",)).fetchone()[0]
+    db.close()
+    assert still == 1, "the parked collection must survive a refused purge"
+    assert (root / "segv-old").is_dir(), "its index dir must survive too"
+
+
+def test_purge_refuses_when_live_collection_is_missing(tmp_path: Path):
+    mod = _load_tool()
+    root = _two_collection_store(tmp_path, parked_ids=["a"], live_ids=["a"])
+    rc = mod.purge_parked(str(root), "aria_documents__corrupt_x", "no_such_collection", apply=True)
+    assert rc == 2
+
+
+def test_purge_dry_run_removes_nothing(tmp_path: Path):
+    mod = _load_tool()
+    root = _two_collection_store(tmp_path, parked_ids=["a", "b"], live_ids=["a", "b"])
+    rc = mod.purge_parked(str(root), "aria_documents__corrupt_x", "aria_documents", apply=False)
+    assert rc == 0
+    assert (root / "segv-old").is_dir(), "dry run must not delete the index dir"
+    db = sqlite3.connect(root / "chroma.sqlite3")
+    assert db.execute("select count(*) from collections").fetchone()[0] == 2
+    db.close()
+
+
+def test_purge_removes_only_the_parked_collection(tmp_path: Path, monkeypatch):
+    """The live collection, its rows and its index dir must be untouched."""
+    mod = _load_tool()
+    root = _two_collection_store(tmp_path, parked_ids=["a", "b"], live_ids=["a", "b"])
+    # verify() would need chromadb + the real embedder; the gate itself is what
+    # we are testing here, so stub it green.
+    monkeypatch.setattr(mod, "verify", lambda *a, **k: 0)
+
+    rc = mod.purge_parked(str(root), "aria_documents__corrupt_x", "aria_documents", apply=True)
+    assert rc == 0
+
+    assert not (root / "segv-old").exists(), "parked index dir must be gone"
+    assert (root / "segv-new").is_dir(), "LIVE index dir must be untouched"
+
+    db = sqlite3.connect(root / "chroma.sqlite3")
+    names = [r[0] for r in db.execute("select name from collections")]
+    assert names == ["aria_documents"], f"only the live collection should remain, got {names}"
+    # live records intact
+    live_seg = db.execute("select id from segments where collection='cid-new' and scope='METADATA'").fetchone()[0]
+    assert db.execute("select count(*) from embeddings where segment_id=?", (live_seg,)).fetchone()[0] == 2
+    # parked rows fully gone — no orphans left behind
+    assert db.execute("select count(*) from embeddings where segment_id='segm-old'").fetchone()[0] == 0
+    assert db.execute("select count(*) from segments where collection='cid-old'").fetchone()[0] == 0
+    db.close()
+
+
+def test_purge_is_a_noop_when_parked_does_not_exist(tmp_path: Path):
+    mod = _load_tool()
+    root = _two_collection_store(tmp_path, parked_ids=["a"], live_ids=["a"])
+    rc = mod.purge_parked(str(root), "never_existed", "aria_documents", apply=True)
+    assert rc == 0, "absent parked collection is a clean no-op, not an error"
