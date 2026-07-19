@@ -7177,6 +7177,13 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
     """
     risk = report.risk_classification
     name = report.identity.entity_name or "subject"
+    # R-F2786 — the five customer questions are a clearance contract, not a
+    # second risk model. Compute them before wording the BLUF so "no observed
+    # red flags" can never become "standard contracting" while financials,
+    # UBO, adverse media, sanctions/export controls, or registry identity are
+    # unresolved.
+    from .dd_schema import _dd_decision_readiness
+    report.decision_readiness = _dd_decision_readiness(report.as_dict())
 
     # ── R-F2621: FAIL CLOSED when synthesis did not complete ──────────────
     # `risk_classification` defaults to GREEN (dd_schema.py:385/435) and is only
@@ -7445,17 +7452,36 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
                 "Verify signatory identity via at least one independent source",
             ]
     else:
-        report.bottom_line = (
-            f"🟢 GREEN — {name} passes baseline due diligence. "
-            "Standard contracting path available."
-        )
-        report.recommendation = (
-            "Proceed with standard DD. No blocking concerns identified in the universal layer."
-        )
-        report.next_actions = [
-            "Proceed with standard commercial process",
-            "Apply regular sanctions-list re-screen on contract renewal",
-        ]
+        _ready = report.decision_readiness
+        if not _ready.get("clearance_ready"):
+            _blockers = list(_ready.get("blocking_reasons") or [])
+            _blocker_text = "; ".join(_blockers[:3]) or "decision-critical coverage incomplete"
+            report.bottom_line = (
+                f"🟡 NOT CLEARED — {name} has no blocking risk in the checks that completed, "
+                f"but only {_ready.get('answered', 0)}/{_ready.get('required', 5)} decision-critical "
+                f"questions are answered ({_ready.get('completion_pct', 0)}%). {_blocker_text}. "
+                "This is not a clean bill and the standard contracting path is NOT available."
+            )
+            report.recommendation = (
+                "Do not rely on this report for counterparty clearance. Resolve every item in the "
+                "decision-readiness scorecard, then re-run or obtain independent commercial DD."
+            )
+            report.next_actions = [
+                f"Resolve decision-readiness blocker: {blocker}" for blocker in _blockers
+            ] or ["Complete all five decision-critical DD checks"]
+        else:
+            report.bottom_line = (
+                f"🟢 GREEN — {name} passes baseline due diligence and all five "
+                "decision-critical questions are answered. Standard contracting path available."
+            )
+            report.recommendation = (
+                "Proceed with standard DD. No blocking concerns identified in completed, "
+                "decision-ready evidence."
+            )
+            report.next_actions = [
+                "Proceed with standard commercial process",
+                "Apply regular sanctions-list re-screen on contract renewal",
+            ]
 
     # ── Layer 5c tag on the BLUF (2026-04-22) ──
     # When commercial coherence is ELEVATED or HIGH, surface it in the
@@ -8905,6 +8931,56 @@ def _apply_adverse_media_to_verdict(body: dict, am_result: dict) -> dict:
     return {"escalated": True, "reason": reason, "new_risk": "AMBER-LIGHT", **mat}
 
 
+def _refresh_persisted_decision_readiness(body: dict) -> dict:
+    """Refresh readiness and a GREEN report's wording after a follow-up merge.
+
+    Risk escalations remain authoritative: wording is rewritten only while the
+    stored risk is GREEN.
+    """
+    from .dd_schema import _dd_decision_readiness
+
+    readiness = _dd_decision_readiness(body)
+    body["decision_readiness"] = readiness
+    if str(body.get("risk_classification") or "").upper() != "GREEN":
+        return readiness
+
+    identity = body.get("identity") if isinstance(body.get("identity"), dict) else {}
+    target = body.get("target") if isinstance(body.get("target"), dict) else {}
+    name = identity.get("entity_name") or target.get("name") or target.get("query") or "subject"
+    if readiness.get("clearance_ready"):
+        body["bottom_line"] = (
+            f"🟢 GREEN — {name} passes baseline due diligence and all five "
+            "decision-critical questions are answered. Standard contracting path available."
+        )
+        body["recommendation"] = (
+            "Proceed with standard DD. No blocking concerns identified in completed, "
+            "decision-ready evidence."
+        )
+        body["next_actions"] = [
+            "Proceed with standard commercial process",
+            "Apply regular sanctions-list re-screen on contract renewal",
+        ]
+        return readiness
+
+    blockers = list(readiness.get("blocking_reasons") or [])
+    blocker_text = "; ".join(blockers[:3]) or "decision-critical coverage incomplete"
+    body["bottom_line"] = (
+        f"🟡 NOT CLEARED — {name} has no blocking risk in the checks that completed, "
+        f"but only {readiness.get('answered', 0)}/{readiness.get('required', 5)} "
+        f"decision-critical questions are answered ({readiness.get('completion_pct', 0)}%). "
+        f"{blocker_text}. This is not a clean bill and the standard contracting path "
+        "is NOT available."
+    )
+    body["recommendation"] = (
+        "Do not rely on this report for counterparty clearance. Resolve every item in the "
+        "decision-readiness scorecard, then re-run or obtain independent commercial DD."
+    )
+    body["next_actions"] = [
+        f"Resolve decision-readiness blocker: {blocker}" for blocker in blockers
+    ] or ["Complete all five decision-critical DD checks"]
+    return readiness
+
+
 async def _run_adverse_media_followup(
     run_id: str,
     *,
@@ -8966,6 +9042,10 @@ async def _run_adverse_media_followup(
                 # R-F2780 — credible adverse findings ESCALATE the stored verdict
                 # (never downgrade). Runs under the same merge lock as the write.
                 _esc = _apply_adverse_media_to_verdict(_body, _am_result)
+                # R-F2786 — the follow-up just answered one of the five
+                # customer-critical questions. Keep the stored scorecard and
+                # BLUF in sync; non-GREEN adverse escalations are untouched.
+                _refresh_persisted_decision_readiness(_body)
                 await rs.set_json(REPORT_REDIS_KEY.format(run_id=run_id), _body, ex=REPORT_TTL_SECONDS)
             else:
                 _esc = {"escalated": False, "reason": "report-not-found"}

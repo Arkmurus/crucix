@@ -1014,6 +1014,17 @@ async function toggleDetail(row, runId) {
       ? '<p class="dd-hero-line" style="color:#fbbf24">Quality blocked by: ' +
           escText(qaReasons.slice(0, 3).join('; ')) + '</p>'
       : '';
+    // R-F2786 — risk colour answers "what did we find?"; decision readiness
+    // answers "did all five customer-critical checks actually answer?".
+    const dr = sv.decision_readiness || null;
+    const drQuestions = dr && dr.questions && typeof dr.questions === 'object'
+      ? Object.values(dr.questions) : [];
+    const drSummary = dr
+      ? '<p class="dd-hero-line" style="color:' + (dr.clearance_ready ? '#86efac' : '#fbbf24') + '">' +
+          '<b>Decision readiness:</b> ' + escText(dr.status || 'NOT_CLEARED') + ' · ' +
+          escText(String(dr.answered || 0)) + '/' + escText(String(dr.required || 5)) +
+          ' critical questions (' + escText(String(dr.completion_pct || 0)) + '%)</p>'
+      : '';
     const _v = { risk: sv.risk_classification || 'UNKNOWN', bottom: sv.bottom_line || '', ghost: '', grounded: '' };
     // ── R-F2331 render helpers ──
     const _sevMap = { hard_stop:['#7f1d1d','#fff','HARD STOP'], red:['#dc2626','#fff','RED'], amber:['#ea580c','#fff','AMBER'], amber_dark:['#ea580c','#fff','AMBER'], amber_light:['#f59e0b','#111','AMBER'], info:['#2563eb','#fff','INFO'] };
@@ -1052,12 +1063,33 @@ async function toggleDetail(row, runId) {
       if (sec.data_gaps && sec.data_gaps.length) { h += '<div style="margin-top:9px;font-size:12px;color:#f59e0b"><i class="bi bi-exclamation-triangle"></i> Gaps: '+sec.data_gaps.map(escText).join('; ')+'</div>'; }
       h += '</div></div>'; return h;
     };
+    const renderDecisionReadiness = (readiness) => {
+      if (!readiness || !drQuestions.length) return '';
+      let h = '<div class="dd-section ' + (readiness.clearance_ready ? 'dd-section-ok' : 'dd-section-warn') + '">' +
+        '<div class="dd-section-head"><span class="status-icon">' + (readiness.clearance_ready ? '✓' : '⚠') +
+        '</span>Decision readiness — ' + escText(readiness.status || 'NOT_CLEARED') +
+        '<span style="margin-left:auto;font-size:11px;color:var(--sc-muted);font-weight:400">' +
+        escText(String(readiness.completion_pct || 0)) + '%</span></div><div class="dd-section-body">';
+      for (const q of drQuestions) {
+        const answered = !!q.answered;
+        h += '<div style="padding:7px 0;border-top:1px solid var(--sc-border,#26324a);display:flex;gap:8px">' +
+          '<span style="color:' + (answered ? '#86efac' : '#fbbf24') + ';font-weight:700">' + (answered ? '✓' : '✗') + '</span>' +
+          '<div><b>' + escText(q.label || 'Critical check') + '</b> — ' + escText(q.status || 'UNRESOLVED') +
+          (!answered && q.blocker ? '<div style="font-size:12px;color:#fbbf24;margin-top:2px">' + escText(q.blocker) + '</div>' : '') +
+          '</div></div>';
+      }
+      h += '<div style="font-size:11px;color:var(--sc-muted);margin-top:8px">Reliance threshold: Evidence Grade ' +
+        escText(readiness.evidence_grade || 'INCOMPLETE') + (readiness.evidence_ready ? ' met' : ' not met') +
+        '; risk classification remains separate.</div></div></div>';
+      return h;
+    };
     let detailHtml = '<div class="dd-hero ' + ddRiskClass(_v.risk) + '">' +
         '<div class="dd-hero-badge"><span class="dd-hero-risk">' + escText(_v.risk) + '</span>' +
           '<span class="dd-hero-sub">Risk classification</span></div>' +
         '<div class="dd-hero-main">' +
           '<h2>' + escText(entityName) + '</h2>' +
           (_v.bottom ? '<p class="dd-hero-line">' + escText(_v.bottom) + '</p>' : '') +
+          drSummary +
           qaSummary +
           '<div class="dd-hero-stats">' +
             (qaGrade ? '<span class="dd-hs"><b>Quality</b> Grade ' + escText(qaGrade) + (qaScore ? ' · ' + escText(qaScore) + '/100' : '') + '</span>' : '') +
@@ -1096,6 +1128,7 @@ async function toggleDetail(row, runId) {
     // R-F2331: render each structured section in the backend's decision-first order.
     detailHtml += '<div class="dd-md">';
     if (sv.recommendation) detailHtml += '<div class="dd-recommendation"><i class="bi bi-flag-fill"></i> <b>Recommendation:</b> ' + escText(sv.recommendation) + '</div>';
+    detailHtml += renderDecisionReadiness(dr);
     detailHtml += renderRunDiagnostics(sv.run_diagnostics);   // R-F2651 — coverage before findings
     for (const sec of sections) { detailHtml += renderSection(sec); }
     if (sv.next_actions && sv.next_actions.length) detailHtml += '<div class="dd-section dd-section-info"><div class="dd-section-head"><span class="status-icon">✅</span>Recommended next actions</div><div class="dd-section-body"><ul style="margin:0;padding-left:18px">' + sv.next_actions.map(a=>'<li>'+escText(a)+'</li>').join('') + '</ul></div></div>';

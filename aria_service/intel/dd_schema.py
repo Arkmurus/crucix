@@ -519,6 +519,11 @@ class ARKDDReport:
     # BLUF reads "INSUFFICIENT EVIDENCE" instead of "can proceed".
     confidence_gate_triggered: bool = False
     confidence_gate_reasons: list[str] = field(default_factory=list)
+    # R-F2786 — customer-facing answer to "may this report be relied on?".
+    # Separate from risk_classification: no observed red flags is not the same
+    # as complete evidence. Populated by _assemble_bluf and recomputed for
+    # historical reports by structured_view.
+    decision_readiness: dict = field(default_factory=dict)
 
     # R-F305: ecosystem awareness — populated by _emit_ecosystem_status()
     # at end of run with per-layer activity + wired-but-silent flags so
@@ -645,6 +650,31 @@ class ARKDDReport:
             lines.append("")
         except Exception:
             pass  # evidence-grade render must never break the report
+
+        # R-F2786 — put the USP contract next to the BLUF: five questions,
+        # five explicit answers. This prevents a reader from mistaking a risk
+        # colour for permission to transact when evidence coverage is incomplete.
+        try:
+            _dr = _dd_decision_readiness(self.as_dict())
+            _dr_icon = "🟢" if _dr.get("clearance_ready") else "🟡"
+            lines.append(
+                f"*{_dr_icon} Decision Readiness: {_dr.get('status')} "
+                f"({_dr.get('answered', 0)}/{_dr.get('required', 5)} — "
+                f"{_dr.get('completion_pct', 0)}%)*"
+            )
+            _qcap = 2 if concise else 5
+            for _q in list((_dr.get("questions") or {}).values())[:_qcap]:
+                _answered = bool(_q.get("answered"))
+                _mark = "✓" if _answered else "✗"
+                _suffix = "" if _answered else f" — {_q.get('blocker', 'unresolved')}"
+                lines.append(f"  {_mark} {_q.get('label', 'Check')}: {_q.get('status')}{_suffix}")
+            lines.append(
+                f"Reliance threshold: Evidence Grade {_dr.get('evidence_grade', 'INCOMPLETE')} "
+                f"({'met' if _dr.get('evidence_ready') else 'not met'}); risk is reported separately."
+            )
+            lines.append("")
+        except Exception:
+            pass  # readiness rendering must never break report delivery
 
         def _sec_header(emoji: str, name: str, meta: SectionMeta) -> str:
             return f"━━━ {emoji} {name} [{meta.status.upper()}] ━━━"
@@ -1072,7 +1102,19 @@ def _quality_metrics(r: dict) -> dict:
     citation_rate = ver.get("citation_grounding_rate")
     if not isinstance(citation_rate, (int, float)) and citations_checked:
         citation_rate = citations_grounded / max(citations_checked, 1)
-    adverse_run = bool(adverse and adverse.get("ok") is True)
+    adverse_templates_run = int(adverse.get("templates_run") or 0)
+    if not adverse_templates_run and int(adverse.get("findings_count") or 0) > 0:
+        # Legacy persisted reports predate templates_run. Real findings prove
+        # at least one template executed; zero findings require the explicit
+        # modern counter so absence alone cannot certify a search.
+        adverse_templates_run = 1
+    adverse_run = bool(
+        adverse
+        and adverse.get("ok") is True
+        and adverse_templates_run > 0
+        and not adverse.get("partial")
+        and not adverse.get("timed_out")
+    )
     adverse_findings = int(adverse.get("findings_count") or len(adverse.get("findings") or []) or 0)
     # R-F2657 — the adverse-media search now runs as an OUT-OF-BAND follow-up; while it is
     # still deferred (status=="in_progress") it has NOT run yet. Treat pending as NOT-RUN
@@ -1083,6 +1125,7 @@ def _quality_metrics(r: dict) -> dict:
     adverse_skipped = (
         (not adverse)
         or _adverse_pending
+        or not adverse_run
         or bool(adverse.get("skipped") or adverse.get("error"))
     )
     sanctions_screen = ident.get("sanctions_screen") or {}
@@ -1157,6 +1200,7 @@ def _quality_metrics(r: dict) -> dict:
         "citations_grounded": citations_grounded,
         "citation_grounding_rate": citation_rate,
         "adverse_media_run": adverse_run,
+        "adverse_media_templates_run": adverse_templates_run,
         "adverse_media_findings": adverse_findings,
         "adverse_media_skipped": adverse_skipped,
         "has_search_degradation_gap": _quality_has_search_gap(r),
@@ -1202,11 +1246,6 @@ def _quality_penalties(metrics: dict) -> list[tuple[int, str]]:
         and citation_rate < 0.8
     )
     citation_rate_text = f"{citation_rate:.0%}" if isinstance(citation_rate, (int, float)) else "unknown"
-    adverse_empty = (
-        not metrics["adverse_media_skipped"]
-        and metrics["adverse_media_run"]
-        and metrics["adverse_media_findings"] == 0
-    )
     candidates = [
         (metrics["press_total"] < 8, 20,
          f"only {metrics['press_total']} cited press/source item(s)"),
@@ -1230,8 +1269,6 @@ def _quality_penalties(metrics: dict) -> list[tuple[int, str]]:
          f"citation grounding rate below 80% ({citation_rate_text})"),
         (metrics["adverse_media_skipped"], 15,
          "structured adverse-media deep search did not run"),
-        (adverse_empty, 10,
-         "adverse-media deep search returned no findings/classes"),
         (metrics["has_search_degradation_gap"], 20,
          "report contains explicit search/coverage degradation gaps"),
         (metrics["confidence_gate_triggered"], 25,
@@ -1293,6 +1330,152 @@ def _dd_quality_assessment(r: dict) -> dict:
             "requires_adverse_media_search": True,
             "requires_confidence_gate_clear": True,
         },
+    }
+
+
+def _dd_decision_readiness(r: dict) -> dict:
+    """Measure the five customer questions required before a DD can be relied on.
+
+    Risk and readiness are deliberately separate. A report may find no adverse
+    risk in the checks that completed while remaining NOT_CLEARED because a
+    decision-critical check did not answer. Missing evidence never becomes a
+    clean result.
+    """
+    def _mapping(value) -> dict:
+        return value if isinstance(value, dict) else {}
+
+    r = _mapping(r)
+    ident = _mapping(r.get("identity"))
+    comp = _mapping(r.get("compliance"))
+    network = _mapping(r.get("network"))
+    adverse = _mapping(r.get("adverse_media"))
+
+    def _substantive(value) -> bool:
+        return bool(value) and str(value).strip().lower() not in {
+            "unknown", "unavailable", "not available", "n/a", "na", "none",
+        }
+
+    registration_number = _substantive(ident.get("registration_number"))
+    registry_profile = bool(
+        _substantive(ident.get("registration_status"))
+        and (ident.get("directors") or _substantive(ident.get("incorporation_date")))
+    )
+    identity_ok = bool(registration_number and registry_profile)
+
+    sanctions = _mapping(ident.get("sanctions_screen"))
+    sanctions_verified = bool(sanctions.get("verified_sources")) and not bool(
+        sanctions.get("source_unavailable") or sanctions.get("error")
+    )
+    export_control = _mapping(comp.get("export_control"))
+    export_checked = bool(
+        export_control.get("recommendation")
+        or export_control.get("classification")
+        or export_control.get("findings")
+        or comp.get("sanctions_regimes")
+    )
+    sanctions_export_ok = sanctions_verified and export_checked
+
+    adverse_ok = bool(
+        adverse.get("ok") is True
+        and (
+            int(adverse.get("templates_run") or 0) > 0
+            or int(adverse.get("findings_count") or 0) > 0
+        )
+        and adverse.get("status") != "in_progress"
+        and not adverse.get("partial")
+        and not adverse.get("timed_out")
+        and not adverse.get("error")
+        and not adverse.get("skipped")
+    )
+
+    walk = _mapping(network.get("ubo_chain_walk"))
+    walk_stats = _mapping(walk.get("stats"))
+    walk_gaps = [str(g) for g in (walk.get("coverage_gaps") or [])]
+    budget_exhausted = bool(walk_stats.get("budget_exhausted")) or any(
+        "budget exhausted" in gap.lower() for gap in walk_gaps
+    )
+    ownership_present = bool(
+        ident.get("shareholders") or ident.get("ubo_chain") or network.get("ubo_chain")
+    )
+    ownership_ok = ownership_present and not budget_exhausted
+
+    financial = _mapping(comp.get("financial_health"))
+    financial_verdict = str(financial.get("health_verdict") or "UNKNOWN").upper()
+    financial_ok = bool(financial.get("data_available")) and financial_verdict not in {
+        "", "UNKNOWN", "UNAVAILABLE", "NOT_AVAILABLE",
+    }
+
+    questions = {
+        "identity": {
+            "label": "Verified legal identity",
+            "status": "ANSWERED" if identity_ok else "UNRESOLVED",
+            "answered": identity_ok,
+            "evidence": "registry number plus status and directors/incorporation",
+            "blocker": "legal identity is not registry-substantiated" if not identity_ok else "",
+        },
+        "sanctions_export_control": {
+            "label": "Sanctions and export-control exposure",
+            "status": "ANSWERED" if sanctions_export_ok else "UNRESOLVED",
+            "answered": sanctions_export_ok,
+            "evidence": "fresh sanctions source plus export-control assessment",
+            "blocker": (
+                "sanctions and export-control checks are not both evidenced"
+                if not sanctions_export_ok else ""
+            ),
+        },
+        "adverse_media": {
+            "label": "Adverse media, corruption and litigation",
+            "status": "ANSWERED" if adverse_ok else "UNRESOLVED",
+            "answered": adverse_ok,
+            "evidence": "completed dedicated adverse-media search",
+            "blocker": "adverse-media screening did not complete" if not adverse_ok else "",
+        },
+        "ownership_control": {
+            "label": "Ownership and control",
+            "status": (
+                "ANSWERED" if ownership_ok else "INCOMPLETE" if budget_exhausted else "UNRESOLVED"
+            ),
+            "answered": ownership_ok,
+            "evidence": "shareholder/UBO chain without an exhausted traversal",
+            "blocker": (
+                "ownership/UBO traversal is incomplete"
+                if budget_exhausted else "ownership/control is unresolved" if not ownership_ok else ""
+            ),
+        },
+        "financial_capacity": {
+            "label": "Financial capacity",
+            "status": "ANSWERED" if financial_ok else "UNRESOLVED",
+            "answered": financial_ok,
+            "evidence": "financial data with a substantive health verdict",
+            "blocker": "financial capacity is unknown" if not financial_ok else "",
+        },
+    }
+    answered = sum(1 for q in questions.values() if q["answered"])
+    blockers = [q["blocker"] for q in questions.values() if q["blocker"]]
+    try:
+        evidence_grade = str(_dd_quality_assessment(r).get("grade") or "INCOMPLETE")
+    except Exception:
+        evidence_grade = "INCOMPLETE"
+    evidence_ready = evidence_grade == "A"
+    if not evidence_ready:
+        blockers.append(
+            f"evidence grade {evidence_grade} does not meet the Grade A reliance threshold"
+        )
+    ready = answered == len(questions) and evidence_ready
+    return {
+        "status": "CLEARED_FOR_RELIANCE" if ready else "NOT_CLEARED",
+        "clearance_ready": ready,
+        "completion_pct": int(answered * 100 / len(questions)),
+        "answered": answered,
+        "required": len(questions),
+        "evidence_grade": evidence_grade,
+        "evidence_ready": evidence_ready,
+        "questions": questions,
+        "blocking_reasons": blockers,
+        "scope_note": (
+            "Decision readiness requires all five answers plus Evidence Grade A; "
+            "it does not replace the risk verdict."
+        ),
     }
 
 
@@ -1455,6 +1638,7 @@ def structured_view(r: dict) -> dict:
         "canonical_entity_id": r.get("canonical_entity_id"),
         "version_number": r.get("version_number") or 1,
         "quality_assessment": _dd_quality_assessment(r),
+        "decision_readiness": _dd_decision_readiness(r),
         "next_actions": [a for a in (r.get("next_actions") or []) if a],
         "data_gaps_summary": [g for g in (r.get("data_gaps_summary") or []) if g],
         "sections": sections,
