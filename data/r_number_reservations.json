@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2801,
+  "next_available": 2804,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21904,6 +21904,36 @@
       "commit_sha": "6da861bf",
       "notes": null,
       "shipped_at": "2026-07-19T17:15:01Z"
+    },
+    {
+      "r_number": "R-F2801",
+      "title": "green the rag/health/stats selection: fix 12 real stale/non-hermetic test gates + 2 cross-test pollution failures (assert correct contracts, never weaken)",
+      "claimed_at": "2026-07-19T17:22:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "123d6105",
+      "notes": null,
+      "shipped_at": "2026-07-19T18:27:45Z"
+    },
+    {
+      "r_number": "R-F2802",
+      "title": "SECURITY: infra-API gate bypassed by percent-encoding a path char (viewer reads infra); decode before matching + fail closed on double-encoding",
+      "claimed_at": "2026-07-19T17:31:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f23fded1",
+      "notes": null,
+      "shipped_at": "2026-07-19T18:27:45Z"
+    },
+    {
+      "r_number": "R-F2803",
+      "title": "DD identity: negated live statuses ('Not In Good Standing') read as VERIFIED = false clean; plus non-English/US registry vocabulary wrongly fails closed",
+      "claimed_at": "2026-07-19T18:16:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a5632eed",
+      "notes": null,
+      "shipped_at": "2026-07-19T18:27:45Z"
     }
   ]
 }
