@@ -27,6 +27,7 @@
 from __future__ import annotations
 from .engine_wiring import wire_failure
 
+import re as _re  # R-F2803 — registry-status negation detection
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -1382,21 +1383,52 @@ def _dd_decision_readiness(r: dict) -> dict:
     # vocabulary we do not model, the honest answer is UNRESOLVED, not a pass.
     registration_status_raw = str(ident.get("registration_status") or "").strip()
     _status = registration_status_raw.lower().replace("_", " ").replace("-", " ")
+    # R-F2803 — vocabulary widened beyond UK/US English. Previously `In Existence`
+    # (Texas SoS), `Immatriculée`/`En activité` (FR), `Activa`/`Activo` (ES),
+    # `Ativa` (PT), `aktiv` (DE), `Attiva` (IT) and `Ingeschreven` (NL KvK) all
+    # matched NEITHER list and so failed closed — reporting "cannot verify
+    # identity" for correctly-registered companies across most of ARIA's
+    # non-UK/US market. Fail-closed is right for a status we cannot read; it is
+    # wrong for one we simply had not modelled.
     _LIVE_STATUS_TOKENS = (
-        "active", "registered", "live", "good standing", "current",
-        "incorporated", "operating", "in business", "trading", "existing",
+        "active", "activ", "aktiv", "attiva", "registered", "live",
+        "good standing", "current", "incorporated", "operating", "in business",
+        "trading", "existing", "existence", "immatricul", "ingeschreven",
+        "ativa", "ativo",   # PT — note "inativa" is caught by the dead list below
+        "en regla", "vigente", "bestaand",
     )
     _DEAD_STATUS_TOKENS = (
         "dissolved", "liquidat", "struck", "closed", "terminated",
         "administration", "receivership", "insolven", "cancelled", "canceled",
         "revoked", "suspended", "inactive", "defunct", "deregistered",
-        "wound up", "winding up", "bankrupt", "expired",
+        "wound up", "winding up", "bankrupt", "expired", "radiée", "radiee",
+        "inativ",   # PT inativa/inativo — must beat the "ativa" live token
+        "cessée", "cessee", "baja", "erloschen", "cessata",
     )
+    # R-F2803 (FALSE CLEAN) — a NEGATED live phrase contains a live token and no
+    # dead token, so it used to read as LIVE. Verified before this fix:
+    #   'Not In Good Standing' -> ANSWERED   ('good standing')
+    #   'No longer trading'    -> ANSWERED   ('trading')
+    #   'Ceased trading'       -> ANSWERED   ('trading')
+    #   'Not active'           -> ANSWERED   ('active')
+    # "Not In Good Standing" is a literal Maryland/Delaware SoS value and one of
+    # the strongest "this entity is in trouble" signals in US due diligence, so
+    # certifying it as VERIFIED LEGAL IDENTITY is exactly the false clean this
+    # scorecard exists to prevent. A negation makes the status not-live, full
+    # stop — we do not try to infer what it IS, only that it is not a clean pass.
+    _NEGATED = _re.search(
+        r"(?:^|\s)(?:not|non|no longer|never|ceased|cease|former|formerly|ex|"
+        r"out of|failed to|pending)(?:\s|$)",
+        _status,
+    ) is not None
     _status_dead = any(tok in _status for tok in _DEAD_STATUS_TOKENS)
-    # Dead wins over live so "converted-closed" or "active - in liquidation"
-    # can never pass on the strength of the word "active" alone.
+    # Dead and negation both beat live, so "converted-closed", "active - in
+    # liquidation" and "not active" can never pass on a live token alone.
     registry_status_live = bool(
-        _status and not _status_dead and any(tok in _status for tok in _LIVE_STATUS_TOKENS)
+        _status
+        and not _status_dead
+        and not _NEGATED
+        and any(tok in _status for tok in _LIVE_STATUS_TOKENS)
     )
     registration_number = _substantive(ident.get("registration_number"))
     registry_profile = bool(

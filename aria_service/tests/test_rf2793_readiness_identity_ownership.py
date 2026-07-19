@@ -23,6 +23,8 @@ ownership only on a holder with actual substance. Unrecognised values fail
 CLOSED — "we cannot tell whether this company is alive" is not "verified".
 """
 
+import pytest
+
 from aria_service.intel.dd_schema import _dd_decision_readiness
 
 
@@ -123,3 +125,66 @@ def test_substantive_ubo_chain_answers_ownership():
         "network": {"ubo_chain": [{"name": "Ultimate Owner Ltd"}]},
     }
     assert _q(report, "ownership_control").get("answered") is True
+
+
+# ── R-F2803: negated live statuses, and non-English registries ─────────────
+# Found by an adversarial review of R-F2793 and REPRODUCED before fixing.
+
+NEGATED_LIVE = [
+    "Not In Good Standing",   # literal Maryland / Delaware SoS value
+    "No longer trading",
+    "Ceased trading",
+    "Not active",
+    "Out of business",
+    "Formerly registered",
+    "non-trading",
+]
+
+
+@pytest.mark.parametrize("status", NEGATED_LIVE)
+def test_negated_live_status_is_never_verified_identity(status: str):
+    """A negated live phrase contains a live token and no dead token.
+
+    Before R-F2803 these all read ANSWERED — e.g. 'Not In Good Standing' matched
+    'good standing'. That is a FALSE CLEAN on one of the strongest "this entity
+    is in trouble" signals in US due diligence.
+    """
+    q = _q(_identity(status), "identity")
+    assert q.get("answered") is False, f"{status!r} must not certify legal identity"
+    assert q.get("blocker"), f"{status!r} must name a blocker"
+
+
+LIVE_NON_ENGLISH = [
+    "In Existence",   # Texas SoS
+    "Immatriculée",   # FR
+    "En activité",    # FR
+    "Activa", "Activo",   # ES
+    "Ativa", "Ativo",     # PT
+    "aktiv",          # DE
+    "Attiva",         # IT
+    "Ingeschreven",   # NL KvK
+    "Vigente",        # ES/LatAm
+]
+
+
+@pytest.mark.parametrize("status", LIVE_NON_ENGLISH)
+def test_non_english_live_status_is_accepted(status: str):
+    """Fail-closed is right for a status we cannot READ, wrong for one we simply
+    had not modelled — the latter told correctly-registered companies across most
+    of ARIA's non-UK/US market that their identity could not be verified."""
+    q = _q(_identity(status), "identity")
+    assert q.get("answered") is True, f"{status!r} is a live registration"
+
+
+DEAD_NON_ENGLISH = ["Radiée", "Cessée", "Erloschen", "Cessata", "Inativa", "Inativo", "Baja"]
+
+
+@pytest.mark.parametrize("status", DEAD_NON_ENGLISH)
+def test_non_english_dead_status_is_rejected(status: str):
+    """…and widening the vocabulary must not let a DEAD foreign status through.
+
+    `Inativa` is the sharp case: it CONTAINS the newly-added live token `ativa`,
+    so the dead list has to beat the live list for it.
+    """
+    q = _q(_identity(status), "identity")
+    assert q.get("answered") is False, f"{status!r} is not a live registration"
