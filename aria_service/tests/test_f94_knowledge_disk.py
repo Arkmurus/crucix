@@ -168,12 +168,21 @@ def test_save_does_not_block_on_redis(fresh_knowledge, monkeypatch):
     # loop. Other modules (learning_progress, brain_hook stats, student)
     # may write to their own keys via the shared redis_store — those are
     # not from knowledge._save() and are expected background noise.
+    #
+    # R-F2787 (2026-07-19): scope the "knowledge write" filter to the ACTUAL
+    # knowledge namespace (kn.KEY == "crucix:aria:knowledge", incl. its :meta /
+    # :shard:* keys). The old filter also matched `"fact" in k.lower()`, which
+    # miscounted OTHER modules' `verified_intel:facts` set_json writes (they
+    # share redis_store) as knowledge writes and false-failed this test. Every
+    # key knowledge._save() writes is under kn.KEY; none contains "fact", so the
+    # broad clause only added false positives — narrowing it does not weaken the
+    # F94 contract (§23), it stops measuring the wrong lifecycle.
     knowledge_writes = [
         (k, v) for k, v in redis_writes
-        if "knowledge" in k or "fact" in k.lower()
+        if k.startswith(kn.KEY)
     ]
     assert knowledge_writes == [], (
         f"expected 0 knowledge Redis writes from store_fact bursts; "
         f"got {knowledge_writes} (total {len(redis_writes)} writes, "
-        f"all non-knowledge keys: {[(k,v) for k,v in redis_writes if 'knowledge' not in k and 'fact' not in k.lower()]})"
+        f"all non-knowledge keys: {[(k, v) for k, v in redis_writes if not k.startswith(kn.KEY)]})"
     )

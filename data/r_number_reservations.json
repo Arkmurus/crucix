@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2786,
+  "next_available": 2788,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21747,6 +21747,24 @@
       "r_number": "R-F2785",
       "title": "operator page table extracted to lib/auth/operatorPages.mjs + rewrite stale rf2389 vault source-spelling gate as a real route+role contract test",
       "claimed_at": "2026-07-19T13:03:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2786",
+      "title": "DD decision readiness five question USP gate",
+      "claimed_at": "2026-07-19T13:14:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2787",
+      "title": "C7 scope f94 knowledge-snapshot test filter to knowledge key (test-only)",
+      "claimed_at": "2026-07-19T13:14:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
