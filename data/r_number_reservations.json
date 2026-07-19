@@ -21654,18 +21654,20 @@
       "title": "aria-web hardening C — infra-API role gate (prefix + anon endpoints + wa-listener) + generic proxy error",
       "claimed_at": "2026-07-18T19:14:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8458f054",
+      "notes": null,
+      "shipped_at": "2026-07-19T13:32:02Z"
     },
     {
       "r_number": "R-F2776",
       "title": "cross-health: slow-but-reachable brain is online-degraded not offline (false_offline invariant)",
       "claimed_at": "2026-07-18T19:23:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8458f054",
+      "notes": null,
+      "shipped_at": "2026-07-19T13:32:03Z"
     },
     {
       "r_number": "R-F2777",
@@ -21749,9 +21751,10 @@
       "title": "operator page table extracted to lib/auth/operatorPages.mjs + rewrite stale rf2389 vault source-spelling gate as a real route+role contract test",
       "claimed_at": "2026-07-19T13:03:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8458f054",
+      "notes": null,
+      "shipped_at": "2026-07-19T13:32:03Z"
     },
     {
       "r_number": "R-F2786",
