@@ -659,11 +659,20 @@ document.getElementById('btn-run-adv').addEventListener('click', async function(
 // R-F2721 (Codex #1) — surface /api/source-health (the operational briefing-feed tracker the
 // page omitted). Same-origin Node endpoint (aria-web serves this page AND the endpoint), so a
 // plain fetch — not API.get (which proxies to the Python brain). Honest buckets from R-F2719.
+// R-F2775: the endpoint was anonymous and is now role-gated (poweruser|admin), so this fetch
+// MUST send the Bearer token like the other calls on this page (see the uptime/run and
+// adversarial/run_weekly handlers above) — requireAuth reads the Authorization header only, it
+// does not consult the R-F2774 cookie. Without it the panel 401s for the operator themselves.
 async function loadOperationalFeeds() {
   const body = document.getElementById('opfeed-body');
   const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
   try {
-    const resp = await fetch('/api/source-health', { headers: { Accept: 'application/json' } });
+    const resp = await fetch('/api/source-health', {
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer ' + (localStorage.getItem('crucix_token') || ''),
+      },
+    });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const d = await resp.json();
     setTxt('opfeed-healthy', d.healthyCount ?? '-');

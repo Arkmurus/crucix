@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+// R-F2785: assert the operator-page contract from the shared table, not from a
+// grep of server.mjs's source text.
+import { OPERATOR_ADMIN_PAGES, requiredRoleForPage } from '../lib/auth/operatorPages.mjs';
 
 const ROOT = path.resolve(
   path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1'),
@@ -72,10 +75,21 @@ describe('R-F2389 full public web smoke guard', () => {
       "authed('/api/aria/vault', { method: 'DELETE' })",
       'loadVault();',
     ]);
-    assertHasAll(server, 'server.mjs', [
-      "app.get('/vault.htm'",
-      "sendFile(join(PUBLIC_DIR, 'vault.html'))",
-    ]);
+    // R-F2785: this used to grep server.mjs for the literal `app.get('/vault.htm'`.
+    // R-F2774 replaced the literal registrations with a table-driven loop AND added
+    // an admin gate — the route still existed and had become SAFER, but the
+    // spelling-coupled assertion went red. Assert the real contract instead: both
+    // vault URL forms are registered, both serve vault.html, and both demand admin.
+    // That is strictly stronger than the old check, which never tested the gate.
+    assert.equal(requiredRoleForPage('/vault.html'), 'admin', '/vault.html must be admin-gated');
+    assert.equal(requiredRoleForPage('/vault.htm'), 'admin', '/vault.htm alias must be admin-gated too');
+    for (const route of ['/vault.html', '/vault.htm']) {
+      const entry = OPERATOR_ADMIN_PAGES.find(([r]) => r === route);
+      assert.ok(entry, `${route} must be registered as an operator admin page`);
+      assert.equal(entry[1], 'vault.html', `${route} must serve vault.html`);
+    }
+    // and the file it serves must actually exist
+    assert.ok(fs.existsSync(path.join(PUBLIC, 'vault.html')), 'vault.html must exist in public/');
   });
 
   it('sources Add intel source writes to vault-curated News Monitor output only', () => {

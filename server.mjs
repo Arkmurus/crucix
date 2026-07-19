@@ -41,6 +41,9 @@ import { pinNonAdminUserId, isPrivileged } from './lib/auth/proxyPin.mjs';   // 
 import { issueSseTicket, redeemSseTicket } from './lib/auth/sseTickets.mjs'; // R-F1793
 import { conversationKeyForUser, slugifyIdentity } from './lib/auth/conversationKey.mjs';  // R-F1687
 import { ROLES, roleSatisfies } from './lib/auth/roles.mjs';  // R-F2170
+import { requiredRoleForAriaPath } from './lib/auth/infraRoutes.mjs';  // R-F2775
+import { probeFlyHealth, combineCrossOk } from './lib/health/crossHealth.mjs';  // R-F2776
+import { OPERATOR_VIEW_PAGES, OPERATOR_ADMIN_PAGES } from './lib/auth/operatorPages.mjs';  // R-F2785
 import { classifyDeliveryOutcome, degradedDetail } from './lib/aria/deliveryOutcome.mjs';  // R-F1965
 import { classifySourceHealth } from './lib/source/healthBuckets.mjs';  // R-F2719
 import { createBillingRouter } from './lib/billing/routes.mjs';
@@ -1440,6 +1443,29 @@ app.get('/api/aria/audit/key-fingerprint', (req, res) =>
 applyRateLimiting(app);
 applyInputValidation(app);
 
+// ── R-F2775: OPERATOR/INFRA API ROLE GATE ───────────────────────────────────
+// R-F2774 gated the operator PAGES; this gates the APIs behind them. Before this,
+// every infra endpoint was `requireAuth` — i.e. readable by ANY signed-up viewer
+// (cost ledger, autonomy state, brain internals, student mastery) and in several
+// cases RUNNABLE by them (seed runs, weekly adversarial sweeps, diagnostics).
+//
+// MOUNT POINT IS LOAD-BEARING — do not move this below the explicit /api/aria
+// routes. Express matches in registration order: the explicit handlers live at
+// ~2848-3760 and the catch-all at ~6027, so a gate registered near the catch-all
+// would never fire for any of them. Mounted HERE it sees every /api/aria/* request
+// first. Corollary: the four R-F577 public model-card endpoints registered ABOVE
+// (~1427-1437) are exempt automatically — their handlers already responded — which
+// is why /adversarial/stats stays public while the rest of /adversarial is gated.
+//
+// The classification lives in lib/auth/infraRoutes.mjs (shared with tests).
+// Default is PASS-THROUGH: an unlisted path keeps exactly its prior gate, so the
+// failure mode is "not yet gated", never "customer locked out".
+app.use('/api/aria', (req, res, next) => {
+  const needed = requiredRoleForAriaPath(req.method, req.path);
+  if (!needed) return next();               // customer surface — untouched
+  return requireInfraRole(needed)(req, res, next);
+});
+
 // ── Observability — structured error logging ──────────────────────────────────
 const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
 const notifyAdmin = async (msg) => {
@@ -1492,25 +1518,15 @@ const PUBLIC_DIR = join(ROOT, 'public');
 // route matches first wins). View pages → poweruser or admin; mutating/admin pages
 // → admin only. Non-authorized navigations are redirected (signin / dashboard).
 // Every URL form of each page is covered. Operator (admin) always passes.
+// R-F2785: the page tables moved to lib/auth/operatorPages.mjs so tests can assert
+// the real contract (which pages exist, which file each serves, which role each
+// demands) instead of grepping this file for a literal route string.
 const _sendOperatorPage = (file) => (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(join(PUBLIC_DIR, file));
 };
-const _OPERATOR_VIEW_PAGES = [
-  ['/aria-brain', 'aria-brain.html'], ['/aria-brain.html', 'aria-brain.html'],
-  ['/sources.html', 'sources.html'],
-  ['/vls-chain.html', 'vls-chain.html'],
-  ['/bd-intelligence.html', 'bd-intelligence.html'],
-  ['/leads.html', 'leads.html'],
-  ['/design-partners.html', 'design-partners.html'],
-];
-const _OPERATOR_ADMIN_PAGES = [
-  ['/vault.html', 'vault.html'], ['/vault.htm', 'vault.html'],
-  ['/wa-connections.html', 'wa-connections.html'],
-  ['/admin.html', 'admin.html'],
-];
-for (const [route, file] of _OPERATOR_VIEW_PAGES) app.get(route, requirePageRole('poweruser', 'admin'), _sendOperatorPage(file));
-for (const [route, file] of _OPERATOR_ADMIN_PAGES) app.get(route, requirePageRole('admin'), _sendOperatorPage(file));
+for (const [route, file] of OPERATOR_VIEW_PAGES) app.get(route, requirePageRole('poweruser', 'admin'), _sendOperatorPage(file));
+for (const [route, file] of OPERATOR_ADMIN_PAGES) app.get(route, requirePageRole('admin'), _sendOperatorPage(file));
 
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
@@ -1600,7 +1616,9 @@ app.get('/api/health', (req, res) => {
 // and per-module success/fail counters so the operator can see in real time
 // whether the seenode→fly bridge is actually working. Added 2026-04-19 after
 // 380+ emails processed but only 1 absorbed showed the failure was silent.
-app.get('/api/brain-absorb/diag', requireAuth, (req, res) => {
+// R-F2775: was requireAuth (any signed-up viewer). Per-module absorb success/fail
+// counters for the seenode→fly bridge — operator diagnostics.
+app.get('/api/brain-absorb/diag', requireInfraRole('poweruser', 'admin'), (req, res) => {
   res.json(getBrainAbsorbStats());
 });
 
@@ -1608,7 +1626,10 @@ app.get('/api/brain-absorb/diag', requireAuth, (req, res) => {
 // curl one endpoint to see whether the bridge passed self-check without
 // reading the deploy log line-by-line. Returns the verdict from boot
 // (cached) + a "rerun" option that re-pings synchronously.
-app.get('/api/brain-absorb/verify', async (req, res) => {
+// R-F2775: was ANONYMOUS for the cached read. The boot bridge verdict exposes
+// internal wiring state (bridge healthy? token present?) — operator surface, not
+// customer. `?rerun=1` keeps its stricter admin gate below (it costs work + LLM).
+app.get('/api/brain-absorb/verify', requireInfraRole('poweruser', 'admin'), async (req, res) => {
   if (req.query?.rerun === '1') {
     // R-F2474 — rerun triggers a SYNCHRONOUS bridge re-ping (work + LLM cost);
     // gate it behind admin so it can't be spammed unauthenticated. The cached
@@ -1645,40 +1666,21 @@ app.get('/api/health/cross', async (req, res) => {
     },
     fly: { server: 'fly.io-aria_service', url: flyUrl, ok: false },
   };
-  try {
-    const t0 = Date.now();
-    // Probe fly.io's PUBLIC /health (FastAPI app-level, no auth) —
-    // this is the right endpoint for a cross-server liveness check
-    // because it doesn't need a bearer token and exposes only the
-    // bare minimum ("is this service up? which LLM provider?").
-    // The richer /api/aria/health is auth-protected and should stay
-    // that way — if you want its body, call it directly with a token.
-    const r = await fetch(`${flyUrl}/health/live`, {
-      headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(4000),
-    });
-    out.fly.latency_ms = Date.now() - t0;
-    out.fly.http_status = r.status;
-    if (r.ok) {
-      try {
-        const body = await r.json();
-        out.fly.ok = body.status === 'alive' || body.status === 'ok' || body.status === 'healthy';
-        out.fly.build_rev = body.build_rev;
-      } catch {
-        out.fly.ok = true;
-        out.fly.body_text = (await r.text()).slice(0, 400);
-      }
-    } else {
-      out.fly.error = `HTTP ${r.status}`;
-    }
-  } catch (e) {
-    out.fly.error = `${e.name}: ${(e.message || '').slice(0, 160)}`;
-  }
-  out.ok = out.node.ok && out.fly.ok;
+  // R-F2776: honest fly-side classification. A timeout renders NO verdict
+  // (ok === null), a transport refusal is real evidence of offline, and a slow but
+  // healthy brain is online-degraded — never offline. Logic + the full rationale
+  // live in lib/health/crossHealth.mjs so it is testable against the real function.
+  out.fly = await probeFlyHealth({ flyUrl });
+  out.ok = combineCrossOk(out.node.ok, out.fly.ok);
   res.json(out);
 });
 
-app.get('/api/source-health', (req, res) => {
+// R-F2775: was ANONYMOUS. This is the operator source-health panel (sources.html,
+// an R-F2774 operator page) — it enumerates every configured integration plus its
+// degraded/unconfigured/not-checked buckets, i.e. a map of which of ARIA's feeds are
+// currently blind. No non-test caller outside public/ (verified by grep), so gating
+// it breaks nothing. Read-only → poweruser suffices.
+app.get('/api/source-health', requireInfraRole('poweruser', 'admin'), (req, res) => {
   const summary = getSourceHealthSummary();
   // R-F2719 (Codex #6) — an unconfigured integration (no API key/watchlist → reliability
   // null) or one not yet swept is NOT healthy. Bucket them separately so the count
@@ -4702,6 +4704,37 @@ function requireRole(...allowed) {
   });
 }
 
+// R-F2775: role gate for INFRA endpoints, with the same-process bypass applied
+// coherently.
+//
+// requireAuth's localhost bypass calls next() WITHOUT setting req.user. Composing
+// requireRole on top of it therefore 403s every same-process caller: the bypass
+// grants access, then the role check sees `req.user?.role === undefined` and
+// denies. (This is pre-existing and also affects today's requireAdmin routes that
+// the WA listener proxies call over localhost — flagged separately; not widened
+// here.) Left unhandled it would have been a REGRESSION on the endpoints this
+// R-number gates, which were previously anonymous: a localhost health poll of
+// /api/source-health would have started failing 403.
+//
+// So: same-process callers keep EXACTLY their prior access (the bypass, unchanged),
+// and everyone else is role-checked. Deliberately not "localhost ⇒ admin" — that
+// would widen the trust model rather than preserve it.
+// The bypass keys off req.socket.remoteAddress (the REAL TCP peer), deliberately
+// NOT req.ip. With `trust proxy: 1` (:1212) req.ip is derived from X-Forwarded-For,
+// and aria-web listens on 0.0.0.0 and is reachable as aria-web.internal:3117 over
+// Fly's 6PN — so a peer on the private network connecting DIRECTLY (no proxy hop)
+// can send `X-Forwarded-For: 127.0.0.1` and make req.ip read as loopback. The
+// socket peer address cannot be forged that way. Genuine same-process callers are
+// unaffected: their real peer address IS 127.0.0.1.
+function requireInfraRole(...allowed) {
+  return (req, res, next) => {
+    const peer = req.socket?.remoteAddress || '';
+    const bypassDisabled = (process.env.ARIA_DISABLE_LOCALHOST_BYPASS || '').toLowerCase() === '1';
+    if (!bypassDisabled && (peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1')) return next();
+    return requireRole(...allowed)(req, res, next);
+  };
+}
+
 function requireAdmin(req, res, next) {
   // R-F2170: delegates to the generalized gate (admin-only). Behaviour unchanged —
   // many routes above reference this hoisted name at registration time.
@@ -6050,12 +6083,26 @@ app.use('/api/aria', requireAuth, async (req, res, next) => {
     method: req.method,
     fallback: async ({ lastStatus, lastErr } = {}) => {
       if (res.headersSent) return;
-      res.status(lastStatus || 503).json({
-        error: 'fly endpoint unavailable',
-        path: fullPath,
-        fly_status: lastStatus || 0,
-        fly_error: lastErr || '',
-      });
+      // R-F2775 — the verbose form leaked backend topology to every authenticated
+      // caller: "fly endpoint unavailable" + the upstream path + the upstream HTTP
+      // status + the raw upstream error string tells an attacker there is a second
+      // service behind this one, where the request landed, and how it failed.
+      // Privileged callers still get the full detail (they operate the thing);
+      // customers get a generic 503.
+      const generic = { error: 'Service temporarily unavailable' };
+      // poweruser included: R-F2773 created the role precisely to OPERATE these
+      // panels read-only, and a diagnostic surface that hides the upstream status
+      // from the person diagnosing it is useless. isPrivileged() alone is
+      // admin/internal only, so widen it here to the infra-read role.
+      if (isPrivileged(req.user) || roleSatisfies(req.user?.role, ['poweruser'])) {
+        Object.assign(generic, {
+          error: 'fly endpoint unavailable',
+          path: fullPath,
+          fly_status: lastStatus || 0,
+          fly_error: lastErr || '',
+        });
+      }
+      res.status(lastStatus || 503).json(generic);
     },
   });
 });
