@@ -21777,9 +21777,10 @@
       "title": "Cycle 6 additive+capped recall reward lever (hold precision; default-off; pre-flight only)",
       "claimed_at": "2026-07-19T13:23:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a15fa3d4",
+      "notes": null,
+      "shipped_at": "2026-07-19T13:31:45Z"
     },
     {
       "r_number": "R-F2789",
