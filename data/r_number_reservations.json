@@ -21739,9 +21739,10 @@
       "title": "C6 rewrite stale test gates to assert production contract (test-only)",
       "claimed_at": "2026-07-19T12:48:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ba750c80",
+      "notes": null,
+      "shipped_at": "2026-07-19T13:18:17Z"
     },
     {
       "r_number": "R-F2785",
@@ -21766,9 +21767,10 @@
       "title": "C7 scope f94 knowledge-snapshot test filter to knowledge key (test-only)",
       "claimed_at": "2026-07-19T13:14:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "492f2c56",
+      "notes": null,
+      "shipped_at": "2026-07-19T13:18:17Z"
     }
   ]
 }
