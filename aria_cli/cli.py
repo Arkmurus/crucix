@@ -40,6 +40,8 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+
+from .redact import redact_secrets as _redact_secrets  # R-F2796 (D9)
 from typing import Any, Dict, List, Optional
 
 # R-F2550 — allow direct `python aria_cli/cli.py` invocation, not only the `aria` entry
@@ -835,11 +837,24 @@ _OUTPUT_CTRL_RE = _re.compile(
 
 
 def _sanitize_output(s: str) -> str:
-    """Make UNTRUSTED text safe to print to the terminal (see _OUTPUT_CTRL_RE)."""
+    """Make UNTRUSTED text safe to print to the terminal (see _OUTPUT_CTRL_RE).
+
+    R-F2796 (D9) — "safe to print" now includes "contains no customer secrets".
+    A terminal transcript is effectively published: it gets screenshotted,
+    pasted into tickets and shared. Before this, `aria` running `printenv`,
+    `flyctl secrets list` or `cat .env` rendered tokens verbatim to the screen.
+
+    This is the single choke point every untrusted-output site already routes
+    through — the error path (:470), tool-result rendering (:1403/:1418/:1447)
+    and live streamed command output (:1544) — so redacting HERE covers the
+    product rather than one call site. Same failure class as R-F2705 on the WA
+    tier; the key vocabulary is mirrored from its log-redact module.
+    """
     if not s:
         return s
     s = s.replace('\r\n', '\n').replace('\r', '\n')
-    return _OUTPUT_CTRL_RE.sub('', s)
+    s = _OUTPUT_CTRL_RE.sub('', s)
+    return _redact_secrets(s)
 
 
 def _is_mistyped_command(token: str) -> bool:
@@ -1230,7 +1245,18 @@ class TerminalUI(AgentUI):
         sys.stdout.flush()
 
     def _render_markdown(self, text: str) -> None:
-        """Render text with Rich markdown and syntax highlighting when available (R-F1389)."""
+        """Render text with Rich markdown and syntax highlighting when available (R-F1389).
+
+        R-F2796 (D9) — assistant prose can quote a secret the model just read out
+        of the customer's environment (it was asked to inspect a .env, a deploy
+        config, a log). That reaches the terminal here, so it is scrubbed too.
+
+        `vendor_only`, NOT full: blanket redaction would break the legitimate
+        case where the customer asks ARIA to GENERATE a value ("give me a
+        JWT_SECRET") — a name-anchored rule would blank exactly what they asked
+        for. Third-party vendor tokens have no such legitimate use, so those go.
+        """
+        text = _redact_secrets(text, mode="vendor_only")
         if self._rich_console:
             try:
                 # Check if text contains code blocks
