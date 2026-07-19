@@ -4367,6 +4367,8 @@ async def run_adverse_media_deep_search(
     coverage_by_class: dict[str, int] = {}
     breaker_skips = 0
     _templates_done = 0
+    _templates_searched = 0   # R-F2791: templates that actually reached the search layer
+    _backends_answered = False  # R-F2791: did ANY template get a raw result back?
     _timed_out = False
     # R-F2745 — the subject's names (entity + directors + UBOs). A finding is only the
     # subject's adverse media if the article NAMES one of these, not just the topic.
@@ -4400,9 +4402,22 @@ async def run_adverse_media_deep_search(
             logger.debug("[adverse_media] template %r failed: %s", source_class, e)
             breaker_skips += 1
             continue
+        # R-F2791 — templates that actually reached the search layer, as opposed to
+        # _templates_done which counts templates ENTERED (it is incremented above,
+        # before the call). Consumers must never certify a screening on the entered
+        # count: a sweep where every backend call failed still reports 30/30 there.
+        _templates_searched += 1
 
         if not search_results:
             continue
+        # R-F2791 — OBSERVATIONAL proof that the search infrastructure answered,
+        # taken from the run itself rather than a separate health probe (free, and
+        # it cannot disagree with what this sweep actually experienced). Recorded
+        # BEFORE the subject-name filter below on purpose: a genuinely clean entity
+        # gets plenty of raw hits for "<name> fraud" that are then dropped as
+        # off-subject — that is a working search with zero findings, which IS valid
+        # negative evidence. Zero RAW results across every template is not.
+        _backends_answered = True
 
         # Capture top-N per template (per max_results_per_template)
         for raw_hit in search_results[:max_results_per_template]:
@@ -4449,7 +4464,12 @@ async def run_adverse_media_deep_search(
     return {
         "ok": True,
         "entity": entity_name,
-        "templates_run": _templates_done,  # R-F2667: ACTUAL templates executed
+        "templates_run": _templates_done,  # R-F2667: templates ENTERED (see templates_searched)
+        # R-F2791 — the two fields consumers must use to decide whether a
+        # zero-finding sweep is valid negative evidence. templates_run alone
+        # certified sweeps in which every backend call failed.
+        "templates_searched": _templates_searched,
+        "search_backends_answered": _backends_answered,
         "templates_total_in_set": total_templates,
         "templates_capped_at": max_templates,
         # R-F2667 — True when the deadline stopped the search early; findings below are a

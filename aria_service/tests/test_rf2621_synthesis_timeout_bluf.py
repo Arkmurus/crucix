@@ -92,12 +92,25 @@ async def test_synthesis_never_ran_fails_closed():
     )
 
 
-async def test_completed_green_synthesis_still_reports_green():
-    """NON-REGRESSION — the guard must not over-trigger.
+async def test_completed_green_synthesis_is_not_downgraded_to_amber_or_red():
+    """NON-REGRESSION — the R-F2621 guard must not over-trigger.
 
-    A synthesis that genuinely COMPLETED (:6779 sets status=OK) and computed
-    GREEN must still produce the GREEN BLUF. Without this, the fix would turn
-    every clean DD into a false AMBER — the opposite failure.
+    R-F2792: this test previously asserted ``_is_clean_verdict(report)`` — i.e.
+    that the BLUF literally contains "GREEN". R-F2786 legitimately changed that:
+    a completed GREEN synthesis whose decision-critical COVERAGE is incomplete
+    now emits "🟡 NOT CLEARED — no blocking risk in the checks that completed…".
+
+    The old assertion conflated two different things, which is exactly the
+    conflation R-F2786 exists to break:
+      * RISK      — what did the completed checks find?   (still GREEN here)
+      * RELIANCE  — was enough collected to rely on this? (not yet)
+
+    R-F2621's REAL invariant is that the synthesis-timeout guard must not
+    over-trigger and turn a clean DD into a false AMBER/RED or an
+    "INSUFFICIENT EVIDENCE" fail-closed. That invariant is asserted directly
+    below — and it is STRONGER than the old text match, which never checked the
+    risk classification at all. Per §23 this asserts the correct contract; it
+    does not weaken the gate.
     """
     report = _report_with_registry_substance("Clean Corp Ltd")
     report.layers_run = ["identity", "verification", "synthesis"]
@@ -107,9 +120,46 @@ async def test_completed_green_synthesis_still_reports_green():
 
     await _assemble_bluf(report)
 
-    assert _is_clean_verdict(report), (
-        "OVER-TRIGGER: a completed GREEN synthesis must still report GREEN, got: "
+    # The guard did NOT fire: risk stays GREEN and the fail-closed marker is absent.
+    assert report.risk_classification == RiskClassification.GREEN.value, (
+        f"OVER-TRIGGER: completed GREEN synthesis was downgraded to "
+        f"{report.risk_classification!r}"
+    )
+    assert "INSUFFICIENT" not in (report.bottom_line or "").upper(), (
+        f"OVER-TRIGGER: the synthesis-timeout fail-closed fired on a completed "
+        f"synthesis: {report.bottom_line!r}"
+    )
+    # And the BLUF states plainly that completed checks found no blocking risk.
+    assert "NO BLOCKING RISK" in (report.bottom_line or "").upper(), (
+        f"a completed GREEN synthesis must say the checks found no blocking risk: "
         f"{report.bottom_line!r}"
+    )
+
+
+async def test_completed_green_with_incomplete_coverage_is_not_a_clean_verdict():
+    """R-F2792 — the other half of the contract, made explicit.
+
+    GREEN risk plus INCOMPLETE decision-critical coverage must never read as
+    permission to transact. This is the R-F2786 rule, pinned here next to the
+    R-F2621 guard so the two can never silently drift apart again.
+    """
+    report = _report_with_registry_substance("Clean Corp Ltd")
+    report.layers_run = ["identity", "verification", "synthesis"]
+    report.synthesis.meta.status = LayerStatus.OK.value
+    report.risk_classification = RiskClassification.GREEN.value
+    report.synthesis.risk_classification = RiskClassification.GREEN.value
+
+    await _assemble_bluf(report)
+
+    assert not _is_clean_verdict(report), (
+        "FALSE-CLEAN: coverage is incomplete (no adverse-media, financials, UBO "
+        f"or sanctions evidence) yet the BLUF read as clean: {report.bottom_line!r}"
+    )
+    assert "STANDARD CONTRACTING PATH AVAILABLE" not in (report.bottom_line or "").upper(), (
+        "FALSE-CLEAN: contracting language offered on incomplete coverage"
+    )
+    assert not (report.decision_readiness or {}).get("clearance_ready"), (
+        "readiness must not be cleared when the five questions are unanswered"
     )
 
 

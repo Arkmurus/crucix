@@ -8931,6 +8931,70 @@ def _apply_adverse_media_to_verdict(body: dict, am_result: dict) -> dict:
     return {"escalated": True, "reason": reason, "new_risk": "AMBER-LIGHT", **mat}
 
 
+def _invalidate_stale_report_render(body: dict, *, reason: str) -> None:
+    """R-F2794 — drop the frozen markdown snapshot once the verdict has moved.
+
+    `body["rendered"]` is written once at persist time (:7628). The async
+    follow-ups then change `risk_classification` (R-F2780 escalation) and the
+    BLUF/readiness (R-F2786) WITHOUT re-rendering, so
+    ``GET /dd/report/{id}?format=markdown`` — which short-circuits on this key —
+    served pre-escalation GREEN text permanently, to the aria-app report page,
+    both Copy buttons, and the fine-tune capture in learning/training_export.py.
+
+    We invalidate rather than re-render here on purpose: rebuilding an
+    ARKDDReport from a dict lives in the routes layer (`_rebuild_report_from_dict`),
+    and importing routes into intel would invert the dependency direction. The
+    read path already falls through to that rebuild when the key is absent, so
+    dropping it makes markdown reads self-heal with fresh text.
+
+    Consequence worth knowing: a report whose snapshot is invalidated is skipped
+    by the fine-tune capture until it is next rendered. Skipping a sample is
+    strictly better than training on a verdict we have since retracted.
+    """
+    if body.get("rendered"):
+        body.pop("rendered", None)
+        body["rendered_invalidated_reason"] = reason
+
+
+def _apply_risk_to_index_rows(index: list, run_id: str, risk: str) -> list:
+    """R-F2794 — carry an escalated verdict into the report INDEX row.
+
+    The index is what the LIST surfaces render (dashboard.html, the aria-app
+    dashboard + reports pages, vls-chain.html, and the dd-reports list rows).
+    Persist writes `severity`, `risk` and `risk_classification` together because
+    different renderers read different keys (R-F130) — so all three must follow
+    the escalation, or one surface keeps showing GREEN.
+
+    Pure and defensive: index maintenance must never break a DD run.
+    """
+    if not isinstance(index, list):
+        return []
+    for row in index:
+        if not isinstance(row, dict) or row.get("run_id") != run_id:
+            continue
+        row["severity"] = risk
+        row["risk"] = risk
+        row["risk_classification"] = risk
+    return index
+
+
+async def _sync_report_surfaces_after_followup(body: dict, run_id: str) -> None:
+    """R-F2794 — after a follow-up merge, leave NO persisted artefact asserting
+    the pre-escalation verdict. Best-effort: never raises into the merge path."""
+    try:
+        _invalidate_stale_report_render(body, reason="adverse_media_followup")
+    except Exception as _e:  # noqa: BLE001 — surface sync must not break the merge
+        logger.debug("[R-F2794] render invalidation failed (non-fatal): %s", _e)
+    try:
+        _risk = str(body.get("risk_classification") or "").strip()
+        if _risk:
+            await _mutate_report_index(
+                lambda idx: _apply_risk_to_index_rows(idx, run_id, _risk)
+            )
+    except Exception as _e:  # noqa: BLE001
+        logger.debug("[R-F2794] index risk sync failed (non-fatal): %s", _e)
+
+
 def _refresh_persisted_decision_readiness(body: dict) -> dict:
     """Refresh readiness and a GREEN report's wording after a follow-up merge.
 
@@ -9046,6 +9110,11 @@ async def _run_adverse_media_followup(
                 # customer-critical questions. Keep the stored scorecard and
                 # BLUF in sync; non-GREEN adverse escalations are untouched.
                 _refresh_persisted_decision_readiness(_body)
+                # R-F2794 — the body is now correct, but two OTHER persisted
+                # artefacts still assert the pre-escalation verdict: the frozen
+                # `rendered` markdown and the report index row the list surfaces
+                # read. Sync both INSIDE the merge lock, before the write.
+                await _sync_report_surfaces_after_followup(_body, run_id)
                 await rs.set_json(REPORT_REDIS_KEY.format(run_id=run_id), _body, ex=REPORT_TTL_SECONDS)
             else:
                 _esc = {"escalated": False, "reason": "report-not-found"}

@@ -1102,20 +1102,33 @@ def _quality_metrics(r: dict) -> dict:
     citation_rate = ver.get("citation_grounding_rate")
     if not isinstance(citation_rate, (int, float)) and citations_checked:
         citation_rate = citations_grounded / max(citations_checked, 1)
+    adverse_findings = int(adverse.get("findings_count") or len(adverse.get("findings") or []) or 0)
     adverse_templates_run = int(adverse.get("templates_run") or 0)
-    if not adverse_templates_run and int(adverse.get("findings_count") or 0) > 0:
-        # Legacy persisted reports predate templates_run. Real findings prove
-        # at least one template executed; zero findings require the explicit
-        # modern counter so absence alone cannot certify a search.
-        adverse_templates_run = 1
+    # R-F2791 — `templates_run` counts templates ENTERED, not SEARCHED: researcher
+    # incremented its counter before issuing the call, so a sweep in which every
+    # backend call failed still reported 30/30. Combined with R-F2786 dropping the
+    # zero-finding penalty, that scored a total backend failure IDENTICALLY to a
+    # clean screening — a false clean, the one thing this system must never emit.
+    # `templates_searched` counts templates that actually reached a backend.
+    adverse_templates_searched = int(adverse.get("templates_searched") or 0)
+    if not adverse_templates_searched and adverse_findings > 0:
+        # Legacy blobs predate both counters. Real findings PROVE a backend
+        # answered; zero findings prove nothing and must not self-certify.
+        adverse_templates_searched = 1
+    # Zero findings is negative EVIDENCE only where the search infrastructure is
+    # shown to have been working. Findings are self-proving; otherwise we require
+    # the recorded backend health. Unknown health (None, e.g. a legacy report)
+    # fails CLOSED — "we cannot show the search worked" is not "the entity is clean".
+    adverse_backends_answered = adverse.get("search_backends_answered")
+    adverse_evidence_ok = adverse_findings > 0 or adverse_backends_answered is True
     adverse_run = bool(
         adverse
         and adverse.get("ok") is True
-        and adverse_templates_run > 0
+        and adverse_templates_searched > 0
+        and adverse_evidence_ok
         and not adverse.get("partial")
         and not adverse.get("timed_out")
     )
-    adverse_findings = int(adverse.get("findings_count") or len(adverse.get("findings") or []) or 0)
     # R-F2657 — the adverse-media search now runs as an OUT-OF-BAND follow-up; while it is
     # still deferred (status=="in_progress") it has NOT run yet. Treat pending as NOT-RUN
     # for grading, so a triggered target cannot reach Grade A on adverse-media grounds
@@ -1201,6 +1214,8 @@ def _quality_metrics(r: dict) -> dict:
         "citation_grounding_rate": citation_rate,
         "adverse_media_run": adverse_run,
         "adverse_media_templates_run": adverse_templates_run,
+        "adverse_media_templates_searched": adverse_templates_searched,  # R-F2791
+        "adverse_media_backends_answered": adverse_backends_answered,      # R-F2791
         "adverse_media_findings": adverse_findings,
         "adverse_media_skipped": adverse_skipped,
         "has_search_degradation_gap": _quality_has_search_gap(r),
@@ -1355,9 +1370,37 @@ def _dd_decision_readiness(r: dict) -> dict:
             "unknown", "unavailable", "not available", "n/a", "na", "none",
         }
 
+    # R-F2793 — identity must rest on a recognisably LIVE registry status.
+    # `_substantive()` only rejects {unknown, unavailable, n/a, na, none}, so a
+    # company registered as `dissolved`, `struck off`, `liquidation` — or literally
+    # `banana` — used to answer "Verified legal identity: ANSWERED". A struck-off
+    # entity is one of the most decision-critical negative signals in DD; reading
+    # it as verified identity is a false clean.
+    #
+    # Unrecognised values fail CLOSED. "We cannot tell whether this company is
+    # alive" is not "identity verified" — and for a foreign registry whose status
+    # vocabulary we do not model, the honest answer is UNRESOLVED, not a pass.
+    registration_status_raw = str(ident.get("registration_status") or "").strip()
+    _status = registration_status_raw.lower().replace("_", " ").replace("-", " ")
+    _LIVE_STATUS_TOKENS = (
+        "active", "registered", "live", "good standing", "current",
+        "incorporated", "operating", "in business", "trading", "existing",
+    )
+    _DEAD_STATUS_TOKENS = (
+        "dissolved", "liquidat", "struck", "closed", "terminated",
+        "administration", "receivership", "insolven", "cancelled", "canceled",
+        "revoked", "suspended", "inactive", "defunct", "deregistered",
+        "wound up", "winding up", "bankrupt", "expired",
+    )
+    _status_dead = any(tok in _status for tok in _DEAD_STATUS_TOKENS)
+    # Dead wins over live so "converted-closed" or "active - in liquidation"
+    # can never pass on the strength of the word "active" alone.
+    registry_status_live = bool(
+        _status and not _status_dead and any(tok in _status for tok in _LIVE_STATUS_TOKENS)
+    )
     registration_number = _substantive(ident.get("registration_number"))
     registry_profile = bool(
-        _substantive(ident.get("registration_status"))
+        registry_status_live
         and (ident.get("directors") or _substantive(ident.get("incorporation_date")))
     )
     identity_ok = bool(registration_number and registry_profile)
@@ -1375,12 +1418,20 @@ def _dd_decision_readiness(r: dict) -> dict:
     )
     sanctions_export_ok = sanctions_verified and export_checked
 
+    # R-F2791 — mirror the quality-metric rule exactly, so the scorecard cannot
+    # certify a sweep the quality scorer just rejected. `templates_run` counted
+    # templates ENTERED, so it answered this question for a sweep in which every
+    # backend call failed. Require a template that actually SEARCHED, plus either
+    # real findings (self-proving) or verified-healthy backends. Unknown health
+    # fails CLOSED: absence of evidence is not evidence of absence.
+    _adv_findings = int(adverse.get("findings_count") or len(adverse.get("findings") or []) or 0)
+    _adv_searched = int(adverse.get("templates_searched") or 0)
+    if not _adv_searched and _adv_findings > 0:
+        _adv_searched = 1  # legacy blob: findings prove a backend answered
     adverse_ok = bool(
         adverse.get("ok") is True
-        and (
-            int(adverse.get("templates_run") or 0) > 0
-            or int(adverse.get("findings_count") or 0) > 0
-        )
+        and _adv_searched > 0
+        and (_adv_findings > 0 or adverse.get("search_backends_answered") is True)
         and adverse.get("status") != "in_progress"
         and not adverse.get("partial")
         and not adverse.get("timed_out")
@@ -1394,8 +1445,22 @@ def _dd_decision_readiness(r: dict) -> dict:
     budget_exhausted = bool(walk_stats.get("budget_exhausted")) or any(
         "budget exhausted" in gap.lower() for gap in walk_gaps
     )
-    ownership_present = bool(
-        ident.get("shareholders") or ident.get("ubo_chain") or network.get("ubo_chain")
+    # R-F2793 — a holder LIST is not ownership evidence; a holder with SUBSTANCE is.
+    # This was the truthiness of the list, so `[{}]` or `['x']` answered
+    # "Ownership and control: ANSWERED".
+    def _has_named_holder(holders) -> bool:
+        if not isinstance(holders, (list, tuple)):
+            return False
+        for h in holders:
+            name = h.get("name") if isinstance(h, dict) else h
+            if isinstance(name, str) and len(name.strip()) >= 2 and _substantive(name):
+                return True
+        return False
+
+    ownership_present = any(
+        _has_named_holder(src) for src in (
+            ident.get("shareholders"), ident.get("ubo_chain"), network.get("ubo_chain"),
+        )
     )
     ownership_ok = ownership_present and not budget_exhausted
 
@@ -1410,8 +1475,17 @@ def _dd_decision_readiness(r: dict) -> dict:
             "label": "Verified legal identity",
             "status": "ANSWERED" if identity_ok else "UNRESOLVED",
             "answered": identity_ok,
-            "evidence": "registry number plus status and directors/incorporation",
-            "blocker": "legal identity is not registry-substantiated" if not identity_ok else "",
+            "evidence": "live registry status plus number and directors/incorporation",
+            # R-F2793 — name the offending status so the blocker is actionable:
+            # "registry status is 'dissolved'" is a different instruction to the
+            # reader than a generic "not substantiated".
+            "blocker": (
+                "" if identity_ok
+                else f"registry status is {registration_status_raw!r}" if _status_dead
+                else f"registry status {registration_status_raw!r} is not a recognised live status"
+                if registration_status_raw
+                else "legal identity is not registry-substantiated"
+            ),
         },
         "sanctions_export_control": {
             "label": "Sanctions and export-control exposure",
@@ -1463,7 +1537,14 @@ def _dd_decision_readiness(r: dict) -> dict:
         )
     ready = answered == len(questions) and evidence_ready
     return {
-        "status": "CLEARED_FOR_RELIANCE" if ready else "NOT_CLEARED",
+        # R-F2793 — "CLEARED_FOR_RELIANCE" over-claims and R-F2786's own author
+        # flagged it. ARIA is an open-source DD system: search recall is not
+        # independently measured and commercial datasets are incomplete, so five
+        # answered questions at Grade A means the file is READY FOR A HUMAN TO
+        # DECIDE — it is not a compliance sign-off. Saying "cleared" invites a
+        # customer to treat an automated report as clearance, which is the same
+        # false-confidence failure this whole scorecard exists to prevent.
+        "status": "DECISION_READY_FOR_HUMAN_REVIEW" if ready else "NOT_CLEARED",
         "clearance_ready": ready,
         "completion_pct": int(answered * 100 / len(questions)),
         "answered": answered,

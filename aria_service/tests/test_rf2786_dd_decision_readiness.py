@@ -88,7 +88,9 @@ def test_rf2786_ubo_budget_exhaustion_blocks_clearance() -> None:
 def test_rf2786_all_five_questions_answered_is_decision_ready() -> None:
     readiness = _dd_decision_readiness(_decision_grade_report().as_dict())
 
-    assert readiness["status"] == "CLEARED_FOR_RELIANCE"
+    # R-F2793 — status is deliberately not "cleared": an automated open-source DD
+    # is decision-READY, not a compliance sign-off.
+    assert readiness["status"] == "DECISION_READY_FOR_HUMAN_REVIEW"
     assert readiness["clearance_ready"] is True
     assert readiness["completion_pct"] == 100
     assert readiness["evidence_grade"] == "A"
@@ -168,9 +170,33 @@ def test_rf2786_adverse_followup_refreshes_stored_bluf_without_overwriting_risk(
     assert initial["clearance_ready"] is False
     assert "NOT CLEARED" in body["bottom_line"]
 
+    # R-F2791 — a sweep that merely ENTERED templates does not clear. `templates_run`
+    # counts templates entered, not searched, so this shape (30 run / 0 findings /
+    # no proof any backend answered) is exactly the total-backend-failure state.
+    # It must NOT reach clearance.
     body["adverse_media"] = {
         "ok": True,
         "templates_run": 30,
+        "templates_searched": 0,
+        "search_backends_answered": False,
+        "partial": False,
+        "timed_out": False,
+        "findings_count": 0,
+        "findings": [],
+    }
+    failed_sweep = _refresh_persisted_decision_readiness(body)
+    assert failed_sweep["clearance_ready"] is False, (
+        "a sweep where no template reached a backend must never clear"
+    )
+    assert "NOT CLEARED" in body["bottom_line"]
+
+    # A genuinely completed sweep — templates searched and backends demonstrably
+    # answered — clears on zero findings. This is R-F2786's legitimate fix.
+    body["adverse_media"] = {
+        "ok": True,
+        "templates_run": 30,
+        "templates_searched": 30,
+        "search_backends_answered": True,
         "partial": False,
         "timed_out": False,
         "findings_count": 0,
