@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2799,
+  "next_available": 2800,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21884,6 +21884,16 @@
       "commit_sha": "ab64b07c",
       "notes": null,
       "shipped_at": "2026-07-19T16:49:56Z"
+    },
+    {
+      "r_number": "R-F2799",
+      "title": "rebuild the faulting aria_documents chroma collection safely (backup + verified re-ingest, no knowledge loss per CLAUDE.md §7)",
+      "claimed_at": "2026-07-19T16:57:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a6d21ddc",
+      "notes": null,
+      "shipped_at": "2026-07-19T17:06:45Z"
     }
   ]
 }
