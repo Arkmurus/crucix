@@ -199,12 +199,62 @@ async def search_companies(query: str, limit: int = 5) -> list[dict]:
 
 
 @fail_wire(module="companies_house", gap_type="api_missing")
+def _accounts_block(accounts: dict | None) -> dict:
+    """Normalise the Companies House `accounts` object (R-F2782).
+
+    Returns a stable shape whatever CH sends — an absent or malformed block
+    yields `filed=False` with empty fields rather than raising or, worse,
+    looking like a company with clean accounts. `filed` is deliberately keyed
+    off a real `made_up_to` date: a company that has never filed has an
+    `accounts` object containing only a `next_due`, and that must not read as
+    evidence of filing.
+
+    `distress_flags` are SIGNALS, not a verdict — see the note at the call site.
+    """
+    a = accounts if isinstance(accounts, dict) else {}
+    last = a.get("last_accounts") if isinstance(a.get("last_accounts"), dict) else {}
+
+    made_up_to = last.get("made_up_to") or ""
+    acct_type = (last.get("type") or "").strip().lower()
+    overdue = bool(a.get("overdue"))
+
+    flags: list[str] = []
+    if overdue:
+        # Late statutory accounts are a standard early-distress indicator.
+        flags.append("accounts_overdue")
+    if acct_type == "dormant":
+        flags.append("dormant_accounts")
+    if not made_up_to:
+        flags.append("no_accounts_filed")
+
+    return {
+        "filed": bool(made_up_to),
+        "last_made_up_to": made_up_to,
+        "last_type": acct_type,
+        "period_start_on": last.get("period_start_on") or "",
+        "period_end_on": last.get("period_end_on") or "",
+        "next_due": a.get("next_due") or "",
+        "next_made_up_to": a.get("next_made_up_to") or "",
+        "overdue": overdue,
+        "accounting_reference_date": a.get("accounting_reference_date") or {},
+        "distress_flags": flags,
+        # Explicit so no downstream consumer mistakes filing metadata for a
+        # solvency assessment (R-F2782 phase 2 supplies the figures).
+        "has_figures": False,
+    }
+
+
 async def get_company_profile(company_number: str) -> dict | None:
     """Get full company profile."""
     data = await _get(f"/company/{company_number}")
     if not data:
         return None
     addr = data.get("registered_office_address") or {}
+    # R-F2782 — normalise once, derive both keys from it. The old inline
+    # `(data.get("accounts") or {}).get("next_due")` raised AttributeError on a
+    # truthy non-dict (the `or {}` guard only catches falsy), and having two
+    # readers of the same field invited them to drift apart.
+    accounts = _accounts_block(data.get("accounts"))
     return {
         "company_number": data.get("company_number"),
         "company_name": data.get("company_name"),
@@ -223,7 +273,25 @@ async def get_company_profile(company_number: str) -> dict | None:
         "has_been_liquidated": data.get("has_been_liquidated", False),
         "has_charges": data.get("has_charges", False),
         "has_insolvency_history": data.get("has_insolvency_history", False),
-        "accounts_next_due": (data.get("accounts") or {}).get("next_due"),
+        "accounts_next_due": accounts["next_due"] or None,
+        # R-F2782 — keep the WHOLE accounts block, not just next_due.
+        #
+        # This call already fetched all of it and threw the rest away, so every
+        # non-US entity reached financial_health with nothing but a due date and
+        # landed on "UNKNOWN — not a US-listed filer" (financial_health.py:290).
+        # A live deep DD on BAE Systems (FTSE-100, fully public UK filings) came
+        # back with financial capacity UNKNOWN for exactly this reason.
+        #
+        # `type` (full | small | micro-entity | dormant) is a substance signal,
+        # `made_up_to` dates the evidence, and `overdue` is a standard distress
+        # flag. All primary-source, all free, all already in `data`.
+        #
+        # NB this is EVIDENCE, not a health verdict — there are no revenue or
+        # solvency figures here, so it must NOT be used to answer the DD
+        # `financial_capacity` question. Figures need the CH Document API
+        # (iXBRL); that is R-F2782 phase 2. Closing the gate on metadata alone
+        # would manufacture a false clean, which is the one thing DD may not do.
+        "accounts": accounts,
         "confirmation_next_due": (data.get("confirmation_statement") or {}).get("next_due"),
         "last_full_members_list": data.get("last_full_members_list_date"),
     }
