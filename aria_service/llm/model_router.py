@@ -507,14 +507,34 @@ def _verify_grounded(text: str, context: str, message: str) -> str:
             return text
         from ..intel import citation_verifier as cv
         v = cv.verify_and_clean(text or "", context or "")
+        out = text
         if v.get("fabricated_removed"):
             wire_success(
                 module="model_router",
                 summary=f"citation-verify: stripped {v['fabricated_removed']} unverified source(s) before shipping",
                 source_id="model_router:citation_verify",
             )
-            return v["answer"]
-        return text
+            out = v["answer"]
+        # R-F2809 (north star P1) — brain-central CLAIM grounding: extend the
+        # deterministic source-verify to FIGURES. An asserted figure absent from the
+        # evidence AND the user's question, with no citation / hedge / derivation /
+        # hypothetical, is an ungrounded numeric claim. Default 'off' (inert on
+        # deploy); 'measure' observes the rate WITHOUT altering the answer; 'flag'
+        # marks ungrounded figures [unverified]. Both chat + stream inherit this.
+        mode = (os.getenv("ARIA_CLAIM_GROUNDING", "off") or "off").strip().lower()
+        if mode in ("measure", "flag"):
+            from ..intel import claim_grounding as cg
+            cgr = cg.ground_claims(out, context or "", message=message or "", mode=mode)
+            if cgr.get("ungrounded_sentences"):
+                wire_success(
+                    module="model_router",
+                    summary=f"claim-grounding [{mode}]: {cgr['ungrounded_sentences']} ungrounded-figure "
+                            f"sentence(s): {cgr['ungrounded_figures'][:4]}",
+                    source_id="model_router:claim_grounding",
+                )
+                if mode == "flag":
+                    out = cgr["answer"]
+        return out
     except Exception:  # pragma: no cover — verification must never break a turn
         return text
 

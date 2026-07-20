@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2808,
+  "next_available": 2810,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21972,6 +21972,24 @@
       "commit_sha": "001bb0c0",
       "notes": null,
       "shipped_at": "2026-07-20T07:57:47Z"
+    },
+    {
+      "r_number": "R-F2808",
+      "title": "purge_parked vacuous §7 refusal when the parked METADATA segment is missing + sqlite bool metadata fidelity; note that R-F2798 moved the native fault rather than removing it",
+      "claimed_at": "2026-07-20T08:08:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2809",
+      "title": "P1 brain-central claim-grounding: deterministic ungrounded-figure detection extending the R-F2540 source verifier (measure-first)",
+      "claimed_at": "2026-07-20T08:10:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
