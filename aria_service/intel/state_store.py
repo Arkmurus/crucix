@@ -149,6 +149,23 @@ _WRITE_QUEUE_MAX = int(os.getenv("ARIA_STATE_WRITE_QUEUE_MAX", "2000"))
 _WRITE_BATCH_SIZE = int(os.getenv("ARIA_STATE_WRITE_BATCH_SIZE", "50"))
 # How long the worker waits for more writes before flushing a partial batch.
 _WRITE_FLUSH_INTERVAL_S = float(os.getenv("ARIA_STATE_WRITE_FLUSH_INTERVAL_S", "0.1"))
+# R-F2815 (Stage B of the R-F2813 HA re-architecture) — INTERRUPTIBLE WRITES.
+# DEFAULT OFF: when off, the writer path below is byte-identical to pre-R-F2815
+# (measure-first rollout). When on: (1) a write that exceeds _WRITE_EXECUTE_TIMEOUT_S
+# is ABORTED via sqlite3.Connection.interrupt() — which is thread-safe and callable
+# from THIS event-loop thread — freeing the wedged aiosqlite worker thread IN-PROCESS
+# instead of waiting for the R-F2277 watchdog's os._exit cold-boot (the ~10-min
+# outage); and (2) each drain TRANSACTION is bounded to _WRITE_BATCH_SIZE so one
+# flush can't monopolise the single writer thread for thousands of serial round-trips
+# (the wedge precursor). The R-F2277 watchdog stays the ultimate backstop for any
+# wedge interrupt() cannot clear — this change LOWERS how often it must fire, never
+# disarms it.
+_INTERRUPTIBLE_WRITES = os.getenv("ARIA_INTERRUPTIBLE_WRITES", "0").strip().lower() in ("1", "true", "yes", "on")
+# Per-write execute timeout (was a hardcoded 60.0 at the flush site, R-F2154). A
+# write exceeding this on the single writer thread is a wedge signal; in interruptible
+# mode it triggers interrupt()+reconnect rather than a silent 60s coroutine-cancel
+# that leaves the C thread running.
+_WRITE_EXECUTE_TIMEOUT_S = float(os.getenv("ARIA_STATE_WRITE_EXECUTE_TIMEOUT_S", "60"))
 # R-F2137: runtime WAL maintenance. PRAGMA wal_autocheckpoint is PASSIVE — it
 # transfers frames into the DB but NEVER shrinks the -wal file, so under
 # sustained writes + reader pinning the file's high-water mark only grows at
@@ -397,7 +414,17 @@ async def _start_write_worker() -> None:
         while True:
             try:
                 await asyncio.sleep(0.1)
-                await _flush_write_queue()
+                if _INTERRUPTIBLE_WRITES:
+                    # R-F2815 — bound each TRANSACTION to _WRITE_BATCH_SIZE so one
+                    # commit-cycle can't hold the single writer thread for thousands
+                    # of serial round-trips, while still draining the whole backlog
+                    # this tick. Cap the sub-flushes so a sustained storm can't loop
+                    # forever here — the queue's own backpressure takes over past that.
+                    for _ in range(64):
+                        if await _flush_write_queue(max_items=_WRITE_BATCH_SIZE) < _WRITE_BATCH_SIZE:
+                            break
+                else:
+                    await _flush_write_queue()
                 _ckpt_counter += 1
                 if _ckpt_counter >= _ckpt_every:
                     _ckpt_counter = 0
@@ -523,10 +550,14 @@ async def _flush_cold_queue() -> int:
     if batch and _cold_conn is not None:
         try:
             for sql, params in batch:
-                await asyncio.wait_for(_cold_conn.execute(sql, params), timeout=60.0)
-            await asyncio.wait_for(_cold_conn.commit(), timeout=60.0)
+                await asyncio.wait_for(_cold_conn.execute(sql, params), timeout=_WRITE_EXECUTE_TIMEOUT_S)
+            await asyncio.wait_for(_cold_conn.commit(), timeout=_WRITE_EXECUTE_TIMEOUT_S)
         except asyncio.TimeoutError:
             logger.error("state_store[cold]: flush timed out (%d writes) — may be lost.", len(batch))
+            # R-F2815 — free the wedged COLD writer thread in-process (interrupt only;
+            # the watchdog reopens both conns if it can't self-recover). Inert unless enabled.
+            if _INTERRUPTIBLE_WRITES:
+                _interrupt_wedged_writer(_cold_conn, "cold-flush", reconnect=False)
         except Exception as e:
             logger.error("state_store[cold]: flush failed (%d writes): %s", len(batch), e)
     return flushed
@@ -623,21 +654,68 @@ async def _enqueue_write(sql: str, params: tuple, key: str | None = None) -> Non
         )
 
 
-async def _flush_write_queue() -> int:
-    """Flush all pending writes immediately. Returns the number flushed.
-    Used by close(), reads, and tests to ensure all writes are durable.
-    
-    R-F1541: called before every read operation so callers that do
-    set() → get() see their own writes. The flush is a no-op when the
-    queue is empty (the common case), so the read-path overhead is
-    negligible in steady state.
+def _interrupt_wedged_writer(conn, where: str, reconnect: bool = True) -> None:
+    """R-F2815 (Stage B) — abort a write wedged on the aiosqlite worker thread.
+
+    asyncio.wait_for cancels the awaiting COROUTINE but CANNOT stop the running C
+    thread — the exact 2026-07-02 wedge property documented at the R-F2277 watchdog.
+    sqlite3.Connection.interrupt() IS thread-safe (the sqlite3 docs guarantee it may
+    be called from a different thread to abort in-flight queries), so calling it here
+    from the event-loop thread aborts the statement stuck on aiosqlite's worker
+    thread, freeing it so the store recovers IN-PROCESS. We then schedule the
+    single-flight, PROBE-FIRST _reconnect: its SELECT-1 probe finds the freed conn
+    healthy and SKIPS the reset, or (if interrupt could not clear it) replaces the
+    conn — either way the next writes get a clean writer. Never raises; on any failure
+    the R-F2277 watchdog remains the backstop (os._exit past its ceiling).
+    """
+    # aiosqlite 0.22.x stores the raw sqlite3.Connection at `_connection`. getattr
+    # (no raise) so a version/shape change just skips the interrupt (falls back to the
+    # pre-R-F2815 behaviour + watchdog), never crashes the flush loop.
+    raw = getattr(conn, "_connection", None) if conn is not None else None
+    if raw is None:
+        return
+    try:
+        raw.interrupt()  # thread-safe: aborts the query running on the worker thread
+        logger.error(
+            "[R-F2815] interrupted a wedged state_store write (%s) — worker thread "
+            "freed in-process; scheduling probe-first reconnect", where,
+        )
+    except Exception as e:
+        logger.error("[R-F2815] interrupt() failed (%s): %s — watchdog remains the backstop", where, e)
+        return
+    # HOT writer: probe-first reconnect for a clean conn. COLD writer (reconnect=False):
+    # interrupt frees the thread; if that didn't recover it, probe_liveness (which also
+    # SELECT-1s the cold conn, R-F2580) detects the wedge and the watchdog's os._exit
+    # reopens BOTH conns — so no cold-specific reconnect is needed here.
+    if not reconnect:
+        return
+    try:
+        asyncio.get_running_loop().create_task(_reconnect())
+    except Exception:
+        pass
+
+
+async def _flush_write_queue(max_items: int | None = None) -> int:
+    """Flush pending writes immediately. Returns the number flushed.
+    Used by close(), reads, probe_liveness, and tests to ensure writes are durable.
+
+    R-F1541: the flush is a no-op when the queue is empty (the common case), so the
+    overhead is negligible in steady state.
+
+    R-F2815: `max_items` bounds how many queued writes are drained (and committed as
+    ONE transaction) in this call. Default None = drain ALL — every existing caller
+    (close, reads, probe_liveness, the immediate-write ops) relies on a full drain, so
+    None is byte-identical to the pre-R-F2815 behaviour. The periodic worker passes
+    _WRITE_BATCH_SIZE (interruptible mode only) so a single commit-cycle can't hold the
+    one writer thread for thousands of serial round-trips.
     """
     queue = _QUEUED_WRITES
     if queue is None or queue.empty():
         return 0
     flushed = 0
     batch: list[tuple] = []
-    while not queue.empty():
+    # Collection is await-free (get_nowait) → an atomic snapshot; max_items bounds it.
+    while not queue.empty() and (max_items is None or len(batch) < max_items):
         try:
             sql, params = queue.get_nowait()
             batch.append((sql, params))
@@ -646,18 +724,26 @@ async def _flush_write_queue() -> int:
             break
     if batch and _conn is not None:
         try:
-            # R-F2154: bounded flush — wrap each execute in a 60s timeout
-            # so a large DB (verified facts, neural edges) has time to
-            # complete writes. 10s was too tight for a 790 MB DB.
+            # R-F2154: bounded flush — each execute has a generous timeout so a large
+            # DB (verified facts, neural edges) has time to complete. 10s was too tight
+            # for a ~790 MB DB. R-F2815: the value is now the _WRITE_EXECUTE_TIMEOUT_S
+            # constant, and exceeding it is treated as a WEDGE signal below.
             for sql, params in batch:
-                await asyncio.wait_for(_conn.execute(sql, params), timeout=60.0)
-            await asyncio.wait_for(_conn.commit(), timeout=60.0)
+                await asyncio.wait_for(_conn.execute(sql, params), timeout=_WRITE_EXECUTE_TIMEOUT_S)
+            await asyncio.wait_for(_conn.commit(), timeout=_WRITE_EXECUTE_TIMEOUT_S)
         except asyncio.TimeoutError:
             logger.error(
                 "state_store: flush timed out (%d writes) — DB may be "
                 "bloated or under WAL recovery. Writes may be lost.",
                 len(batch),
             )
+            # R-F2815 — a write exceeding the execute timeout means the writer thread
+            # is wedged (wait_for cancelled our coroutine but the C thread runs on).
+            # Interrupt it so the store recovers in-process instead of every later
+            # write queuing behind it until the R-F2277 watchdog cold-boots. Default
+            # OFF → this branch is inert unless ARIA_INTERRUPTIBLE_WRITES is set.
+            if _INTERRUPTIBLE_WRITES:
+                _interrupt_wedged_writer(_conn, "flush")
         except Exception as e:
             logger.error("state_store: flush failed (%d writes): %s", len(batch), e)
             _schedule_reconnect_if_dead(e)
