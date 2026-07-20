@@ -307,6 +307,17 @@ def _get_client():
         # cached and single-flight, via get_stats(). Log what init actually
         # established — that the store opened and which collections exist —
         # and let anyone who wants numbers pay for them through the cached path.
+        #
+        # ★ R-F2808 — READ THIS BEFORE CONCLUDING THE CRASH CLASS IS CLOSED.
+        # Removing the counts MOVED the native fault out of boot; it did not
+        # remove it. A collection whose HNSW index is corrupt will still fault on
+        # the first query()/get() from a real RAG search — mid-request, which is
+        # a WORSE place to lose the process than at boot, because it is
+        # nondeterministic and user-facing. The actual structural fix is to
+        # repair the collection: scripts/admin/rebuild_rag_collection.py
+        # (R-F2799 rebuild / R-F2800 purge). If you see a native access violation
+        # in a RAG path, rebuild the collection — do not add error handling here,
+        # because a Windows access violation cannot be caught by try/except.
         logger.info(
             "RAG store ready at %s — collections: %s, %s, %s (counts via get_stats)",
             RAG_PATH, local_docs.name, local_facts.name, local_cold.name,

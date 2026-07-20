@@ -273,3 +273,78 @@ def test_purge_is_a_noop_when_parked_does_not_exist(tmp_path: Path):
     root = _two_collection_store(tmp_path, parked_ids=["a"], live_ids=["a"])
     rc = mod.purge_parked(str(root), "never_existed", "aria_documents", apply=True)
     assert rc == 0, "absent parked collection is a clean no-op, not an error"
+
+
+# ── R-F2808: the §7 guarantee must not pass vacuously ──────────────────────
+
+def test_purge_refuses_when_the_parked_metadata_segment_is_missing(tmp_path: Path):
+    """A missing segment made the "would destroy knowledge" refusal a no-op.
+
+    `where segment_id = NULL` matches nothing in SQL, so pids was empty, missing
+    was empty, the §7 refusal was skipped — and the rows and index dirs were
+    then deleted. The trigger is exactly the sqlite inconsistency this tool
+    exists to clean up after.
+    """
+    mod = _load_tool()
+    root = _two_collection_store(tmp_path, parked_ids=["a", "b"], live_ids=["a", "b"])
+    db = sqlite3.connect(root / "chroma.sqlite3")
+    db.execute("delete from segments where id='segm-old'")   # lose the METADATA segment
+    db.commit(); db.close()
+
+    rc = mod.purge_parked(str(root), "aria_documents__corrupt_x", "aria_documents", apply=True)
+    assert rc == 3, "must refuse when it cannot prove what the parked copy holds"
+    assert (root / "segv-old").is_dir(), "nothing may be deleted on a refusal"
+    db = sqlite3.connect(root / "chroma.sqlite3")
+    assert db.execute("select count(*) from collections where name=?",
+                      ("aria_documents__corrupt_x",)).fetchone()[0] == 1
+    db.close()
+
+
+def test_purge_refuses_when_the_live_collection_has_no_records(tmp_path: Path):
+    mod = _load_tool()
+    root = _two_collection_store(tmp_path, parked_ids=["a"], live_ids=["a"])
+    db = sqlite3.connect(root / "chroma.sqlite3")
+    db.execute("delete from segments where id='segm-new'")
+    db.commit(); db.close()
+    assert mod.purge_parked(str(root), "aria_documents__corrupt_x", "aria_documents",
+                            apply=True) == 3
+
+
+# ── R-F2808: metadata type fidelity across the rebuild ─────────────────────
+
+def test_extraction_preserves_metadata_types(tmp_path: Path):
+    """sqlite returns bool_value as 0/1; storing that as an int breaks any
+    downstream chroma filter written as {"k": True}."""
+    mod = _load_tool()
+    root = tmp_path / "rag3"
+    root.mkdir()
+    db = sqlite3.connect(root / "chroma.sqlite3")
+    db.executescript(
+        """
+        create table collections (id text primary key, name text);
+        create table segments (id text primary key, collection text, scope text);
+        create table embeddings (id integer primary key, segment_id text, embedding_id text);
+        create table embedding_metadata (
+            id integer, key text, string_value text,
+            int_value integer, float_value real, bool_value integer
+        );
+        """
+    )
+    db.execute("insert into collections values ('c','aria_documents')")
+    db.execute("insert into segments values ('sm','c','METADATA')")
+    db.execute("insert into embeddings values (1,'sm','doc-0')")
+    db.execute("insert into embedding_metadata values (1,'chroma:document','body',NULL,NULL,NULL)")
+    db.execute("insert into embedding_metadata values (1,'is_cold',NULL,NULL,NULL,1)")
+    db.execute("insert into embedding_metadata values (1,'not_cold',NULL,NULL,NULL,0)")
+    db.execute("insert into embedding_metadata values (1,'rank',NULL,7,NULL,NULL)")
+    db.execute("insert into embedding_metadata values (1,'score',NULL,NULL,0.75,NULL)")
+    db.execute("insert into embedding_metadata values (1,'source',' web ',NULL,NULL,NULL)")
+    db.commit(); db.close()
+
+    recs = mod.extract_records(mod._db(str(root)), "sm")
+    md = recs[0]["metadata"]
+    assert md["is_cold"] is True, f"bool True round-tripped as {md['is_cold']!r}"
+    assert md["not_cold"] is False, f"bool False round-tripped as {md['not_cold']!r}"
+    assert md["rank"] == 7 and isinstance(md["rank"], int)
+    assert md["score"] == 0.75 and isinstance(md["score"], float)
+    assert md["source"] == " web "

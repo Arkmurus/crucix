@@ -108,11 +108,23 @@ def extract_records(db: sqlite3.Connection, seg: str) -> list[dict]:
         k = r["k"]
         if not k:
             continue
-        val = next((v for v in (r["sv"], r["iv"], r["fv"], r["bv"]) if v is not None), None)
         if k == "chroma:document":
             rec["document"] = r["sv"]
-        elif val is not None:
-            rec["metadata"][k] = val
+            continue
+        # R-F2808 — read the typed columns in a defined order and restore the
+        # ORIGINAL type. sqlite hands `bool_value` back as 0/1, so the previous
+        # first-non-None pick stored ints where the original held bools, and any
+        # downstream chroma filter written as `where={"is_cold": True}` silently
+        # stopped matching. The docstring's "loses no knowledge" claim held for
+        # documents but not for metadata fidelity.
+        if r["sv"] is not None:
+            rec["metadata"][k] = r["sv"]
+        elif r["bv"] is not None:
+            rec["metadata"][k] = bool(r["bv"])
+        elif r["iv"] is not None:
+            rec["metadata"][k] = int(r["iv"])
+        elif r["fv"] is not None:
+            rec["metadata"][k] = float(r["fv"])
     return list(out.values())
 
 
@@ -237,6 +249,22 @@ def purge_parked(rag_path: str, parked: str, live: str, *, apply: bool) -> int:
 
         pseg = metadata_segment(db, pcid)
         lseg = metadata_segment(db, lcid)
+        # R-F2808 — REFUSE when either METADATA segment is missing. Without this
+        # the §7 guarantee below passes VACUOUSLY: `where segment_id = NULL`
+        # matches nothing in SQL, so `pids` is empty, `missing` is empty, the
+        # "would destroy knowledge" refusal is skipped — and the rows and index
+        # dirs are then deleted. The failure mode is precisely the sqlite
+        # inconsistency this tool exists to clean up after: a parked collection
+        # whose segment row was lost would be reported as "0 record(s)" and
+        # purged, taking its still-present embeddings with it.
+        if not pseg:
+            _log(f"  REFUSING: {parked!r} has no METADATA segment — cannot prove what it "
+                 "holds, so it cannot be safely purged")
+            return 3
+        if not lseg:
+            _log(f"  REFUSING: live {live!r} has no METADATA segment — cannot prove the "
+                 "replacement holds anything")
+            return 3
         pids = {r["embedding_id"] for r in db.execute(
             "select embedding_id from embeddings where segment_id=?", (pseg,))}
         lids = {r["embedding_id"] for r in db.execute(
