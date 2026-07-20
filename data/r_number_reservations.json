@@ -21949,9 +21949,10 @@
       "title": "Cycle 7 grounded-recall reward reform (default-off knob) + grounded recall in objective eval",
       "claimed_at": "2026-07-20T07:33:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7bc3ebd1",
+      "notes": null,
+      "shipped_at": "2026-07-20T07:41:09Z"
     }
   ]
 }
