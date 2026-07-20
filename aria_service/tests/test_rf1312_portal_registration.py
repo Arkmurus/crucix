@@ -50,10 +50,39 @@ def test_pending_source_requirements_returns_all_portals():
 # ── Test 2: auto_register_all returns valid summary ──────────────────────────
 
 @pytest.mark.asyncio
-async def test_auto_register_all_returns_summary():
+async def test_auto_register_all_returns_summary(monkeypatch):
     """auto_register_all must return a dict with expected keys even when
-    no portals can be registered (no env vars set)."""
+    no portals can be registered (no env vars set).
+
+    R-F2812: this test used to call auto_register_all() with NOTHING mocked.
+    `_ENABLED` defaults to "1", so the sweep ran for real: it walked every
+    portal and drove `register_for_portal`, which launches a Playwright
+    browser (portal_registry.py:1366+) to sign ARIA up for live government
+    procurement portals — from the test suite. It blocked on the browser
+    until pytest-timeout's thread method `os._exit()`d the whole run at
+    ~31-34%, which is why the suite could never produce a §16 baseline.
+
+    The two collaborators are stubbed so the sweep runs fully in-process.
+    That keeps this test's actual subject — the SHAPE of the summary dict and
+    the fact that per-portal outcomes are aggregated rather than raised — while
+    removing the browser. Nothing is weakened: the assertions below are the
+    original ones, and they now exercise the loop instead of timing out inside
+    the first portal.
+    """
+    from aria_service.intel import portal_registry as pr
     from aria_service.intel.portal_registry import auto_register_all
+
+    async def _fake_is_registered(portal_id: str) -> bool:
+        return False
+
+    async def _fake_register(portal_id: str, purpose: str = "") -> dict:
+        # Mirror the real "needs a human for the captcha" outcome so the
+        # captcha_deferred branch is the one under test.
+        return {"success": False, "requires_operator": True,
+                "message": "captcha requires operator"}
+
+    monkeypatch.setattr(pr, "is_registered", _fake_is_registered)
+    monkeypatch.setattr(pr, "register_for_portal", _fake_register)
 
     result = await auto_register_all()
     assert isinstance(result, dict)
