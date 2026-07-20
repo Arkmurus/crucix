@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2810,
+  "next_available": 2812,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21993,6 +21993,24 @@
       "commit_sha": "c0f76211",
       "notes": null,
       "shipped_at": "2026-07-20T08:19:14Z"
+    },
+    {
+      "r_number": "R-F2810",
+      "title": "aria_cli test network guard: full-suite run hung on a live SSL call; block non-loopback sockets in tests (mirrors R-F2731 net_guard on the Node side)",
+      "claimed_at": "2026-07-20T08:31:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2811",
+      "title": "claim-grounding measure signal must be observable: log ungrounded-figure detections to stdout (fly logs)",
+      "claimed_at": "2026-07-20T08:35:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

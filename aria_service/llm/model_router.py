@@ -526,6 +526,12 @@ def _verify_grounded(text: str, context: str, message: str) -> str:
             from ..intel import claim_grounding as cg
             cgr = cg.ground_claims(out, context or "", message=message or "", mode=mode)
             if cgr.get("ungrounded_sentences"):
+                # R-F2811 — log to stdout so the measure rate is watchable in fly logs
+                # (wire_success only bumps a generic module counter and drops the detail).
+                logger.info(
+                    "[R-F2809 claim-grounding %s] %d ungrounded-figure sentence(s): %s",
+                    mode, cgr["ungrounded_sentences"], cgr["ungrounded_figures"][:6],
+                )
                 wire_success(
                     module="model_router",
                     summary=f"claim-grounding [{mode}]: {cgr['ungrounded_sentences']} ungrounded-figure "
