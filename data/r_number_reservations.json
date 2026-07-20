@@ -21968,9 +21968,10 @@
       "title": "north-star zero-fab metrics: verified fabrication (post citation_verifier) + ungrounded-assertion in objective eval + gate",
       "claimed_at": "2026-07-20T07:55:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "001bb0c0",
+      "notes": null,
+      "shipped_at": "2026-07-20T07:57:47Z"
     }
   ]
 }
