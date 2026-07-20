@@ -480,6 +480,95 @@ async def _search_financial_footprint(name: str, jurisdiction_iso2: str = "") ->
     }
 
 
+def _is_gb(jurisdiction_iso2: str) -> bool:
+    """True for United Kingdom jurisdiction codes (R-F2782).
+
+    Companies House covers GB only, so this gates the registry-accounts lookup.
+    An EMPTY/unknown jurisdiction returns False on purpose: we do not guess a
+    jurisdiction and then present GB filings as if they were the subject's.
+    Accepts the common spellings callers actually send (GB/UK/GBR).
+    """
+    return (jurisdiction_iso2 or "").strip().upper() in {"GB", "UK", "GBR"}
+
+
+async def _uk_registry_accounts(name: str, registration_number: str = "") -> dict | None:
+    """Companies House statutory-accounts EVIDENCE for a GB entity (R-F2782 phase 1).
+
+    Returns filing metadata — when accounts were last made up to, what type they
+    are (full/small/micro/dormant), whether they are overdue — or None when CH
+    has nothing or is unavailable.
+
+    ★ THIS IS EVIDENCE, NOT A VERDICT. There are no revenue or solvency figures
+    here, so the caller must NOT set `data_available` / `has_financials` from it:
+    `_verdict()` keys UNKNOWN off exactly those two, and that is the behaviour we
+    want to preserve. Answering financial capacity from filing dates would be a
+    false clean. Figures arrive with the CH Document API (iXBRL) in phase 2.
+
+    Never raises — an unavailable registry must degrade to None (a data gap),
+    never to something that reads like a clean result (R-F2719).
+    """
+    try:
+        from . import companies_house as ch
+        if not ch.is_enabled():
+            return None
+
+        number = (registration_number or "").strip()
+        if not number:
+            hits = await ch.search_companies(name, limit=1)
+            if hits:
+                number = str(hits[0].get("company_number") or "").strip()
+        if not number:
+            return None
+
+        profile = await ch.get_company_profile(number)
+        if not profile:
+            return None
+        accounts = profile.get("accounts") or {}
+        if not accounts.get("filed") and not accounts.get("distress_flags"):
+            return None
+
+        return {
+            "source": "companies_house",
+            "company_number": profile.get("company_number") or number,
+            "company_name": profile.get("company_name") or name,
+            "company_status": profile.get("company_status") or "",
+            "accounts": accounts,
+            # Primary-source URL so the evidence is citable, not asserted.
+            "source_url": (
+                "https://find-and-update.company-information.service.gov.uk/"
+                f"company/{profile.get('company_number') or number}/filing-history"
+            ),
+            "has_figures": False,
+        }
+    except Exception as e:
+        logger.debug("UK registry accounts lookup failed: %s", e)
+        return None
+
+
+def _registry_accounts_summary(reg: dict) -> str:
+    """One honest sentence about filed accounts — never a health claim."""
+    acc = reg.get("accounts") or {}
+    bits: list[str] = []
+    if acc.get("filed"):
+        made_up = acc.get("last_made_up_to") or "an unstated date"
+        atype = acc.get("last_type") or "unspecified"
+        bits.append(f"Companies House shows {atype} accounts made up to {made_up}")
+    else:
+        bits.append("Companies House shows NO accounts filed")
+
+    flags = acc.get("distress_flags") or []
+    if "accounts_overdue" in flags:
+        bits.append("accounts are OVERDUE (a standard early-distress signal)")
+    if "dormant_accounts" in flags:
+        bits.append("the company filed as DORMANT")
+
+    return (
+        ". ".join(bits)
+        + ". Figures are not extracted from these filings, so financial health "
+          "remains UNKNOWN — this is filing evidence, not a solvency assessment."
+    )
+
+
 async def assess(
     name: str,
     *,
@@ -537,6 +626,32 @@ async def assess(
     # 2) SEARCH — SEC EDGAR structured (US-listed).
     result = await _assess_sec_edgar(name)
     result["canonical_entity_id"] = canonical
+
+    # 2b) REGISTRY ACCOUNTS — GB statutory filings (R-F2782 phase 1).
+    #
+    # Runs only when SEC EDGAR produced nothing, i.e. exactly the non-US case that
+    # previously fell straight through to a link-only footprint and an evidence-free
+    # UNKNOWN. A live deep DD on BAE Systems (FTSE-100, fully public UK filings)
+    # returned financial capacity UNKNOWN for this reason.
+    #
+    # It deliberately does NOT touch `data_available` / `has_financials`, so
+    # `_verdict()` still returns UNKNOWN: filing metadata raises the EVIDENCE grade
+    # (dated, primary-source, citable) without answering the financial-capacity
+    # question. Never-false-clean is the point of this ticket, not a side condition.
+    if use_search and not result.get("data_available") and _is_gb(jurisdiction_iso2):
+        try:
+            reg = await _uk_registry_accounts(name, registration_number)
+            if reg:
+                result["registry_accounts"] = reg
+                result["summary"] = (
+                    (result.get("summary", "") + " ").strip()
+                    + " " + _registry_accounts_summary(reg)
+                ).strip()
+                for _flag in (reg.get("accounts") or {}).get("distress_flags", []):
+                    if _flag not in result.setdefault("distress_flags", []):
+                        result["distress_flags"].append(_flag)
+        except Exception as e:
+            logger.debug("registry accounts enrichment failed: %s", e)
 
     # 3) SEARCH — web financial footprint (cross-jurisdiction), when SEC has no structured data.
     if use_search and not result.get("data_available"):
