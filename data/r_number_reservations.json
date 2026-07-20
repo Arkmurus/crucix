@@ -21940,9 +21940,10 @@
       "title": "CLI redaction hardening: streaming path bypassed redaction entirely; PEM/JSON creds unredacted; quoted values partial; command echo unredacted; ReDoS + over-redaction in the assignment regex",
       "claimed_at": "2026-07-20T07:29:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "adf15b46",
+      "notes": null,
+      "shipped_at": "2026-07-20T08:19:08Z"
     },
     {
       "r_number": "R-F2805",
@@ -21978,18 +21979,20 @@
       "title": "purge_parked vacuous §7 refusal when the parked METADATA segment is missing + sqlite bool metadata fidelity; note that R-F2798 moved the native fault rather than removing it",
       "claimed_at": "2026-07-20T08:08:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "249be5a7",
+      "notes": null,
+      "shipped_at": "2026-07-20T08:19:08Z"
     },
     {
       "r_number": "R-F2809",
       "title": "P1 brain-central claim-grounding: deterministic ungrounded-figure detection extending the R-F2540 source verifier (measure-first)",
       "claimed_at": "2026-07-20T08:10:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c0f76211",
+      "notes": null,
+      "shipped_at": "2026-07-20T08:19:14Z"
     }
   ]
 }
