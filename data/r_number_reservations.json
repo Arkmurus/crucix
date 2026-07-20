@@ -22038,9 +22038,10 @@
       "title": "Stage A: readiness gate (/health/ready) + chat fast-503 + WA/web readiness-aware dispatch [R-F2813 epic]",
       "claimed_at": "2026-07-20T11:56:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "150be0de",
+      "notes": null,
+      "shipped_at": "2026-07-20T12:21:04Z"
     }
   ]
 }
