@@ -44,8 +44,9 @@ _GATE = {
     "precision_floor": 0.750,        # citation_precision absolute floor (the moat)
     "recall_floor": 0.238,           # raw keyword_recall absolute floor
     "grounded_recall_floor": 0.40,   # R-F2805 — grounded_recall min (per-row avg incl. 0-extractable rows ~0.45; the binding target is >= same-run DeepSeek)
-    "fabrication_ceiling": 0.18,     # mean fabricated citations per answer, upper bound
-    "zero_fab_floor": 0.847,         # fraction of answers with ZERO fabricated citations
+    "fabrication_ceiling": 0.18,     # mean fabricated citations per answer, upper bound (RAW model)
+    "zero_fab_floor": 0.847,         # fraction of answers with ZERO fabricated citations (RAW model)
+    "verified_zero_fab_floor": 0.9999,  # R-F2807 NORTH STAR — after the citation_verifier, >= 99.99% of answers must have ZERO fabricated sources (the moat must hold)
 }
 
 _PROMPT = (
@@ -102,10 +103,29 @@ def _score(text, context, kws, answerable) -> dict:
     # domain vocab, so raw keyword_recall rewards fabrication; grounded_recall is the
     # honest, USP-aligned recall metric. Reported alongside raw for comparability.
     _gk = gr._grounded_keywords(kws, context)
+    # R-F2807 — NORTH-STAR zero-fabrication metrics.
+    #  verified_fabrication = fabricated citations AFTER the deterministic
+    #    citation_verifier (the SERVED path). ~0 = the moat holds; a fabricated
+    #    SOURCE can never reach the user. This is the honest fabrication axis to gate.
+    #  ungrounded_assertion = fraction of STATED gold keywords NOT in the context —
+    #    claims asserted with no grounding (the verifier can't catch an uncited claim).
+    #    This is the remaining, trainable fabrication axis; lower is more honest.
+    try:
+        from aria_service.intel import citation_verifier as _cv
+        _cleaned = _cv.verify_and_clean(text or "", context or "", mode="drop").get("answer", text or "")
+        _vfab = int(gr.score(_cleaned, context or "").fabricated_citations)
+    except Exception:
+        _vfab = int(d.get("fabricated_citations", 0))   # fail-safe: fall back to raw
+    _ans_l = (text or "").lower()
+    _ctx_l = (context or "").lower()
+    _stated = [k for k in (kws or []) if str(k).strip() and str(k).strip().lower() in _ans_l]
+    _ungrounded = round(sum(1 for k in _stated if str(k).strip().lower() not in _ctx_l) / len(_stated), 4) if _stated else 0.0
     return {
         "score": round(float(getattr(b, "score", 0.0)), 4),
         "citation_precision": round(float(d.get("citation_precision", 0.0)), 4),
         "fabricated_citations": int(d.get("fabricated_citations", 0)),
+        "verified_fabrication": _vfab,
+        "ungrounded_assertion": _ungrounded,
         "keyword_recall": round(float(d.get("keyword_recall", 0.0)), 4),
         "grounded_recall": round(float(gr._keyword_recall(text or "", _gk)), 4),
         "grounded_kw_count": len(_gk),
@@ -223,7 +243,10 @@ def _promotion_gate(aggs, use_grounded: bool = False) -> tuple[bool, list[str]]:
         (f"{_rlabel} >= DeepSeek (same-run)",
          sov.get(_rk, 0.0) >= ds.get(_rk, 0.0),
          f"{sov.get(_rk, 0.0)} vs DeepSeek {ds.get(_rk, 0.0)}"),
-        ("mean_fabricated <= 0.18",
+        ("verified zero-fabrication >= 0.9999 (NORTH STAR — moat holds)",
+         sov.get("pct_zero_verified_fab", 0.0) >= _GATE["verified_zero_fab_floor"],
+         f"{sov.get('pct_zero_verified_fab', 0.0)} vs floor {_GATE['verified_zero_fab_floor']}"),
+        ("mean_fabricated <= 0.18 (raw)",
          sov["mean_fabricated"] <= _GATE["fabrication_ceiling"],
          f"{sov['mean_fabricated']} vs ceiling {_GATE['fabrication_ceiling']}"),
         ("pct_zero_fabrication >= 0.847",
@@ -257,13 +280,21 @@ def report(args) -> int:
             # R-F2805 (cycle 7) — the honest recall metric (0.0 on pre-R-F2805 reports
             # that lack per-row grounded_recall; recompute those from stored text if needed).
             "grounded_recall": round(sum(v.get("grounded_recall", 0.0) for v in vals) / n, 4),
+            # R-F2807 north-star axes: verified fabrication (post-verifier; the moat) +
+            # ungrounded assertion (uncited ungrounded claims). 0.0 defaults keep pre-R-F2807
+            # reports readable (recompute from stored text if the field is absent).
+            "mean_verified_fab": round(sum(v.get("verified_fabrication", 0) for v in vals) / n, 4),
+            "pct_zero_verified_fab": round(sum(1 for v in vals if v.get("verified_fabrication", 0) == 0) / n, 4),
+            "ungrounded_assertion": round(sum(v.get("ungrounded_assertion", 0.0) for v in vals) / n, 4),
             "mean_reward": round(sum(v["score"] for v in vals) / n, 4),
             "pct_zero_fabrication": round(sum(1 for v in vals if v["fabricated_citations"] == 0) / n, 4),
         }
     aggs = {s: agg(s) for s in sides}
     print(f"=== OBJECTIVE EVAL (grounding_reward) — {len(recs)} rows ===")
     print(f"{'metric':<22}" + "".join(f"{s.upper():>19}" for s in sides))
-    for k in ("citation_precision", "mean_fabricated", "keyword_recall", "grounded_recall", "mean_reward", "pct_zero_fabrication"):
+    for k in ("citation_precision", "mean_fabricated", "pct_zero_fabrication",
+              "pct_zero_verified_fab", "ungrounded_assertion",
+              "keyword_recall", "grounded_recall", "mean_reward"):
         print(f"{k:<22}" + "".join(f"{aggs[s][k]:>19}" for s in sides))
     if "platform" in sides and "platform_verified" in sides:
         p, v = aggs["platform"], aggs["platform_verified"]

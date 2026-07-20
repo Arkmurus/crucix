@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2806,
+  "next_available": 2808,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21953,6 +21953,24 @@
       "commit_sha": "7bc3ebd1",
       "notes": null,
       "shipped_at": "2026-07-20T07:41:09Z"
+    },
+    {
+      "r_number": "R-F2806",
+      "title": "360 DD toolchain quality audit and live smoke",
+      "claimed_at": "2026-07-20T07:47:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2807",
+      "title": "north-star zero-fab metrics: verified fabrication (post citation_verifier) + ungrounded-assertion in objective eval + gate",
+      "claimed_at": "2026-07-20T07:55:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

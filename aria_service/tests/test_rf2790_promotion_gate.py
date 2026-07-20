@@ -15,13 +15,14 @@ import types
 from scripts.eval.objective_citation_eval import _GATE, _promotion_gate, report
 
 
-def _agg(precision, recall, mean_fab, zero_fab, grounded_recall=None):
+def _agg(precision, recall, mean_fab, zero_fab, grounded_recall=None, verified_zero_fab=1.0):
     """A per-side aggregate dict shaped like report()'s agg()."""
     return {
         "citation_precision": precision,
         "mean_fabricated": mean_fab,
         "keyword_recall": recall,
         "grounded_recall": grounded_recall if grounded_recall is not None else recall,
+        "pct_zero_verified_fab": verified_zero_fab,   # R-F2807 north-star axis (verifier -> 1.0)
         "mean_reward": 0.5,
         "pct_zero_fabrication": zero_fab,
     }
@@ -93,7 +94,19 @@ def test_thresholds_match_the_documented_gate():
         "grounded_recall_floor": 0.40,
         "fabrication_ceiling": 0.18,
         "zero_fab_floor": 0.847,
+        "verified_zero_fab_floor": 0.9999,
     }
+
+
+def test_north_star_gate_fails_when_verified_output_still_fabricates():
+    # R-F2807 — the verifier normally drives verified zero-fab to 1.0; if a run's
+    # VERIFIED output still fabricates (< 0.9999), the north-star gate must NO-PROMOTE
+    # even if everything else is perfect (a fabricated source reaching the user is
+    # the one thing we never ship).
+    sov = _agg(0.80, 0.25, 0.05, 0.90, verified_zero_fab=0.995)
+    promote, lines = _promotion_gate({"sovereign": sov, "deepseek": _DS_BASE})
+    assert promote is False
+    assert any("NORTH STAR" in l and "FAIL" in l for l in lines)
 
 
 def test_grounded_gate_uses_grounded_recall_not_raw():
