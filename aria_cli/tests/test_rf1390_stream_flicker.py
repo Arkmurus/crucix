@@ -56,11 +56,30 @@ def test_rf1390_stream_end_flushes_tail(capsys):
     assert ui._stream_line_buf == ""
 
 
-def test_rf1390_nonanchored_streams_per_token(capsys):
-    """Regression: one-shot / no-prompt_toolkit mode keeps live per-token output
-    (no patch_stdout app to repaint there)."""
+def test_rf1390_nonanchored_also_coalesces_to_lines(capsys):
+    """R-F2804 SUPERSEDES the old per-token assertion here — deliberately.
+
+    This used to assert that non-anchored mode emits each token immediately.
+    That was never protecting against a defect: the flicker R-F1390 exists to
+    fix only happens behind prompt_toolkit's patch_stdout, so per-token output
+    was simply kept where it was FREE.
+
+    It is no longer free. R-F2804 redacts streamed model output before it
+    reaches the terminal, and a tokenizer splits mid-string — a secret routinely
+    straddles two deltas, so per-token redaction would see only fragments and
+    match nothing. Reliable redaction requires LINE granularity, in both modes.
+
+    Line-latency is a UX cost; printing a customer's API key is a security
+    incident. The security control wins, and R-F1390's ACTUAL contract — the
+    anchored flicker fix asserted by the three tests above — is untouched.
+    """
     ui = _ui()
     ui.anchored = False
     ui.stream_delta("tok-no-newline")
+    assert "tok-no-newline" not in capsys.readouterr().out, (
+        "a partial line must be held back so redaction can see the whole line"
+    )
+    # …and it is emitted as soon as the line completes.
+    ui.stream_delta(" rest-of-line\n")
     out = capsys.readouterr().out
-    assert "tok-no-newline" in out, "non-anchored must emit immediately"
+    assert "tok-no-newline rest-of-line" in out, "the completed line must flush"

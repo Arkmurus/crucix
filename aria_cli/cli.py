@@ -1317,31 +1317,48 @@ class TerminalUI(AgentUI):
             count = self._stream_buffer.count("```")
             self._stream_code_block = count % 2 == 1
 
-        if self.anchored:
-            # Coalesce: only emit complete lines; hold the partial tail.
-            self._stream_line_buf += text
-            nl = self._stream_line_buf.rfind("\n")
-            if nl != -1:
-                sys.stdout.write(self._stream_line_buf[: nl + 1])
-                sys.stdout.flush()
-                self._stream_line_buf = self._stream_line_buf[nl + 1:]
-            elif len(self._stream_line_buf) > 16384:
-                # R-F2129: a pathological stream with no newline must not grow the
-                # coalescing buffer unbounded — flush the partial and reset.
-                sys.stdout.write(self._stream_line_buf)
-                sys.stdout.flush()
-                self._stream_line_buf = ""
+        # ── R-F2804 (SECURITY) — redact BEFORE anything reaches stdout ────────
+        # R-F2796 scrubbed assistant prose in _render_markdown, but agent.py:579
+        # ALWAYS passes on_delta=stream_delta and only calls ui.assistant() when
+        # the provider did NOT stream (agent.py:591). So on the primary path the
+        # model's tokens came straight here and were written raw — the R-F2796
+        # docstring claim was false for the case that actually happens. A model
+        # asked "what's in my .env?" streamed the key verbatim.
+        #
+        # Redaction is applied at LINE granularity, never per token: a tokenizer
+        # splits mid-string, so a secret routinely straddles two deltas and
+        # per-chunk redaction would miss it. Both paths therefore buffer to a
+        # newline. The non-anchored path loses per-token liveness as a result —
+        # that is a deliberate trade: line-latency is a UX cost, printing a
+        # customer's key is a security incident.
+        self._stream_line_buf += text
+        nl = self._stream_line_buf.rfind("\n")
+        if nl != -1:
+            _emit = self._stream_line_buf[: nl + 1]
+            self._stream_line_buf = self._stream_line_buf[nl + 1:]
+        elif len(self._stream_line_buf) > 16384:
+            # R-F2129: a pathological stream with no newline must not grow the
+            # coalescing buffer unbounded — flush the partial and reset.
+            _emit = self._stream_line_buf
+            self._stream_line_buf = ""
+        else:
             return
-        sys.stdout.write(text)
+        # vendor_only, matching _render_markdown: blanket redaction would blank a
+        # value the customer explicitly asked ARIA to GENERATE.
+        sys.stdout.write(_redact_secrets(_emit, mode="vendor_only"))
         sys.stdout.flush()
 
     def stream_end(self) -> None:
         """Finalise a streaming response (R-F1260)."""
         if self._stream_active:
-            # R-F1390 — flush any buffered partial line from anchored coalescing.
+            # R-F1390 — flush any buffered partial line from coalescing.
+            # R-F2804 — the tail is the LAST thing a model emits, so a secret
+            # with no trailing newline lives exactly here. Redact it too, or the
+            # stream_delta guard is trivially escapable by omitting a newline.
             tail = getattr(self, "_stream_line_buf", "")
             if tail:
-                sys.stdout.write(tail)
+                sys.stdout.write(_redact_secrets(tail, mode="vendor_only"))
+                self._stream_line_buf = ""
             sys.stdout.write("\n")
             sys.stdout.flush()
             self._stream_active = False
@@ -1369,16 +1386,23 @@ class TerminalUI(AgentUI):
         prefix = self._step_prefix()
 
         bullet = self.c.green(self._g("bullet"))
+        # R-F2804 — the COMMAND LINE is as sensitive as its output, and R-F2796
+        # only covered the output. `curl -H "Authorization: Bearer sk-ant-…"`,
+        # `flyctl secrets set BRAVE_SEARCH_API_KEY=…`, `export TOKEN=… && …` all
+        # printed verbatim — and `_log` persists them to the session logfile,
+        # which outlives the screenshot. `detail` is redacted for the same reason
+        # (see _summarize: it reprs arbitrary tool args).
         if name == "run":
-            cmd = args.get("command", "")
+            cmd = _redact_secrets(args.get("command", ""))
             self._last_command = cmd[:200]
             step_tag = f"{self.c.dim(prefix)} " if prefix else ""
             print(f"{bullet} {step_tag}run({cmd[:200]})")
             self._log(f"[cmd] $ {cmd[:200]}")
         else:
+            safe_detail = _redact_secrets(detail)
             step_tag = f"{self.c.dim(prefix)} " if prefix else ""
-            print(f"{bullet} {step_tag}{name}({detail})")
-            self._log(f"[tool] {name}({detail})")
+            print(f"{bullet} {step_tag}{name}({safe_detail})")
+            self._log(f"[tool] {name}({safe_detail})")
 
     def _render_code_block(self, code: str, language: str = "") -> None:
         """Render a code block with syntax highlighting (R-F1267)."""
