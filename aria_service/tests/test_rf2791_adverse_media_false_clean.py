@@ -230,3 +230,45 @@ def test_e2e_working_backend_with_no_subject_hits_IS_a_clean_screening(monkeypat
         "a working search with no subject hits IS valid negative evidence"
     )
     assert _adverse_question(report).get("answered") is True
+
+
+# ── R-F2808: legacy blobs fail closed, but say WHY honestly ────────────────
+# Reconciles R-F2791 with the R-F2693 convention at dd_schema.py:1181 ("absence
+# of a field is not evidence of a negative"). Both are the same principle — do
+# not assert what you cannot show — at opposite polarities: R-F2693 avoids a
+# false ACCUSATION, R-F2791 avoids a false CLEAN. Failing closed stays; the
+# WORDING must not claim knowledge we do not have.
+
+LEGACY_BLOB = {
+    "ok": True,
+    "templates_run": 30,      # pre-R-F2791: neither new counter exists
+    "findings_count": 0,
+    "findings": [],
+}
+
+
+def test_legacy_blob_still_fails_closed():
+    """Safety is unchanged — an unprovable screening cannot clear."""
+    assert _quality_metrics(_report(LEGACY_BLOB))["adverse_media_run"] is False
+    assert _adverse_question(_report(LEGACY_BLOB)).get("answered") is False
+
+
+def test_legacy_blob_blocker_does_not_claim_the_search_failed():
+    """We know we cannot PROVE it ran; we do not know that it did not run.
+
+    A delivered GREEN report flipping to "screening did not complete" reads as a
+    retraction of a factual claim rather than a disclosure of an evidence gap.
+    """
+    blocker = _adverse_question(_report(LEGACY_BLOB)).get("blocker", "")
+    assert "did not complete" not in blocker, f"asserts unknown knowledge: {blocker!r}"
+    assert "predates" in blocker, f"must disclose WHY it is unprovable: {blocker!r}"
+    assert "re-run" in blocker, "must tell the customer how to clear it"
+
+
+def test_a_genuinely_failed_sweep_still_says_it_did_not_complete():
+    """The distinction must not blur the other way: a sweep we KNOW failed
+    (the counters are present and say zero) keeps the definite wording."""
+    failed = dict(LEGACY_BLOB, templates_searched=0, search_backends_answered=False)
+    blocker = _adverse_question(_report(failed)).get("blocker", "")
+    assert "did not complete" in blocker, f"known failure must be stated plainly: {blocker!r}"
+    assert "predates" not in blocker

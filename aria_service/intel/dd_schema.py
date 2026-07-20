@@ -1458,6 +1458,18 @@ def _dd_decision_readiness(r: dict) -> dict:
     # fails CLOSED: absence of evidence is not evidence of absence.
     _adv_findings = int(adverse.get("findings_count") or len(adverse.get("findings") or []) or 0)
     _adv_searched = int(adverse.get("templates_searched") or 0)
+    # R-F2808 — a blob written BEFORE R-F2791 has neither counter, so it cannot be
+    # proven complete. It still fails closed (below); this only distinguishes
+    # "unprovable" from "known-failed" so the blocker can say which.
+    _adverse_is_legacy_blob = bool(
+        adverse
+        and adverse.get("ok") is True
+        and "templates_searched" not in adverse
+        and "search_backends_answered" not in adverse
+        and not adverse.get("error")
+        and not adverse.get("skipped")
+        and adverse.get("status") != "in_progress"
+    )
     if not _adv_searched and _adv_findings > 0:
         _adv_searched = 1  # legacy blob: findings prove a backend answered
     adverse_ok = bool(
@@ -1534,7 +1546,26 @@ def _dd_decision_readiness(r: dict) -> dict:
             "status": "ANSWERED" if adverse_ok else "UNRESOLVED",
             "answered": adverse_ok,
             "evidence": "completed dedicated adverse-media search",
-            "blocker": "adverse-media screening did not complete" if not adverse_ok else "",
+            # R-F2808 — say WHICH of the two things is true. A blob written before
+            # R-F2791 carries neither `templates_searched` nor
+            # `search_backends_answered`, so a zero-finding legacy screening
+            # cannot be PROVEN complete and correctly fails closed. But telling
+            # the customer it "did not complete" asserts something we do not
+            # know, and a delivered GREEN report flipping to that wording reads
+            # as a retraction rather than a disclosure.
+            #
+            # This is also what reconciles the convention with R-F2693 (:1181):
+            # absence of a field is never evidence of a negative. Both rules are
+            # the same principle — do not assert what you cannot show — applied
+            # to opposite polarities: R-F2693 avoids a false ACCUSATION, R-F2791
+            # avoids a false CLEAN. Failing closed stays; the wording gets honest.
+            "blocker": (
+                "" if adverse_ok
+                else "adverse-media screening predates backend-verification "
+                     "(cannot be confirmed complete — re-run to clear)"
+                if _adverse_is_legacy_blob
+                else "adverse-media screening did not complete"
+            ),
         },
         "ownership_control": {
             "label": "Ownership and control",
