@@ -1667,6 +1667,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(15)
         try:
             stats = await rag_store.get_stats()
+            app.state.rag_ready = True  # R-F2814 — RAG subsystem responded → reachable
             logger.info("[RAG] probe: %s", stats)
         except Exception as e:
             logger.warning("[RAG] probe failed (non-fatal): %s", e)
@@ -1700,6 +1701,11 @@ async def lifespan(app: FastAPI):
     # means the server starts serving in <2s.
     app.state.llm_provider = None
     app.state.current_data = None
+    # R-F2814 (Stage A of R-F2813 HA re-architecture) — readiness flag, read by
+    # GET /health/ready. Starts False; set True once the RAG probe below confirms
+    # the retrieval subsystem responds. llm readiness is read directly off
+    # app.state.llm_provider (single source of truth), so no separate llm flag.
+    app.state.rag_ready = False
 
     async def _init_llm_and_dialogue_bg():
         """Create LLM provider, resilience layer, and init dialogue_state

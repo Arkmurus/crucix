@@ -1318,6 +1318,20 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null)
   // R-F1884 (review): URL-encode the token query value (defensive — hex is
   // already URL-safe, but never build a URL by raw concatenation of a value).
   const callbackUrl = CALLBACK_URL + (CALLBACK_URL.includes('?') ? '&' : '?') + 'ct=' + encodeURIComponent(callbackToken);
+  // R-F2814 (Stage A, R-F2813) — READINESS pre-check. After an aria-intel deploy/
+  // restart the brain answers /health/live (200 "alive") within seconds but its
+  // LLM provider stays None for the ~10-min warmup, so a dispatched chat job HANGS
+  // the entire 15-min poll window (the recurring "ARIA keeps breaking" the operator
+  // sees). /health/ready returns 503 while the brain is warming — detect that and
+  // reply an honest "starting up, retry shortly" instead of dispatching a job that
+  // cannot run. Probe failure (network/brain-down) is NOT warming → fall through to
+  // the normal dispatch path, which has its own error handling.
+  try {
+    const rc = await brainFetchHealth('/health/ready', 3000);
+    if (rc && rc.status === 503) {
+      return '🔄 ARIA is starting up (this usually happens right after an update) — my brain is warming up and will be ready in a minute or two. Please send your message again shortly.';
+    }
+  } catch { /* readiness probe unavailable → not a warming signal; proceed normally */ }
   let job;
   try {
     // R-F1413 — pass callback_url so the brain pushes the result when done

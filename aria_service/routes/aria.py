@@ -364,6 +364,7 @@ _PUBLIC_AUTH_BYPASS_PATHS = frozenset({
     "/api/aria/audit/key-fingerprint",    # R-F2617 model-card field — signing-key fingerprint (16 hex of SHA-256(key); key never exposed)
     "/api/aria/health",                   # operational status probe (rich, may touch Redis)
     "/api/aria/health/live",              # R-F372 fastpath — fly.io load-balancer probe
+    "/api/aria/health/ready",             # R-F2814 readiness gate — fly blue-green cutover + WA/web warmup probe (unauthenticated, like /health/live)
     # R-F677 (2026-05-18): Phase A gate-indicator endpoints. Live log
     # evidence 2026-05-18 07:09:02-05 showed the operator dashboard
     # hitting these without a bearer token and 404-ing (because they
@@ -10062,6 +10063,27 @@ async def chat_ep(req: ChatRequest, request: Request):
     except Exception:
         pass
 
+    # R-F2814 (Stage A, R-F2813) — READINESS fast-fail, placed BEFORE the async_mode
+    # branch below so we never register a background job that cannot run either.
+    # During the ~10-min warmup after a restart/deploy, app.state.llm_provider is
+    # still None (it inits in the background, main.py:1704). Entering the pipeline —
+    # or enqueuing an async job that re-runs this handler — would HANG until the
+    # client's poll/timeout budget elapsed (the 15-min WA hang, the recurring "ARIA
+    # keeps breaking"). Fail fast with an honest 503 "warming up" for BOTH sync and
+    # async callers so the surface can say "starting up, retry shortly" not dead air.
+    if get_llm(request) is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "warming_up",
+                "message": ("ARIA is starting up — the model and retrieval are "
+                            "warming up (this happens right after an update). "
+                            "Please retry in a few seconds."),
+                "retry_after_s": 5,
+            },
+            headers={"Retry-After": "5"},
+        )
+
     # ── R-F916 — ASYNC job mode ──────────────────────────────────────────────
     # A URL-bearing question triggers a fresh crawl (multi-page) + narrative
     # synthesis that routinely out-runs the WhatsApp listener's 90s brainPost
@@ -11779,6 +11801,23 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
         _bh860.mark_interactive()
     except Exception:
         pass
+
+    # R-F2814 (Stage A, R-F2813) — READINESS fast-fail, MIRRORED from chat_ep per
+    # §13 (chat_stream is a subset-fork of chat; every guard must live on both) and
+    # placed at the TOP (before quota / trivial short-circuit / pipeline) so a
+    # warming brain streams an honest 503 instead of hanging the SSE connection.
+    if get_llm(request) is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "warming_up",
+                "message": ("ARIA is starting up — the model and retrieval are "
+                            "warming up (this happens right after an update). "
+                            "Please retry in a few seconds."),
+                "retry_after_s": 5,
+            },
+            headers={"Retry-After": "5"},
+        )
 
     # H3: same per-user quota check as chat_ep. Enforced BEFORE the
     # StreamingResponse is returned so the client gets a clean 429
@@ -24444,6 +24483,55 @@ def health_live_ep():
         _build_rev = "unknown"
     return {"status": "alive", "build_rev": _build_rev}
 
+
+@router.get("/health/ready")
+@fail_wire(module="aria", gap_type="engine_failure")
+def health_ready_ep(request: Request):
+    """R-F2814 (Stage A of the R-F2813 HA re-architecture) — READINESS, distinct
+    from /health/live (LIVENESS).
+
+    /health/live goes green the instant uvicorn binds — but at that moment the
+    LLM provider is still None (it initialises in the background, main.py:1704)
+    and the knowledge/neural graphs are warming (~10 min, R-F2122). Fly, the WA
+    listener, and the web proxy treated "alive" as "can serve", routed a chat to
+    a not-ready brain, and it HUNG for the whole warmup window (the recurring
+    "ARIA keeps breaking" after a deploy/restart). This endpoint answers the real
+    question — "can ARIA serve a chat answer NOW?" — so a surface can show an
+    honest "warming, retry shortly" and blue-green deploy can gate LB cutover on
+    a machine actually being ready.
+
+    READY (200) iff the LLM provider is initialised — the ONE hard dependency for
+    producing a chat answer. Deliberately NOT gated on the knowledge/neural graphs:
+    both the fast lane and grounded chat degrade gracefully without them by design
+    (R-F2201, lean web workers), so gating on them would hold traffic from a brain
+    that can in fact answer. rag/knowledge/neural readiness are reported as
+    informational fields, never as gates.
+
+    SYNC def on purpose (same discipline as /health/live, R-F723): FastAPI serves
+    it on starlette's threadpool, so a wedged event loop cannot make the readiness
+    probe itself hang. All reads are cheap in-process getattr — no DB, no await.
+    """
+    st = getattr(request.app, "state", None)
+    llm_ready = getattr(st, "llm_provider", None) is not None
+    try:
+        from ..main import ARIA_BUILD_REV as _build_rev
+    except Exception:
+        _build_rev = "unknown"
+    body = {
+        "ready": llm_ready,
+        "llm_ready": llm_ready,
+        # informational — NOT gates (see docstring)
+        "rag_ready": bool(getattr(st, "rag_ready", False)),
+        "knowledge_ready": bool(getattr(st, "knowledge_ready", False)),
+        "neural_ready": bool(getattr(st, "neural_ready", False)),
+        "build_rev": _build_rev,
+    }
+    if not llm_ready:
+        from fastapi.responses import JSONResponse
+        # 503 so Fly/WA/web can distinguish "warming" from "serving"; body carries
+        # the detail so a surface can render an honest "starting up" message.
+        return JSONResponse(status_code=503, content=body)
+    return body
 
 
 @router.get("/metrics")
