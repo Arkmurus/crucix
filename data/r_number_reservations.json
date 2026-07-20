@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2816,
+  "next_available": 2817,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22047,6 +22047,16 @@
       "r_number": "R-F2815",
       "title": "Stage B: interruptible state_store writes (sqlite3 interrupt/progress-handler + bounded drain) [R-F2813 epic]",
       "claimed_at": "2026-07-20T12:49:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "19db5356",
+      "notes": null,
+      "shipped_at": "2026-07-20T13:19:02Z"
+    },
+    {
+      "r_number": "R-F2816",
+      "title": "Stage B fix: move interruptible-write recovery into the boot-settle-armed R-F2277 watchdog (flush-path interrupt fired mid-boot → flap)",
+      "claimed_at": "2026-07-20T13:37:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

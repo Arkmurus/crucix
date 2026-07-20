@@ -554,10 +554,9 @@ async def _flush_cold_queue() -> int:
             await asyncio.wait_for(_cold_conn.commit(), timeout=_WRITE_EXECUTE_TIMEOUT_S)
         except asyncio.TimeoutError:
             logger.error("state_store[cold]: flush timed out (%d writes) — may be lost.", len(batch))
-            # R-F2815 — free the wedged COLD writer thread in-process (interrupt only;
-            # the watchdog reopens both conns if it can't self-recover). Inert unless enabled.
-            if _INTERRUPTIBLE_WRITES:
-                _interrupt_wedged_writer(_cold_conn, "cold-flush", reconnect=False)
+            # R-F2816: cold-writer wedge recovery is handled by the boot-settle-armed
+            # R-F2277 watchdog (probe_liveness R-F2580 also SELECT-1s the cold conn),
+            # not per-flush — see the hot path above.
         except Exception as e:
             logger.error("state_store[cold]: flush failed (%d writes): %s", len(batch), e)
     return flushed
@@ -655,7 +654,11 @@ async def _enqueue_write(sql: str, params: tuple, key: str | None = None) -> Non
 
 
 def _interrupt_wedged_writer(conn, where: str, reconnect: bool = True) -> None:
-    """R-F2815 (Stage B) — abort a write wedged on the aiosqlite worker thread.
+    """R-F2815 (Stage B) / R-F2816 — abort a write wedged on the aiosqlite worker thread.
+
+    Called ONLY from the R-F2277 liveness watchdog's escalation step (R-F2816) — which
+    is boot-settle-armed and fires once per unhealthy streak — NOT from the per-flush
+    timeout path (that fired during the legit-slow cold boot and was reverted).
 
     asyncio.wait_for cancels the awaiting COROUTINE but CANNOT stop the running C
     thread — the exact 2026-07-02 wedge property documented at the R-F2277 watchdog.
@@ -737,13 +740,12 @@ async def _flush_write_queue(max_items: int | None = None) -> int:
                 "bloated or under WAL recovery. Writes may be lost.",
                 len(batch),
             )
-            # R-F2815 — a write exceeding the execute timeout means the writer thread
-            # is wedged (wait_for cancelled our coroutine but the C thread runs on).
-            # Interrupt it so the store recovers in-process instead of every later
-            # write queuing behind it until the R-F2277 watchdog cold-boots. Default
-            # OFF → this branch is inert unless ARIA_INTERRUPTIBLE_WRITES is set.
-            if _INTERRUPTIBLE_WRITES:
-                _interrupt_wedged_writer(_conn, "flush")
+            # R-F2816: wedge RECOVERY (interrupt + reconnect) lives in the boot-settle-
+            # armed R-F2277 watchdog now — NOT here. The reverted R-F2815 flush-path
+            # interrupt fired during the legit-slow ~10-min cold boot (writes exceed the
+            # timeout while the heavy graphs load) → reconnect churn → the store never
+            # settled → watchdog os._exit loop → boot FLAP. The watchdog arms only after
+            # the boot-settle window and escalates once per unhealthy streak.
         except Exception as e:
             logger.error("state_store: flush failed (%d writes): %s", len(batch), e)
             _schedule_reconnect_if_dead(e)
@@ -1125,7 +1127,21 @@ async def liveness_watchdog_loop() -> None:
                 _ss_wd_reconnect_fired = True
                 logger.warning("[R-F2277] attempting in-process reconnect self-heal")
                 try:
-                    asyncio.get_running_loop().create_task(_reconnect())
+                    if _INTERRUPTIBLE_WRITES:
+                        # R-F2816 (Stage B) — before the plain reconnect, INTERRUPT the
+                        # wedged writer thread that a reconnect's SELECT-1 probe cannot
+                        # itself clear: sqlite3.interrupt() aborts the stuck statement,
+                        # freeing the thread, then _interrupt_wedged_writer schedules the
+                        # same probe-first reconnect. This is the ONLY place the interrupt
+                        # fires — inside the watchdog, which is boot-settle-armed (never
+                        # during the ~10-min cold boot) and escalates once per unhealthy
+                        # streak (no churn). It is the safe home for the in-process wedge
+                        # recovery the reverted R-F2815 flush-path version got wrong.
+                        _interrupt_wedged_writer(_conn, "watchdog")   # interrupt + reconnect
+                        if _HOTCOLD_SPLIT and _cold_conn is not None:
+                            _interrupt_wedged_writer(_cold_conn, "watchdog-cold", reconnect=False)
+                    else:
+                        asyncio.get_running_loop().create_task(_reconnect())
                     asyncio.get_running_loop().create_task(_ensure_read_conn())
                 except Exception as _e:
                     logger.error("[R-F2277] reconnect self-heal scheduling failed: %s", _e)

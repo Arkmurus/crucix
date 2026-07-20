@@ -58,36 +58,98 @@ def _fresh_queue(items):
     return q
 
 
-# ── the wedge → interrupt recovery (the core Stage B capability) ─────────────
+# ── R-F2816 FIX: the flush path must NEVER interrupt (interrupt moved to watchdog) ──
+# The reverted R-F2815 interrupted on the flush-timeout, which fired during the
+# legit-slow ~10-min cold boot → reconnect churn → boot FLAP. Recovery now lives ONLY
+# in the boot-settle-armed watchdog. These pin that the flush path is interrupt-free.
 
-async def test_wedged_write_is_interrupted_when_enabled(monkeypatch):
-    monkeypatch.setattr(_ss, "_INTERRUPTIBLE_WRITES", True)
-    monkeypatch.setattr(_ss, "_WRITE_EXECUTE_TIMEOUT_S", 0.05)   # time out fast
-    monkeypatch.setattr(_ss, "_reconnect", lambda: asyncio.sleep(0))  # isolate: don't exercise reconnect here
+async def test_flush_path_never_interrupts_even_when_enabled(monkeypatch):
+    monkeypatch.setattr(_ss, "_INTERRUPTIBLE_WRITES", True)   # even ON
+    monkeypatch.setattr(_ss, "_WRITE_EXECUTE_TIMEOUT_S", 0.05)   # write times out
+    monkeypatch.setattr(_ss, "_reconnect", lambda: asyncio.sleep(0))
     conn = _WedgedConn()
     monkeypatch.setattr(_ss, "_conn", conn)
     monkeypatch.setattr(_ss, "_QUEUED_WRITES", _fresh_queue([("INSERT INTO kv VALUES(?,?)", ("k", "v"))]))
 
     await _ss._flush_write_queue()
 
-    assert conn._connection.interrupts == 1, (
-        "a write wedged past the execute timeout MUST be interrupt()'d so the writer "
-        "thread is freed in-process (not left for the os._exit cold-boot)"
+    assert conn._connection.interrupts == 0, (
+        "R-F2816: the flush path must NOT interrupt — a write timing out during the "
+        "legit-slow cold boot must NOT trigger interrupt/reconnect churn (that flapped "
+        "the boot). Recovery is the watchdog's job, boot-settle-armed."
     )
 
 
-async def test_wedged_write_NOT_interrupted_when_disabled(monkeypatch):
-    # Flag off → byte-identical to pre-R-F2815: coroutine cancelled, thread left as-is,
-    # watchdog is the only recovery. interrupt() must NOT be called.
-    monkeypatch.setattr(_ss, "_INTERRUPTIBLE_WRITES", False)
+async def test_flush_timeout_is_handled_gracefully(monkeypatch):
+    # A flush timeout must still be caught (logged, writes-may-be-lost), never propagate.
+    monkeypatch.setattr(_ss, "_INTERRUPTIBLE_WRITES", True)
     monkeypatch.setattr(_ss, "_WRITE_EXECUTE_TIMEOUT_S", 0.05)
-    conn = _WedgedConn()
-    monkeypatch.setattr(_ss, "_conn", conn)
-    monkeypatch.setattr(_ss, "_QUEUED_WRITES", _fresh_queue([("INSERT INTO kv VALUES(?,?)", ("k", "v"))]))
+    monkeypatch.setattr(_ss, "_conn", _WedgedConn())
+    monkeypatch.setattr(_ss, "_QUEUED_WRITES", _fresh_queue([("SET", ("k", "v"))]))
+    flushed = await _ss._flush_write_queue()   # must not raise
+    assert flushed == 1   # it dequeued the write (the execute then timed out)
 
-    await _ss._flush_write_queue()
 
-    assert conn._connection.interrupts == 0
+# ── R-F2816: the interrupt fires via the boot-settle-armed WATCHDOG escalation ──
+
+def _fast_watchdog_env(monkeypatch):
+    monkeypatch.setenv("ARIA_STATE_STORE_WATCHDOG_ENABLED", "1")
+    monkeypatch.setenv("ARIA_SS_WATCHDOG_SETTLE_S", "0.0")     # arm immediately (test)
+    monkeypatch.setenv("ARIA_SS_WATCHDOG_INTERVAL_S", "0.02")
+    monkeypatch.setenv("ARIA_SS_WATCHDOG_RECONNECT_S", "0.04")  # interrupt fires here
+    monkeypatch.setenv("ARIA_SS_WATCHDOG_CEILING_S", "0.10")
+
+
+async def test_watchdog_interrupts_wedged_writer_when_enabled(monkeypatch):
+    _fast_watchdog_env(monkeypatch)
+    monkeypatch.setattr(_ss, "_INTERRUPTIBLE_WRITES", True)
+    calls = {"interrupt": 0, "reconnect": 0}
+    def _spy_interrupt(conn, where, reconnect=True):
+        calls["interrupt"] += 1
+    async def _fail():
+        return False
+    async def _noop():
+        return None
+    monkeypatch.setattr(_ss, "_interrupt_wedged_writer", _spy_interrupt)
+    monkeypatch.setattr(_ss, "probe_liveness", _fail)   # store looks wedged
+    monkeypatch.setattr(_ss, "_reconnect", _noop)
+    monkeypatch.setattr(_ss, "_ensure_read_conn", _noop)
+    import os as _os
+    monkeypatch.setattr(_os, "_exit", lambda *a: (_ for _ in ()).throw(SystemExit("exit")))
+    try:
+        await asyncio.wait_for(_ss.liveness_watchdog_loop(), timeout=3.0)
+    except (SystemExit, asyncio.TimeoutError):
+        pass
+    assert calls["interrupt"] >= 1, (
+        "R-F2816: with the flag ON, the watchdog escalation MUST interrupt the wedged "
+        "writer (in-process recovery before the os._exit ceiling)"
+    )
+
+
+async def test_watchdog_uses_plain_reconnect_when_disabled(monkeypatch):
+    _fast_watchdog_env(monkeypatch)
+    monkeypatch.setattr(_ss, "_INTERRUPTIBLE_WRITES", False)   # OFF → no interrupt
+    calls = {"interrupt": 0, "reconnect": 0}
+    def _spy_interrupt(conn, where, reconnect=True):
+        calls["interrupt"] += 1
+    async def _spy_reconnect():
+        calls["reconnect"] += 1
+    async def _fail():
+        return False
+    async def _noop():
+        return None
+    monkeypatch.setattr(_ss, "_interrupt_wedged_writer", _spy_interrupt)
+    monkeypatch.setattr(_ss, "probe_liveness", _fail)
+    monkeypatch.setattr(_ss, "_reconnect", _spy_reconnect)
+    monkeypatch.setattr(_ss, "_ensure_read_conn", _noop)
+    import os as _os
+    monkeypatch.setattr(_os, "_exit", lambda *a: (_ for _ in ()).throw(SystemExit("exit")))
+    try:
+        await asyncio.wait_for(_ss.liveness_watchdog_loop(), timeout=3.0)
+    except (SystemExit, asyncio.TimeoutError):
+        pass
+    assert calls["interrupt"] == 0, "flag OFF: watchdog must NOT interrupt"
+    assert calls["reconnect"] >= 1, "flag OFF: watchdog must still do the plain reconnect self-heal"
 
 
 async def test_interrupt_helper_schedules_reconnect_for_hot_writer(monkeypatch):
