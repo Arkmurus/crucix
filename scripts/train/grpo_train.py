@@ -78,9 +78,16 @@ def make_reward_fn():
     # reward fabrication; recall_bonus_cap hard-ceilings recall's share of the band.
     _recall_bw = _envf("GROUNDING_RECALL_BONUS_WEIGHT", 0.0)
     _recall_cap = _envf("GROUNDING_RECALL_BONUS_CAP", 0.25)
+    # R-F2805 cycle-7 GROUNDED RECALL — score keyword_recall ONLY over keywords that
+    # are in the context (extractable). Removes the reward for stating ungrounded
+    # domain vocab (= fabrication for a grounded model) that made cycles 5/6 raise
+    # fabrication without moving recall. Default OFF = backward-compatible. Cycle 7
+    # sets GROUNDING_GROUNDED_RECALL=1.
+    _grounded_recall = os.getenv("GROUNDING_GROUNDED_RECALL", "0").strip().lower() not in ("0", "", "false", "no")
     print(f"[grpo] reward: precision_weight={_prec_w} coverage_weight={_cov_w} "
           f"coverage_target={_cov_tgt} answerable_nocite_penalty={_nocite_pen} "
-          f"recall_bonus_weight={_recall_bw} recall_bonus_cap={_recall_cap}")
+          f"recall_bonus_weight={_recall_bw} recall_bonus_cap={_recall_cap} "
+          f"grounded_recall_only={_grounded_recall}")
 
     def grounding_reward_fn(prompts=None, completions=None, **kwargs):
         contexts = kwargs.get("context")
@@ -107,7 +114,8 @@ def make_reward_fn():
                                        coverage_target=_cov_tgt,
                                        answerable_nocite_penalty=_nocite_pen,
                                        recall_bonus_weight=_recall_bw,
-                                       recall_bonus_cap=_recall_cap)))
+                                       recall_bonus_cap=_recall_cap,
+                                       grounded_recall_only=_grounded_recall)))
         return out
     grounding_reward_fn.__name__ = "grounding_reward"
     return grounding_reward_fn

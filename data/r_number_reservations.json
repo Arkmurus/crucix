@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2804,
+  "next_available": 2806,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21934,6 +21934,24 @@
       "commit_sha": "a5632eed",
       "notes": null,
       "shipped_at": "2026-07-19T18:27:45Z"
+    },
+    {
+      "r_number": "R-F2804",
+      "title": "CLI redaction hardening: streaming path bypassed redaction entirely; PEM/JSON creds unredacted; quoted values partial; command echo unredacted; ReDoS + over-redaction in the assignment regex",
+      "claimed_at": "2026-07-20T07:29:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2805",
+      "title": "Cycle 7 grounded-recall reward reform (default-off knob) + grounded recall in objective eval",
+      "claimed_at": "2026-07-20T07:33:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

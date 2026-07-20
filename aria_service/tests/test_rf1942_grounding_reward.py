@@ -123,3 +123,44 @@ def test_recall_bonus_cap_bounds_recall_share():
     terse = gr.score(_TERSE, _CTX, answerable=True, expected_keywords=_KW,
                      recall_bonus_weight=5.0, recall_bonus_cap=0.25)
     assert abs(terse.score - 0.75) < 1e-9   # (1 - 0.25)*precision(1.0)
+
+
+# --- R-F2805 (cycle 7) — GROUNDED recall knob ---------------------------------
+# _CTX contains "asset freezes" and "SAMLA 2018"; "SIPRI"/"OIEL" are NOT in it
+# (they are ungrounded expert domain vocab — the ~75% of eval gold keywords that
+# are not in the retrieved context and whose raw-recall reward = a fabrication push).
+_KW_MIXED = ["asset freezes", "SIPRI"]   # 1 grounded, 1 ungrounded
+_ANS_GROUNDED = "Asset freezes apply. [Source: web_search:EU sanctions]"
+_ANS_UNGROUNDED = "Asset freezes apply per SIPRI. [Source: web_search:EU sanctions]"
+
+
+def test_grounded_recall_default_off_is_raw():
+    # Default (flag off): keyword_recall is the ORIGINAL raw recall, so stating the
+    # UNGROUNDED "SIPRI" RAISES recall — exactly the mis-incentive cycles 5/6 hit.
+    g = gr.score(_ANS_GROUNDED, _CTX, answerable=True, expected_keywords=_KW_MIXED)
+    u = gr.score(_ANS_UNGROUNDED, _CTX, answerable=True, expected_keywords=_KW_MIXED)
+    assert abs(g.keyword_recall - 0.5) < 1e-9
+    assert abs(u.keyword_recall - 1.0) < 1e-9
+    assert gr.score(_ANS_GROUNDED, _CTX, answerable=True, expected_keywords=_KW_MIXED,
+                    grounded_recall_only=False).score == g.score   # byte-identical when off
+
+
+def test_grounded_recall_ignores_ungrounded_keywords():
+    # Flag ON: recall scored ONLY over in-context keywords -> stating ungrounded
+    # "SIPRI" earns NO extra recall; the fabrication incentive is removed.
+    on = dict(answerable=True, expected_keywords=_KW_MIXED, grounded_recall_only=True)
+    g = gr.score(_ANS_GROUNDED, _CTX, **on)
+    u = gr.score(_ANS_UNGROUNDED, _CTX, **on)
+    assert abs(g.keyword_recall - 1.0) < 1e-9      # grounded kws = ["asset freezes"] -> 1/1
+    assert u.keyword_recall == g.keyword_recall    # ungrounded SIPRI adds nothing
+    assert gr.reward(_ANS_UNGROUNDED, _CTX, expected_keywords=_KW_MIXED,
+                     answerable=True, grounded_recall_only=True) == u.score
+
+
+def test_grounded_recall_no_incontext_keywords_is_zero():
+    # All gold keywords ungrounded -> grounded recall 0.0 (nothing extractable; the
+    # recall term is neutral, so there is no push to invent them).
+    b = gr.score("SIPRI and OIEL matter. [Source: web_search:EU sanctions]", _CTX,
+                 answerable=True, expected_keywords=["SIPRI", "OIEL"],
+                 grounded_recall_only=True)
+    assert b.keyword_recall == 0.0

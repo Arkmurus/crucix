@@ -41,10 +41,11 @@ from aria_service.intel import grounding_reward as gr  # noqa: E402
 # the SAME-RUN DeepSeek baseline on precision AND recall. Single source of truth so the
 # thresholds cannot drift between the eval and whoever reads it.
 _GATE = {
-    "precision_floor": 0.750,      # citation_precision absolute floor (the moat)
-    "recall_floor": 0.238,         # keyword_recall absolute floor
-    "fabrication_ceiling": 0.18,   # mean fabricated citations per answer, upper bound
-    "zero_fab_floor": 0.847,       # fraction of answers with ZERO fabricated citations
+    "precision_floor": 0.750,        # citation_precision absolute floor (the moat)
+    "recall_floor": 0.238,           # raw keyword_recall absolute floor
+    "grounded_recall_floor": 0.40,   # R-F2805 — grounded_recall min (per-row avg incl. 0-extractable rows ~0.45; the binding target is >= same-run DeepSeek)
+    "fabrication_ceiling": 0.18,     # mean fabricated citations per answer, upper bound
+    "zero_fab_floor": 0.847,         # fraction of answers with ZERO fabricated citations
 }
 
 _PROMPT = (
@@ -96,11 +97,18 @@ async def _gen(client, url, model, key, question, context, *, grounded: bool = T
 def _score(text, context, kws, answerable) -> dict:
     b = gr.score(text or "", context or "", expected_keywords=kws, answerable=answerable)
     d = b.as_dict() if hasattr(b, "as_dict") else {}
+    # R-F2805 (cycle 7) — grounded_recall = recall over ONLY the keywords that are in
+    # the context (extractable). On this eval ~75% of gold keywords are ungrounded
+    # domain vocab, so raw keyword_recall rewards fabrication; grounded_recall is the
+    # honest, USP-aligned recall metric. Reported alongside raw for comparability.
+    _gk = gr._grounded_keywords(kws, context)
     return {
         "score": round(float(getattr(b, "score", 0.0)), 4),
         "citation_precision": round(float(d.get("citation_precision", 0.0)), 4),
         "fabricated_citations": int(d.get("fabricated_citations", 0)),
         "keyword_recall": round(float(d.get("keyword_recall", 0.0)), 4),
+        "grounded_recall": round(float(gr._keyword_recall(text or "", _gk)), 4),
+        "grounded_kw_count": len(_gk),
         "total_citations": int(d.get("total_citations", 0) or 0),
     }
 
@@ -177,7 +185,7 @@ async def run(args) -> int:
     return 0
 
 
-def _promotion_gate(aggs) -> tuple[bool, list[str]]:
+def _promotion_gate(aggs, use_grounded: bool = False) -> tuple[bool, list[str]]:
     """R-F2790 — fail-closed Cycle-6 promotion verdict from the report aggregates.
 
     Returns (promote, lines). Promote is True ONLY when the sovereign checkpoint
@@ -196,6 +204,12 @@ def _promotion_gate(aggs) -> tuple[bool, list[str]]:
             ">= DeepSeek cannot be proven (fail-closed). Re-run the eval with the "
             "DeepSeek side populated before gating."
         ]
+    # R-F2805 (cycle 7) — with use_grounded the recall criteria use grounded_recall
+    # (honest extraction of in-context substance) instead of raw keyword_recall (which
+    # rewards ungrounded domain vocab = fabrication). Everything else is unchanged.
+    _rk = "grounded_recall" if use_grounded else "keyword_recall"
+    _rfloor = _GATE["grounded_recall_floor"] if use_grounded else _GATE["recall_floor"]
+    _rlabel = "grounded_recall" if use_grounded else "recall"
     checks = [
         ("precision >= 0.750 floor",
          sov["citation_precision"] >= _GATE["precision_floor"],
@@ -203,12 +217,12 @@ def _promotion_gate(aggs) -> tuple[bool, list[str]]:
         ("precision >= DeepSeek (same-run)",
          sov["citation_precision"] >= ds["citation_precision"],
          f"{sov['citation_precision']} vs DeepSeek {ds['citation_precision']}"),
-        ("recall >= 0.238 floor",
-         sov["keyword_recall"] >= _GATE["recall_floor"],
-         f"{sov['keyword_recall']} vs floor {_GATE['recall_floor']}"),
-        ("recall >= DeepSeek (same-run)",
-         sov["keyword_recall"] >= ds["keyword_recall"],
-         f"{sov['keyword_recall']} vs DeepSeek {ds['keyword_recall']}"),
+        (f"{_rlabel} >= {_rfloor} floor",
+         sov.get(_rk, 0.0) >= _rfloor,
+         f"{sov.get(_rk, 0.0)} vs floor {_rfloor}"),
+        (f"{_rlabel} >= DeepSeek (same-run)",
+         sov.get(_rk, 0.0) >= ds.get(_rk, 0.0),
+         f"{sov.get(_rk, 0.0)} vs DeepSeek {ds.get(_rk, 0.0)}"),
         ("mean_fabricated <= 0.18",
          sov["mean_fabricated"] <= _GATE["fabrication_ceiling"],
          f"{sov['mean_fabricated']} vs ceiling {_GATE['fabrication_ceiling']}"),
@@ -240,13 +254,16 @@ def report(args) -> int:
             "citation_precision": round(sum(v["citation_precision"] for v in vals) / n, 4),
             "mean_fabricated": round(sum(v["fabricated_citations"] for v in vals) / n, 4),
             "keyword_recall": round(sum(v["keyword_recall"] for v in vals) / n, 4),
+            # R-F2805 (cycle 7) — the honest recall metric (0.0 on pre-R-F2805 reports
+            # that lack per-row grounded_recall; recompute those from stored text if needed).
+            "grounded_recall": round(sum(v.get("grounded_recall", 0.0) for v in vals) / n, 4),
             "mean_reward": round(sum(v["score"] for v in vals) / n, 4),
             "pct_zero_fabrication": round(sum(1 for v in vals if v["fabricated_citations"] == 0) / n, 4),
         }
     aggs = {s: agg(s) for s in sides}
     print(f"=== OBJECTIVE EVAL (grounding_reward) — {len(recs)} rows ===")
     print(f"{'metric':<22}" + "".join(f"{s.upper():>19}" for s in sides))
-    for k in ("citation_precision", "mean_fabricated", "keyword_recall", "mean_reward", "pct_zero_fabrication"):
+    for k in ("citation_precision", "mean_fabricated", "keyword_recall", "grounded_recall", "mean_reward", "pct_zero_fabrication"):
         print(f"{k:<22}" + "".join(f"{aggs[s][k]:>19}" for s in sides))
     if "platform" in sides and "platform_verified" in sides:
         p, v = aggs["platform"], aggs["platform_verified"]
@@ -266,7 +283,7 @@ def report(args) -> int:
     # under --gate, and drives the process exit code so an automated cycle CANNOT promote
     # a checkpoint that did not clear every gate (exit 1 on NO-PROMOTE).
     if getattr(args, "gate", False):
-        promote, glines = _promotion_gate(aggs)
+        promote, glines = _promotion_gate(aggs, use_grounded=getattr(args, "grounded_recall_gate", False))
         print("\n=== CYCLE-6 PROMOTION GATE (R-F2790 — enforced, fail-closed) ===")
         for line in glines:
             print(line)
@@ -287,6 +304,10 @@ def main() -> int:
                     help="R-F2790: with --report, apply the enforced Cycle-6 promotion "
                          "gate (sovereign vs same-run DeepSeek) and EXIT 1 on NO-PROMOTE. "
                          "Fail-closed: missing DeepSeek baseline => NO-PROMOTE.")
+    ap.add_argument("--grounded-recall-gate", action="store_true",
+                    help="R-F2805 (cycle 7): with --gate, use grounded_recall (honest "
+                         "extraction of in-context substance) for the recall criteria "
+                         "instead of raw keyword_recall (which rewards ungrounded vocab).")
     ap.add_argument("--store-text", action="store_true",
                     help="persist generated answers + question + truncated context per row "
                          "(default off; enables offline re-scoring / coverage-gap diagnosis)")

@@ -112,6 +112,19 @@ def _keyword_recall(answer: str, keywords) -> float:
     return sum(1 for k in ks if k in a) / len(ks)
 
 
+def _grounded_keywords(keywords, context) -> list:
+    """R-F2805 (cycle 7) — the subset of expected_keywords that ACTUALLY appear in
+    the context, i.e. are extractable from the grounded evidence. Measured on the
+    500-Q eval, only ~25% of gold keywords are in-context; the other ~75% are expert
+    domain-vocab (SIPRI, OIEL, FCDO…) NOT in the retrieved context. Rewarding raw
+    keyword_recall therefore paid the model to state UNGROUNDED domain terms — which
+    for a grounded model is fabrication (why cycles 5/6 raised fabrication and never
+    moved recall). Restricting recall to grounded keywords rewards honest extraction
+    of the available substance and gives ZERO credit for ungrounded vocab."""
+    ctx = (context or "").lower()
+    return [k for k in (keywords or []) if str(k).strip() and str(k).strip().lower() in ctx]
+
+
 @dataclass
 class RewardBreakdown:
     score: float
@@ -150,7 +163,8 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
           coverage_target: float = 2.0,
           answerable_nocite_penalty: float = 0.1,
           recall_bonus_weight: float = 0.0,
-          recall_bonus_cap: float = 0.25) -> RewardBreakdown:
+          recall_bonus_cap: float = 0.25,
+          grounded_recall_only: bool = False) -> RewardBreakdown:
     """Objective grounding reward in [0,1]. Higher = better grounded / honestly
     abstained; near 0 = fabricated sources, OR abstained when the answer WAS available.
 
@@ -215,6 +229,14 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
     ans_cites = extract_citations(answer)
     grounded = [c for c in ans_cites if _cite_grounded(c, ctx_sources)]
     fabricated = [c for c in ans_cites if not _cite_grounded(c, ctx_sources)]
+    # R-F2805 (cycle 7) — GROUNDED recall: when enabled, score recall only over
+    # keywords that are in the context (extractable), so the reward never pays for
+    # stating ungrounded domain vocab (= fabrication). DEFAULT OFF: with the flag
+    # off, keyword_recall is the original raw recall and score() is byte-identical.
+    _kws_for_recall = (
+        _grounded_keywords(expected_keywords, context)
+        if grounded_recall_only else expected_keywords
+    )
     b = RewardBreakdown(
         score=0.0,
         total_citations=len(ans_cites),
@@ -223,7 +245,7 @@ def score(answer: str, context: str, *, fabrication_weight: float = 0.6,
         context_has_sources=bool(ctx_sources),
         abstained=_is_abstention(answer),
         answerable=answerable,
-        keyword_recall=_keyword_recall(answer, expected_keywords),
+        keyword_recall=_keyword_recall(answer, _kws_for_recall),
     )
 
     # Case 1: context has no usable sources -> the only correct move is abstain.
@@ -338,7 +360,8 @@ def reward(answer: str, context: str, *, answerable: bool | None = None,
            coverage_weight: float = 0.0, coverage_target: float = 2.0,
            answerable_nocite_penalty: float = 0.1,
            recall_bonus_weight: float = 0.0,
-           recall_bonus_cap: float = 0.25) -> float:
+           recall_bonus_cap: float = 0.25,
+           grounded_recall_only: bool = False) -> float:
     """Scalar reward (for GRPO / DPO ranking). ``precision_weight`` (R-F2586) tunes
     the precision/recall split; ``coverage_weight``/``answerable_nocite_penalty``
     (cycle-4) tune answerable-row citation coverage; ``recall_bonus_weight``/
@@ -363,4 +386,5 @@ def reward(answer: str, context: str, *, answerable: bool | None = None,
                  coverage_target=coverage_target,
                  answerable_nocite_penalty=answerable_nocite_penalty,
                  recall_bonus_weight=recall_bonus_weight,
-                 recall_bonus_cap=recall_bonus_cap).score
+                 recall_bonus_cap=recall_bonus_cap,
+                 grounded_recall_only=grounded_recall_only).score

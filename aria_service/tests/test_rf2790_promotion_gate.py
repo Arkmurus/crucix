@@ -15,12 +15,13 @@ import types
 from scripts.eval.objective_citation_eval import _GATE, _promotion_gate, report
 
 
-def _agg(precision, recall, mean_fab, zero_fab):
+def _agg(precision, recall, mean_fab, zero_fab, grounded_recall=None):
     """A per-side aggregate dict shaped like report()'s agg()."""
     return {
         "citation_precision": precision,
         "mean_fabricated": mean_fab,
         "keyword_recall": recall,
+        "grounded_recall": grounded_recall if grounded_recall is not None else recall,
         "mean_reward": 0.5,
         "pct_zero_fabrication": zero_fab,
     }
@@ -89,9 +90,32 @@ def test_thresholds_match_the_documented_gate():
     assert _GATE == {
         "precision_floor": 0.750,
         "recall_floor": 0.238,
+        "grounded_recall_floor": 0.40,
         "fabrication_ceiling": 0.18,
         "zero_fab_floor": 0.847,
     }
+
+
+def test_grounded_gate_uses_grounded_recall_not_raw():
+    # R-F2805 — with use_grounded, the recall criteria read grounded_recall. A model
+    # with LOW raw recall but HIGH grounded recall that BEATS DeepSeek's grounded recall
+    # must PASS the recall criteria (it would FAIL the raw gate).
+    sov = _agg(0.80, recall=0.21, mean_fab=0.05, zero_fab=0.90, grounded_recall=0.66)
+    ds = _agg(0.70, recall=0.22, mean_fab=0.20, zero_fab=0.80, grounded_recall=0.63)
+    # raw gate: recall 0.21 < 0.238 floor AND < DS 0.22 -> would be NO-PROMOTE
+    assert _promotion_gate({"sovereign": sov, "deepseek": ds}, use_grounded=False)[0] is False
+    # grounded gate: 0.66 >= 0.60 floor AND >= DS 0.63 -> the recall criteria pass; all clear
+    promote, lines = _promotion_gate({"sovereign": sov, "deepseek": ds}, use_grounded=True)
+    assert promote is True
+    assert any("grounded_recall >= DeepSeek" in l and "PASS" in l for l in lines)
+
+
+def test_grounded_gate_no_promote_when_below_deepseek_grounded():
+    sov = _agg(0.80, recall=0.21, mean_fab=0.05, zero_fab=0.90, grounded_recall=0.61)
+    ds = _agg(0.70, recall=0.20, mean_fab=0.20, zero_fab=0.80, grounded_recall=0.66)
+    promote, lines = _promotion_gate({"sovereign": sov, "deepseek": ds}, use_grounded=True)
+    assert promote is False
+    assert any("grounded_recall >= DeepSeek" in l and "FAIL" in l for l in lines)
 
 
 def _write_rows(tmp_path, rows):
