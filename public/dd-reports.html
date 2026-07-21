@@ -589,6 +589,38 @@ function rowStatusPill(r, sev) {
   return severityPill(sev);
 }
 
+/**
+ * R-F2823 — turn a failed DD start into a message the user can ACT on.
+ *
+ * The server already returns everything needed on a quota block:
+ *   server.mjs:3532 → { error: "<kind> cap reached (3/5) — resets at next month",
+ *                       quota: { current, cap } }   (lib/billing/quotas.mjs:118-125)
+ * ...and all three DD start/re-run paths in this page threw it away and rendered
+ * "DD failed to start (HTTP 429)". A user who has simply used their plan was told
+ * the product was broken, with no mention of a plan, a reset date, or /account.html.
+ * public/aria.html:1601 already handles this correctly; this brings the DD paths
+ * to the same standard instead of fixing one call site and leaving two.
+ *
+ * Returns { text, isQuota }. Async because reading the body requires an await.
+ */
+async function ddStartFailureMessage(resp, what) {
+  const label = what || 'Due diligence';
+  let body = {};
+  try { body = await resp.clone().json(); } catch (e) { body = {}; }
+  if (resp.status === 429) {
+    const reason = body && body.error ? String(body.error) : 'plan limit reached';
+    const q = body && body.quota;
+    const used = (q && q.cap != null) ? ' (' + q.current + ' of ' + q.cap + ' used)' : '';
+    return { isQuota: true, text: 'Plan limit reached — ' + reason + used +
+      '. Manage your plan at /account.html to run more.' };
+  }
+  if (resp.status === 401 || resp.status === 403) {
+    return { isQuota: false, text: 'Your session has expired — please sign in again.' };
+  }
+  const detail = body && body.error ? (': ' + String(body.error).slice(0, 160)) : '';
+  return { isQuota: false, text: label + ' could not start (HTTP ' + resp.status + ')' + detail + '.' };
+}
+
 function escAttr(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
 function escText(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -867,7 +899,10 @@ async function startRerun(btn, ctx) {
     if (!body.mode) body.mode = 'standard';
     if (ctx && ctx.entity_type && !body.type) body.type = ctx.entity_type;
     const r = await authed('/api/aria/dd/orchestrate', { method: 'POST', body: JSON.stringify(body) });
-    if (!r.ok) { Toast.show('Re-run failed (HTTP ' + r.status + ')', 'error'); }
+    if (!r.ok) {
+      const _f = await ddStartFailureMessage(r, 'Re-run');
+      Toast.show(_f.text, _f.isQuota ? 'info' : 'error', _f.isQuota ? 9000 : 5000);
+    }
     else {
       const started = await r.json().catch(() => ({}));
       if (!started || started.existing_case || !started.run_id || started.status !== 'running') {
@@ -1588,7 +1623,8 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
     try {
       const r = await authed('/api/aria/dd/orchestrate', { method: 'POST', body: JSON.stringify(body) });
       if (!r.ok) {
-        err.textContent = 'DD failed to start (HTTP ' + r.status + ').'; err.style.display = 'block';
+        const _f = await ddStartFailureMessage(r, 'Due diligence');
+        err.textContent = _f.text; err.style.display = 'block';
         sb.disabled = false; sb.innerHTML = orig; return;
       }
       const started = await r.json().catch(() => ({}));
@@ -1638,7 +1674,8 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
               Toast.show('Re-run started for ' + _nm + '. It appears below as Running.', 'info', 6000);
               await loadReports(true); closeRun();
             } else {
-              Toast.show('Re-run did not start (HTTP ' + rf2.status + ').', 'error', 6000);
+              const _f2 = await ddStartFailureMessage(rf2, 'Re-run');
+              Toast.show(_f2.text, _f2.isQuota ? 'info' : 'error', _f2.isQuota ? 9000 : 6000);
               _rf.disabled = false; _rf.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Re-run anyway';
             }
           } catch (e) { Toast.show('Re-run error: ' + e.message, 'error'); _rf.disabled = false; _rf.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Re-run anyway'; }

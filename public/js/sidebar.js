@@ -41,9 +41,49 @@ const Sidebar = {
       }
       if (role) role.textContent = user.role || 'analyst';
       const em = document.getElementById('nav-user-email'); if (em) em.textContent = user.email || '';   // R-F2359
+      // R-F2822 — legacy admin reveal retained for any [data-admin] markup that
+      // still exists elsewhere; gated NAV links now use [data-gated] below.
       if (user.role === 'admin') {
         document.querySelectorAll('[data-admin]').forEach(e => e.style.display = '');
       }
+    });
+    // R-F2822 — reveal gated nav links from the SERVER's entitlement answer.
+    // The nav used to hand-maintain a data-admin flag on 3 of 11 gated links, so
+    // it drifted from lib/auth/operatorPages.mjs in both directions: five links
+    // rendered to everyone and then silently 302'd the user back to the dashboard
+    // (reads as a broken link), while powerusers could never SEE leads.html /
+    // design-partners.html that they are entitled to.
+    //
+    // Gated links render HIDDEN and are revealed only on an explicit allow. That
+    // is deliberate: if this request fails, or the user is not entitled, the link
+    // stays hidden — the same outcome the server gate would produce, instead of a
+    // link that bounces. requirePageRole() remains the actual boundary; this only
+    // stops the nav lying about what the user can do.
+    this._applyNavEntitlement();
+  },
+
+  async _applyNavEntitlement() {
+    const gated = document.querySelectorAll('[data-gated]');
+    if (!gated.length) return;
+    let allowed = [];
+    try {
+      // Reuse API.headers() rather than rebuilding the auth header, so a future
+      // change to the token scheme cannot leave this call behind. Deliberately NOT
+      // API.get(): that logs the user out on 401 (app.js:46), and a nav-decoration
+      // request must never be able to sign someone out.
+      const r = await fetch('/api/auth/nav-pages', {
+        headers: (window.API && API.headers) ? API.headers() : {},
+      });
+      if (r.ok) {
+        const data = await r.json();
+        allowed = Array.isArray(data && data.allowed) ? data.allowed : [];
+      }
+    } catch (e) {
+      // Fail closed — leave the gated links hidden. Never throw into page init.
+    }
+    const allow = new Set(allowed);
+    gated.forEach((el) => {
+      if (allow.has(el.getAttribute('data-gated'))) el.style.display = '';
     });
   },
 
@@ -276,19 +316,19 @@ const Sidebar = {
         ${link('brief',         '/dashboard.html',       'bi-broadcast-pin', 'Intelligence Brief')}
         ${link('news',          '/news.html',            'bi-newspaper',     'News Monitor')}
         ${link('opportunities', '/opportunities.html',   'bi-briefcase',     'Opportunities')}
-        ${link('bd',            '/bd-intelligence.html', 'bi-graph-up',      'BD Intelligence')}
+        <div data-gated="/bd-intelligence.html" style="display:none">${link('bd',            '/bd-intelligence.html', 'bi-graph-up',      'BD Intelligence')}</div>
         ${link('network',       '/network.html',         'bi-people',        'Network')}
         ${link('dd-reports',    '/dd-reports.html',      'bi-folder2-open',  'DD Reports')}
         ${link('watchlist',     '/watchlist.html',       'bi-eye',           'Watchlist')}
-        ${link('vls-chain',     '/vls-chain.html',       'bi-shield-check',  'VLS Chain')}
-        ${link('sources',    '/sources.html',    'bi-reception-4', 'Source Health')}
-        ${link('vault',      '/vault.html',      'bi-key',         'Signup Vault')}
-        ${link('brain',      '/aria-brain',      'bi-heart-fill',  'ARIA Brain')}
+        <div data-gated="/vls-chain.html" style="display:none">${link('vls-chain',     '/vls-chain.html',       'bi-shield-check',  'VLS Chain')}</div>
+        <div data-gated="/sources.html" style="display:none">${link('sources',    '/sources.html',    'bi-reception-4', 'Source Health')}</div>
+        <div data-gated="/vault.html" style="display:none">${link('vault',      '/vault.html',      'bi-key',         'Signup Vault')}</div>
+        <div data-gated="/aria-brain" style="display:none">${link('brain',      '/aria-brain',      'bi-heart-fill',  'ARIA Brain')}</div>
         ${link('status',     '/status.html',     'bi-lightning-charge', 'Status')}
         ${link('model-card', '/model-card.html', 'bi-file-text',   'Model Card')}
-        <div data-admin style="display:none">${link('leads', '/leads.html', 'bi-inbox', 'Inbound Leads')}</div>
-        <div data-admin style="display:none">${link('design-partners', '/design-partners.html', '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4"/><path d="m21 3 1 11h-2"/><path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3"/><path d="M3 4h8"/></svg>', 'Design Partners')}</div>
-        <div data-admin style="display:none">${link('admin', '/admin.html', 'bi-shield-lock', 'Users')}</div>
+        <div data-gated="/leads.html" style="display:none">${link('leads', '/leads.html', 'bi-inbox', 'Inbound Leads')}</div>
+        <div data-gated="/design-partners.html" style="display:none">${link('design-partners', '/design-partners.html', '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4"/><path d="m21 3 1 11h-2"/><path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3"/><path d="M3 4h8"/></svg>', 'Design Partners')}</div>
+        <div data-gated="/admin.html" style="display:none">${link('admin', '/admin.html', 'bi-shield-lock', 'Users')}</div>
       </nav>
 
       <div class="rail-bottom">
@@ -322,8 +362,8 @@ const Sidebar = {
             <div class="nav-dropdown-divider"></div>
             <a href="/account.html" class="nav-dropdown-item"><i class="bi bi-person-circle"></i> Account &amp; profile</a>
             <a href="/dashboard.html" class="nav-dropdown-item"><i class="bi bi-broadcast-pin"></i> Intelligence Brief</a>
-            <a href="/sources.html" class="nav-dropdown-item"><i class="bi bi-reception-4"></i> Source Health</a>
-            <a href="/vault.html" class="nav-dropdown-item"><i class="bi bi-key"></i> Signup Vault</a>
+            <a href="/sources.html" class="nav-dropdown-item" data-gated="/sources.html" style="display:none"><i class="bi bi-reception-4"></i> Source Health</a>
+            <a href="/vault.html" class="nav-dropdown-item" data-gated="/vault.html" style="display:none"><i class="bi bi-key"></i> Signup Vault</a>
             <div class="nav-dropdown-divider"></div>
             <button class="nav-dropdown-item danger" id="btn-logout"><i class="bi bi-box-arrow-right"></i> Sign Out</button>
           </div>

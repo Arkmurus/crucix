@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2822,
+  "next_available": 2824,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22106,6 +22106,25 @@
       "r_number": "R-F2821",
       "title": "errorTracker: own-code failure domain escalates to brain; verified delivery",
       "claimed_at": "2026-07-21T14:10:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6934279a",
+      "notes": null,
+      "shipped_at": "2026-07-21T14:21:38Z"
+    },
+    {
+      "r_number": "R-F2822",
+      "title": "sidebar nav role visibility matches server page gate (poweruser tier)",
+      "claimed_at": "2026-07-21T14:21:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2823",
+      "title": "DD quota 429 renders upgrade path not HTTP error",
+      "claimed_at": "2026-07-21T14:21:39Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -43,7 +43,7 @@ import { conversationKeyForUser, slugifyIdentity } from './lib/auth/conversation
 import { ROLES, roleSatisfies } from './lib/auth/roles.mjs';  // R-F2170
 import { requiredRoleForAriaPath, isDoubleEncodedPath } from './lib/auth/infraRoutes.mjs';  // R-F2775 + R-F2802
 import { probeFlyHealth, combineCrossOk } from './lib/health/crossHealth.mjs';  // R-F2776
-import { operatorPageFor } from './lib/auth/operatorPages.mjs';  // R-F2785 table + R-F2818 normalising lookup
+import { operatorPageFor, navPagesForRole } from './lib/auth/operatorPages.mjs';  // R-F2785 table + R-F2818 lookup + R-F2822 nav entitlement
 import { classifyDeliveryOutcome, degradedDetail } from './lib/aria/deliveryOutcome.mjs';  // R-F1965
 import { classifySourceHealth } from './lib/source/healthBuckets.mjs';  // R-F2719
 import { createBillingRouter } from './lib/billing/routes.mjs';
@@ -5245,6 +5245,37 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
     res.json(clean);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+// ── R-F2822: navigation entitlement, computed SERVER-SIDE ────────────────────
+// The sidebar hand-maintained a `data-admin` flag on 3 of 11 gated links, so it
+// drifted from lib/auth/operatorPages.mjs — the table the real gate uses — in
+// BOTH directions: five links (bd-intelligence, vls-chain, sources, vault,
+// aria-brain) rendered to every user and then 302'd them back to /dashboard.html
+// with no explanation, while leads.html and design-partners.html were hidden from
+// powerusers who ARE entitled to them (OPERATOR_VIEW_PAGES allows poweruser, but
+// the reveal keyed on role === 'admin').
+//
+// This endpoint makes the SERVER the single source of truth: it answers "which
+// gated pages may THIS caller navigate to", using the exact table + roleSatisfies()
+// the gate itself uses (server.mjs:4808). The browser therefore performs NO
+// authorization reasoning of its own — it only shows or hides what it is told.
+// A new operator page added to operatorPages.mjs gets correct nav treatment with
+// no sidebar edit, which is what stops this drifting again.
+//
+// NB this is not a security boundary — requirePageRole() is. It exists so the nav
+// stops lying about what the user can do. It is deliberately fetched fresh rather
+// than read from Auth.me(), which returns a login-time localStorage snapshot
+// (public/js/app.js:154-157) and would go stale on a role change.
+app.get('/api/auth/nav-pages', requireAuth, (req, res) => {
+  try {
+    const role = req.user?.role || 'analyst';
+    res.json({ role, allowed: navPagesForRole(role) });
+  } catch (err) {
+    // Fail CLOSED: an empty allow-list hides the gated links rather than showing
+    // links that would bounce. The server gate is unaffected either way.
+    res.status(200).json({ role: null, allowed: [], error: 'nav_entitlement_unavailable' });
   }
 });
 
