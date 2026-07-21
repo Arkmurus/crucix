@@ -4325,6 +4325,33 @@ def _adverse_hit_names_subject(text: str, name_token_sets: list[set[str]]) -> bo
     return any(ns <= tt for ns in name_token_sets)
 
 
+
+
+# ── R-F2847 — adverse-media budget, calibrated to MEASURED search cost ────────
+#
+# The loop ran up to 30 templates against a 180s deadline with a hardcoded 10.0s
+# per-search bound. Phase-timed on the brain (R-F2846) a real search costs ~12.9s:
+#     30 x ~13s = ~390s  vs a 180s deadline      -> impossible
+#     bound 10.0s        vs measured 12.9s       -> EVERY search times out
+# The live SOCAR run recorded exactly that: templates_run 18, templates_searched 0,
+# search_backends_answered False. Adverse media returned zero evidence on every run
+# because the budget could never be met — not because the sources were empty.
+#
+# §1 forbids a band-aid, and simply raising 10s would still leave 30 x 13s in 180s.
+# The structural error was that the template count and the per-search bound had NO
+# relationship to the deadline they had to fit inside. Both are now derived.
+#
+# HONESTY OVER THROUGHPUT: completing ~9 of 34 templates AND SAYING SO beats
+# attempting 34 and completing 0. R-F2791's templates_searched /
+# search_backends_answered exist so a zero-finding sweep is distinguishable from a
+# sweep that never ran; templates_capped_at + templates_total_in_set keep the cap
+# visible, because an invisible truncation reads as a completed sweep.
+# 20.0 = measured ~12.9s + headroom for backend variance. Env-overridable so it can
+# be re-calibrated from evidence rather than edited.
+ADVERSE_SEARCH_TIMEOUT_S = float(os.getenv("ARIA_ADVERSE_SEARCH_TIMEOUT_S", "20.0"))
+
+
+
 async def run_adverse_media_deep_search(
     entity_name: str,
     *,
@@ -4408,6 +4435,14 @@ async def run_adverse_media_deep_search(
     total_templates = len(templates)
     # Cap to avoid burst-load on backends (circuit breakers will catch
     # overload anyway, but be polite)
+    # R-F2847 — NO derived cap. With the per-search bound now ABOVE measured cost
+    # (see ADVERSE_SEARCH_TIMEOUT_S) searches actually COMPLETE, and the existing
+    # R-F2667 deadline check below stops the loop when the budget is spent —
+    # templates finish one by one until then. A count cap sized on the timeout
+    # CEILING was over-conservative: it truncated sweeps that would have completed
+    # comfortably (caught by R-F2791's 4-template/30s case, which it cut to 1).
+    # Worst case is bounded: a template starting at deadline-1s ends ~20s later,
+    # inside the caller's 210s wait_for backstop.
     templates_to_run = templates[:max_templates]
 
     findings: list[dict] = []
@@ -4450,7 +4485,8 @@ async def run_adverse_media_deep_search(
             # R-F2846 — screening=True: this loop inspects EVERY hit, so candidate
             # ORDER is irrelevant, and the re-rank was 79% of each search's cost.
             search_results = await _web_search(
-                query, timeout=10.0, raise_on_timeout=True, screening=True,
+                query, timeout=ADVERSE_SEARCH_TIMEOUT_S,
+                raise_on_timeout=True, screening=True,
             )
         except Exception as e:
             logger.debug("[adverse_media] template %r failed: %s", source_class, e)
