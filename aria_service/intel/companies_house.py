@@ -297,13 +297,75 @@ async def get_company_profile(company_number: str) -> dict | None:
     }
 
 
+_OFFICER_ID_RE = re.compile(r"/officers/([^/]+)/appointments")
+
+# Generous ceiling so a pathological company cannot spin the pager forever.
+# Exceeding it is REPORTED (see below), never silently truncated.
+_MAX_OFFICERS = 500
+_OFFICERS_PAGE = 100
+
+
+def _officer_id_from_links(item: dict) -> str:
+    """Extract the CH officer id from `links.officer.appointments` (R-F2828).
+
+    Shape: `/officers/<officer_id>/appointments`. This id is the ONLY thing that
+    lets a director be followed to their other appointments — and it is what
+    makes a person->company edge ANCHORED to a primary source rather than a name
+    match, which is the Grade-A bar (R-F2726). Without it every such edge would
+    be a name match, i.e. the fabrication class we spent 11 R-numbers removing.
+    """
+    try:
+        link = ((item.get("links") or {}).get("officer") or {}).get("appointments") or ""
+        m = _OFFICER_ID_RE.search(str(link))
+        return m.group(1) if m else ""
+    except Exception:
+        return ""
+
+
 @fail_wire(module="companies_house", gap_type="api_missing")
 async def get_officers(company_number: str) -> list[dict]:
-    """Get current and past officers (directors)."""
-    data = await _get(f"/company/{company_number}/officers")
-    if not data:
-        return []
-    items = data.get("items") or []
+    """Get current and past officers (directors), ALL pages (R-F2828).
+
+    Two defects fixed here, both found by probing the raw CH payload live:
+
+    1. ANCHORS WERE DISCARDED. The mapping kept 8 display fields and threw away
+       `links.officer.appointments` (carrying the officer id) and `person_number`.
+       The DD therefore held 35 BAE officers it could not follow anywhere, so no
+       ANCHORED person->company edge could be built from them at all.
+
+    2. SILENT TRUNCATION. The call took CH's default page and returned it whole,
+       so BAE Systems reported 35 officers against `total_results: 73` — under
+       half the officer record, with nothing anywhere saying so. For a question
+       about ownership and control that is a completeness defect, and a silent
+       one is the worst kind (cf. the never-false-clean rule).
+
+    If a company exceeds `_MAX_OFFICERS`, the result is capped but the truncation
+    is REPORTED through the existing R-F2511 unavailability channel, so a caller
+    that checks `consume_unavailable()` cannot mistake a capped list for the
+    whole register.
+    """
+    collected: list[dict] = []
+    start = 0
+    total = 0
+    while True:
+        data = await _get(
+            f"/company/{company_number}/officers"
+            f"?items_per_page={_OFFICERS_PAGE}&start_index={start}"
+        )
+        if not data:
+            break
+        page = data.get("items") or []
+        total = int(data.get("total_results") or 0)
+        collected.extend(page)
+        start += len(page)
+        # Stop on: empty page (defensive against a non-advancing pager),
+        # reaching the reported total, or hitting the safety ceiling.
+        if not page or start >= total or len(collected) >= _MAX_OFFICERS:
+            break
+
+    if total and len(collected) < total:
+        _mark_unavailable(f"officers_truncated:{len(collected)}_of_{total}")
+
     return [
         {
             "name": item.get("name"),
@@ -314,8 +376,14 @@ async def get_officers(company_number: str) -> list[dict]:
             "country_of_residence": item.get("country_of_residence"),
             "occupation": item.get("occupation"),
             "is_current": item.get("resigned_on") is None,
+            # R-F2828 — primary-source anchors. Empty string (never None) so a
+            # consumer can test truthiness without a None-check, and an absent
+            # anchor is explicit rather than missing.
+            "officer_id": _officer_id_from_links(item),
+            "person_number": item.get("person_number") or "",
+            "appointment_link": (item.get("links") or {}).get("self") or "",
         }
-        for item in items
+        for item in collected[:_MAX_OFFICERS]
     ]
 
 
