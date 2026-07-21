@@ -22332,9 +22332,10 @@
       "title": "PDF button was a plain link but auth is a Bearer header — 401; handler ordering broke siblings",
       "claimed_at": "2026-07-21T20:00:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8d050a69",
+      "notes": null,
+      "shipped_at": "2026-07-21T20:15:32Z"
     },
     {
       "r_number": "R-F2845",

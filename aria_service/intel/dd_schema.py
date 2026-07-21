@@ -1349,6 +1349,78 @@ def _dd_quality_assessment(r: dict) -> dict:
     }
 
 
+
+# R-F2845 — module-level so it is DIRECTLY TESTABLE. It was a nested closure, which
+# is how a false ANSWERED shipped unnoticed (same reason R-F2839 extracted the GLEIF
+# profile mapping).
+#
+# THE DEFECT IT FIXES. On live run dd_86cce59b5bb1 (SOCAR Trading SA) the readiness
+# framework reported ownership_control: ANSWERED while directors, shareholders,
+# identity.ubo_chain, controlled_by and findings were ALL empty. The only node in
+# network.ubo_chain was the subject itself:
+#     {name: "SOCAR Trading SA", role: "subject", hop_depth: 0, id: "seed"}
+# Its name is substantive, so the old test passed and the company answered the
+# ownership question by being its own seed. Zero ownership information, ANSWERED.
+#
+# That is a FALSE ANSWERED — the mirror of a false clean. A false clean turns "no
+# findings" into "safe"; a false ANSWERED turns "we looked" into "we know". Both
+# convert an absence into a positive, and this one inflated the headline (3/5 when
+# the truth was 2/5) on precisely the question where a competitor's report on the
+# same entity carried real data.
+#
+# The rule already existed ONE LAYER AWAY, in the edge-writer
+# (dd_orchestrator.py:281): "unanchorable, or the subject itself — never guess an
+# id". The graph layer knows the subject is not a relationship; the readiness layer
+# did not. Same architecture as R-F2821 / R-F2832 / R-F2840.
+_SUBJECT_ROLES = frozenset({"subject", "seed", "self", "target"})
+
+# Mirrors the in-function _substantive() (dd_schema ~:1430). Kept verbatim so the
+# module-level holder test rejects exactly the same placeholder vocabulary — the
+# closure it used to capture is not reachable from module scope.
+_PLACEHOLDER_VALUES = frozenset({
+    "unknown", "unavailable", "not available", "n/a", "na", "none",
+})
+
+
+def _substantive_value(value) -> bool:
+    return bool(value) and str(value).strip().lower() not in _PLACEHOLDER_VALUES
+
+
+def _is_subject_node(h) -> bool:
+    """True when this entry is the DD subject rather than a holder of it.
+
+    Any ONE marker is sufficient — the walker sets all three on the seed, but a
+    partial node from another producer may carry only one.
+    """
+    if not isinstance(h, dict):
+        return False
+    if str(h.get("role") or "").strip().lower() in _SUBJECT_ROLES:
+        return True
+    if str(h.get("id") or "").strip().lower() in _SUBJECT_ROLES:
+        return True
+    hop = h.get("hop_depth")
+    if isinstance(hop, (int, float)) and int(hop) == 0:
+        return True
+    return False
+
+
+def _has_named_holder(holders) -> bool:
+    """True iff `holders` contains at least one NAMED party OTHER than the subject.
+
+    A bare string carries no role/hop, so it cannot be the seed and counts as a
+    holder — that legacy shape is how shareholders are sometimes supplied.
+    """
+    if not isinstance(holders, (list, tuple)):
+        return False
+    for h in holders:
+        if _is_subject_node(h):
+            continue                     # the subject is not evidence of its own ownership
+        name = h.get("name") if isinstance(h, dict) else h
+        if isinstance(name, str) and len(name.strip()) >= 2 and _substantive_value(name):
+            return True
+    return False
+
+
 def _dd_decision_readiness(r: dict) -> dict:
     """Measure the five customer questions required before a DD can be relied on.
 
@@ -1492,15 +1564,6 @@ def _dd_decision_readiness(r: dict) -> dict:
     # R-F2793 — a holder LIST is not ownership evidence; a holder with SUBSTANCE is.
     # This was the truthiness of the list, so `[{}]` or `['x']` answered
     # "Ownership and control: ANSWERED".
-    def _has_named_holder(holders) -> bool:
-        if not isinstance(holders, (list, tuple)):
-            return False
-        for h in holders:
-            name = h.get("name") if isinstance(h, dict) else h
-            if isinstance(name, str) and len(name.strip()) >= 2 and _substantive(name):
-                return True
-        return False
-
     ownership_present = any(
         _has_named_holder(src) for src in (
             ident.get("shareholders"), ident.get("ubo_chain"), network.get("ubo_chain"),
