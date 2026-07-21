@@ -106,7 +106,7 @@ def test_web_search_merges_internal_and_external(db_ready, monkeypatch):
         # Stub the external ws.search_multilingual to return a distinct
         # external URL — no overlap with internal.
         from types import SimpleNamespace
-        async def fake_ext(query, languages=None, max_results=30):
+        async def fake_ext(query, languages=None, max_results=30, **_kw):  # R-F2846 kwarg
             return [SimpleNamespace(
                 title="external news",
                 url="https://external.example/news/1",
@@ -148,7 +148,7 @@ def test_web_search_dedupes_when_url_overlaps(db_ready, monkeypatch):
         })
 
         from types import SimpleNamespace
-        async def fake_ext(query, languages=None, max_results=30):
+        async def fake_ext(query, languages=None, max_results=30, **_kw):  # R-F2846 kwarg
             return [SimpleNamespace(
                 title="external view of the same story",
                 url=url,  # SAME URL
@@ -189,7 +189,7 @@ def test_web_search_returns_internal_only_when_external_errors(
             "http_status": 200, "fetched_at": time.time(),
         })
 
-        async def boom(query, languages=None, max_results=30):
+        async def boom(query, languages=None, max_results=30, **_kw):  # R-F2846 kwarg
             raise RuntimeError("Brave key invalid, SearXNG empty, all down")
         from aria_service.intel import web_search as _ws
         monkeypatch.setattr(_ws, "search_multilingual", boom)
@@ -242,7 +242,7 @@ def test_rf504_capability_modirum_gespi_internal_beats_homograph(
         # External: academic homograph noise — what really happened
         # in the live failure (Semantic Scholar returning crypto papers).
         from types import SimpleNamespace
-        async def fake_ext(query, languages=None, max_results=30):
+        async def fake_ext(query, languages=None, max_results=30, **_kw):  # R-F2846 kwarg
             return [SimpleNamespace(
                 title=f"On elliptic curves and modirum variables (paper {i})",
                 url=f"https://semanticscholar.example/paper-{i}",

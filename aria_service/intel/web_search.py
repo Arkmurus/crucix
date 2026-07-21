@@ -1418,6 +1418,7 @@ async def search(
     *,
     max_results: int = 10,
     language: str = "en",
+    screening: bool = False,
     min_credibility: int = 6,
     require_triangulation: bool = False,
     use_brave: bool | None = None,
@@ -1691,9 +1692,26 @@ async def search(
     # R-F2205 — optional local cross-encoder re-rank (ENV-gated, default OFF; lazy + offloaded).
     # Surfaces relevant-but-lexically-different sources that credibility/keyword scoring buries.
     # Safe no-op when disabled or unavailable.
+    # R-F2846 — SCREENING SKIPS THE RE-RANK.
+    # Phase-timed on the brain: rerank_results was 94.40s of a 119.92s search — 79%
+    # of every search in the product. Disabling it globally took the same probe to
+    # 12.88s (9.3x). That cost made adverse media impossible: each template gets a
+    # 10s budget inside a 180s deadline, so the live SOCAR run recorded
+    # templates_run 18 / templates_searched 0 / backends_answered False — zero
+    # evidence, on 20% of the decision scorecard.
+    #
+    # But a global off-switch is the wrong end state: re-ranking is a real relevance
+    # feature (main.py pre-warms it, R-F2259). The honest split is by PURPOSE.
+    # Screening asks "does this entity appear in adverse press?" — titles and
+    # snippets answer that, and the ORDER of candidates is irrelevant because every
+    # one is inspected downstream. Deep research and chat, where a human reads the
+    # top few, are where re-rank earns its cost.
+    #
+    # SAFETY: this may only change the ORDER of results, never WHICH are found. A
+    # screen that quietly searched less would be a recall cut wearing a perf fix.
     try:
         from . import reranker as _rr
-        if _rr.is_enabled() and len(results) > 1:
+        if not screening and _rr.is_enabled() and len(results) > 1:
             results = await _rr.rerank_results(query, results)
     except Exception:
         pass
@@ -2086,6 +2104,7 @@ async def search_multilingual(
     max_results: int = 15,
     translate_query: bool = True,
     use_brave: bool | None = None,   # R-F2318 — forwarded to each per-language search()
+    screening: bool = False,   # R-F2846 — forwarded to each per-language search()
 ) -> list[SearchResult]:
     """Search in multiple languages simultaneously.
 
@@ -2183,7 +2202,8 @@ async def search_multilingual(
             queries_by_lang.append((lang, query))
 
     per_query_cap = max(3, max_results // max(1, len(queries_by_lang)) + 2)
-    tasks = [search(q, max_results=per_query_cap, language=lang, use_brave=use_brave)
+    tasks = [search(q, max_results=per_query_cap, language=lang, use_brave=use_brave,
+                    screening=screening)
              for lang, q in queries_by_lang]
     raw = await asyncio.gather(*tasks, return_exceptions=True)
 

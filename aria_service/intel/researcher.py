@@ -1540,6 +1540,7 @@ async def _query_internal_index(query: str) -> list[dict]:
 
 async def _web_search(
     query: str, timeout: float = 10.0, *, raise_on_timeout: bool = False,
+    screening: bool = False,
 ) -> list[dict]:
     """ARIA's independent multi-backend web search.
 
@@ -1569,8 +1570,9 @@ async def _web_search(
         # R-F504: query both ARIA's external multi-backend search AND
         # her own curated internal index in parallel. Both are async +
         # independent — gather lets the slower one not block the other.
+        # R-F2846 — screening callers skip the 94s cross-encoder re-rank.
         ext_task = ws.search_multilingual(
-            query, languages=languages, max_results=30,
+            query, languages=languages, max_results=30, screening=screening,
         )
         int_task = _query_internal_index(query)
         # R-F2832 — BOUND THE PRIMARY PATH. This gather had no wait_for and no
@@ -4445,8 +4447,10 @@ async def run_adverse_media_deep_search(
             # R-F2832 — strict: a timed-out template must be accounted as a
             # breaker skip, NOT as a template that was searched and found
             # nothing (R-F2791 `_templates_searched`).
+            # R-F2846 — screening=True: this loop inspects EVERY hit, so candidate
+            # ORDER is irrelevant, and the re-rank was 79% of each search's cost.
             search_results = await _web_search(
-                query, timeout=10.0, raise_on_timeout=True,
+                query, timeout=10.0, raise_on_timeout=True, screening=True,
             )
         except Exception as e:
             logger.debug("[adverse_media] template %r failed: %s", source_class, e)

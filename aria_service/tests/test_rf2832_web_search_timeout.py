@@ -50,7 +50,7 @@ def _patch_backends(monkeypatch, *, delay: float, results=None):
     """
     from aria_service.intel import web_search as ws
 
-    async def _slow_multilingual(query, languages=None, max_results=30):
+    async def _slow_multilingual(query, languages=None, max_results=30, **_kw):  # R-F2846 kwarg
         await asyncio.sleep(delay)
         return results or []
 
