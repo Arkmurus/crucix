@@ -1047,6 +1047,8 @@ async def dd_orchestrate_ep(req: Request):
 
     try:
         from ..intel import dd_orchestrator
+        # R-F2835 — the web route consumed a quota unit before proxying here
+        # (server.mjs:3546); charging again would double-count.
         report = await dd_orchestrator.orchestrate_dd(
             target=body,
             llm=llm,
@@ -1055,6 +1057,7 @@ async def dd_orchestrate_ep(req: Request):
             user_id=_req_user_id,
             user_email=_req_user_email,
             share_to_company=_share_to_company,
+            quota_charged=True,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

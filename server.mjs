@@ -5248,6 +5248,56 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   }
 });
 
+// ── R-F2835: cross-tier quota consumption for brain-initiated DD ─────────────
+//
+// The DD quota (5/month on free, lib/billing/tiers.mjs) was enforced ONLY on the
+// web path (server.mjs:3532). A DD triggered from CHAT runs as a tool INSIDE the
+// brain and never traverses that route, so it consumed nothing: a grep of
+// aria_service/ for ddRunsPerMonth|dd_runs_per_month|dd_quota returns ZERO hits.
+// A free user capped at 50 messages/day could therefore trigger up to 50 DD runs
+// per day — 10x the MONTHLY cap, daily. Revenue leak and §17 cost exposure.
+//
+// Billing belongs to this tier (it owns users, tiers and Stripe), so the brain asks
+// rather than keeping its own counter. Authenticated with ARIA_INTERNAL_TOKEN over
+// Fly's 6PN private network — the same internal hop the WA listener already uses
+// (R-F1860). Never reachable from the public internet: requireInfraRole rejects a
+// caller without the internal token.
+app.post('/api/internal/quota/consume', async (req, res) => {
+  const auth = String(req.headers.authorization || '');
+  const expected = process.env.ARIA_INTERNAL_TOKEN || process.env.ARIA_API_TOKEN || '';
+  if (!expected || auth !== `Bearer ${expected}`) {
+    return res.status(401).json({ error: 'internal token required' });
+  }
+  const userId = String((req.body && req.body.user_id) || '').trim();
+  const kind = String((req.body && req.body.kind) || 'ddRun').trim();
+  if (!userId) return res.status(400).json({ error: 'user_id required' });
+  if (!['ddRun', 'message', 'upload'].includes(kind)) {
+    return res.status(400).json({ error: `unknown quota kind: ${kind}` });
+  }
+  try {
+    const tier = findUserById(userId)?.tier || null;
+    // enforceQuota() returns NULL when allowed/exempt, and the checkAndConsume
+    // verdict only when the cap is hit (lib/billing/enforce.mjs). Normalise to an
+    // explicit shape so the brain never has to infer allowance from an absence —
+    // "no verdict" meaning "allowed" is the shape that produced three fabricated
+    // gates this month.
+    const blocked = await enforceQuota(userId, tier, kind);
+    if (!blocked) {
+      return res.json({ allowed: true, kind, tier: tier || 'free' });
+    }
+    return res.json({ allowed: false, kind, tier: tier || 'free', ...blocked });
+  } catch (err) {
+    // Fail OPEN, loudly. Denying a paying user because this tier hiccuped is worse
+    // than one uncounted run, and the §17 $300/mo cap remains the hard backstop.
+    // Never silent (§21a): the brain records the degradation.
+    errorTracker.record('quota_internal', 'consume_failed', err);
+    return res.status(200).json({
+      allowed: true, current: 0, cap: 0, degraded: true,
+      reason: 'quota service unavailable — run allowed, not counted',
+    });
+  }
+});
+
 // ── R-F2825: public landing metrics — the ONE number we can actually count ───
 // The landing hero shipped four hardcoded literals, two of them false against the
 // code. `records` is the only one with a real live source, so it is the only one

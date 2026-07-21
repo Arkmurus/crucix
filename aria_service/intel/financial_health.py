@@ -611,6 +611,103 @@ async def _enrich_with_registry_accounts(
         return False
 
 
+
+# ── R-F2834 — VAULT CAPABILITY VERSIONING ────────────────────────────────────
+#
+# THE DEFECT THIS CLOSES. assess() serves any vault profile younger than
+# max_age_days (30) and the vault carried NO capability/schema version. A profile
+# written BEFORE an evidence source existed therefore kept suppressing that source
+# for the whole freshness window — the code deployed, tested and correct, the
+# entity simply never running it.
+#
+# It already cost us live, twice: R-F2782 phase 1 shipped GB registry-accounts
+# evidence, and two deep DDs (BAE, Rolls-Royce) both returned from_vault=True with
+# no registry evidence because their profiles predated the feature. The feature
+# looked broken in production while being perfectly correct.
+#
+# R-F2817 fixed it for ONE field by hardcoding a backfill call on the vault-hit
+# path. That left the general defect open: every future evidence source needed
+# someone to remember another hardcoded call, and a forgotten one fails SILENTLY —
+# masked for 30 days and indistinguishable from "this entity has no such evidence".
+# Absence presented as absence-of-evidence is the false-clean class we refuse.
+#
+# THE CONTRACT: adding an evidence source = adding ONE entry here. Profiles are
+# stamped with the capabilities that produced them; a vault hit backfills only what
+# is missing, re-stamps, and re-persists (pay-once, §15). A capability whose
+# enricher FAILS is deliberately NOT stamped, so it retries on the next read rather
+# than recording evidence that was never gathered.
+FINANCIAL_CAPABILITIES: dict = {
+    # R-F2782/R-F2817 — GB statutory filings from Companies House.
+    "registry_accounts": _enrich_with_registry_accounts,
+}
+
+_CAPABILITY_KEY = "_capabilities"
+
+
+def current_capabilities() -> list:
+    """The capability set a profile written by THIS build should carry.
+
+    Derived from the registry rather than hand-maintained: a second list would
+    drift from the first, which is exactly how the nav gate rotted in R-F2822.
+    """
+    return list(FINANCIAL_CAPABILITIES)
+
+
+def missing_capabilities(profile: dict) -> list:
+    """Capabilities this build has that `profile` was not produced with.
+
+    An UNSTAMPED profile is missing everything — that is the BAE / Rolls-Royce
+    case. A profile stamped by a NEWER build (rollback) reports nothing missing
+    rather than crashing or pointlessly re-enriching.
+    """
+    have = set((profile or {}).get(_CAPABILITY_KEY) or [])
+    return [c for c in FINANCIAL_CAPABILITIES if c not in have]
+
+
+def _stamp_capabilities(profile: dict) -> None:
+    """Record the capabilities that produced this profile, preserving unknown ones."""
+    have = set((profile or {}).get(_CAPABILITY_KEY) or [])
+    profile[_CAPABILITY_KEY] = sorted(have | set(FINANCIAL_CAPABILITIES))
+
+
+async def backfill_missing_capabilities(
+    profile: dict,
+    *,
+    name: str,
+    jurisdiction_iso2: str,
+    registration_number: str = "",
+) -> bool:
+    """Run the enrichers this profile predates. Returns True if anything changed.
+
+    Each capability is stamped ONLY on success. A failure leaves it missing so the
+    next read retries — stamping on failure would make the profile look complete
+    while carrying no evidence, re-creating the very defect this closes.
+    """
+    changed = False
+    for cap_id in missing_capabilities(profile):
+        enricher = FINANCIAL_CAPABILITIES.get(cap_id)
+        if enricher is None:
+            continue
+        try:
+            attached = await enricher(
+                profile, name, jurisdiction_iso2, registration_number
+            )
+        except Exception as e:  # noqa: BLE001 — a broken source must not fail the DD
+            logger.warning(
+                "[R-F2834] capability %r failed for %r: %s — left UNSTAMPED so it "
+                "retries on the next read", cap_id, name, e,
+            )
+            continue
+        # Stamp on a clean run even when it attached nothing: the source was
+        # consulted, and "consulted, found nothing" is valid negative evidence.
+        have = set(profile.get(_CAPABILITY_KEY) or [])
+        have.add(cap_id)
+        profile[_CAPABILITY_KEY] = sorted(have)
+        if attached:
+            changed = True
+    return changed
+
+
 async def assess(
     name: str,
     *,
@@ -650,6 +747,7 @@ async def assess(
         except Exception:
             canonical = None
 
+    # ── R-F2834: capability versioning (see FINANCIAL_CAPABILITIES below) ──────
     # 1) VAULT — pay-once, any jurisdiction.
     if use_vault and canonical:
         try:
@@ -666,8 +764,13 @@ async def assess(
                     # keep suppressing it for the whole freshness window. Backfill
                     # the missing evidence on read, then persist it so this stays
                     # pay-once (§15) rather than re-fetching on every assessment.
-                    if use_search and await _enrich_with_registry_accounts(
-                        cached, name, jurisdiction_iso2, registration_number
+                    # R-F2834 — was a hardcoded call for ONE source (R-F2817), so
+                    # every future evidence source would be silently masked for the
+                    # whole 30-day window until someone remembered to add another.
+                    # Now: run whatever THIS build has that the profile predates.
+                    if use_search and await backfill_missing_capabilities(
+                        cached, name=name, jurisdiction_iso2=jurisdiction_iso2,
+                        registration_number=registration_number,
                     ):
                         cached["vault_enriched"] = True
                         try:
@@ -717,6 +820,10 @@ async def assess(
     if use_vault and canonical:
         try:
             from .dd_vault import get_vault
+            # R-F2834 — stamp the capability set that produced this profile. An
+            # unstamped fresh profile looks stale to the very next read and would
+            # be re-enriched pointlessly, breaking pay-once (§15).
+            _stamp_capabilities(result)
             get_vault().set_financial_profile(
                 canonical, result, entity_name=name, jurisdiction=jurisdiction_iso2)
         except Exception as e:

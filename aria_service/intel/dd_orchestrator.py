@@ -9224,6 +9224,21 @@ def _launch_independent_verification_followup(report: "ARKDDReport") -> None:
         logger.debug("[R-F2671] could not launch independent-verification follow-up: %s", _e)
 
 
+class DDQuotaExceeded(Exception):
+    """R-F2835 — the caller is over their plan's DD allowance.
+
+    Carried as an exception rather than a degraded report on purpose: a quota block
+    is NOT a due-diligence finding, and must never be rendered as one. A report
+    saying "no findings" because the plan ran out would be a false clean.
+    """
+
+    def __init__(self, reason: str, current: int = 0, cap: int = 0):
+        super().__init__(reason)
+        self.reason = reason
+        self.current = current
+        self.cap = cap
+
+
 async def orchestrate_dd(
     target: dict,
     *,
@@ -9236,6 +9251,7 @@ async def orchestrate_dd(
     share_to_company: bool = True,
     total_budget_s: float | None = None,
     run_id: str | None = None,
+    quota_charged: bool = False,
 ) -> "ARKDDReport":
     """R-F1628 — HARD overall deadline (robust end to 'DD hangs forever').
 
@@ -9254,6 +9270,41 @@ async def orchestrate_dd(
 
     Tunable: ARIA_DD_TOTAL_BUDGET_S (660), ARIA_DD_HARD_MARGIN_S (150).
     """
+    # ── R-F2835 — PLAN QUOTA, enforced at the ONE choke point every DD passes ──
+    # The per-tier DD cap was enforced only on the web route (server.mjs:3546). A
+    # chat-triggered DD runs as a tool inside this process and never traverses it,
+    # so it consumed nothing: grep of aria_service/ for ddRunsPerMonth|
+    # dd_runs_per_month|dd_quota returned ZERO hits. A free user capped at 50
+    # messages/day could trigger 50 DD runs/day — 10x the MONTHLY cap, daily.
+    #
+    # Gating HERE rather than in the two chat handlers is deliberate: §13's
+    # stream-bypass rule exists because aria_chat and aria_chat_stream are a
+    # fork, and a hook added to one and not the other is the recurring defect.
+    # Every DD — chat, web, watchlist trigger, and anything added later — funnels
+    # through orchestrate_dd(), so one gate here cannot be bypassed by a new caller.
+    #
+    # `quota_charged=True` is passed by the web route, which has ALREADY consumed a
+    # unit; without it the web path would double-charge.
+    if user_id and not quota_charged:
+        try:
+            from .quota_client import consume_dd_quota
+            _q = await consume_dd_quota(user_id)
+            if not _q.get("allowed", True):
+                raise DDQuotaExceeded(
+                    _q.get("reason") or "plan limit reached",
+                    current=int(_q.get("current") or 0),
+                    cap=int(_q.get("cap") or 0),
+                )
+            if _q.get("degraded"):
+                logger.warning(
+                    "[R-F2835] DD for user %s ran UNCOUNTED against the plan cap: %s",
+                    str(user_id)[:12], _q.get("reason"),
+                )
+        except DDQuotaExceeded:
+            raise
+        except Exception as _qe:  # noqa: BLE001 — never fail a DD on the quota hop
+            logger.warning("[R-F2835] quota gate error (%s) — allowing uncounted", _qe)
+
     budget = (
         float(total_budget_s) if total_budget_s is not None
         else float(_env_int("ARIA_DD_TOTAL_BUDGET_S", 660))
