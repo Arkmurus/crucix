@@ -1,0 +1,151 @@
+[
+ {
+  "name": "Socar Trading SA",
+  "lists": [
+   "gem_energy_ownership"
+  ],
+  "list": "gem_energy_ownership",
+  "score": 1.0,
+  "string_similarity": 1.0,
+  "topics": [],
+  "matched_via_variant": "SOCAR Trading SA",
+  "sdn_entry_id": "gem-own-e100002000049",
+  "url": "https://www.opensanctions.org/entities/gem-own-e100002000049/",
+  "countries": [
+   "ch"
+  ]
+ },
+ {
+  "name": "Special Technology Services LLC FZ",
+  "lists": [
+   "us_ofac_sdn",
+   "us_trade_csl",
+   "ext_us_ofac_press_releases",
+   "us_sam_exclusions"
+  ],
+  "list": "us_ofac_sdn",
+  "score": 1.0,
+  "string_similarity": 0.235,
+  "topics": [
+   "sanction",
+   "debarment"
+  ],
+  "matched_via_variant": "STS",
+  "sdn_entry_id": "NK-9wiGoYAkiPj5g4DKpDb8Yh",
+  "url": "https://www.opensanctions.org/entities/NK-9wiGoYAkiPj5g4DKpDb8Yh/",
+  "countries": [
+   "ae"
+  ]
+ },
+ {
+  "name": "STS Ugol",
+  "lists": [
+   "gem_energy_ownership"
+  ],
+  "list": "gem_energy_ownership",
+  "score": 0.833,
+  "string_similarity": 0.188,
+  "topics": [],
+  "matched_via_variant": "STS",
+  "sdn_entry_id": "gem-own-e100001012710",
+  "url": "https://www.opensanctions.org/entities/gem-own-e100001012710/",
+  "countries": [
+   "ru"
+  ]
+ },
+ {
+  "name": "Corporation STS LLC",
+  "lists": [
+   "gem_energy_ownership"
+  ],
+  "list": "gem_energy_ownership",
+  "score": 0.808,
+  "string_similarity": 0.263,
+  "topics": [],
+  "matched_via_variant": "STS",
+  "sdn_entry_id": "gem-own-e100002015900",
+  "url": "https://www.opensanctions.org/entities/gem-own-e100002015900/",
+  "countries": [
+   "ru"
+  ]
+ },
+ {
+  "name": "Shadi For Cars Trading",
+  "lists": [
+   "tw_shtc",
+   "us_trade_csl",
+   "us_ofac_sdn",
+   "us_sam_exclusions",
+   "au_dfat_sanctions",
+   "jp_meti_eul"
+  ],
+  "list": "tw_shtc",
+  "score": 0.793,
+  "string_similarity": 0.455,
+  "topics": [
+   "sanction",
+   "export.control",
+   "debarment"
+  ],
+  "matched_via_variant": "SOCAR Trading",
+  "sdn_entry_id": "NK-6og3jVnXBA8hFyyLUDySM2",
+  "url": "https://www.opensanctions.org/entities/NK-6og3jVnXBA8hFyyLUDySM2/",
+  "countries": [
+   "lb"
+  ]
+ },
+ {
+  "name": "STS HOLDING SPÓŁKA AKCYJNA",
+  "lists": [
+   "eu_esma_saris",
+   "permid"
+  ],
+  "list": "eu_esma_saris",
+  "score": 0.781,
+  "string_similarity": 0.269,
+  "topics": [
+   "corp.public"
+  ],
+  "matched_via_variant": "STS",
+  "sdn_entry_id": "lei-259400W0RGMRX9RE6K39",
+  "url": "https://www.opensanctions.org/entities/lei-259400W0RGMRX9RE6K39/",
+  "countries": [
+   "pl"
+  ]
+ },
+ {
+  "name": "STS Transportation, LLC",
+  "lists": [
+   "us_sam_exclusions",
+   "brightquery"
+  ],
+  "list": "us_sam_exclusions",
+  "score": 0.746,
+  "string_similarity": 0.304,
+  "topics": [
+   "debarment"
+  ],
+  "matched_via_variant": "STS",
+  "sdn_entry_id": "NK-HZnPZZ6eFncDipt62tdQqu",
+  "url": "https://www.opensanctions.org/entities/NK-HZnPZZ6eFncDipt62tdQqu/",
+  "countries": [
+   "us"
+  ]
+ },
+ {
+  "name": "喀什车世界商贸有限责任公司",
+  "lists": [
+   "shu_uyghur_companies"
+  ],
+  "list": "shu_uyghur_companies",
+  "score": 0.739,
+  "string_similarity": 0.0,
+  "topics": [],
+  "matched_via_variant": "SOCAR Trading",
+  "sdn_entry_id": "shu-xj-aafe7f4a9e98323bc9b3ed40a958a133cf7a21df",
+  "url": "https://www.opensanctions.org/entities/shu-xj-aafe7f4a9e98323bc9b3ed40a958a133cf7a21df/",
+  "countries": [
+   "cn"
+  ]
+ }
+]

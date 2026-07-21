@@ -781,7 +781,31 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
     # Rank
     all_matches.sort(key=lambda m: -m["score"])
     top_score = all_matches[0]["score"] if all_matches else 0.0
-    blocking_matches = [m for m in all_matches if m["score"] >= threshold]
+    # R-F2840 — a BLOCKING verdict must be CORROBORATED, not merely scored.
+    # This read `score >= threshold` alone and never consulted string_similarity,
+    # topics or matched_via_variant — all present on the match. Live consequence
+    # (dd_06bdbcaaa866, SOCAR Trading SA): `blocked: True` on 8 matches, five of them
+    # collisions on the ACRONYM "STS" derived from the query, one at string
+    # similarity 0.000 scoring 0.74. Matches both name-similar AND sanctioned: ZERO.
+    # A `score` of 1.0 can come from an exact hit on a two-letter ALIAS; similarity is
+    # what says the SUBJECT matched. is_corroborated_match() is SHARED with the
+    # verified_sources HIT logic so the two verdicts cannot drift apart again.
+    #
+    # SAFETY: this narrows the BLOCKING set only. Every match stays in `matches`,
+    # stays counted in `match_count`, and `screened` / source-availability semantics
+    # are untouched. blocked=False is NOT "clean" — it means nothing corroborated a
+    # block, which is a different statement and is reported as such.
+    from ._sanctions_classify import is_corroborated_match
+    blocking_matches = [
+        m for m in all_matches
+        if m["score"] >= threshold and is_corroborated_match(m)
+    ]
+    # Keep the discarded observations VISIBLE — an analyst may still want the
+    # related-name cluster; it just is not a designation.
+    related_name_observations = [
+        m for m in all_matches
+        if m["score"] >= threshold and not is_corroborated_match(m)
+    ]
 
     # R-F1696: a screen is only "performed" if the source actually answered
     # (matches found ⇒ it answered; or at least one call returned HTTP 200).
@@ -794,6 +818,10 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
         "variants_tried": variants[:6],
         "matches": all_matches[:10],
         "blocking_matches": blocking_matches,
+        # R-F2840 — scored above threshold but NOT corroborated (acronym/alias
+        # collisions and the like). Reported, never blocking, never "clean".
+        "related_name_observations": related_name_observations,
+        "related_name_count": len(related_name_observations),
         "match_count": len(all_matches),
         "top_score": top_score,
         "blocked": len(blocking_matches) > 0,

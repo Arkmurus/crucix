@@ -197,6 +197,7 @@ def derive_verified_sources(
     matches: list[dict],
     *,
     screen_succeeded: bool = True,
+    unavailable_sources: set | frozenset | None = None,
 ) -> dict[str, dict]:
     """Per-canonical-source verification status for the DD report.
 
@@ -239,10 +240,23 @@ def derive_verified_sources(
     # Build a flat list of (lowercased dataset slug, match_dict) pairs
     matches_safe = matches or []
     for src_name, (label, slugs) in _CANONICAL_SANCTIONS_SOURCES.items():
+        # R-F2840 — a source we could not reach is UNAVAILABLE: neither HIT nor CLEAN.
+        # Rendering it CLEAN is a false clean by omission, and the grounded-rate
+        # counter in dd_orchestrator already excludes UNAVAILABLE deliberately.
+        if unavailable_sources and src_name in unavailable_sources:
+            out[src_name] = {"label": label, "status": "UNAVAILABLE",
+                             "match_count": 0, "matched_entities": []}
+            continue
         hit_count = 0
         hit_entities: list[str] = []
         for m in matches_safe:
             if not isinstance(m, dict):
+                continue
+            # R-F2840 — list membership alone is NOT a hit. The live report asserted
+            # "OFAC SDN: HIT" for SOCAR Trading SA on two acronym collisions
+            # (similarity 0.235 and 0.455) because this loop counted any match
+            # carrying the slug.
+            if not is_corroborated_match(m):
                 continue
             datasets = m.get("lists") or m.get("datasets") or []
             ds_lower = " ".join(str(d).lower() for d in datasets)
@@ -260,6 +274,86 @@ def derive_verified_sources(
             "matched_entities": hit_entities[:5],  # cap renderer output
         }
     return out
+
+
+
+# ── R-F2840 — THE CORROBORATION PREDICATE ────────────────────────────────────
+#
+# ONE rule, imported by every module that renders a BLOCKING verdict. Two existed
+# before and they drifted, because each read a different field off the same match:
+#   sanctions.py            blocked   <- m["score"] >= threshold        (score only)
+#   _sanctions_classify.py  HIT       <- slug in m["lists"]             (no similarity)
+# Neither consulted string_similarity, topics, or matched_via_variant — all of which
+# were present on the match the whole time.
+#
+# Live consequence (run dd_06bdbcaaa866, SOCAR Trading SA): 8 matches, 5 of them
+# collisions on the ACRONYM "STS" derived from the query, one at string similarity
+# 0.000 scoring 0.74. The report rendered `blocked: True` and
+# "US Treasury OFAC SDN: HIT" — while identity.data_gaps recorded that the OFAC SDN
+# list was UNAVAILABLE that run. Matches both name-similar AND sanctioned: ZERO.
+#
+# THE TWO CONDITIONS, and why each is necessary:
+#   1. string_similarity >= _MIN_BLOCK_SIMILARITY — the name must actually match.
+#      A high `score` can come from an exact hit on a two-letter ALIAS; similarity is
+#      what says the SUBJECT matched. 0.50 is not a new number: it is the floor the
+#      acronym-collision guard in this module already uses.
+#   2. a sanction/debarment TOPIC — an ownership or corporate-registry dataset is
+#      evidence about the entity, not a designation against it. The SOCAR identity hit
+#      (similarity 1.0, dataset gem_energy_ownership, topics []) is real and useful
+#      ownership evidence, and must NOT be rendered as a sanctions block.
+#
+# SAFETY — this must never manufacture a clean. Failing corroboration removes a match
+# from the BLOCKING set only; it stays in `matches`, stays counted, and neither
+# `screened` nor source-availability semantics change. blocked=False is not "clear".
+_MIN_BLOCK_SIMILARITY = 0.50
+_BLOCKING_TOPICS = frozenset({"sanction", "debarment"})
+
+
+def is_corroborated_match(match: dict, *, min_similarity: float = _MIN_BLOCK_SIMILARITY) -> bool:
+    """True iff `match` may drive a BLOCKING verdict.
+
+    Deliberately strict and deliberately shared. A match that fails this is still
+    reported — as a related-name observation, not as a designation.
+    """
+    if not isinstance(match, dict):
+        return False
+    # R-F2840 — ABSENT similarity is not LOW similarity. Coercing a missing field to
+    # 0.0 dropped a genuine OFAC SDN designation ({"name":"Rosoboronexport JSC",
+    # "score":0.95,"lists":["us_ofac_sdn"],"topics":["sanction"]} carries no
+    # string_similarity) — i.e. it manufactured a FALSE CLEAN, which is strictly
+    # worse than the false positive being fixed.
+    #
+    # So: only a MEASURED-low similarity may exclude a match. If we cannot measure
+    # it, we cannot disprove the match, and the honest response is to let it stand.
+    # This is the same discipline as `pass=None` on the Phase A gates: "could not
+    # measure" is never "measured and clear". The real-world acronym collisions this
+    # R-number targets all DO carry a similarity (0.000-0.455), so the fix still bites.
+    raw_sim = match.get("string_similarity")
+    if raw_sim is not None:
+        try:
+            if float(raw_sim) < min_similarity:
+                return False
+        except (TypeError, ValueError):
+            pass  # unparseable → treat as unmeasurable, fall through
+    # A designation is signalled by EITHER an explicit sanction/debarment topic OR
+    # membership of a canonical sanctions list.
+    #
+    # R-F2840 follow-up: requiring the TOPIC alone was wrong and introduced a false
+    # clean — caught by test_rf1696_sanctions_source_unavailable's real-hit fixture,
+    # an exact-name OFAC SDN match ({"score":0.96,"caption":"Test Entity",
+    # "datasets":["us_ofac_sdn"]}) that carries NO `topics` field at all.
+    # OpenSanctions populates topics inconsistently, so it cannot be mandatory. The
+    # LIST is the authoritative signal; the topic is a useful alternative for feeds
+    # that carry it. Getting this wrong in the strict direction is worse than the
+    # bug being fixed: a missed designation is a false clean.
+    topics = match.get("topics") or []
+    if any(str(t).lower() in _BLOCKING_TOPICS for t in topics):
+        return True
+    datasets = " ".join(str(d).lower() for d in (match.get("lists") or match.get("datasets") or []))
+    for _label, _slugs in _CANONICAL_SANCTIONS_SOURCES.values():
+        if any(slug in datasets for slug in _slugs):
+            return True
+    return False
 
 
 def _defence_list_hits(datasets: list) -> list[tuple[str, str, str]]:
