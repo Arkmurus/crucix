@@ -1252,10 +1252,10 @@ async function toggleDetail(row, runId) {
         '<i class="bi bi-arrow-clockwise"></i> Re-run DD</button>' +
       '<a class="dd-act-btn" href="/aria.html" title="Discuss this report in chat">' +
         '<i class="bi bi-chat-dots"></i> Discuss in chat</a>' +
-      '<a class="dd-act-btn dd-act-primary" data-action="pdf" ' +
-        'href="/api/aria/dd/report/' + escAttr(runId) + '/pdf" ' +
+      '<button class="dd-act-btn dd-act-primary" data-action="pdf" ' +
+        'data-run-id="' + escAttr(runId) + '" ' +
         'title="Download this report as a PDF">' +
-        '<i class="bi bi-file-earmark-pdf"></i> Download PDF</a>' +
+        '<i class="bi bi-file-earmark-pdf"></i> Download PDF</button>' +
       '<button class="dd-act-btn" data-action="print" title="Print this report">' +
         '<i class="bi bi-printer"></i> Print</button>' +
       '<button class="dd-act-btn" data-action="copy">' +
@@ -1294,7 +1294,47 @@ async function toggleDetail(row, runId) {
     // Wire up action buttons
     // R-F2837 — browser print. The @media print rules below strip chrome so the
     // printed page matches the PDF: verdict + readiness first, gaps retained.
-    detailRow.querySelector('[data-action="print"]').addEventListener('click', () => {
+    // R-F2844 — every handler lookup is GUARDED. These run in sequence, so an
+    // unguarded querySelector that returns null throws and silently kills every
+    // handler registered AFTER it — which is how adding the print button broke
+    // copy/delete/VLS too. One missing control must never disable the rest.
+
+    // R-F2844 — PDF download. This was an <a href>, which CANNOT work: the app
+    // authenticates with a Bearer header via authed() (public/js/app.js:398),
+    // and a native link navigation sends no such header, so the route's
+    // requireAuth returned 401 every time. Fetch with auth, then download the
+    // blob. Same reason the export cannot be a plain link anywhere on this page.
+    const _pdfBtn = detailRow.querySelector('[data-action="pdf"]');
+    if (_pdfBtn) _pdfBtn.addEventListener('click', async () => {
+      const rid = _pdfBtn.getAttribute('data-run-id') || runId;
+      const orig = _pdfBtn.innerHTML;
+      _pdfBtn.classList.add('is-loading');
+      _pdfBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Preparing…';
+      try {
+        const r = await authed('/api/aria/dd/report/' + encodeURIComponent(rid) + '/pdf');
+        if (!r.ok) { Toast.show('PDF export failed (HTTP ' + r.status + ')', 'error'); return; }
+        const blob = await r.blob();
+        // Filename comes from the server's Content-Disposition when present.
+        let fname = 'ARIA_DD_' + rid + '.pdf';
+        const cd = r.headers.get('Content-Disposition') || '';
+        const m = /filename="?([^";]+)"?/.exec(cd);
+        if (m && m[1]) fname = m[1];
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = fname;
+        document.body.appendChild(a); a.click(); a.remove();
+        // revoke on the next tick so the download has taken the reference
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      } catch (err) {
+        Toast.show('PDF export failed: ' + err.message, 'error');
+      } finally {
+        _pdfBtn.classList.remove('is-loading');
+        _pdfBtn.innerHTML = orig;
+      }
+    });
+
+    const _printBtn = detailRow.querySelector('[data-action="print"]');
+    if (_printBtn) _printBtn.addEventListener('click', () => {
       document.body.classList.add('dd-printing');
       detailRow.classList.add('dd-print-target');
       const cleanup = () => {

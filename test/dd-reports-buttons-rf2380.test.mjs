@@ -155,3 +155,46 @@ test('R-F2383 DD detail renders structured quality assessment', () => {
     'non-A reports must surface blocking evidence gaps in the hero',
   );
 });
+
+// ── R-F2844 — the PDF export must not be a plain link ────────────────────────
+// This page authenticates with a Bearer header via authed() (public/js/app.js).
+// A native <a href> navigation sends NO header, so an anchor pointing at an
+// authenticated API route returns 401 every time. R-F2837 shipped exactly that
+// and the button silently did nothing. These tests pin the contract.
+
+test('R-F2844: authenticated API exports are fetched, never plain <a href>', () => {
+  // No anchor may point at an authenticated /api/aria/ route from this page.
+  const anchors = [...html.matchAll(/<a\b[^>]*href=[^>]*?\/api\/aria\/[^>]*>/g)].map(m => m[0]);
+  assert.deepEqual(
+    anchors, [],
+    'an <a href> to an authenticated API route cannot send the Bearer header '
+    + '(authed() attaches it) and will 401 — fetch it and download the blob instead',
+  );
+});
+
+test('R-F2844: the PDF control fetches through authed()', () => {
+  assert.ok(
+    html.includes("authed('/api/aria/dd/report/' + encodeURIComponent(rid) + '/pdf')"),
+    'the PDF export must go through authed() so the Bearer token is attached',
+  );
+});
+
+test('R-F2844: handler lookups are guarded so one missing control cannot kill the rest', () => {
+  // These handlers register in sequence on one element. An unguarded
+  // querySelector that returns null throws and every LATER handler silently
+  // never registers — which is how adding the print button also broke copy,
+  // delete and the VLS controls.
+  // Scoped to the controls R-F2837 added. copy/delete/rerun are ALSO unguarded
+  // (pre-existing) and are a real latent fragility — but guarding them breaks two
+  // sibling contract tests that assert wiring by source-text adjacency, so that
+  // is its own change, not a drive-by in this one. Recorded, not silently fixed.
+  const NEW_CONTROLS = ['pdf', 'print'];
+  const unguarded = [...html.matchAll(
+    /detailRow\.querySelector\('\[data-action="([^"]+)"\]'\)\.addEventListener/g,
+  )].map(m => m[1]).filter(a => NEW_CONTROLS.includes(a));
+  assert.deepEqual(
+    unguarded, [],
+    'guard every data-action lookup (null-check before addEventListener) — '
+    + `unguarded: ${unguarded.join(', ')}`,
+  );
+});
