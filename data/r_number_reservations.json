@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2829,
+  "next_available": 2831,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22167,14 +22167,34 @@
       "title": "DD UI must not report Complete while an async follow-up is still pending",
       "claimed_at": "2026-07-21T14:57:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "42ecbed3",
+      "notes": null,
+      "shipped_at": "2026-07-21T15:04:29Z"
     },
     {
       "r_number": "R-F2828",
       "title": "get_officers drops officer_id anchor and returns only page 1 (35 of 73)",
       "claimed_at": "2026-07-21T15:00:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "773efa1c",
+      "notes": null,
+      "shipped_at": "2026-07-21T15:03:44Z"
+    },
+    {
+      "r_number": "R-F2829",
+      "title": "DD/message quota counters were non-durable - reset on every deploy",
+      "claimed_at": "2026-07-21T15:06:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2830",
+      "title": "empty PSC register is unexplained — wire CH /exemptions so absence is framed, not implied evasion",
+      "claimed_at": "2026-07-21T15:06:44Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

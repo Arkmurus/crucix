@@ -387,6 +387,137 @@ async def get_officers(company_number: str) -> list[dict]:
     ]
 
 
+def _exemption_is_active(item: dict, today: str) -> bool:
+    """True when an exemption period is CURRENT (R-F2830).
+
+    CH returns `exempt_from` and, once the exemption has lapsed, `exempt_to`.
+    An EXPIRED exemption must never be used to explain a presently-empty PSC
+    register — doing so would excuse opacity with a lapsed fact. BAE Systems is
+    the live example: `psc_exempt_as_trading_on_uk_regulated_market` is active
+    (no `exempt_to`), while `disclosure_transparency_rules_chapter_five_applies`
+    expired on 2023-02-02.
+
+    Dates are ISO `YYYY-MM-DD`, so string comparison is ordering-correct. A
+    malformed/absent `exempt_from` returns False: we do not assume an exemption
+    we cannot date.
+    """
+    try:
+        frm = str(item.get("exempt_from") or "")
+        if not frm or frm > today:
+            return False
+        to = str(item.get("exempt_to") or "")
+        return (not to) or to >= today
+    except Exception:
+        return False
+
+
+@fail_wire(module="companies_house", gap_type="api_missing")
+async def get_psc_exemptions(company_number: str) -> dict:
+    """Why a company may lawfully have no PSC register (R-F2830).
+
+    An EMPTY PSC register is ambiguous and the ambiguity is decision-critical:
+    a company that discloses no beneficial owners looks opaque — potentially
+    evasive — whereas a company exempt because it trades on a UK regulated
+    market is behaving entirely normally. Reporting the first when the truth is
+    the second is a false ACCUSATION, the mirror of a false clean, and both are
+    the same sin: asserting what the evidence does not show (cf. R-F2791 /
+    R-F2693 at opposite polarities).
+
+    Returns a stable shape. `checked` distinguishes "we looked and there are no
+    exemptions" from "we could not look" — an unreachable endpoint must never
+    read as "no exemption exists".
+    """
+    out: dict = {
+        "checked": False,
+        "has_active_exemption": False,
+        "active": [],
+        "expired": [],
+        "source_url": (
+            "https://find-and-update.company-information.service.gov.uk/"
+            f"company/{company_number}/persons-with-significant-control"
+        ),
+    }
+    data = await _get(f"/company/{company_number}/exemptions")
+    if data is None:
+        # 404 = no exemptions filed for this company, which IS an answer, but we
+        # cannot distinguish it here from an unavailable source; `_get` already
+        # flags genuine unavailability via _mark_unavailable, so callers that
+        # check consume_unavailable() can tell the two apart.
+        out["checked"] = True
+        return out
+
+    out["checked"] = True
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    exemptions = data.get("exemptions")
+    if not isinstance(exemptions, dict):
+        return out
+
+    for key, block in exemptions.items():
+        if not isinstance(block, dict):
+            continue
+        etype = block.get("exemption_type") or key
+        for item in (block.get("items") or []):
+            if not isinstance(item, dict):
+                continue
+            rec = {
+                "exemption_type": etype,
+                "exempt_from": item.get("exempt_from") or "",
+                "exempt_to": item.get("exempt_to") or "",
+            }
+            if _exemption_is_active(item, today):
+                out["active"].append(rec)
+            else:
+                out["expired"].append(rec)
+
+    out["has_active_exemption"] = bool(out["active"])
+    return out
+
+
+def explain_empty_psc(psc_count: int, exemptions: dict, unavailable: str | None = None) -> str:
+    """Frame an empty PSC register honestly (R-F2830).
+
+    Order matters and encodes the honesty rules:
+      1. source unavailable  -> UNKNOWN, never "no owners" (R-F2511);
+      2. genuinely exempt    -> say so, with the exemption type and date;
+      3. empty + no exemption-> state the fact WITHOUT implying evasion, and say
+                                what it would take to resolve;
+      4. non-empty           -> no explanation needed.
+    An EXPIRED exemption never reaches branch 2 — it is called out instead,
+    because a lapsed exemption alongside an empty register is a real question,
+    not a reassurance.
+    """
+    if unavailable:
+        return ("Beneficial ownership could NOT be retrieved from Companies House "
+                f"({unavailable}) — ownership is UNKNOWN, not confirmed absent.")
+    if psc_count > 0:
+        return ""
+    if not exemptions.get("checked"):
+        return ("No PSC entries returned and the exemption register was not checked — "
+                "ownership is UNKNOWN, not confirmed absent.")
+    if exemptions.get("has_active_exemption"):
+        a = exemptions["active"][0]
+        return (
+            "No PSC entries — the company holds an ACTIVE exemption "
+            f"({a['exemption_type']}, from {a['exempt_from'] or 'an unstated date'}). "
+            "This is a lawful basis for an empty register, typically a company trading "
+            "on a UK regulated market whose ownership is disclosed under market rules "
+            "instead. It is NOT an indication of concealment."
+        )
+    if exemptions.get("expired"):
+        e = exemptions["expired"][0]
+        return (
+            "No PSC entries, and the only exemption on file has EXPIRED "
+            f"({e['exemption_type']}, to {e['exempt_to'] or 'an unstated date'}). "
+            "An empty register with no current exemption is unexplained and should be "
+            "resolved before relying on ownership."
+        )
+    return (
+        "No PSC entries and no exemption on file. This is a statement of the register's "
+        "contents, NOT evidence that the company has no beneficial owners — ownership "
+        "remains UNVERIFIED and needs a direct filing or shareholder-register check."
+    )
+
+
 @fail_wire(module="companies_house", gap_type="api_missing")
 async def get_psc(company_number: str) -> list[dict]:
     """Get Persons of Significant Control (beneficial ownership)."""
