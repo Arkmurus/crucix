@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2831,
+  "next_available": 2832,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22187,9 +22187,10 @@
       "title": "DD/message quota counters were non-durable - reset on every deploy",
       "claimed_at": "2026-07-21T15:06:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "90e1ad41",
+      "notes": null,
+      "shipped_at": "2026-07-21T15:13:54Z"
     },
     {
       "r_number": "R-F2830",
@@ -22200,6 +22201,15 @@
       "commit_sha": "3a3a3a64",
       "notes": null,
       "shipped_at": "2026-07-21T15:09:43Z"
+    },
+    {
+      "r_number": "R-F2831",
+      "title": "remove fabricated screening verdicts from landing - structure not invented outcomes",
+      "claimed_at": "2026-07-21T15:17:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -188,13 +188,45 @@ if (heroBlock) {
   }
 }
 
-// Fabricated demo content must never be presented as a real result.
+// ── Fabricated demo content must never state an OUTCOME ──────────────────────
+//
+// R-F2831 — R-F2824 labelled the demo "illustrative" and left the invented results
+// in place: the hero card still rendered `⤷ sanctions ✓ CLEAR`, a `CONFIRMED`
+// evidence grade, `0.99` per-source confidences and an `AMBER · proceed with
+// conditions` verdict, and the terminal demo carried a second `✓ CLEAR`. This guard
+// PASSED the whole time, because it only banned the "live screening" LABEL.
+//
+// A label is not a control. A cropped screenshot of that card is indistinguishable
+// from a real clean screening, and the disclaimer does not travel with the image.
+// For a product whose USP is "never a false clean", a fabricated CLEAR on its own
+// front page is the single most direct contradiction available.
+//
+// THE RULE: the illustration may show the pipeline's SHAPE (stage names, source
+// names, where a verdict would appear). It may never state an invented OUTCOME —
+// no verdict, no evidence grade, no confidence score.
 if (/ARIA\s*·\s*live screening/.test(landing)) {
   fail('the hero demo is labelled "live screening" but renders fabricated example data');
 }
-for (const tell of ['Khalid Al-Rashid']) {
+for (const tell of ['Khalid Al-Rashid', 'Meridian Trading']) {
   if (landing.includes(tell)) {
-    fail(`fabricated named individual "${tell}" presented in landing content`);
+    fail(`fabricated entity/individual "${tell}" presented in landing content`);
+  }
+}
+const FABRICATED_OUTCOMES = [
+  [/✓\s*CLEAR/i, 'a fabricated sanctions CLEAR verdict'],
+  [/>\s*CONFIRMED\s*</, 'a fabricated CONFIRMED evidence grade'],
+  [/>\s*ASSESSED\s*</, 'a fabricated ASSESSED evidence grade'],
+  [/\b(AMBER|GREEN|RED)\b\s*[:·]/, 'a fabricated risk verdict'],
+  [/confidence:\s*0\.\d+/, 'an invented numeric confidence score'],
+  [/>\s*0\.\d{2}\s*</, 'an invented per-source confidence score'],
+];
+for (const [re, what] of FABRICATED_OUTCOMES) {
+  if (re.test(landing)) {
+    fail(
+      `${what} appears in landing content. The illustration may show the pipeline's ` +
+      'SHAPE but must never state an invented outcome — a screenshot of a fabricated ' +
+      'CLEAR is indistinguishable from a real one, and labelling it does not fix that.',
+    );
   }
 }
 

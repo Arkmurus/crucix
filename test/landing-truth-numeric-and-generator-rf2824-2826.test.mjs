@@ -210,3 +210,55 @@ describe('R-F2826 — NEGATIVE CONTROLS: the guard actually fails on each regres
     assert.ok(r.ok, `the guard fired on an HTML comment:\n${r.out}`);
   });
 });
+
+describe('R-F2831 — the illustration shows SHAPE, never an invented OUTCOME', () => {
+  // R-F2824 labelled the demo and LEFT the fabricated results in place. The guard
+  // passed the whole time because it only banned the "live screening" LABEL.
+  // A label is not a control: a cropped screenshot of a fabricated CLEAR is
+  // indistinguishable from a real one, and the disclaimer does not travel with it.
+  test('no fabricated verdict, grade or confidence score survives', () => {
+    const banned = [
+      [/✓\s*CLEAR/i, 'a fabricated sanctions CLEAR — the most direct USP contradiction available'],
+      [/>\s*CONFIRMED\s*</, 'a fabricated CONFIRMED evidence grade'],
+      [/>\s*ASSESSED\s*</, 'a fabricated ASSESSED evidence grade'],
+      [/(AMBER|GREEN|RED)\s*[:·]/, 'a fabricated risk verdict'],
+      [/confidence:\s*0\.\d+/, 'an invented numeric confidence score'],
+      [/>\s*0\.\d{2}\s*</, 'an invented per-source confidence score'],
+    ];
+    for (const [re, what] of banned) {
+      assert.ok(!re.test(content), `${what} is still rendered on the landing page`);
+    }
+  });
+
+  test('the fabricated entity identity is gone from every site', () => {
+    assert.ok(!content.includes('Meridian Trading'),
+      'the invented counterparty name appeared in the hero node, the terminal ' +
+      'prompt and the evidence card — all three must go');
+  });
+
+  test('the pipeline illustration is preserved (we removed outcomes, not the demo)', () => {
+    for (const stage of ['identity', 'network', 'sanctions', 'deception', 'synthesis']) {
+      assert.ok(content.includes(stage),
+        `stage "${stage}" was removed — the fix should strip invented RESULTS, ` +
+        'not the illustration of what the pipeline does');
+    }
+    assert.ok(/ofac_sdn/.test(content) && /eu_consolidated/.test(content),
+      'real source names are facts about coverage and should remain');
+  });
+
+  test('NEGATIVE CONTROL: reintroducing a fabricated CLEAR fails the guard', () => {
+    const r = guardOnMutation(({ write }) => write(['public', 'index.html'],
+      (s) => s.replace('screened · OFAC/EU/UN/OFSI',
+        '<span class="lp-hv-g">✓ CLEAR</span>')));
+    assert.ok(!r.ok, 'a fabricated sanctions CLEAR must fail the guard');
+    assert.match(r.out, /CLEAR|invented outcome/i);
+  });
+
+  test('NEGATIVE CONTROL: reintroducing an invented confidence score fails the guard', () => {
+    const r = guardOnMutation(({ write }) => write(['public', 'index.html'],
+      (s) => s.replace('<span class="lp-ev-score">per-source confidence shown here</span>',
+        '<span class="lp-ev-score">confidence: 0.97 · 3 sources</span>')));
+    assert.ok(!r.ok, 'an invented confidence score must fail the guard');
+    assert.match(r.out, /confidence|invented outcome/i);
+  });
+});
