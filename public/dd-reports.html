@@ -1686,7 +1686,27 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
       // R-F2250/R-F2255: poll the report until the background DD completes (no 30s
       // proxy wall) and reflect progress in the confirmation panel.
       if (runId) {
+        const MAX_TRIES = 150; // ~12.5 min
         let tries = 0;
+        // R-F2820 — "we stopped watching" is NOT "it finished".
+        // The old code fell out of the `st === 'running' && tries < 150` guard at the
+        // ceiling and dropped into the terminal branch, where `st !== 'failed'`
+        // rendered "✓ Complete" and fired a success toast WHILE THE DD WAS STILL
+        // RUNNING. For a 10-15 min deep DD that is the expected path, not an edge
+        // case — and the list row underneath still read "Running", so the UI
+        // contradicted itself. Claiming a result we have not observed is the same
+        // false-clean class the DD engine itself is built to refuse.
+        const stillRunning = () => {
+          const liveEl = document.getElementById('dd-run-live');
+          if (liveEl) liveEl.innerHTML =
+            '<span style="color:#b45309">⏳ Still running after ' +
+            Math.round((MAX_TRIES * 5) / 60) + ' min. This page has stopped watching — ' +
+            'the run has NOT been reported complete. It will appear in your reports ' +
+            'below when it finishes; this list refreshes on its own.</span>';
+          if (window.Toast) Toast.show(
+            'Due diligence for ' + name + ' is taking longer than usual — still running.',
+            'info');
+        };
         const poll = async () => {
           tries++;
           try {
@@ -1695,7 +1715,8 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
               const rep = await pr.json().catch(() => ({}));
               const st = (rep && rep.status) || 'done';
               const liveEl = document.getElementById('dd-run-live');
-              if (st === 'running' && tries < 150) { // ~12.5 min ceiling
+              if (st === 'running') {
+                if (tries >= MAX_TRIES) { await loadReports(); stillRunning(); return; }
                 if (liveEl) liveEl.textContent = '⏳ Running… (' + (tries * 5) + 's elapsed)';
                 setTimeout(poll, 5000); return;
               }
@@ -1710,7 +1731,10 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
               return;
             }
           } catch (e) { /* transient — keep polling */ }
-          if (tries < 150) setTimeout(poll, 5000);
+          // R-F2820: the old code silently stopped here at the ceiling, stranding
+          // "⏳ Running… (745s elapsed)" on screen forever. Say so instead.
+          if (tries < MAX_TRIES) { setTimeout(poll, 5000); return; }
+          stillRunning();
         };
         setTimeout(poll, 6000);
       }

@@ -32,6 +32,11 @@
     .st-banner.partial_outage .st-banner-icon { color: #ea580c; }
     .st-banner.major_outage   { background: rgba(239,68,68,0.09);  border-color: rgba(239,68,68,0.34);  color: #b91c1c; }
     .st-banner.major_outage .st-banner-icon { color: #dc2626; }
+    /* R-F2819 — the state this page SHIPS in, and the state it returns to when it
+       cannot measure. Deliberately NOT green: "could not measure" is not "measured
+       and clean". Same tri-state discipline as the Phase A gates (pass=None). */
+    .st-banner.unknown        { background: rgba(120,113,108,0.08); border-color: rgba(120,113,108,0.30); color: #57534e; }
+    .st-banner.unknown .st-banner-icon { color: #78716c; }
 
     .st-uptime {
       display: flex; align-items: center; gap: 14px;
@@ -95,8 +100,11 @@
   <div class="st-eyebrow">System status</div>
   <h1 class="st-title">ARIA: current state</h1>
 
-  <div id="banner" class="st-banner operational">
-    <div class="st-banner-icon"><i class="bi bi-check-circle-fill"></i></div>
+  <!-- R-F2819: ships UNKNOWN, not operational. The page previously shipped a green
+       tick and only ever left that state on SUCCESS, so a failed /api/status left a
+       success banner on screen reading "Status check failed". -->
+  <div id="banner" class="st-banner unknown">
+    <div class="st-banner-icon"><i class="bi bi-question-circle-fill"></i></div>
     <div class="st-banner-text">
       <p class="st-banner-status" id="banner-status">Loading…</p>
       <p class="st-banner-summary" id="banner-summary"></p>
@@ -114,14 +122,18 @@
     <span id="bridge-text">Bridge: …</span>
   </div>
 
+  <!-- R-F2819: "No active incidents." is an ASSERTION and must only appear after the
+       incident feed has actually been read. renderIncidents() runs only inside the
+       try, so shipping the assertion as static markup meant a fetch failure left the
+       page claiming zero incidents while it had read nothing. -->
   <div class="st-section-title">Active incidents</div>
-  <div id="open-incidents"><div class="st-empty">No active incidents.</div></div>
+  <div id="open-incidents"><div class="st-empty">Loading…</div></div>
 
   <div class="st-section-title">Recent history (last 30 days)</div>
-  <div id="recent-incidents"><div class="st-empty">No resolved incidents in the last 30 days.</div></div>
+  <div id="recent-incidents"><div class="st-empty">Loading…</div></div>
 
   <div class="st-footer">
-    Last updated: <span id="generated-at">-</span> · Operator: ARIA Intelligence Limited.
+    Last updated: <span id="generated-at">-</span> · Operator: Arkmurus Limited.
     Companion documents: <a href="/model-card.html">Model card</a> · <a href="/about/privacy.html">Privacy policy</a> · <a href="/about/terms.html">Terms of service</a> · <a href="/account.html">Account &amp; billing</a>
   </div>
 </div>
@@ -205,8 +217,14 @@ function renderIncidents(list, target, emptyMsg) {
       partial_outage: { label: 'Partial outage',           icon: 'cone-striped' },
       major_outage:   { label: 'Major outage',             icon: 'x-circle-fill' },
     };
-    var s = statusMap[data.overall] || statusMap.operational;
-    banner.className = 'st-banner ' + data.overall;
+    // R-F2819: an UNRECOGNISED status must not read as operational. The old
+    // `|| statusMap.operational` fallback meant any status string this page did not
+    // know about — including a future one, or a malformed payload — rendered a green
+    // "All systems operational". Fail to UNKNOWN, never to clean.
+    var s = statusMap[data.overall] || {
+      label: 'Status unrecognised', icon: 'question-circle-fill', cls: 'unknown',
+    };
+    banner.className = 'st-banner ' + (s.cls || data.overall);
     document.getElementById('banner-status').textContent = s.label;
     banner.querySelector('.st-banner-icon').innerHTML = '<i class="bi bi-' + s.icon + '"></i>';
     document.getElementById('banner-summary').textContent = data.summary || '';
@@ -238,8 +256,28 @@ function renderIncidents(list, target, emptyMsg) {
     renderIncidents(data.recent || [], 'recent-incidents', 'No resolved incidents in the last 30 days.');
   } catch (err) {
     console.error('[Status] load failed:', err);
-    document.getElementById('banner-status').textContent = 'Status check failed';
-    document.getElementById('banner-summary').textContent = 'Unable to load /api/status. The page itself is up but live data is unavailable.';
+    // R-F2819 — RETRACT every assertion on the page, not just the status line.
+    // The old handler changed only banner-status, leaving a GREEN banner with a
+    // check-circle icon above the words "Status check failed", and leaving the
+    // static "No active incidents." / "No resolved incidents" strings on screen —
+    // i.e. the page asserted zero incidents while unable to read the feed. That is
+    // a false clean, the exact failure class this product exists to prevent.
+    var banner = document.getElementById('banner');
+    banner.className = 'st-banner unknown';
+    banner.querySelector('.st-banner-icon').innerHTML = '<i class="bi bi-question-circle-fill"></i>';
+    document.getElementById('banner-status').textContent = 'Status unknown';
+    document.getElementById('banner-summary').textContent =
+      'Unable to load /api/status (' + (err && err.message ? err.message : 'unknown error') +
+      '). This page is up, but it cannot currently measure system state — treat the ' +
+      'sections below as unread, not as clear.';
+    document.getElementById('banner-scope').textContent = '';
+    document.getElementById('uptime-pct').textContent = '—';
+    var unread = 'Could not be loaded — this is NOT a statement that there are none.';
+    document.getElementById('open-incidents').innerHTML = '<div class="st-empty"></div>';
+    document.getElementById('open-incidents').firstChild.textContent = unread;
+    document.getElementById('recent-incidents').innerHTML = '<div class="st-empty"></div>';
+    document.getElementById('recent-incidents').firstChild.textContent = unread;
+    document.getElementById('generated-at').textContent = 'unavailable';
   }
 })();
 </script>
