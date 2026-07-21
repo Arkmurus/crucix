@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2821,
+  "next_available": 2822,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22087,14 +22087,25 @@
       "title": "status.html false clean - green banner and no-incidents assertion on fetch failure",
       "claimed_at": "2026-07-21T13:54:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6be58431",
+      "notes": null,
+      "shipped_at": "2026-07-21T14:02:46Z"
     },
     {
       "r_number": "R-F2820",
       "title": "dd-reports declares running DD complete at poll ceiling",
       "claimed_at": "2026-07-21T13:54:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6be58431",
+      "notes": null,
+      "shipped_at": "2026-07-21T14:02:46Z"
+    },
+    {
+      "r_number": "R-F2821",
+      "title": "errorTracker: own-code failure domain escalates to brain; verified delivery",
+      "claimed_at": "2026-07-21T14:10:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
