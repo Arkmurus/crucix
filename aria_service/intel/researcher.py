@@ -4346,9 +4346,23 @@ def _adverse_hit_names_subject(text: str, name_token_sets: list[set[str]]) -> bo
 # search_backends_answered exist so a zero-finding sweep is distinguishable from a
 # sweep that never ran; templates_capped_at + templates_total_in_set keep the cap
 # visible, because an invisible truncation reads as a completed sweep.
-# 20.0 = measured ~12.9s + headroom for backend variance. Env-overridable so it can
-# be re-calibrated from evidence rather than edited.
-ADVERSE_SEARCH_TIMEOUT_S = float(os.getenv("ARIA_ADVERSE_SEARCH_TIMEOUT_S", "20.0"))
+# R-F2847 — sized from the MEASURED IN-APP distribution, and capped by the caller's
+# backstop. In-container timing of the exact adverse-media call shape:
+#     per-call 24.73 / 4.47 / 1.92 / 4.64 s   median 4.55s   max 24.73s
+# i.e. searches are FAST once warm and the first is slow (cold connections/caches).
+# The cost is not a stable ~13s: it is VARIABLE, 2-25s, and load-dependent.
+#
+# A bound sized on the median therefore cuts legitimate searches under load — which
+# is exactly what a 20.0s bound did: a live run completed 0 of 9 templates because
+# every search was cut, then honestly recorded as a breaker skip (templates_searched
+# 0). The instrument is wrong: the per-search bound should be a HANG guard, and the
+# DEADLINE should bound total work.
+#
+# CEILING: the caller wraps the sweep in wait_for(deadline + 30s) = 210s
+# (dd_orchestrator ~:9145). A template may start at deadline-epsilon, so
+# deadline(180) + bound must stay under 210 -> bound <= 30. 25.0 covers the observed
+# 24.73s worst case with margin (180 + 25 = 205 < 210).
+ADVERSE_SEARCH_TIMEOUT_S = float(os.getenv("ARIA_ADVERSE_SEARCH_TIMEOUT_S", "25.0"))
 
 
 

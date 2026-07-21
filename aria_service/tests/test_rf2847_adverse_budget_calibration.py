@@ -43,9 +43,16 @@ def test_the_per_search_bound_is_not_below_measured_cost():
         "the per-search bound must be a named, calibratable constant — it was "
         "hardcoded at 10.0s, below the measured ~12.9s, so nothing could complete"
     )
-    assert R.ADVERSE_SEARCH_TIMEOUT_S >= 13.0, (
-        f"bound {R.ADVERSE_SEARCH_TIMEOUT_S}s is at or below the measured search cost "
-        "(~12.9s on the brain, R-F2846); it must carry headroom above it"
+    # In-app distribution (measured in-container, adverse-media call shape):
+    # 24.73 / 4.47 / 1.92 / 4.64 s -> median 4.55s, max 24.73s. The bound is a HANG
+    # guard, so it must clear the observed MAX, not the median.
+    assert R.ADVERSE_SEARCH_TIMEOUT_S >= 25.0, (
+        f"bound {R.ADVERSE_SEARCH_TIMEOUT_S}s does not clear the measured in-app max "
+        "(24.73s); a bound inside the variance cuts legitimate searches"
+    )
+    # And it must stay under the caller's wait_for backstop: deadline(180)+bound<210.
+    assert R.ADVERSE_SEARCH_TIMEOUT_S <= 30.0, (
+        "bound must leave the 210s backstop room: 180 + bound < 210"
     )
 
 
