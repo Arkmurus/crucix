@@ -218,3 +218,61 @@ def test_repo_root_is_discovered_not_hardcoded():
     root = rs.repo_root()
     assert (root / "aria_service").is_dir()
     assert (root / "CLAUDE.md").exists()
+
+
+# ── R-F2836 — the intentional-unreachable allowlist ─────────────────────────
+# An allowlist is a hiding place unless it (a) still REPORTS what it exempts and
+# (b) is itself validated. These tests pin both. Without them the allowlist
+# becomes the mechanism for concealing exactly what the tool exists to surface.
+
+def test_allowlisted_entry_is_reported_not_hidden(pkg, monkeypatch):
+    """★ Exempted code must still appear — as INTENTIONAL, with its reason."""
+    monkeypatch.setattr(rs, "INTENTIONAL_UNREACHABLE",
+                        {"orphan": "R-F000 — kept deliberately for this test"})
+    res = rs.analyse(pkg)
+    rows = rs.classify(res)
+    states = {name: state for state, _f, _ln, name in rows}
+
+    assert states["orphan"] == "INTENTIONAL", (
+        "an allowlisted function must be RECLASSIFIED and still shown — never "
+        "dropped from the report, or the allowlist becomes a hiding place"
+    )
+    assert "orphan" not in [n for s, _f, _l, n in rows if s == "UNREACHABLE"]
+
+
+def test_every_allowlist_entry_carries_a_reason():
+    """The justification must travel with the tool, not live in memory."""
+    for name, reason in rs.INTENTIONAL_UNREACHABLE.items():
+        assert reason and len(reason) > 20, f"{name} needs a real reason"
+        assert "R-F" in reason, f"{name} must cite the R-number that decided it"
+
+
+def test_allowlist_entry_that_vanished_is_reported_stale(pkg):
+    """A dead entry may later mask a DIFFERENT function taking the same name."""
+    res = rs.analyse(pkg)
+    stale = rs.validate_allowlist(res, {"gone_forever": "R-F000 — no longer exists"})
+    assert stale and "no longer exists" in stale[0]
+
+
+def test_allowlist_entry_that_became_reachable_is_reported_stale(pkg):
+    """★ If somebody wires it, the exemption must NOT silently excuse live code."""
+    res = rs.analyse(pkg)
+    stale = rs.validate_allowlist(res, {"endpoint": "R-F000 — supposedly unreachable"})
+    assert stale and "now REACHABLE" in stale[0], (
+        "an allowlist that keeps excusing a function after it goes live is "
+        "exactly the gate-certified-by-an-absence failure (R-F2643)"
+    )
+
+
+def test_valid_allowlist_reports_no_staleness(pkg):
+    res = rs.analyse(pkg)
+    assert rs.validate_allowlist(res, {"orphan": "R-F000 — genuinely unreachable"}) == []
+
+
+def test_shipped_allowlist_is_currently_valid():
+    """The real allowlist must be honest about the real tree, right now."""
+    res = rs.analyse(rs.PKG)
+    assert rs.validate_allowlist(res) == [], (
+        "the shipped allowlist has gone stale — an entry either vanished or was "
+        "wired; fix the allowlist, do not silence this"
+    )

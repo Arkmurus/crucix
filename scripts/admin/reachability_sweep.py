@@ -104,6 +104,51 @@ CONTROL_LIVE = ["check_cost_cap", "verify_deploy_landed", "apply_capability_test
 CONTROL_DEAD = ["psc_reverse_lookup"]
 
 
+# ── R-F2836 — INTENTIONALLY UNREACHABLE ─────────────────────────────────────
+# Code that is unreachable ON PURPOSE. Listing it here does NOT hide it: it is
+# reported as its own category with the reason attached, because an allowlist
+# that makes entries VANISH is itself a fabrication vector — it becomes the
+# mechanism for hiding exactly what the tool exists to surface.
+#
+# Every entry MUST carry a reason and the R-number that decided it, so the
+# JUSTIFICATION travels with the tool instead of living in someone's memory.
+# Entries are validated on every run (see validate_allowlist): an entry that has
+# become reachable, or that no longer exists, is REPORTED — a stale allowlist is
+# the same shape as a gate certified by an absence (R-F2643).
+INTENTIONAL_UNREACHABLE: dict[str, str] = {
+    # Brave Answers is a permanent removal stub, not a dormant feature. Proxying
+    # Brave's GENERATED ANSWER would outsource ARIA's answer-generation step,
+    # which is the moat (golden data + our own verification + the objective eval
+    # gate, R-F2539/R-F2540). Pattern stays: Brave/SearXNG as a SOURCE ->
+    # ARIA's evidence pipeline -> ARIA's answer. CLAUDE.md §18: "leave it
+    # removed". The stub keeps a stale import falling through cleanly instead of
+    # raising ImportError, and preserves the decision record.
+    "fetch_answer": "R-F320 — Brave Answers removed on operator directive; "
+                    "proxying a generated answer would outsource the moat (CLAUDE.md §18)",
+}
+
+
+def validate_allowlist(res: dict, allow: dict[str, str] | None = None) -> list[str]:
+    """Report STALE allowlist entries. Empty list means the allowlist is honest.
+
+    Two staleness modes, both of which quietly weaken the tool if unreported:
+      - the function no longer exists  -> the entry is dead weight and may be
+        masking a DIFFERENT function that later takes the same name;
+      - the function is now REACHABLE  -> somebody wired it; the exemption is
+        obsolete and must be removed, or the tool is excusing live code.
+    """
+    allow = INTENTIONAL_UNREACHABLE if allow is None else allow
+    stale = []
+    for name, reason in allow.items():
+        if name not in res["all_defs"]:
+            stale.append(f"allowlist entry {name!r} no longer exists in the tree "
+                         f"— remove it ({reason.split(' — ')[0]})")
+        elif name in res["reachable"] and name not in res["undecidable"]:
+            stale.append(f"allowlist entry {name!r} is now REACHABLE — it has been "
+                         f"wired; drop the exemption ({reason.split(' — ')[0]})")
+    return stale
+
+
 def _rel(p: pathlib.Path) -> str:
     """Path relative to the repo when possible, absolute otherwise.
 
@@ -269,6 +314,8 @@ def classify(res: dict) -> list[tuple]:
             state = "UNDECIDABLE"
         elif name in res["reachable"]:
             state = "reachable"
+        elif name in INTENTIONAL_UNREACHABLE:
+            state = "INTENTIONAL"      # unreachable ON PURPOSE — shown, not hidden
         else:
             state = "UNREACHABLE"
         rows.append((state, _rel(p), ln, name))
@@ -331,6 +378,18 @@ def cmd_sweep(args) -> int:
         print("\nA sweep that misclassifies a control cannot be triaged, only discarded.")
         return 1
 
+    stale = validate_allowlist(res)
+    if stale:
+        # Not fatal — the classification is still sound — but an unreported
+        # stale allowlist silently grows into a place where problems hide.
+        print("!! STALE ALLOWLIST ENTRIES (fix these):")
+        for smsg in stale:
+            print("   -", smsg)
+        print()
+    else:
+        _n = len(INTENTIONAL_UNREACHABLE)
+        print(f"allowlist: {_n} entr{'y' if _n == 1 else 'ies'}, all still valid")
+
     print("all controls passed — results below are reportable\n")
     rows = classify(res)
     counts = collections.Counter(r[0] for r in rows)
@@ -338,12 +397,20 @@ def cmd_sweep(args) -> int:
     print("=" * 74)
     print(f"TRI-STATE  (public module-level functions: {len(rows)})")
     print("=" * 74)
-    for k in ("reachable", "UNDECIDABLE", "UNREACHABLE"):
+    for k in ("reachable", "UNDECIDABLE", "INTENTIONAL", "UNREACHABLE"):
         print(f"  {k:12} {counts[k]:5}  ({100*counts[k]/total:.1f}%)")
     print(f"\n  getattr() present in tree: {res['getattr_used']} -> dynamic dispatch is "
           f"possible, hence UNDECIDABLE is not an empty category")
     print("  NOTE: UNREACHABLE is a LOWER BOUND (calls resolve permissively by name).")
     print("        UNDECIDABLE is NOT 'unused' — it is 'cannot be determined statically'.")
+
+    intentional = sorted(r for r in rows if r[0] == "INTENTIONAL")
+    if intentional:
+        print("")
+        print(f"=== INTENTIONAL ({len(intentional)}) — unreachable ON PURPOSE, do not 'fix' ===")
+        for _s, _f, _ln, _name in intentional:
+            print(f"  {_f}:{_ln}  {_name}")
+            print(f"      {INTENTIONAL_UNREACHABLE.get(_name, '(no reason recorded)')}")
 
     unreach = sorted(r for r in rows if r[0] == "UNREACHABLE")
     byfile = collections.defaultdict(list)
