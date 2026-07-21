@@ -1272,7 +1272,7 @@
             <span class="lp-hv-dot" style="background:#ff5f57"></span>
             <span class="lp-hv-dot" style="background:#febc2e"></span>
             <span class="lp-hv-dot" style="background:#28c840"></span>
-            <span class="lp-hv-term-ttl">ARIA · live screening</span>
+            <span class="lp-hv-term-ttl">ARIA · illustrative example</span>
           </div>
           <div class="lp-hv-term-bd">
             <div><span class="lp-hv-dim">⤷ identity&nbsp;&nbsp;</span><span class="lp-hv-g">✓ resolved</span></div>
@@ -1288,7 +1288,8 @@
 
         <!-- evidence / finding card -->
         <div class="lp-hv-ev">
-          <div class="lp-hv-ev-hd">Finding: Sanctions</div>
+          <div class="lp-hv-ev-hd">Finding: Sanctions <span style="font-weight:600;color:#febc2e">· ILLUSTRATIVE</span></div>
+          <div style="font-size:10px;color:#febc2e;margin:2px 0 4px">⚠ Illustrative only — fictional entity, not a real screening result.</div>
           <div class="lp-hv-ev-src"><span class="lp-hv-src-dot"></span>ofac_sdn<span class="lp-hv-src-sc">0.99</span></div>
           <div class="lp-hv-ev-src"><span class="lp-hv-src-dot"></span>eu_consolidated<span class="lp-hv-src-sc">0.99</span></div>
           <div class="lp-hv-ev-ft"><span class="lp-hv-grade">CONFIRMED</span><span class="lp-hv-conf">3 sources</span></div>
@@ -1304,22 +1305,37 @@
     </div><!-- /.lp-hero-visual -->
    </div><!-- /.lp-hero-grid-2 -->
 
+    <!-- R-F2825 — these were four hardcoded literals with no ids and no fetch, and
+         two were provably false against the shipped code:
+           "24/7 autonomous watchlist monitoring" — WEEKLY-DD-WATCHLIST is
+             cron "0 7 * * mon" (tasks.yaml:740), i.e. weekly, Monday 07:00 UTC.
+           "10 DD pipeline layers" — dd_orchestrator.py:5 says "The 7-layer
+             due-diligence orchestrator"; the tile grid reached ten by splitting 05
+             into 05b/05c and skipping 06/07.
+           "87K+ indexed records" traced only to a code COMMENT, and understated the
+             live figure by ~4x.
+           "80+ countries" had no backing; the only countable source is
+             political_risk_index._SEED, which holds 75.
+         A product whose USP is "never a false clean" cannot put unbacked numbers on
+         its own front page. `records` is now hydrated live (the only one with a real
+         endpoint); the other three are stated truthfully and LOCKED to their source
+         files by scripts/audit/landing_claim_truth.mjs, so they cannot drift again. -->
     <div class="lp-hero-metrics">
       <div>
-        <div class="lp-metric-n">87K+</div>
+        <div class="lp-metric-n" id="lp-metric-records">&mdash;</div>
         <div class="lp-metric-l">Indexed intelligence records</div>
       </div>
       <div>
-        <div class="lp-metric-n">80+</div>
-        <div class="lp-metric-l">Countries covered</div>
+        <div class="lp-metric-n">75</div>
+        <div class="lp-metric-l">Countries in the political-risk index</div>
       </div>
       <div>
-        <div class="lp-metric-n">10</div>
+        <div class="lp-metric-n">7</div>
         <div class="lp-metric-l">DD pipeline layers</div>
       </div>
       <div>
-        <div class="lp-metric-n">24/7</div>
-        <div class="lp-metric-l">Autonomous watchlist monitoring</div>
+        <div class="lp-metric-n">Weekly</div>
+        <div class="lp-metric-l">Automated watchlist re-screening</div>
       </div>
     </div>
   </div>
@@ -1388,7 +1404,7 @@
         <div class="lp-cap-icon"><i class="bi bi-shield-check"></i></div>
         <div class="lp-cap-tag">Layer 1-3</div>
         <h3>Entity Due Diligence</h3>
-        <p>Structured 10-layer pipeline: identity resolution, corporate network mapping, UBO chain analysis, sanctions screening across OFAC, EU, UN, OFSI, and UK sources where data is available.</p>
+        <p>Structured 7-layer pipeline: identity resolution, corporate network mapping, UBO chain analysis, sanctions screening across OFAC, EU, UN, OFSI, and UK sources where data is available.</p>
       </div>
       <div class="lp-cap">
         <div class="lp-cap-icon"><i class="bi bi-shield-lock"></i></div>
@@ -1455,7 +1471,7 @@
         <div><span class="lp-d-dim">⤷ synthesis   </span><span class="lp-d-green">✓ report generated  </span><span class="lp-d-dim">7m 48s</span></div>
         <div>&nbsp;</div>
         <div><span class="lp-d-gold">🟡 AMBER: PROCEED WITH CONDITIONS</span></div>
-        <div class="lp-d-dim">UBO: Khalid Al-Rashid (BVI → Cayman → UAE). PEP: NEGATIVE.</div>
+        <div class="lp-d-dim">UBO: [example individual] (BVI → Cayman → UAE). PEP screening: no match in this example.</div>
         <div class="lp-d-dim">Deception: incorporated 2023, claims 15yr track record.</div>
         <div class="lp-d-dim">Recommendation: EDD on UBO chain before contract execution.</div>
         <div>&nbsp;</div>
@@ -1470,7 +1486,7 @@
   <div class="lp-container">
     <div class="lp-section-hdr">
       <div class="lp-eyebrow">Architecture</div>
-      <h2>10-layer DD pipeline. <em>Gaps surfaced.</em></h2>
+      <h2>7-layer DD pipeline. <em>Gaps surfaced.</em></h2>
       <p>Each DD run is structured by layer, evidence depth and source health. When coverage is partial, ARIA should show the gap instead of overstating certainty.</p>
     </div>
     <div class="lp-pipeline-grid">
@@ -1549,14 +1565,14 @@
     <div class="lp-evidence-grid">
       <div class="lp-ev-card">
         <div class="lp-ev-label">Finding: Sanctions</div>
-        <div class="lp-ev-finding">Entity Meridian Trading LLC has no current designations across OFAC SDN, EU Consolidated List, UN Security Council, or OFSI. Screening conducted 2026-07-01 08:14 UTC.</div>
+        <div class="lp-ev-finding">Illustrative example — not a real entity and not a real screening result. In a genuine run this card shows whether the entity matched OFAC SDN, the EU Consolidated List, the UN Security Council list or OFSI, with the per-source evidence behind it. ARIA never presents an absence of findings as a clean bill of health.</div>
         <div class="lp-ev-sources">
           <div class="lp-ev-src"><div class="lp-ev-src-dot" style="background:#16a34a"></div><span style="color:#16a34a">ofac_sdn</span><span style="color:var(--sc-muted);margin-left:auto">0.99</span></div>
           <div class="lp-ev-src"><div class="lp-ev-src-dot" style="background:#16a34a"></div><span style="color:#16a34a">eu_consolidated</span><span style="color:var(--sc-muted);margin-left:auto">0.99</span></div>
           <div class="lp-ev-src"><div class="lp-ev-src-dot" style="background:#16a34a"></div><span style="color:#16a34a">uk_ofsi</span><span style="color:var(--sc-muted);margin-left:auto">0.99</span></div>
         </div>
         <div class="lp-ev-confidence">
-          <span class="lp-ev-grade lp-grade-confirmed">CONFIRMED</span>
+          <span class="lp-ev-grade lp-grade-confirmed">ILLUSTRATIVE</span>
           <span class="lp-ev-score">confidence: 0.97 · 3 sources</span>
         </div>
       </div>
@@ -1582,7 +1598,7 @@
     <div class="lp-section-hdr">
       <div class="lp-eyebrow">Pricing</div>
       <h2>Transparent. <em>Scalable.</em></h2>
-      <p>Start free, scale as you grow, from a free intelligence account to enterprise-wide deployment. Paid tiers unlock the full 10-layer due-diligence pipeline.</p>
+      <p>Start free, scale as you grow, from a free intelligence account to enterprise-wide deployment. Paid tiers unlock the full 7-layer due-diligence pipeline.</p>
     </div>
     <div class="lp-pricing-grid">
       <!-- R-F2314 — restored original tiers (Essentials £79 / Pro Intel £199 /
@@ -1616,7 +1632,7 @@
           <li><i class="bi bi-check-lg"></i> 20 DD runs / month</li>
           <li><i class="bi bi-check-lg"></i> 200 chat messages / day</li>
           <li><i class="bi bi-check-lg"></i> 5 MB document uploads</li>
-          <li><i class="bi bi-check-lg"></i> Full 10-layer pipeline</li>
+          <li><i class="bi bi-check-lg"></i> Full 7-layer pipeline</li>
           <li><i class="bi bi-check-lg"></i> Dashboard access</li>
           <li><i class="bi bi-check-lg"></i> PDF export</li>
           <li><i class="bi bi-check-lg"></i> Sanctions screening</li>
@@ -1636,7 +1652,7 @@
           <li><i class="bi bi-check-lg"></i> 100 DD runs / month</li>
           <li><i class="bi bi-check-lg"></i> 2000 chat messages / day</li>
           <li><i class="bi bi-check-lg"></i> 50 MB document uploads</li>
-          <li><i class="bi bi-check-lg"></i> Full 10-layer pipeline</li>
+          <li><i class="bi bi-check-lg"></i> Full 7-layer pipeline</li>
           <li><i class="bi bi-check-lg"></i> WhatsApp interface</li>
           <li><i class="bi bi-check-lg"></i> PDF + JSON export</li>
           <li><i class="bi bi-check-lg"></i> Sanctions screening</li>
@@ -1778,6 +1794,23 @@
 </footer>
 
 <script>
+/* R-F2825 — hydrate the ONE hero metric that has a real live source.
+   The element ships as "—" and stays "—" on any failure. It must never render a
+   stale or invented figure: an unbacked number on the front page of a product
+   whose USP is "never a false clean" is the same defect class as a false clean. */
+(async function hydrateRecords() {
+  var el = document.getElementById('lp-metric-records');
+  if (!el) return;
+  try {
+    var r = await fetch('/api/public/metrics', { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return;                       // leave the honest em-dash
+    var d = await r.json();
+    var n = d && d.records;
+    if (typeof n !== 'number' || !isFinite(n) || n <= 0) return;
+    el.textContent = n >= 1000 ? (Math.floor(n / 1000)).toLocaleString('en-GB') + 'K+' : String(n);
+  } catch (e) { /* honest em-dash stands */ }
+})();
+
 // R-F2383 — CSP (script-src-attr 'none') blocks inline onclick; wire the mobile
 // nav toggle via a listener so the menu opens on phones.
 (function () {

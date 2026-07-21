@@ -1042,7 +1042,7 @@ def build_body() -> str:
   <div class="lp-hero-inner">
     <div class="lp-hero-badge">
       <span class="lp-hero-badge-dot"></span>
-      <span>Sovereign · No external dependencies · EU-data compliant</span>
+      <span>Sovereign-grade roadmap · Evidence-graded today · Source health visible</span>
     </div>
     <h1 class="lp-hero-title">
       Intelligence<br>
@@ -1058,20 +1058,20 @@ def build_body() -> str:
     </div>
     <div class="lp-hero-metrics">
       <div>
-        <div class="lp-metric-n">87K+</div>
+        <div class="lp-metric-n" id="lp-metric-records">&mdash;</div>
         <div class="lp-metric-l">Verified intelligence facts</div>
       </div>
       <div>
-        <div class="lp-metric-n">80+</div>
-        <div class="lp-metric-l">Countries covered</div>
+        <div class="lp-metric-n">75</div>
+        <div class="lp-metric-l">Countries in the political-risk index</div>
       </div>
       <div>
-        <div class="lp-metric-n">10</div>
+        <div class="lp-metric-n">7</div>
         <div class="lp-metric-l">DD pipeline layers</div>
       </div>
       <div>
-        <div class="lp-metric-n">24/7</div>
-        <div class="lp-metric-l">Autonomous watchlist monitoring</div>
+        <div class="lp-metric-n">Weekly</div>
+        <div class="lp-metric-l">Automated watchlist re-screening</div>
       </div>
     </div>
   </div>
@@ -1109,7 +1109,7 @@ def build_body() -> str:
         <div class="lp-cap-icon"><i class="bi bi-shield-check"></i></div>
         <div class="lp-cap-tag">Layer 1–3</div>
         <h3>Entity Due Diligence</h3>
-        <p>Full 10-layer pipeline: identity resolution, corporate network mapping, UBO chain analysis, sanctions screening across OFAC, EU, UN, OFSI, and UK registries.</p>
+        <p>Full 7-layer pipeline: identity resolution, corporate network mapping, UBO chain analysis, sanctions screening across OFAC, EU, UN, OFSI, and UK registries.</p>
       </div>
       <div class="lp-cap">
         <div class="lp-cap-icon"><i class="bi bi-shield-lock"></i></div>
@@ -1161,7 +1161,7 @@ def build_body() -> str:
         <div class="lp-demo-title">ARIA Intelligence Agent — imaria.io</div>
       </div>
       <div class="lp-demo-body">
-        <div><span class="lp-d-dim">◆ ARIA  </span><span class="lp-d-gold">v1.0  </span><span class="lp-d-dim">Sovereign LLM  AUTO  </span></div>
+        <div><span class="lp-d-dim">◆ ARIA  </span><span class="lp-d-gold">v1.0  </span><span class="lp-d-dim">Evidence-grade DD  </span></div>
         <div class="lp-d-dim">──────────────────────────────────────────────────────</div>
         <div>&nbsp;</div>
         <div><span class="lp-d-prompt">operator &gt; </span><span class="lp-d-white">DD Meridian Trading Ltd, UAE, oil sector</span></div>
@@ -1191,7 +1191,7 @@ def build_body() -> str:
   <div class="lp-container">
     <div class="lp-section-hdr">
       <div class="lp-eyebrow">Architecture</div>
-      <h2>10-layer DD pipeline. <em>Nothing missed.</em></h2>
+      <h2>7-layer DD pipeline. <em>Gaps surfaced.</em></h2>
       <p>Every entity passes through all ten layers autonomously. Verified evidence chain on every finding. Full audit trail.</p>
     </div>
     <div class="lp-pipeline-grid">
@@ -1264,7 +1264,7 @@ def build_body() -> str:
   <div class="lp-container">
     <div class="lp-section-hdr">
       <div class="lp-eyebrow">Trust architecture</div>
-      <h2>Every finding. <em>Fully traced.</em></h2>
+      <h2>Every finding. <em>Evidence graded.</em></h2>
       <p>Every material finding carries a source URL, retrieval timestamp, authority score, and GDPR legal basis. Legally defensible by design.</p>
     </div>
     <div class="lp-evidence-grid">
@@ -1314,7 +1314,7 @@ def build_body() -> str:
         <div class="lp-plan-divider"></div>
         <ul class="lp-plan-features">
           <li><i class="bi bi-check-lg"></i> 10 DD runs / month</li>
-          <li><i class="bi bi-check-lg"></i> Full 10-layer pipeline</li>
+          <li><i class="bi bi-check-lg"></i> Full 7-layer pipeline</li>
           <li><i class="bi bi-check-lg"></i> Dashboard access</li>
           <li><i class="bi bi-check-lg"></i> PDF export</li>
           <li><i class="bi bi-check-lg"></i> Sanctions screening</li>
@@ -1332,7 +1332,7 @@ def build_body() -> str:
         <div class="lp-plan-divider"></div>
         <ul class="lp-plan-features">
           <li><i class="bi bi-check-lg"></i> Unlimited DD runs</li>
-          <li><i class="bi bi-check-lg"></i> Full 10-layer pipeline</li>
+          <li><i class="bi bi-check-lg"></i> Full 7-layer pipeline</li>
           <li><i class="bi bi-check-lg"></i> WhatsApp interface</li>
           <li><i class="bi bi-check-lg"></i> PDF + JSON export</li>
           <li><i class="bi bi-check-lg"></i> Sanctions screening</li>
@@ -1377,7 +1377,7 @@ def build_body() -> str:
     <div class="lp-cert-grid">
       <div class="lp-cert">
         <div class="lp-cert-icon"><i class="bi bi-lock"></i></div>
-        <div class="lp-cert-name">GDPR Compliant</div>
+        <div class="lp-cert-name">GDPR-Aware</div>
         <div class="lp-cert-desc">Art. 6.1.f legal basis documented on every personal data finding. 5-year AML retention.</div>
       </div>
       <div class="lp-cert">

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2824,
+  "next_available": 2827,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22117,14 +22117,43 @@
       "title": "sidebar nav role visibility matches server page gate (poweruser tier)",
       "claimed_at": "2026-07-21T14:21:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6f72f767",
+      "notes": null,
+      "shipped_at": "2026-07-21T14:32:46Z"
     },
     {
       "r_number": "R-F2823",
       "title": "DD quota 429 renders upgrade path not HTTP error",
       "claimed_at": "2026-07-21T14:21:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6f72f767",
+      "notes": null,
+      "shipped_at": "2026-07-21T14:32:46Z"
+    },
+    {
+      "r_number": "R-F2824",
+      "title": "landing demo blocks labelled illustrative not live screening",
+      "claimed_at": "2026-07-21T14:36:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2825",
+      "title": "landing hero metrics honest and live-wired",
+      "claimed_at": "2026-07-21T14:36:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2826",
+      "title": "landing truth guard checks numbers and audits the generator source",
+      "claimed_at": "2026-07-21T14:36:55Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

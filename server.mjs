@@ -5248,6 +5248,50 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   }
 });
 
+// ── R-F2825: public landing metrics — the ONE number we can actually count ───
+// The landing hero shipped four hardcoded literals, two of them false against the
+// code. `records` is the only one with a real live source, so it is the only one
+// wired: the brain's /api/aria/memory/tiers reports knowledge.count. The rest are
+// stated truthfully in the markup and locked to their source files by
+// scripts/audit/landing_claim_truth.mjs — a CI guard beats a fake live wire.
+//
+// Fetched server-side (the brain endpoint is authenticated and must stay that way)
+// and cached, so the public page cannot become a load amplifier on the brain.
+// On ANY failure this returns null and the page keeps showing "—". It must never
+// serve a stale or invented number: an unbacked figure on the front page of a
+// never-false-clean product is the same defect class as a false clean.
+let _publicMetricsCache = { at: 0, value: null };
+const PUBLIC_METRICS_TTL_MS = 10 * 60 * 1000;
+
+app.get('/api/public/metrics', async (req, res) => {
+  const now = Date.now();
+  if (_publicMetricsCache.value && (now - _publicMetricsCache.at) < PUBLIC_METRICS_TTL_MS) {
+    return res.json({ ..._publicMetricsCache.value, cached: true });
+  }
+  let records = null;
+  try {
+    const base = process.env.ARIA_SERVICE_URL || '';
+    const token = process.env.ARIA_API_TOKEN || process.env.ARIA_INTERNAL_TOKEN || '';
+    if (base) {
+      const r = await fetch(`${base}/api/aria/memory/tiers`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal: AbortSignal.timeout(8000),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        const n = d && d.knowledge && Number(d.knowledge.count);
+        if (Number.isFinite(n) && n > 0) records = n;
+      }
+    }
+  } catch (e) {
+    // Fall through to records:null — an honest "—" beats a stale number.
+    errorTracker.record('public_metrics', 'brain_fetch_failed', e);
+  }
+  const value = { records, generatedAt: new Date().toISOString() };
+  if (records !== null) _publicMetricsCache = { at: now, value };
+  res.json({ ...value, cached: false });
+});
+
 // ── R-F2822: navigation entitlement, computed SERVER-SIDE ────────────────────
 // The sidebar hand-maintained a `data-admin` flag on 3 of 11 gated links, so it
 // drifted from lib/auth/operatorPages.mjs — the table the real gate uses — in
