@@ -73,6 +73,58 @@ def _best_match(recs: list, q: str) -> dict:
     return max(recs, key=score)
 
 
+
+def build_profile(attrs: dict, lei: str) -> dict:
+    """Map a GLEIF v1 attributes block to the registry-profile contract.
+
+    R-F2261 — keys MUST match what dd_orchestrator._run_identity reads off a registry
+    profile (company_status / date_of_creation / registered_office_address), else the
+    GLEIF data silently doesn't populate the DD identity fields.
+
+    R-F2839 — `date_of_creation` is a COMPANIES HOUSE field name, where it genuinely
+    means the incorporation date, and dd_orchestrator.py:3575/:3731 correctly assign it
+    to identity.incorporation_date. This adapter used to fill it from
+    `registration.initialRegistrationDate` — the date the LEI was ISSUED, not the date
+    the company was FORMED. Every GLEIF-sourced entity therefore carried an
+    incorporation date wrong by the gap between formation and LEI issuance.
+
+    Caught by comparing a live report to a competitor's on the same entity
+    (SOCAR Trading SA): we shipped 2013-05-28; the true incorporation is 2007-12-17,
+    which GLEIF carries all along under `entity.creationDate`. Six years wrong, stated
+    as fact. Both consumers were right; the SOURCE was wrong, so this is fixed here.
+
+    A missing creationDate yields an EMPTY date — never a fallback to the LEI date,
+    which would reintroduce the defect for exactly the records that lack the real one.
+    A wrong date is worse than no date.
+    """
+    e = attrs.get("entity", {}) or {}
+    reg = attrs.get("registration", {}) or {}
+    addr = e.get("legalAddress") or {}
+    addr_str = ", ".join(x for x in [
+        " ".join(addr.get("addressLines") or []) or None,
+        addr.get("city"), addr.get("region"), addr.get("postalCode"), addr.get("country"),
+    ] if x)
+    return {
+        "company_name": (e.get("legalName") or {}).get("name", "") or "",
+        "company_number": lei,              # LEI as the registry id
+        "lei": lei,
+        # R-F2503 — the LOCAL national registry id (KRS for PL, SIREN for FR, HRB for
+        # DE, …). Lets a number-only national adapter resolve its rich extract from a
+        # name via GLEIF. May be a national number in ANY scheme — callers MUST
+        # validate the format + verify the fetched entity.
+        "registered_as": (e.get("registeredAs") or "").strip(),
+        "company_status": (str(e.get("status") or "").lower() or "unknown"),
+        "jurisdiction": e.get("jurisdiction", "") or "",
+        "registered_office_address": addr_str,
+        "legal_form": (e.get("legalForm") or {}).get("id", "") or "",
+        # R-F2839 — the company's own formation date.
+        "date_of_creation": (e.get("creationDate") or "")[:10],
+        # R-F2839 — kept, but under a name that says what it actually is.
+        "lei_registered_date": (reg.get("initialRegistrationDate") or "")[:10],
+        "sic_codes": [],
+    }
+
+
 async def lookup(name: str, jurisdiction_iso2: str = "", reg_number: str | None = None) -> dict | None:
     """Return {profile, officers, psc, source_url, adapter} for the best GLEIF match, or None.
 
@@ -110,31 +162,9 @@ async def lookup(name: str, jurisdiction_iso2: str = "", reg_number: str | None 
             logger.debug("GLEIF: best record %r does not confirm query %r — not attaching", nm, q)
             cb.record_success()  # the search worked; there was just no matching entity
             return None
-        addr = e.get("legalAddress") or {}
-        addr_str = ", ".join(x for x in [
-            " ".join(addr.get("addressLines") or []) or None,
-            addr.get("city"), addr.get("region"), addr.get("postalCode"), addr.get("country"),
-        ] if x)
-        reg = a.get("registration", {}) or {}
-        # R-F2261 — keys MUST match what dd_orchestrator._run_identity reads off a registry
-        # profile (company_status / date_of_creation / registered_office_address), else the
-        # GLEIF data silently doesn't populate the DD identity fields.
-        profile = {
-            "company_name": nm,
-            "company_number": lei,              # LEI as the registry id
-            "lei": lei,
-            # R-F2503 — the LOCAL national registry id (KRS for PL, SIREN for FR, HRB
-            # for DE, …). Lets a number-only national adapter (e.g. Poland KRS) resolve
-            # its rich extract from a name via GLEIF. May be a national number in ANY
-            # scheme — callers MUST validate the format + verify the fetched entity.
-            "registered_as": (e.get("registeredAs") or "").strip(),
-            "company_status": (str(e.get("status") or "").lower() or "unknown"),
-            "jurisdiction": e.get("jurisdiction", "") or "",
-            "registered_office_address": addr_str,
-            "legal_form": (e.get("legalForm") or {}).get("id", "") or "",
-            "date_of_creation": (reg.get("initialRegistrationDate") or "")[:10],
-            "sic_codes": [],
-        }
+        # R-F2839 — profile construction lives in build_profile() so the field mapping
+        # is directly testable. It was not, and a wrong date shipped for months.
+        profile = build_profile(a, lei)
         cb.record_success()
         try:
             wire_success(module="gleif",

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2839,
+  "next_available": 2840,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22275,6 +22275,15 @@
       "r_number": "R-F2838",
       "title": "declared jurisdiction must beat suffix inference - SA maps to PT and overrode CH",
       "claimed_at": "2026-07-21T17:37:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2839",
+      "title": "GLEIF date_of_creation is the LEI registration date not incorporation",
+      "claimed_at": "2026-07-21T17:48:23Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
