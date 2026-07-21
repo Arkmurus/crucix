@@ -569,6 +569,48 @@ def _registry_accounts_summary(reg: dict) -> str:
     )
 
 
+async def _enrich_with_registry_accounts(
+    result: dict,
+    name: str,
+    jurisdiction_iso2: str,
+    registration_number: str = "",
+) -> bool:
+    """Attach GB registry-accounts evidence to `result` in place (R-F2782/R-F2817).
+
+    Returns True when evidence was added, False otherwise. Never raises.
+
+    Shared by BOTH the fresh-assessment path and the vault path. R-F2817: a
+    cached profile written before R-F2782 has no `registry_accounts`, and the
+    vault serves anything younger than 30 days, so without this the new evidence
+    was invisible on every already-assessed entity for up to a month (verified
+    live: BAE and Rolls-Royce both returned from_vault=True and no evidence).
+    One helper, two call sites — so the cached and fresh paths cannot drift.
+
+    Still does NOT touch `data_available` / `has_financials`: this raises the
+    EVIDENCE grade, it does not answer financial capacity (see _uk_registry_accounts).
+    """
+    if result.get("registry_accounts"):
+        return False
+    if not _is_gb(jurisdiction_iso2):
+        return False
+    try:
+        reg = await _uk_registry_accounts(name, registration_number)
+        if not reg:
+            return False
+        result["registry_accounts"] = reg
+        result["summary"] = (
+            (result.get("summary", "") + " ").strip()
+            + " " + _registry_accounts_summary(reg)
+        ).strip()
+        for _flag in (reg.get("accounts") or {}).get("distress_flags", []):
+            if _flag not in result.setdefault("distress_flags", []):
+                result["distress_flags"].append(_flag)
+        return True
+    except Exception as e:
+        logger.debug("registry accounts enrichment failed: %s", e)
+        return False
+
+
 async def assess(
     name: str,
     *,
@@ -619,6 +661,21 @@ async def assess(
                 if age_days <= max_age_days:
                     cached["from_vault"] = True
                     cached["vault_age_days"] = round(age_days, 1)
+                    # R-F2817 — the vault has no capability/schema version, so a
+                    # profile written before a new evidence source existed would
+                    # keep suppressing it for the whole freshness window. Backfill
+                    # the missing evidence on read, then persist it so this stays
+                    # pay-once (§15) rather than re-fetching on every assessment.
+                    if use_search and await _enrich_with_registry_accounts(
+                        cached, name, jurisdiction_iso2, registration_number
+                    ):
+                        cached["vault_enriched"] = True
+                        try:
+                            get_vault().set_financial_profile(
+                                canonical, cached, entity_name=name,
+                                jurisdiction=jurisdiction_iso2)
+                        except Exception as e:
+                            logger.debug("vault re-register after enrichment failed: %s", e)
                     return cached
         except Exception as e:
             logger.debug("vault financial lookup failed: %s", e)
@@ -638,20 +695,9 @@ async def assess(
     # `_verdict()` still returns UNKNOWN: filing metadata raises the EVIDENCE grade
     # (dated, primary-source, citable) without answering the financial-capacity
     # question. Never-false-clean is the point of this ticket, not a side condition.
-    if use_search and not result.get("data_available") and _is_gb(jurisdiction_iso2):
-        try:
-            reg = await _uk_registry_accounts(name, registration_number)
-            if reg:
-                result["registry_accounts"] = reg
-                result["summary"] = (
-                    (result.get("summary", "") + " ").strip()
-                    + " " + _registry_accounts_summary(reg)
-                ).strip()
-                for _flag in (reg.get("accounts") or {}).get("distress_flags", []):
-                    if _flag not in result.setdefault("distress_flags", []):
-                        result["distress_flags"].append(_flag)
-        except Exception as e:
-            logger.debug("registry accounts enrichment failed: %s", e)
+    if use_search and not result.get("data_available"):
+        await _enrich_with_registry_accounts(
+            result, name, jurisdiction_iso2, registration_number)
 
     # 3) SEARCH — web financial footprint (cross-jurisdiction), when SEC has no structured data.
     if use_search and not result.get("data_available"):
