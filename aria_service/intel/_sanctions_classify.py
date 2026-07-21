@@ -232,6 +232,9 @@ def derive_verified_sources(
             out[src_name] = {
                 "label": label,
                 "status": "UNAVAILABLE",
+                # R-F2843 — say WHY, so UNAVAILABLE is not mistaken for "we chose
+                # not to check". The aggregate call itself did not answer.
+                "via": "screen_failed",
                 "match_count": 0,
                 "matched_entities": [],
             }
@@ -245,6 +248,7 @@ def derive_verified_sources(
         # counter in dd_orchestrator already excludes UNAVAILABLE deliberately.
         if unavailable_sources and src_name in unavailable_sources:
             out[src_name] = {"label": label, "status": "UNAVAILABLE",
+                             "via": "source_unavailable",
                              "match_count": 0, "matched_entities": []}
             continue
         hit_count = 0
@@ -270,6 +274,11 @@ def derive_verified_sources(
         out[src_name] = {
             "label": label,
             "status": "HIT" if hit_count > 0 else "CLEAN",
+            # R-F2843 — a bare CLEAN is not decision-grade. State the screen that
+            # produced it, so "OFAC SDN: CLEAN" is readable as "the OpenSanctions
+            # aggregate queried its OFAC dataset and found nothing" rather than an
+            # unattributed pass (the competitor's "Score 0" shape).
+            "via": "opensanctions_aggregate",
             "match_count": hit_count,
             "matched_entities": hit_entities[:5],  # cap renderer output
         }
@@ -354,6 +363,49 @@ def is_corroborated_match(match: dict, *, min_similarity: float = _MIN_BLOCK_SIM
         if any(slug in datasets for slug in _slugs):
             return True
     return False
+
+
+
+# R-F2843 — direct-adapter slug -> canonical verified_sources key.
+# ARIA runs SOME primary sources itself (ofac_sdn.py, fcdo_sanctions.py,
+# un_sc_sanctions.py) IN ADDITION to the OpenSanctions aggregate. Those are
+# different checks and can disagree about availability, which is exactly what
+# happened on run dd_06bdbcaaa866: the aggregate cleared OFAC while our own OFAC
+# snapshot failed to load.
+_PRIMARY_ADAPTER_TO_SOURCE = {
+    "ofac_sdn": "OFAC SDN",
+    "uk_ofsi": "UK OFSI / HMT",
+    "un_sc": "UN SC Consolidated",
+}
+
+
+def annotate_primary_snapshots(verified_sources, snapshots) -> None:
+    """Record whether ARIA's OWN primary snapshot for each list was live.
+
+    R-F2843 — provenance only. This NEVER changes a status.
+
+    Flipping a source to UNAVAILABLE because our separate adapter failed would
+    reverse R-F287, which deliberately stopped the renderer fabricating "NOT
+    CHECKED" on sources the aggregate HAD queried. Both facts are true and both
+    are now visible: `status` says what the screen found, `via` says which screen
+    found it, `primary_snapshot` says whether our own copy of that list was live.
+
+    ABSENCE IS NOT AVAILABILITY. A source is stamped only when its adapter result
+    is genuinely known; an unstamped source asserts nothing. Defaulting to "ok"
+    would be a confident claim about a check we never observed.
+
+    Mutates in place. Never raises — a provenance annotation must not be able to
+    fail a report mid-render.
+    """
+    if not isinstance(verified_sources, dict) or not isinstance(snapshots, dict):
+        return
+    for slug, state in snapshots.items():
+        key = _PRIMARY_ADAPTER_TO_SOURCE.get(str(slug).lower())
+        if not key:
+            continue  # unknown/new adapter: assert nothing rather than guess
+        entry = verified_sources.get(key)
+        if isinstance(entry, dict):
+            entry["primary_snapshot"] = str(state)
 
 
 def _defence_list_hits(datasets: list) -> list[tuple[str, str, str]]:

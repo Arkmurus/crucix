@@ -2519,14 +2519,23 @@ async def _identity_primary_source_screen(
         )
         _src_labels = ["sec_edgar", "ofac_sdn", "uk_ofsi", "un_sc", "wb_debarred", "acled"]
 
+        # R-F2843 — record whether ARIA's OWN snapshot of each primary list was live.
+        # This is provenance, never a status change: the aggregate screen and our own
+        # adapters are DIFFERENT checks and can disagree about availability (live run
+        # dd_06bdbcaaa866 cleared OFAC via the aggregate while our OFAC snapshot failed
+        # to load). Only observed results are recorded — an unstamped source asserts
+        # nothing, because defaulting to "ok" would claim a check we never made.
+        _primary_snapshots: dict = {}
         for _lbl, _r in zip(_src_labels, _src_results):
             if isinstance(_r, Exception):
                 logger.debug("Identity: primary source %s raised: %s", _lbl, _r)
                 report.identity.data_gaps.append(f"primary source {_lbl} did not complete")
+                _primary_snapshots[_lbl] = "unavailable"
                 continue
             if not isinstance(_r, dict):
                 continue
             report.identity.meta.subcalls += 1
+            _primary_snapshots[_lbl] = "ok" if _r.get("ok") else "unavailable"
 
             if not _r.get("ok"):
                 if _r.get("error"):
@@ -2785,6 +2794,21 @@ async def _identity_primary_source_screen(
             f"primary-source parallel screen did not complete: "
             f"{type(_e).__name__}: {str(_e)[:160]}"
         )
+
+    # R-F2843 — stamp the observed primary-snapshot state onto verified_sources so a
+    # reader can tell HOW a list was cleared. Status is never changed here: R-F287
+    # established that an aggregate CLEAN is a real screen, and flipping it because a
+    # separate adapter failed would re-introduce the "NOT CHECKED" fabrication.
+    # No-ops safely when the screen has not been built yet (annotate_primary_snapshots
+    # guards its inputs) — an unstamped source asserts nothing.
+    try:
+        from ._sanctions_classify import annotate_primary_snapshots
+        _scr = getattr(report.identity, "sanctions_screen", None)
+        if isinstance(_scr, dict) and locals().get("_primary_snapshots"):
+            annotate_primary_snapshots(_scr.get("verified_sources"), _primary_snapshots)
+    except Exception as _ann_err:  # noqa: BLE001 — provenance must never fail a report
+        logger.debug("[R-F2843] primary-snapshot annotation skipped: %s", _ann_err)
+
     return hard_stop
 
 
