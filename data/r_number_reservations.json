@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2818,
+  "next_available": 2819,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22066,6 +22066,16 @@
       "r_number": "R-F2817",
       "title": "vault masks capability upgrades — enrich cached financial profiles in place",
       "claimed_at": "2026-07-21T12:53:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "44a41cf2",
+      "notes": null,
+      "shipped_at": "2026-07-21T13:01:19Z"
+    },
+    {
+      "r_number": "R-F2818",
+      "title": "page gate path normalisation - percent-encoding and double-slash bypass",
+      "claimed_at": "2026-07-21T13:41:08Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

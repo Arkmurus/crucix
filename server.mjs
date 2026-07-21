@@ -43,7 +43,7 @@ import { conversationKeyForUser, slugifyIdentity } from './lib/auth/conversation
 import { ROLES, roleSatisfies } from './lib/auth/roles.mjs';  // R-F2170
 import { requiredRoleForAriaPath, isDoubleEncodedPath } from './lib/auth/infraRoutes.mjs';  // R-F2775 + R-F2802
 import { probeFlyHealth, combineCrossOk } from './lib/health/crossHealth.mjs';  // R-F2776
-import { OPERATOR_VIEW_PAGES, OPERATOR_ADMIN_PAGES } from './lib/auth/operatorPages.mjs';  // R-F2785
+import { operatorPageFor } from './lib/auth/operatorPages.mjs';  // R-F2785 table + R-F2818 normalising lookup
 import { classifyDeliveryOutcome, degradedDetail } from './lib/aria/deliveryOutcome.mjs';  // R-F1965
 import { classifySourceHealth } from './lib/source/healthBuckets.mjs';  // R-F2719
 import { createBillingRouter } from './lib/billing/routes.mjs';
@@ -1532,8 +1532,22 @@ const _sendOperatorPage = (file) => (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(join(PUBLIC_DIR, file));
 };
-for (const [route, file] of OPERATOR_VIEW_PAGES) app.get(route, requirePageRole('poweruser', 'admin'), _sendOperatorPage(file));
-for (const [route, file] of OPERATOR_ADMIN_PAGES) app.get(route, requirePageRole('admin'), _sendOperatorPage(file));
+// R-F2818: ONE choke point, not N literal routes. Express route matching compares
+// the RAW (undecoded) req.path, so per-route `app.get('/admin.html', gate)`
+// registrations were bypassable with `/%61dmin.html` or `//admin.html` — the path
+// missed the gate, fell through to express.static, and `send` decoded it and served
+// the file. Verified live before this fix (see lib/auth/operatorPages.mjs).
+// Matching now runs through the SAME normaliser as the /api/aria gate, and
+// double-encoded paths fail closed with 400 exactly as they do at :1468.
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  if (isDoubleEncodedPath(req.path)) {
+    return res.status(400).json({ error: 'Malformed request path' });
+  }
+  const page = operatorPageFor(req.path);
+  if (!page) return next();  // not an operator page → express.static may serve it
+  return requirePageRole(...page.roles)(req, res, () => _sendOperatorPage(page.file)(req, res));
+});
 
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
