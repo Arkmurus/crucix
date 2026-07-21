@@ -2852,6 +2852,54 @@ async def _consult_vault_sources(name: str, jurisdiction: str, report: "ARKDDRep
     return added
 
 
+
+def resolve_jurisdiction_iso2(
+    target: dict, name: str, registration_number: str | None = None
+) -> str | None:
+    """Resolve the jurisdiction ISO2, with DECLARATION beating INFERENCE.
+
+    R-F2838 — this ordering is the whole point. Before it, identity resolution only
+    consulted ``target["jurisdiction_iso2"]`` and, finding it empty, went straight to
+    ``_infer_jurisdiction``. A caller passing ``jurisdiction="CH"`` — already a valid
+    ISO2 — never populated that field, so the suffix clue won.
+
+    Live consequence (run dd_7bd81330d43d, SOCAR Trading SA, declared CH):
+    the "SA" suffix (Sociedade Anonima) inferred PT, so the compliance layer scored
+    PORTUGAL (cpi 62; Switzerland is ~82), the UBO walk searched a PT registry, and
+    the report advised checking a Portuguese database for a Swiss company. "SA" is
+    also the standard suffix in FR/BE/LU/ES/BR/AR/PL, so the blast radius was most
+    of the non-UK market.
+
+    Precedence, most explicit first:
+      1. ``jurisdiction_iso2``      — the dedicated field
+      2. ``jurisdiction``           — a declaration, as ISO2 ("CH") or name ("Portugal")
+      3. ``_infer_jurisdiction``    — clues, and ONLY to fill a genuine gap
+      4. None                       — UNKNOWN. Never a default: a confident wrong
+                                      country is the same family of harm as a false
+                                      clean, and worse than admitting we don't know.
+    """
+    explicit = (target.get("jurisdiction_iso2") or "").strip() if isinstance(
+        target.get("jurisdiction_iso2"), str) else target.get("jurisdiction_iso2")
+    if explicit:
+        return str(explicit).strip().upper()
+
+    declared = target.get("jurisdiction")
+    if isinstance(declared, str) and declared.strip():
+        d = declared.strip()
+        # A two-letter alpha declaration IS an ISO2 — the caller said so, and this
+        # field means jurisdiction, not legal form.
+        if len(d) == 2 and d.isalpha():
+            return d.upper()
+        # Otherwise treat it as a country NAME and reverse-map.
+        rev = {str(v).lower(): k for k, v in _ISO2_TO_COUNTRY.items() if v}
+        hit = rev.get(d.lower())
+        if hit:
+            return hit
+        # Unparseable declaration: fall through to inference rather than inventing.
+
+    return _infer_jurisdiction(target, name, registration_number)
+
+
 async def _run_identity(
     target: dict,
     report: ARKDDReport,
@@ -2884,8 +2932,12 @@ async def _run_identity(
                 break
 
     # ── Auto-detect jurisdiction from clues when not provided ──
+    # R-F2838 — routed through resolve_jurisdiction_iso2 so a DECLARED jurisdiction
+    # beats a suffix clue. Previously a caller passing jurisdiction="CH" still got
+    # PT inferred from the "SA" suffix, and the entire compliance layer scored the
+    # wrong country on a live customer report.
     if not jurisdiction_iso2:
-        jurisdiction_iso2 = _infer_jurisdiction(target, name, registration_number)
+        jurisdiction_iso2 = resolve_jurisdiction_iso2(target, name, registration_number)
         if jurisdiction_iso2:
             jurisdiction = jurisdiction or _ISO2_TO_COUNTRY.get(jurisdiction_iso2, "")
             logger.info("Jurisdiction inferred: %s → %s", jurisdiction_iso2, jurisdiction)
