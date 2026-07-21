@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2827,
+  "next_available": 2829,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22137,23 +22137,44 @@
       "title": "landing demo blocks labelled illustrative not live screening",
       "claimed_at": "2026-07-21T14:36:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "03a3d26e",
+      "notes": null,
+      "shipped_at": "2026-07-21T14:50:30Z"
     },
     {
       "r_number": "R-F2825",
       "title": "landing hero metrics honest and live-wired",
       "claimed_at": "2026-07-21T14:36:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "70b865e8",
+      "notes": null,
+      "shipped_at": "2026-07-21T14:50:30Z"
     },
     {
       "r_number": "R-F2826",
       "title": "landing truth guard checks numbers and audits the generator source",
       "claimed_at": "2026-07-21T14:36:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "70b865e8",
+      "notes": null,
+      "shipped_at": "2026-07-21T14:50:30Z"
+    },
+    {
+      "r_number": "R-F2827",
+      "title": "DD UI must not report Complete while an async follow-up is still pending",
+      "claimed_at": "2026-07-21T14:57:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2828",
+      "title": "get_officers drops officer_id anchor and returns only page 1 (35 of 73)",
+      "claimed_at": "2026-07-21T15:00:41Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

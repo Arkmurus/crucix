@@ -74,8 +74,16 @@ async function drivePoll({ statusSequence, polls = 400 }) {
   // `Toast` is a page-level global (js/app.js) reached via `window.Toast` guard +
   // bare `Toast.show`; stub BOTH bindings or the real source throws ReferenceError.
   const Toast = { show: (msg, kind) => toasts.push({ msg, kind }) };
+  // R-F2827 added followUpState() to the poll's terminal branch. Inject the REAL
+  // one from the page so this suite exercises the integrated path rather than a
+  // stub — otherwise a ReferenceError is swallowed by the poll's transient-error
+  // catch and every run looks like it hit the ceiling.
+  const fuSrc = HTML.slice(HTML.indexOf('function followUpState'),
+    HTML.indexOf('async function ddStartFailureMessage'));
+  const followUpState = new Function(`${fuSrc}; return followUpState;`)();
   const fn = new Function(
     'runId', 'name', 'authed', 'loadReports', 'document', 'window', 'Toast', 'setTimeout', 'Math',
+    'followUpState',
     `return (async () => { ${src} })();`,
   );
   await fn(
@@ -87,6 +95,7 @@ async function drivePoll({ statusSequence, polls = 400 }) {
     Toast,
     setTimeoutStub,
     Math,
+    followUpState,
   );
 
   // Drain the controllable clock.

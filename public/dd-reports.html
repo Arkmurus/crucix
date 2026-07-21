@@ -590,6 +590,56 @@ function rowStatusPill(r, sev) {
 }
 
 /**
+ * R-F2827 — classify the ASYNC FOLLOW-UP so the panel cannot claim "Complete"
+ * while evidence is still being gathered.
+ *
+ * R-F2820 fixed the poll-CEILING case. This is the other half, and it is the
+ * NORMAL path: dd_orchestrator.py:10739 sets
+ *     report.adverse_media = {"status": "in_progress", ... "R-F2657 async follow-up"}
+ * and runs the search AFTER persist, so the run reaches a terminal status while
+ * adverse-media evidence is still outstanding — observed on all three live runs.
+ * This page had ZERO references to adverse_media and said "✓ Complete" regardless.
+ * Adverse media is 20% of the evidence scorecard; claiming the sweep finished when
+ * it is pending, timed out, or truncated overwrites the honest disclosure the
+ * engine produced.
+ *
+ * ABSENCE IS NOT COMPLETION. On success run_adverse_media_deep_search returns
+ * `ok: true` and NO `status` key at all, so "no status" cannot mean finished —
+ * that is the certified-by-an-absence shape behind three fabricated Phase A gates
+ * this month (R-F2622 / R-F2640 / R-F2643). Completion is recognised ONLY from a
+ * positive `ok === true`; anything unrecognised is `unknown` and simply refrains
+ * from claiming completion (it must not spam a warning onto every legacy report).
+ */
+function followUpState(rep) {
+  var am = rep && rep.adverse_media;
+  if (!am || typeof am !== 'object') {
+    return { state: 'unknown', blocksComplete: false, label: '', detail: '' };
+  }
+  if (am.status === 'in_progress') {
+    return { state: 'pending', blocksComplete: true,
+      label: 'Adverse-media screening is still running',
+      detail: 'This report is not yet a complete evidence set. It will update when the ' +
+              'search finishes — reopen it shortly.' };
+  }
+  if (am.status === 'incomplete' || am.error) {
+    return { state: 'failed', blocksComplete: true,
+      label: 'Adverse-media screening did not complete',
+      detail: String(am.error || 'no reason recorded') +
+              ' — treat adverse media as UNSCREENED, not clear.' };
+  }
+  if (am.ok === true && (am.partial === true || am.timed_out === true)) {
+    return { state: 'partial', blocksComplete: true,
+      label: 'Adverse-media screening returned PARTIAL coverage',
+      detail: 'The deadline stopped the sweep early, so the findings below are partial. ' +
+              'Absence of a finding is not evidence of absence.' };
+  }
+  if (am.ok === true) {
+    return { state: 'done', blocksComplete: false, label: '', detail: '' };
+  }
+  return { state: 'unknown', blocksComplete: false, label: '', detail: '' };
+}
+
+/**
  * R-F2823 — turn a failed DD start into a message the user can ACT on.
  *
  * The server already returns everything needed on a quota block:
@@ -1758,13 +1808,33 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
                 setTimeout(poll, 5000); return;
               }
               await loadReports();
-              if (liveEl) liveEl.innerHTML = (st === 'failed')
-                ? '<span style="color:#dc2626">✗ DD failed: ' + String(rep.error || 'see report').replace(/</g, '&lt;') + '</span>'
-                : '<span style="color:#16a34a">✓ Complete. See your reports below.</span>';
-              if (window.Toast) Toast.show(
-                st === 'failed' ? ('DD failed for ' + name)
-                               : ('Due diligence complete for ' + name + '.'),
-                st === 'failed' ? 'error' : 'success');
+              // R-F2827 — the run reaching a terminal status does NOT mean evidence
+              // gathering finished: the adverse-media sweep runs as an async follow-up
+              // after persist (R-F2657). Consult it before claiming completion.
+              // Defensive: the enclosing catch treats ANY throw as a transient network
+              // blip and keeps polling, so a defect in the classifier would strand the
+              // user on "still running" forever instead of showing their finished report.
+              // A classifier fault must degrade to the previous behaviour, never to a
+              // hang. (This is the same swallow-a-code-bug-as-a-blip class as R-F2821.)
+              let fu = { state: 'unknown', blocksComplete: false, label: '', detail: '' };
+              try { fu = followUpState(rep) || fu; } catch (fuErr) {
+                console.error('[DD] followUpState failed:', fuErr);
+              }
+              if (st === 'failed') {
+                if (liveEl) liveEl.innerHTML = '<span style="color:#dc2626">✗ DD failed: ' +
+                  String(rep.error || 'see report').replace(/</g, '&lt;') + '</span>';
+                if (window.Toast) Toast.show('DD failed for ' + name, 'error');
+              } else if (fu.blocksComplete) {
+                if (liveEl) liveEl.innerHTML = '<span style="color:#b45309">⚠ Report ready — ' +
+                  escText(fu.label) + '.</span><br><span style="color:#57534e;font-size:12px">' +
+                  escText(fu.detail) + '</span>';
+                if (window.Toast) Toast.show(
+                  'Report ready for ' + name + ' — ' + fu.label + '.', 'info', 9000);
+              } else {
+                if (liveEl) liveEl.innerHTML =
+                  '<span style="color:#16a34a">✓ Complete. See your reports below.</span>';
+                if (window.Toast) Toast.show('Due diligence complete for ' + name + '.', 'success');
+              }
               return;
             }
           } catch (e) { /* transient — keep polling */ }
