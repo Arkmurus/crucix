@@ -340,7 +340,51 @@
       .dd-detail-row td { padding: 0; }
       .dd-detail { padding: 18px 16px; }
     }
-  </style>
+  
+    /* ── R-F2837 — print / PDF-parity styles ────────────────────────────────
+       Printing previously produced the whole app: nav, sidebar, action buttons
+       and all sibling report rows. These rules print ONE report, in the same
+       priority order as the PDF (verdict + readiness -> assessment -> scorecard
+       -> gaps), on a light corporate ground.
+
+       ★ The verdict must never print without its readiness state beside it — a
+       GREEN chip alone on a page is a false clean. `.dd-verdict-block` is kept
+       intact with break-inside: avoid so a page break cannot separate them, and
+       data-gap sections are never display:none in print. */
+    .dd-act-primary { color: #fff !important; background: var(--sc-prime, #2563eb) !important;
+                      border-color: var(--sc-prime, #2563eb) !important; }
+    .dd-act-primary:hover { filter: brightness(1.06); color: #fff !important; }
+
+    @media print {
+      @page { size: A4; margin: 14mm 12mm; }
+      body.dd-printing { background: #fff !important; color: #111 !important; }
+      /* hide app chrome and every report except the one being printed */
+      body.dd-printing header, body.dd-printing nav, body.dd-printing aside,
+      body.dd-printing footer, body.dd-printing .sc-sidebar, body.dd-printing .sc-topbar,
+      body.dd-printing .dd-act-btn, body.dd-printing .dd-filters,
+      body.dd-printing .sc-toast, body.dd-printing .sc-modal { display: none !important; }
+      body.dd-printing .dd-row:not(.dd-print-target) { display: none !important; }
+
+      body.dd-printing .dd-print-target { display: block !important; box-shadow: none !important;
+        border: 0 !important; margin: 0 !important; padding: 0 !important; }
+      body.dd-printing .dd-print-target * { color: #111 !important;
+        background: transparent !important; box-shadow: none !important; }
+
+      /* keep verdict + readiness together — splitting them is a false clean */
+      body.dd-printing .dd-verdict-block,
+      body.dd-printing .dd-readiness,
+      body.dd-printing .sc-alert { break-inside: avoid; page-break-inside: avoid; }
+      /* data gaps and limitations are never suppressed in print */
+      body.dd-printing .dd-gaps, body.dd-printing .dd-gaps * { display: block !important; }
+
+      body.dd-printing h1, body.dd-printing h2, body.dd-printing h3 {
+        break-after: avoid; page-break-after: avoid; }
+      body.dd-printing table { width: 100% !important; border-collapse: collapse !important; }
+      body.dd-printing th, body.dd-printing td {
+        border: 1px solid #d8d8de !important; padding: 5px 7px !important; font-size: 10pt !important; }
+      body.dd-printing a[href]:after { content: ""; }   /* no URL noise */
+    }
+</style>
 </head>
 <body>
 <div id="sidebar-placeholder"></div>
@@ -1189,6 +1233,12 @@ async function toggleDetail(row, runId) {
         '<i class="bi bi-arrow-clockwise"></i> Re-run DD</button>' +
       '<a class="dd-act-btn" href="/aria.html" title="Discuss this report in chat">' +
         '<i class="bi bi-chat-dots"></i> Discuss in chat</a>' +
+      '<a class="dd-act-btn dd-act-primary" data-action="pdf" ' +
+        'href="/api/aria/dd/report/' + escAttr(runId) + '/pdf" ' +
+        'title="Download this report as a PDF">' +
+        '<i class="bi bi-file-earmark-pdf"></i> Download PDF</a>' +
+      '<button class="dd-act-btn" data-action="print" title="Print this report">' +
+        '<i class="bi bi-printer"></i> Print</button>' +
       '<button class="dd-act-btn" data-action="copy">' +
         '<i class="bi bi-clipboard"></i> Copy markdown</button>' +
       '<button class="dd-act-btn" data-action="vls-verify" data-run-id="' + escAttr(runId) + '" ' +
@@ -1223,6 +1273,19 @@ async function toggleDetail(row, runId) {
     detailRow.querySelector('.dd-detail').innerHTML = detailHtml;
 
     // Wire up action buttons
+    // R-F2837 — browser print. The @media print rules below strip chrome so the
+    // printed page matches the PDF: verdict + readiness first, gaps retained.
+    detailRow.querySelector('[data-action="print"]').addEventListener('click', () => {
+      document.body.classList.add('dd-printing');
+      detailRow.classList.add('dd-print-target');
+      const cleanup = () => {
+        document.body.classList.remove('dd-printing');
+        detailRow.classList.remove('dd-print-target');
+        window.removeEventListener('afterprint', cleanup);
+      };
+      window.addEventListener('afterprint', cleanup);
+      window.print();
+    });
     detailRow.querySelector('[data-action="copy"]').addEventListener('click', async () => {
       // R-F2331: fetch markdown lazily (the detail view now renders from structured JSON).
       const btn = detailRow.querySelector('[data-action="copy"]');

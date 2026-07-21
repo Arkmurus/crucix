@@ -3448,6 +3448,56 @@ app.delete('/api/aria/dd/report/:run_id', requireAuth, (req, res) => {
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
   return ariaProxy(req, res, `/api/aria/dd/report/${encodeURIComponent(req.params.run_id)}?${_ddPinUserParams(req).toString()}`, { method: 'DELETE', fallback: async () => res.status(503).json(_brainFallback()) });
 });
+
+// R-F2837 — download a DD report as PDF.
+//
+// MUST sit beside the JSON route and reuse _ddPinUserParams. The brain enforces
+// ownership on /dd/report/{id} from the pinned user_id + email-domain and 404s
+// otherwise (R-F1820/R-F2291); fetching without that pin would hand any
+// authenticated user any tenant's report as a PDF — the same IDOR class as the
+// R-F2075 reports leak and the R-F2355 watchlist leak. The ACL is the brain's;
+// this route's job is to not bypass it.
+app.get('/api/aria/dd/report/:run_id/pdf', requireAuth, async (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  const runId = String(req.params.run_id || '').trim();
+  if (!runId) return res.status(400).json({ error: 'run_id required' });
+
+  const base = process.env.ARIA_SERVICE_URL || '';
+  if (!base) return res.status(503).json({ error: 'Report service unavailable' });
+
+  try {
+    const qs = _ddPinUserParams(req).toString();
+    const upstream = await fetch(
+      `${base}/api/aria/dd/report/${encodeURIComponent(runId)}?${qs}`,
+      { headers: _ariaHeaders({ Accept: 'application/json' }) },
+    );
+    // Pass the brain's verdict through unchanged — a 404 here means "not yours
+    // or not found", and must stay a 404 rather than becoming a 500.
+    if (!upstream.ok) {
+      return res.status(upstream.status === 404 ? 404 : 502)
+        .json({ error: upstream.status === 404 ? 'Report not found' : 'Report service error' });
+    }
+    const report = await upstream.json();
+
+    const { generateDueDiligencePDF } = await import('./lib/reports/pdf_generator.mjs');
+    const pdf = await generateDueDiligencePDF(report, { docRef: runId });
+
+    const entity = String(
+      report?.target?.name || report?.identity?.entity_name || 'report',
+    ).replace(/[^\w\-]+/g, '_').slice(0, 60) || 'report';
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="ARIA_DD_${entity}_${runId}.pdf"`);
+    res.setHeader('Cache-Control', 'no-store');   // reports are tenant data
+    return res.send(pdf);
+  } catch (e) {
+    try { errorTracker?.record?.('dd_pdf_export', e); } catch {}
+    return res.status(500).json({ error: 'PDF generation failed' });
+  }
+});
+
 // R-F1852 (audit, DD stage 4) — explicit ownership-pinned poll routes for async
 // job results + the DD entity-graph. These MUST sit before the catch-all proxy,
 // which forwards the client query string verbatim (so ?user_id=victim would defeat

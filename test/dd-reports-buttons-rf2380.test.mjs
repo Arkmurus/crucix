@@ -114,11 +114,17 @@ test('DD report detail data-action controls are all wired to handlers', () => {
 
   assert.deepEqual(
     uniqueActions,
-    ['case-file', 'copy', 'delete', 'rerun', 'showVaultCase', 'vls-proof', 'vls-verify'],
+    // R-F2837 added 'pdf' and 'print' — reviewed and accounted for here, which is
+    // exactly what this tripwire is for. The contract is WIDENED to the real set,
+    // not weakened: every entry below still has to prove it is wired.
+    ['case-file', 'copy', 'delete', 'pdf', 'print', 'rerun', 'showVaultCase', 'vls-proof', 'vls-verify'],
     'new DD data-action controls must be reviewed and explicitly accounted for',
   );
 
-  for (const action of ['case-file', 'copy', 'delete', 'rerun', 'vls-proof', 'vls-verify']) {
+  // 'pdf' is deliberately absent from the click-handler check below: it is an
+  // <a href> to /api/aria/dd/report/:id/pdf, so the browser performs the download
+  // natively. Requiring a click handler for it would force pointless JS.
+  for (const action of ['case-file', 'copy', 'delete', 'print', 'rerun', 'vls-proof', 'vls-verify']) {
     const selector = `querySelector('[data-action="${action}"]')`;
     const selectorAt = html.indexOf(selector);
     assert.notEqual(selectorAt, -1, `${action} selector must exist`);
