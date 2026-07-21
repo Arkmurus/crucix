@@ -1305,21 +1305,10 @@
     </div><!-- /.lp-hero-visual -->
    </div><!-- /.lp-hero-grid-2 -->
 
-    <!-- R-F2825 — these were four hardcoded literals with no ids and no fetch, and
-         two were provably false against the shipped code:
-           "24/7 autonomous watchlist monitoring" — WEEKLY-DD-WATCHLIST is
-             cron "0 7 * * mon" (tasks.yaml:740), i.e. weekly, Monday 07:00 UTC.
-           "10 DD pipeline layers" — dd_orchestrator.py:5 says "The 7-layer
-             due-diligence orchestrator"; the tile grid reached ten by splitting 05
-             into 05b/05c and skipping 06/07.
-           "87K+ indexed records" traced only to a code COMMENT, and understated the
-             live figure by ~4x.
-           "80+ countries" had no backing; the only countable source is
-             political_risk_index._SEED, which holds 75.
-         A product whose USP is "never a false clean" cannot put unbacked numbers on
-         its own front page. `records` is now hydrated live (the only one with a real
-         endpoint); the other three are stated truthfully and LOCKED to their source
-         files by scripts/audit/landing_claim_truth.mjs, so they cannot drift again. -->
+    <!-- R-F2825 — hero metrics. `records` is hydrated from /api/public/metrics;
+         the other three are stated exactly and locked to their source files by
+         scripts/audit/landing_claim_truth.mjs so they cannot drift. Rationale and
+         history: see the R-F2824/2825/2826 commit message. -->
     <div class="lp-hero-metrics">
       <div>
         <div class="lp-metric-n" id="lp-metric-records">&mdash;</div>
