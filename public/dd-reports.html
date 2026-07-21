@@ -341,48 +341,67 @@
       .dd-detail { padding: 18px 16px; }
     }
   
-    /* ── R-F2837 — print / PDF-parity styles ────────────────────────────────
-       Printing previously produced the whole app: nav, sidebar, action buttons
-       and all sibling report rows. These rules print ONE report, in the same
-       priority order as the PDF (verdict + readiness -> assessment -> scorecard
-       -> gaps), on a light corporate ground.
+    /* ── R-F2837 print styles, FIXED by R-F2841 ─────────────────────────────
+       The first cut hid app chrome by naming selectors I had INFERRED from the
+       page (.dd-row, .sc-sidebar, .sc-topbar, .dd-verdict-block, .dd-gaps).
+       Most do not exist — the detail element is .dd-detail-row — so nothing was
+       hidden and print produced the entire application.
 
-       ★ The verdict must never print without its readiness state beside it — a
-       GREEN chip alone on a page is a false clean. `.dd-verdict-block` is kept
-       intact with break-inside: avoid so a page break cannot separate them, and
-       data-gap sections are never display:none in print. */
+       ★ FIX: stop naming other people's selectors. Isolate by VISIBILITY, keyed
+       only on .dd-print-target, a class this page's own print handler adds. That
+       is structure-independent: it keeps working if the markup is refactored,
+       and it cannot silently stop hiding things the way a stale selector list
+       does. Hiding by `visibility` rather than `display` also preserves the
+       ancestor chain, so the target still renders when it is nested deep. */
     .dd-act-primary { color: #fff !important; background: var(--sc-prime, #2563eb) !important;
                       border-color: var(--sc-prime, #2563eb) !important; }
     .dd-act-primary:hover { filter: brightness(1.06); color: #fff !important; }
 
     @media print {
       @page { size: A4; margin: 14mm 12mm; }
-      body.dd-printing { background: #fff !important; color: #111 !important; }
-      /* hide app chrome and every report except the one being printed */
-      body.dd-printing header, body.dd-printing nav, body.dd-printing aside,
-      body.dd-printing footer, body.dd-printing .sc-sidebar, body.dd-printing .sc-topbar,
-      body.dd-printing .dd-act-btn, body.dd-printing .dd-filters,
-      body.dd-printing .sc-toast, body.dd-printing .sc-modal { display: none !important; }
-      body.dd-printing .dd-row:not(.dd-print-target) { display: none !important; }
 
-      body.dd-printing .dd-print-target { display: block !important; box-shadow: none !important;
-        border: 0 !important; margin: 0 !important; padding: 0 !important; }
-      body.dd-printing .dd-print-target * { color: #111 !important;
-        background: transparent !important; box-shadow: none !important; }
+      /* 1. hide everything, 2. reveal only the report being printed */
+      body.dd-printing, body.dd-printing * { visibility: hidden !important; }
+      body.dd-printing .dd-print-target,
+      body.dd-printing .dd-print-target * { visibility: visible !important; }
 
-      /* keep verdict + readiness together — splitting them is a false clean */
-      body.dd-printing .dd-verdict-block,
-      body.dd-printing .dd-readiness,
-      body.dd-printing .sc-alert { break-inside: avoid; page-break-inside: avoid; }
-      /* data gaps and limitations are never suppressed in print */
-      body.dd-printing .dd-gaps, body.dd-printing .dd-gaps * { display: block !important; }
+      /* lift the target to the page origin so it does not print inside the
+         (now invisible) app layout and inherit its offsets */
+      body.dd-printing .dd-print-target {
+        position: absolute !important; left: 0 !important; top: 0 !important;
+        width: 100% !important; margin: 0 !important; padding: 0 !important;
+        border: 0 !important; box-shadow: none !important; background: #fff !important;
+      }
 
-      body.dd-printing h1, body.dd-printing h2, body.dd-printing h3 {
-        break-after: avoid; page-break-after: avoid; }
-      body.dd-printing table { width: 100% !important; border-collapse: collapse !important; }
-      body.dd-printing th, body.dd-printing td {
-        border: 1px solid #d8d8de !important; padding: 5px 7px !important; font-size: 10pt !important; }
-      body.dd-printing a[href]:after { content: ""; }   /* no URL noise */
+      body.dd-printing { background: #fff !important; }
+      body.dd-printing .dd-print-target,
+      body.dd-printing .dd-print-target * {
+        color: #111 !important; background: transparent !important;
+        box-shadow: none !important; text-shadow: none !important;
+      }
+
+      /* interactive controls are noise on paper — they live INSIDE the target,
+         so they must be hidden explicitly rather than by the sweep above */
+      body.dd-printing .dd-print-target .dd-act-btn,
+      body.dd-printing .dd-print-target button { display: none !important; }
+
+      /* ★ never let a page break separate a verdict from its readiness state:
+         a GREEN chip alone on a page is a false clean. Applied broadly rather
+         than to a named block, since the exact class is not ours to assume. */
+      body.dd-printing .dd-print-target .sc-alert,
+      body.dd-printing .dd-print-target table,
+      body.dd-printing .dd-print-target tr { break-inside: avoid; page-break-inside: avoid; }
+      body.dd-printing .dd-print-target h1,
+      body.dd-printing .dd-print-target h2,
+      body.dd-printing .dd-print-target h3 { break-after: avoid; page-break-after: avoid; }
+
+      body.dd-printing .dd-print-target table {
+        width: 100% !important; border-collapse: collapse !important; }
+      body.dd-printing .dd-print-target th,
+      body.dd-printing .dd-print-target td {
+        border: 1px solid #d8d8de !important; padding: 5px 7px !important;
+        font-size: 10pt !important; }
+      body.dd-printing .dd-print-target a[href]:after { content: "" !important; }
     }
 </style>
 </head>

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2840,
+  "next_available": 2842,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22267,9 +22267,10 @@
       "title": "DD reports have no PDF/print export — wire generateDueDiligencePDF + print stylesheet",
       "claimed_at": "2026-07-21T17:36:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "56d75f8e",
+      "notes": null,
+      "shipped_at": "2026-07-21T17:54:51Z"
     },
     {
       "r_number": "R-F2838",
@@ -22284,6 +22285,24 @@
       "r_number": "R-F2839",
       "title": "GLEIF date_of_creation is the LEI registration date not incorporation",
       "claimed_at": "2026-07-21T17:48:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2840",
+      "title": "blocked verdict must require corroboration not raw score - acronym collisions set blocked=True",
+      "claimed_at": "2026-07-21T19:04:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2841",
+      "title": "print stylesheet targeted inferred selectors — print whole app instead of one report",
+      "claimed_at": "2026-07-21T19:04:09Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
