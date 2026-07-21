@@ -1538,7 +1538,9 @@ async def _query_internal_index(query: str) -> list[dict]:
     return out
 
 
-async def _web_search(query: str, timeout: float = 10.0) -> list[dict]:
+async def _web_search(
+    query: str, timeout: float = 10.0, *, raise_on_timeout: bool = False,
+) -> list[dict]:
     """ARIA's independent multi-backend web search.
 
     Uses ARIA's own search engine (web_search.py) which queries multiple
@@ -1571,9 +1573,47 @@ async def _web_search(query: str, timeout: float = 10.0) -> list[dict]:
             query, languages=languages, max_results=30,
         )
         int_task = _query_internal_index(query)
-        ext_raw, internal_results = await asyncio.gather(
-            ext_task, int_task, return_exceptions=True,
-        )
+        # R-F2832 — BOUND THE PRIMARY PATH. This gather had no wait_for and no
+        # asyncio.timeout, so the `timeout` argument above was a FALSE CONTRACT:
+        # applied only to the legacy/RSS fallbacks below, never to the path that
+        # actually runs. Measured against real backends (P2-G, 2026-07-21) on five
+        # adverse-media queries: 36.07 / 45.00 / 52.90s (min/median/max, mean
+        # 44.01s) for a DECLARED 10s — 5/5 calls over, by 3.6x-5.3x.
+        #
+        # Nine production call sites depend on this timeout (deep_researcher.py x6,
+        # researcher.py x3) and eight do not even pass one, trusting the 10s default.
+        #
+        # Why it discards evidence: run_adverse_media_deep_search checks its deadline
+        # BEFORE each template and then runs one unbounded search to completion, so
+        # 180s budget + 52.9s overrun = 232.9s > the 210s wait_for backstop. The
+        # backstop fires and the PARTIAL findings are thrown away. Bounding this call
+        # makes the honest-partial path reachable — it raises COVERAGE, it does not
+        # relax any threshold.
+        try:
+            ext_raw, internal_results = await asyncio.wait_for(
+                asyncio.gather(ext_task, int_task, return_exceptions=True),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[R-F2832] web search exceeded its %.1fs budget for %r — "
+                "backends did not answer in time", timeout, query[:80],
+            )
+            # HONESTY: a timed-out search must be distinguishable from one that ran
+            # and found nothing. run_adverse_media_deep_search counts
+            # `_templates_searched` only for calls that RETURN, and accounts a raised
+            # exception as a breaker skip. If a timeout returned [] here, a sweep in
+            # which every backend timed out would report 30/30 templates searched
+            # with zero findings — indistinguishable from a genuinely clean entity,
+            # which is the exact false clean R-F2791 exists to prevent.
+            #
+            # But only 1 of 5 sampled call sites has a local try/except, so raising
+            # unconditionally would convert a slow search into an outage across the
+            # research stack. Callers whose accounting depends on the distinction
+            # opt in; everyone else is merely BOUNDED, which is the robustness win.
+            if raise_on_timeout:
+                raise
+            ext_raw, internal_results = [], []
         if isinstance(ext_raw, Exception):
             logger.warning("external search_multilingual raised: %s",
                            ext_raw)
@@ -1655,6 +1695,11 @@ async def _web_search(query: str, timeout: float = 10.0) -> list[dict]:
             )
             return results
 
+    except asyncio.TimeoutError:
+        # R-F2832 — must escape. Falling through to the RSS fallback below would
+        # spend MORE unbounded time after we already blew the budget, and would
+        # convert a timeout into a silent empty result at the caller.
+        raise
     except Exception as e:
         logger.warning("ARIA search engine failed, falling back to Google News RSS: %s", e)
 
@@ -4397,7 +4442,12 @@ async def run_adverse_media_deep_search(
         purpose = tmpl.get("purpose", "")
 
         try:
-            search_results = await _web_search(query, timeout=10.0)
+            # R-F2832 — strict: a timed-out template must be accounted as a
+            # breaker skip, NOT as a template that was searched and found
+            # nothing (R-F2791 `_templates_searched`).
+            search_results = await _web_search(
+                query, timeout=10.0, raise_on_timeout=True,
+            )
         except Exception as e:
             logger.debug("[adverse_media] template %r failed: %s", source_class, e)
             breaker_skips += 1

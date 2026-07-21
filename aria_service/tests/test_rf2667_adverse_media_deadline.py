@@ -28,7 +28,7 @@ async def test_deadline_returns_partial_findings_not_all_lost(monkeypatch) -> No
                      for i in range(20)],
     )
 
-    async def _slow(query, timeout=10.0):
+    async def _slow(query, timeout=10.0, **_kw):  # R-F2832 kwarg
         await asyncio.sleep(0.08)
         # R-F2745 — the hit must NAME the subject to survive the entity-relevance gate;
         # this test is about deadline-partial preservation, not off-subject filtering.
@@ -53,7 +53,7 @@ async def test_no_deadline_runs_the_full_set(monkeypatch) -> None:
                      for i in range(5)],
     )
 
-    async def _fast(query, timeout=10.0):
+    async def _fast(query, timeout=10.0, **_kw):  # R-F2832 kwarg
         return [{"link": f"http://x/{query}", "title": query, "snippet": "s",
                  "_credibility_tier": "tier_2"}]
 

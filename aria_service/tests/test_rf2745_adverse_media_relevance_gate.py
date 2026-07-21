@@ -44,7 +44,7 @@ def test_rf2745_deep_search_drops_off_subject_findings(monkeypatch):
             self.url = "https://example.com/x"
             self.link = "https://example.com/x"
 
-    async def _fake_search(query, timeout=10.0):
+    async def _fake_search(query, timeout=10.0, **_kw):  # R-F2832 kwarg
         return [
             _Hit("Acme Ventures Ltd fined $2m for fraud"),          # KEEP — names the entity
             _Hit("Generic fraud crackdown in the sector"),          # DROP — topic only

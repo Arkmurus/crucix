@@ -36,7 +36,7 @@ def test_adverse_media_deep_search_accepts_searchresult_hits(monkeypatch):
             "purpose": "OFAC enforcement actions / settlement / designation",
         }]
 
-    async def fake_web_search(query, timeout=10.0):
+    async def fake_web_search(query, timeout=10.0, **_kw):  # R-F2832 kwarg
         return [SearchResult(
             title="Treasury designates Acme Defence",
             url="https://home.treasury.gov/acme-defence",

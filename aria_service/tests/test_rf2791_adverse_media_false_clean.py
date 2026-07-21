@@ -171,7 +171,7 @@ def _run_sweep(monkeypatch, web_search_impl):
 
 def test_e2e_every_backend_call_fails_is_not_a_clean_screening(monkeypatch):
     """Brave-429 shape: _web_search returns [] for every template, never raises."""
-    async def all_empty(query, timeout=10.0):
+    async def all_empty(query, timeout=10.0, **_kw):  # R-F2832
         return []
 
     result = _run_sweep(monkeypatch, all_empty)
@@ -190,7 +190,7 @@ def test_e2e_every_backend_call_fails_is_not_a_clean_screening(monkeypatch):
 
 def test_e2e_every_backend_call_raises_is_not_a_clean_screening(monkeypatch):
     """Hard-failure shape: the search layer raises for every template."""
-    async def all_raise(query, timeout=10.0):
+    async def all_raise(query, timeout=10.0, **_kw):  # R-F2832
         raise RuntimeError("backend down")
 
     result = _run_sweep(monkeypatch, all_raise)
@@ -209,7 +209,7 @@ def test_e2e_working_backend_with_no_subject_hits_IS_a_clean_screening(monkeypat
     that finds nothing about the subject must still ANSWER the question, or
     Evidence Grade A becomes structurally impossible for clean entities.
     """
-    async def answers_offsubject(query, timeout=10.0):
+    async def answers_offsubject(query, timeout=10.0, **_kw):  # R-F2832
         return [{
             "title": "Completely unrelated company in the news",
             "link": "https://example.com/other",
