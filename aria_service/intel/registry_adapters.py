@@ -99,7 +99,7 @@ logger = logging.getLogger("aria.intel.registry_adapters")
 
 _TIMEOUT = 15.0
 
-_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR", "AO", "KE", "SA", "GH", "ZA", "IL", "US", "FI", "PA", "BG", "CH"}
+_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR", "AO", "KE", "SA", "GH", "ZA", "IL", "US", "FI", "PA", "BG", "CH", "NO"}
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -152,6 +152,7 @@ async def lookup_entity(
         "PA": _lookup_panama,
         "BG": _lookup_bulgaria,
         "CH": _lookup_switzerland,
+        "NO": _lookup_norway,
     }
     adapter_fn = dispatch.get(iso2)
     if not adapter_fn:
@@ -277,6 +278,67 @@ async def _lookup_switzerland(name: str, reg_number: str | None) -> dict | None:
         "Registration status (active/dissolved) is not in this projection — "
         "confirm on the Zefix record before relying on the entity being live.",
     ]
+    return result
+
+
+async def _lookup_norway(name: str, reg_number: str | None) -> dict | None:
+    """NO — Brønnøysundregistrene (official, fully open; no API key). R-F2862.
+
+    Richer than most adapters: real registration status from published distress
+    booleans, plus board/CEO officers WITH date of birth from the open /roller
+    endpoint (a DOB sharply reduces sanctions/PEP screening false positives).
+    """
+    from . import brreg
+
+    record = None
+    digits = "".join(ch for ch in str(reg_number or "") if ch.isdigit())
+    if len(digits) == 9:
+        record = await brreg.get_company(digits)
+    if not record:
+        rows = await brreg.search_company(name, limit=5)
+        if not rows:
+            return None
+        needle = (name or "").strip().lower()
+        record = next((r for r in rows if (r.get("name") or "").strip().lower() == needle), rows[0])
+
+    org_number = record.get("organisation_number") or ""
+    officers = await brreg.get_officers(org_number) if org_number else []
+
+    result = _build_result(
+        company_name=record.get("name") or name,
+        company_number=org_number,
+        # "" when brreg did not publish the flags — see brreg._derive_status.
+        company_status=record.get("status") or "",
+        date_of_creation=record.get("registration_date") or record.get("founded_date") or "",
+        registered_office_address=record.get("address") or "",
+        jurisdiction="NO",
+        sic_codes=record.get("sic_codes") or [],
+        officers=officers,
+        psc=[],                       # beneficial ownership is NOT in this register
+        source_url=(f"https://virksomhet.brreg.no/nb/oppslag/enheter/{org_number}"
+                    if org_number else "https://www.brreg.no"),
+        adapter="norway_brreg",
+    )
+    for key in ("state_owned", "sector_code", "former_names", "employees",
+                "legal_form", "website"):
+        if record.get(key) not in (None, [], ""):
+            result["profile"][key] = record[key]
+
+    gaps = [
+        "Beneficial ownership (UBO) is not published in Enhetsregisteret — "
+        "obtain the Norwegian UBO register extract or a counterparty declaration.",
+    ]
+    if not record.get("status"):
+        gaps.append(
+            "Registration status flags were not present in the brreg response — "
+            "status is UNCONFIRMED and must not be read as active."
+        )
+    if record.get("state_owned"):
+        gaps.append(
+            f"Institutional sector code {record.get('sector_code')} indicates a "
+            "STATE-OWNED entity — apply RCA / state-ownership screening."
+        )
+    result["data_gaps"] = gaps
     return result
 
 
