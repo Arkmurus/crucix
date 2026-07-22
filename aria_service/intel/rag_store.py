@@ -215,6 +215,157 @@ def _crash_breaker_should_skip() -> bool:
         )
         return True
     return False
+
+
+# ── R-F2856 — per-collection corruption SELF-HEAL ────────────────────────────
+# When the R-F2855 breaker trips, RAG is degraded because ONE collection's HNSW
+# segfaults on query — but the breaker takes ALL of RAG down with it and needs an
+# operator to identify + quarantine the bad one by hand (done manually 2026-07-22).
+# This automates that: probe each collection in a SUBPROCESS (a SIGSEGV there cannot
+# kill the brain), quarantine ONLY a collection that DEFINITIVELY + REPRODUCIBLY
+# segfaults (never on a timeout/error — ambiguous), clear the breaker, and re-init so
+# the HEALTHY collections come back up. No human, no restart, no data deleted (§7).
+# 60s headroom: a large HEALTHY collection cold-loads its HNSW slowly (live-measured
+# ~32s for aria_facts/451K vectors), while a CORRUPT one SIGSEGVs fast on load start —
+# so the bound comfortably clears a healthy load without delaying corruption detection.
+_PROBE_TIMEOUT_S = float(os.getenv("ARIA_RAG_PROBE_TIMEOUT_S", "60"))
+
+# Runs in a fresh subprocess: open the store, load ONE collection's HNSW via a dummy
+# vector query (query_embeddings bypasses the embedder — no torch load), and print
+# HEALTHY. A corrupt index SIGSEGVs here (exit -11/139); the parent reads that.
+_PROBE_SRC = (
+    "import sys, os\n"
+    "name, path = sys.argv[1], sys.argv[2]\n"
+    "import chromadb\n"
+    "c = chromadb.PersistentClient(path=path)\n"
+    "col = c.get_collection(name)\n"
+    "col.query(query_embeddings=[[0.0]*384], n_results=1)\n"
+    # The query SURVIVED (a corrupt HNSW would have SIGSEGV'd above). Flush the
+    # verdict then os._exit(0) — a normal exit hangs joining torch/onnx threads
+    # (live-observed: healthy probe printed HEALTHY then timed out on cleanup),
+    # which would false-time-out a healthy collection to 'unknown'.
+    "print('HEALTHY'); sys.stdout.flush()\n"
+    "os._exit(0)\n"
+)
+
+
+def _list_collection_names_via_sqlite() -> list[str]:
+    """Collection names read straight from chroma.sqlite3 — NEVER loads an HNSW
+    segment, so it is safe even when a collection is corrupt."""
+    import sqlite3
+    db_path = str(Path(RAG_PATH) / "chroma.sqlite3")
+    con = sqlite3.connect(db_path)
+    try:
+        return [r[0] for r in con.execute("select name from collections")]
+    finally:
+        con.close()
+
+
+def _probe_collection_isolated(name: str) -> str:
+    """Probe ONE collection in a subprocess. Returns 'healthy' | 'corrupt' | 'unknown'.
+
+    'corrupt' is returned ONLY on a native crash signal (SIGSEGV = returncode -11, or
+    128+11=139). A timeout or any other non-zero exit is 'unknown' — deliberately NOT
+    'corrupt', because those are ambiguous (slow disk, empty/dim-mismatch) and must
+    never trigger a quarantine.
+    """
+    import subprocess
+    import sys
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", _PROBE_SRC, name, RAG_PATH],
+            timeout=_PROBE_TIMEOUT_S, capture_output=True,
+        )
+    except subprocess.TimeoutExpired:
+        return "unknown"
+    except Exception:                       # noqa: BLE001 — a broken probe is not proof of corruption
+        return "unknown"
+    if proc.returncode in (-11, 139):       # SIGSEGV — a corrupt HNSW crashed the reader
+        return "corrupt"
+    if proc.returncode == 0 and b"HEALTHY" in (proc.stdout or b""):
+        return "healthy"
+    return "unknown"
+
+
+def _quarantine_collection(name: str) -> str:
+    """Rename a collection aside at the sqlite metadata layer (R-F2799 technique —
+    does NOT load the corrupt segment). Preserves the data; never deletes (§7).
+    Returns the parked name."""
+    import sqlite3
+    from datetime import datetime, timezone
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    parked = f"{name}__corrupt_{ts}"
+    db_path = str(Path(RAG_PATH) / "chroma.sqlite3")
+    con = sqlite3.connect(db_path)
+    try:
+        con.execute("update collections set name=? where name=?", (parked, name))
+        con.commit()
+    finally:
+        con.close()
+    logger.warning("[R-F2856] quarantined corrupt collection %s -> %s (parked, NOT deleted)",
+                   name, parked)
+    return parked
+
+
+def diagnose_and_heal_corrupt_collections(
+    *, probe_fn=None, quarantine_fn=None, reinit_fn=None, reproduce: int = 2,
+) -> dict:
+    """Find the collection(s) that segfault, quarantine ONLY those, and heal RAG.
+
+    Called when the breaker has tripped (RAG degraded). Safe to run with the store
+    open by nobody — the degraded path leaves _client None. `reproduce` is how many
+    consecutive segfaults are required before a collection is deemed DEFINITIVELY
+    corrupt (guards against a one-off). Injectable fns keep it unit-testable.
+    """
+    probe_fn = probe_fn or _probe_collection_isolated
+    quarantine_fn = quarantine_fn or _quarantine_collection
+    reinit_fn = reinit_fn or _get_client
+    result: dict = {"probed": [], "corrupt": [], "quarantined": [], "healed": False, "errors": []}
+    try:
+        names = _list_collection_names_via_sqlite()
+    except Exception as e:                  # noqa: BLE001
+        result["errors"].append(f"list collections failed: {e}")
+        return result
+
+    for name in names:
+        if "__corrupt_" in name:            # already parked — never re-probe/re-park
+            continue
+        verdicts: list[str] = []
+        for _ in range(max(1, reproduce)):
+            v = probe_fn(name)
+            verdicts.append(v)
+            if v != "corrupt":              # not corrupt this round -> not definitive; stop early
+                break
+        result["probed"].append({"name": name, "verdicts": verdicts})
+        # DEFINITIVE only: every one of `reproduce` probes must have segfaulted.
+        if len(verdicts) >= reproduce and all(v == "corrupt" for v in verdicts):
+            result["corrupt"].append(name)
+            try:
+                parked = quarantine_fn(name)
+                result["quarantined"].append({"name": name, "parked": parked})
+            except Exception as e:          # noqa: BLE001
+                result["errors"].append(f"quarantine {name} failed: {e}")
+
+    if result["quarantined"]:
+        # The corrupt collection(s) are parked — clear the breaker and re-init so the
+        # HEALTHY collections come back UP (a fresh empty collection replaces each
+        # parked one, exactly as the manual 2026-07-22 recovery did).
+        _crash_counter_reset()
+        global _client, _documents_collection, _facts_collection
+        global _documents_cold_collection, _chromadb_failed, _chromadb_retry_after
+        _client = None
+        _documents_collection = None
+        _facts_collection = None
+        _documents_cold_collection = None
+        _chromadb_failed = False
+        _chromadb_retry_after = 0.0
+        try:
+            result["healed"] = reinit_fn() is not None
+        except Exception as e:              # noqa: BLE001
+            result["errors"].append(f"re-init failed: {e}")
+    return result
+
+
 _CHROMADB_RETRY_COOLDOWN_S = float(os.getenv("ARIA_RAG_RETRY_COOLDOWN_S", "60"))
 _init_lock = asyncio.Lock()
 

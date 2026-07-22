@@ -1707,6 +1707,44 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("[RAG] probe failed (non-fatal): %s", e)
             return
+
+        # R-F2856 — if RAG is DEGRADED because the R-F2855 breaker tripped (one
+        # collection's HNSW segfaults on query), auto-diagnose WHICH collection is
+        # corrupt, quarantine ONLY it (rename aside, never delete — §7), clear the
+        # breaker, and re-init so the HEALTHY collections (aria_facts, coding_*) come
+        # back UP. Runs in a thread (subprocess probes block). Fires ONLY on a tripped
+        # breaker — never during normal operation. Automates the manual 2026-07-22 fix.
+        if not stats.get("available"):
+            try:
+                _tripped = rag_store._crash_counter_read() >= rag_store._CRASH_BREAKER_THRESHOLD
+            except Exception:
+                _tripped = False
+            if _tripped:
+                logger.warning("[RAG] degraded + breaker tripped — R-F2856 self-heal starting")
+                try:
+                    heal = await asyncio.to_thread(
+                        rag_store.diagnose_and_heal_corrupt_collections)
+                except Exception as _he:
+                    heal = {"healed": False, "errors": [f"self-heal raised: {_he}"]}
+                logger.warning("[RAG] R-F2856 self-heal result: %s", heal)
+                if heal.get("healed"):
+                    app.state.rag_ready = True
+                    try:
+                        logger.info("[RAG] post-heal probe: %s", await rag_store.get_stats())
+                    except Exception:
+                        pass
+                # §21/§25 — the limb reports its outcome (success AND failure) to the brain
+                try:
+                    from .intel import brain_hook as _bh
+                    _parked = [q.get("name") for q in heal.get("quarantined", [])]
+                    await _bh.record_signal(
+                        module="rag_store",
+                        success=bool(heal.get("healed")),
+                        summary=(f"R-F2856 RAG self-heal: quarantined={_parked} "
+                                 f"healed={heal.get('healed')} errors={heal.get('errors')}")[:300],
+                    )
+                except Exception:
+                    pass
         if not backfill_enabled or backfill_disabled:
             logger.info(
                 "[RAG] backfill skipped (enabled=%s disabled=%s) — "
