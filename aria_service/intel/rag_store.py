@@ -134,6 +134,87 @@ _chromadb_failed = False          # PERMANENT — set ONLY when chromadb is not 
 # A transient failure now arms a short cooldown instead, so the next request
 # after the boot storm passes re-attempts init and self-heals.
 _chromadb_retry_after = 0.0       # monotonic deadline; 0.0 = no cooldown armed
+
+# ── R-F2855 — chromadb-init crash-loop breaker ───────────────────────────────
+#
+# A native SIGSEGV in chromadb's Rust core (constructing PersistentClient on a
+# corrupt store — the 2026-07-22 incident) KILLS the process. try/except cannot
+# catch a signal (R-F2808), and the in-memory _chromadb_failed flag dies WITH the
+# process, so it can never break a boot crash-loop. A counter FILE on the /data
+# volume survives the crash: bump it immediately BEFORE the risky PersistentClient
+# call and reset it on success — if the process dies in between, the elevated
+# counter tells the next boot to SKIP the construction and boot the brain ALIVE
+# (RAG degraded), so the store can be rebuilt while it runs.
+#
+# Self-healing (auto-skips after N consecutive crashed inits), reversible
+# (ARIA_RAG_FORCE_RETRY=1 clears it after a rebuild), manually overridable
+# (ARIA_RAG_DISABLED=1 skips unconditionally for immediate incident control). A
+# CAUGHT exception is not a segfault and resets the counter — R-F2151's cooldown
+# owns transients; the breaker is only for a process that DIED mid-init.
+_CRASH_BREAKER_THRESHOLD = int(os.getenv("ARIA_RAG_CRASH_BREAKER_THRESHOLD", "2"))
+_CRASH_COUNTER_PATH = str(Path(RAG_PATH).parent / ".chroma_init_crashes")
+
+
+def _crash_counter_read() -> int:
+    try:
+        with open(_CRASH_COUNTER_PATH, "r", encoding="utf-8") as fh:
+            return max(0, int((fh.read() or "0").strip() or "0"))
+    except FileNotFoundError:
+        return 0
+    except (ValueError, OSError):
+        # Unparseable/unreadable → treat as 0 so a corrupt counter never disables
+        # a working RAG (the guard must fail OPEN).
+        return 0
+
+
+def _crash_counter_write(n: int) -> None:
+    try:
+        Path(_CRASH_COUNTER_PATH).parent.mkdir(parents=True, exist_ok=True)
+        # write+rename so a crash mid-write can't leave a torn counter
+        tmp = _CRASH_COUNTER_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(str(max(0, int(n))))
+        os.replace(tmp, _CRASH_COUNTER_PATH)
+    except OSError as e:
+        logger.warning("[R-F2855] could not persist chroma crash counter: %s", e)
+
+
+def _crash_counter_bump() -> None:
+    # Must never raise into _get_client — a broken counter must not break RAG init.
+    try:
+        _crash_counter_write(_crash_counter_read() + 1)
+    except Exception as e:  # noqa: BLE001 — guard must fail OPEN
+        logger.warning("[R-F2855] crash-counter bump failed (ignored): %s", e)
+
+
+def _crash_counter_reset() -> None:
+    try:
+        if _crash_counter_read() != 0:
+            _crash_counter_write(0)
+    except Exception as e:  # noqa: BLE001 — guard must fail OPEN
+        logger.warning("[R-F2855] crash-counter reset failed (ignored): %s", e)
+
+
+def _crash_breaker_should_skip() -> bool:
+    """True iff chromadb init must be SKIPPED (never construct the client)."""
+    if os.getenv("ARIA_RAG_FORCE_RETRY", "").strip().lower() in ("1", "true", "yes", "on"):
+        _crash_counter_reset()          # operator forced a retry after a rebuild
+        return False
+    if os.getenv("ARIA_RAG_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
+        return True                     # manual kill-switch — immediate incident control
+    try:
+        crashes = _crash_counter_read()
+    except Exception:                   # noqa: BLE001 — guard must fail OPEN
+        return False
+    if crashes >= _CRASH_BREAKER_THRESHOLD:
+        logger.error(
+            "[R-F2855] chromadb init SKIPPED — %d consecutive crashed inits at %s "
+            "(threshold %d). RAG is DEGRADED but the brain is ALIVE. Rebuild the "
+            "store (scripts/admin/rebuild_rag_collection.py) then set "
+            "ARIA_RAG_FORCE_RETRY=1.", crashes, RAG_PATH, _CRASH_BREAKER_THRESHOLD,
+        )
+        return True
+    return False
 _CHROMADB_RETRY_COOLDOWN_S = float(os.getenv("ARIA_RAG_RETRY_COOLDOWN_S", "60"))
 _init_lock = asyncio.Lock()
 
@@ -246,10 +327,18 @@ def _get_client():
     if _chromadb_retry_after and time.monotonic() < _chromadb_retry_after:
         return None
 
+    # R-F2855 — crash-loop breaker: never CONSTRUCT the client if the last inits
+    # segfaulted. This is prevention, not error handling — a SIGSEGV can't be caught.
+    if _crash_breaker_should_skip():
+        _chromadb_failed = True         # route all callers to the degraded path
+        return None
+
     # Local vars — commit to globals only if every step succeeds.
     local_client = None
     local_docs = None
     local_facts = None
+    _crash_counter_bump()               # persist "init in progress" BEFORE the risky
+                                        # native call; a segfault here leaves it set.
     try:
         import chromadb
         from chromadb.config import Settings
@@ -323,6 +412,7 @@ def _get_client():
             RAG_PATH, local_docs.name, local_facts.name, local_cold.name,
         )
     except ImportError:
+        _crash_counter_reset()      # R-F2855 — not a segfault; a clean import failure
         _chromadb_failed = True     # PERMANENT — package missing, retrying is pointless
         logger.warning("chromadb not installed — RAG store unavailable. Run: pip install chromadb")
         return None
@@ -330,6 +420,8 @@ def _get_client():
         # R-F2151 — TRANSIENT failure (disk contention / sqlite lock during the
         # boot warmup storm). Arm a cooldown instead of disabling RAG forever;
         # the next request after the cooldown re-attempts and self-heals.
+        _crash_counter_reset()      # R-F2855 — a CAUGHT exception is not a segfault;
+                                    # R-F2151's cooldown owns transients.
         _chromadb_retry_after = time.monotonic() + _CHROMADB_RETRY_COOLDOWN_S
         logger.warning(
             "RAG store init failed (transient) — will retry after %.0fs: %s",
@@ -337,6 +429,8 @@ def _get_client():
         )
         return None
 
+    # R-F2855 — init completed without a native crash: clear the breaker.
+    _crash_counter_reset()
     # Commit atomically.
     _client = local_client
     _documents_collection = local_docs
