@@ -97,26 +97,51 @@ def check_app_health(client: httpx.Client, app_name: str, config: dict, expected
         return False
 
 
+def select_apps(args: list) -> "list | None":
+    """Resolve `--app` to the tiers to check. Returns None on a bad selection.
+
+    R-F2868 — accepts a COMMA-SEPARATED list so a deploy can name exactly the
+    tiers it shipped. Previously `--app` took one tier or `all`, so a two-tier
+    deploy had no way to express itself and `deploy.ps1` passed `--app all`.
+    That asserted the new sha against apps the deploy never touched, and a
+    correct `-Web` deploy printed a red FAIL because intel was legitimately on
+    the previous commit (observed live on R-F2867).
+
+    An unknown tier is REJECTED rather than skipped: silently dropping a typo
+    (`--app intel,wbe`) would run a green suite that never checked the web tier
+    — a false clean manufactured by a spelling mistake.
+    """
+    args = [a.lower() for a in args]
+    if "--app" not in args:
+        return ["intel"]                       # unchanged default
+    idx = args.index("--app")
+    if idx + 1 >= len(args):
+        print("--app requires an argument (intel/web/wa/all, or a comma-separated list)")
+        return None
+    target = args[idx + 1]
+    if target == "all":
+        return list(APPS.keys())
+    selected = []
+    for name in (part.strip() for part in target.split(",")):
+        if not name:
+            continue
+        if name not in APPS:
+            print(f"Unknown app: {name}")
+            return None
+        if name not in selected:               # tolerate duplicates
+            selected.append(name)
+    if not selected:
+        print("--app requires at least one tier (intel/web/wa/all)")
+        return None
+    return selected
+
+
 def main() -> int:
-    apps_to_check = []
     args = [a.lower() for a in sys.argv[1:]]
 
-    if "--app" in args:
-        idx = args.index("--app")
-        if idx + 1 < len(args):
-            target = args[idx + 1]
-            if target == "all":
-                apps_to_check = list(APPS.keys())
-            elif target in APPS:
-                apps_to_check = [target]
-            else:
-                print(f"Unknown app: {target}")
-                return 1
-        else:
-            print("--app requires an argument (intel/web/wa/all)")
-            return 1
-    else:
-        apps_to_check = ["intel"]
+    apps_to_check = select_apps(args)
+    if apps_to_check is None:
+        return 1
 
     # R-F1478: prefer the explicitly-passed sha (what THIS deploy shipped) over
     # the shared .last_deploy_sha file, which a concurrent ci_deploy can overwrite.

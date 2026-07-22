@@ -170,7 +170,15 @@ if [[ $FAILURES -eq 0 ]]; then
     # R-F1125 — run the live health regression suite
     echo ""
     echo "=== Running live health regression suite ==="
-    python "$REPO_ROOT/scripts/live_health_check.py" --app all
+    # R-F2868 — check ONLY the tiers this run deployed (mirrors deploy.ps1). This
+    # was `--app all`, so a single-tier deploy checked apps it never touched.
+    HEALTH_APPS=""
+    $DEPLOY_INTEL && HEALTH_APPS="${HEALTH_APPS}intel,"
+    $DEPLOY_WEB   && HEALTH_APPS="${HEALTH_APPS}web,"
+    $DEPLOY_WA    && HEALTH_APPS="${HEALTH_APPS}wa,"
+    HEALTH_APPS="${HEALTH_APPS%,}"
+    [[ -z "$HEALTH_APPS" ]] && HEALTH_APPS="intel"
+    python "$REPO_ROOT/scripts/live_health_check.py" --app "$HEALTH_APPS"
     HEALTH_RC=$?
     if [[ $HEALTH_RC -ne 0 ]]; then
         echo "=== ❌ Live health regression suite FAILED — deploy succeeded but health checks failed. ==="
