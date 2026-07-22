@@ -594,6 +594,17 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
+
+# R-F2851 (2026-07-22): root logging is INFO, and httpx logs every outbound
+# request at INFO with the FULL url — so any credential carried in a query
+# string (e.g. tender_monitor's SAM_GOV_API_KEY) was printed in plaintext to the
+# production log. Wrap every handler's formatter so credentials are redacted at
+# the emit choke point, whatever call site or library produced them. Installed
+# again in lifespan() once uvicorn has added its own handlers.
+from .intel.log_redaction import install_log_redaction  # noqa: E402
+
+install_log_redaction()
+
 logger = logging.getLogger("aria.main")
 
 # R-F513 (2026-05-14): auto-derive build_rev from Dockerfile ARGs that
@@ -787,6 +798,20 @@ async def lifespan(app: FastAPI):
     # it right after _elect_engine_role() below.
     global _election_complete
     _election_complete = asyncio.Event()
+    # R-F2851: re-install log redaction now that uvicorn has added its own
+    # handlers (it configures logging when it starts the server, which is after
+    # this module was imported — the import-time install alone would miss them).
+    # Idempotent: already-wrapped handlers are skipped.
+    try:
+        _redacted_handlers = install_log_redaction()
+        if _redacted_handlers:
+            logger.info(
+                "[R-F2851] log redaction installed on %d additional handler(s)",
+                _redacted_handlers,
+            )
+    except Exception as _redact_exc:  # never let logging setup abort boot
+        logger.warning("[R-F2851] log redaction re-install failed: %s", _redact_exc)
+
     logger.info("ARIA Service starting...")
     logger.info("ARIA Build: %s", ARIA_BUILD_REV)
     # R-F920 — operator-facing signal that the deploy skipped --build-arg and we
