@@ -258,22 +258,12 @@ PORTALS: list[PortalDef] = [
         registration_type="none",
         rate_limit_per_hour=600,
     ),
-    PortalDef(
-        id="european_business_register",
-        name="European Business Register",
-        url="https://www.ebr.org",
-        description="Cross-European company registry access",
-        registration_type="email_form",
-        rate_limit_per_hour=60,
-        register_path="/user/register",
-        signup_fields=[
-            ("email", "email", "email"),
-            ("password", "password", "password"),
-            ("name", "text", "name"),
-            ("organisation", "text", "org"),
-        ],
-        success_indicator="Account created",
-    ),
+    # R-F2882 — removed the "European Business Register" signup stub: it pointed at the
+    # DEFUNCT ebr.org with an email-form registration and NO API. EBR/BRIS has no open
+    # bulk API (EU access is per-member-state registers via the e-Justice portal), so it
+    # was dead weight masquerading as a data source. The real, working EU coverage is the
+    # per-state registry ADAPTERS (CH/NO/EE/DE/FR/…), now visible via R-F2881's coverage
+    # panel + GET /api/aria/registry/coverage.
     # R-F2879 — removed the duplicate `open_corporates` PortalDef: it shared the
     # OpenCorporates name + url (https://opencorporates.com) with `opencorporates`
     # above (the fuller entry), and the vault dedupes on site_id only, so it produced
