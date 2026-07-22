@@ -274,14 +274,10 @@ PORTALS: list[PortalDef] = [
         ],
         success_indicator="Account created",
     ),
-    PortalDef(
-        id="open_corporates",
-        name="OpenCorporates",
-        url="https://opencorporates.com",
-        description="Global company registry data (free tier)",
-        registration_type="email_form",
-        rate_limit_per_hour=100,
-    ),
+    # R-F2879 — removed the duplicate `open_corporates` PortalDef: it shared the
+    # OpenCorporates name + url (https://opencorporates.com) with `opencorporates`
+    # above (the fuller entry), and the vault dedupes on site_id only, so it produced
+    # a second identical vault row. One canonical OpenCorporates entry now.
     # ── Sanctions and compliance ───────────────────────────────────────
     PortalDef(
         id="ofac_sdn_download",
