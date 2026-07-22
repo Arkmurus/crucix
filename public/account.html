@@ -276,8 +276,8 @@ Sidebar.init('account');
   if (meResp) {
     document.getElementById('acct-tier-card').style.display = '';
     document.getElementById('acct-tier-name').textContent = meResp.tierLabel || 'Free';
-    document.getElementById('acct-tier-price').textContent = meResp.priceUsd > 0
-      ? '£' + meResp.priceUsd + '/month'
+    document.getElementById('acct-tier-price').textContent = meResp.priceAmount > 0
+      ? _sym(meResp.currency) + meResp.priceAmount + '/month'
       : 'No subscription';
 
     var statusEl = document.getElementById('acct-tier-status');
@@ -351,9 +351,9 @@ Sidebar.init('account');
     card.className = classes.join(' ');
     card.dataset.tier = t.id;
 
-    var priceLabel = t.priceUsd > 0
-      ? '<span class="pricing-price">£' + t.priceUsd + '</span><span class="pricing-price-suffix"> /mo</span>'
-      : '<span class="pricing-price">£0</span>';
+    var priceLabel = t.priceAmount > 0
+      ? '<span class="pricing-price">' + _sym(t.currency) + t.priceAmount + '</span><span class="pricing-price-suffix"> /mo</span>'
+      : '<span class="pricing-price">' + _sym(t.currency) + '0</span>';
 
     var features = [
       { txt: t.messagesPerDay + ' messages / day', on: true },
@@ -624,6 +624,17 @@ Sidebar.init('account');
   // Consequences that were live until now: cacheUser NEVER refreshed the
   // in-memory Auth.user after a profile save, and the profile load below ALWAYS
   // took the stale localStorage snapshot instead of the current server record.
+  // R-F2880 — resolve the currency SYMBOL from the payload's `currency` field.
+  // This was a hardcoded '£' applied to a field named `priceUsd`; the name and the
+  // symbol disagreed and nothing checked either. An UNMAPPED currency returns its
+  // ISO code ("SEK 79") rather than a guessed symbol — showing the wrong symbol on
+  // a price is a money error, and "no symbol" is the honest failure direction.
+  function _sym(c) {
+    var MAP = { GBP: '£', USD: '$', EUR: '€' };
+    if (!c) return '';                 // unknown currency -> no symbol, never a default
+    return MAP[c] || (c + ' ');
+  }
+
   function cacheUser(u) { try { localStorage.setItem('crucix_user', JSON.stringify(u)); if (typeof Auth !== 'undefined') Auth.user = u; } catch (e) {} }
 
   // Load current profile.

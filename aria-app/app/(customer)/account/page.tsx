@@ -10,10 +10,21 @@ import { startCheckout, openPortal } from '@/lib/actions';
 export const dynamic = 'force-dynamic';
 
 interface Me { email?: string; username?: string; fullName?: string; role?: string; tier?: string }
-interface Tier { id: string; label: string; priceUsd: number; messagesPerDay?: number; ddRunsPerMonth?: number; deepResearchEnabled?: boolean; autonomousEnabled?: boolean; publicApiEnabled?: boolean; checkoutReady?: boolean }
+// R-F2880 — resolve the symbol from the payload's `currency`. This file rendered
+// `$${priceUsd}` while the amounts were GBP: the field NAME said USD, the product
+// is priced in £, and the UI printed a dollar sign. An unmapped currency returns
+// its ISO code rather than a guessed symbol — a wrong symbol on a price is a money
+// error, and showing none is the honest failure direction.
+function sym(c?: string): string {
+  const MAP: Record<string, string> = { GBP: '£', USD: '$', EUR: '€' };
+  if (!c) return '';
+  return MAP[c] || `${c} `;
+}
+
+interface Tier { id: string; label: string; priceAmount: number; currency?: string; messagesPerDay?: number; ddRunsPerMonth?: number; deepResearchEnabled?: boolean; autonomousEnabled?: boolean; publicApiEnabled?: boolean; checkoutReady?: boolean }
 interface BillingConfig { configured?: boolean; tiers?: Tier[] }
 interface BillingMe {
-  tier?: string; tierLabel?: string; priceUsd?: number; subscriptionStatus?: string;
+  tier?: string; tierLabel?: string; priceAmount?: number; currency?: string; subscriptionStatus?: string;
   subscriptionPeriodEnd?: string | number; cancelAtPeriodEnd?: boolean; billingActive?: boolean;
   usage?: { messages?: number; uploads?: number; ddRuns?: number; caps?: { messages?: number; uploads?: number; ddRuns?: number } };
 }
@@ -60,7 +71,7 @@ export default async function AccountPage({ searchParams }: { searchParams: { bi
               <span className="text-muted-foreground">Plan</span>
               <Badge variant="default">{bm.tierLabel || titleCase(currentTier)}</Badge>
             </div>
-            <Row label="Price" value={typeof bm.priceUsd === 'number' ? `$${bm.priceUsd}/mo` : '—'} />
+            <Row label="Price" value={typeof bm.priceAmount === 'number' ? `${sym(bm.currency)}${bm.priceAmount}/mo` : '—'} />
             <Row label="Status" value={bm.subscriptionStatus ? titleCase(bm.subscriptionStatus) : 'Free'} />
             {bm.billingActive ? (
               <form action={openPortal} className="pt-2">
@@ -97,7 +108,7 @@ export default async function AccountPage({ searchParams }: { searchParams: { bi
                     {t.label}
                     {isCurrent ? <Badge variant="success">Current</Badge> : null}
                   </CardTitle>
-                  <p className="text-2xl font-semibold">${t.priceUsd}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
+                  <p className="text-2xl font-semibold">{sym(t.currency)}{t.priceAmount}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <ul className="space-y-1.5 text-sm text-muted-foreground">
