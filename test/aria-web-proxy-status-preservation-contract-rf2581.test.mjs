@@ -15,11 +15,13 @@
 //      construction) or review that it preserves upstream status. This is the same
 //      ratchet pattern as test_rf1142 (exact task count).
 //
-// Why a ratchet, not "everything must use ariaProxy": ~14 bespoke fetches are
+// Why a ratchet, not "everything must use ariaProxy": some bespoke fetches are
 // legitimate (chat, chat/stream, chat/result polling, think, ingest, outcome,
-// conversations, knowledge/fact, intel/signals/recent, liveness/beat) — streaming
-// and job-polling paths whose error handling is UX-appropriate, not dashboard
-// masking. The 150 ariaProxy sites (dashboard panels) are correct by construction.
+// conversations, knowledge/fact, intel/signals/recent, liveness/beat, and the
+// public/admin lead + design-partner bridge routes) — streaming, job-polling,
+// and public form-ingest paths whose error handling is UX-appropriate, not
+// dashboard masking. The ariaProxy sites (dashboard panels) are correct by
+// construction.
 //
 // Run: node test/aria-web-proxy-status-preservation-contract-rf2581.test.mjs
 
@@ -50,14 +52,21 @@ check('ariaProxy relays 401/403 before the 503 fallback',
 // ── Invariant 2: bespoke-proxy ratchet ───────────────────────────────────────
 console.log('\n2. No new status-masking proxy without review (ratchet)');
 
-// Reviewed baseline of bespoke `fetch(${ARIA_SERVICE_URL}...)` sites (2026-07-12).
+// Reviewed baseline of bespoke `fetch(${ARIA_SERVICE_URL}...)` sites (R-F2684).
 // These bypass ariaProxy for legitimate reasons (streaming / job-polling / self-call);
 // their error handling is UX-appropriate, not dashboard status-masking:
 //   chat (x5), chat/result, chat/stream, conversations, ingest,
-//   intel/signals/recent, knowledge/fact, liveness/beat, outcome, think.
-// 15 = the whole-file regex count (includes one multi-line `fetch(\n ${ARIA_SERVICE_URL}…`
+//   intel/signals/recent, knowledge/fact, liveness/beat, outcome, think,
+//   inbound leads (x2), design partners (x4).
+// R-F2870 (21 → 22): the R-F2860 external liveness observer's brain-report POST to
+//   /api/aria/brain/signal. REVIEWED and legitimate: it is a FIRE-AND-FORGET outbound
+//   signal from a background task (the observer's tick), NOT a request handler — it
+//   never reads or relays the upstream status to any res/UI, so it structurally cannot
+//   mask a 401/403/4xx as a generic error. Same class as liveness/beat and outcome
+//   (outbound proprioception), not a dashboard status-masking proxy.
+// 22 = the whole-file regex count (includes one multi-line `fetch(\n ${ARIA_SERVICE_URL}…`
 // call that per-line greps miss). Counted via the same regex this test uses.
-const BESPOKE_BASELINE = 15;
+const BESPOKE_BASELINE = 22;
 const bespoke = (SRC.match(/fetch\(\s*`\$\{ARIA_SERVICE_URL\}/g) || []).length;
 check(
   `bespoke ARIA_SERVICE_URL fetches == ${BESPOKE_BASELINE} (found ${bespoke})`,
@@ -68,6 +77,33 @@ check(
       `     as a generic error, then bump BESPOKE_BASELINE with a review note.`
     : `A bespoke proxy was removed — good; lower BESPOKE_BASELINE to ${bespoke}.`,
 );
+
+function routeBody(routeStart, routeEnd) {
+  const start = SRC.indexOf(routeStart);
+  if (start === -1) return '';
+  const end = routeEnd ? SRC.indexOf(routeEnd, start + routeStart.length) : -1;
+  return SRC.slice(start, end === -1 ? start + 2600 : end);
+}
+
+console.log('\n2a. Reviewed lead/design-partner bridges preserve upstream status');
+for (const [label, start, end] of [
+  ['POST /api/leads', "app.post('/api/leads'", "app.get('/api/leads'"],
+  ['GET /api/leads', "app.get('/api/leads'", '// R-F2670'],
+  ['GET /api/design-partners', "app.get('/api/design-partners'", "app.post('/api/design-partners'"],
+  ['POST /api/design-partners', "app.post('/api/design-partners'", '// R-F2673'],
+  ['POST /api/design-partners/:index/status', "app.post('/api/design-partners/:index/status'", '// R-F2673 — PUBLIC'],
+  ['POST /api/design-partners/apply', "app.post('/api/design-partners/apply'", '// §25 / §25a'],
+]) {
+  const body = routeBody(start, end);
+  check(`${label} exists`, body.length > 0);
+  check(`${label} relays upstream non-2xx status`,
+    /res\.status\(\s*r\.ok\s*\?\s*200\s*:\s*\(r\.status\s*\|\|\s*502\)\s*\)/.test(body));
+}
+const applyBody = routeBody("app.post('/api/design-partners/apply'", '// §25 / §25a');
+check('public design-partner applications force non-qualifying status',
+  /status:\s*'applied'/.test(applyBody) && /source:\s*'public_application'/.test(applyBody));
+check('public design-partner applications do not trust client status/source',
+  !/status:\s*body\.status/.test(applyBody) && !/source:\s*body\.source/.test(applyBody));
 
 // ── Invariant 3: the panel fallback is only reachable via ariaProxy ──────────
 console.log('\n3. Dashboard panels proxy through the status-preserving path');
