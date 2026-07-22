@@ -667,6 +667,46 @@ def _merge_record_into_rollup(roll: dict, record: dict) -> None:
     roll["top_calls"] = top[:20]
 
 
+async def _load_rollup_for_update(key: str, month: str, ts: Any) -> dict | None:
+    """Strict read of a month rollup for a read-modify-write.
+
+    Returns ``None`` when the store could not be read — the caller MUST skip the
+    write.
+
+    R-F2854 (2026-07-22): every rollup update was
+    ``roll = await rs.get_json(key) or _new_rollup(...)``. Non-strict get_json
+    swallows a store-layer StoreReadError to None, and None is indistinguishable
+    from "no spend recorded this month" — so a 5s state_store timeout (observed
+    live on aria-intel 2026-07-22) produced a ZERO rollup, merged the current
+    record into it, and wrote it back, RESETTING the month's accumulated spend.
+
+    That is a safety-control failure, not just lost telemetry:
+      * the §17 $300/mo cap is evaluated against the rollup, so a reset grants
+        up to a full extra cap of spend;
+      * ``_emit_threshold_warnings`` then evaluates the reset total, so no
+        warning fires;
+      * ``/api/aria/cost/monthly/status`` — the surface the operator checks
+        daily — reports the reset figure. A false clean on spend.
+
+    Fail closed: on a failed read we skip the write entirely. The individual
+    cost records are still persisted under COST_RECORD_PREFIX, so the rollup
+    remains rebuildable; under-counting one batch is recoverable, wiping the
+    month's total is not.
+    """
+    try:
+        existing = await rs.get_json_strict(key)
+    except Exception as e:
+        logger.warning(
+            "[R-F2854] month rollup %s NOT updated — store read failed (%s); "
+            "skipping the write so the accumulated total is not reset to zero",
+            key, e,
+        )
+        return None
+    if isinstance(existing, dict) and existing:
+        return existing
+    return _new_rollup(month, ts)
+
+
 async def _update_month_rollup(record: dict) -> None:
     """Add one call to the current month's aggregate + refresh the in-process
     cache. Safe to call inside the record_call try/except — its failure must
@@ -678,7 +718,9 @@ async def _update_month_rollup(record: dict) -> None:
     month = _current_month_key()
     key = f"{COST_MONTH_PREFIX}{month}"
     try:
-        roll = await rs.get_json(key) or _new_rollup(month, record["ts"])
+        roll = await _load_rollup_for_update(key, month, record["ts"])
+        if roll is None:
+            return  # R-F2854: never write a total derived from a failed read
         _merge_record_into_rollup(roll, record)
         await rs.set_json(key, roll, ex=COST_MONTH_TTL)
 
@@ -761,7 +803,9 @@ async def _flush_cost_pending(force: bool = False) -> bool:
                 by_month[m].append(rec)
             for m, recs in by_month.items():
                 key = f"{COST_MONTH_PREFIX}{m}"
-                roll = await rs.get_json(key) or _new_rollup(m, recs[0]["ts"])
+                roll = await _load_rollup_for_update(key, m, recs[0]["ts"])
+                if roll is None:
+                    continue  # R-F2854: skip rather than reset the month total
                 for rec in recs:
                     _merge_record_into_rollup(roll, rec)
                 await rs.set_json(key, roll, ex=COST_MONTH_TTL)
@@ -839,7 +883,9 @@ async def _flush_external_pending(force: bool = False) -> bool:
                 by_month[m].append(rec)
             for m, recs in by_month.items():
                 key = f"{COST_MONTH_PREFIX}{m}"
-                roll = await rs.get_json(key) or _new_rollup(m, recs[0]["ts"])
+                roll = await _load_rollup_for_update(key, m, recs[0]["ts"])
+                if roll is None:
+                    continue  # R-F2854: skip rather than reset the month total
                 for rec in recs:
                     _merge_record_into_rollup(roll, rec)
                 await rs.set_json(key, roll, ex=COST_MONTH_TTL)
