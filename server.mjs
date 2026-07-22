@@ -1670,6 +1670,20 @@ app.get('/api/brain-absorb/verify', requireInfraRole('poweruser', 'admin'), asyn
 // Mirrors /api/aria/health/cross on the Python side. Added 2026-04-18
 // after the DD-depth audit found that the two servers had drifted apart
 // (each had sources the other didn't know about) without anyone noticing.
+// R-F2860 — the external liveness observer is itself OBSERVABLE (an observability
+// tool that cannot be observed is the very blind spot it exists to fix). These refs
+// are assigned when the observer starts (server 'listening', below) and read here.
+let _livenessObserverRef = null;
+let _livenessOutageStoreRef = null;
+app.get('/api/health/aria-intel-observer', (req, res) => {
+  if (!_livenessObserverRef) {
+    return res.json({ enabled: false, reason: 'ARIA_SERVICE_URL unset or observer not started' });
+  }
+  let recent_outages = [];
+  try { recent_outages = (_livenessOutageStoreRef?.read() || []).slice(-10); } catch { /* best-effort */ }
+  res.json({ enabled: true, ..._livenessObserverRef.snapshot(), recent_outages });
+});
+
 // This endpoint makes the drift loud — if either side is down or not
 // seeing the other, it surfaces in one call.
 app.get('/api/health/cross', async (req, res) => {
@@ -7556,14 +7570,23 @@ async function start() {
     // boot and rolling deploys never cry wolf.
     if (ARIA_SERVICE_URL) {
       try {
+        // Durable on the PERSISTENT volume (/data), not the ephemeral container fs
+        // (/app/data) — so the outage ledger survives an aria-web redeploy too, not
+        // only aria-intel's death. Falls back to cwd/data for local dev.
+        const _outageDir = existsSync('/data') ? '/data' : join(process.cwd(), 'data');
+        if (!existsSync(_outageDir)) mkdirSync(_outageDir, { recursive: true });
         const _outageStore = new PersistStore(
           'crucix:aria_intel_outages',
-          join(process.cwd(), 'data', 'aria_intel_outages.json'),
+          join(_outageDir, 'aria_intel_outages.json'),
           () => [],
         );
         await _outageStore.init();
+        // Probe the PUBLIC url (what users hit end-to-end, incl. fly-proxy — a dead
+        // machine surfaces as a 502 there, which the observer treats as down). The
+        // authed brain-report below uses the ARIA_SERVICE_URL API base.
+        const _probeUrl = (process.env.ARIA_FLY_URL || 'https://aria-intel.fly.dev').replace(/\/$/, '');
         const _observer = createLivenessObserver({
-          serviceUrl: ARIA_SERVICE_URL,
+          serviceUrl: _probeUrl,
           probeFn: probeFlyHealth,
           store: _outageStore,
           notifyFn: notifyAdmin,
@@ -7577,6 +7600,8 @@ async function start() {
           },
           logger: console,
         });
+        _livenessObserverRef = _observer;         // expose to GET /api/health/aria-intel-observer
+        _livenessOutageStoreRef = _outageStore;
         const _observerMs = (_observer._config.pollIntervalS || 30) * 1000;
         let _observerInFlight = false;
         const _observerTimer = setInterval(() => {
