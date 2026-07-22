@@ -72,7 +72,14 @@ const Sidebar = {
       // API.get(): that logs the user out on 401 (app.js:46), and a nav-decoration
       // request must never be able to sign someone out.
       const r = await fetch('/api/auth/nav-pages', {
-        headers: (window.API && API.headers) ? API.headers() : {},
+        // R-F2873 — `API` is `const API = {...}` in app.js, loaded as a CLASSIC
+        // script. Top-level const/let bind to the global LEXICAL environment and
+        // are NEVER window properties (only var/function declarations are). So
+        // `window.API` was always undefined, this guard always chose {}, the
+        // request went out UNAUTHENTICATED, nav-pages 401'd, and every gated link
+        // hid from EVERY user — including the admin. Same class as R-F2354 in
+        // network.js. typeof is the correct existence check for a lexical global.
+        headers: (typeof API !== 'undefined' && API.headers) ? API.headers() : {},
       });
       if (r.ok) {
         const data = await r.json();

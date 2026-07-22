@@ -535,7 +535,7 @@ function _renderFetchFailureBanner() {
   if (_authGated.size > 0) {
     const n = _authGated.size;
     const noun = n === 1 ? 'panel requires' : 'panels require';
-    const hasToken = !!(window.API && API.token && API.token());
+    const hasToken = !!(typeof API !== 'undefined' && API.token && API.token());  // R-F2873 — window.API is never set for a const global
     const msg = hasToken
       ? `🔒 <strong>${n} operator ${noun} re-authentication</strong>. Your session may have expired. Sign in again to load them. (These are not "down".)`
       : `🔒 <strong>${n} operator ${noun} sign-in</strong> to display. This is expected for a signed-out viewer: the endpoints are reachable, just protected.`;
