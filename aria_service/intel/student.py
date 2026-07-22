@@ -1632,8 +1632,14 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
         except Exception as e:
             logger.debug("[student] neural learning failed: %s", e)
 
-        # Reading is reinforcement — small positive mastery bump
-        await update_mastery(topics, correct=True, weight=0.3)
+        # R-F2859 — the TOPIC-mastery bump used to live here as an
+        # unconditional `update_mastery(topics, correct=True, weight=0.3)`
+        # ("reading is reinforcement"). That is the same participation trophy
+        # R-F2661 removed from the regional axis, one line below: it credited
+        # comprehension for the ACT of reading, and it feeds Phase A gate #1
+        # (composite) rather than gate #2. It now moves on the SAME honest
+        # recall grade computed below — see the `else` branch — so no extra
+        # grader call is made and an ungraded article credits nothing.
 
         # R-F196 (2026-05-11): also write topic×region mastery from
         # the reading session. Pre-R-F196 regional_mastery only flowed
@@ -1682,9 +1688,15 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
                     await update_regional_mastery(
                         [_r_topic], [_r_region], correct=_graded, weight=0.3,
                     )
+                    # R-F2859 — topic mastery rides the SAME grade. Only the
+                    # GRADED topic is credited: spreading one recall result
+                    # across every topic detected in the article would be a
+                    # fresh fabrication, exactly the error R-F2661 avoided on
+                    # the regional axis.
+                    await update_mastery([_r_topic], correct=_graded, weight=0.3)
                     logger.info(
-                        "[student] R-F2661 reading cell %s:%s -> honest mastery "
-                        "grade=%s", _r_topic, _r_region, _graded,
+                        "[student] R-F2661/R-F2859 reading cell %s:%s -> honest "
+                        "mastery grade=%s", _r_topic, _r_region, _graded,
                     )
         except Exception as _rre:
             logger.debug("R-F196 regional mastery update failed: %s", _rre)
