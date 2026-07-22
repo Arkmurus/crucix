@@ -750,10 +750,35 @@ async function loadData() {
       if (h && typeof h.sourcesTotal === 'number' && h.sourcesTotal > 0) {
         const ok = h.sourcesOk || 0, tot = h.sourcesTotal;
         elSh.textContent = ok + '/' + tot;
-        elSh.style.color = (ok / tot) < 0.85 ? '#dc2626' : (ok < tot ? '#ea580c' : '');
-        elSh.title = (tot - ok) + ' source(s) degraded';
+        // R-F2869 — DEGRADED means a source that failed to DELIVER: partial,
+        // failed or suspended. This used to report (tot - ok), i.e. everything
+        // not OK, which swept in not_configured (a configuration state, not a
+        // health fault — the R-F2719 line) and any unaccounted residual (whose
+        // state we do not know at all). Live proof from R-F2867's buckets:
+        // 46 ok / 2 partial / 0 failed / 0 suspended / 2 not_configured — the
+        // tile claimed "4 degraded" when only 2 were. Overclaiming a fault is
+        // the same class of error as hiding one, pointed the other way.
+        const degraded = (h.sourcesPartial || 0) + (h.sourcesFailed || 0)
+                       + (h.sourcesSuspended || 0);
+        elSh.style.color = degraded > 0
+          ? ((ok / tot) < 0.85 ? '#dc2626' : '#ea580c')
+          : '';
+        // Excluding them from "degraded" must not make them invisible — that
+        // would trade an overclaim for a hidden gap (the R-F2867 defect again).
+        const parts = [];
+        if (h.sourcesPartial)       parts.push(h.sourcesPartial + ' partial');
+        if (h.sourcesFailed)        parts.push(h.sourcesFailed + ' failed');
+        if (h.sourcesSuspended)     parts.push(h.sourcesSuspended + ' suspended');
+        if (h.sourcesNotConfigured) parts.push(h.sourcesNotConfigured + ' not configured');
+        if (h.sourcesUnaccounted)   parts.push(h.sourcesUnaccounted + ' unaccounted');
+        elSh.title = parts.length ? parts.join(', ') : 'all sources OK';
       } else {
         elSh.textContent = '-';
+        // R-F2867 reports swept:false with null counts before the first sweep.
+        // A bare dash could mean either state; say which.
+        elSh.title = (h && h.swept === false)
+          ? 'no sweep has completed yet'
+          : 'source health unavailable';
       }
     } catch (e) { /* health is best-effort; leave the tile at its placeholder */ }
 
