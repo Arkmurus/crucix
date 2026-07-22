@@ -349,6 +349,51 @@ async def _lookup_norway(name: str, reg_number: str | None) -> dict | None:
     return result
 
 
+async def _lookup_estonia(name: str, reg_number: str | None) -> dict | None:
+    """EE — RIK ariregister (official, open; no API key). R-F2865."""
+    from . import ariregister
+
+    rows = await ariregister.search_company(name, limit=5)
+    if not rows:
+        return None
+    needle = (name or "").strip().lower()
+    record = next((r for r in rows if (r.get("name") or "").strip().lower() == needle), rows[0])
+
+    result = _build_result(
+        company_name=record.get("name") or name,
+        company_number=record.get("registration_code") or "",
+        # "" for any status code we cannot evidence — see ariregister._STATUS_MAP.
+        company_status=record.get("status") or "",
+        date_of_creation="",           # not exposed by this endpoint
+        registered_office_address=record.get("address") or "",
+        jurisdiction="EE",
+        sic_codes=[],
+        officers=[],                   # not in this endpoint
+        psc=[],                        # UBO is a separate Estonian register
+        source_url=record.get("source_url") or "https://ariregister.rik.ee",
+        adapter="estonia_ariregister",
+    )
+    for key in ("former_names", "legal_form_code", "postal_code"):
+        if record.get(key) not in (None, [], ""):
+            result["profile"][key] = record[key]
+
+    gaps = [
+        "Directors / board members are not in this endpoint — pull the full "
+        "ariregister extract at https://ariregister.rik.ee for "
+        f"{record.get('registration_code') or name}.",
+        "Beneficial ownership is held in a SEPARATE Estonian UBO register and is "
+        "not covered by this lookup.",
+    ]
+    if not record.get("status"):
+        gaps.append(
+            "Registration status code "
+            f"{record.get('status_code_raw') or 'not supplied'} is not a code we "
+            "can evidence — status is UNCONFIRMED and must not be read as active."
+        )
+    result["data_gaps"] = gaps
+    return result
+
+
 async def _gleif_global_fallback(name: str, iso2: str, reg_number: str | None) -> dict | None:
     """R-F2261 — query GLEIF (global LEI corporate identity) when a national registry
     adapter has no result, or the jurisdiction has no adapter at all. Best-effort; the
@@ -3354,6 +3399,7 @@ _DISPATCH: dict = {
     "BG": _lookup_bulgaria,
     "CH": _lookup_switzerland,
     "NO": _lookup_norway,
+    "EE": _lookup_estonia,
 }
 
 _SUPPORTED_JURISDICTIONS = frozenset(_DISPATCH)
