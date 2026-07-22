@@ -134,7 +134,15 @@
 <script>
 (function() {
   if (typeof Auth !== 'undefined' && Auth.requireAuth) Auth.requireAuth();
-  const API = window.API || { get: (url) => fetch(url, { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('crucix_token') || '') } }).then(r => r.json()) };
+  // R-F2875 — `API` is `const API = {...}` in app.js, a CLASSIC script, so it is a
+  // LEXICAL global and `window.API` is permanently undefined: this always took the
+  // fallback and silently bypassed API.get's error-envelope handling (R-F464) and
+  // 401 logout. Renamed from `API` because a `const API = typeof API ...` would
+  // reference the binding being declared and throw (temporal dead zone) — the
+  // guard on the line above already uses the correct `typeof` idiom.
+  const newsApi = (typeof API !== 'undefined' && API.get)
+    ? API
+    : { get: (url) => fetch(url, { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('crucix_token') || '') } }).then(r => r.json()) };
   let allArticles = [];
   let activeCategory = 'all';
 
@@ -256,8 +264,8 @@
   async function loadData() {
     try {
       const [stats, articles] = await Promise.all([
-        API.get('/api/aria/news/stats'),
-        API.get('/api/aria/news/recent?limit=100'),
+        newsApi.get('/api/aria/news/stats'),      // R-F2875
+        newsApi.get('/api/aria/news/recent?limit=100'),
       ]);
 
       allArticles = (articles && articles.articles) || [];

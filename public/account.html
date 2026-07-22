@@ -619,10 +619,15 @@ Sidebar.init('account');
     const na = document.getElementById('nav-avatar-mark');   // R-F2372 — the circular mark inside the rail account row
     if (na && u.avatarUrl) { na.textContent = ''; na.style.backgroundImage = 'url("' + u.avatarUrl + '")'; na.style.backgroundSize = 'cover'; na.style.backgroundPosition = 'center'; na.style.color = 'transparent'; }
   }
-  function cacheUser(u) { try { localStorage.setItem('crucix_user', JSON.stringify(u)); if (window.Auth) Auth.user = u; } catch (e) {} }
+  // R-F2875 — `Auth` is `const Auth` in app.js (a CLASSIC script), so it is a
+  // LEXICAL global and a window property lookup is permanently undefined.
+  // Consequences that were live until now: cacheUser NEVER refreshed the
+  // in-memory Auth.user after a profile save, and the profile load below ALWAYS
+  // took the stale localStorage snapshot instead of the current server record.
+  function cacheUser(u) { try { localStorage.setItem('crucix_user', JSON.stringify(u)); if (typeof Auth !== 'undefined') Auth.user = u; } catch (e) {} }
 
   // Load current profile.
-  (window.Auth && Auth.me ? Auth.me() : Promise.resolve(JSON.parse(localStorage.getItem('crucix_user') || '{}')))
+  (typeof Auth !== 'undefined' && Auth.me ? Auth.me() : Promise.resolve(JSON.parse(localStorage.getItem('crucix_user') || '{}')))
     .then(u => { if (u) paint(u); }).catch(() => {});
 
   // Save profile fields.
