@@ -43,6 +43,7 @@ import { conversationKeyForUser, slugifyIdentity } from './lib/auth/conversation
 import { ROLES, roleSatisfies } from './lib/auth/roles.mjs';  // R-F2170
 import { requiredRoleForAriaPath, isDoubleEncodedPath } from './lib/auth/infraRoutes.mjs';  // R-F2775 + R-F2802
 import { probeFlyHealth, combineCrossOk } from './lib/health/crossHealth.mjs';  // R-F2776
+import { buildHealthSourceBuckets } from './lib/health/sourceBuckets.mjs';      // R-F2867
 import { createLivenessObserver } from './lib/observability/livenessObserver.mjs';  // R-F2860
 import { operatorPageFor, navPagesForRole } from './lib/auth/operatorPages.mjs';  // R-F2785 table + R-F2818 lookup + R-F2822 nav entitlement
 import { classifyDeliveryOutcome, degradedDetail } from './lib/aria/deliveryOutcome.mjs';  // R-F1965
@@ -1623,9 +1624,13 @@ app.get('/api/health', (req, res) => {
       : null,
     sweepInProgress,
     sweepStartedAt,
-    sourcesOk: currentData?.meta?.sourcesOk || 0,
-    sourcesFailed: currentData?.meta?.sourcesFailed || 0,
-    sourcesTotal: currentData?.meta?.sourcesQueried || 36,
+    // R-F2867 — every queried source must be accounted for, and no count may be
+    // invented. This block used to ship only ok/failed (hiding partial, suspended
+    // and not_configured, so ok+failed != total — live: 46/0/50, four sources
+    // unexplained) and fell back to a FABRICATED `|| 36` total before the first
+    // sweep. R-F2853 fixed the same shape on the briefing payload; this is the
+    // surface public/dashboard.html actually reads.
+    ...buildHealthSourceBuckets(currentData?.meta),
     llmEnabled: !!config.llm.provider,
     llmProvider: config.llm.provider,
     telegramEnabled: !!(config.telegram.botToken && config.telegram.chatId),
