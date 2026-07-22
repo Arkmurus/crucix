@@ -439,17 +439,49 @@ async def flush_mastery() -> bool:
     return await _maybe_flush_mastery(force=True)
 
 
+def _fresh_mastery_scaffold() -> dict:
+    """A zero-sample scaffold for every known topic. Not learning — see R-F267."""
+    return {t: {"score": INITIAL_MASTERY, "samples": 0,
+                "correct": 0, "wrong": 0, "last_practiced": 0}
+            for t in TOPICS}
+
+
 async def _load_mastery() -> dict:
     global _mastery_cache
     if _mastery_cache is not None:
         return _mastery_cache
-    raw = await rs.get_json(MASTERY_KEY)
+    # R-F2852 — STRICT read, mirroring R-F2664 on the regional twin. The old
+    # non-strict get_json() SWALLOWED a store-not-ready StoreReadError to None,
+    # which is NOT "no mastery recorded" — it is "could not measure". Observed
+    # live 2026-07-22: `state_store.get(crucix:aria:student:mastery) timed out
+    # after 5s` ~6s into a slow boot.
+    #
+    # The clobber chain that made this data-loss rather than a blip:
+    #   timeout -> raw=None -> _mastery_cache poisoned to a samples=0 scaffold
+    #   -> seed_baseline_mastery() (main.py:1401, runs at every boot) skips only
+    #      topics with samples>0, so on the scaffold it skips NOTHING
+    #   -> seeds every topic -> _mark_mastery_dirty() -> _save_mastery()
+    #   -> the synthetic 0.6 baseline is written over the durable key, wiping
+    #      real score/samples/correct/wrong for every topic.
+    # The R-F267 dirty-guard cannot catch it, because the seeder legitimately
+    # sets dirty=True. Worse, the result LOOKS plausible (~0.6) rather than
+    # obviously broken, so it silently corrupts the Phase A gate #1 composite.
+    #
+    # On a store failure: return a transient scaffold that is deliberately NOT
+    # assigned to _mastery_cache. _save_mastery() early-returns while the cache
+    # is None, so no write can clobber the durable key, and the next call
+    # retries the read.
+    try:
+        raw = await rs.get_json_strict(MASTERY_KEY)
+    except Exception as _sre:
+        logger.warning(
+            "[R-F2852] mastery load deferred — store not ready (%s); cache left "
+            "uninitialised so no write can clobber the durable key", _sre)
+        return _fresh_mastery_scaffold()
     if isinstance(raw, dict):
         _mastery_cache = raw
     else:
-        _mastery_cache = {t: {"score": INITIAL_MASTERY, "samples": 0,
-                              "correct": 0, "wrong": 0, "last_practiced": 0}
-                          for t in TOPICS}
+        _mastery_cache = _fresh_mastery_scaffold()
     # Make sure all topics exist (in case TOPICS list grew)
     for t in TOPICS:
         if t not in _mastery_cache:
