@@ -47,7 +47,7 @@ test('R-F2380 DD re-run buttons force a real async rerun and reject cached cases
   );
   assert.match(
     html,
-    /querySelector\('\[data-action="rerun"\]'\)\.addEventListener\('click'[\s\S]*await startRerun/,
+    /querySelector\('\[data-action="rerun"\]'\)\??\.addEventListener\('click'[\s\S]*await startRerun/,
     'detail re-run button must be wired to the shared real helper',
   );
 });
@@ -103,7 +103,7 @@ test('R-F2380 DD delete buttons require verified deletion before success', () =>
   );
   assert.match(
     html,
-    /querySelector\('\[data-action="delete"\]'\)\.addEventListener[\s\S]*deleteVerified\(deleted\)[\s\S]*removeDeletedReport\(rid\)/,
+    /querySelector\('\[data-action="delete"\]'\)\??\.addEventListener[\s\S]*deleteVerified\(deleted\)[\s\S]*removeDeletedReport\(rid\)/,
     'detail delete must verify and then remove the local report',
   );
 });
@@ -184,14 +184,14 @@ test('R-F2844: handler lookups are guarded so one missing control cannot kill th
   // querySelector that returns null throws and every LATER handler silently
   // never registers — which is how adding the print button also broke copy,
   // delete and the VLS controls.
-  // Scoped to the controls R-F2837 added. copy/delete/rerun are ALSO unguarded
-  // (pre-existing) and are a real latent fragility — but guarding them breaks two
-  // sibling contract tests that assert wiring by source-text adjacency, so that
-  // is its own change, not a drive-by in this one. Recorded, not silently fixed.
-  const NEW_CONTROLS = ['pdf', 'print'];
+  // R-F2850: EVERY sequential handler lookup is now guarded (const+if for the
+  // multi-statement ones, ?. optional-chaining for copy/delete/rerun). An
+  // unguarded `.querySelector(...).addEventListener` on detailRow means one null
+  // lookup can throw and silently kill every later handler — so the set must be
+  // empty for ALL controls, not a subset.
   const unguarded = [...html.matchAll(
     /detailRow\.querySelector\('\[data-action="([^"]+)"\]'\)\.addEventListener/g,
-  )].map(m => m[1]).filter(a => NEW_CONTROLS.includes(a));
+  )].map(m => m[1]);
   assert.deepEqual(
     unguarded, [],
     'guard every data-action lookup (null-check before addEventListener) — '

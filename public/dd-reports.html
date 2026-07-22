@@ -1345,7 +1345,7 @@ async function toggleDetail(row, runId) {
       window.addEventListener('afterprint', cleanup);
       window.print();
     });
-    detailRow.querySelector('[data-action="copy"]').addEventListener('click', async () => {
+    detailRow.querySelector('[data-action="copy"]')?.addEventListener('click', async () => {
       // R-F2331: fetch markdown lazily (the detail view now renders from structured JSON).
       const btn = detailRow.querySelector('[data-action="copy"]');
       const orig = btn.innerHTML;
@@ -1357,7 +1357,7 @@ async function toggleDetail(row, runId) {
         setTimeout(() => { btn.innerHTML = orig; }, 1500);
       } catch (err) { Toast.show('Copy failed: ' + err.message, 'error'); }
     });
-    detailRow.querySelector('[data-action="delete"]').addEventListener('click', async (e) => {
+    detailRow.querySelector('[data-action="delete"]')?.addEventListener('click', async (e) => {
       const b = e.currentTarget;
       const rid = b.getAttribute('data-run-id');
       const ok = await Modal.confirm({
@@ -1384,7 +1384,7 @@ async function toggleDetail(row, runId) {
         await loadReports(true);
       } catch (err) { Toast.show('Delete error: ' + err.message, 'error'); b.disabled = false; b.innerHTML = orig; }
     });
-    detailRow.querySelector('[data-action="rerun"]').addEventListener('click', async (e) => {
+    detailRow.querySelector('[data-action="rerun"]')?.addEventListener('click', async (e) => {
       // R-F2293/R-F2331: carry the report's own identity (jurisdiction / type / mode)
       // from the structured view so the re-run screens the SAME entity, not a bare name.
       await startRerun(e.currentTarget, {
