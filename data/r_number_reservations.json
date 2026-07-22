@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2848,
+  "next_available": 2849,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22363,6 +22363,16 @@
       "r_number": "R-F2847",
       "title": "adverse-media budget calibrated to measured search cost - complete fewer templates honestly",
       "claimed_at": "2026-07-21T21:48:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d14644ee",
+      "notes": null,
+      "shipped_at": "2026-07-21T22:09:28Z"
+    },
+    {
+      "r_number": "R-F2848",
+      "title": "DD PDF was a summary — add full per-layer findings sections",
+      "claimed_at": "2026-07-22T10:39:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
