@@ -99,7 +99,6 @@ logger = logging.getLogger("aria.intel.registry_adapters")
 
 _TIMEOUT = 15.0
 
-_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR", "AO", "KE", "SA", "GH", "ZA", "IL", "US", "FI", "PA", "BG", "CH", "NO"}
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -127,36 +126,15 @@ async def lookup_entity(
         # with structured LEI identity (free API, datacenter-tolerant) — global fallback.
         return await _gleif_global_fallback(name, iso2, registration_number)
 
-    dispatch = {
-        "GI": _lookup_gibraltar,
-        "PL": _lookup_poland,
-        "RO": _lookup_romania,
-        "TR": _lookup_turkey,
-        "BR": _lookup_brazil,
-        "NG": _lookup_nigeria,
-        "AE": _lookup_uae,
-        "IN": _lookup_india,
-        "SK": _lookup_slovakia,
-        "CZ": _lookup_czech,
-        "HU": _lookup_hungary,
-        "DE": _lookup_germany,
-        "FR": _lookup_france,
-        "AO": _lookup_angola,
-        "KE": _lookup_kenya,
-        "SA": _lookup_saudi_arabia,
-        "GH": _lookup_ghana,
-        "ZA": _lookup_south_africa,
-        "IL": _lookup_israel,
-        "US": _lookup_united_states,
-        "FI": _lookup_finland,
-        "PA": _lookup_panama,
-        "BG": _lookup_bulgaria,
-        "CH": _lookup_switzerland,
-        "NO": _lookup_norway,
-    }
-    adapter_fn = dispatch.get(iso2)
+    adapter_fn = _DISPATCH.get(iso2)
     if not adapter_fn:
         return None
+    # R-F2863 — LATE-BIND through the module namespace. `_DISPATCH` is built at
+    # import time and captures function OBJECTS, so `monkeypatch.setattr(ra,
+    # "_lookup_finland", ...)` would no longer be seen and the table would keep
+    # calling the original. Before the hoist the table was rebuilt on every call,
+    # which gave late binding for free (test_rf302 depends on it).
+    adapter_fn = globals().get(getattr(adapter_fn, "__name__", ""), adapter_fn)
 
     try:
         logger.info("Registry adapter [%s]: looking up '%s' (reg=%s)", iso2, name, registration_number)
@@ -206,6 +184,17 @@ async def lookup_entity(
         except Exception as _sm:
             logger.debug("registry_adapter self_metrics failed: %s", _sm)
 
+        # ── R-F2863 — record OBSERVED liveness for the coverage vault ──
+        # Fire-and-forget: bookkeeping must not put a saturation-sensitive
+        # state_store write on the DD hot path. "empty" is neither success nor
+        # failure — a registry that correctly answers "no such company" is
+        # WORKING, but it did not prove liveness either.
+        _record_coverage_outcome(
+            iso2,
+            (result or {}).get("adapter", "") if isinstance(result, dict) else "",
+            "success" if result else "empty",
+        )
+
         # R-F2261 — GLEIF global fallback when the jurisdiction adapter found NOTHING:
         # GLEIF gives structured LEI identity for entities in ANY jurisdiction (free API,
         # datacenter-tolerant) — fills the "foreign entity, registry returned nothing" gap.
@@ -216,7 +205,25 @@ async def lookup_entity(
         return result
     except Exception as exc:
         logger.warning("Registry adapter [%s] failed: %s", iso2, exc)
+        _record_coverage_outcome(iso2, "", "error")   # R-F2863
         return None
+
+
+def _record_coverage_outcome(iso2: str, adapter: str, outcome: str) -> None:
+    """Schedule a coverage-vault write without blocking the lookup. Never raises.
+
+    No-ops when there is no running loop (a sync caller in a test or a script) —
+    losing one bookkeeping row is always preferable to raising into a DD run.
+    """
+    try:
+        import asyncio as _asyncio
+        from . import registry_coverage as _rc
+        _task = _asyncio.get_running_loop().create_task(
+            _rc.record_outcome(iso2, adapter, outcome)
+        )
+        _task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+    except Exception as _rc_e:
+        logger.debug("registry coverage record failed: %s", _rc_e)
 
 
 async def _lookup_switzerland(name: str, reg_number: str | None) -> dict | None:
@@ -3312,3 +3319,46 @@ async def _lookup_bulgaria(name: str, reg_number: str | None) -> dict | None:
             pass
 
     return result
+
+
+# ── R-F2863 — ONE registration point ─────────────────────────────────────────
+# `_SUPPORTED_JURISDICTIONS` used to be hand-maintained ALONGSIDE this table, so a
+# jurisdiction could be half-wired: in dispatch only (unreachable — the gate rejects
+# it first) or in the set only (claims coverage it cannot serve). The two were in
+# sync when this landed, so this makes the drift class impossible rather than fixing
+# a live bug. Defined AFTER the adapters because a module-level dict cannot
+# reference functions declared below it.
+_DISPATCH: dict = {
+    "GI": _lookup_gibraltar,
+    "PL": _lookup_poland,
+    "RO": _lookup_romania,
+    "TR": _lookup_turkey,
+    "BR": _lookup_brazil,
+    "NG": _lookup_nigeria,
+    "AE": _lookup_uae,
+    "IN": _lookup_india,
+    "SK": _lookup_slovakia,
+    "CZ": _lookup_czech,
+    "HU": _lookup_hungary,
+    "DE": _lookup_germany,
+    "FR": _lookup_france,
+    "AO": _lookup_angola,
+    "KE": _lookup_kenya,
+    "SA": _lookup_saudi_arabia,
+    "GH": _lookup_ghana,
+    "ZA": _lookup_south_africa,
+    "IL": _lookup_israel,
+    "US": _lookup_united_states,
+    "FI": _lookup_finland,
+    "PA": _lookup_panama,
+    "BG": _lookup_bulgaria,
+    "CH": _lookup_switzerland,
+    "NO": _lookup_norway,
+}
+
+_SUPPORTED_JURISDICTIONS = frozenset(_DISPATCH)
+
+
+def supported_jurisdictions() -> list[str]:
+    """Jurisdictions with a registry adapter, derived from the dispatch table."""
+    return sorted(_DISPATCH)
