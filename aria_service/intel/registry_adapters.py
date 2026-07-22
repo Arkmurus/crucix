@@ -99,7 +99,7 @@ logger = logging.getLogger("aria.intel.registry_adapters")
 
 _TIMEOUT = 15.0
 
-_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR", "AO", "KE", "SA", "GH", "ZA", "IL", "US", "FI", "PA", "BG"}
+_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR", "AO", "KE", "SA", "GH", "ZA", "IL", "US", "FI", "PA", "BG", "CH"}
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -151,6 +151,7 @@ async def lookup_entity(
         "FI": _lookup_finland,
         "PA": _lookup_panama,
         "BG": _lookup_bulgaria,
+        "CH": _lookup_switzerland,
     }
     adapter_fn = dispatch.get(iso2)
     if not adapter_fn:
@@ -215,6 +216,68 @@ async def lookup_entity(
     except Exception as exc:
         logger.warning("Registry adapter [%s] failed: %s", iso2, exc)
         return None
+
+
+async def _lookup_switzerland(name: str, reg_number: str | None) -> dict | None:
+    """CH — Zefix (Federal Office of Justice) via the open LINDAS SPARQL endpoint.
+
+    R-F2861. Before this, a Swiss counterparty produced NO registry evidence:
+    dd_orchestrator emitted only a manual-action hint, so "verified legal
+    identity" was unachievable from a primary source for CH — a real hole given
+    how many commodity traders, holding structures and defence intermediaries
+    are Swiss-registered.
+
+    The advertised Zefix REST API needs credentials (verified 401 on every
+    endpoint 2026-07-22); the same federal dataset is open on LINDAS, so this
+    needs no API key — see aria_service/intel/zefix.py.
+    """
+    from . import zefix
+
+    rows = await zefix.search_company(name, limit=5)
+    if not rows:
+        return None
+
+    # Prefer an exact registered-name match; otherwise the top hit. A partial
+    # CONTAINS match is NOT presented as an identity confirmation on its own —
+    # the caller sees the returned company_name and can compare.
+    needle = (name or "").strip().lower()
+    record = next((r for r in rows if (r.get("name") or "").strip().lower() == needle), rows[0])
+
+    result = _build_result(
+        company_name=record.get("name") or name,
+        company_number=record.get("uid") or "",
+        # Zefix-on-LINDAS does not expose a status/dissolution flag in this
+        # projection, so status stays EMPTY rather than being assumed active.
+        # Claiming "active" without evidence is the false-clean this platform exists to avoid.
+        company_status="",
+        date_of_creation="",          # not exposed by this dataset
+        registered_office_address="",  # address is a separate URI; not resolved here
+        jurisdiction="CH",
+        sic_codes=[],
+        officers=[],                   # not published in the open dataset
+        psc=[],                        # UBO is NOT on Zefix (Swiss UBO is private)
+        source_url=record.get("source_url") or "https://www.zefix.ch",
+        adapter="switzerland_zefix_lindas",
+    )
+    if record.get("purpose"):
+        result["profile"]["business_purpose"] = record["purpose"]
+    if record.get("legal_form_code"):
+        result["profile"]["legal_form_code"] = record["legal_form_code"]
+    if record.get("municipality_id"):
+        result["profile"]["municipality_id"] = record["municipality_id"]
+
+    # Say plainly what this source CANNOT answer, so a downstream layer cannot
+    # read silence as a clean result (the Finland adapter sets the precedent).
+    result["data_gaps"] = [
+        "Directors / board members are not in the open Zefix dataset — pull the "
+        "SHAB/FOSC extract at https://www.zefix.ch for "
+        f"{record.get('uid') or name} and attach it to the DD record.",
+        "Beneficial ownership is NOT public in Switzerland — UBO must be obtained "
+        "from the counterparty or via a Swiss UBO declaration.",
+        "Registration status (active/dissolved) is not in this projection — "
+        "confirm on the Zefix record before relying on the entity being live.",
+    ]
+    return result
 
 
 async def _gleif_global_fallback(name: str, iso2: str, reg_number: str | None) -> dict | None:
