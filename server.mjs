@@ -5464,7 +5464,16 @@ app.get('/api/public/metrics', async (req, res) => {
 // (public/js/app.js:154-157) and would go stale on a role change.
 app.get('/api/auth/nav-pages', requireAuth, (req, res) => {
   try {
-    const role = req.user?.role || 'analyst';
+    // R-F2872 — resolve from the LIVE user record, not the token snapshot.
+    // The JWT's `role` is baked in at login (users.mjs createToken), so reading
+    // req.user.role went stale on a role change in exactly the way this
+    // endpoint's own comment says it is avoiding: the FETCH was fresh, the DATA
+    // inside it was not. Elevating a user to admin had no effect on their nav
+    // until they next logged in, with nothing telling them why.
+    // Falls back to the token role (and then 'analyst') so the internal-token
+    // pseudo-user, which has no row, still resolves cleanly.
+    const live = req.user?.userId ? findUserById(req.user.userId) : null;
+    const role = live?.role || req.user?.role || 'analyst';
     res.json({ role, allowed: navPagesForRole(role) });
   } catch (err) {
     // Fail CLOSED: an empty allow-list hides the gated links rather than showing
