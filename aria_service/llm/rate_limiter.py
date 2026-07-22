@@ -192,11 +192,18 @@ class RateLimitedProvider(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 60.0,
         prefer_provider: str = "",
+        model: str = "",
     ) -> LLMResult:
         await self._acquire_slot()
         # R-F1366 — forward per-call provider preference (only when set; a
         # bare inner provider doesn't accept the kwarg).
         extra = {"prefer_provider": prefer_provider} if prefer_provider else {}
+        # R-F2877 — forward the per-call model override (R-F2769) the SAME way: only
+        # when set. This wrapper had dropped `model`, so article fact-extraction died
+        # every research cycle with "unexpected keyword argument 'model'" whenever the
+        # LLM was rate-limited (i.e. in production).
+        if model:
+            extra["model"] = model
         result = await self._inner.complete(
             system_prompt, user_message,
             max_tokens=max_tokens, timeout=timeout,
