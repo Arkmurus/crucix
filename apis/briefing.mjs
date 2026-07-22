@@ -541,6 +541,15 @@ export async function fullBriefing() {
       sourcesPartial:  partialCount,
       sourcesFailed:   failedCount,
       sourcesNotConfigured: sourceHealth.notConfigured,
+      // R-F2853: buildSourceHealthSummary has always counted a 'suspended'
+      // bucket (pruner short-circuited the call) and treats it as UNAVAILABLE
+      // when computing severity — but the public payload never exposed it, so
+      // ok+partial+failed+notConfigured silently failed to add up to
+      // sourcesQueried. A 2026-07-22 external review read 46 ok / 0 failed /
+      // 50 queried and could not account for 4 sources. Omitting a bucket that
+      // counts as unavailable reads as "nothing wrong here", which is the
+      // false-clean shape we do not ship.
+      sourcesSuspended: sourceHealth.suspended,
     },
     sources: Object.fromEntries(
       // Include partial sources too — their data is still usable, just
