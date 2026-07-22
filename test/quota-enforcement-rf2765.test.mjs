@@ -12,7 +12,32 @@
 // internal call would be wrongly 429'd and WhatsApp chat would break.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { enforceQuota } from '../lib/billing/enforce.mjs';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+// R-F2858 — ISOLATE the durable counter file.
+//
+// R-F2829 made quota counters durable (they used to live only in a Map and
+// reset on every deploy, so the "5 DD/month" cap was really "5 per deploy").
+// The side effect: this file had no PERSIST_DIR/QUOTA_FILE_OVERRIDE, so its
+// counters landed in the SHARED runs/quotas.json and survived the run. The
+// suite therefore POISONED ITSELF — each execution consumed more of the caps
+// these tests assert are free, and the failure count grew run over run (2 -> 4
+// observed in one session). The DD keys are month-scoped, so once tripped they
+// stayed red until the calendar month rolled.
+//
+// Worse than a red gate: on a box where PERSIST_DIR=/data (production), running
+// the suite would consume REAL customer quota.
+//
+// QUOTA_FILE_OVERRIDE is read at quotas.mjs module-init, so it must be set
+// BEFORE that module is imported — hence the dynamic import below (ESM static
+// imports are hoisted and would run first). node --test gives each FILE its own
+// process, so this cannot leak into sibling test files.
+process.env.QUOTA_FILE_OVERRIDE = path.join(
+  mkdtempSync(path.join(tmpdir(), 'quota-rf2765-')), 'quotas.json',
+);
+const { enforceQuota } = await import('../lib/billing/enforce.mjs');
 
 test('R-F2765: system/internal caller (no userId) is EXEMPT — never blocked', async () => {
   assert.equal(await enforceQuota(undefined, null, 'message'), null);
