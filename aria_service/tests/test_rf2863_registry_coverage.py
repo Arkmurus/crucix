@@ -232,6 +232,58 @@ def test_coverage_reports_the_uncovered_jurisdictions():
     assert not overlap, f"a jurisdiction cannot be both covered and manual-only: {overlap}"
 
 
+def test_exploration_ledger_says_WHY_each_gap_is_uncovered():
+    """R-F2866 — 'can we add Ireland?' must be answerable from data.
+
+    Before this, uncovered was a bare list, so the question was re-researched
+    every time and the answer lived in a commit message.
+    """
+    cov = asyncio.run(rc.coverage())
+    exp = cov["exploration"]
+    assert set(exp) == set(cov["manual_only"]), (
+        "every uncovered jurisdiction must carry an exploration verdict"
+    )
+    ie = exp["IE"]
+    assert ie["status"] == "credentials_required"
+    assert ie["probed_at"], "a verdict with no probe date is an opinion"
+    assert ie["endpoint"], "the probed endpoint must be recorded as evidence"
+
+
+def test_unprobed_is_the_default_never_unavailable():
+    """★ 'We have not looked' and 'we looked and it is impossible' differ.
+
+    Only one of those is evidence. A jurisdiction with no recorded probe must
+    say so rather than being written off.
+    """
+    cov = asyncio.run(rc.coverage())
+    unprobed = [i for i, e in cov["exploration"].items() if e["status"] == "unprobed"]
+    assert unprobed, "most jurisdictions are genuinely unprobed — say so"
+    for iso2 in unprobed:
+        e = cov["exploration"][iso2]
+        assert e["probed_at"] is None, "an unprobed entry must not carry a probe date"
+        assert e["status"] != "no_api", "never claim no_api without having probed"
+    assert cov["summary"]["unprobed"] == len(unprobed)
+
+
+def test_operator_clearable_gaps_are_called_out():
+    """The actionable subset: gaps a credential would unblock (§21e)."""
+    cov = asyncio.run(rc.coverage())
+    assert "IE" in cov["operator_clearable"], "CRO needs credentials — surface it"
+    assert "AU" in cov["operator_clearable"], "ABR needs a free GUID — surface it"
+    # A structural gap is NOT operator-clearable; conflating them would send the
+    # operator chasing a credential that does not exist.
+    assert "BE" not in cov["operator_clearable"], "no_api is not fixable by a credential"
+    assert "DK" not in cov["operator_clearable"], "third-party-only is a §6 decision"
+
+
+def test_covered_jurisdictions_have_no_exploration_entry():
+    """NEGATIVE CONTROL: a solved jurisdiction must not appear as a gap."""
+    cov = asyncio.run(rc.coverage())
+    for iso2 in ("CH", "NO", "EE"):
+        assert iso2 not in cov["exploration"], f"{iso2} is covered, not a gap"
+        assert iso2 in cov["jurisdictions"]
+
+
 def test_registry_status_is_UNKNOWN_until_observed_never_guessed():
     """★ Authority must not be inferred from the FUNCTION name.
 

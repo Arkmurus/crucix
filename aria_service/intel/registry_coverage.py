@@ -51,6 +51,63 @@ _COVERED_ELSEWHERE = {"GB": "companies_house"}
 
 _VALID_OUTCOMES = ("success", "error", "empty")
 
+# ── R-F2866 — exploration ledger ─────────────────────────────────────────────
+# Why a jurisdiction is NOT covered, from an actual probe. Before this, uncovered
+# was a bare list, so "can we add Ireland?" was re-researched from scratch every
+# time and the answer lived in a commit message. Recording the probe makes the
+# next decision cheap and stops us re-probing a source we already ruled out.
+#
+# The default is UNPROBED, never "unavailable". "We have not looked" and "we
+# looked and it is not possible" are different claims, and only one of them is
+# evidence. Anything absent from this table reports as unprobed.
+#
+# probed_at is the date the endpoint was actually exercised — a verdict with no
+# date is an opinion, and these go stale as registries open up.
+_EXPLORATION: dict[str, dict] = {
+    # Ruled out — needs credentials an operator must obtain (§21e).
+    "IE": {"status": "credentials_required", "probed_at": "2026-07-22",
+           "endpoint": "https://services.cro.ie/cws/companies",
+           "detail": "HTTP 401 — CRO requires registered API credentials."},
+    "AU": {"status": "credentials_required", "probed_at": "2026-07-22",
+           "endpoint": "https://abr.business.gov.au/json/MatchingNames.aspx",
+           "detail": "ABR responds but requires a free registered GUID."},
+    "DK": {"status": "third_party_only", "probed_at": "2026-07-22",
+           "endpoint": "https://cvrapi.dk/api",
+           "detail": "Works, but is a THIRD-PARTY proxy — §6 puts the burden of "
+                     "proof on it; the official Virk feed needs credentials."},
+    # Ruled out — data exists but there is no per-entity lookup API.
+    "LV": {"status": "bulk_only", "probed_at": "2026-07-22",
+           "endpoint": "https://data.gov.lv/dati/lv/api/3/action/package_search",
+           "detail": "Dataset catalogue only — would need a bulk import, not a lookup."},
+    "UA": {"status": "bulk_only", "probed_at": "2026-07-22",
+           "endpoint": "https://data.gov.ua/api/3/action/package_search",
+           "detail": "Dataset catalogue only — would need a bulk import, not a lookup."},
+    # Ruled out — no machine-readable endpoint found.
+    "SI": {"status": "no_api", "probed_at": "2026-07-22",
+           "endpoint": "https://www.ajpes.si/prs/", "detail": "HTML search form only."},
+    "BE": {"status": "no_api", "probed_at": "2026-07-22",
+           "endpoint": "https://kbopub.economie.fgov.be", "detail": "HTML search form only."},
+    "CA": {"status": "no_api", "probed_at": "2026-07-22",
+           "endpoint": "https://ised-isde.canada.ca/cc/lgcy/api",
+           "detail": "Returns the HTML portal, not JSON."},
+    "GR": {"status": "no_api", "probed_at": "2026-07-22",
+           "endpoint": "https://publicity.businessportal.gr", "detail": "HTTP 404."},
+    "CO": {"status": "no_api", "probed_at": "2026-07-22",
+           "endpoint": "https://ruesapi.rues.org.co", "detail": "HTTP 404."},
+    "SG": {"status": "no_api", "probed_at": "2026-07-22",
+           "endpoint": "https://data.gov.sg/api", "detail": "HTTP 404 / 403."},
+    "HR": {"status": "no_api", "probed_at": "2026-07-22",
+           "endpoint": "https://sudreg-api.pravosudje.hr", "detail": "Unreachable; registration required."},
+    "NZ": {"status": "credentials_required", "probed_at": "2026-07-22",
+           "endpoint": "https://api.business.govt.nz", "detail": "HTTP 404 without a subscription key."},
+    "JP": {"status": "credentials_required", "probed_at": "2026-07-22",
+           "endpoint": "https://api.houjin-bangou.nta.go.jp",
+           "detail": "Requires a free application ID."},
+}
+
+# Statuses an operator could clear by obtaining a credential — the actionable set.
+_OPERATOR_CLEARABLE = {"credentials_required"}
+
 # Bound every store touch: this surface must stay answerable when the store is sick.
 _READ_TIMEOUT_S = float(__import__("os").getenv("ARIA_REGISTRY_COVERAGE_TIMEOUT_S", "3") or 3)
 
@@ -179,13 +236,31 @@ async def coverage() -> dict[str, Any]:
             }
 
     manual_only = sorted(set(_hint_jurisdictions()) - set(jurisdictions))
+    # R-F2866 — say WHY each one is uncovered, from a dated probe. Anything we
+    # have not actually exercised reports as `unprobed`, never as unavailable.
+    exploration = {
+        iso2: dict(_EXPLORATION.get(iso2) or {"status": "unprobed",
+                                              "probed_at": None,
+                                              "endpoint": None,
+                                              "detail": "no probe recorded"})
+        for iso2 in manual_only
+    }
+    operator_clearable = sorted(
+        iso2 for iso2, e in exploration.items()
+        if e.get("status") in _OPERATOR_CLEARABLE
+    )
     live_count = sum(1 for v in jurisdictions.values() if v["live"] is True)
     return {
         "jurisdictions": jurisdictions,
         "manual_only": manual_only,
+        "exploration": exploration,
+        "operator_clearable": operator_clearable,
         "summary": {
             "with_adapter": len(jurisdictions),
             "manual_only": len(manual_only),
+            "probed": sum(1 for e in exploration.values() if e["status"] != "unprobed"),
+            "unprobed": sum(1 for e in exploration.values() if e["status"] == "unprobed"),
+            "operator_clearable": len(operator_clearable),
             "live": live_count,
             "failing": sum(1 for v in jurisdictions.values() if v["live"] is False),
             # Named explicitly so nobody reads "not live" as "broken".
