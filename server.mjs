@@ -43,6 +43,7 @@ import { conversationKeyForUser, slugifyIdentity } from './lib/auth/conversation
 import { ROLES, roleSatisfies } from './lib/auth/roles.mjs';  // R-F2170
 import { requiredRoleForAriaPath, isDoubleEncodedPath } from './lib/auth/infraRoutes.mjs';  // R-F2775 + R-F2802
 import { probeFlyHealth, combineCrossOk } from './lib/health/crossHealth.mjs';  // R-F2776
+import { createLivenessObserver } from './lib/observability/livenessObserver.mjs';  // R-F2860
 import { operatorPageFor, navPagesForRole } from './lib/auth/operatorPages.mjs';  // R-F2785 table + R-F2818 lookup + R-F2822 nav entitlement
 import { classifyDeliveryOutcome, degradedDetail } from './lib/aria/deliveryOutcome.mjs';  // R-F1965
 import { classifySourceHealth } from './lib/source/healthBuckets.mjs';  // R-F2719
@@ -7541,6 +7542,55 @@ async function start() {
       _sendWebBeat();
       setInterval(_sendWebBeat, _webBeatMs);
       console.log('[Crucix] Brain liveness heartbeat enabled (every 3min)');
+    }
+
+    // R-F2860 — EXTERNAL liveness observer: aria-web WATCHES aria-intel. The
+    // heartbeat above tells the brain "web is alive"; this watches the BRAIN. Because
+    // it runs in a SEPARATE process, it can SEE and RECORD aria-intel dying or
+    // crash-looping — which the in-process web_integrity_agent structurally cannot
+    // (it dies with the process; "9 passed" is guaranteed whenever it logs at all).
+    // Outages are recorded DURABLY on the /data volume (survives aria-intel death),
+    // the operator is alerted (§19e — never let him discover an outage himself), and
+    // on recovery the outage is reported to the brain (§25 — the death it could not
+    // self-report). Confirmation is SUSTAINED/FLAPPING-gated so the legit ~10-min cold
+    // boot and rolling deploys never cry wolf.
+    if (ARIA_SERVICE_URL) {
+      try {
+        const _outageStore = new PersistStore(
+          'crucix:aria_intel_outages',
+          join(process.cwd(), 'data', 'aria_intel_outages.json'),
+          () => [],
+        );
+        await _outageStore.init();
+        const _observer = createLivenessObserver({
+          serviceUrl: ARIA_SERVICE_URL,
+          probeFn: probeFlyHealth,
+          store: _outageStore,
+          notifyFn: notifyAdmin,
+          brainPostFn: async (sig) => {
+            await fetch(`${ARIA_SERVICE_URL}/api/aria/brain/signal`, {
+              method: 'POST',
+              headers: { ..._ariaHeaders(), 'Content-Type': 'application/json' },
+              body: JSON.stringify(sig),
+              signal: AbortSignal.timeout(8000),
+            });
+          },
+          logger: console,
+        });
+        const _observerMs = (_observer._config.pollIntervalS || 30) * 1000;
+        let _observerInFlight = false;
+        const _observerTimer = setInterval(() => {
+          if (_observerInFlight) return;             // non-overlapping (belt + the module's own guard)
+          _observerInFlight = true;
+          _observer.tick()
+            .catch(err => console.error('[liveness_observer] tick crashed:', err?.message || err))
+            .finally(() => { _observerInFlight = false; });
+        }, _observerMs);
+        if (typeof _observerTimer.unref === 'function') _observerTimer.unref();
+        console.log(`[Crucix] External liveness observer enabled (aria-web → aria-intel, every ${_observerMs / 1000}s)`);
+      } catch (e) {
+        console.error('[liveness_observer] failed to start (non-fatal):', e?.message || e);
+      }
     }
 
     cron.schedule('0 7 * * *', async () => {
