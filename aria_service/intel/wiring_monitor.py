@@ -508,6 +508,30 @@ async def test_brain_signal_path() -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+def _actionable_staged(staged: list) -> tuple[int, float | None]:
+    """Count ONLY actionable staged items (status == 'staged'), matching
+    self_improve.get_staged(). R-F2878: `crucix:aria:staged_improvements` is an
+    append-only list that RETAINS deployed/rejected entries, so its raw length
+    (90 live) over-reports a queue that is actually draining (3 actionable). Counting
+    the raw length false-alarmed 'not draining'. Returns (count, oldest_age_minutes),
+    with the oldest computed over ACTIONABLE items only and None when unknown (the old
+    'Nonemin' render came from a None age)."""
+    import time
+    actionable = [s for s in staged if isinstance(s, dict) and s.get("status") == "staged"]
+    oldest = None
+    now = time.time()
+    for item in actionable:
+        ts = item.get("timestamp") or item.get("created_at") or ""
+        if ts:
+            try:
+                age = now - float(ts)
+                if oldest is None or age > oldest:
+                    oldest = age
+            except (ValueError, TypeError):
+                pass
+    return len(actionable), (round(oldest / 60, 1) if oldest is not None else None)
+
+
 async def check_coder_loop_health() -> dict[str, Any]:
     """Check that the self-coding loop is healthy.
 
@@ -534,22 +558,11 @@ async def check_coder_loop_health() -> dict[str, Any]:
             try:
                 staged = json.loads(staged_raw) if isinstance(staged_raw, str) else staged_raw
                 if isinstance(staged, list):
-                    result["staged_count"] = len(staged)
-                    if staged:
-                        # Find oldest by looking at timestamps
-                        oldest = None
-                        now = time.time()
-                        for item in staged:
-                            ts = item.get("timestamp") or item.get("created_at") or ""
-                            if ts:
-                                try:
-                                    age = now - float(ts)
-                                    if oldest is None or age > oldest:
-                                        oldest = age
-                                except (ValueError, TypeError):
-                                    pass
-                        if oldest is not None:
-                            result["staged_oldest_age_minutes"] = round(oldest / 60, 1)
+                    # R-F2878 — count only ACTIONABLE (status=='staged'), not the raw
+                    # append-only history, so a draining queue isn't false-alarmed.
+                    cnt, oldest_min = _actionable_staged(staged)
+                    result["staged_count"] = cnt
+                    result["staged_oldest_age_minutes"] = oldest_min
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -571,19 +584,20 @@ async def check_coder_loop_health() -> dict[str, Any]:
         result["healthy"] = False
 
     # Determine health
+    _age = result["staged_oldest_age_minutes"]
+    _age_str = f"{_age}min old" if _age is not None else "age unknown"   # R-F2878 — no literal 'Nonemin'
     if result["staged_count"] > 50:
         result["healthy"] = False
         result["detail"] = (
             f"Staged queue has {result['staged_count']} items — "
-            f"not draining fast enough. Oldest is "
-            f"{result['staged_oldest_age_minutes']}min old."
+            f"not draining fast enough. Oldest is {_age_str}."
         )
     elif result["staged_count"] == 0:
         result["detail"] = "No staged improvements — coder may not be running or no gaps found."
     else:
         result["detail"] = (
             f"{result['staged_count']} staged improvements, "
-            f"oldest {result['staged_oldest_age_minutes']}min old — draining."
+            f"oldest {_age_str} — draining."
         )
 
     # Wire to brain
