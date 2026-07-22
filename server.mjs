@@ -4786,6 +4786,13 @@ function requireAuth(req, res, next) {
       }
     }
     req.user = payload;
+    // R-F2871 — the Bearer is now fully verified (signature + force-logout
+    // check), so mirror it into the page-gate cookie. This is what lets an
+    // existing session self-heal: the next API call the page makes restores
+    // access to the operator pages, with no sign-out/sign-in dance.
+    // Deliberately NOT done for the localhost bypass (no identity) or the
+    // ARIA_INTERNAL_TOKEN path (a service caller has no browser session).
+    _mintPageCookie(req, res, token);
     next();
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
@@ -4861,6 +4868,29 @@ function _setAuthCookie(res, token) {
 function _clearAuthCookie(res) {
   res.clearCookie(_AUTH_COOKIE, { httpOnly: true, secure: true, sameSite: 'lax', path: '/' });
 }
+// R-F2871 — refresh the page-gate cookie from a valid Bearer.
+//
+// R-F2774 minted this cookie at LOGIN ONLY, with no refresh path. Any session
+// that predated R-F2774, or that crossed the 7-day cookie TTL, kept a perfectly
+// valid JWT in localStorage — APIs worked, the dashboard rendered, the nav showed
+// the links — while every operator page bounced to /signin.html. Reported by the
+// admin on 2026-07-22 as "no access to brain / source health / vault"; the account
+// was never at fault (system-status: admins=1, matchesEnv=true, anomaly=ok).
+//
+// Called ONLY from requireAuth's verified-JWT branch, so the cookie can never
+// carry anything the caller does not already hold. Cheap and idempotent: if the
+// cookie already matches the Bearer we send nothing, so a normal API call does
+// not grow a redundant Set-Cookie header.
+function _mintPageCookie(req, res, token) {
+  try {
+    if (!token || res.headersSent) return;
+    if (_cookieToken(req) === token) return;   // already current — no-op
+    _setAuthCookie(res, token);                // identical flags to login
+  } catch {
+    // A cookie refresh must NEVER break the API call it rode in on.
+  }
+}
+
 function _cookieToken(req) {
   const raw = req.headers.cookie || '';
   for (const part of raw.split(';')) {
