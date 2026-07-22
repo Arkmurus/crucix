@@ -1571,6 +1571,16 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
     selected = articles_to_read[:num_articles]
 
     studied = []
+    # R-F2661 — cost guard for the honest regional grade below. The grader
+    # calls the local reasoning stack, and unlike R-F2660's per-CELL site this
+    # one runs per ARTICLE, so it must be bounded per session (CLAUDE.md §1).
+    # Articles beyond the budget are SKIPPED, never credited — an unmeasured
+    # cell is not a pass.
+    try:
+        _grade_budget = int(os.getenv("ARIA_READING_GRADE_BUDGET", "2") or 2)
+    except ValueError:
+        _grade_budget = 2
+    _grades_used = 0
     for art in selected:
         url = art.get("link") or ""
         title = art.get("title") or ""
@@ -1633,12 +1643,49 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
         # article that touches both a topic AND a detected region
         # contributes to the regional heatmap → research engine has
         # weak cells to attack autonomously.
+        # R-F2661 — HONEST grade, not a participation trophy. Pre-R-F2661 this
+        # hardcoded correct=True, so an article that merely MENTIONED a topic
+        # and a region lifted the gate-#2 heatmap: it measured reading VOLUME,
+        # not comprehension — the same bug R-F2660 removed from the R-F1744
+        # loop. Reuse the ONE honest grader both other paths use so every
+        # mastery mover grades identically.
+        #
+        # Two deliberate narrowings, both in the honest direction:
+        #   * exactly ONE cell (first topic x first region) is graded and
+        #     credited. Spreading a single grade across every topic x region
+        #     pair would be a fresh fabrication.
+        #   * a grader error SKIPS the update entirely rather than defaulting —
+        #     an unmeasured cell must never be recorded as correct.
         try:
             regions_in_text = detect_regions(f"{title} {body[:1500]}")
-            if topics and regions_in_text:
-                await update_regional_mastery(
-                    topics, regions_in_text, correct=True, weight=0.3,
-                )
+            # Only spend the bounded budget on a cell that can actually MOVE
+            # the gate-#2 heatmap: update_regional_mastery silently skips any
+            # topic outside TOPICS, and R-F1893 drops 'global' (detect_regions
+            # falls back to ["global"] when no real region matched). Grading
+            # either would consume a grader call for a guaranteed no-op write.
+            _r_topic = next((t for t in topics if t in TOPICS), None)
+            _r_region = next((r for r in regions_in_text if r != "global"), None)
+            if _r_topic and _r_region and _grades_used < _grade_budget:
+                _graded = None
+                try:
+                    from ..autonomous.tasks import _grade_researched_cell as _grade_cell
+                    _grades_used += 1
+                    _graded = await _grade_cell(_r_topic, _r_region, body[:4000])
+                except Exception as _ge:
+                    # Do NOT fabricate a pass and do NOT write a fabricated
+                    # fail — skip the cell so the heatmap stays honest.
+                    logger.debug(
+                        "[student] R-F2661 honest grade skipped for %s:%s: %s",
+                        _r_topic, _r_region, _ge,
+                    )
+                else:
+                    await update_regional_mastery(
+                        [_r_topic], [_r_region], correct=_graded, weight=0.3,
+                    )
+                    logger.info(
+                        "[student] R-F2661 reading cell %s:%s -> honest mastery "
+                        "grade=%s", _r_topic, _r_region, _graded,
+                    )
         except Exception as _rre:
             logger.debug("R-F196 regional mastery update failed: %s", _rre)
 
