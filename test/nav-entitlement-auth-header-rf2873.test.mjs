@@ -101,13 +101,16 @@ test('R-F2873: NEGATIVE CONTROL — the fixed guard actually yields headers', ()
     'the old guard must be shown to send nothing');
 });
 
-test('R-F2873: aria-brain hasToken no longer uses window.API', () => {
-  // Same class: hasToken was always false, so a signed-in operator was told to
-  // "sign in" rather than "re-authenticate" — a misleading message, not a lockout.
-  assert.ok(!/window\.API && API\.token/.test(BRAIN),
-    'hasToken must not depend on window.API');
-  assert.match(BRAIN, /typeof API !== 'undefined' && API\.token/,
-    'hasToken must resolve API lexically');
+test('R-F2873: aria-brain never resolves API through window', () => {
+  // Originally this pinned `hasToken` to a lexical lookup. R-F2876 then DELETED
+  // hasToken outright: it existed only to guess whether a 401/403 meant "sign in"
+  // or "re-authenticate", and that guess was the defect — the banner now derives
+  // the message from the HTTP status instead. What must still hold is the class
+  // invariant: no window.<const global> lookup anywhere in this page.
+  assert.ok(!/window\.API/.test(BRAIN),
+    'window.API is permanently undefined for a const-declared global');
+  assert.ok(!/const hasToken/.test(BRAIN),
+    'the token-presence guess is gone — the status decides the message (R-F2876)');
 });
 
 test('R-F2873: the fail-closed behaviour is preserved', () => {

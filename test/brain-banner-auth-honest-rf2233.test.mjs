@@ -77,6 +77,8 @@ async function drive(sandbox, path_, resp) {
 // rejects the vm's foreign Array.prototype even when contents match).
 const failures = (s) => JSON.parse(vm.runInContext('JSON.stringify([..._fetchFailures.keys()])', s));
 const authGated = (s) => JSON.parse(vm.runInContext('JSON.stringify([..._authGated])', s));
+// R-F2876 — 403 has its OWN bucket now: a 401 is fixed by signing in, a 403 never is.
+const forbidden = (s) => JSON.parse(vm.runInContext('JSON.stringify([..._forbidden])', s));
 const bannerHtml = (s) => s._bannerEl.innerHTML;
 const bannerShown = (s) => s._bannerEl.style.display !== 'none';
 
@@ -144,9 +146,14 @@ describe('R-F2233 honest banner: 401 auth is NOT unreachable', () => {
     await drive(s, '/learning/stats', { status: 401, body: {} }); // auth
     await drive(s, '/autonomy/surface', { status: 403, body: {} });// auth
     assert.equal(failures(s).length, 1, 'exactly ONE genuine unreachable');
-    assert.equal(authGated(s).length, 3);
+    // R-F2876 — the two 401s stay auth-gated; the 403 is classified separately,
+    // because no sign-in can ever unlock an operator-tier route. Total auth-ish
+    // is still 3 — this contract is STRICTER than the old lumped count, not weaker.
+    assert.equal(authGated(s).length, 2, 'the two 401s');
+    assert.equal(forbidden(s).length, 1, 'the 403 — operator-tier, not a sign-in problem');
     const b = bannerHtml(s);
     assert.ok(b.includes('1 endpoint failed'), 'says 1, not 4');
-    assert.ok(b.includes('🔒'), 'still shows the auth note alongside');
+    assert.ok(b.includes('🔒'), 'the sign-in note for the 401s');
+    assert.ok(b.includes('🛡️'), 'the operator-tier note for the 403');
   });
 });

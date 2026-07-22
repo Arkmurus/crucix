@@ -464,7 +464,14 @@ window.addEventListener('DOMContentLoaded', function () {
 // error-envelope) → red banner; _authGated holds 401/403 → a calm
 // sign-in note, never "down".
 const _fetchFailures = new Map();  // path → reason (genuine unreachable)
-const _authGated = new Set();      // path (401/403 — auth, not down)
+const _authGated = new Set();      // path (401 — NOT signed in; sign-in fixes it)
+// R-F2876 — 403 is a DIFFERENT condition and needs a different message. These
+// panels are control-plane routes (/autonomous/*, /autonomy/*) which R-F2139
+// scopes to the OPERATOR token; the web tier deliberately holds only the shared
+// service token. The gate is on the WEB TIER's token, not on the user — so no
+// sign-in can ever unlock them. Lumping 403 in with 401 made the banner promise
+// a remedy that cannot work.
+const _forbidden = new Set();      // path (403 — operator-tier only, unreachable here)
 
 // R-F2234: ONE-CALL dashboard aggregate. /api/aria/brain/dashboard computes
 // every panel server-side ONCE (cached) so we no longer fan out ~24 requests
@@ -497,21 +504,33 @@ async function _primeDashboard() {
 function _trackFetchFailure(path, reason) {
   _fetchFailures.set(path, reason || 'no response');
   _authGated.delete(path);
+  _forbidden.delete(path);
   _renderFetchFailureBanner();
 }
 function _trackFetchSuccess(path) {
-  const changed = _fetchFailures.delete(path) | _authGated.delete(path);
+  // R-F2876 — clear BOTH auth buckets, or a panel that starts working leaves the
+  // banner permanently raised (a false alarm is the same class of lie as a
+  // false clean).
+  const changed = _fetchFailures.delete(path) | _authGated.delete(path) | _forbidden.delete(path);
   if (changed) _renderFetchFailureBanner();
 }
 function _trackAuthGated(path) {
   _authGated.add(path);
   _fetchFailures.delete(path);
+  _forbidden.delete(path);
+  _renderFetchFailureBanner();
+}
+// R-F2876 — 403: authenticated but not permitted at this tier.
+function _trackForbidden(path) {
+  _forbidden.add(path);
+  _fetchFailures.delete(path);
+  _authGated.delete(path);
   _renderFetchFailureBanner();
 }
 function _renderFetchFailureBanner() {
   const banner = document.getElementById('fetch-failure-banner');
   if (!banner) return;
-  if (_fetchFailures.size === 0 && _authGated.size === 0) {
+  if (_fetchFailures.size === 0 && _authGated.size === 0 && _forbidden.size === 0) {
     banner.style.display = 'none';
     banner.innerHTML = '';
     return;
@@ -532,16 +551,30 @@ function _renderFetchFailureBanner() {
       + `backend overload. Affected: ${head}${more}.`;
   }
   // Auth-gated panels — NOT a reachability failure. Calm sign-in note.
+  // R-F2876 — the message is DERIVED FROM THE STATUS, never guessed. The old
+  // branch inferred the cause from token presence and so told a fully-authorised
+  // admin to "sign in again" for panels that no sign-in can ever unlock.
+  //
+  // 401 — genuinely not signed in. Signing in IS the remedy.
   if (_authGated.size > 0) {
     const n = _authGated.size;
     const noun = n === 1 ? 'panel requires' : 'panels require';
-    // R-F2873 — `API` is a const global; a window property lookup is always
-    // undefined here, so this used to report "signed out" to a signed-in operator.
-    const hasToken = !!(typeof API !== 'undefined' && API.token && API.token());
-    const msg = hasToken
-      ? `🔒 <strong>${n} operator ${noun} re-authentication</strong>. Your session may have expired. Sign in again to load them. (These are not "down".)`
-      : `🔒 <strong>${n} operator ${noun} sign-in</strong> to display. This is expected for a signed-out viewer: the endpoints are reachable, just protected.`;
-    html += (html ? '<div style="height:8px"></div>' : '') + msg;
+    html += (html ? '<div style="height:8px"></div>' : '')
+      + `🔒 <strong>${n} ${noun} sign-in</strong> to display. The endpoints are `
+      + `reachable, just protected — these are not "down".`;
+  }
+  // 403 — signed in, but this tier may not call the control plane. R-F2139 scopes
+  // /autonomous/* and /autonomy/* to the OPERATOR token; the web tier holds only
+  // the shared service token, by design. State that plainly and offer NO remedy,
+  // because none exists in the browser.
+  if (_forbidden.size > 0) {
+    const n = _forbidden.size;
+    const noun = n === 1 ? 'panel is' : 'panels are';
+    html += (html ? '<div style="height:8px"></div>' : '')
+      + `🛡️ <strong>${n} control-plane ${noun} operator-tier only</strong> and cannot be `
+      + `shown in the web UI. The autonomy and autonomous-engine endpoints require the `
+      + `operator token (R-F2139); this tier holds the shared service token deliberately. `
+      + `Not a fault, and not fixable by signing in — read them via the operator CLI.`;
   }
   banner.innerHTML = html;
   banner.style.display = 'block';
@@ -562,11 +595,12 @@ async function fetchJson(path) {
     }
   }
   const res = await API.probe('/api/aria' + path);
-  // Auth-gated (401/403): reachable but protected. NOT "unreachable".
-  if (res.status === 401 || res.status === 403) {
-    _trackAuthGated(path);
-    return null;
-  }
+  // Auth-gated: reachable but protected. NOT "unreachable" (R-F2390).
+  // R-F2876 — 401 and 403 are DIFFERENT conditions and get different messages:
+  //   401 = not signed in            -> signing in fixes it
+  //   403 = signed in, wrong tier    -> signing in can NEVER fix it
+  if (res.status === 401) { _trackAuthGated(path); return null; }
+  if (res.status === 403) { _trackForbidden(path); return null; }
   // Timeout / network error (no HTTP status reached).
   if (res.status === 0) {
     _trackFetchFailure(path, res.timedOut ? 'timeout (>20s)' : (res.error || 'no response'));
