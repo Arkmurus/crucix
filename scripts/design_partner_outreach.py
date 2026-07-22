@@ -168,7 +168,7 @@ For a compliance/DD professional, this means:
 - Your team gets free, structured DD reports for 90 days
 - You influence how defence DD AI should work
 - Early access to a platform that's methodology-published and
-  constitution-governed (23-clause honesty constitution)
+  constitution-governed (published, incident-anchored honesty constitution)
 
 Would you be open to a 30-min call to explore whether this fits?
 
