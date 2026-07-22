@@ -1605,6 +1605,16 @@ async def lifespan(app: FastAPI):
             elapsed = now - last
             last = now
             _wedge_state["heartbeat"] = now
+            # R-F2849 — feed the queryable loop-lag gauge from the SAME measurement
+            # the R-F703 detector already computes. One 1s loop, two consumers: this
+            # detector LOGS discrete stalls (>5s); loop_monitor exposes a rolling
+            # p50/p95/max on /health so contention is observable BEFORE it wedges.
+            # (elapsed is the wake interval; the overshoot over the 1s sleep is the lag.)
+            try:
+                from .intel.loop_monitor import record_lag as _record_lag
+                _record_lag(max(0.0, (elapsed - 1.0) * 1000.0))
+            except Exception:
+                pass
             # R-F1332: tick the self_restart heartbeat for aria_main every 1s.
             # The stall detector already runs every 1s, so this is a free tick
             # that keeps the blackout detector happy without a separate task.
@@ -4718,7 +4728,14 @@ async def health():
     }
     state_backend_ind["status"] = "green" if state_backend_ind["reachable"] else "red"
 
+    # R-F2849 — loop-lag gauge (sync snapshot; never touches the loop).
+    try:
+        from .intel.loop_monitor import snapshot as _loop_snapshot
+        _loop_health = _loop_snapshot()
+    except Exception:
+        _loop_health = {"status": "unknown"}
     return {
+        "loop": _loop_health,
         "status": "operational" if (
             chain_resilient
             and autonomous_healthy
