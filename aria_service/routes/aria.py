@@ -4579,6 +4579,21 @@ async def rag_sources_ep(limit: int = 50):
     return await rag_store.list_sources(limit=limit)
 
 
+@router.get("/registry/coverage")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def registry_coverage_ep():
+    """R-F2881 — surface the registry COVERAGE inventory: every company-registry
+    jurisdiction (CH/NO/EE/… — 26 adapters + GB), its adapter, observed tri-state
+    liveness, and the exploration ledger of jurisdictions probed but not integrated.
+
+    This inventory had NO endpoint and NO page, so the coverage 24→27 (the CH/NO/EE
+    work) was structurally invisible — vault.html reads the separate agent-signup
+    vault. Cheap + read-only: reads observations from state + iterates the adapter
+    table; performs NO live network probes."""
+    from ..intel import registry_coverage as rc
+    return await rc.coverage()
+
+
 class RagSearchRequest(BaseModel):
     query: str
     top_k: int = 8

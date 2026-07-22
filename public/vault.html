@@ -139,6 +139,31 @@
     <i class="bi bi-info-circle"></i> Vault is SQLite-backed. Data persists across restarts.
     API: <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">GET /api/aria/vault</code>
   </div>
+
+  <!-- R-F2881 — Company Registry Coverage: the direct company-registry access points -->
+  <div class="sc-page-header" style="margin-top:34px">
+    <div>
+      <h2 class="sc-page-title" style="font-size:20px"><i class="bi bi-bank2"></i> Company Registry Coverage</h2>
+      <p class="sc-page-sub">Direct company-registry access points ARIA queries by API / open data (CH, NO, EE, GB, DE, FR …) with observed liveness. Distinct from the signup vault above — these need no account.</p>
+    </div>
+  </div>
+  <div class="sc-grid-4 mb-16" id="coverage-summary">
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-bank"></i></div><div><div class="sc-stat-value" id="cov-total">-</div><div class="sc-stat-label">Registries</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-check-circle"></i></div><div><div class="sc-stat-value" id="cov-live">-</div><div class="sc-stat-label">Live (proven)</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-dash-circle"></i></div><div><div class="sc-stat-value" id="cov-unproven">-</div><div class="sc-stat-label">Unproven</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-compass"></i></div><div><div class="sc-stat-value" id="cov-explored">-</div><div class="sc-stat-label">Explored (no adapter)</div></div></div>
+  </div>
+  <div class="sc-card">
+    <div style="padding:0">
+      <table class="sc-table" id="coverage-table">
+        <thead><tr><th>Jurisdiction</th><th>Adapter</th><th>Liveness</th><th>Observations</th><th>Last success</th></tr></thead>
+        <tbody id="coverage-body"><tr><td colspan="5" style="text-align:center;padding:40px"><div class="sc-spinner"></div></td></tr></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="mt-16" style="font-size:12px;color:#9b968c;padding:0 4px">
+    <i class="bi bi-info-circle"></i> Tri-state liveness: <b>Live</b> = proven by a successful query · <b>Failing</b> = a probe failed · <b>Unproven</b> = not yet exercised (never read as "broken"). API: <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">GET /api/aria/registry/coverage</code>
+  </div>
 </main>
 <script src="js/app.js?v=8"></script>
 <script src="js/sidebar.js?v=13"></script>
@@ -266,6 +291,55 @@ loadVault();
 
 // Auto-refresh every 60s
 setInterval(loadVault, 60000);
+
+// ── R-F2881 — Company Registry Coverage panel ───────────────────────────────
+// Surfaces registry_coverage.coverage() (the 27-jurisdiction inventory incl.
+// CH/NO/EE) which previously had no page — vault.html only read the signup vault.
+const COV_COUNTRY = {
+  CH:'Switzerland', NO:'Norway', EE:'Estonia', GB:'United Kingdom', DE:'Germany',
+  FR:'France', US:'United States', FI:'Finland', PL:'Poland', RO:'Romania', TR:'Turkey',
+  BR:'Brazil', NG:'Nigeria', AE:'UAE', IN:'India', SK:'Slovakia', CZ:'Czechia',
+  HU:'Hungary', AO:'Angola', KE:'Kenya', SA:'Saudi Arabia', GH:'Ghana', ZA:'South Africa',
+  IL:'Israel', PA:'Panama', BG:'Bulgaria', GI:'Gibraltar',
+};
+function covLiveHtml(live, status) {
+  if (live === true)  return '<span style="display:inline-flex;align-items:center;gap:5px"><i class="bi bi-check-circle-fill" style="color:#15803d"></i><span style="color:#15803d;font-weight:600">Live</span></span>';
+  if (live === false) return '<span style="display:inline-flex;align-items:center;gap:5px"><i class="bi bi-x-circle-fill" style="color:#b91c1c"></i><span style="color:#b91c1c;font-weight:600">Failing</span></span>';
+  return '<span style="display:inline-flex;align-items:center;gap:5px"><i class="bi bi-dash-circle" style="color:#6b6862"></i><span style="color:#6b6862;font-weight:600">' + escHtml(status || 'unproven') + '</span></span>';
+}
+function covDate(iso) { if (!iso) return '<span style="color:#9b968c">-</span>'; try { return new Date(iso).toLocaleDateString(); } catch { return escHtml(String(iso)); } }
+async function loadRegistryCoverage() {
+  const body = document.getElementById('coverage-body');
+  if (!body) return;
+  try {
+    const data = await API.get('/api/aria/registry/coverage');
+    const js = (data && data.jurisdictions) || {};
+    const sum = (data && data.summary) || {};
+    const rows = Object.keys(js).sort();
+    document.getElementById('cov-total').textContent = (sum.with_adapter != null ? sum.with_adapter : rows.length);
+    document.getElementById('cov-live').textContent = sum.live || 0;
+    document.getElementById('cov-unproven').textContent = sum.unproven || 0;
+    document.getElementById('cov-explored').textContent = sum.manual_only || 0;
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:30px;color:var(--sc-muted)">No registries configured.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(iso => {
+      const j = js[iso] || {};
+      return '<tr>' +
+        '<td><strong>' + escHtml(iso) + '</strong> <span style="font-size:11px;color:#9b968c">' + escHtml(COV_COUNTRY[iso] || '') + '</span></td>' +
+        '<td style="font-size:13px">' + escHtml(j.adapter || '') + '</td>' +
+        '<td>' + covLiveHtml(j.live, j.status) + '</td>' +
+        '<td style="font-size:12px;color:var(--sc-muted)">' + (j.observations || 0) + '</td>' +
+        '<td style="font-size:12px;color:var(--sc-muted)">' + covDate(j.last_success_at) + '</td>' +
+      '</tr>';
+    }).join('');
+  } catch (err) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:30px;color:#b91c1c">Load error: ' + escHtml(err.message) + '</td></tr>';
+  }
+}
+loadRegistryCoverage();
+setInterval(loadRegistryCoverage, 60000);
 
 // ── R-F2048 — Add Site (admin/dev) ──────────────────────────────────────────
 (function () {
