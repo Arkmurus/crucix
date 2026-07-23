@@ -425,40 +425,54 @@ if (smtpConfigured) {
 // ARKMURUS format even if Seenode's persistent volume has an older telegram.mjs loaded.
 // The old telegram.mjs has `handlers = { '/brief': () => this._handleBrief() }` which
 // calls this method on the instance — patching here wins regardless of prototype version.
-function goldenBriefCustomerScore(signal) {
-  const n = Number(signal?.customer_value?.score ?? signal?.distribution_score ?? 0);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function goldenBriefHardRejections(signal) {
-  const reasons = Array.isArray(signal?.customer_value?.rejection_reasons)
-    ? signal.customer_value.rejection_reasons
-    : (Array.isArray(signal?.distribution_rejection_reasons) ? signal.distribution_rejection_reasons : []);
-  return reasons.filter(r => !['customer_value_below_distribution_threshold', 'customer_value_below_telegram_threshold'].includes(String(r)));
-}
+// R-F2908 — goldenBriefCustomerScore / goldenBriefHardRejections REMOVED with the
+// stale /brief gate they served. They read `customer_value.score`, a second quality
+// measure that disagrees with intel_grade (at review time every signal scoring 96
+// was Grade B). Deleted rather than left dangling so nothing re-wires the superseded
+// gate; the brief now uses channelHooks.selectPublishableGoldenIntel, the same gate
+// as the channel.
 
 async function fetchGoldenIntelForBrief(limit = 5) {
   if (!ARIA_SERVICE_URL) return [];
   try {
-    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/intel/signals/recent?limit=${limit}`, {
-      headers: _ariaHeaders(),
-      signal: AbortSignal.timeout(8000),
+    // R-F2908 — fetch and gate through the SAME path the channel uses. This lane
+    // previously had its own gate (customer_value.score >= 80 + freshness.stale ===
+    // false), which drifted behind the channel in two ways:
+    //   * it predates R-F2899, so a classifier-template signal could appear here as
+    //     though ARIA had analysed it;
+    //   * it predates R-F2896, so it re-derived staleness locally and would blank the
+    //     whole section whenever `source_failure_degraded` was the only stale reason —
+    //     the exact divergence that left the customer dashboard empty for days.
+    // Live at review time every signal clearing the old >=80 gate was Grade B scoring
+    // 96, rendered through formatDailyBrief with no corroboration-pending label.
+    //
+    // Grade A first; fall back to clearly-LABELLED Grade B, mirroring the 17:00
+    // channel policy. Each item carries its own grade so the caller can label it.
+    const feed = await channelHooks.fetchGoldenIntelSignals({
+      limit: Math.max(20, limit * 4),
+      grades: 'A,B',
+      serviceUrl: ARIA_SERVICE_URL,
+      timeoutMs: 8000,
     });
-    if (!r.ok) return [];
-    const data = await r.json();
-    const freshness = data?.freshness || {};
-    if (freshness.stale !== false || freshness.backfilled) return [];
-    // R-F2600: the /brief digest publishes to Telegram, so it must clear the
-    // TELEGRAM tier (score>=80), not the looser dashboard-distribution tier (70).
-    // Mirrors data/golden_intel_north_star_rubric.json publication_thresholds.telegram
-    // and the channel-post gate in lib/telegram/channelServerHooks.mjs.
-    return Array.isArray(data.signals)
-      ? data.signals.filter(s => goldenBriefCustomerScore(s) >= 80 && goldenBriefHardRejections(s).length === 0)
-      : [];
+    const gradeA = channelHooks.selectPublishableGoldenIntel(feed, { grade: 'A', limit });
+    if (gradeA.length >= limit) return gradeA;
+    const gradeB = channelHooks.selectPublishableGoldenIntel(feed, { grade: 'B', limit: limit - gradeA.length });
+    return [...gradeA, ...gradeB];
   } catch (e) {
     console.warn('[Telegram] Golden Intel brief fetch failed:', e.message);
     return [];
   }
+}
+
+/**
+ * R-F2908 — a Grade B item must never read as confirmed. The channel has
+ * formatGradeBChannelPost for this; the brief renders inline, so it gets the same
+ * disclosure as a prefix. Grade A needs no qualifier — the badge is the claim.
+ */
+function goldenBriefGradeLabel(signal) {
+  const grade = String(signal?.intel_grade || '').toUpperCase();
+  if (grade === 'B') return '[GRADE B — single source, corroboration pending] ';
+  return '';
 }
 
 function telegramBriefText(value, limit = 140) {
@@ -532,7 +546,9 @@ telegramAlerter._handleBrief = async function() {
         const quality = telegramBriefText(s.quality_label || 'context', 60);
         const horizon = telegramBriefText(s.action_horizon || 'monitor', 30);
         const evidence = telegramBriefText(s.corroboration || 'single-source', 40);
-        msg += `▸ *${title}*\n`;
+        // R-F2908 — the grade prefix goes FIRST, before the title, so the uncertainty
+        // is read before the claim rather than after it.
+        msg += `▸ *${goldenBriefGradeLabel(s)}${title}*\n`;
         msg += `  ${s.priority || 'LOW'}/${s.confidence || 'LOW'} · ${quality} · Horizon: ${horizon} · Evidence: ${evidence}\n`;
         msg += `  Target: ${target} · Action: ${action}\n`;
       }

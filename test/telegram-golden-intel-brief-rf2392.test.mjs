@@ -14,15 +14,32 @@ const SRC = readFileSync(join(__dirname, '..', 'server.mjs'), 'utf8');
 
 const helperStart = SRC.indexOf('async function fetchGoldenIntelForBrief');
 assert.ok(helperStart > -1, 'server must define fetchGoldenIntelForBrief');
-const helper = SRC.slice(helperStart, helperStart + 900);
+// R-F2908 — window widened: the helper now carries a long rationale comment before
+// the call, so a 900-char slice no longer reaches the code it asserts on.
+const helper = SRC.slice(helperStart, helperStart + 2600);
 
+// R-F2908 — the brief no longer hand-rolls the fetch or the gate. It calls the SAME
+// helpers the channel uses (channelHooks.fetchGoldenIntelSignals ->
+// selectPublishableGoldenIntel), which hit exactly this endpoint, carry the ARIA auth
+// headers and bound the timeout internally. The original assertions pinned the
+// literal URL/auth/shape INSIDE this helper; that wording is superseded, but the
+// contract it protected — the brief sources Golden Intel from the Python signals
+// endpoint and never fabricates it — is preserved and strengthened, because the gate
+// is now shared rather than duplicated (the duplicate had drifted behind R-F2896 and
+// R-F2899). See test/brief-golden-gate-rf2908.test.mjs for the behavioural coverage.
 assert.ok(
-  helper.includes('/api/aria/intel/signals/recent?limit='),
-  'Telegram brief must fetch Python Golden Intel signals',
+  helper.includes('channelHooks.fetchGoldenIntelSignals'),
+  'Telegram brief must fetch Python Golden Intel signals via the shared channel fetcher',
 );
-assert.ok(helper.includes('headers: _ariaHeaders()'), 'Golden Intel fetch must use ARIA auth headers');
-assert.ok(helper.includes('AbortSignal.timeout(8000)'), 'Golden Intel fetch must be latency bounded');
-assert.ok(helper.includes('Array.isArray(data.signals)'), 'Golden Intel fetch must verify response shape');
+assert.ok(
+  SRC.includes("`${base}/api/aria/intel/signals/recent?${q}`") === false,
+  'sanity: the URL lives in channelServerHooks, not server.mjs',
+);
+assert.ok(helper.includes('timeoutMs: 8000'), 'Golden Intel fetch must be latency bounded');
+assert.ok(
+  helper.includes("selectPublishableGoldenIntel"),
+  'Golden Intel must pass the same publishable gate as the channel',
+);
 
 const briefStart = SRC.indexOf('telegramAlerter._handleBrief = async function');
 assert.ok(briefStart > -1, 'server must patch the active Telegram /brief handler');

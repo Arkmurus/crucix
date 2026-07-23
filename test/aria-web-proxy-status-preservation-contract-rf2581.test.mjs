@@ -66,7 +66,13 @@ console.log('\n2. No new status-masking proxy without review (ratchet)');
 //   (outbound proprioception), not a dashboard status-masking proxy.
 // 22 = the whole-file regex count (includes one multi-line `fetch(\n ${ARIA_SERVICE_URL}…`
 // call that per-line greps miss). Counted via the same regex this test uses.
-const BESPOKE_BASELINE = 22;
+// R-F2908 (22 -> 21): fetchGoldenIntelForBrief no longer builds its own
+//   ARIA_SERVICE_URL fetch — the /brief lane now calls
+//   channelHooks.fetchGoldenIntelSignals, the SAME fetch+gate the channel uses, so
+//   one bespoke call was REMOVED. The baseline moves DOWN, which is the direction
+//   this pin exists to encourage: fewer hand-rolled upstream fetches, fewer places
+//   a gate can drift (the duplicate had fallen behind R-F2896 and R-F2899).
+const BESPOKE_BASELINE = 21;
 const bespoke = (SRC.match(/fetch\(\s*`\$\{ARIA_SERVICE_URL\}/g) || []).length;
 check(
   `bespoke ARIA_SERVICE_URL fetches == ${BESPOKE_BASELINE} (found ${bespoke})`,
