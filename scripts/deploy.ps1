@@ -115,6 +115,21 @@ function Get-IntelBuildRev {
     return $null
 }
 
+# ---- R-F2900: get live build_rev for a NODE app (aria-web / aria-wa) ----
+# These serve it from /api/health as "<sha> · <r-tags>". Returns $null when the
+# app exposes no build_rev, which the caller treats as "weaker check only".
+function Get-NodeBuildRev {
+    param([string]$App)
+    foreach ($hp in @('/api/health', '/healthz', '/health')) {
+        try {
+            $resp = Invoke-WebRequest -Uri "https://$App.fly.dev$hp" -TimeoutSec 8 -UseBasicParsing -ErrorAction Stop
+            $m = [regex]::Match($resp.Content, '"build_rev"\s*:\s*"([a-f0-9]+)')
+            if ($m.Success) { return $m.Groups[1].Value }
+        } catch {}
+    }
+    return $null
+}
+
 # ---- Deploy one app and verify ----
 function Deploy-And-Verify {
     param([string]$App, [string]$Config, [int]$TimeoutSeconds)
@@ -178,11 +193,33 @@ function Deploy-And-Verify {
                 } catch { $code = 000 }
                 if ($code -eq 200) { break }
             }
-            if ($versionBumped -and $code -eq 200) {
-                Write-Host "  [PASS] $App LIVE - version $preVer->$nowVer, HTTP $code"
-                $ok = $true; break
+            # R-F2900 — a version bump is NOT proof YOUR commit shipped. When a
+            # parallel agent deploys mid-poll (ARIA's own ci_deploy does), the
+            # version bumps and this reported [PASS] while the server ran THEIR
+            # build — observed live 2026-07-23: a failed aria-web build was
+            # declared deployed because v337->338 landed from another deploy.
+            # aria-intel has been immune since R-F1478 because it matches
+            # build_rev; do the same here whenever the app exposes one.
+            $liveRev = Get-NodeBuildRev $App
+            if ($liveRev) {
+                # Prefix compare, NOT -eq: the node apps publish a 12-char sha
+                # ("7f387e7e031e") while $GIT_SHORT is --short=8. An equality
+                # test here never matches and polls to a false FAIL.
+                if ($liveRev.StartsWith($GIT_SHORT) -and $code -eq 200) {
+                    Write-Host "  [PASS] $App LIVE - build_rev=$liveRev matches commit (version $nowVer)"
+                    $ok = $true; break
+                }
+                Write-Host "  poll $i/36: version $preVer->$nowVer, live build_rev=$liveRev (want $GIT_SHORT), HTTP $code"
+            } else {
+                # No build_rev surface on this app — fall back to the weaker
+                # bump+200 check, but SAY so, so a green line is not read as
+                # commit-level proof.
+                if ($versionBumped -and $code -eq 200) {
+                    Write-Host "  [PASS-WEAK] $App version $preVer->$nowVer, HTTP $code (no build_rev endpoint - NOT commit-verified)"
+                    $ok = $true; break
+                }
+                Write-Host "  poll $i/36: version $preVer->$nowVer (bumped=$versionBumped), HTTP $code, no build_rev"
             }
-            Write-Host "  poll $i/36: version $preVer->$nowVer (bumped=$versionBumped), HTTP $code"
         }
         $i++
     }

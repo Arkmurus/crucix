@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2898,
+  "next_available": 2901,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -21287,9 +21287,10 @@
       "title": "portfolio intelligence truth and tenant isolation",
       "claimed_at": "2026-07-18T12:53:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1346b04d",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:29:52Z"
     },
     {
       "r_number": "R-F2739",
@@ -22788,68 +22789,102 @@
       "title": "news_monitor: purge the 46 dead feeds + live-probe regression test",
       "claimed_at": "2026-07-23T03:53:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1346b04d",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:29:51Z"
     },
     {
       "r_number": "R-F2891",
       "title": "news_monitor: topical relevance gate before an article becomes a signal",
       "claimed_at": "2026-07-23T03:53:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1346b04d",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:29:51Z"
     },
     {
       "r_number": "R-F2892",
       "title": "news_monitor: anchor signal classification to word boundaries + evidence capture",
       "claimed_at": "2026-07-23T03:53:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1346b04d",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:29:51Z"
     },
     {
       "r_number": "R-F2893",
       "title": "channel: server-side min_grade on /intel/signals/recent (kill the window lottery)",
       "claimed_at": "2026-07-23T03:53:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1346b04d",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:29:52Z"
     },
     {
       "r_number": "R-F2894",
       "title": "telegram: real write-permission pre-flight before burning a channel slot",
       "claimed_at": "2026-07-23T03:53:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1346b04d",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:29:52Z"
     },
     {
       "r_number": "R-F2895",
       "title": "telegram: escalate consecutive channel delivery failures to the operator",
       "claimed_at": "2026-07-23T03:53:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1346b04d",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:29:52Z"
     },
     {
       "r_number": "R-F2896",
       "title": "dashboard/channel: one canonical feedPublishable staleness semantic",
       "claimed_at": "2026-07-23T03:53:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1346b04d",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:29:52Z"
     },
     {
       "r_number": "R-F2897",
       "title": "attach Claude model-class routing to the high-volume autonomous loops",
       "claimed_at": "2026-07-23T04:34:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2898",
+      "title": "telegram: permission probe must not hard-block on an ambiguous negative (send is authoritative)",
+      "claimed_at": "2026-07-23T11:38:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2899",
+      "title": "channel: only publish signals whose why/action are item-specific analysis, not classifier templates",
+      "claimed_at": "2026-07-23T11:44:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2900",
+      "title": "deploy.ps1: aria-web/wa verified by version-bump alone - a peer deploy fakes a PASS",
+      "claimed_at": "2026-07-23T11:44:53Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
