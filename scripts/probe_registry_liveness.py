@@ -113,6 +113,16 @@ async def _probe_one(iso2: str, spec: dict) -> dict:
                     outcome="FALLBACK",
                     detail=f"NATIVE REGISTRY FOUND NOTHING — GLEIF answered ({found[:44]})",
                 )
+            elif answering.endswith("_stub"):
+                # R-F2915 — a stub does not read a registry. It echoes the QUERY back
+                # as company_name and attaches data_gaps saying no public API exists.
+                # Counting that as liveness would mean treating ARIA quoting itself
+                # back as proof a national registry answered. It is a real DD outcome
+                # (the report shows the gap) but it is NOT coverage.
+                row.update(
+                    outcome="STUB",
+                    detail=f"NO REGISTRY READ — stub echoed the query ({answering})",
+                )
             else:
                 row.update(outcome="LIVE", detail=f"matched: {found[:70]}")
     row["elapsed_s"] = round(time.monotonic() - started, 1)
@@ -128,18 +138,21 @@ async def main() -> int:
     for iso2, spec in sorted(targets.items()):
         row = await _probe_one(iso2, spec)
         rows.append(row)
-        mark = {"LIVE": "LIVE ", "EMPTY": "EMPTY", "ERROR": "ERROR", "FALLBACK": "FBACK"}[row["outcome"]]
+        mark = {"LIVE": "LIVE ", "EMPTY": "EMPTY", "ERROR": "ERROR", "FALLBACK": "FBACK", "STUB": "STUB "}[row["outcome"]]
         print(f"{mark} {iso2}  {row['elapsed_s']:>5}s  {row['query'][:30]:32} {row['detail'][:78]}")
         await asyncio.sleep(1.0)          # be a good citizen to public registries
 
     live = [r for r in rows if r["outcome"] == "LIVE"]
     fb = [r for r in rows if r["outcome"] == "FALLBACK"]
+    stub = [r for r in rows if r["outcome"] == "STUB"]
     empty = [r for r in rows if r["outcome"] == "EMPTY"]
     err = [r for r in rows if r["outcome"] == "ERROR"]
     print("\n" + "=" * 72)
     print(f"LIVE  national registry answered: {len(live)}/{len(rows)}  -> {[r['iso2'] for r in live]}")
     print(f"FBACK GLEIF answered, NATIVE DID NOT (proves nothing about the registry): "
           f"{len(fb)}  -> {[r['iso2'] for r in fb]}")
+    print(f"STUB  no registry read, query echoed back (NOT coverage): "
+          f"{len(stub)}  -> {[r['iso2'] for r in stub]}")
     print(f"EMPTY adapter ran, no match:      {len(empty)}  -> {[r['iso2'] for r in empty]}")
     print(f"ERROR adapter or endpoint:        {len(err)}  -> {[r['iso2'] for r in err]}")
     print("=" * 72)

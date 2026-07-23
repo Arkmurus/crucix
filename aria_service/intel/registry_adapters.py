@@ -189,10 +189,31 @@ async def lookup_entity(
         # state_store write on the DD hot path. "empty" is neither success nor
         # failure — a registry that correctly answers "no such company" is
         # WORKING, but it did not prove liveness either.
+        # R-F2915 — a STUB result must never record registry liveness.
+        #
+        # The stub adapters (angola_gue_stub, kenya_brs_stub, us_unknown_stub, …) do
+        # not read a registry. They echo the QUERY back as company_name and attach
+        # data_gaps explaining that no public API exists — honest in their own payload,
+        # and exactly right for a DD report, which then shows the gap instead of
+        # nothing. But `result` is truthy, so this call recorded "success", and
+        # registry_coverage turns a success into `live` with a timestamp as evidence.
+        #
+        # Caught 2026-07-23 by the R-F2911 sweep: 9 jurisdictions (AO BG GH IL KE PA SA
+        # US ZA) reported a "match" in 0.0s with 0 officers whose company_name was the
+        # probe string itself. Had those persisted, vault.html would have claimed nine
+        # live national registries on the strength of ARIA quoting itself back — the
+        # precise false-coverage this inventory exists to prevent, and worse than the
+        # honest "unproven" it replaced.
+        #
+        # A stub therefore records "empty": the adapter RAN, and produced no registry
+        # evidence. That is true, and it keeps the jurisdiction unproven rather than
+        # marking it live or failing.
+        _adapter_name = (result or {}).get("adapter", "") if isinstance(result, dict) else ""
+        _is_stub = _adapter_name.endswith("_stub")
         _record_coverage_outcome(
             iso2,
-            (result or {}).get("adapter", "") if isinstance(result, dict) else "",
-            "success" if result else "empty",
+            _adapter_name,
+            "success" if (result and not _is_stub) else "empty",
         )
 
         # R-F2261 — GLEIF global fallback when the jurisdiction adapter found NOTHING:
