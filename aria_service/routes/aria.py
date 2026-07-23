@@ -4658,6 +4658,108 @@ async def registry_coverage_ep():
     return await rc.coverage()
 
 
+@router.post("/registry/coverage/probe", dependencies=[Depends(require_aria_token)])
+@fail_wire(module="aria", gap_type="engine_failure")
+async def registry_coverage_probe_ep(iso2: str = "", limit: int = 0) -> dict:
+    """R-F2927 — exercise the registry adapters IN THIS PROCESS so liveness is recorded.
+
+    Why an endpoint and not the script: registry_coverage persists to the state store,
+    which is owned by THIS server process. A side-car `python -m scripts...` run cannot
+    reach it — verified live 2026-07-23:
+        _load() -> None ("state_store: no connection (reconnect in progress)")
+        record_outcome() -> False
+    record_outcome then SKIPS the write rather than clobbering the durable key, which is
+    the correct behaviour and exactly why the standalone sweep probed all 27 adapters,
+    printed 27 results, and left the vault reading 0 live. The observations were never
+    refused by the registries; they were refused by the store, in the wrong process.
+
+    GB proved the mechanism works when it runs in the right place: it is the one row
+    that went live, recorded in-process by a real DD run through the R-F2918 branch.
+
+    This performs REAL outbound lookups (unlike GET /registry/coverage, which is
+    read-only), so it is token-gated and never runs on its own — no scheduler, no boot
+    hook. Liveness must remain a consequence of a real lookup, so nothing here writes
+    `live` directly: it calls lookup_entity and lets the normal recording path decide,
+    including the R-F2915 rule that a stub records `empty`, never liveness.
+
+    iso2  probe a single jurisdiction (e.g. ?iso2=PL); omit to sweep all.
+    limit cap the number probed (0 = no cap) — bounds a slow full sweep.
+    """
+    from ..intel import registry_adapters as ra
+    from ..intel import registry_coverage as rc
+
+    # Verified real entities, one per jurisdiction. Identifier-based adapters
+    # (BR needs a CNPJ, SK an IČO) return None without one, so a name-only probe would
+    # report a HEALTHY adapter as dead — the instrument defect found on 2026-07-23.
+    # Only identifiers confirmed against the live adapter are listed; guessing a
+    # registration number would inject fabricated input and produce a confident wrong
+    # verdict, which is the failure this whole surface exists to prevent.
+    probes: dict[str, tuple[str, str | None]] = {
+        "AE": ("DP WORLD", None),          "AO": ("SONANGOL", None),
+        "BG": ("LUKOIL NEFTOHIM BURGAS", None),
+        "BR": ("PETROLEO BRASILEIRO S.A.", "33000167000101"),
+        "CH": ("Nestle", None),            "CZ": ("SKODA AUTO", None),
+        "DE": ("Siemens AG", None),        "EE": ("Bolt Technology", None),
+        "FI": ("Nokia Oyj", None),         "FR": ("THALES", None),
+        "GH": ("MTN GHANA", None),         "GI": ("GVC HOLDINGS", None),
+        "HU": ("MOL", None),               "IL": ("ELBIT SYSTEMS", None),
+        "IN": ("RELIANCE INDUSTRIES LIMITED", None),
+        "KE": ("SAFARICOM", None),         "NG": ("DANGOTE CEMENT", None),
+        "NO": ("EQUINOR ASA", None),       "PA": ("COPA HOLDINGS", None),
+        "PL": ("ORLEN", None),             "RO": ("OMV PETROM", None),
+        "SA": ("SAUDI ARAMCO", None),      "SK": ("SLOVNAFT", "31322832"),
+        "TR": ("ASELSAN", None),           "US": ("Lockheed Martin Corporation", None),
+        "ZA": ("SASOL LIMITED", None),
+    }
+
+    wanted = {iso2.upper().strip()} if iso2.strip() else set(probes)
+    targets = [(k, v) for k, v in sorted(probes.items()) if k in wanted]
+    if limit and limit > 0:
+        targets = targets[:limit]
+
+    results: list[dict] = []
+    for code, (name, reg) in targets:
+        row: dict = {"iso2": code, "query": name,
+                     "probe_input": "name+id" if reg else "name-only"}
+        try:
+            res = await asyncio.wait_for(ra.lookup_entity(name, code, reg), timeout=45)
+        except Exception as exc:
+            row.update(outcome="error", detail=f"{type(exc).__name__}: {str(exc)[:140]}")
+        else:
+            adapter = (res or {}).get("adapter", "") if isinstance(res, dict) else ""
+            if not res:
+                row.update(outcome="empty", adapter="",
+                           detail=("no match for a name-only probe — inconclusive if this "
+                                   "adapter requires a registration number") if not reg
+                                  else "no match even with a verified identifier")
+            elif adapter.lower().startswith("gleif"):
+                # GLEIF proves GLEIF is reachable; it says NOTHING about the national
+                # registry, which is what this jurisdiction's row claims.
+                row.update(outcome="fallback_gleif", adapter=adapter,
+                           detail="national registry returned nothing; GLEIF answered")
+            elif adapter.endswith("_stub"):
+                row.update(outcome="stub", adapter=adapter,
+                           detail="no registry read — stub echoed the query back")
+            else:
+                prof = (res or {}).get("profile") or {}
+                row.update(outcome="live", adapter=adapter,
+                           matched=str(prof.get("company_name") or "")[:80],
+                           officers=len((res or {}).get("officers") or []))
+        results.append(row)
+        await asyncio.sleep(0.4)          # be a good citizen to public registries
+
+    # Report what the STORE now says, so the caller sees the recorded truth rather than
+    # this function's opinion of what it just did.
+    after = await rc.coverage()
+    return {
+        "probed": len(results),
+        "results": results,
+        "coverage_summary": after.get("summary"),
+        "note": ("liveness is recorded by the normal lookup path; a stub or a GLEIF "
+                 "fallback never records liveness"),
+    }
+
+
 class RagSearchRequest(BaseModel):
     query: str
     top_k: int = 8
