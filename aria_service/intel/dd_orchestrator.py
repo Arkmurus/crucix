@@ -3628,6 +3628,39 @@ async def _run_identity(
                     elif not ch_result.get("found") and ch_result.get("error"):
                         report.identity.data_gaps.append(f"Companies House: {ch_result.get('error')}")
 
+                    # R-F2918 — record GB coverage HERE, where the real registry call
+                    # happens. GB is deliberately _COVERED_ELSEWHERE
+                    # (registry_coverage.py:50): it has no entry in the adapter
+                    # dispatch table, so `lookup_entity("…","GB")` never touches
+                    # Companies House and falls straight through to the GLEIF
+                    # fallback. Nothing on this branch reported an outcome, so GB
+                    # could NEVER move off `unproven` — while being, in fact, the
+                    # best-covered jurisdiction we have.
+                    #
+                    # Proven live 2026-07-23 on aria-intel: is_enabled=True,
+                    # BAE SYSTEMS PLC -> company_number 01470151, active,
+                    # incorporated 1979-12-31, 13 current officers. The R-F2911 sweep
+                    # nonetheless showed GB as FALLBACK (GLEIF answered) because it
+                    # probes the adapter path, which GB is not on.
+                    #
+                    # The fix is to record where the work is, NOT to bolt a duplicate
+                    # GB adapter onto the dispatch table — two code paths to the same
+                    # registry is how they drift.
+                    #
+                    # `success` requires a real company_number: an empty/errored CH
+                    # response is `empty`, never liveness. Reuses registry_adapters'
+                    # fire-and-forget recorder so there is ONE implementation of the
+                    # scheduling + never-raise contract.
+                    try:
+                        from .registry_adapters import _record_coverage_outcome
+                        _ch_num = (profile or {}).get("company_number")
+                        _record_coverage_outcome(
+                            "GB", "companies_house",
+                            "success" if _ch_num else "empty",
+                        )
+                    except Exception:
+                        pass        # bookkeeping must never break a DD run
+
                     # ── PSC-reverse: screen each beneficial owner against sanctions ──
                     # 2026-04-12: "Which people control this company, and are any of
                     # them sanctioned?" Surfaces hidden risk from beneficial owners.
@@ -3667,6 +3700,15 @@ async def _run_identity(
         except Exception as e:
             logger.warning("Identity: companies_house lookup failed: %s", e)
             report.identity.data_gaps.append(f"companies_house lookup failed: {str(e)[:120]}")
+            # R-F2918 — a thrown GB lookup is a real failure signal for coverage.
+            # Recording only the happy path would make the inventory incapable of
+            # ever showing GB as `failing`, which is the same one-sided reporting
+            # this whole surface exists to avoid.
+            try:
+                from .registry_adapters import _record_coverage_outcome
+                _record_coverage_outcome("GB", "companies_house", "error")
+            except Exception:
+                pass
 
         # ── 1c. Financial DD — shell company detection (UK) ──────────
         # 2026-04-13: pulls Companies House filing history, detects dormant,
@@ -9391,6 +9433,24 @@ async def orchestrate_dd(
     # existing _interactive_active()-gated background work stays deferred and the
     # DD wins the event loop (cancelled in finally; bounded by the hard deadline).
     _ka_task = asyncio.create_task(_dd_interactive_keepalive())
+    # R-F2917 — operator directive 2026-07-23: DD runs on Claude, EVERYTHING
+    # else on DeepSeek. Scoped ONCE here rather than per-call: a DD fans out
+    # across dd_orchestrator, deep_researcher, company_investigator and the
+    # verification layers, and any call site missed (or added later) would
+    # silently bill the wrong provider. The contextvar covers every LLM call
+    # made inside the run, including nested tasks.
+    #
+    # The chain still falls back normally, so a rate-limited or cooling Claude
+    # degrades the DD to DeepSeek rather than failing it. Set
+    # ARIA_DD_LLM_PROVIDER="" to put DD back on the chain head with no deploy.
+    _dd_ctx_token = None
+    try:
+        from ..llm import fallback as _fb2917
+        _dd_provider = (os.getenv("ARIA_DD_LLM_PROVIDER", "anthropic") or "").strip()
+        if _dd_provider:
+            _dd_ctx_token = _fb2917._preferred_provider.set(_dd_provider.lower())
+    except Exception as _ps_e:  # never let routing break a DD
+        logger.warning("[dd] provider scope unavailable (%s) — using chain head", _ps_e)
     try:
         _rep = await asyncio.wait_for(
             _orchestrate_dd_impl(
@@ -9495,6 +9555,15 @@ async def orchestrate_dd(
         return rep
     finally:
         _ka_task.cancel()  # R-F1855 — stop the interactive keepalive
+        # R-F2917 — always release the Claude pin, on every exit path (success,
+        # timeout, hard-deadline, exception). Leaking it would silently route
+        # LATER non-DD work to Claude in this context — the exact overspend
+        # this change exists to prevent.
+        if _dd_ctx_token is not None:
+            try:
+                _fb2917._preferred_provider.reset(_dd_ctx_token)
+            except Exception:
+                pass
 
 
 async def _orchestrate_dd_impl(
