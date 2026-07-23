@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2911,
+  "next_available": 2912,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22943,36 +22943,40 @@
       "title": "ARIA_CODER_TESTS_ENABLED parsed two incompatible ways - tests run then get filed as never-ran",
       "claimed_at": "2026-07-23T13:59:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "49a79c67",
+      "notes": null,
+      "shipped_at": "2026-07-23T14:30:55Z"
     },
     {
       "r_number": "R-F2906",
       "title": "reject simulated and degenerate gaps before they reach any queue",
       "claimed_at": "2026-07-23T13:59:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "49a79c67",
+      "notes": null,
+      "shipped_at": "2026-07-23T14:30:56Z"
     },
     {
       "r_number": "R-F2907",
       "title": "register the 4 drifted gap types so real signals stop logging as unknown",
       "claimed_at": "2026-07-23T13:59:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "49a79c67",
+      "notes": null,
+      "shipped_at": "2026-07-23T14:30:56Z"
     },
     {
       "r_number": "R-F2908",
       "title": "telegram /brief: gate golden intel like the channel (provenance+publishable, honest Grade B) and restrict to operator chats",
       "claimed_at": "2026-07-23T14:08:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4b748d65",
+      "notes": null,
+      "shipped_at": "2026-07-23T14:23:03Z"
     },
     {
       "r_number": "R-F2909",
@@ -22987,6 +22991,15 @@
       "r_number": "R-F2910",
       "title": "aria brain composite provenance truth",
       "claimed_at": "2026-07-23T14:22:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2911",
+      "title": "registry coverage: curated real-entity liveness sweep so Live/Failing/Unproven is evidence, not absence",
+      "claimed_at": "2026-07-23T14:27:55Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
