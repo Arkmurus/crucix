@@ -92,6 +92,7 @@ import makeWASocket, {
 
 import qrcode   from 'qrcode-terminal';
 import QRCode   from 'qrcode';          // R-F1861: SVG QR rendering (package, distinct from qrcode-terminal)
+import { watchdogAction, WATCHDOG_DEFAULTS } from './wa-watchdog.mjs';  // R-F2946 — open-but-dead detection
 import pino     from 'pino';
 import express  from 'express';
 import fs       from 'fs';
@@ -2008,6 +2009,42 @@ let _logoutCount = 0;           // consecutive logout count (resets on successfu
 let _disconnectStreak = 0;      // consecutive non-logout disconnects
 const _MAX_LOGOUT_RESTARTS = 3; // max times to auto-restart after logout before giving up
 const _STALE_DISCONNECT_MS = 5 * 60 * 1000;  // 5 min without connection → force restart
+// R-F2946 — open-but-dead detection. A Baileys socket can sit connection:'open' but
+// silently dead (no 'close' event). We track the last PROVEN inbound event and, when a
+// "connected" socket goes silent, probe it and — past the ceiling — force a reconnect.
+let _lastInboundActivity = 0;   // ms epoch of the last real inbound WhatsApp event
+let _restartArmed = false;      // dedup: watchdog restart vs the close-handler reconnect (was double-starting)
+const _SILENT_PROBE_MS   = WATCHDOG_DEFAULTS.silentProbeMs;    // silent → active keepalive probe
+const _SILENT_RESTART_MS = WATCHDOG_DEFAULTS.silentRestartMs;  // silent this long → open-but-dead → restart
+function _markInbound() { _lastInboundActivity = Date.now(); }  // R-F2946 — any inbound event = the socket is alive
+
+// R-F2946 — single guarded restart path. Live 2026-07-23 a code-428 close scheduled
+// `setTimeout(startListener, 5s)` AND the watchdog fired startListener() directly, so TWO
+// Baileys sockets started 2s apart (19:26:13 + 19:26:15) → a 515 conflict storm. Route
+// every non-logout restart through here so the first trigger wins and the rest no-op until
+// the next 'open' clears the flag.
+function _restartListener(reason, delayMs = 0) {
+  if (_restartArmed) {
+    console.log(`[ARIA Listener] restart already armed — skipping duplicate trigger (${reason})`);
+    return;
+  }
+  _restartArmed = true;
+  isConnected = false;
+  if (_watchdogTimer) { clearInterval(_watchdogTimer); _watchdogTimer = null; }
+  console.log(`[ARIA Listener] restart armed (${reason})${delayMs ? ` in ${Math.round(delayMs / 1000)}s` : ''}`);
+  setTimeout(() => {
+    // Clear the guard the moment we actually (re)start: it only exists to collapse the
+    // arm→invoke window where the close-handler and the watchdog both fire. Clearing it
+    // here means if THIS attempt's socket closes before it opens, the close-handler can
+    // arm a fresh retry — without this the listener would be stuck "armed" and never
+    // reconnect (the R-F1551 unconditional retry must be preserved).
+    _restartArmed = false;
+    startListener().catch(e => {
+      console.error('[ARIA Listener] restart failed:', e);
+      process.exit(1);   // let Fly restart the machine fresh
+    });
+  }, delayMs);
+}
 
 // ── Start the WhatsApp connection ─────────────────────────────────────────────
 async function startListener() {
@@ -2048,6 +2085,7 @@ async function startListener() {
     markOnlineOnConnect: false,                 // ARIA stays "offline" — just listening
     generateHighQualityLinkPreview: false,
     syncFullHistory: false,                     // only new messages from now on
+    keepAliveIntervalMs: 15000,                 // R-F2946 — poll every 15s so Baileys detects a dead link faster (default 30s; a 428 drop sat undetected ~22 min)
   });
 
   // ── Save credentials whenever they update ─────────────────────────────────
@@ -2055,6 +2093,7 @@ async function startListener() {
 
   // ── Connection lifecycle ───────────────────────────────────────────────────
   sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
+    _markInbound();   // R-F2946 — any connection event is inbound traffic → the socket is alive
 
     // QR code — print once to logs for scanning
     if (qr && !qrPrinted) {
@@ -2072,6 +2111,8 @@ async function startListener() {
       startedAt   = new Date().toISOString();
       reconnectDelay = 5000;  // reset backoff on successful connect
       _lastConnectedTime = Date.now();
+      _markInbound();          // R-F2946 — a fresh 'open' is a proven sign of life
+      _restartArmed = false;   // R-F2946 — connection re-established → future restarts may arm again
       _logoutCount = 0;
       // R-F1634 — reset the disconnect streak only after the connection proves
       // STABLE (>45s), NOT on every brief 'open'. A flap storm
@@ -2151,7 +2192,7 @@ async function startListener() {
           }).catch(() => {});
           process.exit(1);
         }
-        setTimeout(startListener, reconnectDelay);
+        _restartListener(`disconnect code ${code}`, reconnectDelay);  // R-F2946 — guarded (was a bare setTimeout that raced the watchdog)
         reconnectDelay = Math.min(reconnectDelay * 2, 60000);
       }
     }
@@ -2159,19 +2200,29 @@ async function startListener() {
 
   // ── Group metadata cache ───────────────────────────────────────────────────
   sock.ev.on('groups.upsert', (groups) => {
+    _markInbound();   // R-F2946
     for (const g of groups) {
       groupNames.set(g.id, g.subject);
     }
   });
 
   sock.ev.on('groups.update', (updates) => {
+    _markInbound();   // R-F2946
     for (const u of updates) {
       if (u.subject) groupNames.set(u.id, u.subject);
     }
   });
 
+  // R-F2946 — liveness-only taps. These events fire regularly on a healthy account even
+  // when no group MESSAGE arrives (delivery receipts, contacts' presence), so they keep
+  // _lastInboundActivity fresh and stop the watchdog from restarting a quiet-but-alive
+  // socket. A truly dead socket produces none of them → the silence ceiling fires.
+  sock.ev.on('messages.update',        () => _markInbound());
+  sock.ev.on('message-receipt.update', () => _markInbound());
+  sock.ev.on('presence.update',        () => _markInbound());
+
   // ── THE CORE: receive every group message ──────────────────────────────────
-  sock.ev.on('messages.upsert', (ev) => onMessagesUpsert(sock, null, ev));
+  sock.ev.on('messages.upsert', (ev) => { _markInbound(); onMessagesUpsert(sock, null, ev); });
 
   // R-F2422 — arm the connection watchdog on EVERY (re)start. It was armed once
   // at boot and NULLED after its first fire without re-arming, so a second silent
@@ -3580,35 +3631,49 @@ function _waGracefulShutdown(signal) {
 process.on('SIGTERM', () => _waGracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => _waGracefulShutdown('SIGINT'));
 
-// ── R-F1551 — connection watchdog ─────────────────────────────────────────────
-// Periodically checks that the WhatsApp connection is alive. If the listener
-// has been disconnected for too long without reconnecting, forces a restart.
-// This catches the case where Baileys silently drops the WebSocket without
-// firing a 'close' event (observed: the health endpoint returns disconnected
-// but no reconnect is scheduled).
+// ── R-F1551 / R-F2946 — connection watchdog ───────────────────────────────────
+// Periodically checks that the WhatsApp connection is alive. Two failure modes:
+//  (1) disconnected and NOT reconnecting → restart after _STALE_DISCONNECT_MS (R-F1551).
+//  (2) connection.update says 'open' but the socket is silently dead — no inbound event,
+//      no 'close' fired (R-F2946, live 2026-07-23: ~22-min frozen window). Decided from
+//      the last PROVEN inbound event via watchdogAction(), then probed and — past the
+//      ceiling — restarted through the single guarded _restartListener path.
 function _startWatchdog() {
   if (_watchdogTimer) clearInterval(_watchdogTimer);
   _watchdogTimer = setInterval(() => {
-    if (isConnected) return;  // all good
-    if (!_lastConnectedTime) return;  // never connected yet — still starting up
-    const elapsed = Date.now() - _lastConnectedTime;
-    if (elapsed > _STALE_DISCONNECT_MS) {
-      console.error(`[ARIA Listener] ⚠ Stale disconnect detected — ${Math.round(elapsed/1000)}s without connection. Restarting...`);
-      brainPost('/api/aria/brain/signal', {
-        content: `WA listener stale disconnect — ${Math.round(elapsed/1000)}s without connection. Restarting.`,
-        source: 'aria-wa',
-        signal_type: 'wa_stale_disconnect',
-        metadata: { elapsedMs: elapsed, thresholdMs: _STALE_DISCONNECT_MS },
-      }).catch(() => {});
-      // Force restart: clear the watchdog, then restart the listener
-      clearInterval(_watchdogTimer);
-      _watchdogTimer = null;
-      isConnected = false;
-      startListener().catch(e => {
-        console.error('[ARIA Listener] Watchdog restart failed:', e);
-        process.exit(1);
-      });
+    const decision = watchdogAction(Date.now(), {
+      isConnected,
+      lastConnectedTime: _lastConnectedTime,
+      lastInboundActivity: _lastInboundActivity,
+      staleDisconnectMs: _STALE_DISCONNECT_MS,
+      silentProbeMs: _SILENT_PROBE_MS,
+      silentRestartMs: _SILENT_RESTART_MS,
+    });
+
+    if (decision.action === 'ok') return;
+
+    if (decision.action === 'probe') {
+      // R-F2946 — active keepalive on a silent-but-"connected" socket. Stays offline
+      // (unavailable), so it does not change ARIA's presence; best-effort, never throws
+      // into the timer. A live socket typically answers with a receipt that refreshes
+      // _lastInboundActivity; a dead one stays silent and hits the restart ceiling next.
+      try { Promise.resolve(sock?.sendPresenceUpdate?.('unavailable')).catch(() => {}); }
+      catch { /* dead write — the ceiling will catch it */ }
+      return;
     }
+
+    // decision.action === 'restart'
+    const silentSocket = decision.reason === 'silent-socket';
+    const secs = Math.round(((silentSocket ? decision.silentMs : decision.elapsedMs) || 0) / 1000);
+    console.error(`[ARIA Listener] ⚠ ${silentSocket ? 'Silent socket (open-but-dead)' : 'Stale disconnect'} — ${secs}s. Restarting...`);
+    brainPost('/api/aria/brain/signal', {
+      content: `WA listener ${silentSocket ? 'silent socket (open-but-dead)' : 'stale disconnect'} — ${secs}s. Restarting.`,
+      source: 'aria-wa',
+      signal_type: silentSocket ? 'wa_silent_socket' : 'wa_stale_disconnect',
+      metadata: { seconds: secs, reason: decision.reason,
+                  silentRestartMs: _SILENT_RESTART_MS, staleDisconnectMs: _STALE_DISCONNECT_MS },
+    }).catch(() => {});
+    _restartListener(decision.reason, 0);   // guarded — clears the watchdog + dedups the close-handler
   }, 30000);  // check every 30s
 }
 
