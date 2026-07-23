@@ -22994,9 +22994,10 @@
       "title": "aria brain composite provenance truth",
       "claimed_at": "2026-07-23T14:22:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4e1c6f74",
+      "notes": null,
+      "shipped_at": "2026-07-23T15:33:21Z"
     },
     {
       "r_number": "R-F2911",
