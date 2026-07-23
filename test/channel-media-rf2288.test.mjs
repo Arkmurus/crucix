@@ -58,7 +58,14 @@ describe('ChannelMedia — generateInfographicCard', () => {
       type: 'procurement',
     });
     assert.ok(svg.includes('WHY IT MATTERS'));
-    assert.ok(svg.includes('NEXT CHECK'));
+    // R-F2903 — panel renamed 'NEXT CHECK' -> 'RECOMMENDED ACTION'. The field it
+    // renders IS the signal's recommended_action; "next check" understated a
+    // decision-grade instruction and read as a suggestion to look again later.
+    assert.ok(svg.includes('RECOMMENDED ACTION'));
+    // R-F2903 — the why-panel now renders the SUBTITLE (the actual why_it_matters).
+    // It previously rendered bullets[0], which the channel caller sets to the ACTION,
+    // so both panels printed the same sentence.
+    assert.ok(svg.includes('dual-use relevance'), 'why panel must show the why, not the action');
     assert.ok(svg.includes('Dual-use avionics route needs screening'));
   });
 
