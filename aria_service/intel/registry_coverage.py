@@ -51,6 +51,62 @@ _COVERED_ELSEWHERE = {"GB": "companies_house"}
 
 _VALID_OUTCOMES = ("success", "error", "empty")
 
+# ── R-F2929 — WHY, in machine-readable form ──────────────────────────────────
+# The tri-state answers "is it live". It cannot answer "why not", and those reasons
+# are not interchangeable: Angola has NO public registry API at all, Germany's source
+# has DISAPPEARED, India BLOCKS automated access, and Hungary answers but the scrape
+# no longer matches. Rendering all four as a flat "unproven" tells a reader nothing
+# and quietly implies "we just haven't got round to it" for cases where no amount of
+# work by us would change the answer.
+#
+# `caveat` is the one that matters for the USP. CZ and SK ARE live — a real registry
+# answered — but they return the "IČO" LABEL where the company name belongs. A green
+# row with no qualifier would be a false clean on the product surface: the page would
+# vouch for data that is wrong. Liveness and correctness are different claims and the
+# surface must not blur them.
+#
+# Every entry is dated and comes from a probe recorded in the triage block above.
+_NOTE_CLASSES = {
+    "stub_no_registry_api": "No public registry API exists — ARIA reads nothing; manual verification required.",
+    "source_gone": "The source has disappeared — no code change can restore it.",
+    "source_blocks_automation": "The registry blocks automated access (HTTP 403).",
+    "reachable_unparsed": "Source responds, but the adapter extracts nothing — needs re-parsing.",
+}
+
+_ADAPTER_NOTES: dict[str, dict] = {
+    # No registry to read. These will never go live without a paid provider or a
+    # manual process — an operator decision (§6/§17), not a defect to fix.
+    **{c: {"class": "stub_no_registry_api", "probed_at": "2026-07-23"}
+       for c in ("AO", "BG", "GH", "IL", "KE", "PA", "SA", "US", "ZA")},
+    # Sources confirmed gone from TWO independent networks (this workstation and the
+    # fly datacenter) so a single network's failure could not be mistaken for a dead source.
+    "DE": {"class": "source_gone", "probed_at": "2026-07-23",
+           "detail": "api.offeneregister.de no longer resolves (DNS)."},
+    "AE": {"class": "source_gone", "probed_at": "2026-07-23",
+           "detail": "difc.ae public-register API returns 404; only ever covered the DIFC free zone."},
+    "RO": {"class": "source_gone", "probed_at": "2026-07-23",
+           "detail": "ANAF PlatitorTvaRest v8 retired (404). Replacement endpoint not yet known."},
+    "IN": {"class": "source_blocks_automation", "probed_at": "2026-07-23",
+           "detail": "mca.gov.in returns 403 to a normal client."},
+    "NG": {"class": "source_blocks_automation", "probed_at": "2026-07-23",
+           "detail": "search.cac.gov.ng returns 403 to a normal client."},
+    "HU": {"class": "reachable_unparsed", "probed_at": "2026-07-23",
+           "detail": "e-cegjegyzek.hu responds 200; adapter returns nothing."},
+    "TR": {"class": "reachable_unparsed", "probed_at": "2026-07-23",
+           "detail": "mersis.gtb.gov.tr responds 200; adapter returns nothing."},
+    "GI": {"class": "reachable_unparsed", "probed_at": "2026-07-23",
+           "detail": "companieshouse.gi responds 200; adapter returns nothing."},
+}
+
+# Defects in adapters that ARE live. Shown as a caveat ON the live row, never as a
+# downgrade — the registry genuinely answered, and pretending otherwise would be its
+# own inaccuracy.
+_ADAPTER_CAVEATS: dict[str, str] = {
+    "CZ": "Company name parses as 'IČO ' and the registration number comes back empty "
+          "(officers ARE extracted). Identity fields from this adapter are unreliable.",
+    "SK": "Company name parses as 'IČO <number>' — the label, not the company name.",
+}
+
 # ── R-F2911 — ADAPTER HEALTH TRIAGE, 2026-07-23 ──────────────────────────────
 # The exploration ledger below records why a jurisdiction has NO adapter. This
 # records what is wrong with the adapters we DO have, for the same reason: the
@@ -224,6 +280,24 @@ async def record_outcome(iso2: str, adapter: str, outcome: str) -> bool:
         return False
 
 
+def _reason_for(iso2: str) -> dict | None:
+    """R-F2929 — the recorded reason a jurisdiction is not live, or None.
+
+    Returns the CLASS (so a UI can group or colour it) alongside human text and the
+    probe date. A verdict with no date is an opinion, and these go stale as registries
+    open up or move.
+    """
+    note = _ADAPTER_NOTES.get((iso2 or "").upper())
+    if not note:
+        return None
+    cls = note.get("class", "")
+    return {
+        "class": cls,
+        "summary": _NOTE_CLASSES.get(cls, ""),
+        "detail": note.get("detail", ""),
+        "probed_at": note.get("probed_at", ""),
+    }
+
 def _status_for(entry: dict) -> tuple[bool | None, str]:
     """Derive (live, status) from observations only. Never assumes."""
     if int(entry.get("consecutive_failures") or 0) > 0:
@@ -266,6 +340,12 @@ async def coverage() -> dict[str, Any]:
             "consecutive_failures": int(entry.get("consecutive_failures") or 0),
             "last_success_at": entry.get("last_success_at"),
             "last_failure_at": entry.get("last_failure_at"),
+            # R-F2929 — WHY it is not live, and any caveat on a row that IS live.
+            # `reason` is only attached when the jurisdiction is not live: a live row
+            # needs no excuse, and carrying a stale one would invite a reader to
+            # discount evidence that has since been earned.
+            **({"reason": _reason_for(iso2)} if live is not True and _reason_for(iso2) else {}),
+            **({"caveat": _ADAPTER_CAVEATS[iso2]} if iso2 in _ADAPTER_CAVEATS else {}),
         }
 
     for iso2, adapter_name in _COVERED_ELSEWHERE.items():

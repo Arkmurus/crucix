@@ -156,13 +156,16 @@
   <div class="sc-card">
     <div style="padding:0">
       <table class="sc-table" id="coverage-table">
-        <thead><tr><th>Jurisdiction</th><th>Adapter</th><th>Liveness</th><th>Observations</th><th>Last success</th></tr></thead>
-        <tbody id="coverage-body"><tr><td colspan="5" style="text-align:center;padding:40px"><div class="sc-spinner"></div></td></tr></tbody>
+        <thead><tr><th>Jurisdiction</th><th>Adapter</th><th>Liveness</th><th>Why / caveat</th><th>Obs</th><th>Last success</th></tr></thead>
+        <tbody id="coverage-body"><tr><td colspan="6" style="text-align:center;padding:40px"><div class="sc-spinner"></div></td></tr></tbody>
       </table>
     </div>
   </div>
   <div class="mt-16" style="font-size:12px;color:#9b968c;padding:0 4px">
-    <i class="bi bi-info-circle"></i> Tri-state liveness: <b>Live</b> = proven by a successful query · <b>Failing</b> = a probe failed · <b>Unproven</b> = not yet exercised (never read as "broken"). API: <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">GET /api/aria/registry/coverage</code>
+    <i class="bi bi-info-circle"></i> Tri-state liveness: <b>Live</b> = proven by a successful query · <b>Failing</b> = a probe failed · <b>Unproven</b> = not yet exercised (never read as "broken").
+    <br><i class="bi bi-exclamation-triangle" style="color:#b45309"></i> <b>Live *</b> = the registry answered, but a known data-quality defect affects the fields it returns — hover for detail. Liveness and correctness are separate claims and this table does not blur them.
+    <br><i class="bi bi-slash-circle"></i> <b>Why</b> explains an unproven row: <b>No registry API</b> = none exists to read, so it needs manual verification rather than more engineering · <b>Source gone</b> = the endpoint has disappeared · <b>Blocked (403)</b> = the registry refuses automated access · <b>Needs re-parse</b> = it responds but the adapter extracts nothing. Hover any row for the probe date.
+    <br>API: <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">GET /api/aria/registry/coverage</code>
   </div>
 </main>
 <script src="js/app.js?v=8"></script>
@@ -302,10 +305,41 @@ const COV_COUNTRY = {
   HU:'Hungary', AO:'Angola', KE:'Kenya', SA:'Saudi Arabia', GH:'Ghana', ZA:'South Africa',
   IL:'Israel', PA:'Panama', BG:'Bulgaria', GI:'Gibraltar',
 };
-function covLiveHtml(live, status) {
+// R-F2929 — a LIVE row that carries a caveat must not render as an unqualified green
+// tick. CZ and SK genuinely answer (so downgrading them would be its own inaccuracy)
+// but return the "IČO" label where the company name belongs. A plain green Live there
+// would have the page vouching for data that is wrong — a false clean on the surface,
+// which is the one thing this product cannot do. Live-with-caveat gets its own amber
+// treatment, distinct from both Live and Unproven.
+function covLiveHtml(live, status, caveat) {
+  if (live === true && caveat) return '<span style="display:inline-flex;align-items:center;gap:5px" title="' + escHtml(caveat) + '"><i class="bi bi-exclamation-triangle-fill" style="color:#b45309"></i><span style="color:#b45309;font-weight:600">Live *</span></span>';
   if (live === true)  return '<span style="display:inline-flex;align-items:center;gap:5px"><i class="bi bi-check-circle-fill" style="color:#15803d"></i><span style="color:#15803d;font-weight:600">Live</span></span>';
   if (live === false) return '<span style="display:inline-flex;align-items:center;gap:5px"><i class="bi bi-x-circle-fill" style="color:#b91c1c"></i><span style="color:#b91c1c;font-weight:600">Failing</span></span>';
   return '<span style="display:inline-flex;align-items:center;gap:5px"><i class="bi bi-dash-circle" style="color:#6b6862"></i><span style="color:#6b6862;font-weight:600">' + escHtml(status || 'unproven') + '</span></span>';
+}
+// R-F2929 — say WHY, not just "unproven". "No public registry API exists" and "we have
+// not looked yet" are different facts, and flattening them into one grey word implies
+// the second when it is often the first — work we could never complete rather than
+// work we have not started.
+const COV_REASON_STYLE = {
+  stub_no_registry_api:     { icon: 'bi-slash-circle', colour: '#6b6862', label: 'No registry API' },
+  source_gone:              { icon: 'bi-x-octagon',    colour: '#b91c1c', label: 'Source gone' },
+  source_blocks_automation: { icon: 'bi-shield-lock',  colour: '#b45309', label: 'Blocked (403)' },
+  reachable_unparsed:       { icon: 'bi-wrench',       colour: '#b45309', label: 'Needs re-parse' },
+};
+function covWhyHtml(j) {
+  if (j && j.caveat) {
+    return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:12px" title="' + escHtml(j.caveat) + '">'
+      + '<i class="bi bi-exclamation-triangle" style="color:#b45309"></i>'
+      + '<span style="color:#b45309">Data-quality caveat</span></span>';
+  }
+  const r = j && j.reason;
+  if (!r) return '<span style="color:#9b968c;font-size:12px">-</span>';
+  const st = COV_REASON_STYLE[r.class] || { icon: 'bi-dash-circle', colour: '#6b6862', label: r.class || '' };
+  const tip = [r.summary, r.detail, r.probed_at ? ('Probed ' + r.probed_at) : ''].filter(Boolean).join(' — ');
+  return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:12px" title="' + escHtml(tip) + '">'
+    + '<i class="bi ' + st.icon + '" style="color:' + st.colour + '"></i>'
+    + '<span style="color:' + st.colour + '">' + escHtml(st.label) + '</span></span>';
 }
 function covDate(iso) { if (!iso) return '<span style="color:#9b968c">-</span>'; try { return new Date(iso).toLocaleDateString(); } catch { return escHtml(String(iso)); } }
 async function loadRegistryCoverage() {
@@ -321,7 +355,7 @@ async function loadRegistryCoverage() {
     document.getElementById('cov-unproven').textContent = sum.unproven || 0;
     document.getElementById('cov-explored').textContent = sum.manual_only || 0;
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:30px;color:var(--sc-muted)">No registries configured.</td></tr>';
+      body.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--sc-muted)">No registries configured.</td></tr>';
       return;
     }
     body.innerHTML = rows.map(iso => {
@@ -329,13 +363,14 @@ async function loadRegistryCoverage() {
       return '<tr>' +
         '<td><strong>' + escHtml(iso) + '</strong> <span style="font-size:11px;color:#9b968c">' + escHtml(COV_COUNTRY[iso] || '') + '</span></td>' +
         '<td style="font-size:13px">' + escHtml(j.adapter || '') + '</td>' +
-        '<td>' + covLiveHtml(j.live, j.status) + '</td>' +
+        '<td>' + covLiveHtml(j.live, j.status, j.caveat) + '</td>' +
+        '<td>' + covWhyHtml(j) + '</td>' +
         '<td style="font-size:12px;color:var(--sc-muted)">' + (j.observations || 0) + '</td>' +
         '<td style="font-size:12px;color:var(--sc-muted)">' + covDate(j.last_success_at) + '</td>' +
       '</tr>';
     }).join('');
   } catch (err) {
-    body.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:30px;color:#b91c1c">Load error: ' + escHtml(err.message) + '</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:#b91c1c">Load error: ' + escHtml(err.message) + '</td></tr>';
   }
 }
 loadRegistryCoverage();
