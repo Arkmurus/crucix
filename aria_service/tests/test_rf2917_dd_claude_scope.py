@@ -289,3 +289,52 @@ class TestAnthropicChainModel:
         assert self._entry(
             monkeypatch, ARIA_ANTHROPIC_MODEL=None, LLM_MODEL=None,
         ) == "claude-sonnet-4-6"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# R-F2933 — a claude model id must never be forwarded to a non-claude provider
+# ──────────────────────────────────────────────────────────────────────────
+class _ModelCapturingP:
+    def __init__(self, name):
+        self.name = name
+        self.is_configured = True
+        self.seen_model = "UNSET"
+        self.fail = False
+
+    async def complete(self, s, u, **kw):
+        self.seen_model = kw.get("model", None)
+        if self.fail:
+            from aria_service.llm.provider import ProviderError
+            raise ProviderError(self.name, "boom", kind="other", retryable=True)
+        return type("R", (), {"text": self.name, "model": self.name,
+                              "input_tokens": 1, "output_tokens": 1, "routed_via": ""})()
+
+
+class TestModelForwardGuard:
+    """Live incident 2026-07-23: a DD verification call preferred Claude, degraded
+    to DeepSeek, and forwarded model='claude-opus-4-8' — DeepSeek 400'd 14 times
+    and cooled down, starving the DD's other DeepSeek layers."""
+
+    def test_claude_id_reaches_anthropic_only(self):
+        ds, an = _ModelCapturingP("deepseek"), _ModelCapturingP("anthropic")
+        an.fail = True  # force degrade to DeepSeek
+        chain = FallbackProvider([an, ds])
+        with provider_scope("anthropic"):
+            _run(chain.complete("s", "u", model="claude-opus-4-8"))
+        assert an.seen_model == "claude-opus-4-8", "anthropic must get the routed id"
+        assert ds.seen_model in (None, ""), (
+            f"DeepSeek was handed a claude id: {ds.seen_model!r}")
+
+    def test_a_deepseek_model_id_still_forwards_to_deepseek(self):
+        """The guard must be claude-specific, not block all routing."""
+        ds = _ModelCapturingP("deepseek")
+        chain = FallbackProvider([ds])
+        _run(chain.complete("s", "u", model="deepseek-v4-flash"))
+        assert ds.seen_model == "deepseek-v4-flash"
+
+    def test_no_model_override_is_unchanged(self):
+        ds = _ModelCapturingP("deepseek")
+        chain = FallbackProvider([ds])
+        _run(chain.complete("s", "u"))
+        assert ds.seen_model in (None, "UNSET"), (
+            "a call with no model= must not inject one")

@@ -507,10 +507,25 @@ class FallbackProvider(LLMProvider):
             try:
                 attempted += 1
                 stats["calls"] = stats.get("calls", 0) + 1
+                # R-F2933 — a per-call routed model is provider-SPECIFIC. When a
+                # DD prefers Claude and the call degrades to DeepSeek, forwarding
+                # model="claude-opus-4-8" made DeepSeek 400 ("supported names are
+                # deepseek-v4-*, you passed claude-opus-4-8") — 14 failures + a
+                # 60s cooldown that then starved the DD's other DeepSeek layers.
+                # OpenAICompatProvider guards its own payload, but the guard is
+                # invisible from here and any future provider could forget it, so
+                # gate at the ONE forwarding point: only pass `model` to the
+                # provider the id belongs to (a claude-* id → anthropic only).
+                _fwd_model = model
+                if _fwd_model:
+                    _pname = (provider.name or "").lower()
+                    _is_claude_id = str(_fwd_model).startswith("claude")
+                    if _is_claude_id and _pname != "anthropic":
+                        _fwd_model = ""   # let this provider use its own model
                 result = await provider.complete(
                     system_prompt, user_message,
                     max_tokens=max_tokens, timeout=per_call,
-                    **({"model": model} if model else {}),   # R-F2769 — routed model when set
+                    **({"model": _fwd_model} if _fwd_model else {}),
                 )
                 self._record_success(provider, stats)
                 result.routed_via = f"fallback:{provider.name}"
@@ -576,10 +591,15 @@ class FallbackProvider(LLMProvider):
             try:
                 attempted += 1
                 stats["calls"] = stats.get("calls", 0) + 1
+                # R-F2933 — same provider-specific-model guard as complete().
+                _fwd_model = model
+                if _fwd_model and str(_fwd_model).startswith("claude") \
+                        and (provider.name or "").lower() != "anthropic":
+                    _fwd_model = ""
                 async for chunk in provider.stream(
                     system_prompt, user_message,
                     max_tokens=max_tokens, timeout=timeout, on_done=on_done,
-                    **({"model": model} if model else {}),   # R-F2769 — routed model when set
+                    **({"model": _fwd_model} if _fwd_model else {}),
                 ):
                     yield chunk
                 self._record_success(provider, stats)
