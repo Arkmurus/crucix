@@ -43,7 +43,18 @@ PROBES: dict[str, dict] = {
     "AE": {"name": "DP WORLD", "note": "UAE — major state-linked logistics group"},
     "AO": {"name": "SONANGOL", "note": "Angola — state oil company"},
     "BG": {"name": "LUKOIL NEFTOHIM BURGAS", "note": "Bulgaria — largest refinery"},
-    "BR": {"name": "PETROLEO BRASILEIRO", "note": "Brazil — Petrobras"},
+    # R-F2911 (cont) — IDENTIFIER-BASED adapters cannot be judged by a name.
+    # _lookup_brazil starts with `cnpj = _extract_cnpj(...)` and returns None when it
+    # finds none; _lookup_romania does the same with a CUI. A name-only probe therefore
+    # made a HEALTHY adapter look like a FALLBACK, which is a defect in this instrument,
+    # not in the adapter. Verified 2026-07-23: with the CNPJ, BR returns
+    # adapter=brazil_cnpj / "PETROLEO BRASILEIRO S A PETROBRAS" / 33.000.167/0001-01.
+    #
+    # Only identifiers I have actually verified against the live adapter are set here.
+    # Guessing a registration number would inject fabricated input and produce a
+    # confident wrong verdict — the exact failure this sweep exists to prevent.
+    "BR": {"name": "PETROLEO BRASILEIRO S.A.", "reg": "33000167000101",
+           "note": "Brazil — Petrobras (CNPJ verified live)"},
     "CH": {"name": "Nestle", "note": "Switzerland — Zefix/LINDAS"},
     "CZ": {"name": "SKODA AUTO", "note": "Czechia"},
     "DE": {"name": "Siemens AG", "note": "Germany"},
@@ -77,10 +88,11 @@ async def _probe_one(iso2: str, spec: dict) -> dict:
     from aria_service.intel import registry_adapters as ra
 
     started = time.monotonic()
-    row = {"iso2": iso2, "query": spec["name"], "note": spec.get("note", "")}
+    row = {"iso2": iso2, "query": spec["name"], "note": spec.get("note", ""),
+           "probe_input": "name+id" if spec.get("reg") else "name-only"}
     try:
         result = await asyncio.wait_for(
-            ra.lookup_entity(spec["name"], iso2, None, spec.get("address")),
+            ra.lookup_entity(spec["name"], iso2, spec.get("reg"), spec.get("address")),
             timeout=_TIMEOUT_S,
         )
     except asyncio.TimeoutError:
@@ -90,7 +102,15 @@ async def _probe_one(iso2: str, spec: dict) -> dict:
     else:
         if not result:
             # Working-but-found-nothing. NOT a failure and NOT liveness.
-            row.update(outcome="EMPTY", detail="adapter returned no match")
+            if not spec.get("reg"):
+                # R-F2911 (cont) — several adapters require a registration number
+                # and return None without one. Reporting that as a verdict on the
+                # adapter would be wrong; say what was actually tested.
+                row.update(outcome="EMPTY",
+                           detail="no match for a NAME-ONLY probe — inconclusive if this "
+                                  "adapter requires a registration number")
+            else:
+                row.update(outcome="EMPTY", detail="no match even with a verified identifier")
         else:
             profile = (result or {}).get("profile") or {}
             found = str(profile.get("company_name") or profile.get("name") or "?")
