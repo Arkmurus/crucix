@@ -76,6 +76,25 @@ class MonthlyCostCapExceeded(RuntimeError):
             f"ARIA_MONTHLY_CAP_WARN_ONLY=1 to continue."
         )
 
+
+class DailyCostCapExceeded(RuntimeError):
+    """R-F2888 — raised when a metered LLM call would exceed the DAILY USD cap.
+
+    A RuntimeError subclass for the same reason MonthlyCostCapExceeded is one:
+    chat/stream endpoints already surface RuntimeError from the cap path with a
+    useful message, so the daily ceiling needs no new handling at the edges.
+    """
+
+    def __init__(self, spent: float, cap: float, day: str):
+        self.spent = spent
+        self.cap = cap
+        self.day = day
+        super().__init__(
+            f"Daily LLM cost cap ${cap:.2f} reached for {day} "
+            f"(spent ${spent:.4f}). Raise ARIA_DAILY_CAP_USD or set "
+            f"ARIA_DAILY_CAP_WARN_ONLY=1 to continue."
+        )
+
 # ── Pricing table (USD per 1M tokens) ──────────────────────────────────────
 # Standard rates as of late 2025 — update when providers change them.
 # Tuple is (input_per_1m, output_per_1m).
@@ -190,6 +209,109 @@ def _warn_only() -> bool:
 
 def _current_month_key() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+# ── R-F2888: DAILY cap ──────────────────────────────────────────────────────
+# Why this exists: the $300 monthly cap was the ONLY live brake on LLM spend.
+# `autonomous/cost_monitor.py` implements a daily cap + 80% warning + circuit
+# breaker, but it is reachable ONLY from read-only report routes
+# (routes/aria.py `_get_cost_monitor`) and its `track_cost` decorator is applied
+# to no LLM call site — so nothing ever fed it and it could not trip. A runaway
+# could therefore burn the whole month inside a day and only be stopped at the
+# $300 wall. This adds a REAL daily ceiling on the same metered path.
+#
+# Storage is deliberately a single INCRBYFLOAT counter, NOT a rollup: the month
+# rollup path is write-coalesced (R-F2172) and read-guarded (R-F2854), and a day
+# ceiling must be exact and immediate. One atomic increment per call is cheaper
+# than the read-modify-write a rollup would need, and it cannot be reset to zero
+# by a failed read. Reporting still comes from the month rollup.
+COST_DAY_PREFIX = "crucix:aria:cost:day:"   # + YYYY-MM-DD
+COST_DAY_TTL = 2 * 86400  # 48h — long enough to survive a UTC rollover + restart
+DEFAULT_DAILY_CAP_USD = 25.0
+
+
+def _daily_cap_usd() -> float:
+    try:
+        return float(os.getenv("ARIA_DAILY_CAP_USD", str(DEFAULT_DAILY_CAP_USD)))
+    except (TypeError, ValueError):
+        return DEFAULT_DAILY_CAP_USD
+
+
+def _daily_warn_only() -> bool:
+    return os.getenv("ARIA_DAILY_CAP_WARN_ONLY", "0").strip().lower() in ("1", "true", "yes")
+
+
+def _current_day_key() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+async def get_day_spend() -> dict:
+    """Today's LLM spend + daily cap utilisation (UTC day)."""
+    day = _current_day_key()
+    try:
+        raw = await rs.get(f"{COST_DAY_PREFIX}{day}")
+        spent = float(raw or 0.0)
+    except Exception:
+        spent = 0.0
+    cap = _daily_cap_usd()
+    return {
+        "day": day,
+        "spent_usd": round(spent, 6),
+        "cap_usd": cap,
+        "remaining_usd": round(max(0.0, cap - spent), 6),
+        "utilisation_pct": round((spent / cap * 100) if cap > 0 else 0.0, 2),
+        "warn_only": _daily_warn_only(),
+    }
+
+
+@fail_wire(module="cost_tracker", gap_type="engine_failure",
+           control_flow_exempt=("DailyCostCapExceeded",))
+async def assert_daily_cap(estimated_cost_usd: float = 0.02) -> None:
+    """Raise DailyCostCapExceeded if today's spend is at/over ARIA_DAILY_CAP_USD.
+
+    Same concurrent-overshoot protection as assert_monthly_cap (R-F2111): the
+    estimate is RESERVED atomically before the call so N concurrent requests
+    cannot all pass the same sub-cap read. record_call reconciles the reserve
+    once the actual cost is known; an unreconciled reserve (crash mid-call)
+    expires with the 5-minute TTL.
+
+    Fails OPEN when the store is unreachable: a cost ceiling must never be the
+    reason a request dies when we cannot even read the counter. The monthly cap
+    remains the backstop in that window.
+    """
+    cap = _daily_cap_usd()
+    if cap <= 0:
+        return
+    day = _current_day_key()
+    day_key = f"{COST_DAY_PREFIX}{day}"
+    reserve_key = f"{day_key}:reserve"
+    est = max(0.001, float(estimated_cost_usd))
+
+    reserved = False
+    try:
+        new_reserve = await rs.incrbyfloat(reserve_key, est)
+        await rs.expire(reserve_key, 300)  # 5min — a crashed reserve auto-expires
+        reserved = True
+        spent = float(await rs.get(day_key) or 0.0)
+        new_total = spent + new_reserve
+    except Exception:
+        return  # store unreachable — fail open, monthly cap still applies
+
+    if new_total >= cap:
+        if reserved:
+            try:
+                await rs.incrbyfloat(reserve_key, -est)
+            except Exception:
+                pass
+        if _daily_warn_only():
+            logger.error(
+                "ARIA daily LLM cap $%.2f would block call — allowed because "
+                "ARIA_DAILY_CAP_WARN_ONLY=1 (total would be $%.4f on %s)",
+                cap, new_total, day,
+            )
+            return
+        _emit_threshold_warnings(new_total, cap, day, scope="daily")
+        raise DailyCostCapExceeded(spent=new_total, cap=cap, day=day)
 
 
 # In-process mirror of the month-to-date total so pre-call checks don't
@@ -594,6 +716,27 @@ async def record_call(
                     await rs.incrbyfloat(_reserve_key, -_deduct)
         except Exception:
             pass
+        # R-F2888 — DAILY ledger: commit the actual cost to today's counter and
+        # reconcile the reserve assert_daily_cap made. This counter IS the daily
+        # cap's source of truth (see COST_DAY_PREFIX note), so it is written on
+        # every call rather than coalesced. Best-effort: a failure here loses one
+        # day-metric, never the call.
+        try:
+            _day_key = f"{COST_DAY_PREFIX}{_current_day_key()}"
+            await rs.incrbyfloat(_day_key, max(0.0, cost_usd))
+            await rs.expire(_day_key, COST_DAY_TTL)
+            _day_reserve = await rs.get(f"{_day_key}:reserve")
+            if _day_reserve:
+                _dr = float(_day_reserve)
+                if _dr > 0:
+                    await rs.incrbyfloat(
+                        f"{_day_key}:reserve", -min(_dr, max(0.001, cost_usd)))
+            _emit_threshold_warnings(
+                float(await rs.get(_day_key) or 0.0), _daily_cap_usd(),
+                _current_day_key(), scope="daily",
+            )
+        except Exception:
+            pass
         # R-F1954 — per-user monthly sub-cap accounting (best-effort).
         await _record_user_month_spend(get_current_user(), cost_usd)
         # R-F2103 (2026-06-28, ARIA brain DD) — wire the DEAD per-user DAILY cost
@@ -901,22 +1044,102 @@ async def _flush_external_pending(force: bool = False) -> bool:
             return False
 
 
-def _emit_threshold_warnings(spent: float, cap: float, month: str) -> None:
-    """Log-only warnings at 50% and 80% of the monthly cap. Latched per-month
-    so operators aren't spammed; the `_warned_thresholds` set resets when
-    the calendar month rolls over (see _refresh_month_cache)."""
+def _emit_threshold_warnings(
+    spent: float, cap: float, period: str, scope: str = "monthly",
+) -> None:
+    """Warn as spend approaches a cap. Latched per (scope, period, threshold)
+    so the operator is not spammed; month latches reset on calendar rollover
+    (see _refresh_month_cache), day latches are pruned when the UTC day turns.
+
+    R-F2889: this used to be LOG-ONLY at 50/80% — the warning went to the fly
+    logs and nowhere else, so the operator only learned about spend by going and
+    looking at the dashboard. That is precisely the §19e failure mode (a blocker
+    the operator has to discover himself). From 80% up, the warning is now PUSHED
+    to the operator-visible pending-actions queue and to the brain (§21), and the
+    ladder gains 95% and 100% steps so the wall is never the first notification.
+
+    ``scope`` is "monthly" or "daily"; ``period`` is the YYYY-MM or YYYY-MM-DD
+    the spend belongs to. Sync by design (it is called from inside the cost
+    write path); the operator push is dispatched as a task and never blocks.
+    """
     if cap <= 0:
         return
     util = spent / cap
-    for pct, label in ((0.80, "80"), (0.50, "50")):
-        tag = f"{month}:{label}"
-        if util >= pct and tag not in _warned_thresholds:
-            _warned_thresholds.add(tag)
-            logger.warning(
-                "ARIA monthly LLM spend at %.0f%% of cap — spent $%.4f of $%.2f (%s)",
-                util * 100, spent, cap, month,
+
+    # Keep the day latches from accumulating in a long-lived process.
+    if scope == "daily":
+        _stale = {t for t in _warned_thresholds
+                  if t.startswith("daily:") and not t.startswith(f"daily:{period}:")}
+        _warned_thresholds.difference_update(_stale)
+
+    ladder = ((1.00, "100"), (0.95, "95"), (0.80, "80"), (0.50, "50"))
+    for idx, (pct, label) in enumerate(ladder):
+        tag = f"{scope}:{period}:{label}"
+        if util < pct or tag in _warned_thresholds:
+            continue
+        # Latch EVERY lower rung too. Spend can jump straight past a rung (0 →
+        # 85% in one call), and without this the next call would fire a "50%"
+        # alert *after* the 80% one — alarming backwards and training the
+        # operator to ignore the channel.
+        for _, lower in ladder[idx:]:
+            _warned_thresholds.add(f"{scope}:{period}:{lower}")
+        logger.warning(
+            "ARIA %s LLM spend at %.0f%% of cap — spent $%.4f of $%.2f (%s)",
+            scope, util * 100, spent, cap, period,
+        )
+        if pct >= 0.80:
+            _push_spend_alert(scope, period, spent, cap, util, label)
+        return  # only fire the highest-matching threshold per call
+
+
+def _push_spend_alert(
+    scope: str, period: str, spent: float, cap: float, util: float, label: str,
+) -> None:
+    """R-F2889 — surface a spend threshold to the OPERATOR + the brain.
+
+    Fire-and-forget: cost alerting must never delay or fail an LLM call. Needs a
+    running loop (every caller is inside one); if there is none, the logger.warning
+    already emitted by the caller stands as the record.
+    """
+    severity = "CRITICAL" if util >= 1.0 else "HIGH"
+    headline = (
+        f"LLM spend at {util * 100:.0f}% of the {scope} cap "
+        f"(${spent:.2f} of ${cap:.2f}, {period})"
+    )
+
+    async def _dispatch() -> None:
+        try:
+            from . import pending_actions as _pa
+            await _pa.record(
+                promise=f"ARIA {scope} LLM spend alert — {headline}",
+                reason=(
+                    f"{scope} spend crossed {label}% of the ${cap:.2f} cap. "
+                    f"At 100% metered LLM calls are refused "
+                    f"(ARIA_{'DAILY' if scope == 'daily' else 'MONTHLY'}_CAP_USD)."
+                ),
+                severity=severity,
+                source="cost_tracker",
+                operator_prompt=(
+                    f"{headline}. Review /api/aria/cost/monthly and "
+                    f"/api/aria/cost/daily, then raise the cap or pause spend."
+                ),
             )
-            return  # only fire the highest-matching threshold per call
+        except Exception as e:
+            logger.warning("cost alert: operator push failed: %s", e)
+        try:  # §21 — the brake reports its own firing
+            from . import brain_hook as _bh
+            await _bh.record_signal(
+                module="cost_tracker", success=True, summary=headline[:300],
+            )
+        except Exception:
+            pass
+
+    import asyncio as _aio
+    try:
+        _aio.get_running_loop()
+    except RuntimeError:
+        return  # no running loop — the logger.warning above is the record
+    _aio.create_task(_dispatch())
 
 
 async def _refresh_month_cache(force: bool = False) -> float:

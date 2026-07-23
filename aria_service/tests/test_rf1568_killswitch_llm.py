@@ -54,7 +54,7 @@ def _no_monthly_cap(monkeypatch):
     Also reset the process-wide paused cache between tests."""
     async def _noop(self):
         return None
-    monkeypatch.setattr(MeteredProvider, "_enforce_monthly_cap", _noop)
+    monkeypatch.setattr(MeteredProvider, "_enforce_spend_caps", _noop)
     MeteredProvider._paused_cache = None
     yield
     MeteredProvider._paused_cache = None

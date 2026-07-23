@@ -40,7 +40,7 @@ def _mp(monkeypatch, paused: bool):
     # neutralise the monthly cap so only the kill switch matters
     async def _noop_cap(self):
         return None
-    monkeypatch.setattr(_m.MeteredProvider, "_enforce_monthly_cap", _noop_cap)
+    monkeypatch.setattr(_m.MeteredProvider, "_enforce_spend_caps", _noop_cap)
 
 
 def test_background_priority_gated_when_paused(monkeypatch):

@@ -691,6 +691,20 @@ async def _ocr_via_llm(image_data: bytes, mime: str, context: str, llm) -> Optio
             provider_name = "openrouter"  # explicit — handled below
 
         text: str = ""
+        # R-F2886 — REAL token usage from the vendor response, when it gives one.
+        # The M10 record block below used to estimate tokens from image bytes even
+        # though every one of these APIs returns a usage block that we parsed past
+        # and threw away. Estimates are fine for a gauge and useless for a cap.
+        _usage: dict[str, int] = {}
+
+        # R-F2886 — cloud vision is billable spend on the SAME budget as chat, but
+        # it went through raw httpx (never MeteredProvider), so neither ceiling was
+        # ever consulted. Enforce both here before dialling out. Ollama is local
+        # and free, so it is exempt.
+        if provider_name != "ollama":
+            from . import cost_tracker as _ct_gate
+            await _ct_gate.assert_daily_cap()
+            await _ct_gate.assert_monthly_cap()
 
         # ── Anthropic Claude (vision-capable) ──────────────────────────────
         if provider_name == "anthropic" and api_key:
@@ -723,6 +737,11 @@ async def _ocr_via_llm(image_data: bytes, mime: str, context: str, llm) -> Optio
                     for block in data.get("content", []):
                         if block.get("type") == "text":
                             text += block.get("text", "")
+                    _u = data.get("usage") or {}   # R-F2886 — real counts
+                    _usage = {
+                        "input_tokens": int(_u.get("input_tokens") or 0),
+                        "output_tokens": int(_u.get("output_tokens") or 0),
+                    }
 
         # ── OpenAI-compatible (OpenAI, OpenRouter, Ollama vision models) ───
         # NOTE: DeepSeek + Mistral are EXCLUDED — their public APIs do not
@@ -761,6 +780,11 @@ async def _ocr_via_llm(image_data: bytes, mime: str, context: str, llm) -> Optio
                         choices = data.get("choices", [])
                         if choices:
                             text = (choices[0].get("message", {}) or {}).get("content", "") or ""
+                        _u = data.get("usage") or {}   # R-F2886 — real counts
+                        _usage = {
+                            "input_tokens": int(_u.get("prompt_tokens") or 0),
+                            "output_tokens": int(_u.get("completion_tokens") or 0),
+                        }
 
         # ── Google Gemini ──────────────────────────────────────────────────
         elif provider_name == "gemini" and api_key:
@@ -784,28 +808,49 @@ async def _ocr_via_llm(image_data: bytes, mime: str, context: str, llm) -> Optio
                     for cand in data.get("candidates", []):
                         for part in (cand.get("content", {}) or {}).get("parts", []):
                             text += part.get("text", "") or ""
+                    _u = data.get("usageMetadata") or {}   # R-F2886 — real counts
+                    _usage = {
+                        "input_tokens": int(_u.get("promptTokenCount") or 0),
+                        "output_tokens": int(_u.get("candidatesTokenCount") or 0),
+                    }
 
         text = (text or "").strip()
-        if text and "NO_TEXT_FOUND" not in text:
-            # M10: record vision call into cost_tracker so /cost can surface
-            # the vision tier, and so user-level caps (future) can see it.
-            # Token counts are best-effort estimates — vision APIs don't
-            # consistently return usage blocks.
+        _ok = bool(text) and "NO_TEXT_FOUND" not in text
+
+        # M10 / R-F2886: record the vision call into cost_tracker.
+        #
+        # Two fixes over the original M10 block:
+        #   1. It only recorded when text came back. A vendor that answers 200
+        #      with an empty/NO_TEXT_FOUND body still BILLS — that spend was
+        #      invisible. We now record whenever the response carried a usage
+        #      block (proof the call was billed), success or not.
+        #   2. The model label was f"{provider}:{model}" — e.g.
+        #      "anthropic:claude-sonnet-4-6" — which defeats _get_price's
+        #      prefix match on "claude-…" and silently fell through to
+        #      DEFAULT_PRICING. Pass the BARE model id; the provider already
+        #      travels separately in provider_name.
+        if provider_name != "ollama" and (_usage or _ok):
             try:
                 from . import cost_tracker as _ct
-                _approx_input_tokens = max(500, (len(image_data) // 750) + 200)
-                _approx_output_tokens = max(50, len(text) // 4)
+                _in = int(_usage.get("input_tokens") or 0)
+                _out = int(_usage.get("output_tokens") or 0)
+                if not _in and not _out:  # vendor returned no usage — estimate
+                    _in = max(500, (len(image_data) // 750) + 200)
+                    _out = max(50, len(text) // 4)
                 await _ct.record_call(
-                    model=f"{provider_name}:{model or 'vision'}",
-                    input_tokens=_approx_input_tokens,
-                    output_tokens=_approx_output_tokens,
+                    model=model or f"{provider_name}-vision",
+                    input_tokens=_in,
+                    output_tokens=_out,
                     latency_ms=int((_t.time() - _vision_t0) * 1000),
                     feature_name="ocr_vision",
                     provider_name=provider_name,
-                    success=True,
+                    success=_ok,
+                    error="" if _ok else "vision returned no usable text",
                 )
             except Exception as _ct_err:
                 logger.debug("vision cost record failed (non-fatal): %s", _ct_err)
+
+        if _ok:
             return {"text": text, "method": f"vision:{provider_name or 'unknown'}", "confidence": 0.85}
 
     except Exception as e:

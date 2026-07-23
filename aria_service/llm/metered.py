@@ -137,15 +137,20 @@ class MeteredProvider(LLMProvider):
         except Exception as e:
             logger.warning("MeteredProvider record dispatch failed: %s", e)
 
-    async def _enforce_monthly_cap(self) -> None:
-        """Hard stop if month-to-date LLM spend has hit ARIA_MONTHLY_CAP_USD.
-        Lazy import keeps metered.py free of any cost_tracker import cycles."""
+    async def _enforce_spend_caps(self) -> None:
+        """Hard stop if spend has hit either ceiling: ARIA_DAILY_CAP_USD
+        (R-F2888) or ARIA_MONTHLY_CAP_USD. Lazy import keeps metered.py free of
+        any cost_tracker import cycles.
+
+        Daily is checked FIRST so a runaway is caught by the tighter, cheaper
+        brake before it can eat into the month. Both raise RuntimeError
+        subclasses, which chat/streaming endpoints already surface usefully.
+        """
         try:
             from ..intel import cost_tracker
         except Exception:
             return
-        # Let MonthlyCostCapExceeded propagate — callers expect a RuntimeError
-        # subclass so chat/streaming endpoints can surface a useful message.
+        await cost_tracker.assert_daily_cap()
         await cost_tracker.assert_monthly_cap()
 
     async def _enforce_kill_switch(self, autonomous: bool) -> None:
@@ -228,7 +233,7 @@ class MeteredProvider(LLMProvider):
         # provider is invoked. autonomous defaults False so interactive
         # operator/user chat is never gated (callers opt in).
         await self._enforce_kill_switch(autonomous)
-        await self._enforce_monthly_cap()
+        await self._enforce_spend_caps()
         started = time.time()
         success = True
         error = ""
@@ -275,7 +280,7 @@ class MeteredProvider(LLMProvider):
         # R-F1568 — kill switch first (see complete()). Default False keeps
         # interactive streaming chat unaffected; only autonomous callers gate.
         await self._enforce_kill_switch(autonomous)
-        await self._enforce_monthly_cap()
+        await self._enforce_spend_caps()
         started = time.time()
         final_result = None
 

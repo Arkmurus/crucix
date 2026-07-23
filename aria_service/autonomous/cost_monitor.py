@@ -93,11 +93,27 @@ PRICING = {
 
 @fail_wire(module="cost_monitor", gap_type="agent_cycle_failure")
 def compute_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Compute USD cost for a single API call."""
-    pricing = PRICING.get(model, PRICING["_default"])
-    input_cost  = (input_tokens  / 1_000_000) * pricing["input_per_mtok"]
-    output_cost = (output_tokens / 1_000_000) * pricing["output_per_mtok"]
-    return round(input_cost + output_cost, 6)
+    """Compute USD cost for a single API call.
+
+    R-F2888: this used to price from the local PRICING table above — a SECOND,
+    independently-maintained pricing source that had already drifted (no
+    claude-opus-4-8 / 4-7 / sonnet-5 rows; Haiku listed at 0.80/4.00 against an
+    actual 1.00/5.00). Two pricing tables is exactly the defect R-F2759 fixed in
+    cost_tracker: whichever one a caller happens to hit decides whether spend is
+    under-counted. There is now ONE table — cost_tracker's — and this delegates
+    to it. Do not re-add rates here; add them in cost_tracker.PRICING.
+
+    Falls back to the legacy local table only if cost_tracker cannot be imported,
+    so a broken import degrades to a stale estimate rather than a crash.
+    """
+    try:
+        from ..intel.cost_tracker import estimate_cost_usd
+        return estimate_cost_usd(model, input_tokens, output_tokens)
+    except Exception:
+        pricing = PRICING.get(model, PRICING["_default"])
+        input_cost  = (input_tokens  / 1_000_000) * pricing["input_per_mtok"]
+        output_cost = (output_tokens / 1_000_000) * pricing["output_per_mtok"]
+        return round(input_cost + output_cost, 6)
 
 
 # =============================================================================

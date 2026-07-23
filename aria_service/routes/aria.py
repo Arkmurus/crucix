@@ -3462,6 +3462,57 @@ async def cost_monthly_status_ep():
     return await cost_tracker.get_month_spend()
 
 
+# R-F2888 — DAILY cap gauge. Deliberately NOT "/cost/daily": that path is
+# already taken by the cost_monitor report route further down this file, and
+# FastAPI silently serves the FIRST registered route for a duplicate path
+# (R-F2278), so re-using it would shadow one of the two without any error.
+@router.get("/cost/daily/status")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def cost_daily_status_ep():
+    """Quick gauge: how much of the DAILY LLM cap is used (UTC day)."""
+    return await cost_tracker.get_day_spend()
+
+
+class WebLLMCostIn(BaseModel):
+    """R-F2885 — one LLM call made by the Node web tier."""
+    model: str = ""
+    provider: str = "anthropic"
+    input_tokens: int = 0
+    output_tokens: int = 0
+    latency_ms: int = 0
+    feature: str = "web_tier"
+    success: bool = True
+    error: str = ""
+
+
+@router.post("/cost/record-web-llm")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def cost_record_web_llm_ep(body: WebLLMCostIn):
+    """R-F2885 — ingest an LLM call billed by the NODE tier (aria-web).
+
+    Why this exists: `lib/llm/index.mjs` appends an Anthropic provider to the
+    Node fallback chain whenever ANTHROPIC_API_KEY is present, and the Node tier
+    has no cost tracking of its own. That spend was completely invisible to
+    cost_tracker — so the $300 monthly cap and the R-F2888 daily cap could not
+    see it, let alone stop it. Reporting it here puts cross-tier spend on the
+    SAME ledger and under the SAME ceilings (§21b: no dark engines).
+
+    This records spend that has ALREADY happened, so it never rejects on a cap —
+    the caps act on the next call, on whichever tier makes it.
+    """
+    rec = await cost_tracker.record_call(
+        model=body.model or "",
+        input_tokens=int(body.input_tokens or 0),
+        output_tokens=int(body.output_tokens or 0),
+        latency_ms=int(body.latency_ms or 0),
+        feature_name=body.feature or "web_tier",
+        provider_name=body.provider or "anthropic",
+        success=bool(body.success),
+        error=body.error or "",
+    )
+    return {"recorded": True, "cost_usd": rec.get("cost_usd", 0.0)}
+
+
 # R-F139 (2026-05-10) — external (non-LLM) service spend surface.
 # Brave Search API + Upstash Redis are paid services that sit outside
 # the LLM MeteredProvider. The dashboard previously showed only LLM

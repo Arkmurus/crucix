@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2856,
+  "next_available": 2897,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -20523,9 +20523,10 @@
       "title": "gate #2 honesty follow-up: R-F196 article->regional mastery (student.py:1581) also credits correct=True for reading — honest-grade it (cost-guarded for per-article volume)",
       "claimed_at": "2026-07-16T12:09:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1548dbf4",
+      "notes": null,
+      "shipped_at": "2026-07-22T18:40:03Z"
     },
     {
       "r_number": "R-F2662",
@@ -22442,6 +22443,404 @@
       "r_number": "R-F2855",
       "title": "chromadb init crash-loop breaker - persistent counter skips a segfaulting RAG init",
       "claimed_at": "2026-07-22T12:28:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1d95fe04",
+      "notes": null,
+      "shipped_at": "2026-07-22T13:12:03Z"
+    },
+    {
+      "r_number": "R-F2856",
+      "title": "RAG per-collection corruption self-heal — diagnose + quarantine + recover",
+      "claimed_at": "2026-07-22T16:09:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2ebe06b3",
+      "notes": null,
+      "shipped_at": "2026-07-22T16:38:59Z"
+    },
+    {
+      "r_number": "R-F2857",
+      "title": "customer-facing DD PDF states a hardcoded 23-clause constitution while live is 37 - derive or omit, never assert an unverified count",
+      "claimed_at": "2026-07-22T16:18:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2c3030a0",
+      "notes": null,
+      "shipped_at": "2026-07-22T18:40:03Z"
+    },
+    {
+      "r_number": "R-F2858",
+      "title": "quota enforcement test writes to the shared durable runs/quotas.json - isolate so the suite stops poisoning itself",
+      "claimed_at": "2026-07-22T16:24:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "afa3fb92",
+      "notes": null,
+      "shipped_at": "2026-07-22T18:40:03Z"
+    },
+    {
+      "r_number": "R-F2859",
+      "title": "reading loop still credits TOPIC mastery correct=True for reading (gate #1 sibling of R-F2661) - reuse the honest grade already computed",
+      "claimed_at": "2026-07-22T16:32:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "89da8a09",
+      "notes": null,
+      "shipped_at": "2026-07-22T18:40:04Z"
+    },
+    {
+      "r_number": "R-F2860",
+      "title": "web_integrity external observer — aria-web watches aria-intel liveness, records+alerts outages the in-process monitor cannot see",
+      "claimed_at": "2026-07-22T16:42:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "53a1fe58",
+      "notes": null,
+      "shipped_at": "2026-07-22T17:30:34Z"
+    },
+    {
+      "r_number": "R-F2861",
+      "title": "Zefix Swiss registry lookup via the open LINDAS SPARQL endpoint - CH entities had manual-action only",
+      "claimed_at": "2026-07-22T16:47:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0bcc40ad",
+      "notes": null,
+      "shipped_at": "2026-07-22T18:40:04Z"
+    },
+    {
+      "r_number": "R-F2862",
+      "title": "Norway Bronnoysund open registry adapter - NO was manual-action only; first source with real status flags",
+      "claimed_at": "2026-07-22T17:07:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "deebbb87",
+      "notes": null,
+      "shipped_at": "2026-07-22T18:40:04Z"
+    },
+    {
+      "r_number": "R-F2863",
+      "title": "registry coverage vault - per-jurisdiction adapter inventory with tri-state observed liveness; derive SUPPORTED from dispatch",
+      "claimed_at": "2026-07-22T17:20:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b3d5c190",
+      "notes": null,
+      "shipped_at": "2026-07-22T18:40:04Z"
+    },
+    {
+      "r_number": "R-F2864",
+      "title": "off-box GPU re-embed restore of parked aria_documents (99,830 docs) via RunPod",
+      "claimed_at": "2026-07-22T17:39:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d6479bac",
+      "notes": null,
+      "shipped_at": "2026-07-22T20:14:35Z"
+    },
+    {
+      "r_number": "R-F2865",
+      "title": "Estonia ariregister adapter via the open RIK endpoint - EE was manual-action only",
+      "claimed_at": "2026-07-22T17:45:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "48586fd8",
+      "notes": null,
+      "shipped_at": "2026-07-22T18:40:04Z"
+    },
+    {
+      "r_number": "R-F2866",
+      "title": "vault exploration ledger - classify every uncovered jurisdiction with a probed reason so what-can-we-explore is data not memory",
+      "claimed_at": "2026-07-22T17:50:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d6479bac",
+      "notes": null,
+      "shipped_at": "2026-07-22T18:40:05Z"
+    },
+    {
+      "r_number": "R-F2867",
+      "title": "C:/Program Files/Git/api/health omits partial/suspended/not_configured buckets and fabricates sourcesTotal=36 - dashboard reads it as 4 degraded",
+      "claimed_at": "2026-07-22T19:12:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1ab6f412",
+      "notes": null,
+      "shipped_at": "2026-07-22T19:22:42Z"
+    },
+    {
+      "r_number": "R-F2868",
+      "title": "deploy health suite checks apps it never deployed - scope --app to the deployed tiers, stop the cry-wolf FAIL",
+      "claimed_at": "2026-07-22T19:25:45Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ebb0b544",
+      "notes": null,
+      "shipped_at": "2026-07-22T19:28:34Z"
+    },
+    {
+      "r_number": "R-F2869",
+      "title": "dashboard source-health tooltip calls not_configured and unaccounted sources DEGRADED - live data disproves it",
+      "claimed_at": "2026-07-22T19:33:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "736a091d",
+      "notes": null,
+      "shipped_at": "2026-07-22T19:38:03Z"
+    },
+    {
+      "r_number": "R-F2870",
+      "title": "rf2581 baseline 21->22: R-F2860 observer brain-report is a reviewed fire-and-forget signal, not a dashboard proxy",
+      "claimed_at": "2026-07-22T19:44:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "15067723",
+      "notes": null,
+      "shipped_at": "2026-07-22T19:47:31Z"
+    },
+    {
+      "r_number": "R-F2871",
+      "title": "mint the page-gate cookie on any valid Bearer so an existing session self-heals instead of bouncing to signin",
+      "claimed_at": "2026-07-22T19:48:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "feb63e0a",
+      "notes": null,
+      "shipped_at": "2026-07-22T19:54:04Z"
+    },
+    {
+      "r_number": "R-F2872",
+      "title": "nav-pages resolves role from the stale JWT snapshot not the live user record - an elevated role never reaches the nav until re-login",
+      "claimed_at": "2026-07-22T20:07:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "297c7b2e",
+      "notes": null,
+      "shipped_at": "2026-07-22T20:12:53Z"
+    },
+    {
+      "r_number": "R-F2873",
+      "title": "nav entitlement fetch sends NO auth header - window.API is undefined for a const-declared global, so every gated nav link hid for every user",
+      "claimed_at": "2026-07-22T20:33:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7bddf58e",
+      "notes": null,
+      "shipped_at": "2026-07-22T20:44:20Z"
+    },
+    {
+      "r_number": "R-F2874",
+      "title": "restrict ARIA Brain and Source Health to admin only - were poweruser+admin",
+      "claimed_at": "2026-07-22T20:36:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6fb71799",
+      "notes": null,
+      "shipped_at": "2026-07-22T20:44:20Z"
+    },
+    {
+      "r_number": "R-F2875",
+      "title": "remaining window.X guards on const globals - news.html API shadow and account.html Auth guards silently took dead fallbacks",
+      "claimed_at": "2026-07-22T20:50:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ac949c06",
+      "notes": null,
+      "shipped_at": "2026-07-22T20:56:57Z"
+    },
+    {
+      "r_number": "R-F2876",
+      "title": "brain page tells you to sign in for 403 panels that no sign-in can unlock - derive the message from the status, never guess a remedy",
+      "claimed_at": "2026-07-22T21:07:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d1ed1acd",
+      "notes": null,
+      "shipped_at": "2026-07-22T21:17:27Z"
+    },
+    {
+      "r_number": "R-F2877",
+      "title": "RateLimitedProvider.complete drops per-call model= kwarg (R-F2769) breaking article analysis",
+      "claimed_at": "2026-07-22T21:21:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "23f6cf62",
+      "notes": null,
+      "shipped_at": "2026-07-22T21:40:28Z"
+    },
+    {
+      "r_number": "R-F2878",
+      "title": "wiring_monitor staged_count counts raw list (90) incl processed entries, not actionable status==staged (3) — false not-draining alarm + Nonemin age",
+      "claimed_at": "2026-07-22T21:29:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "80eed635",
+      "notes": null,
+      "shipped_at": "2026-07-22T21:47:21Z"
+    },
+    {
+      "r_number": "R-F2879",
+      "title": "OpenCorporates duplicated in portal_registry (opencorporates + open_corporates, same URL) → 2 vault rows",
+      "claimed_at": "2026-07-22T21:34:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "80eed635",
+      "notes": null,
+      "shipped_at": "2026-07-22T21:47:21Z"
+    },
+    {
+      "r_number": "R-F2880",
+      "title": "rename priceUsd to priceAmount + explicit currency GBP - the field name contradicted its contents",
+      "claimed_at": "2026-07-22T21:40:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "794b7ae3",
+      "notes": null,
+      "shipped_at": "2026-07-22T21:47:10Z"
+    },
+    {
+      "r_number": "R-F2881",
+      "title": "surface registry_coverage.coverage() — 27 jurisdictions (CH/NO/EE) invisible; new route + vault.html panel",
+      "claimed_at": "2026-07-22T21:48:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3bd15e9f",
+      "notes": null,
+      "shipped_at": "2026-07-22T22:06:37Z"
+    },
+    {
+      "r_number": "R-F2882",
+      "title": "remove dead European Business Register signup stub (defunct ebr.org, no API); real EU coverage is the per-state registry adapters",
+      "claimed_at": "2026-07-22T22:07:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "15723895",
+      "notes": null,
+      "shipped_at": "2026-07-22T22:19:26Z"
+    },
+    {
+      "r_number": "R-F2883",
+      "title": "stripe product/price setup script - derive from tiers.mjs so amounts and GBP currency cannot be hand-typed wrong",
+      "claimed_at": "2026-07-22T23:14:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2884",
+      "title": "clean the parked corrupt aria_documents__corrupt_20260722 collection in a RAG-disable controlled window",
+      "claimed_at": "2026-07-22T23:14:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "15723895",
+      "notes": null,
+      "shipped_at": "2026-07-22T23:40:20Z"
+    },
+    {
+      "r_number": "R-F2885",
+      "title": "aria-web Node tier Claude spend is unmetered and invisible to the cap",
+      "claimed_at": "2026-07-23T03:44:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2886",
+      "title": "OCR vision discards Anthropic usage tokens - no cost record, no cap check",
+      "claimed_at": "2026-07-23T03:44:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2887",
+      "title": "claude_reviewer builds an unwrapped provider - bypasses meter and cap",
+      "claimed_at": "2026-07-23T03:44:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2888",
+      "title": "wire the daily cap + circuit breaker to the live meter; fix stale pricing",
+      "claimed_at": "2026-07-23T03:44:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2889",
+      "title": "push spend alerts to the operator at warning + circuit thresholds",
+      "claimed_at": "2026-07-23T03:44:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2890",
+      "title": "news_monitor: purge the 46 dead feeds + live-probe regression test",
+      "claimed_at": "2026-07-23T03:53:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2891",
+      "title": "news_monitor: topical relevance gate before an article becomes a signal",
+      "claimed_at": "2026-07-23T03:53:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2892",
+      "title": "news_monitor: anchor signal classification to word boundaries + evidence capture",
+      "claimed_at": "2026-07-23T03:53:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2893",
+      "title": "channel: server-side min_grade on /intel/signals/recent (kill the window lottery)",
+      "claimed_at": "2026-07-23T03:53:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2894",
+      "title": "telegram: real write-permission pre-flight before burning a channel slot",
+      "claimed_at": "2026-07-23T03:53:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2895",
+      "title": "telegram: escalate consecutive channel delivery failures to the operator",
+      "claimed_at": "2026-07-23T03:53:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2896",
+      "title": "dashboard/channel: one canonical feedPublishable staleness semantic",
+      "claimed_at": "2026-07-23T03:53:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

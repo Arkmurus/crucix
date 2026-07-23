@@ -335,6 +335,22 @@ class ClaudeReviewer:
             model = os.environ.get(model_env, "").strip() or default_model
             try:
                 provider = create_llm_provider(pname, api_key=api_key, model=model)
+                # R-F2887 — the factory returns a BARE provider. Every other LLM
+                # path in ARIA is wrapped by MeteredProvider at boot (main.py),
+                # so this reviewer was the one autonomous caller whose spend was
+                # invisible to cost_tracker AND unchecked by the daily/monthly
+                # caps. Wrap it here so a review cycle cannot spend off-ledger.
+                if provider is not None:
+                    try:
+                        from ..llm.metered import MeteredProvider
+                        provider = MeteredProvider(provider)
+                    except Exception as _me:  # pragma: no cover - defensive
+                        logger.warning(
+                            "[claude_reviewer] meter wrap failed for %s "
+                            "(spend would be untracked) — skipping tier: %s",
+                            pname, _me,
+                        )
+                        provider = None
             except Exception as e:  # pragma: no cover - defensive
                 logger.warning("[claude_reviewer] could not build %s: %s", pname, e)
                 provider = None
