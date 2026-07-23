@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2946,
+  "next_available": 2948,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23312,6 +23312,25 @@
       "r_number": "R-F2945",
       "title": "Brave primary + SearXNG non-blocking on DD search so a slow SearXNG cannot time out the digital/adverse layers",
       "claimed_at": "2026-07-23T20:14:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2946",
+      "title": "WA watchdog — detect open-but-dead socket (silent-socket) + dedup double-restart",
+      "claimed_at": "2026-07-23T20:22:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9a75b682",
+      "notes": null,
+      "shipped_at": "2026-07-23T20:33:48Z"
+    },
+    {
+      "r_number": "R-F2947",
+      "title": "crawl DNS-miss is not an engine_failure gap + disable dead auto-registered domains",
+      "claimed_at": "2026-07-23T21:15:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

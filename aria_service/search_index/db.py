@@ -404,6 +404,32 @@ async def mark_domain_crawled(domain: str, ts: float | None = None) -> None:
         pass
 
 
+async def disable_domain(domain: str, reason: str = "") -> bool:
+    """R-F2947 — reversibly disable a crawl domain (enabled=0), never delete (§7).
+
+    Used when the crawl loop confirms a domain does not resolve (DNS NXDOMAIN),
+    so it stops being re-crawled every cycle. The row is preserved and the reason
+    is stamped into `notes` so it can be re-enabled if the failure was a fluke.
+    Returns True if a row was disabled, False otherwise.
+    """
+    if _conn is None:
+        return False
+    domain = domain.lower().lstrip(".")
+    try:
+        note = f"[disabled R-F2947] {reason}"[:500]
+        cur = await _conn.execute(
+            "UPDATE domains SET enabled = 0, "
+            "notes = COALESCE(notes || ' | ', '') || ? "
+            "WHERE domain = ? AND enabled = 1",
+            (note, domain),
+        )
+        await _conn.commit()
+        return (cur.rowcount or 0) > 0
+    except Exception as e:
+        logger.warning("search_index.db: disable_domain(%s) failed: %s", domain, e)
+        return False
+
+
 async def cache_robots(domain: str, robots_txt: str) -> None:
     if _conn is None:
         return

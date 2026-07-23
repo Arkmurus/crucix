@@ -57,6 +57,26 @@ from ..intel.engine_wiring import wire_success, wire_failure  # R-F2489 §21a su
 logger = logging.getLogger("aria.crawler.fetcher")
 
 
+# R-F2947 — deterministic "this hostname does not exist" DNS signatures. These
+# mean the name has no A/AAAA record (NXDOMAIN-class) and will not start
+# resolving on retry — safe to disable the domain. Deliberately EXCLUDES
+# transient resolver failures ("Temporary failure in name resolution", errno -3),
+# which can recover, and connection-refused/reset (host exists, port down).
+_DNS_NAME_FAILURE_SIGNATURES = (
+    "name or service not known",        # glibc getaddrinfo EAI_NONAME (errno -2)
+    "errno -2",
+    "no address associated with hostname",  # EAI_NODATA (errno -5)
+    "errno -5",
+    "nodename nor servname provided",   # macOS/BSD EAI_NONAME
+    "name does not resolve",
+)
+
+
+def _is_dns_name_failure(msg: str) -> bool:
+    m = (msg or "").lower()
+    return any(sig in m for sig in _DNS_NAME_FAILURE_SIGNATURES)
+
+
 # R-F501 default — used by on_demand chat fill (delegates to
 # extract_url_text which uses its own random UA rotation).
 _USER_AGENT = "ARIAsBot/1.0 (+https://aria-intel.fly.dev/about; respect-robots)"
@@ -285,10 +305,33 @@ async def fetch_for_crawl(url: str, timeout: float = 10.0) -> dict | None:
                 status_class = f"{status_code}"
     except httpx.TimeoutException:
         status_class = "timeout"
+    except httpx.ConnectError as e:
+        # R-F2947 — a DNS/connection failure to an EXTERNAL crawl target is not an
+        # ARIA engine failure. R-F2489's §21a wiring recorded every one as an
+        # `engine_failure` capability gap; live 2026-07-23 that flooded the
+        # self-improve queue with ~70 gaps / 6 min, ALL speculative permuted-TLD
+        # domains that don't resolve (`[Errno -2] Name or service not known`) —
+        # un-fixable noise that drowns real gaps. Classify honestly (still counted
+        # in the cycle by_status), do NOT gap, and on a deterministic name-not-known
+        # DISABLE the dead auto-registered domain so the loop stops hammering it
+        # every cycle (§7 reversible-disable, never delete; tier-4 auto-registered
+        # only — never silently kill an operator/DD-curated source).
+        logger.debug("fetcher.crawl: connect error on %s: %s", url[:120], e)
+        if _is_dns_name_failure(str(e)):
+            status_class = "dns_error"
+            if int((d_row or {}).get("tier") or 4) >= 4:
+                try:
+                    if await db.disable_domain(domain, reason=f"NXDOMAIN: {str(e)[:80]}"):
+                        logger.info("fetcher.crawl: disabled dead domain %s (%s)",
+                                    domain, str(e)[:80])
+                except Exception:
+                    pass
+        else:
+            status_class = "error"
     except httpx.HTTPError as e:
         logger.debug("fetcher.crawl: http error on %s: %s", url[:120], e)
         status_class = "error"
-        # R-F2489 §21a — genuine connection/HTTP failure (was log-only) → brain.
+        # R-F2489 §21a — genuine protocol/handling failure (not a dead target) → brain.
         wire_failure(module="crawler_fetcher",
                      detail=f"fetch_for_crawl http error on {url[:120]}: {e}",
                      gap_type="engine_failure", source="crawler_fetcher")
