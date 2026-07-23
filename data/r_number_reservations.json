@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2924,
+  "next_available": 2925,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23111,6 +23111,15 @@
       "r_number": "R-F2923",
       "title": "operator-gated endpoint to reset the daily cost meter",
       "claimed_at": "2026-07-23T15:26:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2924",
+      "title": "the Anthropic chain entry hardcoded sonnet-4-6 so DD ignored the chosen LLM_MODEL",
+      "claimed_at": "2026-07-23T15:58:51Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

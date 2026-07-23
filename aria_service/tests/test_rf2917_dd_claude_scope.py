@@ -232,3 +232,60 @@ class TestClaudeIsDDOnly:
         ds.complete = _boom
         _run(chain.complete("s", "u"))
         assert an.served == 1, "disabling the list should restore normal fallback"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# R-F2924 — the DD must run on the model the operator actually chose
+# ──────────────────────────────────────────────────────────────────────────
+class TestAnthropicChainModel:
+    """The Anthropic chain entry hardcoded claude-sonnet-4-6. LLM_MODEL applies
+    only to the PRIMARY provider, and after the restructure Anthropic is not
+    primary — so LLM_MODEL=claude-opus-4-8 was silently ignored for DD."""
+
+    def _entry(self, monkeypatch, **env):
+        for k, v in env.items():
+            if v is None:
+                monkeypatch.delenv(k, raising=False)
+            else:
+                monkeypatch.setenv(k, v)
+        monkeypatch.setenv("ARIA_ANTHROPIC_ENABLED", "1")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        captured = {}
+
+        def _fake_create(name, *args, **kw):
+            # Real call shapes: create_llm_provider(name, key, model) and
+            # create_llm_provider(name, key, model, base_url).
+            model = kw.get("model")
+            if model is None and len(args) >= 2:
+                model = args[1]
+            captured.setdefault(name, model)
+            return None  # not configured -> chain drops it; we only want the model
+
+        monkeypatch.setattr(fb, "create_llm_provider", _fake_create)
+        fb.create_fallback_chain(
+            primary_provider="deepseek", primary_key="k", primary_model="deepseek-chat",
+        )
+        return captured.get("anthropic")
+
+    def test_explicit_override_wins(self, monkeypatch):
+        assert self._entry(
+            monkeypatch, ARIA_ANTHROPIC_MODEL="claude-opus-4-8",
+        ) == "claude-opus-4-8"
+
+    def test_falls_back_to_LLM_MODEL_when_it_is_a_claude_id(self, monkeypatch):
+        """THE bug: the operator set LLM_MODEL=claude-opus-4-8 and DD ignored it."""
+        assert self._entry(
+            monkeypatch, ARIA_ANTHROPIC_MODEL=None, LLM_MODEL="claude-opus-4-8",
+        ) == "claude-opus-4-8"
+
+    def test_a_non_claude_LLM_MODEL_never_leaks_into_the_claude_entry(self, monkeypatch):
+        """With DeepSeek primary, LLM_MODEL is a DeepSeek id — sending that to
+        Anthropic would 400 every DD call."""
+        assert self._entry(
+            monkeypatch, ARIA_ANTHROPIC_MODEL=None, LLM_MODEL="deepseek-chat",
+        ) == "claude-sonnet-4-6"
+
+    def test_default_is_unchanged_when_nothing_is_set(self, monkeypatch):
+        assert self._entry(
+            monkeypatch, ARIA_ANTHROPIC_MODEL=None, LLM_MODEL=None,
+        ) == "claude-sonnet-4-6"

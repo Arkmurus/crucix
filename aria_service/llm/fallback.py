@@ -792,10 +792,26 @@ def create_fallback_chain(
         ("gemini",    os.getenv("GEMINI_API_KEY", ""),    "gemini-2.5-flash"),
     ]
     if _anthropic_enabled:
-        # Operator explicitly re-enabled — prepend at the head
+        # Operator explicitly re-enabled — prepend at the head.
+        #
+        # R-F2924 — the model was hardcoded "claude-sonnet-4-6". LLM_MODEL only
+        # applies to the PRIMARY provider, and after the 2026-07-23 restructure
+        # Anthropic is deliberately NOT primary (DeepSeek is; Claude is reachable
+        # only by name, R-F2922). So the operator set LLM_MODEL=claude-opus-4-8
+        # for DD quality and DD silently ran on Sonnet 4.6 anyway — a USP-level
+        # mismatch that no error would ever surface. Now env-driven, falling back
+        # to LLM_MODEL when that is itself a Claude id, so the DD runs on the
+        # model that was actually chosen.
+        _anthropic_model = (os.getenv("ARIA_ANTHROPIC_MODEL") or "").strip()
+        if not _anthropic_model:
+            _llm_model = (os.getenv("LLM_MODEL") or "").strip()
+            _anthropic_model = (
+                _llm_model if _llm_model.startswith("claude-") else "claude-sonnet-4-6"
+            )
+        logger.info("[R-F2924] Anthropic chain entry model: %s", _anthropic_model)
         fallback_configs.insert(
             0,
-            ("anthropic", os.getenv("ANTHROPIC_API_KEY", ""), "claude-sonnet-4-6"),
+            ("anthropic", os.getenv("ANTHROPIC_API_KEY", ""), _anthropic_model),
         )
 
     # R-F87 (2026-05-09): self-hosted local LLM via Ollama / vLLM.
