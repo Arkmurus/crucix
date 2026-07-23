@@ -106,8 +106,35 @@ test('R-F2903: the upload sends PNG, never image/svg+xml', async () => {
       'Telegram rejects SVG — the payload must be rasterised PNG');
     assert.doesNotMatch(seenBody, /image\/svg\+xml/);
     assert.match(seenBody, /filename="card\.png"/);
-    // PNG magic bytes must actually be present in the multipart payload.
     assert.ok(seenBody.includes('PNG'), 'payload does not contain PNG data');
+  } finally { globalThis.fetch = original; }
+});
+
+test('R-F2903: the multipart payload preserves the PNG BYTES intact', async () => {
+  // This is the assertion the first version of this test was missing, and the gap
+  // cost a live failure. `body.includes('PNG')` passes even when the image is
+  // destroyed, because "PNG" is ASCII and survives a UTF-8 round-trip while every
+  // non-ASCII byte becomes U+FFFD. The encoder was doing exactly that
+  // (data.toString('utf-8') into a joined string), so Telegram received a corrupted
+  // image and returned 400 IMAGE_PROCESS_FAILED — with the card code otherwise
+  // perfect. Assert the real signature bytes and a Buffer body.
+  const original = globalThis.fetch;
+  let body = null;
+  globalThis.fetch = async (_url, opts) => {
+    body = opts?.body;
+    return { ok: true, status: 200, json: async () => ({ ok: true, result: { photo: [{ file_id: 'F1' }] } }) };
+  };
+  try {
+    const svg = generateInfographicCard(TENDER);
+    const res = await uploadSvgAsPhoto({ botToken: 'T', chatId: '-100' }, svg, 'card.png');
+    assert.equal(res.ok, true);
+    assert.ok(Buffer.isBuffer(body), 'multipart body must be a Buffer — a string corrupts binary');
+    const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);   // \x89PNG\r\n\x1a\n
+    assert.ok(body.includes(sig), 'the PNG signature bytes were corrupted in the multipart body');
+    assert.ok(body.includes(Buffer.from('IEND')), 'the PNG end chunk is missing — payload truncated');
+    // U+FFFD is what a UTF-8 round-trip leaves behind; its presence means corruption.
+    assert.ok(!body.includes(Buffer.from('�', 'utf-8')),
+      'payload contains U+FFFD replacement bytes — binary went through a string');
   } finally { globalThis.fetch = original; }
 });
 
