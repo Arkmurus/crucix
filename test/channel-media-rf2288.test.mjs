@@ -65,7 +65,9 @@ describe('ChannelMedia — generateInfographicCard', () => {
     // R-F2903 — the why-panel now renders the SUBTITLE (the actual why_it_matters).
     // It previously rendered bullets[0], which the channel caller sets to the ACTION,
     // so both panels printed the same sentence.
-    assert.ok(svg.includes('dual-use relevance'), 'why panel must show the why, not the action');
+    // Assert on a single token: wrapping is word-based and splits across <tspan>s,
+    // so a multi-word phrase is not reliably contiguous in the markup.
+    assert.ok(svg.includes('dual-use'), 'why panel must show the why, not the action');
     assert.ok(svg.includes('Dual-use avionics route needs screening'));
   });
 
