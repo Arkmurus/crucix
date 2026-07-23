@@ -70,7 +70,7 @@ console.log('\n2. badge reset wired into each loader');
   const lcIdx = HTML.indexOf('async function loadComposite');
   const lc = HTML.slice(lcIdx, lcIdx + 800);
   check('loadComposite resets composite-badge on null/missing score',
-        /(\!d\s*\|\|\s*\!d\.composite_score)[\s\S]+?resetBadge\(['"]composite-badge/.test(lc));
+        /(\!d\s*\|\|\s*d\.composite_score\s*==\s*null)[\s\S]+?resetBadge\(['"]composite-badge/.test(lc));
 }
 
 // ── 3. Reset labels are honest (not "OK" / "GREEN") ─────────────────

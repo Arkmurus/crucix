@@ -1424,7 +1424,7 @@ async function loadMastery() {
 
 async function loadComposite() {
   const d = await fetchJson('/autonomy/composite');
-  if (!d || !d.composite_score) {
+  if (!d || d.composite_score == null) {
     // R-F465: reset composite badge so the top bar doesn't keep showing
     // yesterday's score while panels below say "No data yet".
     resetBadge('composite-badge', 'SCORE: DOWN');
@@ -1433,43 +1433,57 @@ async function loadComposite() {
   }
   const cb = document.getElementById('composite-badge');
 
-  // R-F227 (2026-05-11) — cap displayed tier on signal-pending. The
-  // composite score uses 50% as the neutral prior for null signals;
-  // pre-R-F227 a score with 2 of 4 signals at default still rendered
-  // as HIGH (3). Now if ≥25% of signals are placeholders, cap the
-  // displayed tier at MEDIUM and surface the caveat prominently.
+  // R-F227 / R-F2910 — cap the DISPLAYED tier when signals are missing.
+  // The scorer excludes null signals and renormalises measured weights; it
+  // does not substitute a plausible-looking 50% value. Keep that provenance
+  // visible and never overwrite the capped badge with the raw tier below.
   const signals = d.signals || {};
   const totalSig = Object.keys(signals).length || 1;
   const pending = Object.values(signals).filter(v => v == null).length;
   const pendingFrac = pending / totalSig;
   const tierEffective = (pendingFrac >= 0.25 && d.tier > 2) ? 2 : d.tier;
   const tierNameEff = (pendingFrac >= 0.25 && d.tier > 2) ? 'MEDIUM (capped, signal-pending)' : d.tier_name;
-  cb.textContent = `SCORE: ${pct(d.composite_score)} ${tierNameEff}`;
   const cls = tierEffective >= 4 ? 'badge-green' : tierEffective >= 3 ? 'badge-green' : tierEffective >= 2 ? 'badge-yellow' : 'badge-red';
   cb.className = `badge ${cls}`;
 
-  // Pending note for the row metric (already shown to operator).
   const pendingNote = pending > 0 ? ` (${pending} signal${pending > 1 ? 's' : ''} pending)` : '';
+  cb.textContent = `SCORE: ${pct(d.composite_score)} ${tierNameEff}${pendingNote}`;
 
   let html = metricRow('Composite Score', pct(d.composite_score) + pendingNote, scoreClass(d.composite_score, 0.7, 0.5));
-  html += metricRow('Tier', `${d.tier_name} (${d.tier})`, d.tier >= 3 ? 'good' : d.tier >= 2 ? 'warn' : 'bad');
+  html += metricRow('Displayed Tier', `${tierNameEff} (${tierEffective})`, tierEffective >= 3 ? 'good' : tierEffective >= 2 ? 'warn' : 'bad');
+  if (tierEffective !== d.tier) {
+    html += metricRow('Raw Tier', `${d.tier_name} (${d.tier}) — confidence cap applied`, 'neutral');
+  }
+  if (d.confidence != null) {
+    html += metricRow('Measured Weight', pct(d.confidence), d.low_confidence ? 'warn' : 'good');
+  }
   if (d.override) html += metricRow('OVERRIDE', d.override, 'bad');
   html += '<div style="margin-top:8px;font-size:0.8em;color:#6b6862">Signal breakdown:</div>';
   const weights = d.weights || {};
   for (const [sig, val] of Object.entries(signals)) {
     const w = weights[sig] ? ` (${(weights[sig]*100).toFixed(0)}%)` : '';
-    const display = val != null ? pct(val) : '50%*';
-    const note = val == null ? ' <span style="font-size:0.75em;color:#6b6862">(default, no data yet)</span>' : '';
+    const display = val != null ? pct(val) : 'excluded';
+    let provenance = '';
+    if (sig === 'verification') {
+      provenance = d.details?.verification_source || '';
+      if (d.details?.verification_samples != null) provenance += `, n=${d.details.verification_samples}`;
+    } else if (sig === 'honesty_rate') {
+      provenance = d.details?.honesty_rate_source || '';
+      if (d.details?.honesty_rate_samples != null) provenance += `, n=${d.details.honesty_rate_samples}`;
+    } else if (sig === 'mastery' && d.details?.mastery_topics != null) {
+      provenance = `${d.details.mastery_topics} topics`;
+    }
+    const noteText = val == null ? 'no qualifying data; excluded from score' : provenance;
+    const note = noteText ? ` <span style="font-size:0.75em;color:#6b6862">(${noteText})</span>` : '';
     html += `<div class="metric"><span class="label">${sig}${w}</span><span class="value neutral">${display}${note}</span></div>`;
   }
   if (pending > 0) {
-    html += '<div style="margin-top:6px;font-size:0.75em;color:#6b6862">* Signals without data default to 50% (neutral prior). Score is half-calibrated until verification + grounded rate populate after first chat responses with tool use.</div>';
+    html += '<div style="margin-top:6px;font-size:0.75em;color:#6b6862">Missing signals are excluded and measured weights are renormalised. Treat the score as partial evidence; the displayed tier is capped while at least 25% of signals are missing.</div>';
+  }
+  if (d.computed_at) {
+    html += `<div style="margin-top:6px;font-size:0.75em;color:#6b6862">Computed ${new Date(d.computed_at).toLocaleString()}</div>`;
   }
   document.getElementById('composite-metrics').innerHTML = html;
-
-  // Update status bar badge with pending count
-  cb.textContent = `SCORE: ${pct(d.composite_score)} ${d.tier_name}${pendingNote}`;
-
 }
 
 async function loadCalibration() {
