@@ -155,15 +155,26 @@ async def test_rf2214_dead_feed_is_wired_to_brain(monkeypatch):
     dead_vault = [("vault:DeadUserSrc", "https://dead.example/rss", "vault_curated", "en", "tier_2", ["custom"])]
     monkeypatch.setattr(nm, "_fetch_feed", lambda url, name: _none())
     monkeypatch.setattr(nm, "_get_vault_feed_sources", lambda: dead_vault)
-    monkeypatch.setattr(nm, "wire_failure", lambda **kw: calls.append(kw))
+
+    # R-F2890 — bind the stub to the REAL wire_failure signature instead of
+    # swallowing anything with **kw. The old `lambda **kw` stub is why this test was
+    # GREEN while the production path was DARK: the call site passed summary=/
+    # source_id=, which wire_failure(module, detail, gap_type, source) does not
+    # accept, so live it raised TypeError straight into an `except: pass` and no
+    # vault-source failure ever reached the brain. A stub looser than the real
+    # function cannot detect a wrong call — it manufactures one.
+    def _wire_failure_stub(module, detail, gap_type="engine_failure", source=""):
+        calls.append({"module": module, "detail": detail, "gap_type": gap_type, "source": source})
+
+    monkeypatch.setattr(nm, "wire_failure", _wire_failure_stub)
     monkeypatch.setattr(nm, "wire_success", lambda **kw: None)
     res = await nm.poll_feeds()
     assert res["feeds_failed"] > 0
     # the dead vault source reaches the brain (was silently counted before)...
     assert calls, "no wire_failure emitted for the dead vault source"
-    assert any("DeadUserSrc" in (c.get("summary", "")) for c in calls)
+    assert any("DeadUserSrc" in c["detail"] for c in calls)
     # ...and the curated firehose failures do NOT flood (scoped to vault_curated)
-    assert all("news_monitor:feed:" in c.get("source_id", "") for c in calls)
+    assert all("news_monitor:feed:" in c["source"] for c in calls)
     assert len(calls) == 1, f"expected only the vault source to wire, got {len(calls)}"
 
 
