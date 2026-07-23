@@ -11,6 +11,21 @@ from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.openai")
 
+# R-F2935 — per-provider known-safe default model, used only when the provider
+# was misconfigured with a Claude id (see __init__). Mirrors the factory's own
+# `model or "<default>"` fallbacks so a bad secret degrades to the SAME model the
+# provider would use with no model configured at all. Unknown providers get ""
+# (the API's own account default), never a claude id.
+_OPENAI_COMPAT_SAFE_DEFAULT: dict[str, str] = {
+    "deepseek": "deepseek-chat",
+    "openai": "gpt-4",
+    "groq": "llama-3.3-70b-versatile",
+    "mistral": "mistral-large-latest",
+    "minimax": "MiniMax-M2.5",
+    "openrouter": "openrouter/auto",
+    "ollama": "",
+}
+
 
 class OpenAICompatProvider(LLMProvider):
     """Generic OpenAI-compatible chat completions provider."""
@@ -26,8 +41,30 @@ class OpenAICompatProvider(LLMProvider):
         default_timeout: float = 60.0,
     ):
         self.name = name
+        # R-F2935 — an OpenAI-compatible endpoint (DeepSeek/OpenAI/Groq/...) can
+        # never serve a Claude model. A claude-* id lands here when the provider
+        # is MISCONFIGURED with one as its default — which is exactly what
+        # happened on the 2026-07-23 restructure: LLM_PROVIDER=deepseek with
+        # LLM_MODEL=claude-opus-4-8 made main.py build the DeepSeek PRIMARY with
+        # self._model="claude-opus-4-8", so every call with no per-call override
+        # sent claude-opus-4-8 to api.deepseek.com → HTTP 400 → cooldown →
+        # self_improve/DD layers degraded to local_brain. The per-call override
+        # was already guarded; the CONFIGURED default was not. Refuse it at
+        # construction and fall back to this provider's known-safe default, once,
+        # loudly — so a bad secret degrades to a working model instead of a 400
+        # storm.
+        _model = model
+        if _model and str(_model).startswith("claude") and name != "anthropic":
+            _safe = _OPENAI_COMPAT_SAFE_DEFAULT.get(name, "")
+            logger.warning(
+                "[openai_compat] %s configured with a Claude model %r — it "
+                "cannot serve Claude; using %r instead. Fix the secret "
+                "(a non-anthropic provider's model must not be a claude id).",
+                name, _model, _safe or "<none>",
+            )
+            _model = _safe
         self._api_key = api_key
-        self._model = model
+        self._model = _model
         self._base_url = base_url.rstrip("/")
         self._extra_headers = extra_headers or {}
         self._default_timeout = default_timeout
