@@ -23130,9 +23130,10 @@
       "title": "aria brain composite adversarial boundary coverage",
       "claimed_at": "2026-07-23T16:08:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9df978d9",
+      "notes": null,
+      "shipped_at": "2026-07-23T16:14:58Z"
     }
   ]
 }
