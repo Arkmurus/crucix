@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2930,
+  "next_available": 2932,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23166,6 +23166,24 @@
       "r_number": "R-F2929",
       "title": "registry coverage: surface WHY a jurisdiction is unproven and flag live adapters with data-quality defects",
       "claimed_at": "2026-07-23T17:06:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2930",
+      "title": "golden intel: provenance must be earned by item-specific content, not by which module wrote it",
+      "claimed_at": "2026-07-23T17:19:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2931",
+      "title": "DD reports persist but the read path returns none - fix so reports show on the page",
+      "claimed_at": "2026-07-23T17:20:55Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

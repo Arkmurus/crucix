@@ -1530,6 +1530,33 @@ async def admin_state_key_ep(key: str = "", peek: int = 400):
             out["length"] = len(raw) if isinstance(raw, str) else -1
             out["preview"] = (raw[:max(0, int(peek))]
                               if isinstance(raw, str) else str(type(raw)))
+            # R-F2931 — the whole question is why get_json() returns None for a
+            # blob get() returns fine. get_json is get() + json.loads inside a
+            # try that logs and returns None, so the exception never reaches a
+            # caller. Reproduce the parse HERE and surface the exception.
+            if isinstance(raw, str):
+                # A truncated write is the other candidate, and it can only be
+                # seen at the END of the blob — the head always looks valid.
+                out["tail"] = raw[-200:]
+                try:
+                    import json as _json
+                    _parsed = _json.loads(raw)
+                    out["json_parses"] = True
+                    out["json_type"] = type(_parsed).__name__
+                    if isinstance(_parsed, list):
+                        out["json_len"] = len(_parsed)
+                except Exception as _pe:
+                    out["json_parses"] = False
+                    out["json_error"] = f"{type(_pe).__name__}: {_pe}"
+                # And the exact call the broken read path makes, so a
+                # discrepancy between the two is visible in one response.
+                try:
+                    _viaj = await _rs.get_json(key)
+                    out["get_json_returned"] = (
+                        "None" if _viaj is None else type(_viaj).__name__
+                    )
+                except Exception as _ge:
+                    out["get_json_returned"] = f"raised {type(_ge).__name__}: {_ge}"
     except Exception as e:
         # An error here is itself the answer — "the read failed" is a different
         # diagnosis from "the key is absent", so never collapse them.
