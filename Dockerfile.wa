@@ -33,6 +33,11 @@ RUN cd services/wa-listener && npm install --omit=dev
 # WA listener source
 COPY services/wa-listener/aria_wa_listener.mjs ./services/wa-listener/aria_wa_listener.mjs
 
+# R-F2946 — the listener imports `./wa-watchdog.mjs` (pure open-but-dead decision logic).
+# Same sibling-file cherry-pick trap as below: MISSING it crash-loops aria-wa
+# (ERR_MODULE_NOT_FOUND on boot). Dependency-free (Node only).
+COPY services/wa-listener/wa-watchdog.mjs ./services/wa-listener/wa-watchdog.mjs
+
 # R-F2069 — the listener imports `./send-retry.mjs` (extracted bounded send retry).
 # Same sibling-file cherry-pick trap as the lib/ copies below: MISSING it
 # crash-loops aria-wa (ERR_MODULE_NOT_FOUND on boot). Dependency-free (Node only).
