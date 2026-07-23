@@ -22744,45 +22744,50 @@
       "title": "aria-web Node tier Claude spend is unmetered and invisible to the cap",
       "claimed_at": "2026-07-23T03:44:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "88400661",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:52:35Z"
     },
     {
       "r_number": "R-F2886",
       "title": "OCR vision discards Anthropic usage tokens - no cost record, no cap check",
       "claimed_at": "2026-07-23T03:44:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "88400661",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:52:35Z"
     },
     {
       "r_number": "R-F2887",
       "title": "claude_reviewer builds an unwrapped provider - bypasses meter and cap",
       "claimed_at": "2026-07-23T03:44:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "88400661",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:52:35Z"
     },
     {
       "r_number": "R-F2888",
       "title": "wire the daily cap + circuit breaker to the live meter; fix stale pricing",
       "claimed_at": "2026-07-23T03:44:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "88400661",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:52:36Z"
     },
     {
       "r_number": "R-F2889",
       "title": "push spend alerts to the operator at warning + circuit thresholds",
       "claimed_at": "2026-07-23T03:44:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "88400661",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:52:36Z"
     },
     {
       "r_number": "R-F2890",
@@ -22859,9 +22864,10 @@
       "title": "attach Claude model-class routing to the high-volume autonomous loops",
       "claimed_at": "2026-07-23T04:34:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "41bba8b9",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:52:36Z"
     },
     {
       "r_number": "R-F2898",
@@ -22886,9 +22892,10 @@
       "title": "deploy.ps1: aria-web/wa verified by version-bump alone - a peer deploy fakes a PASS",
       "claimed_at": "2026-07-23T11:44:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4725adab",
+      "notes": null,
+      "shipped_at": "2026-07-23T11:52:36Z"
     }
   ]
 }
