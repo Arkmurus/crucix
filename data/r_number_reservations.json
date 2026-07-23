@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2926,
+  "next_available": 2930,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23134,6 +23134,42 @@
       "commit_sha": "9df978d9",
       "notes": null,
       "shipped_at": "2026-07-23T16:14:58Z"
+    },
+    {
+      "r_number": "R-F2926",
+      "title": "DD reports are not persisted - completed report returns 200 then 404, invisible on the web page",
+      "claimed_at": "2026-07-23T16:41:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2927",
+      "title": "registry coverage: sweep must run IN the server process (side-car writes are refused by the store owner)",
+      "claimed_at": "2026-07-23T16:45:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2928",
+      "title": "operator-gated single-key state diagnostic to close the DD persistence root cause",
+      "claimed_at": "2026-07-23T17:05:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2929",
+      "title": "registry coverage: surface WHY a jurisdiction is unproven and flag live adapters with data-quality defects",
+      "claimed_at": "2026-07-23T17:06:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

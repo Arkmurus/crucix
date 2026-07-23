@@ -304,7 +304,7 @@ _OPERATOR_ONLY_RE = re.compile(
     # llm(?![-\w/]) exempts EXACTLY coder/llm — NOT coder/llm-sensitive and NOT any future
     # coder/llm/<subpath> (security Pass-2: keep sub-paths gated so a later control sub-route
     # can't silently inherit the service-token exemption).
-    r"|coder/(?!rag/|llm(?![-\w/]))|cost/set-cap|cost/reset-task|cost/daily/reset|admin/purge|capability-gaps/purge"
+    r"|coder/(?!rag/|llm(?![-\w/]))|cost/set-cap|cost/reset-task|cost/daily/reset|admin/state/key|admin/purge|capability-gaps/purge"
     r"|memory/backup/restore|student/mastery/reset|portal/credentials|session/forget"
     r"|eval/|operating-mode/set|knowledge/fact"
     # R-F2458: /training-data/library-export + /export dump up to 5000 Q&A tuples
@@ -1493,6 +1493,48 @@ async def admin_state_hotcold_backfill_ep(
     asyncio.create_task(_run())
     return {"started": True, "page_size": page_size, "sleep_s": sleep_s,
             "reset": bool(reset), "status": await _ss.backfill_status()}
+
+
+@router.get("/admin/state/key")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def admin_state_key_ep(key: str = "", peek: int = 400):
+    """R-F2928 — READ ONE state key through the app's EXISTING connection.
+
+    Built to close a specific question that no other surface could answer: DD
+    runs complete and return a full report, but /dd/report/{run_id} 404s and the
+    report index stays empty, with NO persist error ever logged. That leaves two
+    very different causes — the write is lost, or the write lands and the read
+    cannot see it — and they need opposite fixes.
+
+    Deliberately READ-ONLY and routed through the live pool: opening a second
+    connection to the state sqlite file is exactly how the 2026-07-02 writer
+    wedge started (3.5h outage), so this must never do that. Returns presence,
+    length and a bounded preview — never the whole blob, which for a DD report
+    is ~38KB and would dwarf any log or response it lands in.
+    """
+    key = (key or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="key is required")
+    from ..intel import redis_store as _rs
+    from ..intel import state_store as _ss
+    out: dict = {"key": key, "routed_db": None, "exists": False,
+                 "length": 0, "preview": "", "error": None}
+    try:
+        out["routed_db"] = _ss._route_db(key)
+    except Exception:
+        pass
+    try:
+        raw = await _rs.get(key)
+        if raw is not None:
+            out["exists"] = True
+            out["length"] = len(raw) if isinstance(raw, str) else -1
+            out["preview"] = (raw[:max(0, int(peek))]
+                              if isinstance(raw, str) else str(type(raw)))
+    except Exception as e:
+        # An error here is itself the answer — "the read failed" is a different
+        # diagnosis from "the key is absent", so never collapse them.
+        out["error"] = f"{type(e).__name__}: {e}"
+    return out
 
 
 @router.get("/admin/state/hotcold-backfill/status")
