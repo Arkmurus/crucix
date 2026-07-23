@@ -769,12 +769,22 @@ async def _extract_facts_llm(
         # "uncategorized" when called from a context without an
         # outer cost_tracker.feature() wrap.
         from . import cost_tracker
+        # R-F2897 — one call per investigated link, so volume tracks the crawl.
+        # Pulling facts out of fetched page text is extraction, not analysis;
+        # the DD *verdict* layers stay on the standard model. Ignored by
+        # non-Claude providers.
+        try:
+            from ..llm import tier_router as _tr2897
+            _link_model = _tr2897.claude_model_for_intent("research_extraction")
+        except Exception:
+            _link_model = ""
         with cost_tracker.feature("link_investigator"):
             result = await llm.complete(
                 _LLM_EXTRACT_SYSTEM,
                 user,
                 max_tokens=1500,
                 timeout=45.0,
+                model=_link_model,   # R-F2897 — Haiku for extraction
             )
         raw = getattr(result, "text", "") or ""
         cost = _estimate_llm_cost(result)

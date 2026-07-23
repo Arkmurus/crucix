@@ -507,7 +507,18 @@ async def _classify_url_llm(url: str, context: str, llm) -> URLProposal:
             # and a microsecond of wrapper overhead (cost meter / rate limit
             # accounting) can flip it. URL classifier has a heuristic fallback,
             # but we'd rather get the real LLM call than silently degrade.
-            result = await llm.complete("You are a URL classifier.", prompt, max_tokens=300, timeout=30.0)
+            # R-F2897 — one call per candidate URL during corpus ingest, so this
+            # scales with the crawl, not with users. A 300-token tier/risk
+            # classification is the canonical cheap-tier task (and it already
+            # degrades to _classify_url_heuristic on failure). Ignored by
+            # non-Claude providers, so a no-op until the switch flips.
+            try:
+                from ..llm import tier_router as _tr2897
+                _cls_model = _tr2897.claude_model_for_intent("classification")
+            except Exception:
+                _cls_model = ""
+            result = await llm.complete("You are a URL classifier.", prompt, max_tokens=300,
+                                        timeout=30.0, model=_cls_model)
         raw = result.text.strip()
         if "```" in raw:
             raw = raw.split("```")[1].split("```")[0]

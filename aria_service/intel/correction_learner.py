@@ -236,12 +236,21 @@ async def _extract_facts_via_llm(text: str, llm: Any) -> list[dict]:
         # "uncategorized" — uncategorized growth was the gating issue
         # for the autonomy flip per the 2026-04-25 TODO.
         from . import cost_tracker
+        # R-F2897 — fires on every user correction; pulling structured facts out
+        # of a 4k-char window into a fixed JSON shape is mechanical extraction,
+        # not judgement. Ignored by non-Claude providers.
+        try:
+            from ..llm import tier_router as _tr2897
+            _fact_model = _tr2897.claude_model_for_intent("entity_extraction")
+        except Exception:
+            _fact_model = ""
         with cost_tracker.feature("correction_learner"):
             result = await llm.complete(
                 _EXTRACTION_SYSTEM_PROMPT,
                 f"User correction text:\n\n{text[:4000]}",
                 max_tokens=_FACT_EXTRACTION_MAX_TOKENS,
                 timeout=_FACT_EXTRACTION_TIMEOUT_S,
+                model=_fact_model,   # R-F2897 — Haiku for extraction
             )
         # llm.complete returns either a string or an object with .text
         raw = result.text if hasattr(result, "text") else str(result)

@@ -246,12 +246,22 @@ async def summarise_and_store(
     try:
         # Attribute LLM cost to mem0 feature so /cost can show it separately
         from . import cost_tracker
+        # R-F2897 — runs once per stored exchange, so it scales with every
+        # conversation ARIA has. A 100-token one-line summary is the smallest
+        # task in the tree; paying Sonnet rates for it is pure waste. Ignored by
+        # non-Claude providers.
+        try:
+            from ..llm import tier_router as _tr2897
+            _sum_model = _tr2897.claude_model_for_intent("summary_short")
+        except Exception:
+            _sum_model = ""
         with cost_tracker.feature("mem0"):
             result = await llm.complete(
                 _SUMMARISER_SYSTEM,
                 prompt,
                 max_tokens=100,
                 timeout=20.0,
+                model=_sum_model,   # R-F2897 — Haiku for short summarisation
             )
         summary = (getattr(result, "text", "") or "").strip()
     except Exception as e:

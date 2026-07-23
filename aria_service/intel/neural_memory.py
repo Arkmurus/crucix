@@ -1133,6 +1133,18 @@ async def _extract_concepts_llm(text: str, llm) -> list[tuple[str, str]]:
         # extractions died with "Fallback budget exhausted (10.0s remaining)".
         # 30s gives anthropic real room on a 600-token JSON extract while
         # still bounding each call.
+        # R-F2897 — the single highest-volume autonomous LLM site in the tree:
+        # 20-30 extractions per sweep ingest, plus one per article the reading
+        # loop reads (~9.6 sessions/day). Post-flip every one of those would hit
+        # full-price Sonnet. Entity extraction from a 3k-char window into a fixed
+        # JSON shape is mechanical high-recall work — exactly Haiku's job. A
+        # non-Claude provider ignores a claude id, so this is a no-op until the
+        # switch flips.
+        try:
+            from ..llm import tier_router as _tr2897
+            _extract_model = _tr2897.claude_model_for_intent("entity_extraction")
+        except Exception:
+            _extract_model = ""
         result = await asyncio.wait_for(
             llm.complete(
                 "You are a concise entity-extraction assistant. "
@@ -1140,6 +1152,7 @@ async def _extract_concepts_llm(text: str, llm) -> list[tuple[str, str]]:
                 prompt,
                 max_tokens=600,
                 timeout=30.0,
+                model=_extract_model,   # R-F2897 — Haiku (ignored by non-Claude)
             ),
             timeout=35.0,  # outer safety net
         )

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2897,
+  "next_available": 2898,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22841,6 +22841,15 @@
       "r_number": "R-F2896",
       "title": "dashboard/channel: one canonical feedPublishable staleness semantic",
       "claimed_at": "2026-07-23T03:53:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2897",
+      "title": "attach Claude model-class routing to the high-volume autonomous loops",
+      "claimed_at": "2026-07-23T04:34:08Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
