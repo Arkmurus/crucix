@@ -118,12 +118,21 @@ describe('R-F2077 PART B — static regression locks (the 7 audit fixes)', () =>
     const s = read('public/news.html');
     assert.ok(/stats\.recent_articles/.test(s), 'kpi-total must read stats.recent_articles');
   });
-  it('#6 vault maps the real status vocabulary (needs_operator/open_api/declined)', () => {
+  it('#6 vault renders summary tiles FROM by_status, not a hardcoded vocabulary (R-F2934 supersedes)', () => {
     const s = read('public/vault.html');
-    for (const k of ['needs_operator', 'open_api', 'declined']) {
-      assert.ok(s.includes(k), `vault must know the "${k}" status`);
+    // R-F2934: the original lock asserted `bs.needs_operator` — a specific hardcoded
+    // read that was itself the drift the page kept regressing on. The stronger contract
+    // is that the tiles are DERIVED from whatever by_status contains, so a new status
+    // cannot go invisible. Assert the derivation, and that the reconciliation guard
+    // exists — both are what actually stop the regression.
+    assert.ok(s.includes('STATUS_CONFIG'), 'vault must still know the real status labels/icons');
+    assert.ok(/renderVaultSummary/.test(s), 'summary must be rendered from data, not fixed IDs');
+    assert.ok(/by_status/.test(s) && /reduce\(/.test(s),
+      'the tiles must be built from by_status with a reconciliation sum');
+    // The exact drift-prone hardcoded IDs must be GONE (see the R-F2934 contract test).
+    for (const id of ['vault-open-api', 'vault-declined', 'vault-needs-operator']) {
+      assert.ok(!s.includes(`id="${id}"`), `#${id} hardcoded tile must be removed`);
     }
-    assert.ok(/by_status\.needs_operator/.test(s) || /bs\.needs_operator/.test(s), 'cards must read by_status.needs_operator');
   });
   it('#7 watchlist surfaces last_risk and reads the real added_at timestamp', () => {
     const s = read('public/watchlist.html');

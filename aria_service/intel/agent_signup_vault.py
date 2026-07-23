@@ -562,9 +562,16 @@ class AgentSignupVault:
             "SELECT COUNT(*) FROM signups WHERE last_verified_at IS NOT NULL AND last_verified_at > ?",
             (time.time() - 86400 * 7,),  # last 7 days
         ).fetchone()[0]
+        # R-F2934 — was `status = 'registered'`, a LEGACY status the R-F2076 vocabulary
+        # migration made extinct (the live set is needs_operator/open_api/declined/
+        # verified/deferred). No row can have status='registered', so the metric — and
+        # the "Stale (30d+)" tile it feeds — was permanently 0 by construction: a check
+        # querying a value that cannot exist, which reads identically to "nothing is
+        # stale". Measure what the label promises: a VERIFIED source we have not
+        # re-checked in 30 days, which is a real and actionable state.
         stale = conn.execute(
-            "SELECT COUNT(*) FROM signups WHERE status = 'registered' AND (last_verified_at IS NULL OR last_verified_at < ?)",
-            (time.time() - 86400 * 30,),  # not verified in 30 days
+            "SELECT COUNT(*) FROM signups WHERE status = 'verified' AND (last_verified_at IS NULL OR last_verified_at < ?)",
+            (time.time() - 86400 * 30,),
         ).fetchone()[0]
 
         return {

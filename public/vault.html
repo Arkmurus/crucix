@@ -81,18 +81,17 @@
     </div>
   </div>
 
-  <!-- Summary row -->
-  <div class="sc-grid-4 mb-16" id="vault-summary">
-    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-globe"></i></div><div><div class="sc-stat-value" id="vault-total">-</div><div class="sc-stat-label">Total Sites</div></div></div>
-    <!-- R-F2076: cards now map to the brain's real status vocabulary (was Registered/Pending/Failed, none of which the brain emits → 42/43 sites were invisible) -->
-    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-check-circle"></i></div><div><div class="sc-stat-value" id="vault-verified">-</div><div class="sc-stat-label">Verified</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-hourglass-split"></i></div><div><div class="sc-stat-value" id="vault-needs-operator">-</div><div class="sc-stat-label">Needs Operator</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-plug"></i></div><div><div class="sc-stat-value" id="vault-open-api">-</div><div class="sc-stat-label">Open API</div></div></div>
-  </div>
-  <div class="sc-grid-2 mb-24" id="vault-summary-2">
-    <div class="sc-stat"><div class="sc-stat-icon red"><i class="bi bi-x-circle"></i></div><div><div class="sc-stat-value" id="vault-declined">-</div><div class="sc-stat-label">Declined</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-clock"></i></div><div><div class="sc-stat-value" id="vault-stale">-</div><div class="sc-stat-label">Stale (30d+)</div></div></div>
-  </div>
+  <!-- R-F2934 — DATA-DRIVEN summary. The tiles are rendered from the backend's
+       by_status, not a hardcoded list. This exists because the hardcoded version
+       drifted from the data TWICE: R-F2076 fixed the table icons after 42/43 rows
+       fell to a default, and left these tiles fixed to a DIFFERENT set — so `deferred`
+       (has data) had no tile and `open_api` (no data) held a permanent-zero tile. A
+       fixed vocabulary in the UI cannot track a vocabulary that changes in the brain.
+       Deriving from the data means a new status can never be invisible and a phantom
+       status never gets a tile. #vault-recon shows the sum-to-total check; if it ever
+       fails, the page SAYS so rather than showing numbers that silently don't add up. -->
+  <div class="sc-grid-4 mb-8" id="vault-summary"></div>
+  <div id="vault-recon" style="font-size:12px;padding:0 4px;margin-bottom:20px"></div>
 
   <!-- Filter bar -->
   <div class="sc-card mb-16">
@@ -151,8 +150,9 @@
     <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-bank"></i></div><div><div class="sc-stat-value" id="cov-total">-</div><div class="sc-stat-label">Registries</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-check-circle"></i></div><div><div class="sc-stat-value" id="cov-live">-</div><div class="sc-stat-label">Live (proven)</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-dash-circle"></i></div><div><div class="sc-stat-value" id="cov-unproven">-</div><div class="sc-stat-label">Unproven</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-compass"></i></div><div><div class="sc-stat-value" id="cov-explored">-</div><div class="sc-stat-label">Explored (no adapter)</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-compass"></i></div><div><div class="sc-stat-value" id="cov-explored">-</div><div class="sc-stat-label">Probed, no adapter</div></div></div>
   </div>
+  <div id="coverage-explore-note" style="font-size:12px;color:#57534b;padding:2px 4px 14px"></div>
   <div class="sc-card">
     <div style="padding:0">
       <table class="sc-table" id="coverage-table">
@@ -193,6 +193,65 @@ const STATUS_CONFIG = {
   expired:   { icon: 'bi-clock',          color: '#6b6862' },
   cancelled: { icon: 'bi-x-octagon',      color: '#6b6862' },
 };
+
+// R-F2934 — render summary tiles FROM the data. Statuses are ordered by this list
+// when present; any status the backend emits that is NOT here still gets a tile (via
+// the STATUS_CONFIG fallback), so a new vocabulary entry can never become invisible
+// the way `deferred` did. Total and Stale are not statuses, so they stay fixed.
+const VAULT_STATUS_ORDER = ['verified', 'needs_operator', 'open_api', 'deferred', 'declined'];
+
+function vaultTile(iconClass, colorHint, value, label, title) {
+  const t = title ? ' title="' + escHtml(title) + '"' : '';
+  return '<div class="sc-stat"' + t + '><div class="sc-stat-icon ' + colorHint + '">'
+    + '<i class="bi ' + iconClass + '"></i></div><div>'
+    + '<div class="sc-stat-value">' + escHtml(String(value)) + '</div>'
+    + '<div class="sc-stat-label">' + escHtml(label) + '</div></div></div>';
+}
+
+function renderVaultSummary(stats) {
+  const bs = (stats && stats.by_status) || {};
+  const total = Number(stats && stats.total) || 0;
+  const stale = Number(stats && stats.stale_unverified) || 0;
+
+  // Order known statuses first, then any UNKNOWN status the backend reported — the
+  // latter is exactly the case a hardcoded list would drop on the floor.
+  const seen = new Set();
+  const ordered = [];
+  for (const s of VAULT_STATUS_ORDER) if (s in bs) { ordered.push(s); seen.add(s); }
+  for (const s of Object.keys(bs)) if (!seen.has(s)) ordered.push(s);
+
+  const tiles = [vaultTile('bi-globe', 'blue', total, 'Total Sites')];
+  const iconColour = { green: 'green', blue: 'blue', orange: 'orange', red: 'red' };
+  for (const s of ordered) {
+    const cfg = STATUS_CONFIG[s] || {};
+    const label = cfg.label || String(s).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    // Map the status colour to the nearest tile-icon class the stylesheet defines.
+    const hint = cfg.color === '#15803d' ? 'green'
+      : cfg.color === '#b91c1c' ? 'red'
+      : (cfg.color === '#c2410c' || cfg.color === '#b45309') ? 'orange' : 'blue';
+    tiles.push(vaultTile(cfg.icon || 'bi-question', hint, bs[s], label));
+  }
+  tiles.push(vaultTile('bi-clock', 'orange', stale, 'Stale (30d+)',
+    'Verified sources not re-checked in over 30 days.'));
+
+  document.getElementById('vault-summary').innerHTML = tiles.join('');
+
+  // Reconciliation — the sum of per-status tiles MUST equal Total. A number that does
+  // not add up is a signal; hiding it would be the false clean this page is meant to
+  // avoid. When it reconciles, say so quietly; when it does not, say so loudly.
+  const summed = Object.values(bs).reduce((a, b) => a + (Number(b) || 0), 0);
+  const recon = document.getElementById('vault-recon');
+  if (summed === total) {
+    recon.innerHTML = '<span style="color:#9b968c"><i class="bi bi-check2"></i> '
+      + escHtml(String(total)) + ' sites reconcile across ' + ordered.length + ' status'
+      + (ordered.length === 1 ? '' : 'es') + '.</span>';
+  } else {
+    recon.innerHTML = '<span style="color:#b45309;font-weight:600"><i class="bi bi-exclamation-triangle-fill"></i> '
+      + 'Status tiles sum to ' + escHtml(String(summed)) + ' but Total is '
+      + escHtml(String(total)) + ' — ' + Math.abs(total - summed)
+      + ' site(s) carry a status not shown above. This is a data/UI mismatch, not a rounding artefact.</span>';
+  }
+}
 
 function statusHtml(status) {
   const cfg = STATUS_CONFIG[status] || { icon: 'bi-question', color: '#6b6862' };
@@ -239,15 +298,10 @@ async function loadVault() {
     const entries = data.entries || [];
     const stats = data.stats || {};
 
-    // Update summary cards
-    // R-F2076 — read the brain's real by_status keys (needs_operator/open_api/declined).
-    const bs = stats.by_status || {};
-    document.getElementById('vault-total').textContent = stats.total || 0;
-    document.getElementById('vault-verified').textContent = bs.verified || 0;
-    document.getElementById('vault-needs-operator').textContent = bs.needs_operator || 0;
-    document.getElementById('vault-open-api').textContent = bs.open_api || 0;
-    document.getElementById('vault-declined').textContent = bs.declined || 0;
-    document.getElementById('vault-stale').textContent = stats.stale_unverified || 0;
+    // R-F2934 — tiles are now rendered FROM stats.by_status (see renderVaultSummary),
+    // so a status the backend adds appears automatically and the tiles always
+    // reconcile to Total. No fixed getElementById-per-status list to drift.
+    renderVaultSummary(stats);
 
     if (!entries.length) {
       body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--sc-muted)">' +
@@ -342,6 +396,36 @@ function covWhyHtml(j) {
     + '<span style="color:' + st.colour + '">' + escHtml(st.label) + '</span></span>';
 }
 function covDate(iso) { if (!iso) return '<span style="color:#9b968c">-</span>'; try { return new Date(iso).toLocaleDateString(); } catch { return escHtml(String(iso)); } }
+
+// R-F2934 — surface WHY the explored-but-uncovered jurisdictions have no adapter, the
+// same principle the adapter table's "Why" column applies. The payload already carries
+// the full exploration ledger; showing only a bare count hid the reasons. Rendered as
+// a compact breakdown (not a 58-row table) so the reasons are visible without noise.
+const EXPLORE_STATUS_LABEL = {
+  unprobed: 'not yet examined',
+  credentials_required: 'needs credentials',
+  no_api: 'no machine API',
+  third_party_only: 'third-party proxy only',
+  bulk_only: 'bulk data only (no per-entity lookup)',
+};
+function renderExplorationBreakdown(exploration) {
+  const el = document.getElementById('coverage-explore-note');
+  if (!el) return;
+  const counts = {};
+  for (const v of Object.values(exploration)) {
+    const s = (v && v.status) || 'unprobed';
+    counts[s] = (counts[s] || 0) + 1;
+  }
+  const order = ['credentials_required', 'no_api', 'third_party_only', 'bulk_only', 'unprobed'];
+  const seen = new Set(order);
+  const keys = order.filter(k => k in counts).concat(Object.keys(counts).filter(k => !seen.has(k)));
+  if (!keys.length) { el.innerHTML = ''; return; }
+  const parts = keys.map(k =>
+    '<b>' + escHtml(String(counts[k])) + '</b> ' + escHtml(EXPLORE_STATUS_LABEL[k] || k.replace(/_/g, ' ')));
+  el.innerHTML = '<i class="bi bi-compass"></i> Explored-but-uncovered breakdown: ' + parts.join(' · ')
+    + '. <span style="color:#9b968c">Only <b>' + Object.values(counts).reduce((a, b) => a + b, 0)
+    + '</b> total; those marked "not yet examined" are unprobed, not ruled out.</span>';
+}
 async function loadRegistryCoverage() {
   const body = document.getElementById('coverage-body');
   if (!body) return;
@@ -353,7 +437,17 @@ async function loadRegistryCoverage() {
     document.getElementById('cov-total').textContent = (sum.with_adapter != null ? sum.with_adapter : rows.length);
     document.getElementById('cov-live').textContent = sum.live || 0;
     document.getElementById('cov-unproven').textContent = sum.unproven || 0;
-    document.getElementById('cov-explored').textContent = sum.manual_only || 0;
+    // R-F2934 — the "Explored" tile read `manual_only` (58), but 44 of those were
+    // `unprobed` — never looked at. Calling 58 "explored" overstated the work done.
+    // Show only what was actually PROBED (14), with the not-yet-looked-at count as a
+    // separate, honest figure in the tooltip and the breakdown line below.
+    const covExplored = document.getElementById('cov-explored');
+    covExplored.textContent = (sum.probed != null ? sum.probed : 0);
+    if (sum.unprobed != null) {
+      covExplored.title = sum.probed + ' jurisdictions probed and ruled out (no adapter yet); '
+        + sum.unprobed + ' not yet examined.';
+    }
+    renderExplorationBreakdown(data.exploration || {});
     if (!rows.length) {
       body.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--sc-muted)">No registries configured.</td></tr>';
       return;
