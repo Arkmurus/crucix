@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2940,
+  "next_available": 2946,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23256,6 +23256,62 @@
       "r_number": "R-F2939",
       "title": "CZ + SK registry adapters: migrate from drifted HTML scrapes to official JSON APIs (ARES / RPO) — fixes the fabricated IČO name, adds genuine officers",
       "claimed_at": "2026-07-23T18:43:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9d2d067a",
+      "notes": null,
+      "shipped_at": "2026-07-23T19:26:54Z"
+    },
+    {
+      "r_number": "R-F2940",
+      "title": "RO/TR/HU registry coverage — honest reclassification from live probes",
+      "claimed_at": "2026-07-23T19:13:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7403b7b7",
+      "notes": null,
+      "shipped_at": "2026-07-23T19:26:54Z"
+    },
+    {
+      "r_number": "R-F2941",
+      "title": "adverse-media follow-up is fire-and-forget - dies on restart, never merges, silently costs the Grade-A adverse question",
+      "claimed_at": "2026-07-23T19:14:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2942",
+      "title": "make semantic index status nonblocking (renumbered from R-F2940 collision)",
+      "claimed_at": "2026-07-23T19:26:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2943",
+      "title": "make semantic index status nonblocking web audit",
+      "claimed_at": "2026-07-23T19:34:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2944",
+      "title": "4 DD layers run but record no health stats - sweep_intelligence counter_intelligence sanctions_divergence extensions dark to §21",
+      "claimed_at": "2026-07-23T20:13:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2945",
+      "title": "Brave primary + SearXNG non-blocking on DD search so a slow SearXNG cannot time out the digital/adverse layers",
+      "claimed_at": "2026-07-23T20:14:16Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

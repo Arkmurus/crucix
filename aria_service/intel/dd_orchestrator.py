@@ -9184,6 +9184,17 @@ async def _run_adverse_media_followup(
     cannot corrupt the verdict or any other section.
     """
     from . import redis_store as rs
+    # R-F2945 — the follow-up runs in a DETACHED task, and the R-F2941 reconciler
+    # re-launches it from a loop with NO _brave_scope, so the contextvar would be
+    # unset → SearXNG-only → the partial/timeout this whole thread is fixing. Set
+    # Brave-primary explicitly here so the deep adverse-media search leads with the
+    # reliable backend regardless of how it was launched (normal or reconciled).
+    if (os.getenv("ARIA_DD_BRAVE_PRIMARY", "1") or "1").strip().lower() not in ("0", "false", "no"):
+        try:
+            from . import web_search as _ws_brave
+            _ws_brave.enable_brave_for_scope(True)
+        except Exception:
+            pass
     _budget = float(_env_int("ARIA_DD_ADVERSE_FOLLOWUP_S", 180))
     try:
         from . import researcher as _res
@@ -9388,6 +9399,27 @@ async def orchestrate_dd(
 
     Tunable: ARIA_DD_TOTAL_BUDGET_S (660), ARIA_DD_HARD_MARGIN_S (150).
     """
+    # ── R-F2945 — BRAVE IS THE DD'S PRIMARY SEARCH BACKEND ──────────────────────
+    # Operator directive 2026-07-23: "ensure brave API is the main search engine on
+    # the DD while searxng is building up — let's not fail on this." Brave-primary
+    # was set ONLY by the @_brave_scope decorator on the WEB ROUTE (routes/aria.py).
+    # But orchestrate_dd is ALSO reached from autonomous/tasks.py and
+    # dd_trigger_pipeline.py — NEITHER decorated — so watchlist- and
+    # autonomous-triggered DDs ran SearXNG-only (the free stack), and the R-F2941
+    # adverse-media reconciler re-launches its follow-up from a loop with no scope
+    # at all. SearXNG is the self-hosted box that times out the digital layer (96%)
+    # and partials adverse-media; Brave (paid, reliable) must lead EVERY DD, not
+    # just web-triggered ones. Set here — the one choke point every DD funnels
+    # through — so the guarantee cannot be bypassed by a new caller. DD is the USP
+    # and is not high-volume, so the Brave cost is bounded and the $/day cap still
+    # applies. Flip ARIA_DD_BRAVE_PRIMARY=0 to fall back to the free stack.
+    if (os.getenv("ARIA_DD_BRAVE_PRIMARY", "1") or "1").strip().lower() not in ("0", "false", "no"):
+        try:
+            from . import web_search as _ws_brave
+            _ws_brave.enable_brave_for_scope(True)
+        except Exception:
+            pass
+
     # ── R-F2835 — PLAN QUOTA, enforced at the ONE choke point every DD passes ──
     # The per-tier DD cap was enforced only on the web route (server.mjs:3546). A
     # chat-triggered DD runs as a tool inside this process and never traverses it,
