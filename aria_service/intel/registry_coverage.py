@@ -51,6 +51,52 @@ _COVERED_ELSEWHERE = {"GB": "companies_house"}
 
 _VALID_OUTCOMES = ("success", "error", "empty")
 
+# ── R-F2911 — ADAPTER HEALTH TRIAGE, 2026-07-23 ──────────────────────────────
+# The exploration ledger below records why a jurisdiction has NO adapter. This
+# records what is wrong with the adapters we DO have, for the same reason: the
+# answers cost real probing and would otherwise be re-derived from scratch.
+#
+# Every verdict here comes from a probe run in the FLY DATACENTER (clean egress).
+# Where a result could have been this workstation's network or antivirus, it was
+# re-checked from both and only recorded when they agreed. Nothing here is inferred
+# from an adapter returning None — that alone proves nothing.
+#
+# LIVE (national registry genuinely answered, verified by a real match):
+#   CH CZ EE FI FR NO PL   name lookup
+#   BR SK                  IDENTIFIER-based: they return None without a CNPJ / IČO.
+#                          A name-only probe made them look dead; with the identifier
+#                          BR returns brazil_cnpj/33.000.167/0001-01 and SK returns
+#                          slovakia_orsr/31322832.
+#   GB                     Companies House, covered OUTSIDE this dispatch table
+#                          (_COVERED_ELSEWHERE); proven live 01470151, 13 officers.
+#
+# SOURCE IS GONE — no code change fixes these:
+#   DE  api.offeneregister.de does NOT RESOLVE (DNS). Confirmed from two independent
+#       networks. The open-data service has disappeared, not merely changed shape.
+#   AE  difc.ae/api/public-register/search -> HTTP 404. Also note the adapter only
+#       ever covered the DIFC free zone, not the wider UAE.
+#   RO  ANAF PlatitorTvaRest v8 -> structured JSON 404 ("No endpoint"). Host alive,
+#       API version retired. v7/v9/v10/v11 on both path shapes also 404. The
+#       replacement endpoint is NOT known — it needs ANAF's documentation, and
+#       guessing a version would be inventing an answer.
+#
+# SOURCE BLOCKS AUTOMATED ACCESS (HTTP 403 to a normal client):
+#   IN  mca.gov.in            NG  search.cac.gov.ng
+#
+# SOURCE REACHABLE (HTTP 200) BUT THE ADAPTER EXTRACTS NOTHING — the scrape no longer
+# matches the page, or an identifier is required. Individually diagnosable, untriaged:
+#   HU  e-cegjegyzek.hu   TR  mersis.gtb.gov.tr   GI  companieshouse.gi
+#
+# DATA-QUALITY DEFECT IN A *LIVE* ADAPTER (liveness and correctness are not the same
+# claim, and this inventory measures only the first):
+#   CZ  company_name parses as 'IČO ' and company_number comes back EMPTY, while 2
+#       officers ARE extracted — so a Czech DD report shows entity_name "IČO ".
+#   SK  company_name parses as 'IČO 31322832' — the label plus the number, never the
+#       company name.
+#   Both take the "IČO" LABEL as the value. Fixing it is an HTML-parsing change and
+#   is deliberately NOT bundled with the coverage work.
+# ─────────────────────────────────────────────────────────────────────────────
+
 # ── R-F2866 — exploration ledger ─────────────────────────────────────────────
 # Why a jurisdiction is NOT covered, from an actual probe. Before this, uncovered
 # was a bare list, so "can we add Ireland?" was re-researched from scratch every
