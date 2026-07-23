@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2902,
+  "next_available": 2905,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22901,6 +22901,33 @@
       "r_number": "R-F2901",
       "title": "autonomous engine loses a boot race with background LLM init and never retries",
       "claimed_at": "2026-07-23T12:13:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2902",
+      "title": "channel: allow an operator-designated supergroup as the Golden Intel destination (not only type=channel)",
+      "claimed_at": "2026-07-23T12:38:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2903",
+      "title": "telegram card: rasterise SVG to PNG (Telegram rejects SVG) + surface grade/corroboration/evidence on the card",
+      "claimed_at": "2026-07-23T12:51:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2904",
+      "title": "route detected gaps to the operator review queue now that the coder lane is paused",
+      "claimed_at": "2026-07-23T13:03:22Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

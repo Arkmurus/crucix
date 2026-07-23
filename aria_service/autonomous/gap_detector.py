@@ -43,6 +43,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from dataclasses import asdict, dataclass, field
@@ -1805,6 +1806,14 @@ def _is_symptom_failure(returncode: int, combined_lower: str) -> bool:
     return not any(m in combined_lower for m in _NON_SYMPTOM_MARKERS)
 
 
+def _review_queue_enabled() -> bool:
+    """R-F2904 — kill switch for the operator review queue. Default ON (that is
+    the point of the feature), but anything that writes to a human's queue needs
+    an off switch that does not require a code change."""
+    return (os.getenv("ARIA_GAP_REVIEW_QUEUE_ENABLED", "1") or "1").strip().lower() \
+        not in ("0", "false", "no")
+
+
 # ── MAIN DETECTOR ────────────────────────────────────────────────────────────
 
 class GapDetector:
@@ -1823,6 +1832,11 @@ class GapDetector:
     LATEST_KEY = "crucix:aria:gaps:latest"
     FIXED_KEY_PREFIX = "crucix:aria:gap:fixed:"
     ATTEMPTED_KEY_PREFIX = "crucix:aria:gap:attempted:"
+
+    # R-F2904 — operator review queue (see publish_for_review).
+    REVIEW_MARKER_PREFIX = "crucix:aria:gap:reviewed:"
+    REVIEW_MAX_PER_SCAN = 5                    # burst guard, per 15-min cycle
+    REVIEW_MIN_SEVERITY = GapSeverity.HIGH     # LOW/MEDIUM stay in LATEST_KEY
 
     def __init__(self, redis_client: Any, llm: Any | None = None) -> None:
         """R-F1680: `llm` is an optional SovereignLLM instance for auto-writing
@@ -2291,6 +2305,100 @@ class GapDetector:
             )
         except Exception as e:
             logger.warning("[gap_detector] publish_latest failed: %s", e)
+        # R-F2904 — LATEST_KEY exists "for the ARIACoder to consume". With the
+        # coder lane paused (ARIA_CODER_ENABLED=0, 2026-07-23) nothing reads it,
+        # so detection kept running and every finding died in a 30-minute TTL.
+        # Route the serious ones to the operator review queue so gap DETECTION
+        # keeps its value independently of gap FIXING — most gap types
+        # (DATA_GAP, SOURCE_FAILURE, HALLUCINATION) were never code-fixable
+        # anyway, so the coder was always the wrong sole consumer.
+        await self.publish_for_review(gaps)
+
+    @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
+    async def publish_for_review(self, gaps: list[Gap]) -> int:
+        """R-F2904 — surface HIGH/CRITICAL gaps to the operator review queue.
+
+        Returns the number published. Deliberately conservative, because this
+        writes to a queue a human actually reads:
+
+          * severity floor — LOW/MEDIUM findings stay in LATEST_KEY only;
+            a review queue that pages on cosmetics gets ignored, which is the
+            same end state as not having one.
+          * per-scan cap — a burst (one broken source can emit many gaps)
+            must not flood the queue on a 15-minute cycle.
+          * dedupe marker per gap_id with the 24h dedup window, so a gap that
+            persists across scans is raised ONCE, not 96 times a day.
+
+        Fails CLOSED: if the dedupe marker cannot be read, the gap is skipped
+        rather than published. An unreadable store must not turn this into a
+        spam loop — a missed review item is recoverable, a flooded queue that
+        the operator learns to ignore is not.
+        """
+        if not _review_queue_enabled():
+            return 0
+        published = 0
+        for gap in sorted(gaps, key=lambda g: -int(g.severity)):
+            if published >= self.REVIEW_MAX_PER_SCAN:
+                break
+            if int(gap.severity) < int(self.REVIEW_MIN_SEVERITY):
+                continue
+            marker = f"{self.REVIEW_MARKER_PREFIX}{gap.gap_id}"
+            try:
+                if await self.redis.get(marker):
+                    continue  # already raised inside the dedup window
+            except Exception as e:
+                logger.warning(
+                    "[gap_detector] review dedupe read failed for %s — skipping "
+                    "to avoid a spam loop: %s", gap.gap_id, e,
+                )
+                continue
+            try:
+                from ..intel import pending_actions as _pa
+                await _pa.record(
+                    promise=f"Review autonomous gap: {gap.title}"[:300],
+                    reason=(
+                        f"{gap.gap_type} (severity {int(gap.severity)}) detected in "
+                        f"{gap.module or 'unknown module'}. The autonomous coder is "
+                        f"paused, so this needs a human decision."
+                    )[:500],
+                    severity="CRITICAL" if int(gap.severity) >= int(GapSeverity.CRITICAL) else "HIGH",
+                    source="gap_detector",
+                    operator_prompt=(
+                        f"[{gap.gap_type}] {gap.title} — {gap.description}"
+                    )[:500],
+                    metadata={
+                        "gap_id": gap.gap_id,
+                        "gap_type": gap.gap_type,
+                        "severity": int(gap.severity),
+                        "module": gap.module,
+                        "related_files": list(gap.related_files or [])[:10],
+                        "detected_at": gap.detected_at,
+                    },
+                )
+            except Exception as e:
+                logger.warning(
+                    "[gap_detector] review publish failed for %s: %s", gap.gap_id, e,
+                )
+                continue
+            published += 1
+            try:  # mark AFTER a successful publish, never before
+                await self.redis.setex(marker, self.DEDUP_WINDOW_S, "1")
+            except Exception:
+                pass
+        if published:
+            logger.info(
+                "[gap_detector] R-F2904 routed %d gap(s) to the operator review queue",
+                published,
+            )
+            try:  # §21 — the new limb reports its own outcome
+                from ..intel import brain_hook as _bh
+                await _bh.record_signal(
+                    module="gap_detector", success=True,
+                    summary=f"R-F2904 routed {published} gap(s) to operator review",
+                )
+            except Exception:
+                pass
+        return published
 
     @fail_wire(module="gap_detector", gap_type="agent_cycle_failure")
     async def run_forever(self) -> None:
