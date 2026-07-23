@@ -162,6 +162,29 @@ async def main() -> int:
         print(f"{mark} {iso2}  {row['elapsed_s']:>5}s  {row['query'][:30]:32} {row['detail'][:78]}")
         await asyncio.sleep(1.0)          # be a good citizen to public registries
 
+    # R-F2911 (cont) — DRAIN the coverage writes before exiting.
+    #
+    # lookup_entity records each outcome via _record_coverage_outcome, which schedules
+    # a fire-and-forget task on the running loop (registry_adapters.py:253). asyncio.run
+    # cancels pending tasks when main() returns, so a short-lived script exits before
+    # those writes land. That is why the FIRST production sweep reported 27 results and
+    # the coverage vault still read 0 live / 27 unproven — the probes ran, the evidence
+    # was thrown away, and the two surfaces disagreed for a reason that had nothing to
+    # do with the registries.
+    #
+    # Fire-and-forget is right for a DD run (bookkeeping must never delay a lookup) and
+    # wrong for a script whose entire purpose is to produce those records, so the
+    # draining belongs here, not in the adapter.
+    pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    if pending:
+        print(f"  draining {len(pending)} coverage write(s)...")
+        done, still = await asyncio.wait(pending, timeout=30)
+        if still:
+            print(f"  ! {len(still)} coverage write(s) did NOT complete — the vault may "
+                  f"under-report this run")
+        else:
+            print(f"  {len(done)} coverage write(s) landed")
+
     live = [r for r in rows if r["outcome"] == "LIVE"]
     fb = [r for r in rows if r["outcome"] == "FALLBACK"]
     stub = [r for r in rows if r["outcome"] == "STUB"]
