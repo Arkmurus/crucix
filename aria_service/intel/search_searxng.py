@@ -25,6 +25,7 @@ Public API
 from __future__ import annotations
 from .engine_wiring import wire_success, wire_failure
 
+import asyncio
 import logging
 import os
 from typing import Any
@@ -40,6 +41,46 @@ logger = logging.getLogger("aria.search_searxng")
 # gather window. (See web_search.py:82 REQUEST_TIMEOUT — keep these in sync.)
 _DEFAULT_TIMEOUT = 10.0
 _USER_AGENT = "AriaIntelligence/1.0 (defence-DD; aria@arkmurus.com)"
+
+# R-F2938 — bound concurrency against the SELF-HOSTED SearXNG instance.
+#
+# Why: a DD's adverse-media deep search fires up to 30 query templates through an
+# unbounded asyncio.gather (researcher.py). Every template hits `search()`, and
+# SearXNG is a single self-hosted box on the private network — the 30-way
+# stampede rate-limits it, the caller-side circuit breaker
+# (web_search._search_searxng) trips OPEN after 3 consecutive failures, and the
+# REMAINING templates skip. That set `partial=True` on the adverse-media blob
+# even when Brave (the paid PRIMARY backend) had answered — and the Grade-A
+# readiness grader reads `partial` as "adverse-media UNRESOLVED", capping the
+# report. Live 2026-07-23 on Chemring: circuit_breaker_skips=4, partial=True,
+# 7 real findings, yet the question graded UNRESOLVED.
+#
+# This is a self-inflicted DOS on our OWN backend — the same class as the
+# state_store writer wedge — so the fix is at the source: serialise access so
+# SearXNG is never asked to serve more than N at once. It stays a real second
+# backend (corroboration value); it just stops being stampeded. Mirrors the
+# existing researcher._doc_sem pattern. Module-level so ALL callers share ONE
+# limiter (a per-call semaphore would not bound the fan-out). Lazily created so
+# it binds to the running loop, and cached per-loop so tests / a loop swap don't
+# reuse a semaphore bound to a dead loop.
+_SEARXNG_CONCURRENCY = max(1, int(os.getenv("ARIA_SEARXNG_CONCURRENCY", "4") or "4"))
+_searxng_sem: "asyncio.Semaphore | None" = None
+_searxng_sem_loop: object = None
+
+
+def _get_searxng_sem() -> "asyncio.Semaphore":
+    global _searxng_sem, _searxng_sem_loop
+    # Always called from inside async search(), so a loop is running. Bind the
+    # semaphore to THIS loop and rebuild if the loop changed (tests, restart) —
+    # a semaphore bound to a dead loop would raise on acquire.
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if _searxng_sem is None or _searxng_sem_loop is not loop:
+        _searxng_sem = asyncio.Semaphore(_SEARXNG_CONCURRENCY)
+        _searxng_sem_loop = loop
+    return _searxng_sem
 
 
 @fail_wire(module="search_searxng", gap_type="source_failure")
@@ -107,12 +148,17 @@ async def search(
         "count":      str(min(max(count, 1), 50)),
     }
     try:
-        async with httpx.AsyncClient(  # no-breaker: SearXNG is a self-hosted internal service on Fly's private network, not an external API. Circuit breaker is at the caller (web_search._search_searxng).
-            timeout=_DEFAULT_TIMEOUT,
-            headers={"User-Agent": _USER_AGENT},
-            follow_redirects=True,
-        ) as client:
-            resp = await client.get(f"{base}/search", params=params)
+        # R-F2938 — serialise against the single self-hosted SearXNG box so a
+        # 30-template adverse-media fan-out cannot stampede it into rate-limiting
+        # and tripping the caller's circuit breaker. The semaphore only gates the
+        # OUTBOUND request; parsing happens after release.
+        async with _get_searxng_sem():
+            async with httpx.AsyncClient(  # no-breaker: SearXNG is a self-hosted internal service on Fly's private network, not an external API. Circuit breaker is at the caller (web_search._search_searxng).
+                timeout=_DEFAULT_TIMEOUT,
+                headers={"User-Agent": _USER_AGENT},
+                follow_redirects=True,
+            ) as client:
+                resp = await client.get(f"{base}/search", params=params)
     except Exception as e:
         kind = "timeout" if "timeout" in str(e).lower() else "fetch_error"
         logger.warning("searxng search %s failed: %s: %s", query[:60], kind, e)

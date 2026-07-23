@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2936,
+  "next_available": 2940,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23220,6 +23220,42 @@
       "r_number": "R-F2935",
       "title": "OpenAICompatProvider sends a claude model to DeepSeek when its CONFIGURED default is a claude id",
       "claimed_at": "2026-07-23T18:11:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2936",
+      "title": "intel_grade is THE customer decision authority: remove the dead customer_value gate helpers + guard test so a competing score can never return",
+      "claimed_at": "2026-07-23T18:30:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2937",
+      "title": "telegram: migrate ARIA identity to @AriaIntelBot on the public @ariaintelligence channel; re-tighten destination to channel-only (retire the supergroup)",
+      "claimed_at": "2026-07-23T18:36:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2938",
+      "title": "adverse-media screening did not complete - blocks Grade-A question 3 on every DD",
+      "claimed_at": "2026-07-23T18:37:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2939",
+      "title": "CZ + SK registry adapters: migrate from drifted HTML scrapes to official JSON APIs (ARES / RPO) — fixes the fabricated IČO name, adds genuine officers",
+      "claimed_at": "2026-07-23T18:43:42Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
