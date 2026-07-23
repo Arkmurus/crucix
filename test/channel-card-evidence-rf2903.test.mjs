@@ -120,3 +120,22 @@ test('R-F2903: an unrasterisable card fails cleanly so the post still goes text-
     assert.equal(res.error, 'svg_rasterise_failed');
   } finally { globalThis.fetch = original; }
 });
+
+// ── R-F2903 (cont): the fontless-container trap ────────────────────────────
+// node:22-slim has no fonts and no fontconfig, so librsvg rendered every glyph as a
+// tofu box. The PNG was still produced at the correct dimensions with a plausible
+// byte count — every programmatic check passed while the image was unreadable.
+// Byte counts cannot detect this, so the CAUSE is asserted instead.
+
+test('R-F2903: the runtime image installs fonts and fontconfig', async () => {
+  const df = await import('node:fs/promises').then(m => m.readFile('Dockerfile.web', 'utf8'));
+  assert.match(df, /fontconfig/, 'librsvg resolves font-family through fontconfig');
+  assert.match(df, /fonts-dejavu-core/, 'a real font must exist or every card is tofu');
+  assert.match(df, /fc-cache/, 'the font cache must be built at image time');
+});
+
+test('R-F2903: the SVG names a font that exists in the image', () => {
+  const svg = generateInfographicCard(TENDER);
+  assert.match(svg, /DejaVu Sans/,
+    'font-family must name a font actually installed, not only system-ui/Segoe UI');
+});

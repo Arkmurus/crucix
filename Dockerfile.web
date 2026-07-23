@@ -53,7 +53,18 @@ ENV ARIA_BUILD_R_TAG=$ARIA_BUILD_R_TAG
 # self-updater). It DROPS the compiler toolchain (python3/make/g++), which is
 # the real attack-surface concern and is only needed to compile native modules
 # in the builder stage.
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+# R-F2903 — fonts are REQUIRED for the Telegram signal card.
+# node:22-slim ships no fonts and no fontconfig (/usr/share/fonts does not exist,
+# fc-list is absent). sharp/librsvg then rasterises every glyph as a tofu box: the
+# PNG is produced, it is the right dimensions, it has a plausible byte count — and it
+# is completely unreadable. Verified live 2026-07-23 by pulling the rendered card out
+# of the running container and looking at it; every byte-level check had passed.
+# fonts-dejavu-core covers Latin Extended-A, which the live corpus needs for Hungarian
+# (ő, ű), Portuguese and Turkish buyer names. fontconfig is what librsvg resolves
+# font-family through — without it the family list is meaningless.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git ca-certificates fontconfig fonts-dejavu-core \
+    && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
