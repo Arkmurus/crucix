@@ -10932,14 +10932,9 @@ async def _orchestrate_dd_impl(
                 pass
             if not _sectors:
                 _sectors = ["defence"]  # ARIA's default vertical
-            report.adverse_media = {
-                "status": "in_progress",
-                "framework_version": "R-F2657 async follow-up",
-                "trigger": _trigger_reason,
-            }
             # Stashed for orchestrate_dd to launch the follow-up after persist. ARKDDReport
             # tolerates undeclared attrs (cf. rep.time_boxed at the hard-deadline path).
-            report._am_followup = {  # type: ignore[attr-defined]
+            _am_params = {
                 "entity_name": report.identity.entity_name,
                 "director_names": _director_names[:3],  # bound search cost
                 "ubo_names": _ubo_names[:2],
@@ -10947,6 +10942,21 @@ async def _orchestrate_dd_impl(
                 "trigger_reason": _trigger_reason,
                 "max_templates": _am_max_templates,  # R-F2780 — bounded for GREEN screens
             }
+            report.adverse_media = {
+                "status": "in_progress",
+                "framework_version": "R-F2657 async follow-up",
+                "trigger": _trigger_reason,
+                # R-F2941 — PERSIST the params. The follow-up is a fire-and-forget
+                # asyncio task; a process restart (peer redeploys every ~10-30min)
+                # kills it AND the in-memory _am_followup, leaving the report stuck
+                # at status=in_progress FOREVER — a silent Grade-A blocker (the
+                # adverse-media question never answers). Persisting the params lets
+                # the boot reconciler (reconcile_pending_adverse_media) re-run and
+                # merge, so an interrupted follow-up self-heals instead of hanging.
+                "started_at": time.time(),
+                "_followup_params": _am_params,
+            }
+            report._am_followup = dict(_am_params)  # type: ignore[attr-defined]
             logger.info(
                 "[R-F2657] adverse-media deep search DEFERRED to follow-up for %s (%s-trigger)",
                 report.identity.entity_name or "?", _trigger_reason,
@@ -12010,6 +12020,112 @@ async def reconcile_stale_running_dds(max_age_s: float = 1800.0) -> dict:
             reconciled, scanned,
         )
     return {"scanned": scanned, "reconciled": reconciled}
+
+
+# R-F2941 — reconciler-in-flight guard: a run being re-run right now must not be
+# picked up a second time by an overlapping reconcile pass.
+_AM_RECONCILE_INFLIGHT: set = set()
+
+
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
+async def reconcile_pending_adverse_media(max_age_s: float = 300.0) -> dict:
+    """R-F2941 — re-run adverse-media follow-ups orphaned by a process restart.
+
+    The adverse-media deep search runs OUT OF BAND as a fire-and-forget asyncio
+    task (R-F2657) that merges into the persisted report ~180s after the DD ends.
+    A restart (deploy / crash) kills that task, and the report is left stuck at
+    ``adverse_media.status == "in_progress"`` FOREVER — the Grade-A adverse-media
+    question never answers, silently. Live 2026-07-23 (dd_32683a7d8266): a peer
+    redeploy at the exact end of the DD left it hung at in_progress.
+
+    This sweep finds every report whose adverse_media is still ``in_progress``
+    older than ``max_age_s`` (default 300s — well past the 180s follow-up budget,
+    so a genuinely-running follow-up is never disturbed) and, IF its persisted
+    ``_followup_params`` are present (R-F2941 persists them at launch), RE-LAUNCHES
+    the follow-up. Best-effort; never raises. Returns {scanned, relaunched}.
+
+    Same self-heal pattern as R-F2300, one layer down: R-F2300 reconciles orphaned
+    WHOLE-DD 'running' rows; this reconciles the orphaned adverse-media SUB-task.
+    """
+    from . import redis_store as rs
+    import time as _t
+    now = _t.time()
+    scanned = 0
+    relaunched = 0
+    try:
+        index = await rs.get_json(REPORT_INDEX_KEY) or []
+    except Exception:
+        return {"scanned": 0, "relaunched": 0}
+    if not isinstance(index, list):
+        return {"scanned": 0, "relaunched": 0}
+
+    for entry in index[:200]:  # bound the scan
+        if not isinstance(entry, dict):
+            continue
+        run_id = (entry.get("run_id") or "").strip()
+        if not run_id or run_id in _AM_RECONCILE_INFLIGHT:
+            continue
+        try:
+            body = await get_report(run_id)
+        except Exception:
+            continue
+        if not isinstance(body, dict):
+            continue
+        am = body.get("adverse_media")
+        if not (isinstance(am, dict) and am.get("status") == "in_progress"):
+            continue
+        scanned += 1
+        # Only re-run once the original follow-up has had its full budget + grace.
+        try:
+            started = float(am.get("started_at") or 0.0)
+        except (TypeError, ValueError):
+            started = 0.0
+        if started and (now - started) < max_age_s:
+            continue  # a genuine follow-up may still be running — leave it
+        params = am.get("_followup_params")
+        if not isinstance(params, dict) or not params.get("entity_name"):
+            # Orphaned but un-recoverable (pre-R-F2941 run). Mark it honestly so it
+            # stops reading as "still working" — never a false clean.
+            try:
+                async with _REPORT_MERGE_LOCK:
+                    _b = await get_report(run_id)
+                    if isinstance(_b, dict) and isinstance(_b.get("adverse_media"), dict) \
+                            and _b["adverse_media"].get("status") == "in_progress":
+                        _b["adverse_media"] = {
+                            "status": "incomplete",
+                            "error": "adverse-media follow-up interrupted by a restart "
+                                     "and could not be recovered (no persisted params) — re-run the DD",
+                            "framework_version": "R-F2941 reconcile",
+                        }
+                        _refresh_persisted_decision_readiness(_b)
+                        await rs.set_json(REPORT_REDIS_KEY.format(run_id=run_id), _b,
+                                          ex=REPORT_TTL_SECONDS)
+            except Exception:
+                pass
+            continue
+        # Recoverable — re-launch the follow-up with the persisted params.
+        _AM_RECONCILE_INFLIGHT.add(run_id)
+
+        async def _relaunch(_rid=run_id, _p=dict(params)):
+            try:
+                await _run_adverse_media_followup(_rid, **_p)
+            finally:
+                _AM_RECONCILE_INFLIGHT.discard(_rid)
+
+        try:
+            _t2 = asyncio.create_task(_relaunch())
+            _AM_FOLLOWUP_TASKS.add(_t2)
+            _t2.add_done_callback(_AM_FOLLOWUP_TASKS.discard)
+            relaunched += 1
+        except Exception:
+            _AM_RECONCILE_INFLIGHT.discard(run_id)
+
+    if relaunched:
+        logger.warning(
+            "[R-F2941] re-launched %d/%d orphaned adverse-media follow-up(s)",
+            relaunched, scanned,
+        )
+    return {"scanned": scanned, "relaunched": relaunched}
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")

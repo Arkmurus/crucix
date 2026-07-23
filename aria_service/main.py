@@ -429,6 +429,10 @@ async def _dd_reconcile_once() -> None:
     try:
         from .intel import dd_orchestrator as _ddo
         await _ddo.reconcile_stale_running_dds()
+        # R-F2941 — same pass re-launches adverse-media follow-ups orphaned by a
+        # restart, so the Grade-A adverse-media question self-heals instead of
+        # hanging at status=in_progress forever.
+        await _ddo.reconcile_pending_adverse_media()
     except Exception as _e:  # noqa: BLE001 — best-effort, never crash the loop
         logger.debug("[R-F2300] dd reconcile error: %s", _e)
         try:  # R-F2568 §21d — surface reconcile failures to the brain (was dark)
