@@ -1094,6 +1094,25 @@ def _normalise_intel_signal(signal: dict) -> dict:
     )
     sig["intel_grade"] = grade
     sig["grade_reason"] = grade_reason
+
+    # R-F2899 (cont) — derive the analysis provenance on READ for signals persisted
+    # before the flag existed, so the publish gate is not dead until every stored
+    # signal happens to be re-promoted. This is a DERIVATION, not an assumption:
+    # `promoted_by` is stamped by golden_intel_bridge itself (bridge.py:305) on
+    # exactly the findings whose why/action a source adapter wrote per item.
+    #
+    # Needed because the bridge de-dups promotions for 7 days: after the gate
+    # shipped, `promote/run` reported promoted=0 / skipped=115, so nothing would
+    # have carried the flag — and therefore nothing could publish — for a week.
+    #
+    # Still FAILS CLOSED: anything without bridge provenance resolves to
+    # classifier_template, which the channel gate refuses.
+    if not sig.get("why_action_provenance"):
+        sig["why_action_provenance"] = (
+            "source_adapter"
+            if str(sig.get("promoted_by") or "") == "golden_intel_bridge"
+            else "classifier_template"
+        )
     return sig
 
 

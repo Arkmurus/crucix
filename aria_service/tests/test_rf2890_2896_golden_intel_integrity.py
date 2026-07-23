@@ -335,3 +335,55 @@ def test_rf2896_real_staleness_still_blocks(monkeypatch):
     fresh = asyncio.run(nm.get_recent_intel_signals(limit=10))["freshness"]
     assert fresh["publishable"] is False
     assert fresh["blocking_stale_reasons"]
+
+
+# ── R-F2899: analysis provenance ─────────────────────────────────────────────
+
+def test_rf2899_news_signals_are_marked_as_classifier_templates():
+    """news_monitor's why/action are fixed strings per _SIGNAL_RULES pattern —
+    they describe a CATEGORY, never this item, so they can never be decision-grade."""
+    sig = nm._build_intel_signal({
+        "title": "US Treasury sanctions three entities over Iran missile procurement",
+        "summary": "", "url": "https://example.gov/x", "source": "UN News",
+        "tier": "tier_1a", "category": "geopolitics", "topics": [],
+    })
+    assert sig["why_action_provenance"] == "classifier_template"
+
+
+def test_rf2899_bridge_findings_are_marked_as_source_adapter():
+    from aria_service.intel import golden_intel_bridge as gib
+    sig = gib._normalize_finding_to_signal({
+        "source_key": "tender_monitor", "source": "Procurement: TED",
+        "signal_type": "active_tender", "priority": "HIGH", "confidence": "MEDIUM",
+        "source_tier": "tier_1a", "title": "Germany - Fighter aircraft",
+        "why_it_matters": "Bundesamt (Germany) - deadline 2026-08-11. Matched: ammunition.",
+        "recommended_action": "Assess bid/no-bid - review scope, eligibility and deadline.",
+        "evidence_url": "https://ted.europa.eu/en/notice/1", "ref": "t1",
+    })
+    assert sig["why_action_provenance"] == "source_adapter"
+
+
+def test_rf2899_provenance_is_derived_on_read_for_pre_existing_signals():
+    """The bridge de-dups promotions for 7 days, so after the gate shipped nothing
+    would carry the flag — and nothing could publish — for a week. Derive it from
+    `promoted_by`, which the bridge stamps itself."""
+    derived = nm._normalise_intel_signal({
+        "id": "x", "signal_type": "active_tender", "promoted_by": "golden_intel_bridge",
+        "url": "https://ted.europa.eu/1",
+    })
+    assert derived["why_action_provenance"] == "source_adapter"
+
+
+def test_rf2899_unknown_origin_fails_closed_on_read():
+    derived = nm._normalise_intel_signal({
+        "id": "y", "signal_type": "conflict_escalation", "url": "https://news.example/1",
+    })
+    assert derived["why_action_provenance"] == "classifier_template"
+
+
+def test_rf2899_an_explicit_flag_is_never_overwritten():
+    derived = nm._normalise_intel_signal({
+        "id": "z", "signal_type": "active_tender", "promoted_by": "golden_intel_bridge",
+        "why_action_provenance": "classifier_template", "url": "https://x.example/1",
+    })
+    assert derived["why_action_provenance"] == "classifier_template"
