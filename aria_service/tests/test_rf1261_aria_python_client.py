@@ -47,18 +47,28 @@ def _get_client_zip_content() -> dict[str, str]:
 # ── Tests: Client ZIP is slim (~5KB) ───────────────────────────────────────────
 
 
-def test_client_zip_is_slim():
-    """The /download/client ZIP must be ~5KB and NOT include aria.py."""
+def test_client_zip_is_self_contained():
+    """R-F2921 SUPERSEDES test_client_zip_is_slim.
+
+    The ZIP used to EXCLUDE .py so that aria.bat could fetch them at runtime with
+    New-Object Net.WebClient + DownloadFile and execute the result. On 2026-07-23
+    Kaspersky deleted aria.bat with verdict "Trojan" and blocked it on download, so a
+    customer running Kaspersky could not obtain the client at all. The detection was
+    fair: the fetched script was executed with no hash or signature check, i.e. remote
+    code execution for anyone able to MITM or compromise the endpoint.
+
+    "Slim" was never the goal — it was a side effect of downloading code later. The
+    bundle must now be SELF-CONTAINED, and small enough to stay a friendly download.
+    """
     resp = client.get("/download/client")
     assert resp.status_code == 200
     size_kb = len(resp.content) / 1024
-    assert size_kb < 10, f"ZIP too large: {size_kb:.1f}KB (should be ~5KB)"
+    assert size_kb < 100, f"ZIP unexpectedly large: {size_kb:.1f}KB"
     zf = zipfile.ZipFile(io.BytesIO(resp.content))
     names = zf.namelist()
-    # Must NOT contain aria.py (downloaded on demand)
-    py_files = [n for n in names if n.endswith(".py")]
-    assert len(py_files) == 0, f"ZIP should not contain .py files: {py_files}"
-    # Must contain aria.bat and README.txt
+    assert any(n.endswith("aria.py") for n in names), f"aria.py must ship IN the bundle: {names}"
+    assert any(n.endswith("aria_tui.py") for n in names), f"aria_tui.py must ship IN the bundle: {names}"
+    assert not any(n.endswith(".pyc") for n in names), "build artefacts must stay out"
     assert any("aria.bat" in n for n in names), f"aria.bat not in ZIP: {names}"
     assert any("README.txt" in n for n in names), f"README.txt not in ZIP: {names}"
 
@@ -319,36 +329,58 @@ def test_token_endpoint_serves_html():
 # ── Tests: .bat auto-downloads aria.py ─────────────────────────────────────────
 
 
-def test_client_bat_can_download_aria_py():
-    """The aria_client/aria.bat must be able to download aria.py from the server."""
+def test_client_bat_ships_aria_py():
+    """R-F2921 SUPERSEDES test_client_bat_can_download_aria_py.
+
+    The launcher must NOT know how to download aria.py — fetching a script over the
+    network and executing it is the dropper pattern that got the client classified as
+    Trojan and blocked for customers, with no integrity check on what came back.
+    aria.py now ships INSIDE the bundle, so the correct assertion is that it is
+    PRESENT, not that the .bat can go and get it.
+    """
     import zipfile, io
     resp = client.get("/download/client")
     zf = zipfile.ZipFile(io.BytesIO(resp.content))
     names = zf.namelist()
+    assert any(n.endswith("aria.py") for n in names), (
+        "aria.py must ship in the bundle so nothing is downloaded at runtime"
+    )
     bat_file = [n for n in names if n.endswith("aria.bat")][0]
-    bat_content = zf.read(bat_file).decode()
-    assert "/download/aria.py" in bat_content, (
-        "Client .bat must know how to download aria.py from the server"
+    bat_content = zf.read(bat_file).decode(errors="ignore")
+    executed = chr(10).join(
+        ln for ln in bat_content.splitlines()
+        if not ln.strip().startswith("::") and not ln.strip().upper().startswith("REM ")
     )
-    assert "DownloadFile" in bat_content or "WebClient" in bat_content, (
-        "Client .bat must have a download mechanism for aria.py"
+    assert "DownloadFile" not in executed, (
+        "the launcher can still fetch remote code — R-F2921 removed this"
     )
 
 
-def test_client_bat_can_download_aria_tui():
-    """The aria_client/aria.bat must be able to download aria_tui.py from the server."""
+def test_client_bat_ships_aria_tui():
+    """R-F2921 SUPERSEDES test_client_bat_can_download_aria_tui.
+
+    The launcher must NOT know how to download aria_tui.py — fetching a script over the
+    network and executing it is the dropper pattern that got the client classified as
+    Trojan and blocked for customers, with no integrity check on what came back.
+    aria_tui.py now ships INSIDE the bundle, so the correct assertion is that it is
+    PRESENT, not that the .bat can go and get it.
+    """
     import zipfile, io
     resp = client.get("/download/client")
     zf = zipfile.ZipFile(io.BytesIO(resp.content))
     names = zf.namelist()
-    bat_file = [n for n in names if n.endswith("aria.bat")][0]
-    bat_content = zf.read(bat_file).decode()
-    assert "/download/aria_tui.py" in bat_content, (
-        "Client .bat must know how to download aria_tui.py from the server"
+    assert any(n.endswith("aria_tui.py") for n in names), (
+        "aria_tui.py must ship in the bundle so nothing is downloaded at runtime"
     )
-
-
-# ── Tests: /download/aria_tui.py endpoint ──────────────────────────────────────
+    bat_file = [n for n in names if n.endswith("aria.bat")][0]
+    bat_content = zf.read(bat_file).decode(errors="ignore")
+    executed = chr(10).join(
+        ln for ln in bat_content.splitlines()
+        if not ln.strip().startswith("::") and not ln.strip().upper().startswith("REM ")
+    )
+    assert "DownloadFile" not in executed, (
+        "the launcher can still fetch remote code — R-F2921 removed this"
+    )
 
 
 def test_download_aria_tui_endpoint():

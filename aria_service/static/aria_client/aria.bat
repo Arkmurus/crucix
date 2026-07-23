@@ -11,27 +11,52 @@ cd /d "%~dp0"
 set "SERVER=https://aria-intel.fly.dev"
 set "USERNAME=%USERNAME%"
 
-:: ── Step 1: Try TUI (best experience, requires textual) ──────────────────
+:: ─────────────────────────────────────────────────────────────────────────
+:: R-F2921 — this launcher runs LOCAL files only. It never downloads code.
+::
+:: It used to fetch aria_tui.py / aria.py at runtime with
+::   powershell "New-Object Net.WebClient; $w.DownloadFile(...)"
+:: and then execute the result. That is the downloader-dropper shape: on
+:: 2026-07-23 Kaspersky deleted this file with verdict "Trojan" and blocked it
+:: on download, so customers running Kaspersky could not obtain the client.
+:: The detection was fair — the downloaded script was executed with no hash or
+:: signature check, so anyone able to MITM or compromise the endpoint had
+:: arbitrary code execution on the user's machine.
+::
+:: aria.py and aria_tui.py now ship INSIDE the ZIP (/download/client), so there
+:: is nothing to fetch. If they are missing, say so and stop — never re-download.
+:: ─────────────────────────────────────────────────────────────────────────
+
+:: ── Step 1: TUI client (best experience, requires 'textual') ─────────────
 where python.exe >nul 2>nul
 if not errorlevel 1 (
-    if not exist "aria_tui.py" (
-        powershell -NoProfile -Command "try{$w=New-Object Net.WebClient;$w.DownloadFile('%SERVER%/download/aria_tui.py', 'aria_tui.py')}catch{}" 2>nul
-    )
     if exist "aria_tui.py" (
         python aria_tui.py %*
         if not errorlevel 1 exit /b 0
     )
 )
 
-:: ── Step 2: Try basic Python client ──────────────────────────────────────
+:: ── Step 2: Basic Python client ──────────────────────────────────────────
 where python.exe >nul 2>nul
 if not errorlevel 1 (
-    if not exist "aria.py" (
-        powershell -NoProfile -Command "try{$w=New-Object Net.WebClient;$w.DownloadFile('%SERVER%/download/aria.py', 'aria.py')}catch{}" 2>nul
-    )
     if exist "aria.py" (
         python aria.py %*
         if not errorlevel 1 exit /b 0
+    )
+)
+
+:: ── Neither Python client present: the bundle is incomplete ──────────────
+where python.exe >nul 2>nul
+if not errorlevel 1 (
+    if not exist "aria.py" (
+        if not exist "aria_tui.py" (
+            echo.
+            echo   Note: the Python client files are not in this folder.
+            echo   Re-download the full bundle from:  %SERVER%/download/client
+            echo   and unzip it so aria.bat, aria.py and aria_tui.py sit together.
+            echo   Continuing with the built-in terminal client...
+            echo.
+        )
     )
 )
 

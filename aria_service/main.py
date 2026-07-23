@@ -4409,11 +4409,30 @@ if _static_os.path.isdir(_static_dir):
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 for root, dirs, files in _static_os.walk(client_folder):
-                    # Skip __pycache__ and Python files
+                    # R-F2921 — SHIP the Python client inside the bundle.
+                    #
+                    # This used to skip every .py so that aria.bat could fetch them at
+                    # runtime with `New-Object Net.WebClient; $w.DownloadFile(...)` and
+                    # then execute the result. That is the textbook downloader-dropper
+                    # shape, and on 2026-07-23 Kaspersky File Anti-Virus deleted
+                    # aria.bat from a checkout with verdict "Trojan" (initiator
+                    # git.exe). It also blocked the file on download with its own
+                    # HTTP 499 block page, so a customer on Kaspersky could not obtain
+                    # the client at all.
+                    #
+                    # The detection was CORRECT in pattern: the downloaded script was
+                    # executed with no hash, signature or integrity check of any kind,
+                    # so anyone able to MITM or compromise the endpoint had arbitrary
+                    # code execution on a customer's Windows machine. Excluding the
+                    # file from the antivirus would have silenced an accurate detector
+                    # on a real weakness.
+                    #
+                    # Shipping the .py files in the same ZIP removes the reason to
+                    # download anything at runtime, which removes both the RCE path and
+                    # the malware signature. __pycache__/.pyc stay out — build noise.
                     dirs[:] = [d for d in dirs if d != "__pycache__"]
                     for f in files:
-                        # Skip aria.py - .bat downloads it on demand from /download/aria.py
-                        if f.endswith(".py") or f.endswith(".pyc"):
+                        if f.endswith(".pyc"):
                             continue
                         file_path = _static_os.path.join(root, f)
                         arcname = _static_os.path.relpath(file_path, client_folder)
