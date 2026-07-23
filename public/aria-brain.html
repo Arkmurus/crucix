@@ -1463,16 +1463,17 @@ async function loadComposite() {
   for (const [sig, val] of Object.entries(signals)) {
     const w = weights[sig] ? ` (${(weights[sig]*100).toFixed(0)}%)` : '';
     const display = val != null ? pct(val) : 'excluded';
-    let provenance = '';
+    const provenanceParts = [];
     if (sig === 'verification') {
-      provenance = d.details?.verification_source || '';
-      if (d.details?.verification_samples != null) provenance += `, n=${d.details.verification_samples}`;
+      if (d.details?.verification_source) provenanceParts.push(d.details.verification_source);
+      if (d.details?.verification_samples != null) provenanceParts.push(`n=${d.details.verification_samples}`);
     } else if (sig === 'honesty_rate') {
-      provenance = d.details?.honesty_rate_source || '';
-      if (d.details?.honesty_rate_samples != null) provenance += `, n=${d.details.honesty_rate_samples}`;
+      if (d.details?.honesty_rate_source) provenanceParts.push(d.details.honesty_rate_source);
+      if (d.details?.honesty_rate_samples != null) provenanceParts.push(`n=${d.details.honesty_rate_samples}`);
     } else if (sig === 'mastery' && d.details?.mastery_topics != null) {
-      provenance = `${d.details.mastery_topics} topics`;
+      provenanceParts.push(`${d.details.mastery_topics} topics`);
     }
+    const provenance = provenanceParts.join(', ');
     const noteText = val == null ? 'no qualifying data; excluded from score' : provenance;
     const note = noteText ? ` <span style="font-size:0.75em;color:#6b6862">(${noteText})</span>` : '';
     html += `<div class="metric"><span class="label">${sig}${w}</span><span class="value neutral">${display}${note}</span></div>`;

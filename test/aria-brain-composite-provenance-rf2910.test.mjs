@@ -40,6 +40,15 @@ async function render(payload) {
 
 console.log('R-F2910 aria-brain composite provenance tests');
 
+const unavailable = await render(null);
+assert.equal(unavailable['composite-badge'].textContent, 'SCORE: DOWN');
+assert.equal(unavailable['composite-badge'].className, 'badge badge-red');
+assert.match(unavailable['composite-metrics'].innerHTML, /No data yet/);
+
+const missingScore = await render({ tier: 2, tier_name: 'MEDIUM' });
+assert.equal(missingScore['composite-badge'].textContent, 'SCORE: DOWN');
+assert.match(missingScore['composite-metrics'].innerHTML, /No data yet/);
+
 const zero = await render({
   composite_score: 0,
   tier: 0,
@@ -53,6 +62,9 @@ const zero = await render({
 });
 assert.match(zero['composite-badge'].textContent, /SCORE: 0% NONE/);
 assert.doesNotMatch(zero['composite-metrics'].innerHTML, /No data yet/);
+assert.match(zero['composite-metrics'].innerHTML, /n=5/);
+assert.match(zero['composite-metrics'].innerHTML, /n=6/);
+assert.doesNotMatch(zero['composite-metrics'].innerHTML, /\(,\s*n=/);
 
 const partial = await render({
   composite_score: 0.82,
@@ -72,8 +84,31 @@ const partial = await render({
 });
 assert.match(partial['composite-badge'].textContent, /MEDIUM \(capped, signal-pending\)/);
 assert.match(partial['composite-metrics'].innerHTML, /Measured Weight.*38%/s);
+assert.match(partial['composite-metrics'].innerHTML, /Displayed Tier.*MEDIUM \(capped, signal-pending\) \(2\)/s);
+assert.match(partial['composite-metrics'].innerHTML, /Raw Tier.*HIGH \(3\) — confidence cap applied/s);
 assert.match(partial['composite-metrics'].innerHTML, /excluded.*no qualifying data; excluded from score/s);
 assert.doesNotMatch(partial['composite-metrics'].innerHTML, /default to 50%|50%\*/);
+
+// One missing signal out of three is above the 25% boundary and must cap a
+// nominal HIGH tier. This catches a future >= versus > regression.
+const boundary = await render({
+  composite_score: 0.78,
+  tier: 3,
+  tier_name: 'HIGH',
+  signals: { mastery: 0.76, verification: 0.8, honesty_rate: null },
+  weights: { mastery: 0.3, verification: 0.35, honesty_rate: 0.15 },
+  confidence: 0.8125,
+  low_confidence: false,
+  details: {
+    mastery_topics: 10,
+    verification_source: 'avg_grounded_rate',
+    verification_samples: 17,
+    honesty_rate_source: 'insufficient_samples_n4',
+    honesty_rate_samples: 4,
+  },
+});
+assert.match(boundary['composite-badge'].textContent, /MEDIUM \(capped, signal-pending\)/);
+assert.match(boundary['composite-metrics'].innerHTML, /Measured Weight.*81%/s);
 
 const measured = await render({
   composite_score: 0.74,
@@ -94,5 +129,27 @@ const measured = await render({
 assert.match(measured['composite-badge'].textContent, /HIGH/);
 assert.match(measured['composite-metrics'].innerHTML, /avg_grounded_rate, n=41/);
 assert.match(measured['composite-metrics'].innerHTML, /avg_honesty_score, n=38/);
+
+const overridden = await render({
+  composite_score: 0.91,
+  tier: 0,
+  tier_name: 'NONE',
+  signals: { mastery: 0.9, verification: 0.93, honesty_rate: 0.9 },
+  weights: { mastery: 0.3, verification: 0.35, honesty_rate: 0.15 },
+  confidence: 1,
+  low_confidence: false,
+  override: 'predictor blocked 5 tasks (>=5)',
+  details: {
+    mastery_topics: 12,
+    verification_source: 'avg_grounded_rate',
+    verification_samples: 41,
+    honesty_rate_source: 'avg_honesty_score',
+    honesty_rate_samples: 38,
+  },
+});
+assert.match(overridden['composite-badge'].textContent, /SCORE: 91% NONE/);
+assert.equal(overridden['composite-badge'].className, 'badge badge-red');
+assert.match(overridden['composite-metrics'].innerHTML, /OVERRIDE.*predictor blocked 5 tasks/s);
+assert.doesNotMatch(overridden['composite-metrics'].innerHTML, /Displayed Tier.*HIGH/s);
 
 console.log('R-F2910 tests: PASS');
