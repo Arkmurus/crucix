@@ -292,6 +292,57 @@ async def get_day_spend() -> dict:
     }
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
+async def reset_day_spend() -> dict:
+    """R-F2923 — zero today's counter, as if the day had just started.
+
+    Operator control for the case this was built for: the daily cap was lowered
+    mid-day (2026-07-23, $25 -> $10) while $18 had already been spent, so the
+    ceiling was instantly and permanently breached and every metered call was
+    refused until the UTC rollover.
+
+    Resets the counter, the in-flight reserve and the in-process cache, and
+    clears the daily warning latches so the 80/95/100% alerts can fire again on
+    the fresh budget. Deliberately does NOT touch the MONTHLY total — that is
+    the real spend record and must never be rewritten to make a number look
+    better. This only moves the daily gate.
+    """
+    day = _current_day_key()
+    day_key = f"{COST_DAY_PREFIX}{day}"
+    before = 0.0
+    try:
+        before = float(await rs.get(day_key) or 0.0)
+    except Exception:
+        pass
+    errors: list[str] = []
+    try:
+        await rs.set(day_key, "0", ex=COST_DAY_TTL)
+    except Exception as e:
+        errors.append(f"counter: {e}")
+    try:
+        await rs.set(f"{day_key}:reserve", "0", ex=300)
+    except Exception as e:
+        errors.append(f"reserve: {e}")
+    _day_cache["day"] = day
+    _day_cache["total"] = 0.0
+    _day_cache["loaded_at"] = time.time()
+    for tag in [t for t in _warned_thresholds if t.startswith(f"daily:{day}:")]:
+        _warned_thresholds.discard(tag)
+    logger.warning(
+        "[cost] R-F2923 daily meter reset for %s: was $%.4f, now $0.00 "
+        "(monthly total untouched)", day, before,
+    )
+    return {
+        "reset": not errors,
+        "day": day,
+        "previous_spent_usd": round(before, 6),
+        "spent_usd": 0.0,
+        "cap_usd": _daily_cap_usd(),
+        "errors": errors,
+        "note": "monthly total intentionally unchanged",
+    }
+
+
 @fail_wire(module="cost_tracker", gap_type="engine_failure",
            control_flow_exempt=("DailyCostCapExceeded",))
 async def assert_daily_cap(estimated_cost_usd: float = 0.02) -> None:

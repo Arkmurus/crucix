@@ -304,7 +304,7 @@ _OPERATOR_ONLY_RE = re.compile(
     # llm(?![-\w/]) exempts EXACTLY coder/llm — NOT coder/llm-sensitive and NOT any future
     # coder/llm/<subpath> (security Pass-2: keep sub-paths gated so a later control sub-route
     # can't silently inherit the service-token exemption).
-    r"|coder/(?!rag/|llm(?![-\w/]))|cost/set-cap|cost/reset-task|admin/purge|capability-gaps/purge"
+    r"|coder/(?!rag/|llm(?![-\w/]))|cost/set-cap|cost/reset-task|cost/daily/reset|admin/purge|capability-gaps/purge"
     r"|memory/backup/restore|student/mastery/reset|portal/credentials|session/forget"
     r"|eval/|operating-mode/set|knowledge/fact"
     # R-F2458: /training-data/library-export + /export dump up to 5000 Q&A tuples
@@ -3466,6 +3466,19 @@ async def cost_monthly_status_ep():
 # already taken by the cost_monitor report route further down this file, and
 # FastAPI silently serves the FIRST registered route for a duplicate path
 # (R-F2278), so re-using it would shadow one of the two without any error.
+@router.post("/cost/daily/reset")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def cost_daily_reset_ep():
+    """R-F2923 — restart today's daily budget from zero (operator-gated).
+
+    For when the daily cap is lowered mid-day below what has already been
+    spent: the ceiling is then permanently breached and every metered call is
+    refused until the UTC rollover. The MONTHLY total is deliberately left
+    alone — that is the real spend record.
+    """
+    return await cost_tracker.reset_day_spend()
+
+
 @router.get("/cost/daily/status")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def cost_daily_status_ep():

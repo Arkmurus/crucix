@@ -151,3 +151,84 @@ class TestDDOrchestratorWiring:
         assert "_preferred_provider.set" in src, "DD no longer pins its provider"
         assert "_preferred_provider.reset" in src, "DD no longer releases the pin"
         assert "ARIA_DD_LLM_PROVIDER" in src, "the env override was removed"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# R-F2922 — Claude is DD-ONLY. Never a fallback for anything else.
+# ──────────────────────────────────────────────────────────────────────────
+class _StreamP(_P):
+    async def stream(self, system_prompt, user_message, **kw):
+        self.served += 1
+        yield f"from {self.name}"
+
+
+class TestClaudeIsDDOnly:
+    """Operator directive 2026-07-23: "claude is only for DD reports not as a
+    fall back, we dont want that for now". R-F2917 pinned DD to Claude, but
+    ARIA_ANTHROPIC_ENABLED=1 also placed Claude SECOND in the chain — so any
+    non-DD call with a failing/cooling DeepSeek would have been served by it."""
+
+    def test_claude_is_absent_from_the_default_order(self):
+        chain, ds, an = _chain()
+        _run(chain.complete("s", "u"))
+        assert an.served == 0
+
+    def test_non_dd_FAILS_rather_than_falling_back_to_claude(self):
+        """THE guarantee. With DeepSeek down, a non-DD call must raise — not
+        quietly bill Claude."""
+        from aria_service.llm.provider import ProviderError
+
+        ds, an = _P("deepseek"), _P("anthropic")
+
+        async def _boom(*a, **k):
+            raise RuntimeError("deepseek down")
+
+        ds.complete = _boom
+        chain = FallbackProvider([ds, an])
+        with pytest.raises(ProviderError):
+            _run(chain.complete("s", "u"))
+        assert an.served == 0, "Claude served a NON-DD call as a fallback"
+
+    def test_streaming_chat_never_reaches_claude(self):
+        """stream() is the chat path and had no preference concept at all."""
+        ds, an = _StreamP("deepseek"), _StreamP("anthropic")
+        chain = FallbackProvider([ds, an])
+
+        async def _drive():
+            out = []
+            async for c in chain.stream("s", "u"):
+                out.append(c)
+            return out
+
+        assert _run(_drive()) == ["from deepseek"]
+        assert an.served == 0
+
+    def test_dd_still_reaches_claude(self):
+        chain, ds, an = _chain()
+        with provider_scope("anthropic"):
+            _run(chain.complete("s", "u"))
+        assert an.served == 1 and ds.served == 0
+
+    def test_dd_still_degrades_to_deepseek_when_claude_fails(self):
+        """A DD must never DIE because Claude is rate-limited."""
+        ds, an = _P("deepseek"), _P("anthropic")
+
+        async def _boom(*a, **k):
+            raise RuntimeError("529 overloaded")
+
+        an.complete = _boom
+        chain = FallbackProvider([ds, an])
+        with provider_scope("anthropic"):
+            out = _run(chain.complete("s", "u"))
+        assert ds.served == 1 and "deepseek" in out.text
+
+    def test_the_mechanism_is_env_disableable(self, monkeypatch):
+        monkeypatch.setenv("ARIA_PREFERENCE_ONLY_PROVIDERS", "")
+        chain, ds, an = _chain()
+
+        async def _boom(*a, **k):
+            raise RuntimeError("down")
+
+        ds.complete = _boom
+        _run(chain.complete("s", "u"))
+        assert an.served == 1, "disabling the list should restore normal fallback"

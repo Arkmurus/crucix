@@ -13,11 +13,17 @@ import contextlib
 import contextvars
 import json
 import logging
+import os
 import time
 from typing import Optional
 
 from .provider import LLMProvider, LLMResult, ProviderError
 from .factory import create_llm_provider
+
+from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
+
+logger = logging.getLogger("aria.llm.fallback")
+
 
 # ── R-F2917: context-scoped provider preference ──────────────────────────────
 # Operator directive 2026-07-23: DD runs on Claude, EVERYTHING else on DeepSeek.
@@ -60,9 +66,29 @@ def get_preferred_provider() -> str:
         return _preferred_provider.get()
     except Exception:
         return ""
-from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
-logger = logging.getLogger("aria.llm.fallback")
+
+def preference_only_providers() -> set[str]:
+    """R-F2922 — providers that may serve ONLY when explicitly preferred.
+
+    Operator directive 2026-07-23: DD runs on Claude, everything else on
+    DeepSeek. R-F2917 pins DD to Claude, but that alone does NOT deliver the
+    guarantee: `ARIA_ANTHROPIC_ENABLED=1` inserts Anthropic at the head of the
+    FALLBACK list, so the effective chain is [deepseek, anthropic, ...]. Any
+    non-DD call whose primary failed or was cooling would then be served by
+    Claude — silently, and exactly during the incidents when call volume spikes.
+    `stream()` was worse: it walks self.providers with no preference concept at
+    all, so streaming chat could land on Claude outright.
+
+    Naming a provider here removes it from the DEFAULT order entirely. It stays
+    fully available to anything that asks for it by name (the DD scope, the
+    R-F1366 coder pin), and a preferred call still degrades through the ordinary
+    providers, so a rate-limited Claude never kills a DD.
+
+    Empty string disables the mechanism (every provider serves normally).
+    """
+    raw = os.getenv("ARIA_PREFERENCE_ONLY_PROVIDERS", "anthropic")
+    return {p.strip().lower() for p in (raw or "").split(",") if p.strip()}
 
 # F68 fix 2026-04-28: HARD cooldowns (auth/billing) are mirrored to Redis
 # so they survive restarts. Without this, every fly.io restart re-probed
@@ -437,12 +463,21 @@ class FallbackProvider(LLMProvider):
         # untouched.
         if not prefer_provider:
             prefer_provider = get_preferred_provider()
-        order = self.providers
+        # R-F2922 — a preference-only provider (Claude) NEVER serves the default
+        # order. Without this, ARIA_ANTHROPIC_ENABLED=1 puts it second in the
+        # chain and every non-DD call whose primary is failing or cooling lands
+        # on it. It stays fully reachable by name below.
+        _pref_only = preference_only_providers()
+        order = [p for p in self.providers
+                 if (p.name or "").lower() not in _pref_only]
         if prefer_provider:
             preferred = [p for p in self.providers if p.name == prefer_provider]
             if preferred:
+                # Preferred first, then the ORDINARY providers as fallback, so a
+                # rate-limited Claude degrades a DD to DeepSeek instead of
+                # killing it.
                 order = preferred + [
-                    p for p in self.providers if p.name != prefer_provider
+                    p for p in order if p.name != prefer_provider
                 ]
             else:
                 logger.debug(
@@ -516,11 +551,20 @@ class FallbackProvider(LLMProvider):
         last_error = None
         attempted = 0
 
-        for provider in self.providers:
+        # R-F2922 — streaming is the CHAT path and has no preference concept, so
+        # it walked self.providers directly. With Claude in the chain that meant
+        # a streaming chat turn could be served by Claude the moment DeepSeek
+        # hiccuped. DD does not stream, so excluding preference-only providers
+        # here costs nothing and closes the largest remaining exposure.
+        _pref_only = preference_only_providers()
+        _stream_order = [p for p in self.providers
+                         if (p.name or "").lower() not in _pref_only]
+
+        for provider in _stream_order:
             if attempted >= self._MAX_FALLBACK_ATTEMPTS:
                 logger.warning(
                     "Stream fallback chain stopped after %d attempts; %d providers untried",
-                    attempted, len(self.providers) - attempted,
+                    attempted, len(_stream_order) - attempted,
                 )
                 break
 

@@ -55,6 +55,14 @@ class _FakeStore:
         self.ops.append(f"expire {key}")
         return True
 
+    async def set(self, key, value, ex=None, keepttl=False):
+        self.ops.append(f"set {key}")
+        try:
+            self.floats[key] = float(value)
+        except (TypeError, ValueError):
+            self.json[key] = value
+        return True
+
     async def set_json(self, key, value, ex=None):
         self.json[key] = value
         return True
@@ -464,3 +472,47 @@ class TestReviewerMetered:
             assert isinstance(p, MeteredProvider), (
                 f"{getattr(p, 'name', p)} is unmetered — its spend is invisible"
             )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# R-F2923 — the daily meter can be restarted without rewriting real spend
+# ──────────────────────────────────────────────────────────────────────────
+class TestDailyReset:
+    def test_reset_zeroes_the_day_and_reports_the_previous_value(self, store, monkeypatch):
+        monkeypatch.setenv("ARIA_DAILY_CAP_USD", "10")
+        key = f"{ct.COST_DAY_PREFIX}{ct._current_day_key()}"
+        store.floats[key] = 18.21
+
+        out = _run(ct.reset_day_spend())
+        assert out["reset"] is True
+        assert out["previous_spent_usd"] == 18.21
+        assert out["spent_usd"] == 0.0
+        assert store.floats[key] == 0.0, store.floats[key]
+
+    def test_the_cap_stops_blocking_after_a_reset(self, store, monkeypatch):
+        """The user-visible outcome: calls flow again."""
+        monkeypatch.setenv("ARIA_DAILY_CAP_USD", "10")
+        key = f"{ct.COST_DAY_PREFIX}{ct._current_day_key()}"
+        store.floats[key] = 18.21
+        with pytest.raises(ct.DailyCostCapExceeded):
+            _run(ct.assert_daily_cap())
+
+        _run(ct.reset_day_spend())
+        store.floats[f"{key}:reserve"] = 0.0
+        _run(ct.assert_daily_cap())  # must not raise
+
+    def test_monthly_total_is_NOT_rewritten(self, store, monkeypatch):
+        """Real spend must never be edited to make a number look better."""
+        monkeypatch.setenv("ARIA_DAILY_CAP_USD", "10")
+        month_key = f"{ct.COST_MONTH_PREFIX}{ct._current_month_key()}"
+        store.json[month_key] = {"total_cost_usd": 72.39, "total_calls": 1921}
+        _run(ct.reset_day_spend())
+        assert store.json[month_key]["total_cost_usd"] == 72.39
+
+    def test_daily_alert_latches_are_cleared(self, store, monkeypatch):
+        """A fresh budget must be able to alert again at 80/95/100%."""
+        monkeypatch.setenv("ARIA_DAILY_CAP_USD", "10")
+        day = ct._current_day_key()
+        ct._warned_thresholds.add(f"daily:{day}:80")
+        _run(ct.reset_day_spend())
+        assert not any(t.startswith(f"daily:{day}:") for t in ct._warned_thresholds)

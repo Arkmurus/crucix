@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2919,
+  "next_available": 2924,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23065,6 +23065,51 @@
       "r_number": "R-F2918",
       "title": "GB coverage: record Companies House liveness where the real call happens (GB is covered_elsewhere, never recorded)",
       "claimed_at": "2026-07-23T14:57:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2919",
+      "title": "deploy: fail the build if any tracked file is missing from the tree (AV quarantine shipped a broken image)",
+      "claimed_at": "2026-07-23T15:17:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2920",
+      "title": "file integrity audit: continuous tracked-file monitor with durable ledger, auto-restore and operator alert",
+      "claimed_at": "2026-07-23T15:20:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2921",
+      "title": "aria client: ship the python client IN the bundle and stop the .bat downloading+executing code at runtime (Trojan signature + unverified RCE)",
+      "claimed_at": "2026-07-23T15:25:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2922",
+      "title": "Claude must be preference-only - excluded from the default chain so only DD can reach it",
+      "claimed_at": "2026-07-23T15:26:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2923",
+      "title": "operator-gated endpoint to reset the daily cost meter",
+      "claimed_at": "2026-07-23T15:26:59Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
