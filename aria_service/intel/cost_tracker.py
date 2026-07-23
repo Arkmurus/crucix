@@ -245,6 +245,34 @@ def _current_day_key() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+# In-process mirror of today's total, same shape and rationale as _month_cache:
+# the pre-call check must not cost a store read per request. Staleness is
+# cap-SAFE because the ceiling is enforced by the atomic reserve below, not by
+# this gauge — and record_call refreshes it with the authoritative value that
+# INCRBYFLOAT returns, so it is usually exact rather than merely fresh.
+_day_cache: dict[str, Any] = {"day": "", "total": 0.0, "loaded_at": 0.0}
+_DAY_CACHE_TTL_S = 30.0
+
+
+async def _refresh_day_cache() -> float:
+    """Today's recorded spend, cached in-process for _DAY_CACHE_TTL_S."""
+    day = _current_day_key()
+    now = time.time()
+    if (_day_cache["day"] == day
+            and (now - float(_day_cache.get("loaded_at") or 0.0)) < _DAY_CACHE_TTL_S):
+        return float(_day_cache["total"])
+    try:
+        total = float(await rs.get(f"{COST_DAY_PREFIX}{day}") or 0.0)
+    except Exception:
+        # Day rollover with an unreadable store: fall back to 0.0 rather than
+        # carrying YESTERDAY's total into today, which would block every call.
+        total = 0.0 if _day_cache["day"] != day else float(_day_cache.get("total") or 0.0)
+    _day_cache["day"] = day
+    _day_cache["total"] = total
+    _day_cache["loaded_at"] = now
+    return total
+
+
 async def get_day_spend() -> dict:
     """Today's LLM spend + daily cap utilisation (UTC day)."""
     day = _current_day_key()
@@ -292,7 +320,10 @@ async def assert_daily_cap(estimated_cost_usd: float = 0.02) -> None:
         new_reserve = await rs.incrbyfloat(reserve_key, est)
         await rs.expire(reserve_key, 300)  # 5min — a crashed reserve auto-expires
         reserved = True
-        spent = float(await rs.get(day_key) or 0.0)
+        # Cached read (see _day_cache): the atomic reserve above is what makes
+        # the ceiling hard, so a <=30s-stale gauge costs nothing in safety and
+        # saves a store read on every LLM call.
+        spent = await _refresh_day_cache()
         new_total = spent + new_reserve
     except Exception:
         return  # store unreachable — fail open, monthly cap still applies
@@ -721,10 +752,24 @@ async def record_call(
         # cap's source of truth (see COST_DAY_PREFIX note), so it is written on
         # every call rather than coalesced. Best-effort: a failure here loses one
         # day-metric, never the call.
+        # Op budget matters here. R-F2172 coalesced the reporting aggregates
+        # because THREE read-modify-writes per call saturated state_store's
+        # single writer (the R-F2157 self-DOS). The day counter cannot be
+        # coalesced — it is the cap's source of truth — so it is kept to the
+        # minimum instead: INCRBYFLOAT returns the new total, so no read-back is
+        # needed, and the TTL is only stamped on the day's first write.
         try:
-            _day_key = f"{COST_DAY_PREFIX}{_current_day_key()}"
-            await rs.incrbyfloat(_day_key, max(0.0, cost_usd))
-            await rs.expire(_day_key, COST_DAY_TTL)
+            _day = _current_day_key()
+            _day_key = f"{COST_DAY_PREFIX}{_day}"
+            _inc = max(0.0, cost_usd)
+            _day_total = float(await rs.incrbyfloat(_day_key, _inc) or 0.0)
+            if _day_total <= _inc:  # first write of this UTC day
+                await rs.expire(_day_key, COST_DAY_TTL)
+            # Keep the pre-call cache honest so assert_daily_cap can read it
+            # instead of hitting the store on every request.
+            _day_cache["day"] = _day
+            _day_cache["total"] = _day_total
+            _day_cache["loaded_at"] = time.time()
             _day_reserve = await rs.get(f"{_day_key}:reserve")
             if _day_reserve:
                 _dr = float(_day_reserve)
@@ -732,9 +777,7 @@ async def record_call(
                     await rs.incrbyfloat(
                         f"{_day_key}:reserve", -min(_dr, max(0.001, cost_usd)))
             _emit_threshold_warnings(
-                float(await rs.get(_day_key) or 0.0), _daily_cap_usd(),
-                _current_day_key(), scope="daily",
-            )
+                _day_total, _daily_cap_usd(), _day, scope="daily")
         except Exception:
             pass
         # R-F1954 — per-user monthly sub-cap accounting (best-effort).

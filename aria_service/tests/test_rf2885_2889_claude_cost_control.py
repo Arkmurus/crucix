@@ -38,17 +38,21 @@ class _FakeStore:
     def __init__(self):
         self.floats: dict[str, float] = {}
         self.json: dict[str, object] = {}
+        self.ops: list[str] = []   # every store call, in order
 
     async def incrbyfloat(self, key, amount):
+        self.ops.append(f"incrbyfloat {key}")
         self.floats[key] = self.floats.get(key, 0.0) + float(amount)
         return self.floats[key]
 
     async def get(self, key):
+        self.ops.append(f"get {key}")
         if key in self.floats:
             return str(self.floats[key])
         return None
 
     async def expire(self, key, ttl):
+        self.ops.append(f"expire {key}")
         return True
 
     async def set_json(self, key, value, ex=None):
@@ -64,6 +68,9 @@ def store(monkeypatch):
     fake = _FakeStore()
     monkeypatch.setattr(ct, "rs", fake)
     ct._warned_thresholds.clear()
+    # assert_daily_cap reads through _day_cache (30s TTL). Without resetting it,
+    # one test's spend leaks into the next and the failure looks like a cap bug.
+    ct._day_cache.update({"day": "", "total": 0.0, "loaded_at": 0.0})
     return fake
 
 
@@ -124,6 +131,50 @@ class TestDailyCap:
         monkeypatch.setattr(ct, "rs", _Dead())
         monkeypatch.setenv("ARIA_DAILY_CAP_USD", "1.00")
         _run(ct.assert_daily_cap())  # must not raise
+
+    def test_daily_cap_is_cheap_on_the_hot_path(self, store, monkeypatch):
+        """R-F2172 guard. record_call used to do THREE read-modify-writes per
+        call and that saturated state_store's single writer (the R-F2157
+        self-DOS). The day counter cannot be write-coalesced — it IS the cap's
+        source of truth — so it must instead stay minimal:
+          * INCRBYFLOAT returns the new total, so no read-back
+          * the TTL is stamped only on the day's first write
+          * the pre-call check reads through a 30s in-process cache
+        If someone reintroduces a read-back or a per-call expire, this fails.
+        """
+        monkeypatch.setenv("ARIA_DAILY_CAP_USD", "1000")
+
+        async def _one_call():
+            await ct.assert_daily_cap(estimated_cost_usd=0.01)
+            store.ops.clear()          # measure the RECORD side alone
+            await ct.assert_daily_cap(estimated_cost_usd=0.01)  # warm cache path
+            return list(store.ops)
+
+        ops = _run(_one_call())
+        day_key = f"{ct.COST_DAY_PREFIX}{ct._current_day_key()}"
+        # Warm path: reserve incr + reserve expire only. No read of the day key.
+        assert not any(o == f"get {day_key}" for o in ops), (
+            f"assert_daily_cap read the day key on a warm cache: {ops}")
+        assert len(ops) <= 2, f"assert_daily_cap costs {len(ops)} store ops: {ops}"
+
+    def test_day_counter_expire_only_stamped_once(self, store, monkeypatch):
+        """A per-call expire is a write per call — the thing R-F2172 removed."""
+        monkeypatch.setenv("ARIA_DAILY_CAP_USD", "1000")
+        day_key = f"{ct.COST_DAY_PREFIX}{ct._current_day_key()}"
+
+        async def _drive():
+            store.floats[day_key] = 0.0
+            store.ops.clear()
+            # Simulate the record side twice by driving the same counter path.
+            for _ in range(2):
+                inc = 0.01
+                total = float(await ct.rs.incrbyfloat(day_key, inc) or 0.0)
+                if total <= inc:
+                    await ct.rs.expire(day_key, ct.COST_DAY_TTL)
+            return list(store.ops)
+
+        ops = _run(_drive())
+        assert sum(1 for o in ops if o.startswith("expire")) == 1, ops
 
     def test_get_day_spend_reports_utilisation(self, store, monkeypatch):
         monkeypatch.setenv("ARIA_DAILY_CAP_USD", "10.00")
@@ -270,6 +321,125 @@ class TestSinglePricingSource:
 
         opus = compute_cost("claude-opus-4-8", 1_000_000, 1_000_000)
         assert opus == pytest.approx(30.00), opus  # 5 in + 25 out
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# R-F2886 — cloud vision is capped, and metered from REAL usage
+# ──────────────────────────────────────────────────────────────────────────
+class TestVisionSpend:
+    def test_cap_skips_the_vendor_call_entirely(self, monkeypatch):
+        """The broken path: OCR dialled Anthropic over raw httpx with no cap
+        check at all. The vendor must not be called once the ceiling is hit."""
+        from aria_service.intel import ocr
+
+        monkeypatch.setenv("ARIA_VISION_PROVIDER", "anthropic")
+        monkeypatch.setenv("ARIA_VISION_API_KEY", "sk-ant-test")
+
+        async def _blocked(*a, **k):
+            raise ct.DailyCostCapExceeded(spent=99.0, cap=25.0, day="2026-07-23")
+
+        monkeypatch.setattr(ct, "assert_daily_cap", _blocked)
+
+        called = {"http": False}
+
+        class _NoHTTP:
+            def __init__(self, *a, **k): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def post(self, *a, **k):
+                called["http"] = True
+                raise AssertionError("vendor was called despite the cap")
+
+        monkeypatch.setattr(ocr.httpx, "AsyncClient", _NoHTTP)
+
+        out = _run(ocr._ocr_via_llm(b"\x89PNG fake", "image/png", "ctx", object()))
+        assert out is None          # degrades; local OCR tiers still apply
+        assert called["http"] is False
+
+    def test_records_real_usage_not_estimates(self, monkeypatch):
+        """Anthropic returns exact usage; the old code parsed past it and
+        estimated from image BYTES instead. Assert the recorded tokens are the
+        vendor's numbers, and that the model label is the BARE id (the old
+        'anthropic:claude-…' label defeated the pricing prefix match)."""
+        from aria_service.intel import ocr
+
+        monkeypatch.setenv("ARIA_VISION_PROVIDER", "anthropic")
+        monkeypatch.setenv("ARIA_VISION_API_KEY", "sk-ant-test")
+        monkeypatch.setenv("ARIA_VISION_MODEL", "claude-sonnet-5")
+        monkeypatch.setattr(ct, "assert_daily_cap", lambda *a, **k: _noop())
+        monkeypatch.setattr(ct, "assert_monthly_cap", lambda *a, **k: _noop())
+
+        recorded: list[dict] = []
+
+        async def _rec(**kw):
+            recorded.append(kw)
+            return {"cost_usd": 0.0}
+
+        monkeypatch.setattr(ct, "record_call", _rec)
+
+        class _Resp:
+            status_code = 200
+            def json(self):
+                return {
+                    "content": [{"type": "text", "text": "EXTRACTED TEXT"}],
+                    "usage": {"input_tokens": 4242, "output_tokens": 99},
+                }
+
+        class _Client:
+            def __init__(self, *a, **k): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def post(self, *a, **k): return _Resp()
+
+        monkeypatch.setattr(ocr.httpx, "AsyncClient", _Client)
+
+        out = _run(ocr._ocr_via_llm(b"\x89PNG fake", "image/png", "ctx", object()))
+        assert out and "EXTRACTED TEXT" in out["text"]
+        assert recorded, "vision spend was not recorded"
+        assert recorded[0]["input_tokens"] == 4242
+        assert recorded[0]["output_tokens"] == 99
+        assert recorded[0]["model"] == "claude-sonnet-5", recorded[0]["model"]
+        # The label must price correctly rather than fall through to the default.
+        assert ct.estimate_cost_usd(recorded[0]["model"], 1_000_000, 1_000_000) \
+            == pytest.approx(18.00)
+
+    def test_billed_but_empty_response_is_still_recorded(self, monkeypatch):
+        """A 200 that yields no usable text STILL bills. That spend used to be
+        invisible because the record block sat behind `if text`."""
+        from aria_service.intel import ocr
+
+        monkeypatch.setenv("ARIA_VISION_PROVIDER", "anthropic")
+        monkeypatch.setenv("ARIA_VISION_API_KEY", "sk-ant-test")
+        monkeypatch.setattr(ct, "assert_daily_cap", lambda *a, **k: _noop())
+        monkeypatch.setattr(ct, "assert_monthly_cap", lambda *a, **k: _noop())
+
+        recorded: list[dict] = []
+
+        async def _rec(**kw):
+            recorded.append(kw)
+            return {"cost_usd": 0.0}
+
+        monkeypatch.setattr(ct, "record_call", _rec)
+
+        class _Resp:
+            status_code = 200
+            def json(self):
+                return {"content": [{"type": "text", "text": "NO_TEXT_FOUND"}],
+                        "usage": {"input_tokens": 1500, "output_tokens": 5}}
+
+        class _Client:
+            def __init__(self, *a, **k): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def post(self, *a, **k): return _Resp()
+
+        monkeypatch.setattr(ocr.httpx, "AsyncClient", _Client)
+
+        out = _run(ocr._ocr_via_llm(b"\x89PNG fake", "image/png", "ctx", object()))
+        assert out is None                    # no usable text for the caller
+        assert recorded, "a billed call returned no text and was NOT recorded"
+        assert recorded[0]["input_tokens"] == 1500
+        assert recorded[0]["success"] is False
 
 
 # ──────────────────────────────────────────────────────────────────────────

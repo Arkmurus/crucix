@@ -65,6 +65,20 @@ from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.ocr")
 
+# R-F2886 — spend-ceiling exceptions, so a cap hit can be reported as a cap hit
+# rather than as a vision failure. cost_tracker does not import ocr, so this is
+# cycle-free; the empty-tuple fallback simply never matches an `except`, leaving
+# the generic handler in charge.
+try:
+    from .cost_tracker import (
+        DailyCostCapExceeded as _DailyCapExceeded,
+        MonthlyCostCapExceeded as _MonthlyCapExceeded,
+    )
+    _CapExceeded: tuple[type[BaseException], ...] = (
+        _DailyCapExceeded, _MonthlyCapExceeded)
+except Exception:  # pragma: no cover - defensive
+    _CapExceeded = ()
+
 
 @fail_wire(module="ocr", gap_type="file_parse")
 async def extract_text_from_image(
@@ -853,6 +867,17 @@ async def _ocr_via_llm(image_data: bytes, mime: str, context: str, llm) -> Optio
         if _ok:
             return {"text": text, "method": f"vision:{provider_name or 'unknown'}", "confidence": 0.85}
 
+    except (_CapExceeded) as e:
+        # R-F2886 — a spend ceiling is NOT a vision failure. Logging it as one
+        # sends whoever debugs this hunting a broken vendor call instead of
+        # reading the cap (§22: know what your logs actually say). Cloud vision
+        # is skipped; the local OCR tiers still run, so the caller degrades
+        # rather than fails.
+        logger.warning(
+            "[ocr] cloud vision SKIPPED — LLM spend cap reached (%s). "
+            "Local OCR tiers still apply; raise ARIA_DAILY_CAP_USD / "
+            "ARIA_MONTHLY_CAP_USD to re-enable.", e,
+        )
     except Exception as e:
         logger.warning("LLM vision OCR failed: %s", e)
 
