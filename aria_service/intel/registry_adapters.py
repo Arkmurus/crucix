@@ -208,12 +208,23 @@ async def lookup_entity(
         # A stub therefore records "empty": the adapter RAN, and produced no registry
         # evidence. That is true, and it keeps the jurisdiction unproven rather than
         # marking it live or failing.
+        # The test is AUTHORITY, not the adapter's name. R-F2693 already defines the
+        # closed vocabulary for "did a registry actually confirm this?"
+        # (RegistryStatus.is_authority — a whitelist, so a status added later is not
+        # authority until someone decides it is). The `*_stub` suffix is only the
+        # DEFAULT input to that classification and is explicitly overridable — a real
+        # adapter that degrades to a partial/manual result would keep an authoritative
+        # name while carrying a non-authoritative status. Keying on the name would
+        # record liveness for it; keying on the status cannot.
         _adapter_name = (result or {}).get("adapter", "") if isinstance(result, dict) else ""
-        _is_stub = _adapter_name.endswith("_stub")
+        _status = RegistryStatus.coerce((result or {}).get("registry_status")) if isinstance(result, dict) else None
+        if _status is None and _adapter_name:
+            _status = RegistryStatus.for_adapter(_adapter_name)   # older results carry no field
+        _is_authority = bool(result) and _status is not None and _status.is_authority()
         _record_coverage_outcome(
             iso2,
             _adapter_name,
-            "success" if (result and not _is_stub) else "empty",
+            "success" if _is_authority else "empty",
         )
 
         # R-F2261 — GLEIF global fallback when the jurisdiction adapter found NOTHING:

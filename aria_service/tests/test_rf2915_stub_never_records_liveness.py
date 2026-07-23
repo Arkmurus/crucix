@@ -116,3 +116,62 @@ def test_rf2915_stub_adapters_in_source_all_use_the_suffix():
     assert synthesized, "no stub adapters found — has the naming convention changed?"
     for n in synthesized:
         assert n.endswith("_stub"), f"{n} contains 'stub' but does not end with '_stub'"
+
+
+# ── R-F2915 (cont): the test is AUTHORITY, not the adapter's name ───────────
+
+def test_rf2915_non_authoritative_status_beats_an_authoritative_name(monkeypatch):
+    """A REAL adapter that degrades to a manual/partial result must not record
+    liveness, even though its name has no `_stub` suffix.
+
+    RegistryStatus.for_adapter is only the DEFAULT; _build_result lets an adapter pass
+    registry_status explicitly. Keying the coverage rule on the NAME would record
+    success here — keying it on is_authority() cannot.
+    """
+    calls = _recorded(monkeypatch)
+
+    async def _degraded(name, reg_number):
+        return {"profile": {"company_name": name}, "officers": [],
+                "adapter": "norway_brreg",                       # authoritative NAME
+                "registry_status": ra.RegistryStatus.MANUAL_REQUIRED.value}   # but not authority
+
+    monkeypatch.setattr(ra, "_lookup_norway", _degraded, raising=False)
+    monkeypatch.setitem(ra._DISPATCH, "NO", _degraded)
+
+    asyncio.run(ra.lookup_entity("SOMECO", "NO"))
+    assert calls[0][2] == "empty", (
+        "a non-authoritative result recorded liveness because its adapter name looked real"
+    )
+
+
+def test_rf2915_explicit_verified_status_records_success(monkeypatch):
+    """The inverse must also hold — an explicitly VERIFIED result is liveness."""
+    calls = _recorded(monkeypatch)
+
+    async def _verified(name, reg_number):
+        return {"profile": {"company_name": name, "company_number": "123"}, "officers": [],
+                "adapter": "poland_krs",
+                "registry_status": ra.RegistryStatus.VERIFIED.value}
+
+    monkeypatch.setattr(ra, "_lookup_poland", _verified, raising=False)
+    monkeypatch.setitem(ra._DISPATCH, "PL", _verified)
+
+    asyncio.run(ra.lookup_entity("ORLEN", "PL"))
+    assert calls[0] == ("PL", "poland_krs", "success")
+
+
+def test_rf2915_partial_is_authority_and_records_success(monkeypatch):
+    """PARTIAL means a real registry answered with an incomplete record — that IS
+    liveness for the purpose of this inventory (the registry responded)."""
+    calls = _recorded(monkeypatch)
+
+    async def _partial(name, reg_number):
+        return {"profile": {"company_name": name}, "officers": [],
+                "adapter": "czech_or_justice",
+                "registry_status": ra.RegistryStatus.PARTIAL.value}
+
+    monkeypatch.setattr(ra, "_lookup_czech", _partial, raising=False)
+    monkeypatch.setitem(ra._DISPATCH, "CZ", _partial)
+
+    asyncio.run(ra.lookup_entity("SKODA", "CZ"))
+    assert calls[0][2] == "success"
