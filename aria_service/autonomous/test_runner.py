@@ -49,6 +49,27 @@ from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.test_runner")
 
+
+def coder_tests_enabled() -> bool:
+    """R-F2905 — THE single reading of ARIA_CODER_TESTS_ENABLED.
+
+    It was parsed two incompatible ways, and live data proved the secret matched
+    neither branch:
+      * here (Gate 1)      — disabled iff value == "0"  → tests RAN unless "0"
+      * self_coder:1313    — enabled  iff value == "1"  → recorded NOT-run unless "1"
+    So with any other truthy spelling ("true"/"yes"), ARIA paid to run the tests
+    and then filed every result as `tests_ran=False`, which forces gold=False by
+    construction (gold requires tests_ran). Evidence in
+    data/aria_training/coder_verifiable_gold.jsonl: 17 records show
+    tests_passed>0 AND tests_ran=False — impossible unless the two readings
+    disagreed. The gold signal ARIA was already paying for was being discarded.
+
+    One function, one truthy convention, matching the rest of the tree
+    ("1"/"true"/"yes"/"on"). Default stays OFF — tests are opt-in.
+    """
+    raw = (os.environ.get("ARIA_CODER_TESTS_ENABLED", "0") or "0").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
 # R-F1320: wire module health to the brain
 try:
     from aria_service.intel.engine_wiring import wire_success as _ws1320
@@ -138,7 +159,7 @@ class TestRunner:
         wedge storm still trips the breaker.
         """
         # ── Gate 1: Master switch ──────────────────────────────────────────
-        if os.environ.get("ARIA_CODER_TESTS_ENABLED", "0").strip() == "0":
+        if not coder_tests_enabled():
             logger.info("[test_runner] disabled via env — skipping")
             return TestResult(all_green=True, passed=0, failed=0, safe_mode=True)
 

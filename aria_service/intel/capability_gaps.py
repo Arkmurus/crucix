@@ -288,6 +288,16 @@ VALID_GAP_TYPES = frozenset({
     "tier_exhaustion",                  # llm/tier_router.py:213
     "user_model_failure",               # user_model.py:575
     "web_integrity_failure",            # web_integrity_agent.py:936
+    # ── R-F2907 (2026-07-23) — drift since the R-F2644 sweep ─────────────────
+    # Caught by test_rf2644_gap_type_registry_drift, which is the REAL scan that
+    # replaced F74's vacuous hardcoded snapshot — so the guard did its job here.
+    # Same inert change as the batch above: membership only gates the :259
+    # "Unknown gap type" warning, nothing branches on it. Registering keeps the
+    # coder-maturity and deploy-freshness signals first-class rather than noise.
+    "autonomous_gold_lane_not_earned",   # self_coder.py:1996, self_improve.py:2239
+    "autonomous_gold_lane_unavailable",  # self_improve.py:392
+    "source_seed_failure",               # defence_source_seed.py:677
+    "stale_base_deploy",                 # self_improve.py:1029
 })
 
 

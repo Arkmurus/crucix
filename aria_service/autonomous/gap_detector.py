@@ -1806,6 +1806,47 @@ def _is_symptom_failure(returncode: int, combined_lower: str) -> bool:
     return not any(m in combined_lower for m in _NON_SYMPTOM_MARKERS)
 
 
+# R-F2906 — self-declared non-work. Multi-word on purpose: a bare "synthetic" or
+# "dummy" appears in legitimate gaps about synthetic data or dummy credentials,
+# and a filter that eats real signals is worse than the noise it removes.
+_SIMULATED_GAP_MARKERS = (
+    "simulated bug",
+    "pipeline testing",
+    "for pipeline test",
+    "synthetic gap",
+    "dummy gap",
+    "test fixture only",
+)
+
+# Minimum alphanumeric content across title+description for a gap to be worth a
+# human's or an LLM's time. The live junk was title "t" / description "d" — two
+# characters that cost 16 coder attempts.
+_MIN_GAP_CONTENT_CHARS = 12
+
+
+def _is_actionable_gap(gap: Gap) -> bool:
+    """R-F2906 — is this gap real work?
+
+    Rejects two shapes proven to waste the coder lane, both checked BEFORE any
+    queue sees the gap:
+
+      1. self-declared simulations — a gap whose own text says it is a pipeline
+         test is not a defect, and re-attempting it forever is pure spend;
+      2. degenerate text — a title/description with almost no content cannot be
+         acted on by a human or an LLM; it can only be retried.
+
+    Conservative by design: it returns True on anything it is unsure about, so a
+    real gap is never silently dropped. False negatives here cost noise; false
+    positives cost a lost production signal.
+    """
+    text = f"{gap.title or ''} {gap.description or ''}".strip().lower()
+    if any(marker in text for marker in _SIMULATED_GAP_MARKERS):
+        return False
+    if sum(ch.isalnum() for ch in text) < _MIN_GAP_CONTENT_CHARS:
+        return False
+    return True
+
+
 def _review_queue_enabled() -> bool:
     """R-F2904 — kill switch for the operator review queue. Default ON (that is
     the point of the feature), but anything that writes to a human's queue needs
@@ -1903,6 +1944,20 @@ class GapDetector:
                     "[gap_detector] %s failed: %s",
                     extractor.__class__.__name__, e,
                 )
+
+        # R-F2906 — drop non-work BEFORE dedupe, so a simulated or degenerate
+        # gap reaches neither LATEST_KEY, nor the coder, nor the review queue.
+        # Five weeks of coder output was 35 attempts on "a simulated bug for
+        # pipeline testing" and 16 on a gap whose entire text was "t"/"d" —
+        # 51 of 52 attempts, every one of them billable.
+        _rejected = [g for g in all_gaps if not _is_actionable_gap(g)]
+        if _rejected:
+            all_gaps = [g for g in all_gaps if _is_actionable_gap(g)]
+            logger.warning(
+                "[gap_detector] R-F2906 dropped %d non-actionable gap(s): %s",
+                len(_rejected),
+                ", ".join(f"{g.gap_id}:{(g.title or '')[:40]}" for g in _rejected[:5]),
+            )
 
         # Dedupe — keep highest severity per gap_id
         seen: dict[str, Gap] = {}

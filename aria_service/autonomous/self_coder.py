@@ -67,7 +67,7 @@ from .sovereign_llm import (  # R-F1025: real LLM-backed coder (the contract sel
     apply_search_replace,  # R-F1295: diff-based editing
     LARGE_FILE_LINES,
 )
-from .test_runner import TestResult, TestRunner
+from .test_runner import TestResult, TestRunner, coder_tests_enabled
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.autonomous.self_coder")
@@ -1310,7 +1310,11 @@ class ARIACoder:
                     approach=plan.approach, code_changes=plan.code_changes,
                     r_number=r_number, test_result=test_result,
                     stage_ok=stage_ok, auto_deployed=auto_deployed,
-                    tests_enabled=(os.environ.get("ARIA_CODER_TESTS_ENABLED", "0").strip() == "1"),
+                    # R-F2905 — same reading as the runner's Gate 1. This used to
+                    # be a separate `== "1"` test, so a value the runner accepted
+                    # (anything but "0") was recorded here as tests-never-ran,
+                    # forcing gold=False on work that had genuinely passed.
+                    tests_enabled=coder_tests_enabled(),
                     reproduce_fail_to_pass=_reproduce_fail_to_pass,
                 )
                 _gp = os.environ.get("ARIA_CODER_GOLD_PATH") or str(
