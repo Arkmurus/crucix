@@ -985,6 +985,20 @@ def _build_intel_signal(article: dict) -> dict:
         # diagnosable from the record rather than by guesswork.
         "classification_evidence": class_evidence,
         "relevance_score": article.get("relevance_score"),
+        # R-F2899 — PROVENANCE OF THE ANALYSIS, not of the source.
+        # `why_it_matters` and `recommended_action` here are the fixed template
+        # strings attached to whichever _SIGNAL_RULES pattern matched. They describe
+        # a CATEGORY of event, never this item: every conflict_escalation article
+        # gets the identical "Security conditions may affect delivery risk..." and
+        # "Assess country risk". That is a classifier label wearing the costume of
+        # analysis, and the channel formatter prints it under "decision-grade".
+        # Live 2026-07-23 this selected a UN News multi-topic ROUNDUP ("World News in
+        # Brief: Aid for Ukraine, drone attacks in Sudan, DR Congo deaths,
+        # neurological disorders in the Americas") as the Grade A post of the day.
+        # Marking it lets the publish gate require real per-item analysis (R-F2899 in
+        # channelServerHooks) without weakening intel_grade, which is a fair measure
+        # of EVIDENCE quality and stays exactly as it is.
+        "why_action_provenance": "classifier_template",
         "confidence_rationale": _confidence_rationale(
             source_tier=tier,
             signal_type=signal_type,

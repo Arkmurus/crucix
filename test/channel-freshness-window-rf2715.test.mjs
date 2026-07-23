@@ -22,6 +22,9 @@ function gradeASignal(overrides = {}) {
   return {
     id: 'sig-A', signal_type: 'active_tender', priority: 'HIGH', confidence: 'HIGH',
     intel_grade: 'A', source_tier: 'tier_1a', score: 90,
+    // R-F2899 — publishable signals must carry per-item analysis provenance;
+    // without it the gate fails closed and this fixture would test nothing.
+    why_action_provenance: 'source_adapter',
     decision_summary: 'UK MoD opens frigate tender', why_it_matters: 'Near-term commercial window.',
     recommended_action: 'Qualify opportunity', target: 'UK',
     source: 'gov.uk', url: 'https://gov.uk/tender/1', detected_at: '2026-07-18T09:00:00Z',

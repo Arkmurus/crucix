@@ -137,6 +137,10 @@ const GRADE_A = {
   title: 'Germany - Fighter aircraft - procurement notice', why_it_matters: 'why',
   recommended_action: 'Assess bid/no-bid', url: 'https://ted.europa.eu/en/notice/1',
   detected_at: '2026-07-23T06:02:55Z', score: 60,
+  // R-F2899 — these staleness cases assume an otherwise-publishable signal, so the
+  // fixture must carry real per-item analysis provenance; without it the gate
+  // (correctly) fails closed and the test would be measuring the wrong thing.
+  why_action_provenance: 'source_adapter',
 };
 
 test('R-F2896: ambient source-health noise does not suppress a fresh candidate', () => {
@@ -232,4 +236,61 @@ test('R-F2895: escalation is rate-limited so an outage nags, not floods', async 
     await hooks.handleMorningSignalCron({}, BOT, { hour: 7 });
   } finally { restore(); }
   assert.equal(sends.length, 0, 'escalation flooded the operator inside the cooldown');
+});
+
+// ── R-F2899 ────────────────────────────────────────────────────────────────
+// The publish gate must distinguish ARIA's own per-item analysis from a
+// classifier's canned category string.
+
+const TEMPLATE_NEWS = {
+  id: 'n1', intel_grade: 'A', signal_type: 'conflict_escalation', confidence: 'HIGH',
+  title: 'World News in Brief: Aid for Ukraine, drone attacks in Sudan, DR Congo deaths',
+  why_it_matters: 'Security conditions may affect delivery risk, end-use risk, or market timing.',
+  recommended_action: 'Assess country risk',
+  url: 'https://news.un.org/feed/view/en/story/2026/07/1168000',
+  detected_at: '2026-07-22T20:13:00Z', score: 80,
+  why_action_provenance: 'classifier_template',
+};
+
+const ADAPTER_TENDER = {
+  id: 't1', intel_grade: 'A', signal_type: 'active_tender', confidence: 'MEDIUM',
+  title: 'Germany - Fighter aircraft - Bordkanonenbeladesystem EUROFIGHTER',
+  why_it_matters: 'Bundesamt fuer Ausruestung (Germany) - value undisclosed, deadline 2026-08-11. Matched products: ammunition.',
+  recommended_action: 'Assess bid/no-bid - review scope, eligibility and deadline.',
+  url: 'https://ted.europa.eu/en/notice/-/detail/472945-2026',
+  detected_at: '2026-07-23T06:02:55Z', score: 60,
+  why_action_provenance: 'source_adapter',
+};
+
+const freshOk = { stale: false, stale_reasons: [], blocking_stale_reasons: [], publishable: true };
+
+test('R-F2899: a template-analysed news item is NOT publishable as decision-grade', () => {
+  const picked = hooks.selectTelegramGoldenIntel({ ok: true, signals: [TEMPLATE_NEWS], freshness: freshOk });
+  assert.equal(picked, null, 'a canned classifier string was published under "decision-grade"');
+});
+
+test('R-F2899: an adapter-analysed finding IS publishable', () => {
+  const picked = hooks.selectTelegramGoldenIntel({ ok: true, signals: [ADAPTER_TENDER], freshness: freshOk });
+  assert.ok(picked, 'real per-item analysis was suppressed');
+  assert.equal(picked.id, 't1');
+});
+
+test('R-F2899: the adapter finding is chosen over a higher-scoring template item', () => {
+  // TEMPLATE_NEWS has HIGH confidence and score 80 vs the tender's MEDIUM/60, so
+  // without the provenance gate the roundup wins the sort outright.
+  const picked = hooks.selectTelegramGoldenIntel({
+    ok: true, signals: [TEMPLATE_NEWS, ADAPTER_TENDER], freshness: freshOk,
+  });
+  assert.equal(picked?.id, 't1');
+});
+
+test('R-F2899: a signal with NO provenance flag fails closed', () => {
+  const { why_action_provenance, ...noFlag } = ADAPTER_TENDER;
+  const picked = hooks.selectTelegramGoldenIntel({ ok: true, signals: [noFlag], freshness: freshOk });
+  assert.equal(picked, null, 'an unflagged signal was published — the gate failed open');
+});
+
+test('R-F2899: the Grade B lane is gated too — single-source does not lower the bar', () => {
+  const b = { ...TEMPLATE_NEWS, intel_grade: 'B' };
+  assert.equal(hooks.selectTelegramGradeB({ ok: true, signals: [b], freshness: freshOk }), null);
 });

@@ -28,6 +28,9 @@ function goodSignal(overrides = {}) {
     confidence: 'HIGH',
     quality_label: 'decision-grade single-source',
     intel_grade: 'A',   // R-F2714 — the formal grade the selector now gates on
+    // R-F2899 — evidence grade alone is not enough to publish: the why/action must
+    // be ARIA's analysis of THIS item, not a canned category string.
+    why_action_provenance: 'source_adapter',
     source_tier: 'tier_1b',
     score: 88,
     decision_summary: 'Angola launches armoured vehicle tender',

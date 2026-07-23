@@ -287,6 +287,13 @@ def _normalize_finding_to_signal(finding: dict) -> dict | None:
         "decision_summary": title[:220],
         "why_it_matters": _clean(finding.get("why_it_matters")),
         "recommended_action": _clean(finding.get("recommended_action")),
+        # R-F2899 — these come from the SOURCE ADAPTER and describe THIS finding
+        # (this buyer, this value, this deadline, this designation, this programme),
+        # not a category of event. That is what makes them publishable as
+        # decision-grade, and what distinguishes them from news_monitor's
+        # classifier templates. An adapter that ever emits a canned string is
+        # mislabelling itself here — keep adapter why/action item-specific.
+        "why_action_provenance": "source_adapter",
         "target": target,
         "source": source,
         "source_tier": source_tier,

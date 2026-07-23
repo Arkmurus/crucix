@@ -23,6 +23,8 @@ function sig(grade, overrides = {}) {
   return {
     id: `sig-${grade}`, signal_type: 'active_tender', priority: 'HIGH', confidence: 'HIGH',
     intel_grade: grade, source_tier: grade === 'A' ? 'tier_1a' : 'tier_2', score: 85,
+    // R-F2899 — both lanes require real per-item analysis, not a classifier template.
+    why_action_provenance: 'source_adapter',
     decision_summary: `${grade} tender in Poland`, why_it_matters: 'Commercial window.',
     recommended_action: 'Qualify opportunity', target: 'Poland',
     source: 'monitored source', url: 'https://example.com/x', detected_at: '2026-07-18T09:00:00Z',
