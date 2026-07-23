@@ -66,38 +66,53 @@ def test_rf2929_triaged_jurisdictions_carry_their_verdict(iso2, cls):
 
 def test_rf2929_live_rows_carry_no_reason_but_may_carry_a_caveat(monkeypatch):
     """A live row needs no excuse; a stale one would invite discounting real evidence.
-    A caveat, however, must survive onto a live row."""
+    A caveat, however, must survive onto a live row.
+
+    R-F2939 removed the real CZ/SK caveats (those adapters now return correct data), so
+    this tests the MECHANISM with a synthetic caveat — a stronger contract than pinning
+    a specific jurisdiction's transient data-quality state."""
+    monkeypatch.setitem(rc._ADAPTER_CAVEATS, "CZ", "synthetic caveat for the mechanism test")
+
     async def _fake_load():
         return {
-            "CZ": {"adapter": "czech_or_justice", "observations": 1,
+            "CZ": {"adapter": "czech_ares", "observations": 1,
                    "last_success_at": "2026-07-23T16:59:13+00:00", "consecutive_failures": 0},
             "DE": {"adapter": "germany_offeneregister", "observations": 1,
                    "consecutive_failures": 0},
         }
 
     monkeypatch.setattr(rc, "_load", _fake_load)
-    cov = asyncio.run(rc.coverage())
-    j = cov["jurisdictions"]
+    j = asyncio.run(rc.coverage())["jurisdictions"]
 
     assert j["CZ"]["status"] == "live"
     assert "reason" not in j["CZ"], "a live row carried a not-live reason"
-    assert "caveat" in j["CZ"], "the CZ data-quality caveat was dropped on a live row"
-    assert "IČO" in j["CZ"]["caveat"]
+    assert j["CZ"].get("caveat") == "synthetic caveat for the mechanism test", \
+        "a caveat on a live row was dropped"
 
     assert j["DE"]["status"] == "unproven"
     assert j["DE"]["reason"]["class"] == "source_gone"
 
 
 def test_rf2929_caveat_never_downgrades_liveness(monkeypatch):
-    """CZ answered. Marking it not-live would be a different inaccuracy."""
+    """A caveated row still answered. Marking it not-live would be a different inaccuracy."""
+    monkeypatch.setitem(rc._ADAPTER_CAVEATS, "CZ", "synthetic caveat")
+
     async def _fake_load():
-        return {"CZ": {"adapter": "czech_or_justice", "observations": 1,
+        return {"CZ": {"adapter": "czech_ares", "observations": 1,
                        "last_success_at": "2026-07-23T16:59:13+00:00",
                        "consecutive_failures": 0}}
 
     monkeypatch.setattr(rc, "_load", _fake_load)
     j = asyncio.run(rc.coverage())["jurisdictions"]
     assert j["CZ"]["live"] is True
+    assert j["CZ"].get("caveat") == "synthetic caveat"
+
+
+def test_rf2939_cz_sk_have_no_standing_caveat():
+    """R-F2939 — CZ/SK moved to official JSON APIs and return correct data, so neither
+    carries a caveat any more. A caveat that no longer applies is itself a false signal."""
+    assert "CZ" not in rc._ADAPTER_CAVEATS
+    assert "SK" not in rc._ADAPTER_CAVEATS
 
 
 # ── the page must actually render it ───────────────────────────────────────

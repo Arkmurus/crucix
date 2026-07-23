@@ -101,11 +101,12 @@ _ADAPTER_NOTES: dict[str, dict] = {
 # Defects in adapters that ARE live. Shown as a caveat ON the live row, never as a
 # downgrade — the registry genuinely answered, and pretending otherwise would be its
 # own inaccuracy.
-_ADAPTER_CAVEATS: dict[str, str] = {
-    "CZ": "Company name parses as 'IČO ' and the registration number comes back empty "
-          "(officers ARE extracted). Identity fields from this adapter are unreliable.",
-    "SK": "Company name parses as 'IČO <number>' — the label, not the company name.",
-}
+# R-F2939 — the CZ and SK "IČO" caveats are REMOVED: both adapters were migrated from
+# drifted HTML scrapes to the official JSON APIs (CZ ARES, SK RPO), which return the
+# real company name, number, address and date (CZ also officers). Verified live:
+# CZ -> "Škoda Auto a.s." / 00177041 / 7 officers; SK -> "SLOVNAFT, a.s." / 31322832.
+# A caveat that no longer applies would itself be a false signal on the page.
+_ADAPTER_CAVEATS: dict[str, str] = {}
 
 # ── R-F2911 — ADAPTER HEALTH TRIAGE, 2026-07-23 ──────────────────────────────
 # The exploration ledger below records why a jurisdiction has NO adapter. This
@@ -143,14 +144,11 @@ _ADAPTER_CAVEATS: dict[str, str] = {
 # matches the page, or an identifier is required. Individually diagnosable, untriaged:
 #   HU  e-cegjegyzek.hu   TR  mersis.gtb.gov.tr   GI  companieshouse.gi
 #
-# DATA-QUALITY DEFECT IN A *LIVE* ADAPTER (liveness and correctness are not the same
-# claim, and this inventory measures only the first):
-#   CZ  company_name parses as 'IČO ' and company_number comes back EMPTY, while 2
-#       officers ARE extracted — so a Czech DD report shows entity_name "IČO ".
-#   SK  company_name parses as 'IČO 31322832' — the label plus the number, never the
-#       company name.
-#   Both take the "IČO" LABEL as the value. Fixing it is an HTML-parsing change and
-#   is deliberately NOT bundled with the coverage work.
+# CZ / SK — the "IČO"-as-name data-quality defect is FIXED (R-F2939): both were
+# migrated from drifted HTML scrapes to the official JSON APIs (CZ ARES, SK RPO). They
+# now return the real name/number/address/date (CZ also officers), verified live —
+# CZ "Škoda Auto a.s." / 00177041, SK "SLOVNAFT, a.s." / 31322832 — so they are LIVE
+# and CORRECT, with no caveat.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── R-F2866 — exploration ledger ─────────────────────────────────────────────

@@ -1389,345 +1389,262 @@ async def _lookup_india(name: str, reg_number: str | None) -> dict | None:
 # ╚══════════════════════════════════════════════════════════════════════╝
 
 _SK_BASE = "https://www.orsr.sk"
+_SK_RPO_BASE = "https://api.statistics.sk/rpo/v1"
 
 
 async def _lookup_slovakia(name: str, reg_number: str | None) -> dict | None:
-    """Slovak Commercial Registry (ORSR) — two-step HTML scraping.
-    Step 1: Search by IČO → get detail page ID
-    Step 2: Fetch detail page → parse company data
-    """
+    """Slovak company registry via the OFFICIAL RPO JSON API (R-F2939).
+
+    Replaces the orsr.sk windows-1250 HTML scrape, which had drifted and fell back to
+    `company_name = f"IČO {ico}"` — the label as the name (live 2026-07-23: SK returned
+    'IČO 31322832'). RPO (Register právnických osôb, api.statistics.sk) is the state's
+    JSON API: search by IČO returns exactly one entity with its real name variants,
+    address history and establishment date."""
     ico = (reg_number or "").replace(" ", "").strip()
-    if not ico and name:
-        # Try searching by name if no IČO
-        return await _lookup_slovakia_by_name(name)
-    if not ico:
-        return None
-
+    if not ico.isdigit():
+        ico = ""
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
-            # Step 1: Search by IČO
-            search_url = f"{_SK_BASE}/hladaj_ico.asp?ICO={ico}&SID=0&T=f0&R=on"
-            resp = await client.get(search_url)
-            if resp.status_code != 200:
-                logger.warning("ORSR search returned %d", resp.status_code)
+        async with httpx.AsyncClient(
+            timeout=_TIMEOUT, follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)", "Accept": "application/json"},
+        ) as client:
+            if ico:
+                r = await client.get(f"{_SK_RPO_BASE}/search", params={"identifier": ico})
+            elif name:
+                r = await client.get(f"{_SK_RPO_BASE}/search", params={"fullName": name})
+            else:
                 return None
-
-            # ORSR uses windows-1250 encoding (Slovak), not UTF-8
-            html = resp.content.decode("windows-1250", errors="replace")
-
-            # Extract detail page ID from vypis.asp link
-            id_match = re.search(r'vypis\.asp\?ID=(\d+)', html)
-            if not id_match:
-                logger.info("ORSR: no result for IČO %s", ico)
+            if r.status_code != 200:
+                logger.info("SK RPO search returned %d", r.status_code)
                 return None
-
-            detail_id = id_match.group(1)
-
-            # Step 2: Fetch detail page
-            detail_url = f"{_SK_BASE}/vypis.asp?ID={detail_id}&SID=6&P=0"
-            resp2 = await client.get(detail_url)
-            if resp2.status_code != 200:
-                logger.warning("ORSR detail returned %d", resp2.status_code)
+            results = (r.json() or {}).get("results") or []
+            entity = _sk_best_entity(results, name, ico)
+            if not entity:
+                logger.info("SK RPO: no match for ico=%s name=%s", ico, name)
                 return None
-
-            html2 = resp2.content.decode("windows-1250", errors="replace")
-            return _parse_orsr_detail(html2, ico, detail_url)
+            return _parse_sk_rpo(entity)
     except Exception as exc:
-        logger.warning("ORSR lookup failed: %s", exc)
+        logger.warning("SK RPO lookup failed: %s", exc)
         return None
 
 
-async def _lookup_slovakia_by_name(name: str) -> dict | None:
-    """Fallback: search ORSR by company name."""
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
-            search_url = f"{_SK_BASE}/hladaj_subjekt.asp?ESSION=0&MESSION={name}&SID=0&T=f0&R=on"
-            resp = await client.get(search_url)
-            if resp.status_code != 200:
-                return None
+def _sk_best_entity(results: list, name: str, ico: str) -> dict | None:
+    """Pick the entity: an exact IČO match if we searched by IČO; else an exact
+    name match; else the single result; else None. Never returns a wrong entity just
+    to have one — for DD a wrong match is worse than no match."""
+    if not results:
+        return None
+    if ico:
+        for e in results:
+            if ico in [str(i.get("value") or "").strip() for i in (e.get("identifiers") or [])]:
+                return e
+        return None
+    def _norm(x: str) -> str:
+        # Compare names ignoring punctuation and the common Slovak legal-form suffixes,
+        # so "SLOVNAFT" matches "SLOVNAFT, a.s." — but nothing looser, to avoid a wrong hit.
+        x = re.sub(r"[.,]", " ", str(x or "").lower())
+        x = re.sub(r"\b(a\s*s|s\s*r\s*o|akciov[aá] spolo[cč]nos[tť]|spol s r o|k s|v o s)\b", " ", x)
+        return re.sub(r"\s+", " ", x).strip()
 
-            html = resp.content.decode("windows-1250", errors="replace")
-            id_match = re.search(r'vypis\.asp\?ID=(\d+)', html)
-            if not id_match:
-                return None
+    q = _norm(name)
+    if not q:
+        return None
+    exact = [e for e in results if any(_norm(fn.get("value")) == q for fn in (e.get("fullNames") or []))]
+    if len(exact) == 1:
+        return exact[0]
+    if exact:
+        return None   # multiple exact-normalised matches -> ambiguous, refuse
+    return results[0] if len(results) == 1 else None
 
-            detail_id = id_match.group(1)
-            detail_url = f"{_SK_BASE}/vypis.asp?ID={detail_id}&SID=6&P=0"
-            resp2 = await client.get(detail_url)
-            if resp2.status_code != 200:
-                return None
 
-            html2 = resp2.content.decode("windows-1250", errors="replace")
-            ico_match = re.search(r'I.O[:\s]*(\d[\d\s]{5,9}\d)', html2)
-            ico = ico_match.group(1).replace(" ", "") if ico_match else ""
+def _sk_rpo_current(items: list, value_key: str = "value") -> dict | None:
+    """RPO fields are validity-dated lists; return the current one (no validTo)."""
+    dated = [x for x in (items or []) if isinstance(x, dict)]
+    active = [x for x in dated if not x.get("validTo")]
+    pool = active or dated
+    if not pool:
+        return None
+    pool.sort(key=lambda x: str(x.get("validFrom") or ""), reverse=True)
+    return pool[0]
 
-            return _parse_orsr_detail(html2, ico, detail_url)
-    except Exception as exc:
-        logger.warning("ORSR name search failed: %s", exc)
+
+def _parse_sk_rpo(e: dict) -> dict | None:
+    name_item = _sk_rpo_current(e.get("fullNames"))
+    company_name = str((name_item or {}).get("value") or "").strip()
+    if not company_name:
         return None
 
+    ico = ""
+    for i in (e.get("identifiers") or []):
+        v = str(i.get("value") or "").strip()
+        if v.isdigit():
+            ico = v
+            break
 
-def _parse_orsr_detail(html: str, ico: str, source_url: str) -> dict | None:
-    """Parse ORSR detail page (vypis.asp) into normalised result.
+    def _sk_val(v) -> str:
+        # RPO nests several address fields as {value: ...} objects, not plain strings.
+        if isinstance(v, dict):
+            return str(v.get("value") or "").strip()
+        if isinstance(v, list) and v:
+            return _sk_val(v[0])
+        return str(v or "").strip()
 
-    ORSR HTML uses a consistent pattern:
-      <span class="tl">Label:&nbsp;</span> ... <span class='ra'> value </span>
-    Person names are in: <a class=lnm href=hladaj_osoba.asp?...> <span class='ra'> Firstname </span> <span class='ra'> Lastname </span></a>
-    """
-    if not html or len(html) < 200:
-        return None
+    addr_item = _sk_rpo_current(e.get("addresses")) or {}
+    street = _sk_val(addr_item.get("street"))
+    bno = _sk_val(addr_item.get("buildingNumber"))
+    psc = _sk_val(addr_item.get("postalCodes"))
+    town = _sk_val(addr_item.get("municipality"))
+    line1 = " ".join(p for p in (street, bno) if p)
+    address = ", ".join(p for p in (line1, psc, town) if p) or _sk_val(addr_item.get("formatedAddress"))
 
-    def _extract_ra_values(text: str) -> str:
-        """Extract all <span class='ra'> values from an HTML fragment and join."""
-        vals = re.findall(r"class='ra'>\s*([^<]+?)\s*</span>", text)
-        return " ".join(v.strip() for v in vals if v.strip())
-
-    def _extract_section(label_pattern: str, end_pattern: str) -> str:
-        """Extract HTML between a label pattern and the next section."""
-        m = re.search(
-            label_pattern + r'(.*?)' + end_pattern,
-            html, re.IGNORECASE | re.DOTALL,
-        )
-        return m.group(1) if m else ""
-
-    # ── Company name ──
-    name_section = _extract_section(r'class="tl">Obchodn', r'class="tl">S.dlo')
-    company_name = _extract_ra_values(name_section).split("(od:")[0].strip() if name_section else ""
-
-    # ── Registered address ──
-    addr_section = _extract_section(r'class="tl">S.dlo', r'class="tl">I.O')
-    raw_addr = _extract_ra_values(addr_section).split("(od:")[0].strip() if addr_section else ""
-    address = re.sub(r'\s+', ' ', raw_addr).strip()
-
-    # ── IČO ──
-    ico_section = _extract_section(r'class="tl">I.O', r'class="tl">')
-    found_ico = _extract_ra_values(ico_section).split("(od:")[0].strip() if ico_section else ""
-    if found_ico:
-        ico = found_ico.replace(" ", "")
-
-    # ── Incorporation date ──
-    inc_date = ""
-    date_match = re.search(r'De.\s*z.pisu.*?class=.ra.>\s*(\d{1,2}\.\d{1,2}\.\d{4})', html, re.IGNORECASE | re.DOTALL)
-    if date_match:
-        inc_date = date_match.group(1)
-    if not inc_date:
-        # Fallback: first (od: DD.MM.YYYY) on the page is usually incorporation
-        first_od = re.search(r'\(od:\s*(\d{1,2}\.\d{1,2}\.\d{4})\)', html)
-        if first_od:
-            inc_date = first_od.group(1)
-
-    # ── Business activities ──
-    activities = []
-    act_section = _extract_section(r'class="tl">Predmet', r'class="tl">(?:Mana|.*?tatut|Dozorn|Z.kladn)')
-    if act_section:
-        # Extract each activity from ra spans, split by <br> boundaries
-        act_raw = _extract_ra_values(act_section)
-        # Activities are separated by "(od:" date markers
-        act_parts = re.split(r'\(od:\s*\d{1,2}\.\d{1,2}\.\d{4}\)', act_raw)
-        for part in act_parts:
-            clean = part.strip().rstrip(",;. ")
-            if len(clean) > 5:
-                activities.append(clean)
-
-    # ── Directors (Štatutárny orgán) ──
-    officers = []
-    # Extract ALL person links on the page — pattern: hladaj_osoba.asp?PR=Surname&MENO=Firstname
-    all_persons = re.findall(
-        r'hladaj_osoba\.asp\?PR=([^&]+)&MENO=([^&]+)',
-        html,
-    )
-    # Determine which section each person is in
-    stat_start = re.search(r'tatut.rn', html, re.IGNORECASE)
-    doz_start = re.search(r'[Dd]ozorn', html)
-    cap_start = re.search(r'Z.kladn.\s*iman', html, re.IGNORECASE)
-
-    stat_pos = stat_start.start() if stat_start else 0
-    doz_pos = doz_start.start() if doz_start else len(html)
-    cap_pos = cap_start.start() if cap_start else len(html)
-
-    for match in re.finditer(r'hladaj_osoba\.asp\?PR=([^&]+)&MENO=([^&"]+)', html):
-        surname = _html_unescape(match.group(1).replace("+", " ").strip())
-        firstname = _html_unescape(match.group(2).replace("+", " ").strip())
-        # Clean up URL-encoded characters
-        import urllib.parse
-        surname = urllib.parse.unquote(surname)
-        firstname = urllib.parse.unquote(firstname)
-
-        # Remove role suffixes from surname (e.g. "Podoba - predseda dozornej rady")
-        surname_clean = re.sub(r'\s*-\s*.*$', '', surname).strip()
-        full_name = f"{firstname} {surname_clean}".strip()
-        if not full_name or len(full_name) < 3:
-            continue
-
-        pos = match.start()
-        if pos < doz_pos and pos >= stat_pos:
-            role = "director"
-        elif pos >= doz_pos and pos < cap_pos:
-            role = "supervisory_board"
-        else:
-            role = "officer"
-
-        # Extract appointment date from nearby "Vznik funkcie:" text
-        appt = ""
-        appt_match = re.search(r'Vznik funkcie:\s*(\d{1,2}\.\d{1,2}\.\d{4})', html[pos:pos+500])
-        if appt_match:
-            appt = appt_match.group(1)
-
-        if full_name not in [o["name"] for o in officers]:
-            officers.append({
-                "name": full_name,
-                "role": role,
-                "appointed_on": appt,
-            })
-
-    # ── Share capital ──
-    capital = ""
-    cap_section = _extract_section(r'class="tl">Z.kladn.\s*iman', r'class="tl">')
-    if cap_section:
-        capital = _extract_ra_values(cap_section).split("(od:")[0].strip()
-
-    # ── SIC codes from activities ──
-    sic = activities[:5]
-    _defence_keywords = [
-        "zbran", "munic", "obran", "vojensk", "výbušn", "streliv",
-        "weapon", "ammunit", "defence", "defense", "military", "explosive",
-    ]
-    for act in activities:
-        if any(kw in act.lower() for kw in _defence_keywords):
-            sic.insert(0, f"DEFENCE: {act}")
-
-    logger.info(
-        "ORSR parsed: name='%s' addr='%s' inc=%s directors=%d activities=%d status=%s",
-        company_name, address[:60], inc_date, len(officers), len(activities),
-        "active" if not re.search(r'vymazan|zru.en|v likvidácii', html, re.IGNORECASE) else "dissolved",
-    )
+    terminated = bool(e.get("termination"))
+    status = "terminated" if terminated else "active"
 
     return _build_result(
-        company_name=company_name or f"IČO {ico}",
+        company_name=company_name,
         company_number=ico,
-        company_status="active" if not re.search(r'vymazan|zru.en|v likvidácii', html, re.IGNORECASE) else "dissolved",
-        date_of_creation=inc_date,
+        company_status=status,
+        date_of_creation=str(e.get("establishment") or ""),
         registered_office_address=address,
         jurisdiction="SK",
-        sic_codes=sic,
-        officers=officers,
-        psc=[],  # Slovak a.s. (joint-stock) doesn't list shareholders in public ORSR
-        source_url=source_url,
-        adapter="slovakia_orsr",
+        sic_codes=[],
+        officers=[],   # RPO does not expose statutory bodies on this endpoint
+        psc=[],
+        source_url=f"https://rpo.statistics.sk/rpo/detail/{e.get('id')}" if e.get("id") else "https://rpo.statistics.sk",
+        adapter="slovakia_rpo",
+        registry_status=RegistryStatus.VERIFIED,
     )
 
 
-# ╔══════════════════════════════════════════════════════════════════════╗
-# ║  Czech Republic (Justice.cz)  (CZ)                                ║
-# ╚══════════════════════════════════════════════════════════════════════╝
+
 
 async def _lookup_czech(name: str, reg_number: str | None) -> dict | None:
-    """Czech commercial registry (or.justice.cz) — two-step HTML scraping.
-    Step 1: Search by IČO → get subjektId
-    Step 2: Fetch extract page → parse company data
+    """Czech commercial registry via the OFFICIAL ARES JSON API (R-F2939).
+
+    Replaces the or.justice.cz HTML scrape. That scrape's markup had drifted, so the
+    company-name regex matched nothing and the code fell back to
+    `company_name = f"IČO {ico}"` — fabricating the LABEL as the name. Live 2026-07-23
+    a CZ DD showed entity_name "IČO " with an empty registration number. ARES
+    (ares.gov.cz) is the government's own JSON API: it returns the real name, address,
+    incorporation date and the full statutory-body list, so there is nothing to scrape
+    and nothing to fabricate.
     """
     ico = (reg_number or "").replace(" ", "").strip()
+    if not ico.isdigit():
+        ico = ""
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
-            # Step 1: Search by IČO or name
-            if ico:
-                search_url = f"https://or.justice.cz/ias/ui/rejstrik-$firma?ico={ico}&jenPlatne=PLATNE"
-            else:
-                search_url = f"https://or.justice.cz/ias/ui/rejstrik-$firma?nazev={name}&jenPlatne=PLATNE"
-
-            resp = await client.get(search_url)
-            if resp.status_code != 200:
-                return None
-
-            html = resp.text
-
-            # Extract subjektId from the extract link
-            subj_match = re.search(r'subjektId=(\d+)', html)
-            if not subj_match:
-                logger.info("Czech OR: no result for IČO %s / name %s", ico, name)
-                return None
-
-            subj_id = subj_match.group(1)
-
-            # Step 2: Fetch valid extract
-            extract_url = f"https://or.justice.cz/ias/ui/rejstrik-firma.vysledky?subjektId={subj_id}&typ=PLATNY"
-            resp2 = await client.get(extract_url)
-            if resp2.status_code != 200:
-                return None
-
-            h = resp2.text
-
-            # Parse company name — after "Obchodní firma:"
-            company_name = ""
-            cn_match = re.search(r'Obchodn[ií]\s*firma:\s*</span>\s*([^<]+)', h, re.IGNORECASE)
-            if cn_match:
-                company_name = _html_unescape(cn_match.group(1).strip())
-
-            # Address — after "Sídlo:"
-            address = ""
-            addr_match = re.search(r'S[ií]dlo:\s*</span>\s*([^<]+)', h, re.IGNORECASE)
-            if addr_match:
-                address = _html_unescape(addr_match.group(1).strip())
-
-            # IČO from page
-            ico_match = re.search(r'I[Čč]O?:\s*</span>\s*(\d[\d\s]+)', h)
-            if ico_match:
-                ico = ico_match.group(1).replace(" ", "").strip()
-
-            # Incorporation date — "Datum vzniku"
-            inc_date = ""
-            date_match = re.search(r'Datum\s+vzniku[^:]*:\s*</div>\s*<div[^>]*>\s*(\d{1,2}\.\s*\w+\s+\d{4})', h, re.IGNORECASE | re.DOTALL)
-            if date_match:
-                inc_date = date_match.group(1).strip()
-
-            # Directors — look for names after "Statutární orgán" section
-            officers = []
-            stat_section = re.search(r'Statutárn[ií]\s*orgán(.*?)(?:Dozorč[ií]\s*rada|Základn[ií]\s*kapitál|Akcion[áa]ř|Předmět)', h, re.IGNORECASE | re.DOTALL)
-            if stat_section:
-                # Czech names appear as plain text lines with dates
-                name_pattern = re.findall(
-                    r'(?:člen|předseda|místopředseda|jednatel)\s*[:\s]*\s*</span>\s*([^<]{3,80})',
-                    stat_section.group(1), re.IGNORECASE,
+        async with httpx.AsyncClient(
+            timeout=_TIMEOUT, follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)", "Accept": "application/json"},
+        ) as client:
+            if not ico and name:
+                # Resolve an IČO from the name via the ARES search endpoint.
+                sr = await client.post(
+                    f"{_CZ_ARES_BASE}/ekonomicke-subjekty/vyhledat",
+                    json={"obchodniJmeno": name, "pocet": 5},
                 )
-                for pname in name_pattern:
-                    clean = _html_unescape(pname.strip())
-                    if clean and len(clean) > 3 and clean not in [o["name"] for o in officers]:
-                        officers.append({"name": clean, "role": "director", "appointed_on": ""})
-
-            # If no officers found via role labels, try broader pattern
-            if not officers and stat_section:
-                # Look for name-like patterns (Firstname Lastname with Czech diacritics)
-                names = re.findall(r'\b([A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][a-záčďéěíňóřšťúůýž]+\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][a-záčďéěíňóřšťúůýž]{2,})', stat_section.group(1))
-                for pname in names[:8]:
-                    if pname not in [o["name"] for o in officers]:
-                        officers.append({"name": pname, "role": "director", "appointed_on": ""})
-
-            # Business activities — "Předmět podnikání"
-            activities = []
-            act_section = re.search(r'Předmět\s+podnikání:\s*</span>(.*?)(?:Statutárn|Základn|Akcion|<div class="vr-hlavicka"><hr)', h, re.IGNORECASE | re.DOTALL)
-            if act_section:
-                acts = re.findall(r'>([^<]{5,200})<', act_section.group(1))
-                activities = [_html_unescape(a.strip()) for a in acts if len(a.strip()) > 5][:15]
-
-            logger.info("Czech OR parsed: name='%s' addr='%s' directors=%d activities=%d",
-                        company_name, address[:60], len(officers), len(activities))
-
-            return _build_result(
-                company_name=company_name or f"IČO {ico}",
-                company_number=ico,
-                company_status="active",
-                date_of_creation=inc_date,
-                registered_office_address=address,
-                jurisdiction="CZ",
-                sic_codes=activities[:5],
-                officers=officers,
-                psc=[],
-                source_url=extract_url,
-                adapter="czech_or_justice",
-            )
+                if sr.status_code == 200:
+                    ico = _cz_best_ico((sr.json() or {}).get("ekonomickeSubjekty") or [], name)
+            if not ico:
+                logger.info("CZ ARES: no IČO for '%s'", name)
+                return None
+            vr = await client.get(f"{_CZ_ARES_BASE}/ekonomicke-subjekty-vr/{ico}")
+            if vr.status_code != 200:
+                logger.info("CZ ARES VR returned %d for IČO %s", vr.status_code, ico)
+                return None
+            return _parse_ares_vr(vr.json(), ico)
     except Exception as exc:
-        logger.warning("Czech OR lookup failed: %s", exc)
+        logger.warning("CZ ARES lookup failed: %s", exc)
         return None
+
+
+def _cz_best_ico(subjects: list, query: str) -> str:
+    """Pick the IČO of the best name match from an ARES search, else the top hit.
+    Never guesses a number — only returns an IČO the registry itself returned."""
+    q = (query or "").strip().lower()
+    best = ""
+    for sub in subjects or []:
+        nm = str(sub.get("obchodniJmeno") or "").strip().lower()
+        ic = str(sub.get("ico") or "").strip()
+        if not ic:
+            continue
+        if nm == q:
+            return ic
+        if not best:
+            best = ic
+    return best
+
+
+def _ares_current(val) -> str:
+    """ARES VR returns many fields as HISTORY arrays — [{hodnota, datumZapisu,
+    datumVymazu?}, ...] — not scalars. Return the CURRENT value: the entry with no
+    datumVymazu (i.e. not superseded), else the latest by datumZapisu. A scalar or a
+    single {hodnota} is passed through. Without this the whole name-history array was
+    used as the company name."""
+    if isinstance(val, str):
+        return val.strip()
+    if isinstance(val, dict):
+        return str(val.get("hodnota") or "").strip()
+    if isinstance(val, list):
+        dicts = [x for x in val if isinstance(x, dict)]
+        active = [x for x in dicts if not x.get("datumVymazu")]
+        pool = active or dicts
+        if not pool:
+            return ""
+        pool.sort(key=lambda x: str(x.get("datumZapisu") or ""), reverse=True)
+        return str(pool[0].get("hodnota") or "").strip()
+    return ""
+
+
+def _parse_ares_vr(data: dict, ico: str) -> dict | None:
+    """Parse the ARES 'veřejný rejstřík' (VR) record into the normalised result."""
+    z = (data.get("zaznamy") or [{}])[0]
+    company_name = _ares_current(z.get("obchodniJmeno"))
+    if not company_name:
+        return None   # no authoritative name -> not a usable identity, never fabricate one
+
+    address = ""
+    for a in (z.get("adresy") or []):
+        if isinstance(a, dict) and a.get("datumVymazu"):   # a superseded address
+            continue
+        aa = a.get("adresa") if isinstance(a, dict) and isinstance(a.get("adresa"), dict) else a
+        if isinstance(aa, dict) and aa.get("textovaAdresa"):
+            address = str(aa["textovaAdresa"]).strip()
+            break
+
+    raw_status = str(z.get("stavSubjektu") or "").upper()
+    status = "active" if raw_status.startswith("AKTIV") else (z.get("stavSubjektu") or "unknown")
+
+    officers = []
+    for organ in (z.get("statutarniOrgany") or []):
+        for m in (organ.get("clenoveOrganu") or []):
+            if m.get("datumVymazu"):        # a removal date => FORMER member, exclude
+                continue
+            fo = m.get("fyzickaOsoba") or {}
+            person = " ".join(x for x in (fo.get("jmeno"), fo.get("prijmeni")) if x).strip()
+            if person and person not in [o["name"] for o in officers]:
+                officers.append({
+                    "name": person,
+                    "role": str(m.get("nazevAngazma") or "director"),
+                    "appointed_on": str(m.get("datumZapisu") or ""),
+                })
+
+    return _build_result(
+        company_name=company_name,
+        company_number=_ares_current(z.get("ico")) or str(ico),
+        company_status=status,
+        date_of_creation=str(z.get("datumZapisu") or ""),
+        registered_office_address=address,
+        jurisdiction="CZ",
+        sic_codes=[],
+        officers=officers,
+        psc=[],
+        source_url=f"https://ares.gov.cz/ekonomicke-subjekty/res/{ico}",
+        adapter="czech_ares",
+        registry_status=RegistryStatus.VERIFIED,
+    )
+
+
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗

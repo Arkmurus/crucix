@@ -167,7 +167,7 @@ def test_rf2915_partial_is_authority_and_records_success(monkeypatch):
 
     async def _partial(name, reg_number):
         return {"profile": {"company_name": name}, "officers": [],
-                "adapter": "czech_or_justice",
+                "adapter": "czech_ares",
                 "registry_status": ra.RegistryStatus.PARTIAL.value}
 
     monkeypatch.setattr(ra, "_lookup_czech", _partial, raising=False)
