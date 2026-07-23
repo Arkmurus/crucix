@@ -1946,7 +1946,20 @@ async def lifespan(app: FastAPI):
             if hasattr(_nm, "get_stats"):
                 nm_stats = await _nm.get_stats()
                 snapshot["neural_neurons"] = nm_stats.get("total_neurons", "n/a")
-                snapshot["neural_edges"] = nm_stats.get("total_edges", "n/a")
+                # R-F2951 — the neural graph loads via an async incremental boot
+                # warmup (~10 min), so an early-boot get_stats reads total_edges=0
+                # UNTIL `loaded` flips True. R-F251's regression check would read
+                # that 0 as a -100% neural_edges drop and logger.error(...) →
+                # error_log_handler → record_error("log:error") → RESET the Phase A
+                # gate-#3 7-day clean streak — on EVERY deploy (same class as
+                # R-F2663/R-F2668). Emit a non-numeric "loading" so R-F251's
+                # numeric-only diff skips it: we cannot claim a regression on a
+                # counter that has not finished loading. A genuine drop-to-0 is
+                # still caught — that reads loaded=True with total_edges=0.
+                if nm_stats.get("loaded", True):
+                    snapshot["neural_edges"] = nm_stats.get("total_edges", "n/a")
+                else:
+                    snapshot["neural_edges"] = "loading"
             else:
                 snapshot["neural_neurons"] = "n/a"
         except Exception as e:

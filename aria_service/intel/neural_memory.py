@@ -1641,6 +1641,11 @@ async def get_stats() -> dict:
             "strongest_neurons": [],
             "born": _meta.get("born"),
             "age_days": 0,
+            # R-F2951 — the graph loads via an async incremental boot warmup; a 0
+            # here before `_loaded` means "not loaded yet", NOT "0 edges". The
+            # boot state-regression detector (R-F251) must not read this 0 as a
+            # -100% neural_edges regression (which resets the Phase A gate-#3 streak).
+            "loaded": _loaded,
         }
 
     categories = defaultdict(int)
@@ -1668,6 +1673,7 @@ async def get_stats() -> dict:
         ],
         "born": born,
         "age_days": round((time.time() - born) / 86400, 1),
+        "loaded": _loaded,  # R-F2951 — graph fully loaded (see the not-loaded branch above)
     }
 
 

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2951,
+  "next_available": 2952,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23361,6 +23361,16 @@
       "r_number": "R-F2950",
       "title": "encode-offload pool self-heal: rebuild a dead/broken pool (cooldown-bounded) so embeds stop freezing the event loop in-process",
       "claimed_at": "2026-07-23T22:09:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "56149242",
+      "notes": null,
+      "shipped_at": "2026-07-23T22:20:02Z"
+    },
+    {
+      "r_number": "R-F2951",
+      "title": "R-F251 boot regression falsely resets gate #3 every deploy: neural_edges reads 0 before async warmup completes",
+      "claimed_at": "2026-07-23T22:24:27Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
