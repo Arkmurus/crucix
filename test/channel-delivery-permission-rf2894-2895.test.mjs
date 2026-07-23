@@ -38,9 +38,11 @@ const jsonRes = (body, status = 200) => ({
 
 // ── R-F2894 ────────────────────────────────────────────────────────────────
 
-test('R-F2894: a demoted bot is caught BEFORE the send, with a named cause', async () => {
-  // The exact live signatures: getChat succeeds, getChatMember says the member
-  // list is inaccessible (which only happens when the bot is not an admin).
+test('R-F2898: "member list is inaccessible" is UNDETERMINED — it must NOT block', async () => {
+  // R-F2894 originally treated this as proof the bot was not an admin. It is an
+  // inference from the absence of an admin-only capability, and live 2026-07-23 the
+  // operator confirmed the bot WAS a channel admin while Telegram kept returning it.
+  // Blocking on it would suppress a working channel and raise a false outage alert.
   const restore = stubFetch(async (url) => {
     if (url.includes('/getChat?')) {
       return jsonRes({ ok: true, result: { id: -1002311460199, type: 'channel', title: 'Aria Intelligence ($ARIA)' } });
@@ -53,10 +55,21 @@ test('R-F2894: a demoted bot is caught BEFORE the send, with a named cause', asy
   });
   try {
     const res = await hooks.validatePublicChannelDestination(BOT);
-    assert.equal(res.ok, false);
+    assert.equal(res.ok, true, 'an ambiguous probe result blocked a publishable channel');
+  } finally { restore(); }
+});
+
+test('R-F2894: an UNAMBIGUOUS negative (bot kicked) is still caught before the send', async () => {
+  const restore = stubFetch(async (url) => {
+    if (url.includes('/getChat?')) return jsonRes({ ok: true, result: { id: -100, type: 'channel', title: 'C' } });
+    if (url.includes('/getMe')) return jsonRes({ ok: true, result: { id: 42 } });
+    if (url.includes('/getChatMember')) return jsonRes({ ok: true, result: { status: 'kicked' } });
+    throw new Error(`unexpected call: ${url}`);
+  });
+  try {
+    const res = await hooks.validatePublicChannelDestination(BOT);
     assert.equal(res.reason, 'bot_cannot_post_to_channel');
-    // The operator must be told WHAT is wrong, not a status code.
-    assert.match(String(res.detail), /not a channel administrator/i);
+    assert.match(String(res.detail), /kicked/i);
   } finally { restore(); }
 });
 
@@ -167,7 +180,7 @@ test('R-F2896: falls back to the local rule when the backend omits the field', (
 
 // ── R-F2895 ────────────────────────────────────────────────────────────────
 
-test('R-F2895: a permission block escalates to the operator on the PRIVATE chat', async () => {
+test('R-F2895: an unambiguous permission block escalates to the PRIVATE chat', async () => {
   writeFileSync(process.env.CHANNEL_ESCALATION_STATE_PATH, '{}');
   writeFileSync(process.env.CHANNEL_OUTCOME_LEDGER_PATH, '[]');
 
@@ -175,14 +188,12 @@ test('R-F2895: a permission block escalates to the operator on the PRIVATE chat'
   const restore = stubFetch(async (url, opts) => {
     if (url.includes('/getChat?')) return jsonRes({ ok: true, result: { id: -100, type: 'channel', title: 'C' } });
     if (url.includes('/getMe')) return jsonRes({ ok: true, result: { id: 42 } });
-    if (url.includes('/getChatMember')) {
-      return jsonRes({ ok: false, description: 'Bad Request: member list is inaccessible' }, 400);
-    }
+    // R-F2898 — an unambiguous negative, not the ambiguous "member list" reply.
+    if (url.includes('/getChatMember')) return jsonRes({ ok: true, result: { status: 'left' } });
     if (url.includes('/sendMessage')) {
       sends.push(JSON.parse(String(opts?.body || '{}')));
       return jsonRes({ ok: true, result: { message_id: 1 } });
     }
-    if (url.includes('/api/aria/')) return jsonRes({ ok: true });
     return jsonRes({ ok: true });
   });
 
@@ -194,7 +205,6 @@ test('R-F2895: a permission block escalates to the operator on the PRIVATE chat'
   // It must go to the PRIVATE admin chat, never the public channel.
   assert.equal(String(sends[0].chat_id), '-100999');
   assert.match(sends[0].text, /BLOCKED/);
-  assert.match(sends[0].text, /administrator/i);
   assert.match(sends[0].text, /ACTION NEEDED/i);
 
   // And the outage is recorded durably, so it survives a brain outage.
@@ -211,9 +221,7 @@ test('R-F2895: escalation is rate-limited so an outage nags, not floods', async 
   const restore = stubFetch(async (url, opts) => {
     if (url.includes('/getChat?')) return jsonRes({ ok: true, result: { id: -100, type: 'channel', title: 'C' } });
     if (url.includes('/getMe')) return jsonRes({ ok: true, result: { id: 42 } });
-    if (url.includes('/getChatMember')) {
-      return jsonRes({ ok: false, description: 'Bad Request: member list is inaccessible' }, 400);
-    }
+    if (url.includes('/getChatMember')) return jsonRes({ ok: true, result: { status: 'left' } });
     if (url.includes('/sendMessage')) {
       sends.push(JSON.parse(String(opts?.body || '{}')));
       return jsonRes({ ok: true, result: { message_id: 2 } });
