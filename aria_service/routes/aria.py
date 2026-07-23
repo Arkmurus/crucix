@@ -27038,10 +27038,15 @@ async def news_stats_ep() -> dict:
 
 @router.get("/intel/signals/recent")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def intel_signals_recent_ep(limit: int = 20) -> dict:
-    """Return promoted, decision-grade intel signals for dashboard display."""
+async def intel_signals_recent_ep(limit: int = 20, grades: str = "") -> dict:
+    """Return promoted, decision-grade intel signals for dashboard display.
+
+    R-F2893 — `grades=A` (or `A,B`) selects by publication grade SERVER-SIDE so a
+    caller that only publishes Grade A cannot have its candidates crowded out of the
+    newest-N window by lower-grade volume. Omitted/invalid -> the A,B default.
+    """
     from ..intel import news_monitor
-    return await news_monitor.get_recent_intel_signals(limit=limit)
+    return await news_monitor.get_recent_intel_signals(limit=limit, grades=grades)
 
 
 @router.post("/intel/promote/run")

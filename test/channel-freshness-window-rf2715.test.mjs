@@ -64,12 +64,21 @@ describe('R-F2715 per-candidate freshness (#4)', () => {
   });
 });
 
-describe('R-F2715 grade-before-paginate (#7)', () => {
-  it('the morning cron fetches a larger bounded window (60), not the newest 20', () => {
+describe('R-F2715 grade-before-paginate (#7) — superseded by R-F2893', () => {
+  // R-F2893: widening the window was a treadmill. R-F2715 raised it 20 -> 60 and
+  // within days the volume outgrew that too: live 2026-07-23 the only three Grade A
+  // signals sat at feed positions 66-68, so the cron fetched 60 and honestly
+  // reported "no Grade A" while three official TED tenders sat in the store.
+  // The window is now grade-SCOPED AT THE SOURCE, which removes the race instead of
+  // outrunning it. This asserts the stronger contract: a bounded window AND an
+  // explicit grade request.
+  it('the morning cron requests a bounded window scoped to publishable grades', () => {
     const src = fs.readFileSync(
       path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')),
         '..', 'lib', 'telegram', 'channelServerHooks.mjs'), 'utf8');
-    assert.match(src, /fetchGoldenIntelSignals\(\{\s*limit:\s*60\s*\}\)/,
-      'cron must grade over a >20 window so context signals cannot crowd out Grade A');
+    assert.match(src, /fetchGoldenIntelSignals\(\{\s*limit:\s*60\s*,\s*grades:/,
+      'cron must bound the window AND scope it by grade at the source');
+    assert.match(src, /grades:\s*allowGradeB\s*\?\s*'A,B'\s*:\s*'A'/,
+      'morning publishes Grade A only; only the evening slot may fall back to Grade B');
   });
 });

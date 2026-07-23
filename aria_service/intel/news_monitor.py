@@ -33,6 +33,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -90,67 +91,107 @@ _MAX_RETRIES = 2
 
 _http_client: Optional[httpx.AsyncClient] = None
 
-_SIGNAL_RULES: list[tuple[str, list[str], str, str]] = [
+# ── R-F2892: anchored signal classification ───────────────────────────────────
+# These rules WERE unanchored substring needles matched over title+summary+full_text
+# — needles as short as "bid", "strike", "program", "attack" and "order for". Live
+# consequences on 2026-07-23, both verified against the production store:
+#   "Marine Corps Detachment BIDS farewell to Mestemacher" -> active_tender, HIGH
+#   "Military Court Centres" (UK MOD)                      -> sanctions_change, HIGH
+# Priority and grade are computed FROM signal_type, so a substring accident became a
+# HIGH-priority publishable candidate. Every needle is now a word-boundary regex and
+# the weak ones are replaced by phrases that only occur in the real event.
+#
+# The bar for a needle: could it plausibly appear in a sentence that is NOT this
+# event? If yes it needs its phrase context ("contract award", not "awarded";
+# "invitation to bid", not "bid"). `active_tender` is deliberately the strictest —
+# genuine tenders arrive from the tier_1a portal adapters in golden_intel_bridge,
+# not from press RSS, so a news item must state tender language explicitly.
+_SIGNAL_RULES: list[tuple[str, "re.Pattern[str]", str, str]] = [
     (
         "active_tender",
-        ["tender", "rfp", "rfq", "procurement", "bid", "solicitation"],
+        re.compile(
+            r"\b(tenders?|solicitations?|rfp|rfq|"
+            r"request for (?:proposals?|quotations?|tenders?)|"
+            r"invitation to (?:bid|tender)|call for (?:bids?|tenders?)|"
+            r"bidding (?:process|round|war)|bidders?|"
+            r"procurement (?:notice|competition|process|programme|program)|"
+            r"open (?:tender|competition) for)\b", re.I),
         "Procurement activity may create a near-term commercial window.",
         "Qualify opportunity",
     ),
     (
         "contract_award",
-        ["contract award", "awarded", "signed a contract", "order for", "deal with"],
+        re.compile(
+            r"\b(contract award(?:ed|s)?|awarded (?:a |the |an )?(?:contract|deal|order|tender)|"
+            r"wins? (?:a |the )?(?:contract|order|deal|tender)|won (?:a |the )?(?:contract|order|tender)|"
+            r"sign(?:s|ed)? (?:a |the |an )?(?:contract|agreement|deal|order)\b|"
+            r"secures? (?:a |the )?(?:contract|order|deal)|"
+            r"order for \d|places? an order for)\b", re.I),
         "A contract award changes competitor position, customer budget, or follow-on demand.",
         "Review competitor impact",
     ),
     (
         "sanctions_change",
-        [
-            "sanction", "embargo", "blacklist", "designated",
-            "asset freeze", "export control",
-        ],
+        re.compile(
+            r"\b(sanctions?|sanctioned|embargo(?:es|ed)?|blacklist(?:ed|ing)?|"
+            r"designat(?:ed|ion)s? (?:of|under|by|as)|added to the (?:sdn|entity) list|"
+            r"asset freeze|frozen assets|export controls?|dual-use (?:controls?|licen[cs]e)|"
+            r"ofac|sdn list|entity list|debarr(?:ed|ment))\b", re.I),
         "Compliance status may have changed and should be checked before engagement.",
         "Run compliance review",
     ),
     (
         "conflict_escalation",
-        [
-            "attack", "conflict", "insurgent", "military operation",
-            "offensive", "strike",
-        ],
+        re.compile(
+            r"\b(airstrikes?|air strikes?|missile (?:strike|attack|barrage)|"
+            r"armed (?:attack|clash|conflict)|offensive (?:against|on|in)|"
+            r"military operation|insurgen(?:t|cy)|militants?|terror(?:ist)? attack|"
+            r"shelling|bombard(?:ed|ment)|incursion|escalat(?:ed|ion) (?:of|in) (?:the )?(?:conflict|fighting|hostilities)|"
+            r"ceasefire|hostilities)\b", re.I),
         "Security conditions may affect delivery risk, end-use risk, or market timing.",
         "Assess country risk",
     ),
     (
         "budget_movement",
-        [
-            "budget", "spending", "appropriation", "allocation",
-            "funding", "defence expenditure",
-        ],
+        re.compile(
+            r"\b(defence budget|defense budget|military (?:budget|spending)|"
+            r"appropriations? (?:bill|act|request)|budget (?:request|increase|cut|allocation)|"
+            r"funding (?:package|boost|increase|round) for|"
+            r"allocat(?:ed|es|ion of) \S*\s?(?:\$|€|£|billion|million)|"
+            r"defence expenditure|defense expenditure)\b", re.I),
         "Budget movement can signal upcoming procurement or programme acceleration.",
         "Monitor procurement path",
     ),
     (
         "political_transition",
-        ["minister", "cabinet", "election", "appointed", "reshuffle", "inaugurated"],
+        re.compile(
+            r"\b(appointed (?:as )?(?:defen[cs]e |foreign |prime |interior )?minister|"
+            r"new (?:defen[cs]e|foreign|prime) minister|cabinet reshuffle|"
+            r"sworn in as|inaugurated as|took office as|"
+            r"(?:general|presidential|parliamentary) election|"
+            r"resign(?:ed|ation) as (?:minister|president|prime minister)|"
+            r"coup d.?etat|military junta)\b", re.I),
         "Decision-maker change can reset priorities, approvals, and relationship strategy.",
         "Refresh stakeholder map",
     ),
     (
         "competitor_activity",
-        [
-            "baykar", "aselsan", "elbit", "norinco", "catic",
-            "rosoboronexport", "rheinmetall", "leonardo",
-        ],
+        re.compile(
+            r"\b(baykar|aselsan|elbit|norinco|catic|rosoboronexport|rheinmetall|"
+            r"leonardo s\.?p\.?a|leonardo defen[cs]e)\b", re.I),
         "Competitor movement can affect positioning, urgency, and pricing strategy.",
         "Review competitive posture",
     ),
     (
         "programme_signal",
-        [
-            "programme", "program", "delivery", "modernisation",
-            "upgrade", "fleet", "capability",
-        ],
+        re.compile(
+            r"\b((?:defen[cs]e|military|weapons?|missile|aircraft|naval|armour(?:ed)?) "
+            r"(?:programme|program|project)|"
+            r"fleet (?:modernisation|modernization|upgrade|replacement|expansion)|"
+            r"capability (?:programme|program|gap|upgrade|development)|"
+            r"(?:mid-?life )?upgrade (?:programme|program|of the|for the)|"
+            r"deliver(?:y|ies) of \d+|first delivery of|entered service|"
+            r"in-service date|initial operating capability)\b", re.I),
         "Programme movement can indicate future sustainment, replacement, or partner demand.",
         "Track programme",
     ),
@@ -185,6 +226,35 @@ def _get_client() -> httpx.AsyncClient:
 NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
 
     # ══════════════════════════════════════════════════════════════════════
+    # R-F2890 (2026-07-23) — 46 DEAD FEEDS PURGED, and the reason they could rot
+    # here for 8 days is fixed structurally (see _feed_health / quarantine below).
+    #
+    # R-F2634 (2026-07-15) PROBED these same feeds, documented them as dead, added
+    # replacements — and left the corpses in the list. They kept being polled and
+    # failing every hour: live 2026-07-23 feeds_failed=42/87 (ratio 0.483), which
+    # trips `source_failure_degraded` (>0.15) in compute freshness, which sets
+    # freshness.stale=true, which makes dashboard.html's feedPublishable false —
+    # so the customer Portfolio Intelligence rendered EMPTY while 3 Grade A and 26
+    # Grade B signals existed. A dead-source list is not cosmetic; it silently
+    # blanked the product.
+    #
+    # WHAT WAS REMOVED (46, each dead in TWO independent probes on 2026-07-23 —
+    # the production `_fetch_feed` path AND a separate httpx client/UA, with ZERO
+    # disagreement between them): all 8 Janes feeds, RUSI, CSIS, IISS, Chatham
+    # House, Atlantic Council, Carnegie, FT/Reuters/Bloomberg Defence, Shephard,
+    # Army/Naval/Airforce Technology, Military Aerospace, Defence Turkey, the
+    # PR-wire trio, Africa Intelligence, AllAfrica, and the dead LATAM/Gulf/Asia
+    # press. That set WAS the defence-specialist layer; what survived it is
+    # generalist newswire (Al Jazeera all.xml, ReliefWeb all-updates, Daily
+    # Maverick), which is exactly why the mined feed stopped looking like
+    # security-and-defence intelligence.
+    #
+    # NOT removed: "UK Defence Journal Tech", "O Globo Brazil", "Hurriyet Daily
+    # News" — they FETCH and PARSE fine and merely returned 0 items at probe time.
+    # Alive-but-quiet is not dead; removing them would be measuring less.
+    # ══════════════════════════════════════════════════════════════════════
+
+    # ══════════════════════════════════════════════════════════════════════
     # R-F2247 — PRIMARY-SOURCE + DIVERSITY feeds (source-diversity review):
     # broaden beyond the Janes-heavy (×9) secondary firehose with an OFFICIAL
     # primary source (US DoD daily contract awards) + new-region press the
@@ -205,23 +275,9 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
     # ══════════════════════════════════════════════════════════════════════
     # GLOBAL DEFENCE NEWS
     # ══════════════════════════════════════════════════════════════════════
-    ("Janes Defence", "https://www.janes.com/rss", "defence_global", "en", "tier_1b",
-     ["defence", "market_intel", "procurement"]),
-    ("Janes Industry", "https://www.janes.com/rss/industry", "defence_global", "en", "tier_1b",
-     ["defence", "market_intel", "industry"]),
     ("Defense News", "https://www.defensenews.com/arc/outboundfeeds/rss/", "defence_global", "en", "tier_2",
      ["defence", "market_intel", "procurement"]),
-    ("Janes Defence Weekly", "https://www.janes.com/rss/defence-weekly", "defence_global", "en", "tier_1b",
-     ["defence", "geopolitics"]),
-    ("Shephard Media", "https://www.shephardmedia.com/rss/", "defence_global", "en", "tier_2",
-     ["defence", "market_intel", "naval", "air"]),
     ("Naval News", "https://www.navalnews.com/feed/", "defence_global", "en", "tier_2",
-     ["defence", "naval", "market_intel"]),
-    ("Airforce Technology", "https://www.airforce-technology.com/feed/", "defence_global", "en", "tier_2",
-     ["defence", "air", "market_intel"]),
-    ("Army Technology", "https://www.army-technology.com/feed/", "defence_global", "en", "tier_2",
-     ["defence", "land", "market_intel"]),
-    ("Naval Technology", "https://www.naval-technology.com/feed/", "defence_global", "en", "tier_2",
      ["defence", "naval", "market_intel"]),
     ("UK Defence Journal", "https://ukdefencejournal.org.uk/feed/", "defence_global", "en", "tier_2",
      ["defence", "uk", "market_intel"]),
@@ -229,8 +285,6 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
      ["defence", "europe", "market_intel"]),
     ("Defence Blog", "https://defence-blog.com/feed/", "defence_global", "en", "tier_2",
      ["defence", "market_intel"]),
-    ("Military Aerospace", "https://www.militaryaerospace.com/rss", "defence_global", "en", "tier_2",
-     ["defence", "aerospace", "technology"]),
     ("Asian Military Review", "https://www.asianmilitaryreview.com/feed/", "defence_global", "en", "tier_2",
      ["defence", "asia", "market_intel"]),
 
@@ -239,48 +293,22 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
     # ══════════════════════════════════════════════════════════════════════
 
     # Africa
-    ("Africa Defence Forum", "https://adf-magazine.com/feed/", "defence_regional", "en", "tier_2",
-     ["defence", "africa", "market_intel"]),
     ("DefenceWeb Africa", "https://www.defenceweb.co.za/feed/", "defence_regional", "en", "tier_2",
      ["defence", "africa", "market_intel"]),
-    ("Janes Africa", "https://www.janes.com/rss/africa", "defence_regional", "en", "tier_1b",
-     ["defence", "africa", "geopolitics"]),
 
     # Middle East
-    ("Janes Middle East", "https://www.janes.com/rss/middle-east", "defence_regional", "en", "tier_1b",
-     ["defence", "middle_east", "geopolitics"]),
-    ("Middle East Defence", "https://www.middleeastdefence.com/feed/", "defence_regional", "en", "tier_2",
-     ["defence", "middle_east", "market_intel"]),
 
     # Latin America
-    ("Janes Latin America", "https://www.janes.com/rss/latin-america", "defence_regional", "en", "tier_1b",
-     ["defence", "latin_america", "geopolitics"]),
     ("Dialogo Americas", "https://dialogo-americas.com/feed/", "defence_regional", "en", "tier_2",
      ["defence", "latin_america", "security"]),
 
     # Asia-Pacific
-    ("Janes Asia-Pacific", "https://www.janes.com/rss/asia-pacific", "defence_regional", "en", "tier_1b",
-     ["defence", "asia", "geopolitics"]),
 
     # Europe
-    ("Janes Europe", "https://www.janes.com/rss/europe", "defence_regional", "en", "tier_1b",
-     ["defence", "europe", "geopolitics"]),
 
     # ══════════════════════════════════════════════════════════════════════
     # GEOPOLITICS & THINK TANKS
     # ══════════════════════════════════════════════════════════════════════
-    ("IISS", "https://www.iiss.org/rss/", "geopolitics", "en", "tier_1b",
-     ["geopolitics", "defence", "analysis"]),
-    ("RUSI", "https://rusi.org/rss", "geopolitics", "en", "tier_1b",
-     ["geopolitics", "defence", "security"]),
-    ("CSIS", "https://www.csis.org/rss", "geopolitics", "en", "tier_1b",
-     ["geopolitics", "defence", "analysis"]),
-    ("Chatham House", "https://www.chathamhouse.org/rss", "geopolitics", "en", "tier_1b",
-     ["geopolitics", "international_relations"]),
-    ("Carnegie Endowment", "https://carnegieendowment.org/rss", "geopolitics", "en", "tier_1b",
-     ["geopolitics", "analysis"]),
-    ("Atlantic Council", "https://www.atlanticcouncil.org/feed/", "geopolitics", "en", "tier_1b",
-     ["geopolitics", "defence", "analysis"]),
     ("Foreign Policy", "https://foreignpolicy.com/feed/", "geopolitics", "en", "tier_2",
      ["geopolitics", "analysis"]),
     ("War on the Rocks", "https://warontherocks.com/feed/", "geopolitics", "en", "tier_2",
@@ -293,12 +321,6 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
     # ══════════════════════════════════════════════════════════════════════
     # FINANCIAL NEWS
     # ══════════════════════════════════════════════════════════════════════
-    ("Financial Times Defence", "https://www.ft.com/companies/defence?format=rss", "finance", "en", "tier_1b",
-     ["finance", "defence", "market_intel"]),
-    ("Reuters Defence", "https://www.reuters.com/companies/aerospace-defense/rss", "finance", "en", "tier_1b",
-     ["finance", "defence", "market_intel"]),
-    ("Bloomberg Defence", "https://www.bloomberg.com/defence/rss", "finance", "en", "tier_1b",
-     ["finance", "defence", "market_intel"]),
 
     # ══════════════════════════════════════════════════════════════════════
     # DEFENCE TECHNOLOGY & CYBER
@@ -315,30 +337,14 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
     # ══════════════════════════════════════════════════════════════════════
     # PRESS RELEASES
     # ══════════════════════════════════════════════════════════════════════
-    ("PRNewswire Defence", "https://www.prnewswire.com/rss/defence-aerospace/", "press_releases", "en", "tier_2",
-     ["press_release", "defence", "market_intel"]),
-    ("BusinessWire Defence", "https://www.businesswire.com/portal/site/home/rss/defence", "press_releases", "en", "tier_2",
-     ["press_release", "defence", "market_intel"]),
-    ("GlobeNewswire Defence", "https://www.globenewswire.com/Rss/industry/defence", "press_releases", "en", "tier_2",
-     ["press_release", "defence", "market_intel"]),
 
     # ══════════════════════════════════════════════════════════════════════
     # REGIONAL NEWS — LUSOPHONE AFRICA
     # ══════════════════════════════════════════════════════════════════════
-    ("Angola Press (ANGOP)", "https://www.angop.ao/rss", "regional_news", "pt", "tier_2",
-     ["lusophone", "angola", "africa"]),
-    ("O País Angola", "https://opais.co.ao/feed/", "regional_news", "pt", "tier_2",
-     ["lusophone", "angola", "news"]),
-    ("Novo Jornal Angola", "https://novojornal.co.ao/feed/", "regional_news", "pt", "tier_2",
-     ["lusophone", "angola", "news"]),
-    ("Notícias Mozambique", "https://www.noticias.co.mz/rss", "regional_news", "pt", "tier_2",
-     ["lusophone", "mozambique", "africa"]),
     ("O País Mozambique", "https://opais.co.mz/feed/", "regional_news", "pt", "tier_2",
      ["lusophone", "mozambique", "news"]),
     ("Carta de Moçambique", "https://cartamz.com/feed/", "regional_news", "pt", "tier_2",
      ["lusophone", "mozambique", "analysis"]),
-    ("Folha de São Paulo", "https://feeds.folha.uol.com.br/", "regional_news", "pt", "tier_2",
-     ["lusophone", "brazil", "news"]),
     ("O Globo Brazil", "https://oglobo.globo.com/rss", "regional_news", "pt", "tier_2",
      ["lusophone", "brazil", "news"]),
     ("DefesaNet Brazil", "https://www.defesanet.com.br/feed/", "regional_news", "pt", "tier_2",
@@ -351,12 +357,6 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
     # ══════════════════════════════════════════════════════════════════════
     ("Al Jazeera", "https://www.aljazeera.com/xml/rss/all.xml", "regional_news", "en", "tier_2",
      ["middle_east", "geopolitics", "news"]),
-    ("Al Arabiya", "https://english.alarabiya.net/rss", "regional_news", "en", "tier_2",
-     ["middle_east", "geopolitics", "news"]),
-    ("The National UAE", "https://www.thenationalnews.com/rss", "regional_news", "en", "tier_2",
-     ["middle_east", "uae", "news"]),
-    ("Arab News", "https://www.arabnews.com/rss", "regional_news", "en", "tier_2",
-     ["middle_east", "saudi", "news"]),
     ("Times of Israel", "https://www.timesofisrael.com/feed/", "regional_news", "en", "tier_2",
      ["middle_east", "israel", "news"]),
     ("Middle East Eye", "https://www.middleeasteye.net/rss", "regional_news", "en", "tier_2",
@@ -365,22 +365,12 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
     # ══════════════════════════════════════════════════════════════════════
     # REGIONAL NEWS — TURKEY
     # ══════════════════════════════════════════════════════════════════════
-    ("Daily Sabah", "https://www.dailysabah.com/rss", "regional_news", "en", "tier_2",
-     ["turkey", "news", "defence"]),
     ("Hurriyet Daily News", "https://www.hurriyetdailynews.com/rss", "regional_news", "en", "tier_2",
      ["turkey", "news", "geopolitics"]),
-    ("Defence Turkey", "https://www.defenceturkey.com/feed/", "regional_news", "en", "tier_2",
-     ["turkey", "defence", "market_intel"]),
 
     # ══════════════════════════════════════════════════════════════════════
     # REGIONAL NEWS — AFRICA (ENGLISH)
     # ══════════════════════════════════════════════════════════════════════
-    ("AllAfrica", "https://allafrica.com/rss", "regional_news", "en", "tier_2",
-     ["africa", "news", "geopolitics"]),
-    ("Africa Intelligence", "https://www.africaintelligence.com/rss", "regional_news", "en", "tier_2",
-     ["africa", "intelligence", "analysis"]),
-    ("The East African", "https://www.theeastafrican.co.ke/rss", "regional_news", "en", "tier_2",
-     ["africa", "east_africa", "news"]),
     ("Daily Maverick", "https://www.dailymaverick.co.za/rss", "regional_news", "en", "tier_2",
      ["africa", "south_africa", "analysis"]),
 
@@ -389,22 +379,10 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
     # ══════════════════════════════════════════════════════════════════════
     ("MercoPress", "https://en.mercopress.com/rss", "regional_news", "en", "tier_2",
      ["latin_america", "news", "geopolitics"]),
-    ("Buenos Aires Times", "https://www.batimes.com.ar/rss", "regional_news", "en", "tier_2",
-     ["latin_america", "argentina", "news"]),
-    ("America Economia", "https://www.americaeconomia.com/rss", "regional_news", "es", "tier_2",
-     ["latin_america", "business", "news"]),
 
     # ══════════════════════════════════════════════════════════════════════
     # REGIONAL NEWS — ASIA
     # ══════════════════════════════════════════════════════════════════════
-    ("Nikkei Asia", "https://asia.nikkei.com/rss", "regional_news", "en", "tier_2",
-     ["asia", "business", "geopolitics"]),
-    ("South China Morning Post", "https://www.scmp.com/rss", "regional_news", "en", "tier_2",
-     ["asia", "china", "news"]),
-    ("The Hindu", "https://www.thehindu.com/rss", "regional_news", "en", "tier_2",
-     ["asia", "india", "news"]),
-    ("Janes India", "https://www.janes.com/rss/india", "defence_regional", "en", "tier_1b",
-     ["defence", "india", "geopolitics"]),
 
     # ══════════════════════════════════════════════════════════════════════
     # R-F2634 (2026-07-15) — GRADE-A SOURCE REBUILD.
@@ -639,15 +617,179 @@ def _extract_article_entities(text: str) -> dict:
         return {"countries": [], "products": [], "oems": []}
 
 
+# ── R-F2891: topical relevance gate ──────────────────────────────────────────
+# STRONG = terms that alone make an item security/defence/procurement/compliance
+# business. SUPPORT = terms that are only meaningful next to a strong one (they are
+# common in ordinary news). EXCLUDE = lifestyle/sport/entertainment markers that are
+# never intelligence — they do not veto a strong anchor (a stadium bombing is real
+# intel), they only stop a story that had nothing but support terms.
+_REL_STRONG = re.compile(
+    r"\b("
+    r"defence|defense|militar(?:y|ies)|armed forces|army|navy|naval|air force|"
+    r"missile|munitions?|ammunition|artiller(?:y|ies)|warship|frigate|submarine|"
+    r"fighter (?:jets?|aircraft)|aircraft carrier|drones?|uav|uas|radar|air ?defence|air ?defense|"
+    r"armou?red vehicles?|main battle tanks?|helicopters?|"
+    # Named armed actors: a story about them is domain business by definition. Their
+    # absence is what dropped "Houthis hit tankers in Red Sea" in the first cut.
+    r"houthis?|hezbollah|hamas|taliban|wagner group|islamic state|isis|daesh|al[- ]?qaeda|"
+    r"boko haram|al[- ]?shabaab|revolutionary guard|irgc|"
+    r"arms (?:deal|sale|export|transfer|embargo)|weapons?|warfare|\bwar\b|"
+    r"procurement|tenders?|solicitation|request for (?:proposals?|quotations?|information)|"
+    r"rfp|rfq|contract award|defence (?:budget|spending|contract)|"
+    r"sanctions?|sanctioned|embargo|export controls?|dual-use|end-use(?:r)?|"
+    r"designated (?:entity|individual|person)|asset freeze|ofac|entity list|"
+    r"nato|peacekeep(?:er|ing)|insurgen(?:t|cy)|militants?|terroris(?:m|t)|"
+    r"ceasefire|airstrikes?|air raids?|offensive|coup|mobilisation|mobilization|"
+    # Bare "attack"/"strike" carry the bulk of live conflict reporting ("US attacks
+    # Iran-Iraq border crossing"). Excluding them cost 4 real conflict items in the
+    # live replay. The lookbehinds remove the only common non-domain senses.
+    r"(?<!heart )(?<!panic )(?<!anxiety )attacks?|"
+    r"(?:air|missile|drone|rocket|retaliatory|military|naval) strikes?|"
+    r"strikes? (?:on|against|targeting)|"
+    r"money laundering|corruption probe|bribery|debarment|debarred"
+    r")\b", re.I)
+_REL_SUPPORT = re.compile(
+    r"\b("
+    r"securit(?:y|ies)|border|intelligence|surveillance|government|ministr(?:y|ies)|"
+    r"minister|parliament|treaty|agreement|contract|budget|funding|tariffs?|"
+    r"export|import|shipment|logistics|port|airport|pipeline|energy|"
+    r"conflict|crisis|attack|strike|protest|election|sovereignty|geopolitic(?:s|al)"
+    r")\b", re.I)
+_REL_EXCLUDE = re.compile(
+    r"\b("
+    r"recipe|cooking|cuisine|restaurant|wine|dessert|football|soccer|cricket|rugby|"
+    r"tennis|olympics?|world cup|premier league|striker|midfielder|defender|goalkeeper|"
+    r"celebrit(?:y|ies)|box office|film festival|album|concert|fashion|horoscope|"
+    r"lifestyle|travel guide|obituar(?:y|ies)|wedding"
+    r")\b", re.I)
+
+_SIGNAL_RELEVANCE_FLOOR = 0.34
+
+
+_ACTIONABLE_TYPES = frozenset({
+    "active_tender", "contract_award", "sanctions_change", "conflict_escalation",
+    "budget_movement", "political_transition", "competitor_activity", "programme_signal",
+})
+
+
+def _topical_relevance(article: dict) -> dict:
+    """Score an article's fit for a security/defence/procurement/compliance feed.
+
+    TWO INDEPENDENT DETECTORS, combined with OR:
+      (1) the domain LEXICON (_REL_STRONG) — does it talk about this domain?
+      (2) the anchored EVENT classifier (_SIGNAL_RULES) — did a real, specific
+          domain event pattern match?
+    Either alone is sufficient. A single narrow detector was tried first and it
+    dropped "Houthis hit tankers in Red Sea as US strikes Iran" and "Poland awarded
+    a contract to Rheinmetall for 200 armoured vehicles" — real intelligence. For a
+    COLLECTION gate the expensive error is the false negative (intel silently lost,
+    invisible by construction), so the gate is built for recall and leans on the
+    now-anchored classifier for precision downstream.
+
+    Deliberately NOT tier-based: "Marine Corps Detachment bids farewell to
+    Mestemacher" comes from an official tier_1a US Army feed and is still a
+    change-of-command ceremony. Authority of the SOURCE says nothing about
+    relevance of the ITEM.
+
+    Returns {score, on_topic, terms, reason} — the matched evidence, so a drop or a
+    keep can always be explained rather than asserted.
+    """
+    title = str(article.get("title") or "")
+    body = " ".join(str(article.get(k) or "") for k in ("summary", "full_text"))
+    # Entities are extracted HERE, not read off the article: at promotion time the
+    # raw article has no `entities` key (it is populated later, in
+    # _build_intel_signal), so reading it would make entity_hit permanently False —
+    # a detector that silently never fires. Only fall back to the article's own
+    # entities if a caller already supplied them.
+    ents = article.get("entities") if isinstance(article.get("entities"), dict) else {}
+    if not ents:
+        try:
+            ents = _extract_article_entities(f"{title} {body}")
+        except Exception:
+            ents = {}
+    entity_hit = bool((ents.get("oems") or []) or (ents.get("products") or []))
+    # A curated defence OEM / platform named in the HEADLINE is domain evidence on
+    # its own — "Boeing, Lufthansa Technik team up on Germany's Chinook fleet" has no
+    # lexicon term and no event verb, and was the last real miss in the live replay.
+    try:
+        _te = _extract_article_entities(title)
+        oem_in_title = bool((_te.get("oems") or []) or (_te.get("products") or []))
+    except Exception:
+        oem_in_title = False
+
+    st_title = {m.group(0).lower() for m in _REL_STRONG.finditer(title)}
+    st_body = {m.group(0).lower() for m in _REL_STRONG.finditer(body)}
+    sup_title = {m.group(0).lower() for m in _REL_SUPPORT.finditer(title)}
+    sup_body = {m.group(0).lower() for m in _REL_SUPPORT.finditer(body)}
+    excluded = bool(_REL_EXCLUDE.search(title))
+
+    # Detector (2): an anchored domain-EVENT pattern anywhere in the article.
+    try:
+        stype, _why, _act, _ev = _classify_article_signal(
+            _article_text(article),
+            str(article.get("category") or ""),
+            article.get("topics") or [],
+        )
+    except Exception:
+        stype = ""
+    event_hit = stype in _ACTIONABLE_TYPES
+
+    score = min(1.0, (
+        0.45 * min(2, len(st_title))
+        + 0.12 * min(4, len(st_body))
+        + 0.08 * min(2, len(sup_title))
+        + 0.03 * min(4, len(sup_body))
+        + (0.10 if entity_hit else 0.0)
+        + (0.15 if oem_in_title else 0.0)
+        + (0.40 if event_hit else 0.0)
+    ))
+
+    lexicon_hit = (
+        bool(st_title)                                 # domain term in the headline
+        or (len(st_body) >= 2 and bool(sup_title))     # sustained domain body + relevant headline
+        or (bool(st_body) and entity_hit)              # named platform/OEM in a domain story
+        or oem_in_title                                # curated OEM/platform in the headline
+    )
+    # EXCLUDE only vetoes when NEITHER detector fired — a stadium attack or a
+    # sanctioned football club is still intelligence, and must not be thrown away
+    # because the headline contains the word "football".
+    on_topic = (lexicon_hit or event_hit) and not (excluded and not st_title and not event_hit)
+    if excluded and not on_topic:
+        score = min(score, 0.10)
+
+    if on_topic:
+        reason = "event_pattern" if event_hit else "domain_lexicon"
+    else:
+        reason = "lifestyle_or_sport_marker" if excluded else "no_domain_evidence"
+
+    return {
+        "score": round(score, 3),
+        "on_topic": bool(on_topic),
+        "terms": sorted(st_title | st_body)[:10],
+        "excluded_marker": excluded,
+        "reason": reason,
+        "event_type": stype,
+    }
+
+
 def _classify_article_signal(
     text: str,
     category: str,
     topics: list | str,
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, str]:
+    """Return (signal_type, why_it_matters, recommended_action, evidence).
+
+    R-F2892 — `evidence` is the exact substring that triggered the classification.
+    It is carried onto the signal as `classification_evidence`, so "why is this a
+    tender?" is answerable from the record instead of by re-deriving the match. A
+    classification nobody can audit is how "bids farewell" survived as a HIGH
+    priority active_tender.
+    """
     low = text.lower()
-    for signal_type, needles, why, action in _SIGNAL_RULES:
-        if any(n in low for n in needles):
-            return signal_type, why, action
+    for signal_type, pattern, why, action in _SIGNAL_RULES:
+        m = pattern.search(low)
+        if m:
+            return signal_type, why, action, f"matched '{m.group(0)}'"
     joined_topics = " ".join(topics) if isinstance(topics, list) else str(topics or "")
     topic_low = f"{category} {joined_topics}".lower()
     if any(n in topic_low for n in ("defence", "procurement", "market_intel", "security")):
@@ -655,11 +797,13 @@ def _classify_article_signal(
             "market_watch",
             "Defence or security coverage may affect market timing, risk, or positioning.",
             "Monitor signal",
+            "no event pattern matched; classified from feed category/topics",
         )
     return (
         "situational_awareness",
         "Contextual reporting retained as source evidence, but no immediate action is implied.",
         "Review if relevant",
+        "no event pattern matched",
     )
 
 
@@ -796,7 +940,7 @@ def _build_intel_signal(article: dict) -> dict:
     tier = str(article.get("tier", "") or "").strip().lower()
     category = str(article.get("category", "") or "unknown").strip()
     topics = article.get("topics", []) or []
-    signal_type, why, action = _classify_article_signal(text, category, topics)
+    signal_type, why, action, class_evidence = _classify_article_signal(text, category, topics)
     entities = _extract_article_entities(text)
     entity_hits = (
         len(entities.get("countries") or [])
@@ -836,6 +980,11 @@ def _build_intel_signal(article: dict) -> dict:
         "quality_label": quality_label,
         "intel_grade": intel_grade,
         "grade_reason": grade_reason,
+        # R-F2892 — the exact substring that produced signal_type, and R-F2891's
+        # topical score. Both travel with the signal so a wrong classification is
+        # diagnosable from the record rather than by guesswork.
+        "classification_evidence": class_evidence,
+        "relevance_score": article.get("relevance_score"),
         "confidence_rationale": _confidence_rationale(
             source_tier=tier,
             signal_type=signal_type,
@@ -1019,6 +1168,9 @@ async def _write_poll_state(summary: dict) -> dict:
         # stopped instead of re-polling the same head of the list forever.
         "truncated": bool(summary.get("truncated")),
         "feeds_skipped": int(summary.get("feeds_skipped") or 0),
+        # R-F2890 — quarantined sources are persisted so the freshness surface can
+        # name them. Never hidden: a quarantine that nobody can see is a deletion.
+        "feeds_quarantined": int(summary.get("feeds_quarantined") or 0),
         _POLL_ROTATION_KEY: int(summary.get(_POLL_ROTATION_KEY) or 0),
     }
     try:
@@ -1063,8 +1215,29 @@ async def _backfill_intel_signals_from_articles(limit: int) -> list[dict]:
 
 
 async def _promote_article_signal(article: dict) -> bool:
-    """Best-effort promotion from raw article to dashboard decision signal."""
+    """Promote a raw article to a dashboard decision signal — IF it is on-topic.
+
+    R-F2891 — before this, every article from every feed became an intel signal.
+    That is how a recipe column, a football injury and Sahel pastoral-surveillance
+    bulletins ended up in a security-and-defence intelligence feed, and (worse) how
+    a single-source human-interest story could reach Grade B and become publishable
+    to the public Telegram channel. Grading ran DOWNSTREAM of collection, so it
+    graded noise instead of filtering it.
+
+    The article is still STORED and still fed to the brain (§7 — nothing is deleted,
+    collection stays complete and the Research feed can show it). Only the promotion
+    to a decision SIGNAL is gated, and the article is tagged with its score + reason
+    so the decision is auditable rather than a silent drop.
+    """
     try:
+        rel = _topical_relevance(article)
+        article["relevance_score"] = rel["score"]
+        article["off_topic"] = not rel["on_topic"]
+        article["relevance_terms"] = rel["terms"][:8]
+        if not rel["on_topic"]:
+            logger.debug("[news_monitor] off-topic, not promoted (%.2f): %s",
+                         rel["score"], str(article.get("title", ""))[:90])
+            return False
         signal = _build_intel_signal(article)
         await _store_intel_signal(signal)
         return True
@@ -1207,7 +1380,16 @@ async def _fetch_feed(url: str, source_name: str) -> Optional[str]:
 
 @fail_wire(module="news_monitor", gap_type="source_failure")
 def _get_vault_feed_sources() -> list[tuple]:
-    """R-F2046 — admin-curated vault sites of FEED type, shaped as NEWS_SOURCES
+    """Return shared, admin-curated vault feeds in ``NEWS_SOURCES`` shape.
+
+    R-F2738: tenant-owned entries (``agent_id=user:<uid>``) are deliberately
+    excluded.  The shared poll writes to global article and intel-signal keys,
+    so accepting a private source here would erase ownership and expose its
+    derived signals to other users.  Private feeds need an owner-scoped
+    ingestion/store/read chain; until that exists they remain private registry
+    entries and never enter this global pipeline.
+
+    R-F2046 — admin-curated vault sites of FEED type, shaped as NEWS_SOURCES
     tuples so poll_feeds ingests them through the exact same fetch→parse→ledger
     path (zero duplicated logic). The Agent Signup Vault is the controlled
     data-point catalogue (admin/dev add via vault.html, R-F2048); a site added
@@ -1221,11 +1403,22 @@ def _get_vault_feed_sources() -> list[tuple]:
         entries = get_vault().list(limit=500) or []
     except Exception as e:
         logger.debug("[news_monitor] vault feed-source read failed: %s", e)
+        wire_failure(
+            module="news_monitor",
+            detail=f"shared vault feed read failed: {e}",
+            gap_type="source_failure",
+            source="news_monitor:_get_vault_feed_sources",
+        )
         return []
     out: list[tuple] = []
     url_to_id: dict[str, str] = {}
+    private_excluded = 0
     for e in entries:
         try:
+            owner = str(e.get("agent_id") or "").strip().lower()
+            if owner.startswith("user:"):
+                private_excluded += 1
+                continue
             st = (e.get("site_type") or "").lower()
             status = (e.get("status") or "").lower()
             url = e.get("site_url") or ""
@@ -1256,6 +1449,14 @@ def _get_vault_feed_sources() -> list[tuple]:
             continue
     global _VAULT_URL_TO_ID
     _VAULT_URL_TO_ID = url_to_id
+    wire_success(
+        module="news_monitor",
+        summary=(
+            f"Shared vault feeds prepared: {len(out)} admin feeds; "
+            f"{private_excluded} tenant feeds isolated"
+        ),
+        source_id="news_monitor:_get_vault_feed_sources",
+    )
     return out
 
 
@@ -1331,6 +1532,109 @@ def _reset_vault_failstreak(url: str) -> None:
             v.update_status(sid, new_status, metadata={"fail_streak": 0, "auto_suspended": False})
     except Exception:
         logger.debug("[news_monitor] failstreak reset failed for %s", url[:80], exc_info=True)
+
+
+# ── R-F2890: curated-feed health + self-healing quarantine ───────────────────
+# The vault failstreak lifecycle above (R-F2217) only ever covered `vault_curated`
+# sources — the CURATED NEWS_SOURCES firehose was explicitly scoped OUT of it (see
+# the comment at the `if category == "vault_curated"` failure branch in poll_feeds).
+# That exemption is exactly how 46 corpses sat in NEWS_SOURCES for 8 days after
+# R-F2634 documented them as dead: nothing in the system could act on a curated feed
+# that fails forever. Deleting them (above) fixes today; THIS fixes the failure class.
+#
+# Contract:
+#   * A curated feed that fails _CURATED_QUARANTINE_AFTER CONSECUTIVE polls is
+#     quarantined for _CURATED_QUARANTINE_S and a gap is wired ONCE (§21a) so the
+#     operator/coder loop sees a named dead source instead of an anonymous ratio.
+#   * Quarantine is a SKIP, never a delete (§7) and never permanent: when it expires
+#     the feed is polled again, and one success clears the streak completely. A
+#     transient outage therefore self-heals with no human in the loop.
+#   * Quarantined feeds are reported as `feeds_quarantined`, SEPARATE from
+#     `feeds_failed`. This is not a clamp to make the ratio look good: the source is
+#     still counted, still named, still gap-wired — it is moved out of the *live*
+#     denominator because "known-dead and quarantined" and "polled and failed" are
+#     different facts, and conflating them is what let one blanket ratio blank the
+#     customer dashboard.
+_FEED_HEALTH_KEY = "crucix:news_monitor:feed_health"   # durable, NO TTL (§7)
+_CURATED_QUARANTINE_AFTER = 6      # consecutive failed polls before quarantine
+_CURATED_QUARANTINE_S = 24 * 3600  # then re-probe once a day
+_MAX_FEED_HEALTH_KEYS = 400
+
+
+async def _load_feed_health() -> dict | None:
+    """STRICT read. Returns {} for a genuinely absent key, None if the store could
+    not be read. None means CALLERS MUST NOT WRITE: `get_json` returns None both for
+    'absent' and 'store broken', so a non-strict read here would let one transient
+    StoreReadError overwrite every feed's streak with {} — the non-strict-read
+    clobber class that already cost this repo durable mastery state."""
+    try:
+        data = await rs.get_json_strict(_FEED_HEALTH_KEY)
+    except Exception:
+        logger.warning("[news_monitor] feed-health read failed — quarantine SKIPPED this pass")
+        return None
+    return data if isinstance(data, dict) else {}
+
+
+async def _save_feed_health(health: dict) -> None:
+    if len(health) > _MAX_FEED_HEALTH_KEYS:
+        newest = sorted(health.items(), key=lambda kv: str(kv[1].get("last_seen") or ""), reverse=True)
+        health = dict(newest[:_MAX_FEED_HEALTH_KEYS])
+    try:
+        await rs.set_json(_FEED_HEALTH_KEY, health)
+    except Exception:
+        logger.debug("[news_monitor] feed-health write failed", exc_info=True)
+
+
+def _feed_quarantined_until(health: dict | None, url: str) -> float:
+    if not health:
+        return 0.0
+    try:
+        return float((health.get(url) or {}).get("quarantined_until") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _note_feed_failure(health: dict | None, url: str, name: str, *, now: float) -> bool:
+    """Record one consecutive failure. Returns True if this call quarantined the feed."""
+    if health is None:
+        return False
+    e = health.setdefault(url, {})
+    e["name"] = name
+    e["fails"] = int(e.get("fails") or 0) + 1
+    e["last_fail"] = now
+    e["last_seen"] = datetime.now(timezone.utc).isoformat()
+    if e["fails"] >= _CURATED_QUARANTINE_AFTER and not _feed_quarantined_until(health, url) > now:
+        e["quarantined_until"] = now + _CURATED_QUARANTINE_S
+        try:
+            wire_failure(
+                module="news_monitor",
+                detail=(f"Curated feed quarantined after {e['fails']} consecutive failures: "
+                        f"{name} ({url[:150]}). Re-probed automatically in "
+                        f"{_CURATED_QUARANTINE_S // 3600}h; one success clears it."),
+                gap_type="source_failure",
+                source=f"news_monitor:feed:{name}",
+            )
+        except Exception:
+            logger.debug("[news_monitor] quarantine wire failed for %s", name, exc_info=True)
+        return True
+    return False
+
+
+def _note_feed_success(health: dict | None, url: str, name: str) -> None:
+    """One good poll clears the streak AND any active quarantine — self-healing."""
+    if health is None:
+        return
+    e = health.get(url)
+    if not e or (not e.get("fails") and not e.get("quarantined_until")):
+        if e is None:
+            health[url] = {"name": name, "fails": 0,
+                           "last_seen": datetime.now(timezone.utc).isoformat()}
+        return
+    e["name"] = name
+    e["fails"] = 0
+    e["quarantined_until"] = 0
+    e["last_ok"] = datetime.now(timezone.utc).isoformat()
+    e["last_seen"] = e["last_ok"]
 
 
 def _wire_scrape_failure(name: str, url: str, why: str) -> None:
@@ -1442,6 +1746,13 @@ async def poll_feeds(
     total_promoted = 0
     feed_results = []
 
+    # R-F2890 — feed health is read ONCE per pass (strict; None = store unreadable,
+    # in which case every quarantine decision is skipped and nothing is written).
+    _health = await _load_feed_health()
+    _health_dirty = False
+    _now_epoch = time.time()
+    total_quarantined = 0
+
     # ── R-F2630: budget the loop so the TAIL (state write + promotion bridge)
     # always runs. Rotate the start offset so truncation cannot starve the feeds
     # after the cut-off.
@@ -1468,6 +1779,12 @@ async def poll_feeds(
                 (_rot + _attempted) % max(1, len(sources)),
             )
             break
+        # R-F2890 — skip a feed still inside its quarantine window. Counted and named
+        # separately (never silently dropped), and re-probed the moment it expires.
+        if _feed_quarantined_until(_health, url) > _now_epoch:
+            total_quarantined += 1
+            feed_results.append({"name": name, "status": "quarantined", "articles": 0})
+            continue
         _attempted += 1
         try:
             xml_text = await _fetch_feed(url, name)
@@ -1484,15 +1801,27 @@ async def poll_feeds(
                 # per (gap_type, detail) within a window, so a dead source won't flood.
                 if category == "vault_curated":
                     try:
+                        # R-F2890 §3b — this call STILL used summary=/source_id=, the
+                        # exact wrong-kwarg TypeError R-F2630 fixed on the `except`
+                        # branch below but never here: wire_failure takes
+                        # (module, detail, gap_type, source), so every vault-source
+                        # failure raised into the `except: pass` and was DARK.
                         wire_failure(
                             module="news_monitor",
-                            summary=f"Vault source empty/unreachable: {name}",
-                            detail=f"url={url[:150]}",
-                            source_id=f"news_monitor:feed:{name}",
+                            detail=f"Vault source empty/unreachable: {name} (url={url[:150]})",
+                            gap_type="source_failure",
+                            source=f"news_monitor:feed:{name}",
                         )
                     except Exception:
                         pass
                     _bump_vault_failstreak(url)   # R-F2217 — dead-source lifecycle
+                # R-F2890 — curated feeds now have a lifecycle too (see _note_feed_failure).
+                # Dirty on ANY mutation, not just on the poll that trips quarantine —
+                # the consecutive-failure streak must survive restarts or the counter
+                # resets to 0 every boot and the threshold is never reached.
+                if _health is not None:
+                    _note_feed_failure(_health, url, name, now=_now_epoch)
+                    _health_dirty = True
                 continue
 
             feed_type = _detect_feed_type(xml_text)
@@ -1520,6 +1849,9 @@ async def poll_feeds(
                 logger.debug("[news_monitor] Unknown feed type for %s", name)
                 total_failed += 1
                 feed_results.append({"name": name, "status": "unknown_format", "articles": 0})
+                if _health is not None:      # R-F2890 — HTML-instead-of-XML is a dead feed
+                    _note_feed_failure(_health, url, name, now=_now_epoch)
+                    _health_dirty = True
                 continue
 
             total_fetched += len(articles)
@@ -1544,6 +1876,10 @@ async def poll_feeds(
             # its fail streak / promote pending→verified.
             if category == "vault_curated":
                 _reset_vault_failstreak(url)
+            # R-F2890 — one good poll clears the streak AND any quarantine (self-heal).
+            if _health is not None:
+                _note_feed_success(_health, url, name)
+                _health_dirty = True
 
             # Rate-limit: don't hammer all feeds at once
             await asyncio.sleep(0.5)
@@ -1569,6 +1905,12 @@ async def poll_feeds(
                 pass
             if category == "vault_curated":
                 _bump_vault_failstreak(url)   # R-F2217 — dead-source lifecycle
+            if _health is not None:           # R-F2890
+                _note_feed_failure(_health, url, name, now=_now_epoch)
+                _health_dirty = True
+
+    if _health_dirty and _health is not None:
+        await _save_feed_health(_health)
 
     summary = {
         # R-F2630 — report the feeds ACTUALLY attempted, not the configured
@@ -1576,6 +1918,11 @@ async def poll_feeds(
         # failure ratio (feeds_failed/feeds_polled) and hide the source rot.
         "feeds_polled": _attempted,
         "feeds_failed": total_failed,
+        # R-F2890 — known-dead sources serving their quarantine. Reported, named in
+        # `results` with status="quarantined", and gap-wired; NOT folded into
+        # feeds_failed, because "quarantined, operator notified" and "polled and
+        # failed right now" are different facts about source health.
+        "feeds_quarantined": total_quarantined,
         "articles_fetched": total_fetched,
         "articles_new": total_new,
         "signals_promoted": total_promoted,
@@ -1642,10 +1989,34 @@ async def get_recent_articles(limit: int = 50) -> list[dict]:
 
 
 @fail_wire(module="news_monitor", gap_type="source_failure")
-async def get_recent_intel_signals(limit: int = 20) -> dict:
-    """Return decision-grade signals promoted from the raw news feed."""
+async def get_recent_intel_signals(limit: int = 20, grades: str = "") -> dict:
+    """Return unique customer-publishable Grade A/B intelligence signals.
+
+    R-F2893 — `grades` (e.g. "A" or "A,B") narrows the SERVER-SIDE selection. The
+    Telegram cron previously fetched the newest N signals and grade-filtered them in
+    Node, so Grade A candidates could be pushed out of the window by REJECT-grade
+    volume before the quality filter ever saw them: live 2026-07-23 the only three
+    Grade A signals sat at positions 66-68 while the cron fetched 60, so the 07:00
+    slot reported "no Grade A" while three official TED tenders were sitting in the
+    store. Raising the window is a treadmill (R-F2715 already raised it 20 -> 60);
+    selecting by grade at the source removes the race entirely.
+
+    R-F2738 makes this endpoint enforce the same formal ``intel_grade``
+    contract used by Telegram.  Grade C and REJECT remain available in the raw
+    article/operations pipeline, but can never appear on a customer dashboard.
+    Exact re-ingestion duplicates are collapsed before the requested limit is
+    applied so noise cannot crowd out a later qualifying event.
+    """
     capped = max(1, min(int(limit or 20), 100))
-    raw = await rs.lrange(_INTEL_SIGNALS_KEY, 0, capped - 1)
+    # Never widen beyond the publishable set: an unknown/garbage `grades` value
+    # falls back to A,B rather than disabling the gate (fail closed).
+    wanted = {g.strip().upper() for g in str(grades or "").split(",") if g.strip()}
+    wanted = {g for g in wanted if g in {"A", "B"}} or {"A", "B"}
+    # A narrower grade request must scan DEEPER, not the same depth: Grade A is rare,
+    # so a fixed scan would reproduce the very window starvation this parameter fixes.
+    scan_mult = 5 if wanted == {"A", "B"} else 15
+    scan_limit = min(_MAX_INTEL_SIGNALS, max(capped, capped * scan_mult))
+    raw = await rs.lrange(_INTEL_SIGNALS_KEY, 0, scan_limit - 1)
     backfilled: list[dict] = []
     used_backfill = False
     if not raw:
@@ -1664,7 +2035,36 @@ async def get_recent_intel_signals(limit: int = 20) -> dict:
                 signals.append(_normalise_intel_signal(sig))
         except Exception:
             continue
-    signals = [_normalise_intel_signal(sig) for sig in signals]
+    normalised = [_normalise_intel_signal(sig) for sig in signals]
+    signals = []
+    seen_signal_keys: set[str] = set()
+    suppressed_non_publishable = 0
+    suppressed_duplicates = 0
+    suppressed_over_limit = 0
+    for sig in normalised:
+        grade = str(sig.get("intel_grade") or "REJECT").upper()
+        if grade not in wanted:
+            suppressed_non_publishable += 1
+            continue
+        evidence = sig.get("evidence") if isinstance(sig.get("evidence"), dict) else {}
+        evidence_url = str(sig.get("url") or evidence.get("url") or "").strip().lower()
+        signal_type = str(sig.get("signal_type") or "").strip().lower()
+        # URL + type is stronger than a backend-generated id: the same article
+        # can be re-promoted with a new id after a restart, but it is still one
+        # evidence event. This mirrors the Telegram evidence-URL dedup contract.
+        canonical_key = f"url:{evidence_url}|type:{signal_type}" if evidence_url else str(sig.get("id") or "").strip()
+        if not canonical_key:
+            canonical_key = _article_hash(
+                f"{signal_type}|{str(sig.get('decision_summary') or sig.get('title') or '').strip().lower()}"
+            )
+        if canonical_key in seen_signal_keys:
+            suppressed_duplicates += 1
+            continue
+        seen_signal_keys.add(canonical_key)
+        if len(signals) < capped:
+            signals.append(sig)
+        else:
+            suppressed_over_limit += 1
 
     by_priority: dict[str, int] = {}
     by_type: dict[str, int] = {}
@@ -1709,10 +2109,30 @@ async def get_recent_intel_signals(limit: int = 20) -> dict:
         stale_reasons.append("signals_stale")
     if poll_state.get("status") == "failed":
         stale_reasons.append("last_poll_failed")
+    # ── R-F2896: ONE canonical publishability verdict ────────────────────────
+    # The dashboard and the Telegram gate consumed the same freshness object and
+    # reached OPPOSITE conclusions. dashboard.html used `fresh.stale === false`,
+    # while the channel (R-F2715, correctly) ignores `source_failure_degraded`
+    # because unrelated feeds being down says nothing about whether THIS candidate
+    # is fresh. Live 2026-07-23 the only stale reason WAS source_failure_degraded,
+    # so the channel considered the feed publishable while the dashboard blanked
+    # both Grade A and Grade B columns for customers. Two gates, one input,
+    # opposite verdicts — the R-F2639 failure class, in the product surface.
+    #
+    # The verdict is computed HERE, once, and both surfaces render it. Consumers
+    # keep their own PER-SIGNAL checks; this settles only the FEED-level question.
+    _NON_BLOCKING_STALE = {"source_failure_degraded"}
+    blocking_stale = [r for r in stale_reasons if r not in _NON_BLOCKING_STALE]
+    _backfilled = used_backfill or (bool(signals) and all(bool(sig.get("_backfilled")) for sig in signals))
     freshness = {
         "status": "stale" if stale_reasons else "fresh",
         "stale": bool(stale_reasons),
         "stale_reasons": stale_reasons,
+        # Reasons that mean the CANDIDATES themselves are stale/absent, as opposed
+        # to ambient source-health noise about other feeds.
+        "blocking_stale_reasons": blocking_stale,
+        # The canonical answer to "may anything from this feed be published?"
+        "publishable": (not blocking_stale) and (not _backfilled),
         "last_poll_at": poll_state.get("last_poll_at"),
         "last_success_at": poll_state.get("last_success_at"),
         "last_error_at": poll_state.get("last_error_at"),
@@ -1721,27 +2141,47 @@ async def get_recent_intel_signals(limit: int = 20) -> dict:
         "newest_signal_at": newest_signal_at,
         "newest_signal_age_s": newest_signal_age_s,
         "signal_stale_after_s": _GOLDEN_SIGNAL_STALE_S,
-        "backfilled": used_backfill or (bool(signals) and all(bool(sig.get("_backfilled")) for sig in signals)),
+        "backfilled": _backfilled,
         "poll": {
             "status": poll_state.get("status"),
             "feeds_polled": poll_total,
             "feeds_failed": poll_failed,
             "failed_ratio": round(poll_failed_ratio, 4),
-            "failed_feeds": failed_feed_names[:20],
+            # R-F2890 — the list was silently truncated to 20 of 42, so the operator
+            # could not see the full dead set. Report the honest total alongside it.
+            "failed_feeds": failed_feed_names[:40],
+            "failed_feeds_total": len(failed_feed_names),
+            "feeds_quarantined": int(poll_state.get("feeds_quarantined") or 0),
             "failure_budget_ratio": 0.15,
             "articles_fetched": poll_state.get("articles_fetched"),
             "articles_new": poll_state.get("articles_new"),
             "signals_promoted": poll_state.get("signals_promoted"),
         },
     }
-    return {
+    result = {
         "signals": signals,
         "count": len(signals),
         "by_priority": by_priority,
         "by_type": by_type,
+        "suppressed": {
+            "non_publishable": suppressed_non_publishable,
+            "duplicates": suppressed_duplicates,
+            "over_limit": suppressed_over_limit,
+        },
         "freshness": freshness,
-        "schema_version": "rf2385.v1",
+        "schema_version": "rf2738.v1",
     }
+    wire_success(
+        module="news_monitor",
+        summary=(
+            f"Customer intel read: {len(signals)} Grade A/B; "
+            f"{suppressed_non_publishable} non-publishable and "
+            f"{suppressed_duplicates} duplicates suppressed; "
+            f"{suppressed_over_limit} publishable items over response limit"
+        ),
+        source_id="news_monitor:get_recent_intel_signals",
+    )
+    return result
 
 
 @fail_wire(module="news_monitor", gap_type="source_failure")

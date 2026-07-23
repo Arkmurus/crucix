@@ -1,7 +1,7 @@
 // test/golden-intel-empty-state-rf2583.test.mjs
 //
-// Capability test for R-F2583 — professional, HONEST empty-state for the Golden
-// Intel "Distribution Ready" column.
+// Capability test for R-F2583/R-F2738 — professional, HONEST empty-state for
+// the Portfolio Intelligence Grade A action queue.
 //
 // Context: the left column is empty because the source poll is stale (poll_stale:
 // last_success_at ~27h old, so no new signal can be certified for public
@@ -31,27 +31,35 @@ function check(label, cond, detail = '') {
   else { console.error(`  ✗ ${label}${detail ? '\n     ' + detail : ''}`); failures += 1; }
 }
 
-console.log('R-F2583 Golden Intel empty-state capability tests\n');
+console.log('R-F2583/R-F2738 Portfolio Intelligence empty-state capability tests\n');
 
 // ── 1. STATIC: the professional empty-state is defined + wired ───────────────
-console.log('1. Professional empty-state wired into Distribution Ready');
+console.log('1. Professional empty-state wired into the Grade A action queue');
 check('renderGoldenIntelEmptyCard() defined', /function\s+renderGoldenIntelEmptyCard\s*\(/.test(HTML));
 check('_goldenFmtAgo() time-ago helper defined', /function\s+_goldenFmtAgo\s*\(/.test(HTML));
 check('empty card surfaces the poll-freshness diagnostic',
-  /last refreshed/.test(HTML) && /populates automatically once the poll resumes/.test(HTML));
+  /last refreshed/.test(HTML) && /cannot certify a current portfolio change/.test(HTML));
 check('empty card is a matched-height status card (not a bare <p>)',
   /min-height:200px/.test(HTML) && /border:1px dashed var\(--sc-border\)/.test(HTML));
-check('Distribution Ready column receives the empty card (7th arg)',
-  /renderGoldenIntelEmptyCard\(fresh,\s*candidates\.length\)/.test(HTML));
+check('Grade A action queue receives the empty card',
+  /renderGoldenIntelEmptyCard\(fresh\)/.test(HTML));
 
 // ── 2. HONESTY GUARD: the distribution gate is UNCHANGED ──────────────────────
-console.log('\n2. Honesty guard — the gate was NOT lowered to fill the column');
-check('feed-level gate intact (stale/backfilled feed publishes nothing)',
-  /const\s+feedPublishable\s*=\s*fresh\.stale\s*===\s*false\s*&&\s*!fresh\.backfilled/.test(HTML));
-check('per-signal gate intact (decision-grade + HIGH priority + trusted tier + evidence)',
-  /quality\.indexOf\('decision-grade'\)\s*===\s*0/.test(HTML)
-    && /priority\s*===\s*'HIGH'/.test(HTML)
-    && /\['tier_1a',\s*'tier_1b',\s*'tier_2'\]\.includes\(tier\)/.test(HTML));
+console.log('\n2. Honesty guard — only formal A/B grades enter the customer layer');
+// R-F2896 — the gate is UNCHANGED in intent (a stale/backfilled feed publishes
+// nothing) but its verdict is now computed ONCE server-side instead of re-derived
+// here. The old local rule treated 'source_failure_degraded' (unrelated feeds down)
+// as a reason to hide everything, so on 2026-07-23 customers saw an empty Portfolio
+// Intelligence while the Telegram gate published from the very same feed. This
+// asserts the canonical read AND that the local fallback is retained for an older
+// backend — a strictly stronger contract than the literal expression it replaced.
+check('feed-level gate intact (canonical publishable verdict + legacy fallback)',
+  /feedPublishable\s*=\s*\(typeof fresh\.publishable === 'boolean'\)/.test(HTML)
+  && /fresh\.stale === false && !fresh\.backfilled/.test(HTML));
+check('per-signal formal grade gate intact',
+  /grade\s*===\s*'A'\s*\|\|\s*grade\s*===\s*'B'/.test(HTML));
+check('internal Mining Queue is absent from the customer dashboard',
+  !/Mining Queue/.test(HTML));
 
 // ── 3. BEHAVIOURAL: message selection is correct (lockstep mirror) ───────────
 console.log('\n3. Empty-state message picks the right reason (lockstep mirror)');

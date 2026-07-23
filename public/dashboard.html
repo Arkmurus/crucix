@@ -37,7 +37,7 @@
 
   <!-- R-F2016: source provenance — this dashboard shows ARIA's brain data -->
   <p style="margin:-4px 0 18px;color:var(--sc-muted);font-size:12px;line-height:1.5">
-    <i class="bi bi-info-circle"></i> Source: <strong>ARIA Brain</strong>. Live intelligence from due diligence, watchlist monitoring, and signal correlation. <a href="/aria-brain" style="color:var(--sc-prime)">View detailed brain stats</a>
+    <i class="bi bi-info-circle"></i> Your decision layer: material DD, watchlist, deal and verified external changes first; raw collection remains in the Research Monitor below. <a href="/aria-brain" style="color:var(--sc-prime)">View source health</a>
   </p>
 
   <!-- KPI Tiles — ARIA's actual capabilities -->
@@ -45,17 +45,17 @@
     <div class="sc-stat"><div class="sc-stat-icon" style="background:rgba(239,68,68,0.12)"><i class="bi bi-shield-exclamation" style="color:#dc2626"></i></div><div><div class="sc-stat-value" id="kpi-dd-total">-</div><div class="sc-stat-label">DD Reports</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-eye"></i></div><div><div class="sc-stat-value" id="kpi-watchlist">-</div><div class="sc-stat-label">Watchlist</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-diagram-3"></i></div><div><div class="sc-stat-value" id="kpi-pipeline">-</div><div class="sc-stat-label">Active Deals</div></div></div>
-    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-graph-up"></i></div><div><div class="sc-stat-value" id="kpi-opportunities">-</div><div class="sc-stat-label">Opportunities</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-graph-up"></i></div><div><div class="sc-stat-value" id="kpi-opportunities">-</div><div class="sc-stat-label">Verified Tenders</div></div></div>
   </div>
 
-  <!-- R-F2385 — Golden Intel: decision-grade signals promoted from global news -->
+  <!-- R-F2738 — customer decision layer; internal mining/reject states stay hidden. -->
   <div class="sc-card mb-24" id="golden-intel-card">
     <div class="sc-card-header">
-      <div class="sc-card-title"><i class="bi bi-stars"></i> Golden Intel</div>
-      <a href="/news.html" class="sc-btn sc-btn-outline sc-btn-sm ms-auto">Raw feed</a>
+      <div class="sc-card-title"><i class="bi bi-stars"></i> Portfolio Intelligence</div>
+      <a href="/news.html" class="sc-btn sc-btn-outline sc-btn-sm ms-auto">Research feed</a>
     </div>
     <p style="margin:8px 14px 0;color:var(--sc-muted);font-size:12px;line-height:1.5">
-      <i class="bi bi-info-circle"></i> Promoted signals from ARIA's monitored sources. Distribution-ready items meet the public-channel gate; candidates remain visible for mining and corroboration.
+      <i class="bi bi-info-circle"></i> What materially changed, why it may affect your portfolio, what to do next, and the evidence behind it. Grade A is official or corroborated; Grade B is clearly labelled single-source intelligence awaiting corroboration.
     </p>
     <div class="sc-card-body" id="golden-intel-list" style="max-height:620px;overflow-y:auto">
       <div class="sc-loading-state"><div class="sc-spinner"></div>Loading decision signals…</div>
@@ -87,15 +87,15 @@
     </div>
   </div>
 
-  <!-- Intelligence Brief (OSINT market sweep — collapsible secondary) -->
+  <!-- Research Monitor — raw collection stays secondary and explicitly non-decision-grade. -->
   <div class="sc-card mb-24">
     <div class="sc-card-header" id="brief-header" style="cursor:pointer" role="button" tabindex="0">
-      <div class="sc-card-title"><i class="bi bi-broadcast-pin"></i> OSINT Market Sweep</div>
+      <div class="sc-card-title"><i class="bi bi-broadcast-pin"></i> Research Monitor</div>
       <span class="sc-badge sc-badge-muted" id="brief-toggle">Show</span>
     </div>
     <div id="brief-content" style="display:none">
       <p style="margin:8px 14px 0;color:var(--sc-muted);font-size:12px;line-height:1.5">
-        <i class="bi bi-info-circle"></i> Live multi-source OSINT sweep (Node intelligence tier): conflict correlation, defence tenders and source health, distinct from ARIA's brain knowledge base above.
+        <i class="bi bi-info-circle"></i> Collection and early indicators for analyst research. These are not portfolio alerts until ARIA promotes them to Grade A or labelled Grade B above.
       </p>
       <div class="sc-card-body">
         <!-- R-F2411 — real intelligence tiles. Replaced the VIX / Brent /
@@ -106,7 +106,7 @@
              no fabricated deltas from stub feeds (OFAC/export-control sweep
              feeds are stubs and are deliberately NOT surfaced here). -->
         <div class="sc-grid-4 mb-16" id="sweep-kpi-row">
-          <div class="sc-stat"><div class="sc-stat-icon" style="background:rgba(239,68,68,0.12)"><i class="bi bi-exclamation-octagon" style="color:#dc2626"></i></div><div><div class="sc-stat-value" id="kpi-critical">-</div><div class="sc-stat-label">Critical Alerts</div></div></div>
+          <div class="sc-stat"><div class="sc-stat-icon" style="background:rgba(239,68,68,0.12)"><i class="bi bi-exclamation-octagon" style="color:#dc2626"></i></div><div><div class="sc-stat-value" id="kpi-critical">-</div><div class="sc-stat-label">High Correlations</div></div></div>
           <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-exclamation-triangle"></i></div><div><div class="sc-stat-value" id="kpi-conflict">-</div><div class="sc-stat-label">Conflict Signals</div></div></div>
           <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-briefcase"></i></div><div><div class="sc-stat-value" id="kpi-tenders">-</div><div class="sc-stat-label">Active Tenders</div></div></div>
           <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-hdd-network"></i></div><div><div class="sc-stat-value" id="kpi-srchealth">-</div><div class="sc-stat-label">Source Health</div></div></div>
@@ -115,13 +115,13 @@
         <div id="wl-signal-match" style="display:none;margin-bottom:12px"></div>
         <div class="sc-grid-2">
           <div>
-            <h3 style="font-size:13px;color:#57534b;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Situation Awareness</h3>
+            <h3 style="font-size:13px;color:#57534b;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Correlation Research</h3>
             <div id="correlations-list" style="max-height:320px;overflow-y:auto">
               <div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div>
             </div>
           </div>
           <div>
-            <h3 style="font-size:13px;color:#57534b;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Telegram OSINT</h3>
+            <h3 style="font-size:13px;color:#57534b;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Raw Telegram Collection</h3>
             <div id="osint-list" style="max-height:320px;overflow-y:auto">
               <div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div>
             </div>
@@ -145,10 +145,10 @@
     </div>
   </div>
 
-  <!-- Opportunities preview -->
+  <!-- Market indicators are not represented as verified procurement notices. -->
   <div class="sc-card mb-24" id="opps-section" style="display:none">
     <div class="sc-card-header">
-      <div class="sc-card-title"><i class="bi bi-briefcase"></i> Procurement Opportunities</div>
+      <div class="sc-card-title"><i class="bi bi-briefcase"></i> Early Market Indicators</div>
       <a href="/opportunities.html" class="sc-btn sc-btn-outline sc-btn-sm ms-auto">View all</a>
     </div>
     <div class="sc-card-body" style="padding:0">
@@ -167,13 +167,13 @@
     <div class="sc-card-body" id="defence-list" style="max-height:420px;overflow-y:auto"></div>
   </div>
 
-  <!-- R-F2047 — My Sources: user adds their own data feeds → enrich the live intel -->
+  <!-- R-F2738 — source registry stays private until owner-scoped ingestion exists. -->
   <div class="sc-card mb-24" id="my-sources-card">
     <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
       <div class="sc-card-title"><i class="bi bi-rss"></i> My Sources</div>
       <button id="btn-add-source" class="sc-btn sc-btn-sm" style="background:#7c3aed;color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer"><i class="bi bi-plus-lg"></i> Add Source</button>
     </div>
-    <p style="margin:0 14px;color:#8b949e;font-size:12px;line-height:1.5"><i class="bi bi-info-circle"></i> Add an RSS feed or site you want ARIA to monitor. It's auto-validated and starts feeding the live intel chain on the next news poll.</p>
+    <p style="margin:0 14px;color:#8b949e;font-size:12px;line-height:1.5"><i class="bi bi-info-circle"></i> Save RSS feeds and sites to your private source registry. They are never mixed into another customer's intelligence. Owner-scoped continuous ingestion is not yet enabled.</p>
     <div class="sc-card-body" id="my-sources-list" style="max-height:320px;overflow-y:auto"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
   </div>
 
@@ -311,36 +311,21 @@ function signalEvidenceUrl(s) {
   return /^https?:\/\//i.test(ev) ? ev : '';
 }
 
-function customerValueScore(s) {
-  const n = Number(s && s.customer_value && s.customer_value.score != null ? s.customer_value.score : (s && s.distribution_score));
-  return Number.isFinite(n) ? n : 0;
-}
-
-function customerValueHardRejections(s) {
-  const reasons = Array.isArray(s && s.customer_value && s.customer_value.rejection_reasons)
-    ? s.customer_value.rejection_reasons
-    : (Array.isArray(s && s.distribution_rejection_reasons) ? s.distribution_rejection_reasons : []);
-  return reasons.filter(r => ['customer_value_below_distribution_threshold', 'customer_value_below_telegram_threshold'].indexOf(String(r)) === -1);
-}
-
-function isDistributionReadyGolden(s) {
-  const quality = String(s && s.quality_label || '').toLowerCase();
-  const priority = String(s && s.priority || '').toUpperCase();
-  const confidence = String(s && s.confidence || '').toUpperCase();
-  const tier = String(s && (s.source_tier || (s.evidence && s.evidence.source_tier)) || '').toLowerCase();
-  const type = String(s && s.signal_type || '');
-  return quality.indexOf('decision-grade') === 0
-    && priority === 'HIGH'
-    && (confidence === 'HIGH' || confidence === 'MEDIUM')
-    && GOLDEN_DISTRIBUTION_TYPES.has(type)
-    && ['tier_1a', 'tier_1b', 'tier_2'].includes(tier)
+function isCustomerVisibleIntel(s) {
+  const grade = String(s && s.intel_grade || '').toUpperCase();
+  return (grade === 'A' || grade === 'B')
+    && GOLDEN_DISTRIBUTION_TYPES.has(String(s && s.signal_type || ''))
     && Boolean(s && (s.decision_summary || s.title))
     && Boolean(s && s.why_it_matters)
     && Boolean(s && s.recommended_action)
-    && customerValueScore(s) >= 70
-    && customerValueHardRejections(s).length === 0
     && Boolean(signalEvidenceUrl(s))
     && !s._backfilled;
+}
+
+function intelGradeBadge(s) {
+  const grade = String(s && s.intel_grade || '').toUpperCase();
+  if (grade === 'A') return '<span class="sc-badge sc-badge-green" title="Official primary evidence or independent corroboration">GRADE A</span>';
+  return '<span class="sc-badge sc-badge-orange" title="Single credible source; corroboration pending">GRADE B · SINGLE SOURCE</span>';
 }
 
 function renderGoldenIntelItem(s, compact) {
@@ -352,21 +337,16 @@ function renderGoldenIntelItem(s, compact) {
     ? '<a href="' + escHtml(evidenceUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--sc-prime);text-decoration:none">Evidence</a>'
     : '<span style="color:var(--sc-muted)">Evidence retained</span>';
   const detected = s.detected_at ? new Date(s.detected_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '';
-  const cvScore = customerValueScore(s);
-  const cvReasons = customerValueHardRejections(s);
-  const cvLine = cvScore
-    ? '<span class="sc-badge sc-badge-muted">Customer value ' + escHtml(String(cvScore)) + '</span>'
-    : '';
-  const rejectionLine = cvReasons.length
-    ? '<div style="font-size:11px;color:#b45309;line-height:1.4;margin-bottom:8px">Gate: ' + escHtml(cvReasons.join(', ').replace(/_/g, ' ')) + '</div>'
-    : '';
+  const watchlistHits = Array.isArray(s._watchlistHits) ? s._watchlistHits : [];
+  const relevanceLine = watchlistHits.length
+    ? '<div style="font-size:11px;color:#b91c1c;line-height:1.4;margin-bottom:8px"><i class="bi bi-star-fill"></i> Relevant to your watchlist: ' + escHtml(watchlistHits.join(', ')) + '</div>'
+    : '<div style="font-size:11px;color:var(--sc-muted);line-height:1.4;margin-bottom:8px">External development · no direct watchlist entity match</div>';
   return '<div style="padding:12px 0;border-bottom:1px solid var(--sc-border)">'
     + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
+    + intelGradeBadge(s)
     + priorityBadge(s.priority)
     + confidenceBadge(s.confidence)
     + '<span class="sc-badge sc-badge-muted">' + escHtml(String(s.signal_type || 'signal').replace(/_/g, ' ')) + '</span>'
-    + '<span class="sc-badge sc-badge-muted">' + escHtml(s.quality_label || 'context') + '</span>'
-    + cvLine
     + '<span style="font-size:11px;color:#9b968c;margin-left:auto">' + escHtml(s.source_tier || (s.evidence && s.evidence.source_tier) || 'unclassified') + '</span>'
     + '</div>'
     + '<div style="font-size:14px;font-weight:700;color:var(--sc-heading);line-height:1.35;margin-bottom:4px">' + escHtml(s.decision_summary || s.title || 'Untitled signal') + '</div>'
@@ -376,7 +356,7 @@ function renderGoldenIntelItem(s, compact) {
     + '</div>'
     + (why ? '<div style="font-size:12px;color:var(--sc-text);line-height:1.5;margin-bottom:8px">' + escHtml(compact ? truncate(why, 180) : why) + '</div>' : '')
     + '<div style="font-size:11px;color:#9b968c;line-height:1.4;margin-bottom:8px">' + escHtml(s.confidence_rationale || '') + '</div>'
-    + rejectionLine
+    + relevanceLine
     + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px">'
     + '<a href="' + escHtml(href) + '" class="sc-btn sc-btn-primary sc-btn-sm">' + escHtml(s.recommended_action || 'Review') + '</a>'
     + evidence
@@ -395,34 +375,29 @@ function _goldenFmtAgo(iso) {
   return Math.round(s / 86400) + 'd';
 }
 
-// R-F2583 — professional empty-state for the Distribution Ready column. Honest:
+// R-F2583/R-F2738 — professional empty-state for the Grade A action queue. Honest:
 // it does NOT fill the column; it explains WHAT the gate is and WHY nothing has
 // cleared it right now, using freshness data the endpoint already returns. Turns
 // a bare "0 / stale" line into a matched-height status card so the two columns
 // read as one designed system even when one is empty. (No gate change.)
-function renderGoldenIntelEmptyCard(freshness, candidateCount) {
+function renderGoldenIntelEmptyCard(freshness) {
   const fr = freshness || {};
   const reasons = Array.isArray(fr.stale_reasons) ? fr.stale_reasons : [];
   let why;
   if (fr.stale === false) {
-    why = 'The feed is fresh, but no current signal has cleared the public-channel gate — decision-grade, trusted tier, corroborated, with evidence.';
+    why = 'ARIA checked the monitored feed and found no current Grade A material change. No alert has been manufactured to fill this space.';
   } else if (reasons.indexOf('poll_stale') !== -1 || reasons.indexOf('missing_poll_state') !== -1) {
     const ago = fr.last_success_at ? _goldenFmtAgo(fr.last_success_at) + ' ago' : 'over 90 min';
-    why = 'The source poll last refreshed ' + escHtml(ago) + ', so no new signal can be certified for public distribution yet. This column populates automatically once the poll resumes.';
+    why = 'The source poll last refreshed ' + escHtml(ago) + ', so ARIA cannot certify a current portfolio change yet.';
   } else if (reasons.indexOf('signals_stale') !== -1 || reasons.indexOf('no_signals') !== -1) {
     why = 'No fresh signals are available from the current feed.';
   } else {
-    why = 'No signal currently meets the public-channel Golden Intel gate.';
+    why = 'No signal currently meets the Grade A evidence gate.';
   }
-  const cand = candidateCount > 0
-    ? '<div style="font-size:11px;color:var(--sc-muted);line-height:1.5;margin-top:4px">'
-      + candidateCount + ' candidate' + (candidateCount === 1 ? '' : 's') + ' in the Mining Queue awaiting corroboration or a tier upgrade before they can be distributed.</div>'
-    : '';
   return '<div style="border:1px dashed var(--sc-border);border-radius:10px;padding:22px 18px;min-height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;text-align:center">'
     + '<div style="font-size:22px;color:var(--sc-muted)"><i class="bi bi-send-check"></i></div>'
-    + '<div style="font-size:13px;font-weight:600;color:var(--sc-text)">Nothing cleared for distribution right now</div>'
+    + '<div style="font-size:13px;font-weight:600;color:var(--sc-text)">No material Grade A change right now</div>'
     + '<div style="font-size:12px;color:var(--sc-muted);line-height:1.5;max-width:40ch">' + why + '</div>'
-    + cand
     + '</div>';
 }
 
@@ -442,51 +417,67 @@ function renderGoldenIntelColumn(title, subtitle, icon, signals, emptyText, comp
     + '</div>';
 }
 
-function renderGoldenIntel(data) {
+function renderGoldenIntel(data, wlData) {
   const el = document.getElementById('golden-intel-list');
   if (!el) return;
-  const signals = (data && Array.isArray(data.signals)) ? data.signals : [];
+  const wlMatch = buildWatchlistMatcher(wlData);
+  const rawSignals = (data && Array.isArray(data.signals)) ? data.signals : [];
+  const signals = rawSignals.filter(isCustomerVisibleIntel).map(function (signal) {
+    const entityText = signal.entities && typeof signal.entities === 'object'
+      ? Object.values(signal.entities).flat().join(' ')
+      : '';
+    const relevanceText = [signal.decision_summary, signal.title, signal.why_it_matters, signal.target, entityText].filter(Boolean).join(' ');
+    return Object.assign({}, signal, { _watchlistHits: wlMatch.find(relevanceText) });
+  }).sort(function (a, b) {
+    return (b._watchlistHits.length - a._watchlistHits.length);
+  });
   if (!signals.length) {
-    el.innerHTML = '<p class="text-muted" style="padding:8px">No promoted intel signals yet. ARIA will populate this after the next news poll finds decision-grade items.</p>';
+    el.innerHTML = '<p class="text-muted" style="padding:8px">No material Grade A or Grade B changes are available. Lower-grade and rejected collection remains outside the customer decision layer.</p>';
     return;
   }
   const fresh = data && data.freshness ? data.freshness : {};
   // R-F2554 — mirror the LIVE Telegram gate's FEED-level rejection
   // (selectTelegramGoldenIntel, channelServerHooks.mjs:192-193): a stale or fully
-  // backfilled feed publishes NOTHING, so "Distribution Ready" must be empty then,
+  // backfilled feed publishes NOTHING, so the Grade A action queue must be empty,
   // else the column would claim items are publishable that Telegram would not post.
   // Per-signal fidelity is already enforced by isDistributionReadyGolden.
-  const feedPublishable = fresh.stale === false && !fresh.backfilled;
-  const distributionReady = feedPublishable ? signals.filter(isDistributionReadyGolden).slice(0, 8) : [];
-  const distributionIds = new Set(distributionReady.map(s => s.id || (s.url + '|' + s.title)));
-  const candidates = signals
-    .filter(s => !distributionIds.has(s.id || (s.url + '|' + s.title)))
-    .slice(0, 8);
+  // R-F2896 — read the ONE canonical verdict the backend computes, instead of
+  // re-deriving a stricter one here. `fresh.stale === false` treated
+  // 'source_failure_degraded' (unrelated feeds down) as a reason to hide
+  // EVERYTHING: live 2026-07-23 that was the only stale reason, so customers saw an
+  // empty Portfolio Intelligence while 3 Grade A + 26 Grade B signals existed and
+  // the Telegram gate considered the very same feed publishable.
+  // Fallback keeps the old behaviour if an older backend omits the field.
+  const feedPublishable = (typeof fresh.publishable === 'boolean')
+    ? fresh.publishable
+    : (fresh.stale === false && !fresh.backfilled);
+  const gradeA = feedPublishable ? signals.filter(s => String(s.intel_grade).toUpperCase() === 'A').slice(0, 8) : [];
+  const gradeB = feedPublishable ? signals.filter(s => String(s.intel_grade).toUpperCase() === 'B').slice(0, 8) : [];
   const statusLine = fresh.stale
     ? 'Feed status: stale' + (fresh.stale_reasons && fresh.stale_reasons.length ? ' · ' + fresh.stale_reasons.join(', ') : '')
     : 'Feed status: fresh';
   el.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px">'
     + '<div style="font-size:12px;color:var(--sc-muted)">' + escHtml(statusLine) + '</div>'
-    + '<div style="font-size:12px;color:var(--sc-muted)">Returned: ' + escHtml(String(signals.length)) + ' signals</div>'
+    + '<div style="font-size:12px;color:var(--sc-muted)">Customer-visible changes: ' + escHtml(String(signals.length)) + '</div>'
     + '</div>'
     + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px">'
     + renderGoldenIntelColumn(
-      'Distribution Ready',
-      'Meets the public-channel Golden Intel gate; server applies recency-dedup before posting.',
+      'Needs Action · Grade A',
+      'Official primary evidence or independent corroboration. Review the stated action and evidence.',
       'bi-send-check',
-      distributionReady,
+      gradeA,
       feedPublishable
-        ? 'No current signal meets the public-channel Golden Intel gate.'
-        : 'Feed is stale or backfilled — nothing is distribution-ready right now (see feed status above).',
+        ? 'No current signal meets the Grade A evidence gate.'
+        : 'Feed is stale or backfilled — no current change can be certified.',
       false,
-      renderGoldenIntelEmptyCard(fresh, candidates.length),   // R-F2583 professional empty-state
+      renderGoldenIntelEmptyCard(fresh),
     )
     + renderGoldenIntelColumn(
-      'Mining Queue',
-      'Useful candidates requiring corroboration, tier upgrade, or stronger evidence.',
-      'bi-gem',
-      candidates,
-      'No remaining candidates returned by the current Golden Intel feed.',
+      'Corroboration Pending · Grade B',
+      'One credible source with operational relevance. Treat as an early warning, not confirmation.',
+      'bi-hourglass-split',
+      gradeB,
+      'No credible single-source development is awaiting corroboration.',
       true,
     )
     + '</div>';
@@ -498,8 +489,8 @@ function renderGoldenIntel(data) {
 // corroborated instead of trusting an opaque score.
 function provenanceBadge(sourceCount) {
   const n = Number(sourceCount) || 0;
-  if (n >= 2) return '<span class="sc-badge sc-badge-green" title="Corroborated across ' + n + ' independent sources">✓ corroborated · ' + n + ' sources</span>';
-  return '<span class="sc-badge sc-badge-muted" title="Seen in a single source (treat as unconfirmed)">single-source</span>';
+  if (n >= 2) return '<span class="sc-badge sc-badge-green" title="Seen across ' + n + ' distinct publishers or channels">✓ ' + n + ' publishers/channels</span>';
+  return '<span class="sc-badge sc-badge-muted" title="Seen through one publisher or channel; treat as unconfirmed">single publisher/channel</span>';
 }
 
 // ── R-F2414 — watchlist matcher (personalisation spine). Flags live signals
@@ -648,14 +639,19 @@ async function loadData() {
   }
   document.getElementById('kpi-pipeline').textContent = pipeUnavailable ? '—' : pipeCount;
 
-  // Opportunities count — R-F2079: same shape the opportunities page reads
-  // ({opportunities:[...]} live, or a bare array when cached).
-  let oppCount = 0;
+  // R-F2738 — top-level opportunity KPI means VERIFIED official tenders only.
+  // Market-convergence scores remain available below as early indicators, but
+  // never inflate this customer decision metric.
+  let oppCount = Number(
+    sweepRes.status === 'fulfilled'
+      && sweepRes.value
+      && sweepRes.value.bdIntelligence
+      && sweepRes.value.bdIntelligence.counts
+      && sweepRes.value.bdIntelligence.counts.activeTenders
+  ) || 0;
   let oppData = null;
   if (oppRes.status === 'fulfilled' && oppRes.value.ok) {
     oppData = await oppRes.value.json().catch(() => null);
-    const opps = (oppData && oppData.opportunities) || (Array.isArray(oppData) ? oppData : []);
-    oppCount = opps.length;
   }
   document.getElementById('kpi-opportunities').textContent = oppCount;
 
@@ -676,7 +672,7 @@ async function loadData() {
     lu.style.color = '';
   }
 
-  renderGoldenIntel(intelData);
+  renderGoldenIntel(intelData, wlData);
 
   // ── Recent DD Activity ──
   const ddList = document.getElementById('dd-list');
@@ -724,18 +720,18 @@ async function loadData() {
     wlList.innerHTML = '<p class="text-muted" style="padding:8px">Could not load watchlist.</p>';
   }
 
-  // ── OSINT Market Sweep (secondary, collapsible) ──
+  // ── Research Monitor (secondary, collapsible, not a decision feed) ──
   if (sweepRes.status === 'fulfilled' && sweepRes.value) {
     const data = sweepRes.value;
 
     // ── R-F2411 — real intelligence KPIs (replaces VIX/Brent/market-direction) ──
     // Every value derives from a populated brain field; nothing is fabricated.
     const corrs0 = Array.isArray(data.correlations) ? data.correlations : [];
-    // Critical Alerts — correlations flagged critical (what needs attention now)
+    // High correlations — early research indicators, not customer alerts.
     const critEls = corrs0.filter(function (c) { return c.severity === 'critical'; });
     const kCrit = document.getElementById('kpi-critical');
     kCrit.textContent = critEls.length;
-    if (critEls.length > 0) { kCrit.style.color = '#dc2626'; kCrit.title = critEls.length + ' critical regional correlation(s)'; }
+    if (critEls.length > 0) { kCrit.style.color = '#dc2626'; kCrit.title = critEls.length + ' high-scoring research correlation(s)'; }
     else { kCrit.style.color = ''; kCrit.title = ''; }
     // Conflict Signals — total ACLED/multi-source signal volume across correlations
     const conflictSignals = corrs0.reduce(function (n, c) { return n + (Number(c.signalCount) || 0); }, 0);
@@ -975,7 +971,7 @@ loadData();
         b.addEventListener('click', async function () {
           const ok = await Modal.confirm({
             title: 'Remove this source?',
-            message: 'This removes the source from your personal feed list.',
+            message: 'This removes the source from your private source registry.',
             okLabel: 'Remove',
           });
           if (!ok) return;
@@ -1012,7 +1008,7 @@ loadData();
     if (r.ok && data && data.success) {
       ['src-name', 'src-url', 'src-notes'].forEach(function (id) { document.getElementById(id).value = ''; });
       modal.style.display = 'none';
-      if (window.Toast) Toast.show('Source added. It starts feeding the intel chain on the next poll.', 'success');
+      if (window.Toast) Toast.show('Source saved privately. It is not mixed into the shared intelligence feed.', 'success');
       loadMySources();
     } else {
       errEl.textContent = (data && data.error) || ('Failed to add (HTTP ' + r.status + ').');
