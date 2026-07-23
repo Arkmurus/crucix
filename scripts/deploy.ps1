@@ -78,6 +78,34 @@ if ($GIT_SHA -ne $ORIGIN_SHA) {
 Write-Host "  [PASS] push guard: HEAD matches origin/main ($GIT_SHORT)"
 Write-Host ""
 
+# ---- TREE INTEGRITY GATE (R-F2919) ----
+# The image is built from the WORKING TREE, so a tracked file that is missing from
+# disk is silently ABSENT from the image. The push guard proves HEAD matches
+# origin/main; it says nothing about whether the files are actually there.
+#
+# On 2026-07-23 this shipped a broken image: Kaspersky quarantined
+# aria_service/static/aria_client/aria.bat out of a fresh clone ~10s after checkout,
+# the deploy proceeded, and /static/aria_client/aria.bat served 404 in production
+# while every other check passed. The behaviour is INTERMITTENT — a later clone was
+# clean — which is exactly why this cannot be left to an antivirus setting or to
+# remembering which directory is excluded. `git ls-files -d` answers "is anything
+# missing?" in milliseconds and does not care why.
+$MISSING = @(git ls-files -d)
+if ($MISSING.Count -gt 0) {
+    Write-Host "  [FAIL] TREE INTEGRITY: $($MISSING.Count) tracked file(s) MISSING from the working tree."
+    Write-Host "         The image is built from this tree, so these would be absent in production:"
+    foreach ($m in $MISSING | Select-Object -First 20) { Write-Host "           - $m" }
+    if ($MISSING.Count -gt 20) { Write-Host "           ... and $($MISSING.Count - 20) more" }
+    Write-Host ""
+    Write-Host "         Most likely cause: antivirus quarantine (seen with .bat/.cmd/.ps1 in"
+    Write-Host "         freshly-cloned trees). Restore and re-verify before deploying:"
+    Write-Host "           git checkout HEAD -- <path>   # then confirm it is still there"
+    Write-Host "         If it vanishes again, deploy from an AV-excluded checkout."
+    exit 1
+}
+Write-Host "  [PASS] tree integrity: no tracked file is missing ($(@(git ls-files).Count) tracked)"
+Write-Host ""
+
 # ---- R-number tag ----
 $LAST_TAG = git tag --list 'deploy-*' --sort=-version:refname | Select-Object -First 1
 if ($LAST_TAG) {

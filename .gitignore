@@ -104,6 +104,12 @@ runpod_aria.pub
 # back to data/learned_attack_signatures.json. Runtime state, not source.
 data/learned_attack_signatures.json
 
+# R-F2920 — file-integrity audit ledger. Machine-local runtime evidence about
+# THIS checkout: what went missing, when, and what was restored. Per-machine
+# state, not shared truth — committing it would mix one developer's antivirus
+# incidents into everyone else's history.
+data/file_integrity_ledger.json
+
 # R-F988 — pip editable-install artifact for the aria CLI (not source)
 *.egg-info/
 

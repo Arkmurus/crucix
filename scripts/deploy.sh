@@ -63,6 +63,27 @@ if [[ "$GIT_SHA" != "$ORIGIN_SHA" ]]; then
 fi
 echo "  ✅ push guard: HEAD matches origin/main ($GIT_SHORT)"
 
+# ---- TREE INTEGRITY GATE (R-F2919) ----
+# The image is built from the WORKING TREE, so a tracked file missing from disk is
+# silently ABSENT from the image. The push guard proves HEAD matches origin/main; it
+# says nothing about whether the files are actually present.
+#
+# 2026-07-23: antivirus quarantined aria_service/static/aria_client/aria.bat out of a
+# fresh clone ~10s after checkout; the deploy proceeded and that path served 404 in
+# production while every other check passed. The behaviour is INTERMITTENT, which is
+# why it must not be left to an AV setting or to remembering which directory is
+# excluded. `git ls-files -d` answers "is anything missing?" and does not care why.
+MISSING=$(git ls-files -d)
+if [[ -n "$MISSING" ]]; then
+    echo "  ❌ TREE INTEGRITY: tracked file(s) MISSING from the working tree:"
+    echo "$MISSING" | head -20 | sed 's/^/       - /'
+    echo "     The image is built from this tree, so these would be absent in production."
+    echo "     Restore and re-verify:  git checkout HEAD -- <path>"
+    echo "     If it vanishes again, deploy from an AV-excluded checkout."
+    exit 1
+fi
+echo "  ✅ tree integrity: no tracked file is missing"
+
 LAST_TAG=$(git tag --list 'deploy-*' --sort=-version:refname | head -1 || echo "")
 if [[ -n "$LAST_TAG" ]]; then
     R_NUMBERS=$(git log "$LAST_TAG..HEAD" --pretty=%s | grep -oE 'R-F[0-9]+' | sort -u | tr '\n' '+' | sed 's/+$//')
