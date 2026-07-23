@@ -223,6 +223,54 @@ def _assess_customer_value(signal: dict, finding: dict | None = None) -> dict:
     }
 
 
+def _is_item_specific(why: str, target: str, entities: dict | None) -> bool:
+    """R-F2930 — does this `why` describe THIS finding, or any finding of its type?
+
+    The test is whether the text carries something that could only have come from the
+    specific record. Three signals, any one of which suffices:
+
+      * a NUMBER — a value, a deadline, a date, a designation or registration id.
+        "deadline 2026-08-11", "Listed 2026-07-20", "value EUR 4.2m". Category prose
+        does not carry them.
+      * the TARGET's name — "BKM Budapesti Közművek ... — value undisclosed".
+      * a named ENTITY the adapter extracted (country / OEM / product).
+
+    Deliberately permissive: the cost of a false NEGATIVE here is suppressing a real
+    finding, while a false positive is caught downstream by the channel's completeness
+    and evidence-URL checks. But it is decisive against the failure it exists for —
+    "Security conditions may affect delivery risk, end-use risk, or market timing."
+    has no number, no target and no entity, and would describe any conflict item ever
+    written.
+
+    An EMPTY why is not item-specific. A finding with nothing to say about itself
+    cannot be publishable as ARIA's analysis.
+    """
+    why = (why or "").strip()
+    if len(why) < 12:
+        return False
+    if any(ch.isdigit() for ch in why):
+        return True
+
+    low = why.lower()
+    tgt = (target or "").strip().lower()
+    # Match on a distinctive word of the target, not the whole string — an adapter may
+    # render "BKM Budapesti Közművek Nonprofit Zrt." in the why with different
+    # punctuation or truncation than in the target field.
+    if tgt and tgt not in {"signal", "source", "unknown"}:
+        for token in (t for t in tgt.replace(",", " ").split() if len(t) >= 4):
+            if token in low:
+                return True
+
+    for values in (entities or {}).values():
+        if not isinstance(values, (list, tuple)):
+            continue
+        for v in values:
+            v = str(v or "").strip().lower()
+            if len(v) >= 3 and v in low:
+                return True
+    return False
+
+
 def _finding_dedup_key(finding: dict) -> str:
     """Stable identity for a finding across passes: source|type|entity|ref.
 
@@ -291,9 +339,21 @@ def _normalize_finding_to_signal(finding: dict) -> dict | None:
         # (this buyer, this value, this deadline, this designation, this programme),
         # not a category of event. That is what makes them publishable as
         # decision-grade, and what distinguishes them from news_monitor's
-        # classifier templates. An adapter that ever emits a canned string is
-        # mislabelling itself here — keep adapter why/action item-specific.
-        "why_action_provenance": "source_adapter",
+        # classifier templates.
+        #
+        # R-F2930 — but the flag is now EARNED, not granted by which module ran.
+        # R-F2899 assigned "source_adapter" unconditionally here and left a comment
+        # asking adapters to keep their text item-specific. A comment is not a
+        # control: a future adapter emitting a canned `why` would be silently
+        # labelled as ARIA's own analysis and become publishable to the channel —
+        # exactly the hole R-F2899 closed for news_monitor, reopened one layer down.
+        # _is_item_specific checks the CONTENT and fails closed to
+        # "classifier_template" when the text could describe any event of its type.
+        "why_action_provenance": (
+            "source_adapter"
+            if _is_item_specific(_clean(finding.get("why_it_matters")), target, entities)
+            else "classifier_template"
+        ),
         "target": target,
         "source": source,
         "source_tier": source_tier,
