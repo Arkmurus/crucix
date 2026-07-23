@@ -549,6 +549,38 @@ async def _news_poll_once() -> dict:
         return {"polled": False, "reason": f"error: {e}"}
 
 
+async def await_llm_provider(
+    app, timeout_s: float = 600.0, poll_s: float = 2.0,
+) -> float:
+    """R-F2901 — block until app.state.llm_provider is configured.
+
+    Returns the seconds waited (0.0 if it was ready immediately). Never raises;
+    on timeout it returns the elapsed time and lets the caller act on a still-
+    unconfigured provider, so the existing capability-gap path still fires.
+
+    Why: the autonomous-engine bootstrap and _init_llm_and_dialogue_bg (which
+    ASSIGNS app.state.llm_provider) are both background tasks created by
+    _bg_task with NO ordering between them. start_engine() hard-refuses when the
+    provider is unconfigured and nothing retries, so losing that race left the
+    autonomous loop silently dark until the next restart — observed live on the
+    2026-07-23 Claude-flip restart (engine checked 12:10:48, chain assigned
+    12:10:49, engine never started). Same outcome as the R-F2004 outage where a
+    dropped master flag killed the metabolism for 187h, reached by a different
+    route, so §1 requires the structural fix rather than a nudge.
+
+    The default bound is generous on purpose: a cold boot loads ~223k facts and
+    ~1.2M edges before the LLM init task is even scheduled (§11c).
+    """
+    waited = 0.0
+    while waited < timeout_s:
+        provider = getattr(getattr(app, "state", None), "llm_provider", None)
+        if provider is not None and getattr(provider, "is_configured", False):
+            return waited
+        await asyncio.sleep(poll_s)
+        waited += poll_s
+    return waited
+
+
 def _should_force_restart(
     stale_s: float, armed: bool, enabled: bool, ceiling_s: float
 ) -> bool:
@@ -3554,6 +3586,27 @@ async def lifespan(app: FastAPI):
                 except Exception as _are:
                     logger.debug("[R-F2184] boot autorecover failed: %s", _are)
             if _runs_singletons() and autonomous_engine.is_enabled():  # R-F2073 — engine is a singleton (only the engine role runs it)
+                # R-F2901 — WAIT for the LLM before starting. This bootstrap and
+                # _init_llm_and_dialogue_bg (which sets app.state.llm_provider)
+                # are BOTH background tasks with no ordering between them, and
+                # start_engine() hard-refuses when the provider isn't configured
+                # yet — with no retry anywhere. Losing that race left autonomy
+                # silently dark until the next restart. Observed live on the
+                # 2026-07-23 Claude-flip restart: the engine checked at
+                # 12:10:48, the chain was assigned at 12:10:49, and the engine
+                # never started (only a capability gap was recorded).
+                #
+                # This is the R-F2004 failure class (metabolism dark for 187h)
+                # arriving by a different route, so it gets a structural fix
+                # rather than a nudge: poll for the provider, bounded, then
+                # start. The bound is generous because a cold boot loads ~223k
+                # facts before the LLM init task gets scheduled (§11c).
+                waited = await await_llm_provider(app)
+                if waited:
+                    logger.info(
+                        "[R-F2901] autonomous engine waited %.0fs for the LLM provider",
+                        waited,
+                    )
                 started = autonomous_engine.start_engine(getattr(app.state, "llm_provider", None))
                 if started:
                     logger.info(
