@@ -258,28 +258,52 @@ async def stage_defense(
     variant: dict,
     amendment_text: str,
 ) -> bool:
-    """Stage a defense amendment via self_improve for human review."""
-    try:
-        from . import self_improve as _si
+    """Surface a defense amendment to the operator review queue.
 
-        # Create a staged improvement entry
-        result = await _si.stage_improvement(
-            change_type="bug_fix",
-            description=(
-                f"Generative red-team defense: {variant['source_pattern']} "
-                f"variant {variant['variant_id'][:8]}"
-            ),
-            motivation=(
-                f"Novel attack variant bypassed defenses. "
-                f"Category: {variant['category']}. "
-                f"Source pattern: {variant['source_pattern']}. "
-                f"Amendment: {amendment_text[:200]}"
-            ),
-            code_diff="",  # No code change — this is a constitution amendment
-            risk_score=0.3,
-            author="generative_redteam",
+    R-F2913 — this called ``self_improve.stage_improvement`` with FOUR kwargs
+    that do not exist (motivation, code_diff, risk_score, author) and WITHOUT
+    its two required positional args (file_path, new_content). Every call
+    therefore raised TypeError, was swallowed by the except below, and logged
+    "Failed to stage defense" — live on 2026-07-23. This capability has never
+    once worked; a bypassed attack variant produced no durable record anywhere.
+
+    The fix is NOT to satisfy that signature. The call itself passed
+    ``code_diff=""`` with the comment "No code change — this is a constitution
+    amendment", and stage_improvement exists to stage a CONCRETE file rewrite
+    (file_path + complete new_content). Forcing an amendment through it would
+    mean synthesising a constitution edit — precisely the path R-F851 guards
+    (NO_AUTODEPLOY_FILES / test_rf851_constitution_no_autodeploy). An amendment
+    with no code change is a human decision, so it goes to the human queue —
+    the same operator surface the cost alerts and R-F2904 gap reviews use.
+    """
+    try:
+        from . import pending_actions as _pa
+
+        await _pa.record(
+            promise=(
+                f"Review red-team defense amendment: {variant.get('source_pattern')} "
+                f"variant {str(variant.get('variant_id', ''))[:8]}"
+            )[:300],
+            reason=(
+                f"A novel attack variant bypassed current defenses. "
+                f"Category: {variant.get('category')}. "
+                f"Source pattern: {variant.get('source_pattern')}. "
+                f"Proposed amendment: {amendment_text[:200]}"
+            )[:500],
+            severity="HIGH",
+            source="generative_redteam",
+            operator_prompt=(
+                f"A generative red-team drill found a bypass. Proposed "
+                f"constitutional amendment: {amendment_text[:400]}"
+            )[:500],
+            metadata={
+                "variant_id": variant.get("variant_id"),
+                "category": variant.get("category"),
+                "source_pattern": variant.get("source_pattern"),
+                "amendment_text": amendment_text[:2000],
+            },
         )
-        return result is not None
+        return True
     except Exception as e:
         logger.warning("[generative_redteam] Failed to stage defense: %s", e)
         return False

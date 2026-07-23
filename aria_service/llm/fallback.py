@@ -9,6 +9,8 @@ Chain: DeepSeek → Anthropic → OpenAI → Gemini
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import contextvars
 import json
 import logging
 import time
@@ -16,6 +18,48 @@ from typing import Optional
 
 from .provider import LLMProvider, LLMResult, ProviderError
 from .factory import create_llm_provider
+
+# ── R-F2917: context-scoped provider preference ──────────────────────────────
+# Operator directive 2026-07-23: DD runs on Claude, EVERYTHING else on DeepSeek.
+#
+# Doing that per-call would mean editing ~9 LLM call sites across dd_orchestrator
+# and deep_researcher, and any site missed (or added later) silently bills the
+# wrong provider — the failure mode we can least afford. A contextvar set ONCE at
+# the DD entry point covers every LLM call made anywhere inside that run,
+# including nested helpers, and cannot drift.
+#
+# Contextvars propagate across `await` and into tasks created inside the scope,
+# which is exactly the shape of a DD run. An explicit prefer_provider= argument
+# still wins, so the R-F1366 coder pin is unaffected.
+_preferred_provider: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "aria_preferred_provider", default="",
+)
+
+
+@contextlib.contextmanager
+def provider_scope(name: str):
+    """Route every LLM call made inside this block to `name` first.
+
+    The chain still falls back normally, so a cooling or failing preferred
+    provider degrades to the rest of the chain rather than failing the run —
+    a DD must never die because Anthropic is rate-limited.
+    """
+    token = _preferred_provider.set((name or "").strip().lower())
+    try:
+        yield
+    finally:
+        try:
+            _preferred_provider.reset(token)
+        except Exception:
+            pass
+
+
+def get_preferred_provider() -> str:
+    """The provider preferred by the current context ("" when unscoped)."""
+    try:
+        return _preferred_provider.get()
+    except Exception:
+        return ""
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.fallback")
@@ -386,6 +430,13 @@ class FallbackProvider(LLMProvider):
         attempted = 0
 
         # R-F1366 — per-call provider preference (see docstring).
+        # R-F2917 — when the caller did not pass one explicitly, fall back to the
+        # CONTEXT preference (provider_scope), which is how a whole DD run is
+        # pinned to Claude while everything else stays on the DeepSeek head.
+        # An explicit argument always wins, so the coder's DeepSeek pin is
+        # untouched.
+        if not prefer_provider:
+            prefer_provider = get_preferred_provider()
         order = self.providers
         if prefer_provider:
             preferred = [p for p in self.providers if p.name == prefer_provider]

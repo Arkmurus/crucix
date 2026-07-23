@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2912,
+  "next_available": 2919,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -22983,9 +22983,11 @@
       "title": "aria brain composite provenance truth",
       "claimed_at": "2026-07-23T14:22:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
+      "status": "abandoned",
       "commit_sha": null,
-      "notes": null
+      "notes": null,
+      "abandoned_at": "2026-07-23T14:59:17Z",
+      "abandon_reason": "duplicate reservation caused by concurrent command runner; work continues under R-F2910"
     },
     {
       "r_number": "R-F2910",
@@ -23000,6 +23002,69 @@
       "r_number": "R-F2911",
       "title": "registry coverage: curated real-entity liveness sweep so Live/Failing/Unproven is evidence, not absence",
       "claimed_at": "2026-07-23T14:27:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2912",
+      "title": "self_improve loops the same Opus prompt - top attributable Claude cost",
+      "claimed_at": "2026-07-23T14:38:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2913",
+      "title": "generative_redteam calls stage_improvement with 4 nonexistent kwargs and misses 2 required args",
+      "claimed_at": "2026-07-23T14:38:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2914",
+      "title": "74pct of LLM spend is uncategorized - wire feature attribution at the dominant call sites",
+      "claimed_at": "2026-07-23T14:38:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2915",
+      "title": "registry coverage: a stub adapter must never record registry liveness (it echoes the query, it does not read a registry)",
+      "claimed_at": "2026-07-23T14:47:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2916",
+      "title": "cached tokens invisible to the cost meter - Anthropic input_tokens is the uncached remainder only",
+      "claimed_at": "2026-07-23T14:48:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2917",
+      "title": "DD runs on Claude via a context-scoped provider preference; everything else stays DeepSeek",
+      "claimed_at": "2026-07-23T14:56:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2918",
+      "title": "GB coverage: record Companies House liveness where the real call happens (GB is covered_elsewhere, never recorded)",
+      "claimed_at": "2026-07-23T14:57:51Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

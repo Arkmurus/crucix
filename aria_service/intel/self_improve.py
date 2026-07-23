@@ -2187,7 +2187,25 @@ async def autonomous_improvement_cycle(llm) -> dict:
                 if file_path not in MODIFIABLE_FILES:
                     continue
 
+                # R-F2912 — do not re-diagnose the SAME file with the SAME
+                # errors every cycle. There was no dedupe here, so each cycle
+                # re-sent the identical full-file prompt for every qualifying
+                # file, and _diagnose_and_fix asks for "THE COMPLETE FIXED FILE"
+                # (~8k tokens/call). Because a staged fix does not clear the
+                # error ledger, the same errors persisted and were re-diagnosed
+                # indefinitely. Live evidence 2026-07-23: self_improve was the
+                # top attributable Claude cost ($8.63/mo, 126 calls) with
+                # top_calls showing identical token counts (8806 x3, 8312 x2)
+                # — the same prompt, billed again and again, now at Opus rates.
+                _sig = _diagnosis_signature(file_path, file_errors)
+                if await _recently_diagnosed(_sig):
+                    results["files_skipped_recently_diagnosed"] = (
+                        results.get("files_skipped_recently_diagnosed", 0) + 1
+                    )
+                    continue
+
                 bug_fix = await _diagnose_and_fix(llm, file_path, file_errors)
+                await _mark_diagnosed(_sig)
                 if bug_fix:
                     results["bugs_detected"] += 1
                     stage_result = await stage_improvement(
@@ -2401,6 +2419,50 @@ async def autonomous_improvement_cycle(llm) -> dict:
                      source_id=f"self_improve:cycle:{_SI_CYCLES}")
 
     return results
+
+
+# ── R-F2912: diagnosis dedupe ────────────────────────────────────────────────
+# One marker per (file, error-set). TTL bounds it so a file whose errors CHANGE
+# is re-diagnosed promptly, while an unchanged file is not re-sent every cycle.
+DIAGNOSIS_MARKER_PREFIX = "crucix:aria:selfimprove:diagnosed:"
+DIAGNOSIS_DEDUP_TTL_S = 24 * 3600
+
+
+def _diagnosis_signature(file_path: str, errors: list[dict]) -> str:
+    """Stable fingerprint of a diagnosis request.
+
+    Keyed on the file plus the SET of error messages, so:
+      * the same file with the same errors  -> same signature (skip, it is the
+        identical prompt we already paid for);
+      * the same file with a NEW error      -> different signature (re-diagnose,
+        because the situation genuinely changed).
+    Sorted + truncated so ordering noise and huge traces cannot split the key.
+    """
+    msgs = sorted({str(e.get("message") or e.get("error") or "")[:200] for e in errors})
+    raw = file_path + "|" + "|".join(msgs)
+    return hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest()[:32]
+
+
+async def _recently_diagnosed(signature: str) -> bool:
+    """True if this exact diagnosis was already run inside the TTL.
+
+    Fails OPEN (returns False) when the store is unreachable: a cost
+    optimisation must never be the reason a real bug goes undiagnosed. The
+    monthly/daily caps remain the spend backstop.
+    """
+    try:
+        return bool(await rs.get(f"{DIAGNOSIS_MARKER_PREFIX}{signature}"))
+    except Exception:
+        return False
+
+
+async def _mark_diagnosed(signature: str) -> None:
+    """Record that this diagnosis ran. Best-effort; never blocks the cycle."""
+    try:
+        await rs.set(f"{DIAGNOSIS_MARKER_PREFIX}{signature}", "1",
+                     ex=DIAGNOSIS_DEDUP_TTL_S)
+    except Exception:
+        pass
 
 
 async def _diagnose_and_fix(llm, file_path: str, errors: list[dict]) -> Optional[dict]:

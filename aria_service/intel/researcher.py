@@ -1996,16 +1996,20 @@ the maximum number of facts the content supports."""
     except Exception:
         _extract_model = ""
     try:
-        result = await llm.complete(
-            "You are ARIA — a global defence procurement intelligence analyst. "
-            "EXTRACT EXHAUSTIVELY. A senior analyst extracts 10-20 facts from a "
-            "substantive page, not 1-2. Be specific: names, amounts, dates, "
-            "countries, contract IDs. Rigorous confidence levels. Return strict JSON.",
-            extract_prompt,
-            max_tokens=3000,  # bumped from 1500 to fit ~15-20 facts
-            timeout=90.0,
-            model=_extract_model,   # R-F2769 — Haiku for extraction (ignored by non-Claude)
-        )
+        # R-F2914 — attribute this spend: it is the article-extraction bulk
+        # (~24 calls/run) and was landing in the 74% "uncategorized" bucket.
+        from . import cost_tracker as _ct2914
+        with _ct2914.feature("research_extraction"):
+            result = await llm.complete(
+                "You are ARIA — a global defence procurement intelligence analyst. "
+                "EXTRACT EXHAUSTIVELY. A senior analyst extracts 10-20 facts from a "
+                "substantive page, not 1-2. Be specific: names, amounts, dates, "
+                "countries, contract IDs. Rigorous confidence levels. Return strict JSON.",
+                extract_prompt,
+                max_tokens=3000,  # bumped from 1500 to fit ~15-20 facts
+                timeout=90.0,
+                model=_extract_model,   # R-F2769 — Haiku (ignored by non-Claude)
+            )
         # Use the multi-strategy LLM JSON repair instead of plain json.loads.
         # The al-monitor.com Iran-FM article observed 2026-04-27 fails every
         # spider re-run with "Expecting ',' delimiter" because Claude inlines

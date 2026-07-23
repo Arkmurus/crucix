@@ -23,6 +23,45 @@ _BASE_BACKOFF = 2.0  # seconds
 _API_URL = "https://api.anthropic.com/v1/messages"
 
 
+def _billable_input_tokens(usage: dict) -> int:
+    """R-F2915 — the REAL billable input size, including cached tokens.
+
+    Anthropic's `usage.input_tokens` is the UNCACHED REMAINDER only. The full
+    prompt is:
+
+        input_tokens + cache_creation_input_tokens + cache_read_input_tokens
+
+    R-F2760 deliberately caches ARIA's large, stable persona/constitution
+    prefix — which is exactly the portion that then disappears from
+    `input_tokens`. So the more effective the cache, the MORE spend became
+    invisible: cost_tracker saw only the uncached tail, and both the $300
+    monthly cap and the R-F2888 daily cap were computed from that. Live on
+    2026-07-23 the ledger reported $8.56 of Anthropic spend while the provider
+    console showed roughly twice that.
+
+    Cached tokens are not free, they are DISCOUNTED, so they are weighted at
+    Anthropic's published multipliers rather than counted flat:
+      * cache WRITE  ~1.25x the base input rate
+      * cache READ   ~0.10x the base input rate
+    Returning a weighted token count lets the existing per-model pricing table
+    stay unchanged while the resulting USD tracks the real bill.
+    """
+    def _n(key: str) -> int:
+        try:
+            return max(0, int(usage.get(key) or 0))
+        except (TypeError, ValueError):
+            # A malformed count must never crash a completed LLM call, and must
+            # never silently read as 0 spend either — log it and move on.
+            logger.warning("[anthropic] non-numeric usage.%s: %r", key, usage.get(key))
+            return 0
+
+    return (
+        _n("input_tokens")
+        + int(round(_n("cache_creation_input_tokens") * 1.25))
+        + int(round(_n("cache_read_input_tokens") * 0.10))
+    )
+
+
 class AnthropicProvider(LLMProvider):
     name = "anthropic"
 
@@ -125,7 +164,7 @@ class AnthropicProvider(LLMProvider):
                     usage = data.get("usage", {})
                     return LLMResult(
                         text=text,
-                        input_tokens=usage.get("input_tokens", 0),
+                        input_tokens=_billable_input_tokens(usage),
                         output_tokens=usage.get("output_tokens", 0),
                         model=data.get("model", self._model),
                     )
@@ -235,7 +274,10 @@ class AnthropicProvider(LLMProvider):
                                     msg = event.get("message", {})
                                     model = msg.get("model", self._model)
                                     usage = msg.get("usage", {})
-                                    input_tokens = usage.get("input_tokens", 0)
+                                    # R-F2915 — same cached-token blindness as the
+                                    # non-streaming path; message_start carries the
+                                    # cache_creation/cache_read counts too.
+                                    input_tokens = _billable_input_tokens(usage)
 
                                 elif etype == "content_block_delta":
                                     delta = event.get("delta", {})

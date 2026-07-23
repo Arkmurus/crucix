@@ -1145,17 +1145,23 @@ async def _extract_concepts_llm(text: str, llm) -> list[tuple[str, str]]:
             _extract_model = _tr2897.claude_model_for_intent("entity_extraction")
         except Exception:
             _extract_model = ""
-        result = await asyncio.wait_for(
-            llm.complete(
-                "You are a concise entity-extraction assistant. "
-                "Return only the requested JSON, nothing else.",
-                prompt,
-                max_tokens=600,
-                timeout=30.0,
-                model=_extract_model,   # R-F2897 — Haiku (ignored by non-Claude)
-            ),
-            timeout=35.0,  # outer safety net
-        )
+        # R-F2914 — attribute the spend. 74% of July's LLM cost landed in
+        # "uncategorized" ($53.28 of $71.66), which made every "what does X
+        # cost?" question unanswerable. This is the highest-volume LLM site in
+        # the tree, and it had no cost_tracker.feature() scope at all.
+        from . import cost_tracker as _ct2914
+        with _ct2914.feature("neural_memory"):
+            result = await asyncio.wait_for(
+                llm.complete(
+                    "You are a concise entity-extraction assistant. "
+                    "Return only the requested JSON, nothing else.",
+                    prompt,
+                    max_tokens=600,
+                    timeout=30.0,
+                    model=_extract_model,   # R-F2897 — Haiku (ignored by non-Claude)
+                ),
+                timeout=35.0,  # outer safety net
+            )
         raw = result.text.strip()
         # Strip markdown code fences if present
         if raw.startswith("```"):
