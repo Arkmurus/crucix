@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
+import time
 
 logger = logging.getLogger("aria.encode_offload")
 
@@ -38,6 +40,54 @@ _WARMUP_TIMEOUT_S = float(os.getenv("ARIA_ENCODE_OFFLOAD_WARMUP_S") or "90")
 
 _pool = None
 _pool_broken = False
+# R-F2950 — self-heal state. A dead/broken offload pool must not condemn ARIA to
+# in-process encode() forever (each in-process encode holds the GIL and freezes
+# the loop — live 2026-07-23 a 77.8s R-F703 stall from exactly this). Rebuild the
+# pool on the next encode after a cooldown, bounded so a persistently-crashing
+# worker can't thrash-spawn.
+_last_restart_attempt = 0.0
+_RESTART_COOLDOWN_S = float(os.getenv("ARIA_ENCODE_OFFLOAD_RESTART_COOLDOWN_S") or "300")
+_restart_lock = threading.Lock()
+
+
+def _ensure_pool() -> None:
+    """R-F2950 — self-heal a BROKEN (crash-latched) offload pool so embeds return
+    to the off-loop subprocess instead of the GIL-freezing in-process fallback.
+    Scope is deliberately the `_pool_broken` latch ONLY: before R-F2950 a single
+    BrokenProcessPool crash set `_pool_broken=True` PERMANENTLY (is_enabled()
+    False forever) → every subsequent embed ran in-process on the loop → recurring
+    77s R-F703 stalls until a full restart. The never-started case (`_pool is
+    None` without a crash) is boot `start()`'s job and is already gap-wired — we
+    do NOT silently start it here (that would change the documented
+    unstarted→fall-back contract, cf. test_rf1890). Cooldown-bounded + lock-guarded
+    (encode() may run from worker threads); no warmup — the worker lazy-loads in
+    the child on first encode (off the loop)."""
+    global _pool, _pool_broken, _last_restart_attempt
+    if not _ENABLED or not _pool_broken:
+        return  # only the crash-latched state is self-healed here
+    now = time.time()
+    if (now - _last_restart_attempt) < _RESTART_COOLDOWN_S:
+        return  # within cooldown — fall back in-process for this call
+    with _restart_lock:
+        # re-check under the lock (another thread may have healed it)
+        if not _pool_broken:
+            return
+        if (time.time() - _last_restart_attempt) < _RESTART_COOLDOWN_S:
+            return
+        _last_restart_attempt = time.time()
+        if _pool is not None:
+            try:
+                _pool.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+            _pool = None
+        _pool_broken = False
+        try:
+            start(warmup=False)
+            if _pool is not None:
+                logger.info("R-F2950 encode-offload pool self-healed (rebuilt after unavailability)")
+        except Exception as e:
+            logger.warning("R-F2950 encode-offload self-heal rebuild failed: %s", e)
 
 
 class OffloadUnavailable(RuntimeError):
@@ -156,6 +206,9 @@ def encode(text_or_texts, *, normalize: bool = True):
     """Encode in the worker process. Returns the embedding(s) (ndarray) or
     raises OffloadUnavailable so the caller falls back in-process."""
     global _pool_broken
+    # R-F2950 — try to self-heal a dead/broken pool before giving up to the
+    # GIL-freezing in-process fallback (cooldown-bounded inside).
+    _ensure_pool()
     if not is_enabled():
         raise OffloadUnavailable("offload disabled or pool unavailable")
     try:
