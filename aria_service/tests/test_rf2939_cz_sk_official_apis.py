@@ -125,3 +125,69 @@ def test_rf2939_sk_normalised_name_matches_through_legal_suffix():
     # "SLOVNAFT" must resolve to "SLOVNAFT, a.s." (suffix + punctuation ignored).
     entity = ra._sk_best_entity([_RPO_SLOVNAFT], "SLOVNAFT", "")
     assert entity is _RPO_SLOVNAFT
+
+
+# ── §3c — invoke the ENTRY POINTS, not just the parsers ─────────────────────
+# The first cut of this file tested _parse_ares_vr / _parse_sk_rpo directly and passed
+# while _lookup_czech raised NameError (_CZ_ARES_BASE had been collateral-deleted), so
+# a CZ lookup silently fell through to a WRONG GLEIF entity in production. These tests
+# drive the actual lookup entry points with a mocked transport, so a missing constant
+# or a broken request path fails here, not in a DD report.
+
+import asyncio
+import types
+
+
+class _FakeResp:
+    def __init__(self, status, payload):
+        self.status_code = status
+        self._payload = payload
+        self.content = b"{}"
+    def json(self):
+        return self._payload
+
+
+class _FakeClient:
+    """Minimal httpx.AsyncClient stand-in routing by URL substring."""
+    def __init__(self, routes):
+        self._routes = routes
+    async def __aenter__(self):
+        return self
+    async def __aexit__(self, *a):
+        return False
+    def _match(self, url):
+        for frag, resp in self._routes.items():
+            if frag in url:
+                return resp
+        return _FakeResp(404, {})
+    async def get(self, url, params=None, **kw):
+        return self._match(url)
+    async def post(self, url, json=None, **kw):
+        return self._match(url)
+
+
+def _patch_httpx(monkeypatch, routes):
+    fake = _FakeClient(routes)
+    monkeypatch.setattr(ra.httpx, "AsyncClient", lambda *a, **k: fake)
+
+
+def test_rf2939_cz_entry_point_uses_ares_and_returns_the_company(monkeypatch):
+    _patch_httpx(monkeypatch, {"ekonomicke-subjekty-vr/00177041": _FakeResp(200, _ARES_SKODA)})
+    r = asyncio.run(ra._lookup_czech("SKODA AUTO", "00177041"))
+    assert r is not None, "_lookup_czech returned None (NameError/constant regression would do this)"
+    assert r["adapter"] == "czech_ares"
+    assert r["profile"]["company_name"] == "Škoda Auto a.s."
+
+
+def test_rf2939_sk_entry_point_uses_rpo_and_returns_the_company(monkeypatch):
+    _patch_httpx(monkeypatch, {"/search": _FakeResp(200, {"results": [_RPO_SLOVNAFT]})})
+    r = asyncio.run(ra._lookup_slovakia("SLOVNAFT", "31322832"))
+    assert r is not None
+    assert r["adapter"] == "slovakia_rpo"
+    assert r["profile"]["company_name"] == "SLOVNAFT, a.s."
+
+
+def test_rf2939_both_base_url_constants_are_defined():
+    """The exact regression: a referenced module constant that was deleted."""
+    assert isinstance(getattr(ra, "_CZ_ARES_BASE", None), str) and ra._CZ_ARES_BASE
+    assert isinstance(getattr(ra, "_SK_RPO_BASE", None), str) and ra._SK_RPO_BASE

@@ -1518,6 +1518,20 @@ def _parse_sk_rpo(e: dict) -> dict | None:
 
 
 
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Czech Republic — ARES official JSON API  (CZ)                    ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+# R-F2939 (fix): this constant was collateral-deleted when the SK block above was
+# replaced (the block boundary swallowed the CZ banner + constant). _lookup_czech then
+# raised NameError -> caught -> None -> lookup_entity fell to the GLEIF fallback, so a
+# CZ lookup returned a RELATED-BUT-WRONG entity ("Nadační fond Škoda Auto") instead of
+# "Škoda Auto a.s." The unit tests missed it because they exercised the PARSER
+# (_parse_ares_vr) directly, not the _lookup_czech ENTRY POINT that references this
+# constant — the §3c "test the actual broken path" rule. A guard test now imports and
+# calls the entry points.
+_CZ_ARES_BASE = "https://ares.gov.cz/ekonomicke-subjekty-v-be/rest"
+
+
 async def _lookup_czech(name: str, reg_number: str | None) -> dict | None:
     """Czech commercial registry via the OFFICIAL ARES JSON API (R-F2939).
 
