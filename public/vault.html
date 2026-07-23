@@ -164,7 +164,7 @@
   <div class="mt-16" style="font-size:12px;color:#9b968c;padding:0 4px">
     <i class="bi bi-info-circle"></i> Tri-state liveness: <b>Live</b> = proven by a successful query · <b>Failing</b> = a probe failed · <b>Unproven</b> = not yet exercised (never read as "broken").
     <br><i class="bi bi-exclamation-triangle" style="color:#b45309"></i> <b>Live *</b> = the registry answered, but a known data-quality defect affects the fields it returns — hover for detail. Liveness and correctness are separate claims and this table does not blur them.
-    <br><i class="bi bi-slash-circle"></i> <b>Why</b> explains an unproven row: <b>No registry API</b> = none exists to read, so it needs manual verification rather than more engineering · <b>Source gone</b> = the endpoint has disappeared · <b>Blocked (403)</b> = the registry refuses automated access · <b>Needs re-parse</b> = it responds but the adapter extracts nothing. Hover any row for the probe date.
+    <br><i class="bi bi-slash-circle"></i> <b>Why</b> explains an unproven row: <b>No registry API</b> = none exists to read, so it needs manual verification rather than more engineering · <b>Source gone</b> = the endpoint has disappeared · <b>Blocked / auth</b> = the registry refuses automated access (403, login required, or blocks our IP) · <b>No API</b> = it responds but serves HTML only, with no machine-readable API. Hover any row for the probe date.
     <br>API: <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">GET /api/aria/registry/coverage</code>
   </div>
 </main>
@@ -378,8 +378,8 @@ function covLiveHtml(live, status, caveat) {
 const COV_REASON_STYLE = {
   stub_no_registry_api:     { icon: 'bi-slash-circle', colour: '#6b6862', label: 'No registry API' },
   source_gone:              { icon: 'bi-x-octagon',    colour: '#b91c1c', label: 'Source gone' },
-  source_blocks_automation: { icon: 'bi-shield-lock',  colour: '#b45309', label: 'Blocked (403)' },
-  reachable_unparsed:       { icon: 'bi-wrench',       colour: '#b45309', label: 'Needs re-parse' },
+  source_blocks_automation: { icon: 'bi-shield-lock',  colour: '#b45309', label: 'Blocked / auth' },
+  reachable_unparsed:       { icon: 'bi-file-earmark-code', colour: '#b45309', label: 'No API' },
 };
 function covWhyHtml(j) {
   if (j && j.caveat) {

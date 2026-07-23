@@ -56,9 +56,10 @@ def test_rf2929_unknown_jurisdiction_has_no_invented_reason():
 
 @pytest.mark.parametrize("iso2,cls", [
     ("AO", "stub_no_registry_api"), ("US", "stub_no_registry_api"),
-    ("DE", "source_gone"), ("AE", "source_gone"), ("RO", "source_gone"),
+    ("DE", "source_gone"), ("AE", "source_gone"),
     ("IN", "source_blocks_automation"), ("NG", "source_blocks_automation"),
-    ("HU", "reachable_unparsed"), ("TR", "reachable_unparsed"), ("GI", "reachable_unparsed"),
+    ("RO", "source_blocks_automation"), ("TR", "source_blocks_automation"),
+    ("HU", "reachable_unparsed"), ("GI", "reachable_unparsed"),
 ])
 def test_rf2929_triaged_jurisdictions_carry_their_verdict(iso2, cls):
     assert rc._ADAPTER_NOTES[iso2]["class"] == cls
@@ -134,7 +135,7 @@ def test_rf2929_page_legend_explains_the_new_states():
     html = VAULT.read_text(encoding="utf-8", errors="ignore")
     assert "Live *" in html
     assert "No registry API" in html and "Source gone" in html
-    assert "Blocked (403)" in html and "Needs re-parse" in html
+    assert "Blocked / auth" in html and "No API" in html
 
 
 def test_rf2929_table_column_count_is_consistent():

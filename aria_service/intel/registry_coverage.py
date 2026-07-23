@@ -69,8 +69,8 @@ _VALID_OUTCOMES = ("success", "error", "empty")
 _NOTE_CLASSES = {
     "stub_no_registry_api": "No public registry API exists — ARIA reads nothing; manual verification required.",
     "source_gone": "The source has disappeared — no code change can restore it.",
-    "source_blocks_automation": "The registry blocks automated access (HTTP 403).",
-    "reachable_unparsed": "Source responds, but the adapter extracts nothing — needs re-parsing.",
+    "source_blocks_automation": "The registry blocks automated access — it needs credentials, refuses non-browser clients, or blocks our IP.",
+    "reachable_unparsed": "Source responds but exposes no machine-readable API — extracting data would need a fragile scrape (not done).",
 }
 
 _ADAPTER_NOTES: dict[str, dict] = {
@@ -84,18 +84,27 @@ _ADAPTER_NOTES: dict[str, dict] = {
            "detail": "api.offeneregister.de no longer resolves (DNS)."},
     "AE": {"class": "source_gone", "probed_at": "2026-07-23",
            "detail": "difc.ae public-register API returns 404; only ever covered the DIFC free zone."},
-    "RO": {"class": "source_gone", "probed_at": "2026-07-23",
-           "detail": "ANAF PlatitorTvaRest v8 retired (404). Replacement endpoint not yet known."},
+    # RO reclassified 2026-07-23: NOT gone. ANAF resets the connection from our
+    # datacenter IP on every attempt, and the v8 endpoint 404s. It is the only free
+    # official RO source; third-party providers (listafirme/termene) are §6-declined.
+    "RO": {"class": "source_blocks_automation", "probed_at": "2026-07-23",
+           "detail": "ANAF blocks our datacenter IP (connection reset); v8 endpoint also 404s. "
+                     "Only free official source; paid/third-party declined (§6)."},
     "IN": {"class": "source_blocks_automation", "probed_at": "2026-07-23",
            "detail": "mca.gov.in returns 403 to a normal client."},
     "NG": {"class": "source_blocks_automation", "probed_at": "2026-07-23",
            "detail": "search.cac.gov.ng returns 403 to a normal client."},
+    # TR reclassified 2026-07-23: NOT a parse gap. The MERSIS REST API 302-redirects
+    # every call to a login portal — it requires authentication, no free public access.
+    "TR": {"class": "source_blocks_automation", "probed_at": "2026-07-23",
+           "detail": "MERSIS REST (mersis.ticaret.gov.tr) requires authentication — "
+                     "redirects to a login portal. No free public API."},
+    # HU probed 2026-07-23: the registry (e-cegjegyzek / e-beszamolo) serves HTML only;
+    # no free JSON API found. A scrape would drift and fabricate — declined (cf. R-F2939).
     "HU": {"class": "reachable_unparsed", "probed_at": "2026-07-23",
-           "detail": "e-cegjegyzek.hu responds 200; adapter returns nothing."},
-    "TR": {"class": "reachable_unparsed", "probed_at": "2026-07-23",
-           "detail": "mersis.gtb.gov.tr responds 200; adapter returns nothing."},
+           "detail": "e-cegjegyzek / e-beszamolo serve HTML only; no free public JSON API."},
     "GI": {"class": "reachable_unparsed", "probed_at": "2026-07-23",
-           "detail": "companieshouse.gi responds 200; adapter returns nothing."},
+           "detail": "companieshouse.gi responds 200 (HTML); no machine-readable API."},
 }
 
 # Defects in adapters that ARE live. Shown as a caveat ON the live row, never as a
@@ -132,17 +141,18 @@ _ADAPTER_CAVEATS: dict[str, str] = {}
 #       networks. The open-data service has disappeared, not merely changed shape.
 #   AE  difc.ae/api/public-register/search -> HTTP 404. Also note the adapter only
 #       ever covered the DIFC free zone, not the wider UAE.
-#   RO  ANAF PlatitorTvaRest v8 -> structured JSON 404 ("No endpoint"). Host alive,
-#       API version retired. v7/v9/v10/v11 on both path shapes also 404. The
-#       replacement endpoint is NOT known — it needs ANAF's documentation, and
-#       guessing a version would be inventing an answer.
 #
-# SOURCE BLOCKS AUTOMATED ACCESS (HTTP 403 to a normal client):
-#   IN  mca.gov.in            NG  search.cac.gov.ng
+# SOURCE BLOCKS AUTOMATED ACCESS (needs credentials, or blocks our IP):
+#   IN  mca.gov.in -> 403.    NG  search.cac.gov.ng -> 403.
+#   RO  ANAF resets the connection from our datacenter IP on every attempt, and the
+#       v8 endpoint 404s. Only free official RO source; third-party declined (§6).
+#       (Reclassified from "source gone" 2026-07-23 — it is blocking us, not gone.)
+#   TR  MERSIS REST 302-redirects every call to a login portal — requires
+#       authentication, no free public access. (Reclassified from "reachable_unparsed".)
 #
-# SOURCE REACHABLE (HTTP 200) BUT THE ADAPTER EXTRACTS NOTHING — the scrape no longer
-# matches the page, or an identifier is required. Individually diagnosable, untriaged:
-#   HU  e-cegjegyzek.hu   TR  mersis.gtb.gov.tr   GI  companieshouse.gi
+# SOURCE REACHABLE (HTTP 200) BUT NO MACHINE-READABLE API — HTML only. Extracting data
+# would need a fragile scrape (which drifts and fabricates — declined, cf. R-F2939):
+#   HU  e-cegjegyzek / e-beszamolo (HTML only)   GI  companieshouse.gi (HTML only)
 #
 # CZ / SK — the "IČO"-as-name data-quality defect is FIXED (R-F2939): both were
 # migrated from drifted HTML scrapes to the official JSON APIs (CZ ARES, SK RPO). They
