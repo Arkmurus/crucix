@@ -294,3 +294,46 @@ test('R-F2899: the Grade B lane is gated too — single-source does not lower th
   const b = { ...TEMPLATE_NEWS, intel_grade: 'B' };
   assert.equal(hooks.selectTelegramGradeB({ ok: true, signals: [b], freshness: freshOk }), null);
 });
+
+// ── R-F2902 ────────────────────────────────────────────────────────────────
+// The destination may be a broadcast channel OR an operator-designated supergroup.
+// Relaxed deliberately (the operator's community is the supergroup), but NARROWED,
+// not removed: a mistyped id must never publish into a DM.
+
+function destStub(type, title = 'T') {
+  return stubFetch(async (url) => {
+    if (url.includes('/getChat?')) return jsonRes({ ok: true, result: { id: -100, type, title } });
+    if (url.includes('/getMe')) return jsonRes({ ok: true, result: { id: 42 } });
+    if (url.includes('/getChatMember')) {
+      return jsonRes({ ok: true, result: { status: 'administrator', can_post_messages: true } });
+    }
+    return jsonRes({ ok: true });
+  });
+}
+
+test('R-F2902: a supergroup is an allowed destination', async () => {
+  const restore = destStub('supergroup', '@ARIAIntelligence');
+  try {
+    const res = await hooks.validatePublicChannelDestination(BOT);
+    assert.equal(res.ok, true);
+    assert.equal(res.type, 'supergroup');
+  } finally { restore(); }
+});
+
+test('R-F2902: a broadcast channel is still allowed', async () => {
+  const restore = destStub('channel', 'Aria Intelligence ($ARIA)');
+  try {
+    assert.equal((await hooks.validatePublicChannelDestination(BOT)).ok, true);
+  } finally { restore(); }
+});
+
+for (const bad of ['private', 'group']) {
+  test(`R-F2902: a "${bad}" destination is still REFUSED`, async () => {
+    const restore = destStub(bad);
+    try {
+      const res = await hooks.validatePublicChannelDestination(BOT);
+      assert.equal(res.ok, false, `${bad} must never receive channel intel`);
+      assert.equal(res.reason, 'destination_not_channel');
+    } finally { restore(); }
+  });
+}

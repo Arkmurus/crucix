@@ -164,20 +164,54 @@ describe('Telegram Golden Intel gate', () => {
     assert.doesNotMatch(String(telegramMessages[0].opts.body), /Hidden in the supply chain/);
   });
 
-  it('R-F2789: blocks a supergroup configured as the public intel channel', async () => {
-    global.fetch = async () => new Response(JSON.stringify({
-      ok: true,
-      result: { id: -1003836086295, type: 'supergroup', title: '@ARIAIntelligence' },
-    }), { status: 200 });
+  // R-F2902 SUPERSEDES R-F2789 — BY EXPLICIT OPERATOR DECISION, 2026-07-23.
+  //
+  // R-F2789 blocked a supergroup outright, on the assumption that the Golden Intel
+  // lane is always a public broadcast channel and that a supergroup destination
+  // therefore meant a misconfiguration leaking public intel into a private group.
+  //
+  // That assumption was wrong about THIS deployment. Verified live 2026-07-23:
+  //   -1002311460199  channel "Aria Intelligence ($ARIA)", @ariaintelligence,
+  //                   2 subscribers — every send returns
+  //                   403 "bot is not a member of the channel chat"
+  //   -1003836086295  supergroup "@ARIAIntelligence", 7 members — the bot is an
+  //                   administrator and a write probe returns 200 ok
+  // The supergroup is the operator's actual community. R-F2716 recorded that WHICH
+  // chat to publish to was an unresolved operator decision; the operator has now
+  // made it and directed this guard be relaxed.
+  //
+  // The guard is NARROWED, not removed — the protection R-F2789 was reaching for
+  // (never publish into someone's DM) is retained and asserted below.
+  it('R-F2902: allows an operator-designated supergroup (supersedes R-F2789)', async () => {
+    global.fetch = async (url) => {
+      if (String(url).includes('/getChat?')) {
+        return new Response(JSON.stringify({
+          ok: true,
+          result: { id: -1003836086295, type: 'supergroup', title: '@ARIAIntelligence' },
+        }), { status: 200 });
+      }
+      if (String(url).includes('/getMe')) {
+        return new Response(JSON.stringify({ ok: true, result: { id: 42 } }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        ok: true, result: { status: 'administrator', can_post_messages: true },
+      }), { status: 200 });
+    };
 
     const result = await validatePublicChannelDestination({ botToken: 'test-token', channelId: '-1003836086295' });
+    assert.equal(result.ok, true);
+    assert.equal(result.type, 'supergroup');
+  });
 
-    assert.deepEqual(result, {
-      ok: false,
-      reason: 'destination_not_channel',
-      type: 'supergroup',
-      title: '@ARIAIntelligence',
-    });
+  it('R-F2902: still refuses a DM or a basic group as an intel destination', async () => {
+    for (const type of ['private', 'group']) {
+      global.fetch = async () => new Response(JSON.stringify({
+        ok: true, result: { id: -1, type, title: 'X' },
+      }), { status: 200 });
+      const result = await validatePublicChannelDestination({ botToken: 'test-token', channelId: '-1' });
+      assert.equal(result.ok, false, `${type} must never receive channel intel`);
+      assert.equal(result.reason, 'destination_not_channel');
+    }
   });
 
   it('morning cron sends nothing when Golden Intel is missing or stale', async () => {
