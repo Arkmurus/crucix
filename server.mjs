@@ -6205,6 +6205,22 @@ app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
     if (notifyFlash  !== undefined) updates.notifyFlash  = !!notifyFlash;
     const updated = updateUser(req.params.id, updates);
 
+    // R-F2986 — a suspend or a role change MUST cut the target's existing
+    // sessions, not just block future logins. requireAuth (above) trusts the
+    // token's baked-in role and never re-reads user.status, so without a
+    // tokenVersion bump a suspended user keeps full access on their live
+    // 7-day JWT and a demoted admin keeps role:admin until the token expires.
+    // force-logout already does exactly this (revokeTokens); mirror it here.
+    const roleChanged   = role   !== undefined && role   !== existingUser.role;
+    const nowSuspended  = status === 'suspended' && existingUser.status !== 'suspended';
+    if (roleChanged || nowSuspended) {
+      try {
+        revokeTokens(req.params.id);
+      } catch (revErr) {
+        console.error(`[Auth] R-F2986 revokeTokens failed for ${req.params.id}: ${revErr.message}`);
+      }
+    }
+
     // Emails + audit on status change
     if (status && status !== existingUser.status) {
       if (status === 'active') {
