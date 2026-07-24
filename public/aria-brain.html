@@ -248,7 +248,7 @@ window.addEventListener('DOMContentLoaded', function () {
     <h2><i class="bi bi-diagram-3"></i> ARIA Ecosystem</h2>
     <div id="ecosystem-breadcrumb" style="font-size:0.75em;color:#9b968c;margin-bottom:5px"></div>
     <div id="ecosystem-coverage" style="font-size:0.7em;color:#9b968c;margin-bottom:8px;line-height:1.5"></div>
-    <div id="ecosystem-map" class="loading" style="max-height:560px;overflow-y:auto;min-height:100px">Loading...</div>
+    <div id="ecosystem-map" class="loading" style="max-height:300px;overflow-y:auto;min-height:80px">Loading...</div>
   </div>
 
   <!-- Composite Autonomy Score -->
@@ -1433,14 +1433,10 @@ async function loadEcosystem(root){
     const oc = c.orphans>0 ? 'warn' : 'good';
     const hs = cov.health_sensors || {};
     const bc = hs.by_color || {};
-    let health = '';
-    if(hs.pct_live_sensor!=null){
-      health = ` · <strong>sensors:</strong> ${hs.with_live_sensor}/${hs.total_nodes} live (${hs.pct_live_sensor}%) `
-        + `<span class="good">${bc.green||0}●</span> <span class="warn">${bc.amber||0}●</span> <span style="color:var(--red)">${bc.red||0}●</span> `
-        + `<span class="neutral">${hs.grey_no_sensor} grey</span>`;
-    }
-    cvEl.innerHTML = `<strong>Coverage:</strong> ${c.on_map}/${c.total_on_disk} modules on map <em>(100% by construction)</em> · `
-      + `<span class="${oc}">${c.orphans} unassigned</span> · ${ie.resolved_intra_repo} import links · call-graph <span class="neutral">${cov.call_edges.status.replace('_',' ')}</span>` + health;
+    const sens = hs.pct_live_sensor!=null
+      ? ` · sensors ${hs.with_live_sensor}/${hs.total_nodes} <span class="good">${bc.green||0}</span>/<span class="warn">${bc.amber||0}</span>/<span style="color:var(--red)">${bc.red||0}</span>` : '';
+    cvEl.innerHTML = `<span title="100% by construction — node set == filesystem">${c.on_map} modules</span> · `
+      + `<span class="${oc}">${c.orphans} unassigned</span> · ${ie.resolved_intra_repo} imports · call-graph partial${sens}`;
   } else if(cvEl && root && root.startsWith('mod:')){
     // module drill → show its audit R-numbers (with titles) + function wired/dark (T3)
     try {
@@ -1461,44 +1457,42 @@ async function loadEcosystem(root){
   // height (the card scrolls), drill on click. Reduced font throughout.
   const nodes = g.nodes.slice();
   const byType = (t) => nodes.filter(n => n.type === t);
-  const _tile = (n) => {
+  // compact SINGLE-LINE chip: health dot + name; all detail (count/R#/sensor) in the tooltip.
+  const _chip = (n) => {
     const hc = _ECO_HCOL[n.health] || '#5a6470';
     const rn = n.r_numbers || [];
-    const topR = rn.length ? (rn[rn.length - 1] + (rn.length > 1 ? ` +${rn.length - 1}` : '')) : '';
-    let sub = '';
-    if (n.type === 'service') sub = n.detail || ('port ' + (n.port || ''));
-    else if (n.type === 'organ') sub = (n.module_count != null ? n.module_count + ' modules' : '') + (n.orphan_alert ? ' — unassigned' : '');
-    else if (n.type === 'function') sub = (n.wired ? 'wired' : 'dark') + ' · L' + (n.line || '');
-    else sub = topR || (n.category || '');
-    const drill = n.type !== 'function';
+    const topR = rn.length ? rn.slice(-4).reverse().join(', ') : '';
     const nm = (n.label || '');
-    const tip = `${nm} (${n.type})`
+    let extra = '';
+    if (n.type === 'organ') extra = n.module_count != null ? ` · ${n.module_count} mod` : '';
+    else if (n.type === 'function') extra = n.wired ? ' · wired' : ' · dark';
+    else if (n.type === 'service') extra = n.detail ? ` · ${n.detail}` : '';
+    const tip = `${nm} (${n.type})${extra}`
       + (n.sensor ? ` — [${n.health || 'grey'}] ${n.sensor}${n.sensor_value != null ? (' = ' + n.sensor_value) : ''}` : '')
-      + (topR ? ` — audit ${rn.slice(-4).reverse().join(', ')}` : '');
+      + (topR ? ` — ${topR}` : '');
+    const drill = n.type !== 'function';
     return `<div ${drill ? `onclick="ecoDrill('${n.id}','${nm.replace(/'/g, '')}')" style="cursor:pointer;` : 'style="'}`
-      + `background:#141a22;border:1px solid #232c38;border-left:3px solid ${hc};border-radius:4px;padding:5px 7px;overflow:hidden" title="${tip.replace(/"/g, '')}">`
-      + `<div style="display:flex;align-items:center;gap:5px">`
-      + `<span style="width:7px;height:7px;border-radius:50%;background:${hc};flex:0 0 auto"></span>`
-      + `<span style="font-size:11px;color:#d6d2c8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${nm}</span></div>`
-      + (sub ? `<div style="font-size:8.5px;color:#7a8593;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sub}</div>` : '')
-      + `</div>`;
+      + `display:flex;align-items:center;gap:5px;background:#141a22;border:1px solid #222a34;border-left:2px solid ${hc};`
+      + `border-radius:3px;padding:2px 6px;overflow:hidden" title="${tip.replace(/"/g, '')}">`
+      + `<span style="width:6px;height:6px;border-radius:50%;background:${hc};flex:0 0 auto"></span>`
+      + `<span style="font-size:10px;color:#cfcabf;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${nm}</span></div>`;
   };
   const _section = (label, arr) => arr.length
-    ? `<div style="font-size:9px;color:#7a8593;letter-spacing:0.5px;margin:8px 0 4px">${label}</div>`
-      + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:6px">${arr.map(_tile).join('')}</div>`
+    ? `<div style="font-size:8px;color:#6a7580;letter-spacing:0.6px;margin:6px 0 3px">${label}</div>`
+      + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:4px">${arr.map(_chip).join('')}</div>`
     : '';
   const services = byType('service'), organs = byType('organ'),
         modules = byType('module'), functions = byType('function');
   let html = _section('SERVICES', services)
     + _section('ORGANS', organs)
     + _section(`FUNCTIONS (${functions.filter(f => f.wired).length}/${functions.length} wired)`, functions)
-    + _section(functions.length ? 'CONNECTED MODULES (imports)' : 'MODULES', modules);
-  html += `<div style="margin-top:10px;font-size:9px;color:#9b968c;display:flex;gap:14px;flex-wrap:wrap">`
+    + _section(functions.length ? 'IMPORTS' : 'MODULES', modules);
+  html += `<div style="margin-top:7px;font-size:8.5px;color:#8a8578;display:flex;gap:12px;flex-wrap:wrap">`
     + `<span><span style="color:var(--green)">●</span> healthy</span>`
     + `<span><span style="color:var(--yellow)">●</span> degraded</span>`
     + `<span><span style="color:var(--red)">●</span> broken</span>`
-    + `<span><span style="color:#5a6470">●</span> no sensor (grey ≠ green)</span>`
-    + `<span style="color:#7a8593">click a tile to drill in</span></div>`;
+    + `<span><span style="color:#5a6470">●</span> no sensor</span>`
+    + `<span style="color:#6a7580">click to drill · hover for detail</span></div>`;
   el.classList.remove('loading'); el.innerHTML = html;
 }
 function ecoDrill(id,label){ if(!id) return;

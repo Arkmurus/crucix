@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2982,
+  "next_available": 2984,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23661,9 +23661,10 @@
       "title": "ecosystem honesty fixes from adversarial review: F1 CLOSED-breaker-green needs proven success (else grey), F2 include __init__ packages so 100% is TRUE, F3 honest per-fn wiring, F4 count relative-import misses, F5 tighten module attribution, F6 prose",
       "claimed_at": "2026-07-24T11:55:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "aa857ce3",
+      "notes": null,
+      "shipped_at": "2026-07-24T12:23:30Z"
     },
     {
       "r_number": "R-F2981",
@@ -23674,6 +23675,24 @@
       "commit_sha": "962c5dcb",
       "notes": null,
       "shipped_at": "2026-07-24T12:04:25Z"
+    },
+    {
+      "r_number": "R-F2982",
+      "title": "DD PDF: clean corporate letterhead (no dark header), Aria Intelligence branding, fix verdict-pill overflow, aligned",
+      "claimed_at": "2026-07-24T12:22:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2983",
+      "title": "ecosystem UI compaction: single-line health chips, tight grid, condensed coverage, 300px cap — halve the vertical footprint per operator",
+      "claimed_at": "2026-07-24T12:25:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
