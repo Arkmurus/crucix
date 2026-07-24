@@ -132,7 +132,17 @@ primary_region = 'lhr'
   initial_size = '5gb'
 
 [[vm]]
-  size = 'shared-cpu-4x'
+  # R-F2966 (2026-07-24, infra 360): shared-cpu-4x/8GB → shared-cpu-8x/16GB.
+  # 8GB is the CEILING of shared-cpu-4x (2GB/core), and the resident set now
+  # holds ~223k facts + ~1.2M neural edges + chromadb + the embedder — live
+  # MemAvailable was ~3GB, i.e. the same "spike → swap → PR04 wedge" class the
+  # 2026-05-15 bump fought, one growth-cycle away from recurring. shared-cpu-8x
+  # is the next valid tier that allows 16GB AND doubles cores 4→8, which also
+  # relieves the aiosqlite write-worker CPU contention (41% of a 60s profile).
+  # Still shared pricing (perf-8x would give 16GB dedicated at ~5x the cost —
+  # deliberately not chosen; revisit only if shared-CPU steal becomes the bound).
+  # QUEUED: applies at the next aria-intel deploy/restart, not forced now.
+  size = 'shared-cpu-8x'
   # Bumped to 4 CPU + 8GB on 2026-05-15: at 4GB the resident set (44967
   # facts + 29504 signals + 5476 neurons + 26843 RAG docs + chromadb +
   # SentenceTransformer model + httpx crawl pool) sat ~3.5GB and any
@@ -141,4 +151,4 @@ primary_region = 'lhr'
   # /api/aria/health/live timed out → fly PR04 cascade. Three wedges
   # in one morning (10:22, 11:13, 11:24 BST). Doubling memory + 4 vCPU
   # gives headroom for the embedder + chromadb + concurrent absorbs.
-  memory = '8192mb'
+  memory = '16384mb'
