@@ -1178,6 +1178,143 @@
       .lp-hero-visual { display: none; }
     }
   </style>
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       R-F2989 — JANES-GRADE EDITORIAL RE-SKIN (structure & copy unchanged).
+       Loaded AFTER the base <style> so equal-specificity rules win by order.
+       Redefines the design tokens (cool paper + navy ink, sharp radii) and
+       neutralises the SaaS-era violet gradients/glows; turns the hero into a
+       dark full-bleed editorial band. To finish the hero, drop a licensed
+       photograph at public/images/hero/hero.jpg — it appears automatically
+       behind the overlay (see --lp-hero-img). Until then the hero renders as
+       a clean dark-navy band, intentionally.
+       ══════════════════════════════════════════════════════════════════════ -->
+  <style id="rf2989-janes">
+    :root{
+      /* cool paper + navy ink (was warm cream + brand violet) */
+      --sc-bg:#f5f6f8; --sc-bg2:#eaedf1; --sc-card:#ffffff; --sc-panel:#f5f6f8;
+      --sc-prime:#123a63; --sc-prime-dark:#0e2c4c; --sc-prime-soft:#e9eef5;
+      --sc-heading:#0d1b2d; --sc-text:#333f4d; --sc-muted:#5f6b79;
+      --sc-border:#dce1e7; --sc-border-strong:#c4ccd6; --sc-hover:#eef1f5;
+      --sc-radius:3px;
+      --sc-shadow:0 1px 2px rgba(13,27,45,.05), 0 2px 6px rgba(13,27,45,.06);
+      --sc-shadow-lg:0 20px 48px -26px rgba(13,27,45,.34);
+      /* Janes palette: navy authority + a restrained steel-teal accent */
+      --jn-navy:#0f2745; --jn-navy-2:#16375c; --jn-ink:#0a1a30;
+      --jn-accent:#2f7d8b; --jn-accent-lt:#5aa6b4;
+      --lp-gold:#2f7d8b;                             /* legacy landing accent → teal */
+      --lp-hero-img:url('images/hero/hero.jpg');     /* drop a licensed photo here */
+    }
+
+    /* ── NAV ── */
+    .lp-nav{background:rgba(245,246,248,.92);border-bottom:1px solid var(--sc-border);}
+    .lp-nav-logo{background:var(--jn-navy);box-shadow:none;border-radius:2px;position:relative;overflow:hidden;}
+    .lp-nav-logo::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--jn-accent);}
+    .lp-nav-name{color:var(--sc-heading);}
+
+    /* ── BUTTONS — rectangular, ink ── */
+    .lp-btn{border-radius:2px;letter-spacing:.2px;}
+    .lp-btn-prime{background:var(--jn-navy);color:#fff;box-shadow:none;}
+    .lp-btn-prime:hover{background:var(--jn-navy-2);box-shadow:none;transform:none;}
+    .lp-btn-outline{border-radius:2px;border:1px solid var(--sc-border-strong);color:var(--sc-heading);background:transparent;}
+    .lp-btn-outline:hover{border-color:var(--jn-navy);color:var(--jn-navy);background:transparent;}
+    .lp-btn-ghost{border-radius:2px;}
+
+    /* ── HERO — dark full-bleed editorial band ── */
+    .lp-hero{background:var(--jn-ink);color:#e9eef4;}
+    .lp-hero-bg{background:
+        linear-gradient(180deg, rgba(8,20,38,.72) 0%, rgba(8,20,38,.90) 100%),
+        var(--lp-hero-img);
+      background-size:cover;background-position:center;background-repeat:no-repeat;}
+    .lp-hero-grid{background-image:
+        linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+      background-size:56px 56px;}
+    .lp-hero-glow,.lp-hero-glow-2{display:none;}
+    .lp-hero-visual{display:none;}                  /* drop the panel — imagery is the hero */
+    .lp-hero-grid-2{grid-template-columns:1fr;max-width:900px;}
+    .lp-hero-badge{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);border-radius:2px;}
+    .lp-hero-badge span{color:#c7d3e2;}
+    .lp-hero-title{color:#fff;letter-spacing:-1px;}
+    .lp-hero-title em{-webkit-text-fill-color:initial;background:none;color:var(--jn-accent-lt);}
+    .lp-hero-sub{color:#b4c1d1;}
+    .lp-hero .lp-btn-prime{background:var(--jn-accent);color:#fff;}
+    .lp-hero .lp-btn-prime:hover{background:var(--jn-accent-lt);}
+    .lp-hero .lp-btn-outline{border-color:rgba(255,255,255,.32);color:#eef3f8;}
+    .lp-hero .lp-btn-outline:hover{border-color:#fff;color:#fff;}
+    .lp-hero-metrics{border-top:1px solid rgba(255,255,255,.14);}
+    .lp-hero-metrics > div{border-left:1px solid rgba(255,255,255,.10);text-align:left;padding-left:22px;}
+    .lp-hero-metrics > div:first-child{border-left:none;padding-left:0;}
+    .lp-metric-n{color:#fff;font-variant-numeric:tabular-nums;letter-spacing:-.5px;}
+    .lp-hero-metrics .lp-metric-l{color:#9fb0c4;}
+
+    /* ── TRUST BAR — light ruled band ── */
+    .lp-trust{background:var(--sc-card);border-top:none;border-bottom:1px solid var(--sc-border);}
+    .lp-trust-inner{justify-content:flex-start;gap:0;}
+    .lp-trust-label{color:var(--jn-navy);padding-right:22px;border-right:1px solid var(--sc-border);}
+    .lp-trust-logos{gap:0;}
+    .lp-trust-item{color:var(--sc-muted);opacity:1;padding:0 18px;border-right:1px solid var(--sc-border);}
+    .lp-trust-item:last-child{border-right:none;}
+
+    /* ── SECTION HEADERS — left-set, ruled eyebrow ── */
+    .lp-section-hdr{text-align:left;margin-bottom:52px;max-width:720px;}
+    .lp-section-hdr p{margin-left:0;max-width:640px;}
+    .lp-eyebrow{color:var(--jn-accent);display:inline-flex;align-items:center;gap:12px;}
+    .lp-eyebrow::before{content:"";width:30px;height:2px;background:var(--jn-accent);}
+    .lp-section-hdr h2 em{color:var(--jn-navy);}
+
+    /* ── CAPABILITY CARDS — bordered, clean line-icon above ── */
+    .lp-caps-grid{gap:1px;background:var(--sc-border);}
+    .lp-cap-icon{width:auto;height:auto;background:none;border:none;border-radius:0;font-size:30px;color:var(--jn-navy);margin-bottom:18px;}
+    .lp-cap-tag{color:var(--jn-accent);opacity:1;}
+    .lp-cap-accent{background:var(--jn-accent);}
+    .lp-cap h3{font-weight:700;}
+
+    /* ── PIPELINE ── */
+    .lp-pipeline-grid{gap:1px;background:var(--sc-border);}
+    .lp-pl-num{color:var(--jn-accent);}
+    .lp-pl-icon{color:var(--jn-navy);}
+    .lp-pl-active{background:var(--sc-prime-soft);box-shadow:inset 0 2px 0 var(--jn-navy);}
+    .lp-pl-active .lp-pl-name{color:var(--jn-navy);}
+
+    /* ── EVIDENCE ── */
+    .lp-ev-card::before{background:var(--jn-navy);}
+    .lp-grade-assessed{background:var(--sc-prime-soft);color:var(--jn-navy);border:1px solid var(--sc-border-strong);}
+
+    /* ── PRICING ── */
+    .lp-plan.featured{background:var(--sc-prime-soft);box-shadow:inset 0 3px 0 var(--jn-navy);}
+    .lp-plan-badge{color:var(--jn-accent);}
+    .lp-plan-features li i{color:var(--jn-navy);}
+
+    /* ── CERTS ── */
+    .lp-cert{border-radius:3px;box-shadow:none;}
+    .lp-cert:hover{box-shadow:var(--sc-shadow);}
+    .lp-cert-icon{color:var(--jn-navy);}
+
+    /* ── CONTACT — dark navy panel ── */
+    .lp-sovereign{background:var(--jn-ink);border:1px solid rgba(255,255,255,.08);border-radius:4px;text-align:left;}
+    .lp-sovereign::before{display:none;}
+    .lp-sovereign .lp-eyebrow{color:var(--jn-accent-lt);}
+    .lp-sovereign .lp-eyebrow::before{background:var(--jn-accent-lt);}
+    .lp-sovereign h2{color:#fff;}
+    .lp-sovereign p{color:#b4c1d1;margin-left:0;}
+    .lp-sovereign-actions{align-items:flex-start;}
+    .lp-form-row{justify-content:flex-start;}
+    .lp-form-input,.lp-form-select{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.20);color:#fff;border-radius:2px;}
+    .lp-form-input::placeholder{color:#9fb0c4;}
+    .lp-form-input:focus,.lp-form-select:focus{border-color:var(--jn-accent-lt);box-shadow:0 0 0 3px rgba(47,125,139,.25);}
+    .lp-sovereign .lp-btn-prime{background:var(--jn-accent);}
+    .lp-sovereign .lp-btn-prime:hover{background:var(--jn-accent-lt);}
+    .lp-sovereign-note{color:#9fb0c4;}
+    .lp-sovereign-note a{color:var(--jn-accent-lt);}
+
+    /* ── FOOTER ── */
+    .lp-footer-brand-name{color:var(--sc-heading);}
+    .lp-footer-col a:hover{color:var(--jn-navy);}
+
+    /* flat, sharp card chrome across the page */
+    .lp-cap, .lp-demo-wrap, .lp-ev-card{border-radius:3px;}
+  </style>
 </head>
 <body>
 
@@ -1229,7 +1366,7 @@
     <div class="lp-hero-actions">
       <a href="https://imaria.io/signup.html" class="lp-btn lp-btn-prime lp-btn-lg">Sign Up</a>
       <!-- R-F2317 — discovery loop: free Telegram channel + consult bot (top-of-funnel) -->
-      <a href="https://t.me/+ZOPRsO9-IPdiNmI0" class="lp-btn lp-btn-outline lp-btn-lg" target="_blank" rel="noopener">📡 Free intel channel</a>
+      <a href="https://t.me/+ZOPRsO9-IPdiNmI0" class="lp-btn lp-btn-outline lp-btn-lg" target="_blank" rel="noopener">Free intelligence channel</a>
       <a href="#capabilities" class="lp-btn lp-btn-outline lp-btn-lg">See capabilities</a>
     </div>
     </div><!-- /.lp-hero-copy -->
@@ -1569,8 +1706,8 @@
         <div class="lp-ev-label">Finding: Deception</div>
         <div class="lp-ev-finding">Illustrative example — not a real entity and not a real finding. In a genuine run this card shows a claimed-vs-evidenced discrepancy with the primary source behind each side, and states plainly when it is unresolved.</div>
         <div class="lp-ev-sources">
-          <div class="lp-ev-src"><div class="lp-ev-src-dot" style="background:#7c3aed"></div><span style="color:#7c3aed">company_house</span><span style="color:var(--sc-muted);margin-left:auto">&mdash;</span></div>
-          <div class="lp-ev-src"><div class="lp-ev-src-dot" style="background:#7c3aed"></div><span style="color:#7c3aed">website_claim</span><span style="color:var(--sc-muted);margin-left:auto">&mdash;</span></div>
+          <div class="lp-ev-src"><div class="lp-ev-src-dot" style="background:#123a63"></div><span style="color:#123a63">company_house</span><span style="color:var(--sc-muted);margin-left:auto">&mdash;</span></div>
+          <div class="lp-ev-src"><div class="lp-ev-src-dot" style="background:#123a63"></div><span style="color:#123a63">website_claim</span><span style="color:var(--sc-muted);margin-left:auto">&mdash;</span></div>
         </div>
         <div class="lp-ev-confidence">
           <span class="lp-ev-grade lp-grade-assessed">ILLUSTRATIVE</span>
