@@ -331,6 +331,9 @@ const Sidebar = {
         <div data-gated="/sources.html" style="display:none">${link('sources',    '/sources.html',    'bi-reception-4', 'Source Health')}</div>
         <div data-gated="/vault.html" style="display:none">${link('vault',      '/vault.html',      'bi-key',         'Signup Vault')}</div>
         <div data-gated="/aria-brain" style="display:none">${link('brain',      '/aria-brain',      'bi-heart-fill',  'ARIA Brain')}</div>
+        <div data-gated="/aria-brain" style="display:none">${link('ecosystem',  '/aria-brain#ecosystem-map', 'bi-diagram-3', 'ARIA Ecosystem')}</div>
+        <!-- R-F2979 — ARIA Ecosystem live architecture map (map icon); lands on the card in the admin-gated brain page -->
+
         ${link('status',     '/status.html',     'bi-lightning-charge', 'Status')}
         ${link('model-card', '/model-card.html', 'bi-file-text',   'Model Card')}
         <div data-gated="/leads.html" style="display:none">${link('leads', '/leads.html', 'bi-inbox', 'Inbound Leads')}</div>
