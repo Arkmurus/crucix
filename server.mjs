@@ -3621,15 +3621,22 @@ app.post('/api/aria/dd/orchestrate', requireAuth, async (req, res) => {
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
   let userEmail = '';
   let userTier = null;
+  let _ddPrivileged = false;
   try {
     const u = findUserById(userId);
     userEmail = String(u?.email || '').trim();
     userTier = u?.tier || null;
+    _ddPrivileged = isPrivileged(u);   // R-F2981
   } catch {}
   // R-F2765 — enforce the tier DD-runs/month cap before dispatching the expensive
   // DD orchestrator (userId guaranteed by the 401 above). Prevents runaway Claude
   // spend post-switch. System callers never reach this route (requireAuth).
-  const _ddq = await enforceQuota(userId, userTier, 'ddRun');
+  // R-F2981 — admins/operators are NOT customer-metered. The operator's admin
+  // account has no `tier` field → defaulted to free (5 DD-runs/mo) and blocked
+  // demos + ops (live 2026-07-24: a Silverbrook dry-run failed 'ddRun cap 5/5').
+  // Exempt privileged roles; regular users stay tier-capped and the §17 $300/mo
+  // LLM cost cap remains the hard backstop.
+  const _ddq = _ddPrivileged ? null : await enforceQuota(userId, userTier, 'ddRun');
   if (_ddq) return res.status(429).json({ error: _ddq.reason, quota: { current: _ddq.current, cap: _ddq.cap } });
   req.body = req.body || {};
   req.body.user_id = userId;
@@ -5391,7 +5398,15 @@ app.post('/api/internal/quota/consume', async (req, res) => {
     return res.status(400).json({ error: `unknown quota kind: ${kind}` });
   }
   try {
-    const tier = findUserById(userId)?.tier || null;
+    const _user = findUserById(userId);
+    const tier = _user?.tier || null;
+    // R-F2981 — privileged accounts (admins/operators) are not customer-metered.
+    // The operator's admin account defaults to free (5 DD-runs/mo, no `tier` field)
+    // and blocked demos/ops; exempt privileged roles on the brain-side consume path
+    // to match the web path. The §17 $300/mo cost cap remains the hard backstop.
+    if (isPrivileged(_user)) {
+      return res.json({ allowed: true, exempt: 'privileged', kind, tier: tier || 'admin' });
+    }
     // enforceQuota() returns NULL when allowed/exempt, and the checkAndConsume
     // verdict only when the cap is hit (lib/billing/enforce.mjs). Normalise to an
     // explicit shape so the brain never has to infer allowance from an absence —
