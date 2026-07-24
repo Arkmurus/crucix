@@ -2270,13 +2270,19 @@ async function loadCoverageHeatmap() {
   scoreBadge.textContent = score;
   scoreBadge.className = 'badge ' + scoreClass(d.coverage_score || 0);
   const summary = d.summary || {};
-  // R-F2332: stale = KNOWN-stale only; disclose unknown-freshness cells separately
-  // instead of the old "100% stale" artifact from the domain-namespace divergence.
-  const unkCells = summary.staleness_unknown_cells || 0;
+  // R-F2332: stale = KNOWN-stale only. R-F2987: freshness is reported over
+  // POPULATED cells — an empty cell is a GAP (absent), not "freshness unknown".
+  // The old header counted the 617 empty cells as "freshness unknown", conflating
+  // "no data" with "unmeasured" and hiding that freshness IS measured for every
+  // populated cell.
+  const unkCells = summary.staleness_unknown_cells || 0;   // populated & undated only
+  const populated = summary.populated_cells != null
+    ? summary.populated_cells
+    : ((summary.cells || 0) - (summary.gap_count || 0));
   sumEl.innerHTML = `${summary.cells || 0} cells · ${summary.deep_cells || 0} deep · `
                   + `${summary.gap_count || 0} absent (${summary.gap_pct || 0}%) · `
-                  + `${summary.stale_cells || 0} stale`
-                  + (unkCells ? ` · ${unkCells} freshness unknown` : '')
+                  + `${summary.stale_cells || 0}/${populated} populated stale`
+                  + (unkCells ? ` · ${unkCells} undated` : '')
                   + `${d.from_cache ? ' · cached' : ''}`;
 
   // Get priority targets for highlighting

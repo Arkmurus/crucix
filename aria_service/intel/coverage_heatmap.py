@@ -724,7 +724,8 @@ def _compute_score(
     for d in domains:
         for j in jurisdictions:
             cell = matrix.get(d, {}).get(j) or {"tier": "absent"}
-            w = tier_weights.get(cell.get("tier", "absent"), 0.0)
+            tier = cell.get("tier", "absent")
+            w = tier_weights.get(tier, 0.0)
             # R-F2332: ONLY a known-stale cell (is_stale is True) is penalised.
             # is_stale None = unknown (no freshness signal for this domain) → no
             # penalty; counted separately so the summary honestly discloses that
@@ -734,21 +735,36 @@ def _compute_score(
             if stale is True:
                 w *= 0.7
                 stale_count += 1
-            elif stale is None:
+            elif stale is None and tier != "absent":
+                # R-F2987: "freshness unknown" means a POPULATED cell whose facts
+                # carry no parseable timestamp — a genuine freshness-measurement
+                # gap. An ABSENT (empty) cell is NOT freshness-unknown: it has no
+                # data to be fresh or stale, and it is already disclosed as a GAP
+                # (gap_count). Counting the 617 empty cells here conflated "no data"
+                # with "freshness unmeasured", understating that freshness IS
+                # measured for every populated cell (the live "617 freshness
+                # unknown == 617 absent" artifact). Scope it to populated cells.
                 unknown_staleness += 1
             total += w
             n += 1
-            if cell.get("tier") == "deep":
+            if tier == "deep":
                 deep_count += 1
-            if cell.get("tier") == "absent":
+            if tier == "absent":
                 gap_count += 1
     score = round(total / n, 3) if n else 0.0
+    populated = n - gap_count
     return score, {
         "cells":       n,
         "gap_count":   gap_count,
         "deep_cells":  deep_count,
         "stale_cells": stale_count,
         "staleness_unknown_cells": unknown_staleness,
+        # R-F2987: honest freshness framing — freshness is MEASURED for every
+        # populated cell except the (few) whose facts are undated. Lets the UI say
+        # "freshness measured for N populated cells" instead of relabelling the
+        # empty cells as a freshness deficiency.
+        "populated_cells": populated,
+        "freshness_measured_cells": populated - unknown_staleness,
         "gap_pct":     round(gap_count / n * 100, 1) if n else 0,
     }
 
