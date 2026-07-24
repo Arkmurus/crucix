@@ -667,6 +667,31 @@ class AutonomousDeployEngine:
     # ── Deploy ─────────────────────────────────────────────────────────────
 
     @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
+    async def _await_dd_quiescence(self, max_wait_s: float = 900.0, poll_s: float = 15.0) -> None:
+        """R-F3010 — deploy-coordination: wait (bounded) for in-flight user DDs to
+        finish before deploying, so an aria-intel restart doesn't kill a running DD.
+        Best-effort: after ``max_wait_s`` it proceeds anyway (a stuck DD must never
+        block deploys forever — R-F3009 resumes it post-restart). Never raises."""
+        try:
+            from ..intel.dd_orchestrator import dd_inflight_count
+        except Exception:
+            return
+        deadline = time.time() + max_wait_s
+        waited = False
+        try:
+            while dd_inflight_count() > 0 and time.time() < deadline:
+                waited = True
+                logger.info(
+                    "[R-F3010] deferring deploy — %d DD(s) in-flight; waiting up to %ds…",
+                    dd_inflight_count(), int(max_wait_s),
+                )
+                await asyncio.sleep(poll_s)
+        except Exception as _e:  # noqa: BLE001 — coordination is best-effort
+            logger.debug("[R-F3010] dd-quiescence wait error (non-fatal): %s", _e)
+            return
+        if waited:
+            logger.info("[R-F3010] DD(s) cleared or wait bound reached — proceeding with deploy")
+
     async def deploy(
         self,
         commit_hash: Optional[str] = None,
@@ -686,6 +711,11 @@ class AutonomousDeployEngine:
             DeploymentRecord with the result.
         """
         async with self._deploy_lock:
+            # R-F3010 — deploy-coordination: a deploy restarts aria-intel and would kill
+            # any in-flight user DD. Defer (bounded) until DDs finish so a deploy never
+            # interrupts a running DD; the R-F3009 resume is the backstop past the bound.
+            if not force:
+                await self._await_dd_quiescence()
             # Get commit info
             if not commit_hash:
                 detected_hash, detected_message = self.get_current_commit()

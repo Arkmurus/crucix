@@ -87,7 +87,20 @@ async def crawl_seed_homepages(limit: int | None = None,
     # brain_hook background tier with 50+ concurrent tasks).
     _absorb_batch: list[dict[str, str]] = []
 
+    # R-F3008 — FOREGROUND PRIORITY. This sweep is a 6-hourly BACKGROUND job; an
+    # interactive user DD must not be starved of the event loop by it. While any DD
+    # is executing in this process, pause between domains so the DD gets scheduled.
+    # We SLOW the crawl, never stop it (it completes its sweep later). Lazy import so
+    # a wiring problem can never break the crawler.
+    try:
+        from aria_service.intel.dd_orchestrator import dd_inflight_count as _dd_inflight
+    except Exception:  # pragma: no cover
+        def _dd_inflight() -> int:
+            return 0
+
     for d in domains:
+        if _dd_inflight() > 0:
+            await asyncio.sleep(2.0)  # R-F3008 — let the interactive DD run
         url = f"https://{d['domain']}/"
         try:
             if use_polite_crawler:

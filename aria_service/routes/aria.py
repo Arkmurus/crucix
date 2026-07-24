@@ -1035,6 +1035,7 @@ async def dd_orchestrate_ep(req: Request):
             _run_id, _ent, mode, body.get("canonical_entity_id") or locals().get("_canonical"),
             user_id=_req_user_id, user_email_lower=_email_lower,
             user_email_domain=_email_domain, share_to_company=_share_to_company,
+            target=body,  # R-F3009 — stored so a restart-killed run can be resumed
         )
 
         async def _bg_dd():

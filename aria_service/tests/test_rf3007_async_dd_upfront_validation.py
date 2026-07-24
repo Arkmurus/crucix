@@ -17,7 +17,7 @@ from aria_service.intel.dd_orchestrator import _validate_entity_type_for_dd
 def _async_branch() -> str:
     src = (Path(__file__).resolve().parent.parent / "routes" / "aria.py").read_text(encoding="utf-8")
     i = src.index('if body.get("async_mode") or body.get("async"):')
-    return src[i:i + 2500]
+    return src[i:i + 3500]
 
 
 def test_rf3007_async_branch_validates_entity_type_before_marking_running():

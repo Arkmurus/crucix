@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3008,
+  "next_available": 3011,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23926,6 +23926,33 @@
       "r_number": "R-F3007",
       "title": "async DD: validate entity_type (R-F659) UPFRONT so a bad request fails loudly, not silent-no-persist",
       "claimed_at": "2026-07-24T18:04:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3008",
+      "title": "DD foreground-priority: in-flight-DD gauge; crawler yields to in-flight DDs (no stop)",
+      "claimed_at": "2026-07-24T18:48:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3009",
+      "title": "DD orphan-resume: reconcile re-launches restart-killed DDs (retry-capped) from stored target",
+      "claimed_at": "2026-07-24T18:48:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3010",
+      "title": "DD deploy-coordination: autonomous ci_deploy defers aria-intel restart while a DD is in-flight",
+      "claimed_at": "2026-07-24T18:48:25Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

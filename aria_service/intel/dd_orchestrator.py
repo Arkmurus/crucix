@@ -9632,6 +9632,30 @@ class DDQuotaExceeded(Exception):
         self.cap = cap
 
 
+# ── R-F3008 — in-flight DD gauge (foreground priority) ───────────────────────
+# A user-facing DD runs as an in-process asyncio task and must never be starved of
+# the event loop by a heavy background loop (the crawler) or killed mid-run by an
+# autonomous deploy. This gauge lets the crawler YIELD and ci_deploy DEFER while a
+# DD is executing. Process-local by design — a restart resets it, which is correct:
+# a restart also kills the in-process DD tasks it was counting.
+_INFLIGHT_DDS = 0
+
+
+def dd_inflight_count() -> int:
+    """R-F3008 — number of DDs currently executing in THIS process (>= 0)."""
+    return _INFLIGHT_DDS
+
+
+def _dd_inflight_inc() -> None:
+    global _INFLIGHT_DDS
+    _INFLIGHT_DDS += 1
+
+
+def _dd_inflight_dec() -> None:
+    global _INFLIGHT_DDS
+    _INFLIGHT_DDS = max(0, _INFLIGHT_DDS - 1)
+
+
 async def orchestrate_dd(
     target: dict,
     *,
@@ -9748,6 +9772,7 @@ async def orchestrate_dd(
     except Exception as _ps_e:  # never let routing break a DD
         logger.warning("[dd] provider scope unavailable (%s) — using chain head", _ps_e)
     try:
+        _dd_inflight_inc()  # R-F3008 — foreground priority; released in finally below
         _rep = await asyncio.wait_for(
             _orchestrate_dd_impl(
                 target,
@@ -9850,6 +9875,7 @@ async def orchestrate_dd(
             pass
         return rep
     finally:
+        _dd_inflight_dec()  # R-F3008 — release the foreground-priority gauge on EVERY exit
         _ka_task.cancel()  # R-F1855 — stop the interactive keepalive
         # R-F2917 — always release the Claude pin, on every exit path (success,
         # timeout, hard-deadline, exception). Leaking it would silently route
@@ -12138,7 +12164,8 @@ async def mark_dd_running(run_id: str, entity_name: str, mode: str = "standard",
                           canonical_entity_id: str | None = None, *,
                           user_id: str | None = None, user_email_lower: str | None = None,
                           user_email_domain: str | None = None,
-                          share_to_company: bool = True) -> None:
+                          share_to_company: bool = True,
+                          target: dict | None = None) -> None:
     """R-F2250 — write a 'running' placeholder under the report key so an ASYNC DD's
     FIRST poll (/dd/report/{run_id}) returns status=running instead of a 404. The
     background DD overwrites it with the real report when it finishes.
@@ -12170,6 +12197,12 @@ async def mark_dd_running(run_id: str, entity_name: str, mode: str = "standard",
                 "user_email_lower": user_email_lower,
                 "user_email_domain": user_email_domain,
                 "share_to_company": share_to_company,
+                # R-F3009 — store the full target + a retry counter so a run KILLED by a
+                # restart can be RE-LAUNCHED by reconcile_stale_running_dds (bounded),
+                # instead of only being marked 'failed'. The target already passed R-F659
+                # (R-F3007 validates entity_type upfront), so a resume re-runs cleanly.
+                "resume_target": target if isinstance(target, dict) else None,
+                "resume_count": 0,
             },
             ex=REPORT_TTL_SECONDS,
         )
@@ -12265,6 +12298,27 @@ async def mark_dd_failed(run_id: str, error: str) -> None:
     await _mutate_report_index(_mark_failed)
 
 
+_MAX_DD_RESUMES = int(os.getenv("ARIA_DD_MAX_RESUMES", "2") or "2")
+
+
+async def _resume_orphaned_dd(run_id: str, target: dict, mode: str,
+                              user_id: str | None, user_email: str | None) -> None:
+    """R-F3009 — re-run a DD that a restart killed, under its ORIGINAL run_id, so its
+    poll/list row completes instead of vanishing. Mirrors the route's _bg_dd; a failed
+    resume gets a terminal 'failed' state (never left hanging)."""
+    try:
+        await orchestrate_dd(
+            target=target, mode=mode or "standard",
+            user_id=user_id, user_email=user_email, run_id=run_id,
+        )
+    except Exception as _e:  # noqa: BLE001
+        logger.exception("[R-F3009] resumed DD %s failed: %s", run_id, _e)
+        try:
+            await mark_dd_failed(run_id, f"resume failed: {str(_e)[:150]}")
+        except Exception:
+            pass
+
+
 async def reconcile_stale_running_dds(max_age_s: float = 1800.0) -> dict:
     """R-F2300 — give orphaned async-DD 'running' placeholders a terminal state.
 
@@ -12282,9 +12336,9 @@ async def reconcile_stale_running_dds(max_age_s: float = 1800.0) -> dict:
     """
     from . import redis_store as rs
     import time as _t
-    from datetime import datetime
+    from datetime import datetime, timezone
     now = _t.time()
-    scanned = reconciled = 0
+    scanned = reconciled = resumed = 0
     try:
         rows = await rs.scan_json("crucix:dd:report:*", count=500)
     except Exception as e:
@@ -12301,19 +12355,51 @@ async def reconcile_stale_running_dds(max_age_s: float = 1800.0) -> dict:
                 age = now - datetime.fromisoformat(started).timestamp()
             except Exception:
                 age = None
-        if age is None or age > max_age_s:  # unparseable ts OR too old = orphaned
+        if not (age is None or age > max_age_s):
+            continue  # within the live-DD window (age-based, R-F2300) — leave alone
+        _rid = val.get("run_id") or key.rsplit(":", 1)[-1]
+        _tgt = val.get("resume_target")
+        _count = int(val.get("resume_count") or 0)
+        # R-F3009 — RE-LAUNCH a restart-killed run (retry-capped) instead of only
+        # marking it failed, so a deploy/restart can no longer make a DD vanish. The
+        # stored target already passed R-F659 (R-F3007), so it re-runs cleanly.
+        if isinstance(_tgt, dict) and _tgt and _count < _MAX_DD_RESUMES:
+            try:
+                val["resume_count"] = _count + 1
+                val["started_at"] = datetime.now(timezone.utc).isoformat()  # fresh clock
+                val["bottom_line"] = (
+                    f"Due diligence resuming after an interruption (attempt {_count + 2})…"
+                )
+                await rs.set_json(REPORT_REDIS_KEY.format(run_id=_rid), val, ex=REPORT_TTL_SECONDS)
+                asyncio.create_task(_resume_orphaned_dd(
+                    _rid, _tgt, val.get("orchestrator_mode") or "standard",
+                    val.get("user_id"), val.get("user_email_lower"),
+                ))
+                resumed += 1
+                logger.warning("[R-F3009] resuming restart-killed DD %s (attempt %d/%d)",
+                               _rid, _count + 1, _MAX_DD_RESUMES)
+            except Exception as _re:  # noqa: BLE001
+                logger.debug("[R-F3009] resume of %s failed (%s) — marking failed", _rid, _re)
+                try:
+                    await mark_dd_failed(_rid, "Interrupted by a restart; resume failed — please re-run.")
+                    reconciled += 1
+                except Exception:
+                    pass
+        else:
             try:
                 await mark_dd_failed(
-                    val.get("run_id") or key.rsplit(":", 1)[-1],
-                    "Interrupted by a service restart before completion — please re-run.",
+                    _rid,
+                    "Interrupted by a service restart before completion — please re-run."
+                    if _count < _MAX_DD_RESUMES
+                    else f"Interrupted repeatedly ({_count} auto-resumes) — please re-run manually.",
                 )
                 reconciled += 1
             except Exception:
                 pass
-    if reconciled:
+    if reconciled or resumed:
         logger.warning(
-            "[R-F2300] reconciled %d/%d stale 'running' DD placeholder(s) → failed",
-            reconciled, scanned,
+            "[R-F2300/R-F3009] %d resumed + %d failed of %d stale 'running' DD placeholder(s)",
+            resumed, reconciled, scanned,
         )
     return {"scanned": scanned, "reconciled": reconciled}
 
