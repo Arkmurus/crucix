@@ -41,9 +41,14 @@ instrumentation next).
 Pricing
 ═══════
 Hardcoded per known model. Uses cache-miss / standard rates — these
-are upper bounds. Unknown models default to a conservative deepseek
-estimate so we never silently over-report cost. Edit PRICING when
-provider rates change; runtime prices change ~quarterly.
+are upper bounds. Unknown models default to Claude-Sonnet rates
+(DEFAULT_PRICING, R-F2766): with Claude now primary an unrecognised ID
+is more likely a Claude variant, and OVER-estimating a cheap unknown
+only trips the cap slightly early while UNDER-estimating Claude blows
+the budget. Corollary (R-F3001): every ACTIVE model — including the
+current DeepSeek ones (deepseek-v4-flash/pro) — MUST be listed below,
+or its real cheap cost is silently reported at the Claude default.
+Edit PRICING when provider rates change; runtime prices change ~quarterly.
 """
 from __future__ import annotations
 
@@ -103,6 +108,18 @@ PRICING: dict[str, tuple[float, float]] = {
     "deepseek-chat":      (0.27, 1.10),
     "deepseek-reasoner":  (0.55, 2.19),
     "deepseek-v3":        (0.27, 1.10),
+    # R-F3001 — the CURRENT DeepSeek models. The API now serves + REPORTS
+    # `deepseek-v4-flash` (metered.py reads model off the RESPONSE), which was NOT
+    # in this table, so every DeepSeek call fell through to DEFAULT_PRICING (Claude
+    # Sonnet $3/$15) and was over-counted ~21x input / ~54x output. Live evidence
+    # 2026-07-24: deepseek-v4-flash 3272 calls / 37.7M tok reported $141.72 for the
+    # month when the real cost at these rates is ~$5.6 — the daily-cap warning
+    # ($50.47) that the operator flagged as not matching the live DeepSeek balance.
+    # Same failure class R-F2759 fixed for Claude: name the active model explicitly.
+    # Rates = DeepSeek published per-1M (input, output); verify against
+    # api-docs.deepseek.com/quick_start/pricing when the contract changes.
+    "deepseek-v4-flash":  (0.14, 0.28),
+    "deepseek-v4-pro":    (0.435, 0.87),
 
     # Anthropic — R-F2759: current-generation rows added ahead of the DeepSeek->Claude
     # switch. WITHOUT these, claude-opus-4-8 / claude-sonnet-5 fall through _get_price to
