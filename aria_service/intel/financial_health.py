@@ -611,6 +611,108 @@ async def _enrich_with_registry_accounts(
         return False
 
 
+def _uk_balance_sheet_verdict(figures: dict) -> dict | None:
+    """R-F3016 — a BOUNDED solvency verdict from filed balance-sheet figures. Returns
+    None when neither net assets nor net current assets are present (nothing to say).
+    NEVER claims profitability — the P&L is not publicly filed for small companies, so
+    this reads solvency (net assets) + liquidity (working capital) + YoY trend only."""
+    def _cur(k):
+        v = (figures.get(k) or {}).get("current")
+        return v if isinstance(v, (int, float)) else None
+
+    def _pri(k):
+        v = (figures.get(k) or {}).get("prior")
+        return v if isinstance(v, (int, float)) else None
+
+    na, na_p = _cur("net_assets"), _pri("net_assets")
+    nca = _cur("net_current_assets")
+    if na is None and nca is None:
+        return None
+    reasons: list[str] = []
+    verdict = "STABLE"
+    if na is not None:
+        if na < 0:
+            verdict = "DISTRESSED"
+            reasons.append(f"balance-sheet INSOLVENT — net liabilities of £{abs(na):,.0f} "
+                           "(liabilities exceed assets)")
+        else:
+            reasons.append(f"positive net assets of £{na:,.0f}")
+    if nca is not None:
+        if nca < 0:
+            reasons.append(f"working-capital DEFICIT — net current liabilities of "
+                           f"£{abs(nca):,.0f} (short-term liquidity risk)")
+            if verdict != "DISTRESSED":
+                verdict = "WEAK"
+        else:
+            reasons.append(f"positive working capital of £{nca:,.0f}")
+    if na is not None and na_p is not None:
+        delta = na - na_p
+        trend = "improved" if delta > 0 else ("declined" if delta < 0 else "held flat")
+        reasons.append(f"net assets {trend} year-on-year (£{na_p:,.0f} → £{na:,.0f})")
+        if verdict == "STABLE" and delta > 0:
+            verdict = "STRONG"
+        elif verdict == "STABLE" and delta < 0:
+            verdict = "WEAK"
+    return {"verdict": verdict, "reasons": reasons}
+
+
+async def _enrich_with_registry_figures(
+    result: dict,
+    name: str,
+    jurisdiction_iso2: str,
+    registration_number: str = "",
+) -> bool:
+    """R-F3016 (R-F2782 phase 2) — Companies House iXBRL BALANCE-SHEET figures → a
+    bounded SOLVENCY verdict. Unlike phase-1 metadata this DOES answer financial
+    capacity: on real filed figures it sets data_available / has_financials /
+    health_verdict. Balance sheet only (P&L filleted for small companies) → a solvency
+    read, never a profitability claim. Large listed PLCs file PDF group accounts (no
+    iXBRL) → returns False (honest UNKNOWN). Never raises."""
+    if result.get("has_financials"):
+        return False
+    if not _is_gb(jurisdiction_iso2):
+        return False
+    try:
+        from . import companies_house as ch
+        if not ch.is_enabled():
+            return False
+        number = (registration_number or "").strip()
+        if not number:
+            hits = await ch.search_companies(name, limit=1)
+            if hits:
+                number = str(hits[0].get("company_number") or "").strip()
+        if not number:
+            return False
+        fig = await ch.fetch_accounts_figures(number)
+        if not fig or not fig.get("figures"):
+            return False
+        verdict = _uk_balance_sheet_verdict(fig["figures"])
+        if not verdict:
+            return False
+        result["data_available"] = True
+        result["has_financials"] = True
+        result["health_verdict"] = verdict["verdict"]
+        result["uk_balance_sheet"] = {
+            "figures": fig["figures"],
+            "made_up_to": fig.get("made_up_to"),
+            "accounts_type": fig.get("accounts_type"),
+            "reasons": verdict["reasons"],
+            "source_url": fig.get("source_url"),
+            "basis": ("balance sheet only — P&L (turnover/profit) not publicly filed "
+                      "under the small-company exemption"),
+        }
+        result["summary"] = (
+            (result.get("summary", "") + " ").strip()
+            + f" Companies House filed accounts (made up to {fig.get('made_up_to') or 'an unstated date'}): "
+            + "; ".join(verdict["reasons"])
+            + ". Solvency read from the balance sheet only — turnover/profit are not "
+              "publicly filed under the small-company exemption."
+        ).strip()
+        return True
+    except Exception as e:
+        logger.debug("UK registry figures enrichment failed: %s", e)
+        return False
+
 
 # ── R-F2834 — VAULT CAPABILITY VERSIONING ────────────────────────────────────
 #
@@ -637,8 +739,10 @@ async def _enrich_with_registry_accounts(
 # enricher FAILS is deliberately NOT stamped, so it retries on the next read rather
 # than recording evidence that was never gathered.
 FINANCIAL_CAPABILITIES: dict = {
-    # R-F2782/R-F2817 — GB statutory filings from Companies House.
+    # R-F2782/R-F2817 — GB statutory filings from Companies House (metadata only).
     "registry_accounts": _enrich_with_registry_accounts,
+    # R-F3016 — GB iXBRL balance-sheet FIGURES → solvency verdict (answers capacity).
+    "registry_figures": _enrich_with_registry_figures,
 }
 
 _CAPABILITY_KEY = "_capabilities"
@@ -802,6 +906,14 @@ async def assess(
         await _enrich_with_registry_accounts(
             result, name, jurisdiction_iso2, registration_number)
 
+    # 2c) REGISTRY FIGURES — GB iXBRL balance-sheet figures (R-F2782 phase 2, R-F3016).
+    # Unlike phase-1 metadata, this DOES answer financial capacity (data_available /
+    # has_financials) from real filed figures → a bounded SOLVENCY verdict. GB small/mid
+    # companies only; large listed PLCs file PDF group accounts (no iXBRL) → stays UNKNOWN.
+    if use_search and not result.get("has_financials"):
+        await _enrich_with_registry_figures(
+            result, name, jurisdiction_iso2, registration_number)
+
     # 3) SEARCH — web financial footprint (cross-jurisdiction), when SEC has no structured data.
     if use_search and not result.get("data_available"):
         try:
@@ -855,14 +967,20 @@ def financial_health_findings(result: dict) -> list[dict]:
             "confidence": "CONFIRMED",
         })
     else:
+        _uk = result.get("uk_balance_sheet")
         _mt = result.get("matched_title")
+        # R-F3016 — a UK balance-sheet verdict cites Companies House, not SEC EDGAR, and
+        # is explicitly a solvency (not profitability) read.
+        _title = (f"Financial health: {verdict} — UK filed accounts (balance sheet)"
+                  if _uk else
+                  f"Financial health: {verdict}" + (f" — {_mt} (SEC EDGAR)" if _mt else ""))
         findings.append({
-            "title": f"Financial health: {verdict}" + (f" — {_mt} (SEC EDGAR)" if _mt else ""),
+            "title": _title,
             "detail": result.get("summary", ""),
             # Finding severity enum: info | amber | red | hard_stop.
             "severity": {"DISTRESSED": "red", "WEAK": "amber", "STABLE": "info",
                          "STRONG": "info", "UNKNOWN": "info"}.get(verdict, "info"),
-            "source": src,
+            "source": "companies_house_accounts" if _uk else src,
             "confidence": "CONFIRMED",
         })
         for flag in result.get("distress_flags", []):

@@ -758,6 +758,180 @@ async def get_filing_history(company_number: str, limit: int = 10) -> list[dict]
     ]
 
 
+# ── R-F3016 — Companies House iXBRL accounts figure extraction (R-F2782 Phase 2) ──
+# Small & micro UK companies file statutory accounts as iXBRL (inline XBRL) via the
+# CH Document API; large listed PLCs upload PDF group accounts (no iXBRL). We extract
+# the BALANCE SHEET only — the P&L (turnover/profit) is filleted under the small-
+# company exemption, so it is not publicly filed. A verdict from this is a SOLVENCY
+# read, never a profitability claim (never-false-clean).
+
+# iXBRL concept LOCAL name (namespace-stripped, lowercased) → normalized figure key.
+# Only unambiguous entity-level TOTALS — breakdown concepts (Creditors, Equity) carry
+# multiple dimensional values per year and are deliberately excluded.
+_UK_BS_CONCEPTS: dict[str, str] = {
+    "netassetsliabilities": "net_assets",
+    "netassetsliabilitiesincludingpensionassetliability": "net_assets",
+    "netcurrentassetsliabilities": "net_current_assets",
+    "totalassetslesscurrentliabilities": "total_assets_less_current_liabilities",
+    "currentassets": "current_assets",
+    "fixedassets": "fixed_assets",
+    "cashbankonhand": "cash",
+}
+
+
+def _ixbrl_attr(attrs: str, key: str) -> str:
+    m = re.search(rf'\b{key}="([^"]*)"', attrs)
+    return m.group(1) if m else ""
+
+
+def _ixbrl_number(inner: str, attrs: str):
+    """Parse an ix:nonFraction value: strip nested tags, honour sign="-" and scale.
+    A dash means a filed NIL (0.0); unparseable content returns None (skip)."""
+    text = re.sub(r"<[^>]+>", "", inner).replace(",", "").replace("\xa0", "").strip()
+    if text in ("", "-", "—", "–"):
+        return 0.0 if text else None
+    try:
+        val = float(text)
+    except ValueError:
+        return None
+    if _ixbrl_attr(attrs, "sign") == "-":
+        val = -val
+    scale = _ixbrl_attr(attrs, "scale")
+    if scale:
+        try:
+            val *= 10 ** int(scale)
+        except ValueError:
+            pass
+    return val
+
+
+def _parse_ixbrl_balance_sheet(doc: str) -> dict:
+    """Pure iXBRL parser → {figure_key: {"current": float, "prior": float}}.
+
+    Maps each ix:nonFraction fact to its reporting date via contextRef, prefers the
+    non-dimensional (plain) context when a concept is tagged more than once, and keeps
+    the two most recent years (current + prior) so a trend can be read."""
+    ctx_date: dict[str, str] = {}
+    ctx_plain: dict[str, bool] = {}
+    for m in re.finditer(r'<(?:\w+:)?context\b[^>]*\bid="([^"]+)"(.*?)</(?:\w+:)?context>',
+                         doc, re.DOTALL | re.IGNORECASE):
+        cid, body = m.group(1), m.group(2)
+        dm = re.search(r'<(?:\w+:)?(?:instant|endDate)>\s*(\d{4}-\d{2}-\d{2})', body)
+        if dm:
+            ctx_date[cid] = dm.group(1)
+            ctx_plain[cid] = re.search(r'<(?:\w+:)?(?:segment|scenario)\b', body) is None
+    collected: dict[str, dict[str, list]] = {}
+    for m in re.finditer(r'<ix:nonFraction\b([^>]*)>(.*?)</ix:nonFraction>',
+                         doc, re.DOTALL | re.IGNORECASE):
+        attrs, inner = m.group(1), m.group(2)
+        name = _ixbrl_attr(attrs, "name")
+        if not name:
+            continue
+        key = _UK_BS_CONCEPTS.get(name.split(":")[-1].lower())
+        if not key:
+            continue
+        val = _ixbrl_number(inner, attrs)
+        if val is None:
+            continue
+        date = ctx_date.get(_ixbrl_attr(attrs, "contextRef"), "")
+        collected.setdefault(key, {}).setdefault(date, []).append(
+            (ctx_plain.get(_ixbrl_attr(attrs, "contextRef"), True), val))
+    out: dict[str, dict] = {}
+    for key, by_date in collected.items():
+        def _pick(d: str):
+            plain = [v for p, v in by_date[d] if p]
+            return plain[0] if plain else by_date[d][0][1]
+        dated = sorted([d for d in by_date if d], reverse=True)
+        if dated:
+            entry = {"current": _pick(dated[0])}
+            if len(dated) > 1:
+                entry["prior"] = _pick(dated[1])
+            out[key] = entry
+        elif by_date:
+            out[key] = {"current": _pick(next(iter(by_date)))}
+    return out
+
+
+async def _get_json_url(url: str) -> dict | None:
+    """GET a full URL (not a _BASE_URL path) with CH auth → JSON. The document
+    metadata link is on a different host (document-api.*)."""
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:  # no-breaker: best-effort accounts-figure fetch
+            r = await client.get(url, headers=_headers())
+            return r.json() if r.status_code == 200 else None
+    except Exception:
+        return None
+
+
+async def _get_document_content(dm_url: str, mime: str) -> str | None:
+    """Fetch a CH document's content (iXBRL). /content 302-redirects to a short-lived
+    signed URL that must be fetched WITHOUT the CH auth header (it has its own)."""
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:  # no-breaker: best-effort
+            r = await client.get(f"{dm_url}/content", headers={**_headers(), "Accept": mime})
+            if r.status_code in (301, 302, 303, 307, 308):
+                loc = r.headers.get("location")
+                if not loc:
+                    return None
+                r2 = await client.get(loc)  # signed URL — no CH auth header
+                return r2.text if r2.status_code == 200 else None
+            return r.text if r.status_code == 200 else None
+    except Exception as e:
+        logger.debug("CH document content fetch failed: %s", e)
+        return None
+
+
+async def fetch_accounts_figures(company_number: str) -> dict | None:
+    """R-F3016 — BALANCE-SHEET figures (current + prior year) from the latest Companies
+    House iXBRL accounts. Returns None when the company filed PDF-only accounts (large
+    PLCs), no iXBRL is available, or CH is unavailable. Never raises.
+
+    Balance sheet ONLY — small/micro companies fillet the P&L under the small-company
+    exemption, so turnover/profit are not publicly filed. Any verdict built from this is
+    a solvency read, never a profitability claim (never-false-clean)."""
+    number = (company_number or "").strip()
+    if not number or not is_enabled() or not _API_KEY:
+        return None
+    try:
+        fh = await _get(f"/company/{number}/filing-history?category=accounts&items_per_page=6")
+        if not fh:
+            return None
+        dm = mime = made_up = atype = None
+        for it in (fh.get("items") or []):
+            if it.get("category") != "accounts":
+                continue
+            _dm = (it.get("links") or {}).get("document_metadata")
+            if not _dm:
+                continue
+            meta = await _get_json_url(_dm)
+            xh = [m for m in list(((meta or {}).get("resources") or {}).keys()) if "xhtml" in m]
+            if xh:
+                dm, mime = _dm, xh[0]
+                made_up = ((it.get("description_values") or {}).get("made_up_date")
+                           or it.get("action_date") or it.get("date"))
+                atype = it.get("description")
+                break
+        if not dm:
+            return None      # PDF-only (e.g. a large PLC's group accounts) — honest None
+        doc = await _get_document_content(dm, mime)
+        if not doc:
+            return None
+        figures = _parse_ixbrl_balance_sheet(doc)
+        if not figures:
+            return None
+        return {
+            "company_number": number,
+            "figures": figures,
+            "made_up_to": made_up,
+            "accounts_type": atype,
+            "source_url": ("https://find-and-update.company-information.service.gov.uk/"
+                           f"company/{number}/filing-history"),
+        }
+    except Exception as e:
+        logger.debug("fetch_accounts_figures failed for %s: %s", number, e)
+        return None
+
+
 # ── High-level investigation helper ────────────────────────────────────────
 
 @fail_wire(module="companies_house", gap_type="api_missing")
