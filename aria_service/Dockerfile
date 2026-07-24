@@ -168,6 +168,15 @@ COPY .git/packed-refs* ./.git/
 # Also future-proofs eval/smoke/admin scripts that need server-side execution.
 COPY scripts/ ./scripts/
 
+# R-F2978 — bake the R-F540 reservation LOG (single file, ~840KB) into the image
+# so intel/r_number_registry can resolve R-number → title/commit at runtime (it
+# reads /app/data/r_number_reservations.json). This is the ONLY data/ file the
+# running brain needs — the rest of data/ stays OUT of the image (on the volume),
+# per the "Dockerfile copies aria_service/+scripts/, NOT data/" rule. Placed after
+# the .git/HEAD COPY so it adds ZERO cache cost (that layer is already busted each
+# commit). Powers the ARIA Ecosystem audit-title labels (R-F2974).
+COPY data/r_number_reservations.json ./data/r_number_reservations.json
+
 # NOTE: Playwright Chromium is installed earlier (before the app COPY) — see the
 # R-F1709 note above. It used to live here, but that placement re-ran the
 # ~400 MB install on every commit (cache busted by the .git/HEAD COPY).

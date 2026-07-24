@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2976,
+  "next_available": 2980,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23601,14 +23601,53 @@
       "title": "P3a ecosystem R-number/audit labels: join R-F tokens to titles+commits (r_number_registry), chips on nodes/intersections + node-detail",
       "claimed_at": "2026-07-24T10:29:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a93b20cd",
+      "notes": null,
+      "shipped_at": "2026-07-24T10:46:25Z"
     },
     {
       "r_number": "R-F2975",
       "title": "P3b ecosystem metro/elbow train-track layout + function-level (T3) drill + gap-label fix",
       "claimed_at": "2026-07-24T10:29:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a93b20cd",
+      "notes": null,
+      "shipped_at": "2026-07-24T10:46:25Z"
+    },
+    {
+      "r_number": "R-F2976",
+      "title": "DD: normalize caller-supplied jurisdiction_iso2 (UK->GB) so registry/officer/UBO paths fire — Silverbrook demo",
+      "claimed_at": "2026-07-24T10:50:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f6259f30",
+      "notes": null,
+      "shipped_at": "2026-07-24T11:14:58Z"
+    },
+    {
+      "r_number": "R-F2977",
+      "title": "DD: bound compliance+digital layer sub-ops so a slow op degrades to a data_gap instead of erroring the whole layer (fixes 90s/180s timeouts)",
+      "claimed_at": "2026-07-24T11:09:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2978",
+      "title": "P4a bake R-F reservation log into intel image so ecosystem audit-title join works on server (single-file COPY, not all of data/)",
+      "claimed_at": "2026-07-24T11:17:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2979",
+      "title": "P4b ARIA Ecosystem standalone nav entry (sidebar map icon) + P4c completeness CI gate",
+      "claimed_at": "2026-07-24T11:18:00Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
