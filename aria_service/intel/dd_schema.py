@@ -1507,7 +1507,17 @@ def _dd_decision_readiness(r: dict) -> dict:
         registry_status_live
         and (ident.get("directors") or _substantive(ident.get("incorporation_date")))
     )
-    identity_ok = bool(registration_number and registry_profile)
+    # R-F2995 — identity must NOT score YES on "live registry status" when the
+    # registry was UNAVAILABLE this run (R-F1636) and the fields were enriched from
+    # OSINT/vault/GLEIF instead. Scoring it ANSWERED then over-claims registry
+    # verification the run never performed — the values may be correct, but ARIA
+    # did not stand them against the register. Mirrors the sanctions_verified guard
+    # below, which already rejects source_unavailable.
+    registry_unavailable = any(
+        ("r-f1636" in _g or "registry unavailable" in _g or "not registry-verified" in _g)
+        for _g in (str(x).lower() for x in (ident.get("data_gaps") or []))
+    )
+    identity_ok = bool(registration_number and registry_profile and not registry_unavailable)
 
     sanctions = _mapping(ident.get("sanctions_screen"))
     sanctions_verified = bool(sanctions.get("verified_sources")) and not bool(
@@ -1588,6 +1598,8 @@ def _dd_decision_readiness(r: dict) -> dict:
             # reader than a generic "not substantiated".
             "blocker": (
                 "" if identity_ok
+                else "identity enriched from OSINT/vault — registry was unavailable this "
+                     "run (not registry-verified)" if registry_unavailable
                 else f"registry status is {registration_status_raw!r}" if _status_dead
                 else f"registry status {registration_status_raw!r} is not a recognised live status"
                 if registration_status_raw

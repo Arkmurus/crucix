@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2986,
+  "next_available": 2998,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23707,6 +23707,119 @@
       "r_number": "R-F2985",
       "title": "ecosystem UI: slick LIGHT-THEME redesign — the dark boxes clashed with the light dashboard; native white icon-cards + soft health tints + health-summary bar (infographic aesthetic), full picture, compact",
       "claimed_at": "2026-07-24T12:31:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2986",
+      "title": "admin suspend/role-change revokes active JWT sessions",
+      "claimed_at": "2026-07-24T12:55:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a56a099b",
+      "notes": null,
+      "shipped_at": "2026-07-24T13:16:52Z"
+    },
+    {
+      "r_number": "R-F2987",
+      "title": "coverage heatmap: freshness-unknown must not count ABSENT cells (conflated empty with unmeasured)",
+      "claimed_at": "2026-07-24T13:00:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "20a28655",
+      "notes": null,
+      "shipped_at": "2026-07-24T13:16:52Z"
+    },
+    {
+      "r_number": "R-F2988",
+      "title": "ARIA Brain top status truth semantics retry after collision",
+      "claimed_at": "2026-07-24T13:07:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2989",
+      "title": "landing page Janes-grade editorial re-skin (structure unchanged)",
+      "claimed_at": "2026-07-24T13:21:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "11357aea",
+      "notes": null,
+      "shipped_at": "2026-07-24T13:33:24Z"
+    },
+    {
+      "r_number": "R-F2990",
+      "title": "regional heatmap: samples-based scaffold count (measured-weak != unmeasured scaffold)",
+      "claimed_at": "2026-07-24T13:24:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0c6e543b",
+      "notes": null,
+      "shipped_at": "2026-07-24T13:44:53Z"
+    },
+    {
+      "r_number": "R-F2991",
+      "title": "landing hero: bespoke animated global-intelligence banner (Janes-style)",
+      "claimed_at": "2026-07-24T13:40:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cb3e0a07",
+      "notes": null,
+      "shipped_at": "2026-07-24T13:45:59Z"
+    },
+    {
+      "r_number": "R-F2992",
+      "title": "DD: reconcile R-F2779/R-F2780 adverse-media contradiction (scrub stale did-not-complete when follow-up completes)",
+      "claimed_at": "2026-07-24T14:46:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2993",
+      "title": "DD network_walker: count director appointments by officer_id not name-match (cap nominee signal to real person)",
+      "claimed_at": "2026-07-24T14:46:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2994",
+      "title": "DD sanctions: suppress/hard-label low-name-similarity transparency matches (System Capital Management 1.00 vs Silverbrook)",
+      "claimed_at": "2026-07-24T14:46:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2995",
+      "title": "DD scorecard: identity not YES-verified when R-F1636 registry-unavailable gap present",
+      "claimed_at": "2026-07-24T14:46:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2996",
+      "title": "coverage heatmap: invalidate must force recompute, not re-seed stale disk cache",
+      "claimed_at": "2026-07-24T14:50:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2997",
+      "title": "gate-2 heatmap caption: reframe near-50pct as measured regional gap not unmeasured",
+      "claimed_at": "2026-07-24T14:50:28Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -51,25 +51,64 @@ async def _directors_uk(company_number: str) -> list[dict]:
         return []
 
 
-async def _other_appointments_for_officer(name: str, limit: int = 20) -> list[dict]:
-    """Find other entities the officer sits on. UK-only via companies_house
-    search; returns [] for non-UK or on error.
+async def _other_appointments_for_officer(
+    name: str, subject_company_number: str | None = None, limit: int = 20
+) -> list[dict]:
+    """Return the OTHER company appointments genuinely held by this officer,
+    resolved by Companies House OFFICER_ID — not a name-string company search.
 
-    When an OpenCorporates / Sayari wrapper is added, swap this function
-    to return global results.
+    R-F2993 — the old implementation called ``search_companies(name)``, which
+    returns companies whose NAME matches the officer (eponymous shells), NOT the
+    person's board seats. On a common name that inflated the count across many
+    DIFFERENT people — the live Silverbrook defect where Justin Howard's real 5
+    appointments (by officer_id) were reported as "10+" and drove a false
+    "nominee director pattern". We now resolve the SPECIFIC person by matching the
+    officer candidate whose appointments include the SUBJECT company; if the name
+    cannot be disambiguated to that person, we return [] rather than a
+    name-collision count. Never emits an appointment the person does not hold.
     """
     try:
         from . import companies_house
-        if not hasattr(companies_house, "search_companies"):
+        if not (
+            hasattr(companies_house, "search_officers")
+            and hasattr(companies_house, "get_officer_appointments")
+        ):
             return []
-        # companies_house doesn't expose an officer-search endpoint by
-        # name in the current stub, but search_companies at least lets us
-        # look for entities whose name matches the officer — useful when
-        # the officer has an eponymous company.
-        hits = await companies_house.search_companies(name, limit=limit)
-        return hits or []
+        cands = await companies_house.search_officers(name, limit=5)
+        if not cands:
+            return []
+        subj = (subject_company_number or "").strip().upper()
+        chosen: list[dict] | None = None
+        for cand in cands:
+            oid = cand.get("officer_id") or ""
+            if not oid:
+                continue
+            apts = await companies_house.get_officer_appointments(oid, limit=limit)
+            nums = {str(a.get("company_number") or "").upper() for a in apts}
+            if subj and subj in nums:
+                chosen = apts  # this candidate IS the person on the subject company
+                break
+        if chosen is None:
+            # Cannot disambiguate to the person who sits on the subject company —
+            # do NOT emit a name-collision count (the R-F2993 false-positive).
+            return []
+        out: list[dict] = []
+        for a in chosen:
+            cnum = str(a.get("company_number") or "").upper()
+            if subj and cnum == subj:
+                continue  # exclude the subject company itself
+            out.append({
+                "title": a.get("company_name"),
+                "company_name": a.get("company_name"),
+                "company_number": a.get("company_number"),
+                "number": a.get("company_number"),
+                "is_current": a.get("is_current"),
+                "officer_role": a.get("officer_role"),
+                "matched_via_officer_id": True,
+            })
+        return out
     except Exception as e:
-        logger.debug("other_appointments failed for %s: %s", name, e)
+        logger.debug("other_appointments (officer_id) failed for %s: %s", name, e)
         return []
 
 
@@ -345,7 +384,8 @@ async def walk_network(
             oname = (officer.get("name") or "").strip()
             if not oname:
                 continue
-            other = await _other_appointments_for_officer(oname, limit=10)
+            other = await _other_appointments_for_officer(
+                oname, subject_company_number=registration_number, limit=10)
             stats["entities_walked"] += len(other)
             for entity in other:
                 ename = (entity.get("title") or entity.get("company_name") or entity.get("name") or "").strip()
@@ -391,7 +431,9 @@ async def walk_network(
             findings.append({
                 "severity": "amber",
                 "title": f"Director {director} has {count}+ cross-linked appointments",
-                "detail": "Possible nominee director pattern — feeds into ghost score indicator 4.",
+                "detail": ("Possible nominee director pattern — feeds into ghost score "
+                           "indicator 4. Count is officer_id-resolved (R-F2993): the same "
+                           "person, matched via the subject's own board, not a name search."),
                 "source": "network_walker",
                 "confidence": "PROBABLE",
             })

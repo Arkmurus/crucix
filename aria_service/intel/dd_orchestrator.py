@@ -3437,7 +3437,23 @@ async def _run_identity(
                 m for m in _info_matches
                 if m.get("severity") == "info" and not m.get("noise_filtered")
             ]
-            _noise_info_n = len([m for m in _info_matches if m.get("noise_filtered")])
+            # R-F2994 — an info/state-ownership "match" that shares only GENERIC
+            # corporate words with the subject (e.g. "System Capital Management" vs
+            # "Silverbrook Capital Management") is a name-coincidence, not a match.
+            # OpenSanctions' raw score (up to 1.00) is passed through and is NOT gated
+            # by name similarity, so these render as alarming high-score matches on an
+            # unrelated entity. Require a shared DISTINCTIVE (non-generic) token; drop
+            # coincidences from the DISPLAYED transparency set. Display-only — the
+            # never-false-clean BLOCKING path (fuzzy_screen corroboration) is untouched.
+            _subj_disc = _distinctive_tokens(getattr(report.identity, "entity_name", "") or "")
+            _coincidences = [
+                m for m in _real_info
+                if _subj_disc and not (_subj_disc & _distinctive_tokens(m.get("name") or ""))
+            ]
+            if _coincidences:
+                _drop_ids = {id(m) for m in _coincidences}
+                _real_info = [m for m in _real_info if id(m) not in _drop_ids]
+            _noise_info_n = len([m for m in _info_matches if m.get("noise_filtered")]) + len(_coincidences)
             if _real_info:
                 _info_detail_parts = [classified["summary"]]
                 for _im in _real_info[:5]:
@@ -9178,6 +9194,16 @@ def _refresh_persisted_decision_readiness(body: dict) -> dict:
 
     readiness = _dd_decision_readiness(body)
     body["decision_readiness"] = readiness
+    # R-F2992 — ALWAYS rebuild next_actions from the FRESH blockers, even on a
+    # non-GREEN escalation. A blocker a follow-up just resolved (e.g. the dedicated
+    # adverse-media screen completing) must not survive in the next-steps list while
+    # the scorecard marks it answered. The escalated verdict wording (bottom_line /
+    # recommendation, set by _apply_adverse_media_to_verdict) is preserved — only
+    # next_actions is synced to the current scorecard.
+    _fresh_blockers = list(readiness.get("blocking_reasons") or [])
+    body["next_actions"] = [
+        f"Resolve decision-readiness blocker: {_b}" for _b in _fresh_blockers
+    ] or ["Complete all five decision-critical DD checks"]
     if str(body.get("risk_classification") or "").upper() != "GREEN":
         return readiness
 
@@ -9216,6 +9242,82 @@ def _refresh_persisted_decision_readiness(body: dict) -> dict:
         f"Resolve decision-readiness blocker: {blocker}" for blocker in blockers
     ] or ["Complete all five decision-critical DD checks"]
     return readiness
+
+
+_GENERIC_ENTITY_TOKENS = frozenset({
+    "capital", "management", "holdings", "holding", "group", "ltd", "limited",
+    "plc", "llp", "llc", "inc", "incorporated", "corp", "corporation", "co",
+    "company", "international", "global", "partners", "partner", "fund", "funds",
+    "investment", "investments", "asset", "assets", "advisors", "advisers",
+    "advisory", "services", "service", "trading", "trust", "ventures",
+    "enterprise", "enterprises", "and", "the", "of",
+})
+
+
+def _distinctive_tokens(name: str) -> set[str]:
+    """R-F2994 — the non-generic tokens of an entity name (drop 'capital',
+    'management', 'holdings', 'ltd', … and short tokens). Two entity names sharing
+    only generic corporate words ('System Capital Management' vs 'Silverbrook Capital
+    Management') have DISJOINT distinctive tokens — i.e. they are a name-coincidence,
+    not the same entity."""
+    import re as _re
+    return {
+        t for t in _re.findall(r"[a-z0-9]+", (name or "").lower())
+        if t not in _GENERIC_ENTITY_TOKENS and len(t) > 2
+    }
+
+
+def _scrub_stale_adverse_incomplete(body: dict) -> bool:
+    """R-F2992 — once the dedicated adverse-media follow-up (R-F2780) has actually
+    run, the synthesis-time R-F2779 'adverse-media screening did NOT complete'
+    disclosure is FALSE. It was written to three persisted places at synthesis time
+    (top-level data_gaps_summary, digital.data_gaps, digital.findings) and the
+    follow-up never scrubbed them — so the same report asserted BOTH 'completed
+    (N items → AMBER)' and 'did not complete'. Remove the stale disclosure from all
+    three. Caller MUST gate this on the scorecard now marking adverse-media ANSWERED,
+    so the disclosures can never again contradict the scorecard. Returns True if
+    anything was removed. Never raises into the merge path."""
+    _MARK = "r-f2779"
+    _TXT = "adverse-media screening did not complete"
+    removed = False
+
+    def _stale_str(s) -> bool:
+        t = str(s or "").lower()
+        return _MARK in t or _TXT in t
+
+    def _stale_finding(f) -> bool:
+        if not isinstance(f, dict):
+            return False
+        return (
+            _MARK in str(f.get("source") or "").lower()
+            or _stale_str(f.get("detail"))
+            or "adverse-media screening incomplete" in str(f.get("title") or "").lower()
+        )
+
+    try:
+        dgs = body.get("data_gaps_summary")
+        if isinstance(dgs, list):
+            kept = [g for g in dgs if not _stale_str(g)]
+            if len(kept) != len(dgs):
+                body["data_gaps_summary"] = kept
+                removed = True
+        dig = body.get("digital")
+        if isinstance(dig, dict):
+            dg = dig.get("data_gaps")
+            if isinstance(dg, list):
+                kept = [g for g in dg if not _stale_str(g)]
+                if len(kept) != len(dg):
+                    dig["data_gaps"] = kept
+                    removed = True
+            fnd = dig.get("findings")
+            if isinstance(fnd, list):
+                kept = [f for f in fnd if not _stale_finding(f)]
+                if len(kept) != len(fnd):
+                    dig["findings"] = kept
+                    removed = True
+    except Exception as _e:  # noqa: BLE001 — scrub must never break the merge
+        logger.debug("[R-F2992] adverse-incomplete scrub failed (non-fatal): %s", _e)
+    return removed
 
 
 async def _run_adverse_media_followup(
@@ -9293,7 +9395,19 @@ async def _run_adverse_media_followup(
                 # R-F2786 — the follow-up just answered one of the five
                 # customer-critical questions. Keep the stored scorecard and
                 # BLUF in sync; non-GREEN adverse escalations are untouched.
-                _refresh_persisted_decision_readiness(_body)
+                _readiness = _refresh_persisted_decision_readiness(_body)
+                # R-F2992 — keep the never-false-clean disclosures CONSISTENT with
+                # the scorecard (single source of truth): if the dedicated
+                # adverse-media question is now ANSWERED, scrub the stale
+                # synthesis-time R-F2779 "did NOT complete" disclosure so the report
+                # can't assert both "completed (N items)" and "did not complete".
+                # If still unresolved, it correctly stays.
+                try:
+                    _adv_q = ((_readiness or {}).get("questions") or {}).get("adverse_media") or {}
+                    if bool(_adv_q.get("answered")):
+                        _scrub_stale_adverse_incomplete(_body)
+                except Exception:  # noqa: BLE001 — scrub gate must not break the merge
+                    pass
                 # R-F2794 — the body is now correct, but two OTHER persisted
                 # artefacts still assert the pre-escalation verdict: the frozen
                 # `rendered` markdown and the report index row the list surfaces
