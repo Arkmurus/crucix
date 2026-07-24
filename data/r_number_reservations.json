@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2984,
+  "next_available": 2986,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23689,6 +23689,24 @@
       "r_number": "R-F2983",
       "title": "ecosystem UI compaction: single-line health chips, tight grid, condensed coverage, 300px cap — halve the vertical footprint per operator",
       "claimed_at": "2026-07-24T12:25:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2984",
+      "title": "WA: enforce one connection per account (proxy + listener) — model-card §12",
+      "claimed_at": "2026-07-24T12:29:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2985",
+      "title": "ecosystem UI: slick LIGHT-THEME redesign — the dark boxes clashed with the light dashboard; native white icon-cards + soft health tints + health-summary bar (infographic aesthetic), full picture, compact",
+      "claimed_at": "2026-07-24T12:31:11Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

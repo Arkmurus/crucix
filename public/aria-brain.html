@@ -88,6 +88,25 @@
   /* Offset content for sidebar */
   #app-main { padding: 20px; min-width: 0; overflow-x: hidden; }  /* R-F2052: drop hardcoded 240px margin/max-width — shared aria.css #app-main handles margin + collapse */
   @media (max-width: 1024px) { #app-main { margin-left: 0; max-width: 100vw; } }
+
+  /* R-F2984 — ARIA Ecosystem: slick, light-theme, professional (was dark boxes on a light page) */
+  .eco-hbar { display:flex; height:8px; border-radius:5px; overflow:hidden; background:#eceae3; }
+  .eco-hbar > span { display:block; height:100%; }
+  .eco-kpis { display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+  .eco-kpi .v { font-size:16px; font-weight:700; color:var(--text); }
+  .eco-kpi .k { font-size:10px; color:#9b968c; margin-left:5px; }
+  .eco-sec { font-size:9px; color:#9b968c; text-transform:uppercase; letter-spacing:0.7px; font-weight:600; margin:12px 0 6px; }
+  .eco-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(168px,1fr)); gap:7px; }
+  .eco-card { display:flex; align-items:center; gap:9px; padding:7px 11px; border-radius:8px; border:1px solid var(--border);
+              background:#fff; cursor:pointer; transition:box-shadow .12s ease, transform .07s ease; }
+  .eco-card:hover { box-shadow:0 2px 8px rgba(15,23,42,0.10); transform:translateY(-1px); }
+  .eco-card i { font-size:13px; flex:0 0 auto; }
+  .eco-card .eco-nm { font-size:12px; font-weight:500; color:var(--text); flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .eco-card .eco-ct { font-size:10px; color:#9b968c; flex:0 0 auto; font-variant-numeric:tabular-nums; }
+  .eco-h-green { background:rgba(22,163,74,0.06); border-left:3px solid #16a34a; } .eco-h-green i { color:#16a34a; }
+  .eco-h-amber { background:rgba(202,138,4,0.08); border-left:3px solid #ca8a04; } .eco-h-amber i { color:#ca8a04; }
+  .eco-h-red   { background:rgba(220,38,38,0.06); border-left:3px solid #dc2626; } .eco-h-red i { color:#dc2626; }
+  .eco-h-grey  { background:#faf9f5; border-left:3px solid #dcd8cf; } .eco-h-grey i { color:#b5b0a4; }
 </style>
 </head>
 <body>
@@ -1423,8 +1442,8 @@ async function loadEcosystem(root){
 
   // breadcrumb
   if(bc){
-    let crumbs = `<span style="cursor:pointer;color:#4aa3ff" onclick="ecoHome()">⌂ Ecosystem</span>`;
-    _ecoStack.forEach((c,i)=>{ crumbs += ` <span style="color:#555">/</span> <span style="cursor:pointer;color:#4aa3ff" onclick="ecoJump(${i})">${c.label}</span>`; });
+    let crumbs = `<span style="cursor:pointer;color:var(--blue);font-weight:600" onclick="ecoHome()"><i class="bi bi-diagram-3"></i> Ecosystem</span>`;
+    _ecoStack.forEach((c,i)=>{ crumbs += ` <span style="color:#c2bcae">›</span> <span style="cursor:pointer;color:var(--blue)" onclick="ecoJump(${i})">${c.label}</span>`; });
     bc.innerHTML = crumbs;
   }
   // coverage banner (root view only) — the honest completeness proof
@@ -1457,42 +1476,46 @@ async function loadEcosystem(root){
   // height (the card scrolls), drill on click. Reduced font throughout.
   const nodes = g.nodes.slice();
   const byType = (t) => nodes.filter(n => n.type === t);
-  // compact SINGLE-LINE chip: health dot + name; all detail (count/R#/sensor) in the tooltip.
-  const _chip = (n) => {
-    const hc = _ECO_HCOL[n.health] || '#5a6470';
-    const rn = n.r_numbers || [];
-    const topR = rn.length ? rn.slice(-4).reverse().join(', ') : '';
-    const nm = (n.label || '');
-    let extra = '';
-    if (n.type === 'organ') extra = n.module_count != null ? ` · ${n.module_count} mod` : '';
-    else if (n.type === 'function') extra = n.wired ? ' · wired' : ' · dark';
-    else if (n.type === 'service') extra = n.detail ? ` · ${n.detail}` : '';
-    const tip = `${nm} (${n.type})${extra}`
-      + (n.sensor ? ` — [${n.health || 'grey'}] ${n.sensor}${n.sensor_value != null ? (' = ' + n.sensor_value) : ''}` : '')
-      + (topR ? ` — ${topR}` : '');
-    const drill = n.type !== 'function';
-    return `<div ${drill ? `onclick="ecoDrill('${n.id}','${nm.replace(/'/g, '')}')" style="cursor:pointer;` : 'style="'}`
-      + `display:flex;align-items:center;gap:5px;background:#141a22;border:1px solid #222a34;border-left:2px solid ${hc};`
-      + `border-radius:3px;padding:2px 6px;overflow:hidden" title="${tip.replace(/"/g, '')}">`
-      + `<span style="width:6px;height:6px;border-radius:50%;background:${hc};flex:0 0 auto"></span>`
-      + `<span style="font-size:10px;color:#cfcabf;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${nm}</span></div>`;
+  const _ECO_ICON = { sanctions:'bi-shield-exclamation', compliance:'bi-file-earmark-check', legal:'bi-bank',
+    dd:'bi-search', registries:'bi-buildings', osint:'bi-diagram-2', documents:'bi-file-earmark-text',
+    commercial:'bi-graph-up-arrow', learning:'bi-mortarboard', brain:'bi-cpu', llm:'bi-chat-square-dots',
+    autonomous:'bi-robot', delivery:'bi-send', search:'bi-globe2', guardian:'bi-shield-check',
+    intel_sources:'bi-rss', phase:'bi-speedometer2', infra:'bi-hdd-stack', cli:'bi-terminal',
+    routes:'bi-signpost-split', unassigned:'bi-exclamation-triangle' };
+  const _ecoIcon = (n) => _ECO_ICON[n.category] || (n.type==='service'?'bi-hdd-network':(n.type==='function'?'bi-braces':'bi-file-earmark-code'));
+  const _h = (n) => ['green','amber','red'].includes(n.health) ? n.health : 'grey';
+  const _card = (n) => {
+    const nm = (n.label||''), rn = n.r_numbers||[];
+    const ct = n.type==='organ' ? (n.module_count!=null?n.module_count:'')
+      : (n.type==='function' ? (n.wired?'wired':'') : (rn.length?rn[rn.length-1]:''));
+    const tip = `${nm} (${n.type})`
+      + (n.sensor ? ` — [${n.health||'grey'}] ${n.sensor}${n.sensor_value!=null?(' = '+n.sensor_value):''}` : '')
+      + (rn.length ? ` — audit ${rn.slice(-4).reverse().join(', ')}` : '');
+    const drill = n.type!=='function';
+    return `<div class="eco-card eco-h-${_h(n)}"${drill?` onclick="ecoDrill('${n.id}','${nm.replace(/'/g,'')}')"`:' style="cursor:default"'} title="${tip.replace(/"/g,'')}">`
+      + `<i class="bi ${_ecoIcon(n)}"></i><span class="eco-nm">${nm}</span><span class="eco-ct">${ct}</span></div>`;
   };
-  const _section = (label, arr) => arr.length
-    ? `<div style="font-size:8px;color:#6a7580;letter-spacing:0.6px;margin:6px 0 3px">${label}</div>`
-      + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:4px">${arr.map(_chip).join('')}</div>`
-    : '';
+  const _grid = (label, arr) => arr.length
+    ? `<div class="eco-sec">${label}</div><div class="eco-grid">${arr.map(_card).join('')}</div>` : '';
+
+  // health summary bar (proportional) over the shown level
+  const shown = nodes.filter(n=>n.type!=='service');
+  const hc = {green:0,amber:0,red:0,grey:0}; shown.forEach(n=>{ hc[_h(n)]++; });
+  const tot = shown.length || 1;
+  const seg = (k,c,lbl)=>hc[k]?`<span style="width:${(hc[k]/tot*100).toFixed(1)}%;background:${c}" title="${hc[k]} ${lbl}"></span>`:'';
+  const bar = `<div class="eco-hbar" style="margin:2px 0 10px">${seg('green','#16a34a','healthy')}${seg('amber','#ca8a04','degraded')}${seg('red','#dc2626','broken')}${seg('grey','#dcd8cf','no sensor')}</div>`;
+
   const services = byType('service'), organs = byType('organ'),
         modules = byType('module'), functions = byType('function');
-  let html = _section('SERVICES', services)
-    + _section('ORGANS', organs)
-    + _section(`FUNCTIONS (${functions.filter(f => f.wired).length}/${functions.length} wired)`, functions)
-    + _section(functions.length ? 'IMPORTS' : 'MODULES', modules);
-  html += `<div style="margin-top:7px;font-size:8.5px;color:#8a8578;display:flex;gap:12px;flex-wrap:wrap">`
-    + `<span><span style="color:var(--green)">●</span> healthy</span>`
-    + `<span><span style="color:var(--yellow)">●</span> degraded</span>`
-    + `<span><span style="color:var(--red)">●</span> broken</span>`
-    + `<span><span style="color:#5a6470">●</span> no sensor</span>`
-    + `<span style="color:#6a7580">click to drill · hover for detail</span></div>`;
+  let html = bar
+    + _grid('SERVICES', services)
+    + _grid('ORGANS', organs)
+    + _grid(`FUNCTIONS · ${functions.filter(f=>f.wired).length}/${functions.length} wired to brain`, functions)
+    + _grid(functions.length ? 'CONNECTED MODULES (imports)' : 'MODULES', modules);
+  html += `<div style="margin-top:9px;font-size:9px;color:#9b968c;display:flex;gap:13px;flex-wrap:wrap;align-items:center">`
+    + `<span style="color:#16a34a">● healthy</span><span style="color:#ca8a04">● degraded</span>`
+    + `<span style="color:#dc2626">● broken</span><span style="color:#c2bcae">● no sensor (grey ≠ green)</span>`
+    + `<span>· click a card to drill in, hover for its sensor + R-numbers</span></div>`;
   el.classList.remove('loading'); el.innerHTML = html;
 }
 function ecoDrill(id,label){ if(!id) return;
