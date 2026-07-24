@@ -3664,6 +3664,16 @@ async def _run_identity(
                     # SUCCESSFUL GB lookup mis-shaped the data (and psc_list[:10] TypeError'd).
                     _ch_unavail = companies_house.consume_unavailable()
                     profile = ch_result.get("profile") or ch_result.get("company") or {}
+                    # R-F3015 — Companies House answered LIVE this run when it returned a
+                    # real profile with a company number and was NOT flagged unavailable
+                    # (timeout / rate-limit / officers-truncated). The identity is then
+                    # registry-verified, so the R-F1636 "registry unavailable" enrichment
+                    # (~:4060) must NOT fire — it falsely failed the identity question for
+                    # real companies whose CH lookup fully succeeded (e.g. Cohort 05684823:
+                    # active, 7 current officers, yet read "not registry-verified"). Only a
+                    # genuine live CH profile clears the flag — GLEIF/vault fallback cannot
+                    # populate a CH profile — so this stays never-false-clean.
+                    _ch_registry_verified_live = _ch_verified_live(profile, _ch_unavail)
                     if profile.get("company_number"):
                         report.identity.registration_number = profile.get("company_number")
                     report.identity.registration_status = profile.get("company_status") or report.identity.registration_status
@@ -4052,7 +4062,12 @@ async def _run_identity(
         # locals().get avoids a NameError if reg_result never bound on an error
         # path; never breaks the identity layer.
         try:
-            if _registry_result_is_thin(locals().get("reg_result")):
+            # R-F3015 — do NOT enrich-as-unavailable when Companies House already
+            # verified the identity LIVE this run. Absent this gate a fully-verified
+            # company still read "registry unavailable", because the GB `reg_result`
+            # is the GLEIF fallback (GB never hits CH via the adapter path — see :3702)
+            # and so looks thin even though the real CH lookup at :3653 succeeded.
+            if _registry_result_is_thin(locals().get("reg_result")) and not locals().get("_ch_registry_verified_live"):
                 _enr_name = (report.identity.entity_name or target.get("name")
                              or target.get("entity") or "").strip()
                 if _enr_name:
@@ -4963,6 +4978,16 @@ def _registry_result_is_thin(reg_result) -> bool:
     has_number = bool((profile.get("company_number") or "").strip())
     has_directors = bool(reg_result.get("officers"))
     return not (has_number or has_directors)
+
+
+def _ch_verified_live(profile, ch_unavail) -> bool:
+    """R-F3015 — True when Companies House verified the identity LIVE this run: it
+    returned a real profile carrying a company number and was NOT flagged unavailable
+    (timeout / rate-limit / officers-truncated). Only a genuine live CH profile clears
+    it — GLEIF/vault fallback cannot populate a CH profile — so a caller can suppress
+    the R-F1636 'registry unavailable' enrichment WITHOUT risking a false clean (the
+    mirror-image of a false clean: a false negative on a real, verified identity)."""
+    return bool((profile or {}).get("company_number")) and not ch_unavail
 
 
 async def _wayback_earliest(domain: str) -> dict | None:
