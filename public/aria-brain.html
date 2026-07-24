@@ -1545,14 +1545,22 @@ async function loadHeatmap() {
   // an operator reads "compliance 51%" as weak competence, which is wrong.
   const _cells = [];
   topicList.forEach(t => regionList.forEach(r => { const v = d.heatmap[t]?.[r]; if (v != null) _cells.push(v); }));
-  const _nearInit = _cells.filter(v => v < 0.55).length;
+  // R-F2990 — "still at the ~50% scaffold" now means NOT YET MEASURED (a cell with
+  // <=1 observation), read from the authoritative samples-based backend count, NOT
+  // a score-near-0.50 proxy. The old `score < 0.55` proxy mislabeled measured-weak
+  // cells (graded far below 0.50 by real failing recalls — the very cells in the
+  // Weak-cells list) as "unmeasured scaffold", which was self-contradictory. Fall
+  // back to a tight score band only if an older backend hasn't sent cell_coverage.
+  const _cov = d.cell_coverage || null;
+  const _scaffold = _cov ? _cov.scaffold_cells : _cells.filter(v => v >= 0.48 && v <= 0.52).length;
+  const _total = _cov ? _cov.sampled_cells : _cells.length;
   const _rc = regionList.length;
   const _caption = '<div style="margin-bottom:8px;font-size:0.78em;color:#9b968c;line-height:1.5">'
     + '<strong>Region-specific coverage</strong> (Phase&nbsp;A gate&nbsp;#2). '
     + 'A cell near 50% means that topic has <em>not been measured for that region yet</em>, not low competence. '
     + 'Topic mastery (how well ARIA knows each subject) is tracked separately in the Mastery panel above. '
     + _rc + ' region' + (_rc === 1 ? '' : 's') + ' ' + (_rc === 1 ? 'has' : 'have') + ' regional samples so far'
-    + (_cells.length ? ('; ' + _nearInit + '/' + _cells.length + ' cell' + (_nearInit === 1 ? '' : 's') + ' still at the ~50% initial scaffold') : '')
+    + (_total ? ('; ' + _scaffold + '/' + _total + ' cell' + (_scaffold === 1 ? '' : 's') + ' not yet measured (still at the ~50% scaffold)') : '')
     + '.</div>';
 
   let html = _caption + '<table><tr><th></th>';

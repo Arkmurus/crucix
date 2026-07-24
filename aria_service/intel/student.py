@@ -2421,6 +2421,7 @@ async def get_regional_heatmap() -> dict:
     rm = await _load_regional_mastery()
     valid_regions = set(REGIONS)
     heatmap: dict[str, dict[str, float]] = {}
+    cell_samples: dict[tuple[str, str], int] = {}  # R-F2990 — per-cell observation count
     for key, val in rm.items():
         if ":" not in key:
             continue
@@ -2440,6 +2441,12 @@ async def get_regional_heatmap() -> dict:
         if topic not in heatmap:
             heatmap[topic] = {}
         heatmap[topic][region] = round(val.get("score", INITIAL_MASTERY), 3)
+        # R-F2990 — carry the sample count so the dashboard can honestly separate
+        # "not yet measured" (scaffold) from "measured and genuinely weak".
+        try:
+            cell_samples[(topic, region)] = int(val.get("samples", 0) or 0)
+        except (TypeError, ValueError):
+            cell_samples[(topic, region)] = 0
     # Find weak cells (< WEAK_THRESHOLD = 0.55, "needs study")
     weak_cells = []
     # R-F711 (2026-05-19) — find floor-breach cells (< GATE_2_FLOOR_TARGET
@@ -2457,11 +2464,34 @@ async def get_regional_heatmap() -> dict:
                 floor_breach_cells.append({"topic": topic, "region": region, "score": score})
     weak_cells.sort(key=lambda x: x["score"])
     floor_breach_cells.sort(key=lambda x: x["score"])
+    # R-F2990 — authoritative, SAMPLES-based coverage split. A cell is "still at
+    # the ~50% initial scaffold" iff it has NOT YET BEEN MEASURED — i.e. <=1
+    # observation — NOT merely because its score sits near 0.50. The old dashboard
+    # proxy (score < 0.55) conflated two opposite states: genuine unmeasured
+    # scaffold AND measured-weak cells that real failing recall-grades drove far
+    # BELOW 0.50 (e.g. procurement×central_africa at 0.04). Those weak cells appear
+    # in weak_cells above, so counting them as "unmeasured scaffold" was self-
+    # contradictory and understated how much real measurement has happened. Keying
+    # the split on `samples` fixes it: scaffold = <=1 obs; a low score with >=2 obs
+    # is a MEASURED gap, not scaffold. The dashboard reads scaffold_cells directly.
+    sampled_cells = len(cell_samples)
+    scaffold_cells = sum(1 for s in cell_samples.values() if s <= 1)
+    measured_weak_cells = sum(
+        1 for (t, r), s in cell_samples.items()
+        if s >= 2 and heatmap[t][r] < WEAK_THRESHOLD
+    )
     return {
         "heatmap": heatmap,
         "weak_cells": weak_cells[:20],
         "floor_breach_cells": floor_breach_cells[:20],
         "gate_2_floor_target": GATE_2_FLOOR_TARGET,
+        "cell_coverage": {
+            "sampled_cells":       sampled_cells,
+            "scaffold_cells":      scaffold_cells,                 # <=1 obs — not yet measured
+            "measured_cells":      sampled_cells - scaffold_cells,  # >=2 obs — a real measurement exists
+            "measured_weak_cells": measured_weak_cells,            # measured AND below the weak threshold
+            "scaffold_definition": "cells with <=1 observation (still at the ~0.50 initial scaffold)",
+        },
     }
 
 
