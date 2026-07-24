@@ -1203,7 +1203,7 @@
       --jn-navy:#0f2745; --jn-navy-2:#16375c; --jn-ink:#0a1a30;
       --jn-accent:#2f7d8b; --jn-accent-lt:#5aa6b4;
       --lp-gold:#2f7d8b;                             /* legacy landing accent → teal */
-      --lp-hero-img:url('images/hero/hero.jpg');     /* drop a licensed photo here */
+      --lp-hero-img:none;   /* animated banner is the default; set to url('images/hero/hero.jpg') (or a video poster) to use a licensed asset instead */
     }
 
     /* ── NAV ── */
@@ -1222,10 +1222,14 @@
 
     /* ── HERO — dark full-bleed editorial band ── */
     .lp-hero{background:var(--jn-ink);color:#e9eef4;}
-    .lp-hero-bg{background:
-        linear-gradient(180deg, rgba(8,20,38,.72) 0%, rgba(8,20,38,.90) 100%),
-        var(--lp-hero-img);
-      background-size:cover;background-position:center;background-repeat:no-repeat;}
+    /* R-F2991 — canvas is the base layer; the photo layer (--lp-hero-img) sits above it
+       when set, and the scrim keeps the left-set headline legible over either. */
+    #lp-hero-net{position:absolute;inset:0;width:100%;height:100%;display:block;z-index:0;pointer-events:none;}
+    .lp-hero-bg{z-index:1;background:var(--lp-hero-img);background-size:cover;background-position:center;background-repeat:no-repeat;}
+    .lp-hero-bg::after{content:"";position:absolute;inset:0;background:
+        linear-gradient(90deg, rgba(8,18,34,.92) 0%, rgba(8,18,34,.70) 50%, rgba(8,18,34,.40) 100%),
+        linear-gradient(0deg, rgba(8,18,34,.58) 0%, rgba(8,18,34,0) 42%);}
+    .lp-hero-inner{z-index:2;}
     .lp-hero-grid{background-image:
         linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
         linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
@@ -1343,6 +1347,9 @@
 
 <!-- ══ HERO ══ -->
 <section class="lp-hero">
+  <!-- R-F2991 — bespoke, license-clean animated banner (global-intelligence network).
+       Renders behind the copy; a licensed photo/video set via --lp-hero-img overrides it. -->
+  <canvas id="lp-hero-net" aria-hidden="true"></canvas>
   <div class="lp-hero-bg">
     <div class="lp-hero-grid"></div>
     <div class="lp-hero-glow"></div>
@@ -1960,8 +1967,8 @@ document.querySelectorAll('a[href^="#"]').forEach(function(a) {
 var nav = document.querySelector('.lp-nav');
 window.addEventListener('scroll', function() {
   nav.style.background = window.scrollY > 40
-    ? 'rgba(250,249,245,0.95)'
-    : 'rgba(250,249,245,0.88)';
+    ? 'rgba(245,246,248,0.96)'
+    : 'rgba(245,246,248,0.90)';
 });
 
 // R-F2620 — the request form now POSTs to /api/leads (aria-web → aria-intel
@@ -2002,6 +2009,83 @@ document.getElementById('lp-request-btn').addEventListener('click', async functi
     flash('Network error — please try again', 3500);
   }
 });
+
+/* R-F2991 — bespoke, license-clean animated hero banner: a global-intelligence
+   network (slowly drifting nodes + faint great-circle arcs + occasional signal
+   pulse), rendered in-browser. No external assets. Restrained on purpose —
+   dark navy + one teal accent, slow, low-opacity — so it reads corporate, not
+   flashy. Respects prefers-reduced-motion, pauses off-screen / when tab hidden,
+   and stands down entirely if a licensed photo is set via --lp-hero-img. */
+(function heroNet() {
+  var c = document.getElementById('lp-hero-net');
+  if (!c || !c.getContext) return;
+  var bgEl = document.querySelector('.lp-hero-bg');
+  if (bgEl) {
+    var img = getComputedStyle(bgEl).backgroundImage;
+    if (img && img !== 'none' && img.indexOf('url(') > -1) { c.style.display = 'none'; return; }
+  }
+  var ctx = c.getContext('2d');
+  var TEAL = '90,166,180';   // --jn-accent-lt (#5aa6b4)
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var W = 0, H = 0, DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var nodes = [], N = 0, raf = 0, running = false, t = 0;
+  function size() {
+    var r = c.getBoundingClientRect(); W = r.width; H = r.height;
+    c.width = Math.max(1, Math.round(W * DPR)); c.height = Math.max(1, Math.round(H * DPR));
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    N = Math.max(24, Math.min(52, Math.round(W / 26)));
+    nodes = [];
+    for (var i = 0; i < N; i++) nodes.push({
+      x: Math.random() * W, y: Math.random() * H,
+      vx: (Math.random() - 0.5) * 0.11, vy: (Math.random() - 0.5) * 0.11,
+      r: Math.random() * 1.4 + 0.6,
+      pulse: Math.random() < 0.14 ? Math.random() * 6.283 : -1
+    });
+  }
+  function frame() {
+    ctx.clearRect(0, 0, W, H);
+    var i, j, a, b, dx, dy, dist, MAX = 132;
+    for (i = 0; i < nodes.length; i++) {
+      a = nodes[i];
+      for (j = i + 1; j < nodes.length; j++) {
+        b = nodes[j]; dx = a.x - b.x; dy = a.y - b.y; dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < MAX) {
+          ctx.strokeStyle = 'rgba(' + TEAL + ',' + ((1 - dist / MAX) * 0.15).toFixed(3) + ')';
+          ctx.lineWidth = 0.7;
+          ctx.beginPath(); ctx.moveTo(a.x, a.y);
+          ctx.quadraticCurveTo((a.x + b.x) / 2, (a.y + b.y) / 2 - dist * 0.10, b.x, b.y);
+          ctx.stroke();
+        }
+      }
+    }
+    for (i = 0; i < nodes.length; i++) {
+      a = nodes[i];
+      a.x += a.vx; a.y += a.vy;
+      if (a.x < -12) a.x = W + 12; else if (a.x > W + 12) a.x = -12;
+      if (a.y < -12) a.y = H + 12; else if (a.y > H + 12) a.y = -12;
+      ctx.beginPath(); ctx.arc(a.x, a.y, a.r, 0, 6.2832);
+      ctx.fillStyle = 'rgba(' + TEAL + ',0.55)'; ctx.fill();
+      if (a.pulse >= 0) {
+        var p = (Math.sin(t * 0.028 + a.pulse) + 1) / 2;
+        ctx.beginPath(); ctx.arc(a.x, a.y, 2 + p * 9, 0, 6.2832);
+        ctx.strokeStyle = 'rgba(' + TEAL + ',' + (0.26 * (1 - p)).toFixed(3) + ')';
+        ctx.lineWidth = 1; ctx.stroke();
+      }
+    }
+    t++;
+    if (running) raf = requestAnimationFrame(frame);
+  }
+  function start() { if (running || reduce) return; running = true; raf = requestAnimationFrame(frame); }
+  function stop() { running = false; if (raf) cancelAnimationFrame(raf); }
+  size();
+  if (reduce) { frame(); return; }
+  start();
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (es) { es[0].isIntersecting ? start() : stop(); }, { threshold: 0 }).observe(c);
+  }
+  document.addEventListener('visibilitychange', function () { document.hidden ? stop() : start(); });
+  var rt; window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(size, 200); });
+})();
 </script>
 </body>
 </html>
