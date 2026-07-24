@@ -1011,6 +1011,19 @@ async def dd_orchestrate_ep(req: Request):
     if body.get("async_mode") or body.get("async"):
         import uuid as _uuid
         from ..intel import dd_orchestrator as _ddo
+        # R-F3007 — validate the target UPFRONT (the SAME R-F659 entity_type guard the
+        # sync path and the bg orchestrate enforce) so an under-specified request —
+        # e.g. a missing entity_type — fails LOUDLY here with a 400, instead of
+        # returning "running" and then silently refusing inside the detached bg task.
+        # That silent path marked the run and then dropped it, leaving the caller
+        # polling a run_id that never lands (no report, no visible error) — the exact
+        # not-robust failure a DD platform must not have.
+        _type_ok, _type_reason = _ddo._validate_entity_type_for_dd(body)
+        if not _type_ok:
+            raise HTTPException(status_code=400, detail=(
+                f"R-F659: refusing DD on unclassified target: {_type_reason}. "
+                f"Pass target['type'] as one of {sorted(_ddo._DD_VALID_ENTITY_TYPES)}."
+            ))
         _run_id = f"dd_{_uuid.uuid4().hex[:12]}"
         _ent = body.get("name") or body.get("entity") or ""
         # R-F2341 — carry the owner identity so the 'running' index row is scoped to (and
