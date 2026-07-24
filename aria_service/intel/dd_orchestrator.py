@@ -2944,6 +2944,23 @@ async def _run_identity(
     name = target.get("name") or target.get("entity") or target.get("query", "")
     jurisdiction = target.get("jurisdiction")
     jurisdiction_iso2 = target.get("jurisdiction_iso2")
+    # R-F2976 — normalize a caller-SUPPLIED jurisdiction alias to ISO2 so the
+    # GB-gated registry / officer / UBO paths fire. Live DD 2026-07-24 (Silverbrook,
+    # a real UK company, Companies House 04300718): jurisdiction_iso2="UK" was used
+    # RAW — "UK" != "GB", so the Companies House lookup (~line 3560), the officer
+    # walk (network_walker), and the UBO walk (~line 10029) were ALL skipped → no
+    # directors / no incorporation date → identity incomplete → confidence gate
+    # stuck at AMBER / grade D. resolve_jurisdiction_iso2() below only runs when NO
+    # value is supplied, so a supplied alias never got normalized. to_iso2 maps
+    # UK→GB / USA→US / UAE→AE and returns None for junk (then keep the raw value).
+    if jurisdiction_iso2:
+        try:
+            from .country_taxonomy import to_iso2 as _to_iso2_norm
+            _norm_j = _to_iso2_norm(jurisdiction_iso2)
+            if _norm_j:
+                jurisdiction_iso2 = _norm_j
+        except Exception:
+            pass
     registration_number = target.get("registration_number")
     # Jurisdiction-specific registration IDs flow into registration_number
     # when the caller didn't supply one explicitly. This keeps the
