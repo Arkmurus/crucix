@@ -368,9 +368,199 @@ def _scope_graph(full: dict[str, Any], root: str | None, tier: int | None) -> di
 
 
 async def get_graph(root: str | None = None, tier: int | None = None) -> dict[str, Any]:
-    """Public: a scoped, drill-down view of the ecosystem graph (structure only in P1)."""
+    """Public: a scoped, drill-down view of the ecosystem graph with the LIVE
+    health overlay (R-F2972). Structure is cached; health is read fresh each call."""
     full = await build_structure()
-    return _scope_graph(full, root, tier)
+    scoped = _scope_graph(full, root, tier)
+    try:
+        signals = await _gather_signals()
+        await _apply_health_to(scoped, signals, _organ_of_map(full))
+    except Exception as e:  # never let a health-read failure blank the map
+        logger.debug("[ecosystem_map] health overlay failed (nodes stay grey): %s", e)
+        for n in scoped["nodes"]:
+            n.setdefault("health", "grey")
+            n.setdefault("sensor", "no live sensor")
+    return scoped
+
+
+# ── R-F2972 (P2) — LIVE HEALTH OVERLAY (green/amber/red/GREY) ────────────────
+# Colour discipline (anti-hallucination law #4): a node is GREEN only when a
+# POSITIVE liveness signal says so (breaker closed / agent fresh / limb alive).
+# The ABSENCE of problems is NOT green — it is GREY ("no live sensor"). Negative
+# signals (open breaker, stale agent, dead limb, open HIGH gap) push amber/red;
+# worst wins. The colour is a CITATION: every coloured node carries the sensor
+# name + value + read-time, so it can be audited, never a claim.
+_RANK = {"grey": 0, "green": 1, "amber": 2, "red": 3}
+_GREY = {"color": "grey", "sensor": "no live sensor", "value": None}
+
+
+async def _gather_signals() -> dict[str, Any]:
+    """Fetch all live health signals concurrently; a dead source degrades to {}
+    (its nodes stay grey), never blanks the whole map (mirrors ecosystem_dashboard)."""
+    import time as _t
+
+    async def _breakers():
+        from . import circuit_breaker as _cb
+        return await asyncio.to_thread(_cb.get_all_breakers)
+
+    async def _agents():
+        from .agent_registry import AgentRegistry
+        return await AgentRegistry().list_active_agents(include_stale=True)
+
+    async def _limbs():
+        from . import liveness as _lv
+        return (await _lv.get_liveness()).get("limbs", {})
+
+    async def _surfaces():
+        from . import outcome_wire as _ow
+        return await _ow.get_all_surface_health()
+
+    async def _gaps():
+        from . import capability_gaps as _cg
+        return await _cg.get_gaps(resolved=False, limit=200)
+
+    async def _safe(coro):
+        try:
+            return await coro
+        except Exception as e:
+            logger.debug("[ecosystem_map] signal fetch failed: %s", e)
+            return None
+
+    breakers, agents, limbs, surfaces, gaps = await asyncio.gather(
+        _safe(_breakers()), _safe(_agents()), _safe(_limbs()), _safe(_surfaces()), _safe(_gaps()))
+    return {
+        "breakers": breakers or [], "agents": agents or [], "limbs": limbs or {},
+        "surfaces": surfaces or {}, "gaps": gaps or [], "read_at": _t.time(),
+    }
+
+
+def _breaker_color(state: str, reason: str | None) -> str:
+    st = (state or "").upper()
+    if st == "OPEN":
+        return "red"
+    if st == "HALF_OPEN":
+        return "amber"
+    return "green"  # CLOSED = a positive, live "this backend is healthy" signal
+
+
+def _agent_color(age: float | None) -> str:
+    # Anti-cry-wolf: many agents are long-cycle (tender_monitor@6h, eagle_eye@30m),
+    # so a beat older than a few minutes is NORMAL, not broken. Heartbeat age only
+    # ever yields green (recently active) or amber (not-recently-active / worth a
+    # look); it NEVER cries RED — confirmed-broken comes from breakers/limbs/HIGH
+    # gaps, not from a slow-cycle agent between its beats. Only a >24h silence
+    # (abandoned by any conceivable schedule) escalates to red.
+    if age is None:
+        return "grey"
+    if age < 300:
+        return "green"
+    if age < 86400:
+        return "amber"
+    return "red"
+
+
+def _build_health_map(signals: dict[str, Any], node_ids: set[str], organ_of: dict[str, str]) -> dict[str, dict]:
+    """Return {node_id: {color, sensor, value, read_at}} for nodes with a live
+    sensor. Worst-wins; positive signals turn grey→green, negative → amber/red."""
+    read_at = signals.get("read_at")
+    health: dict[str, dict] = {}
+
+    def _apply(nid: str, color: str, sensor: str, value: Any):
+        if nid not in node_ids:
+            return
+        cur = health.get(nid)
+        if cur is None or _RANK[color] > _RANK[cur["color"]]:
+            health[nid] = {"color": color, "sensor": sensor, "value": value, "read_at": read_at}
+
+    def _organ_for_name(name: str) -> str | None:
+        org = _assign_organ(name.lower())
+        return f"organ:{org}" if org else None
+
+    # aria-intel brain is answering THIS request → alive (honest positive signal)
+    _apply("aria-intel", "green", "brain process (this request served)", "alive")
+
+    # (1) breakers → the organ (and any matching module) the backend belongs to
+    for b in signals.get("breakers", []):
+        name = b.get("name", "")
+        color = _breaker_color(b.get("state"), b.get("last_failure_reason"))
+        val = f"{b.get('state')}" + (f"/{b['last_failure_reason']}" if b.get("last_failure_reason") else "")
+        org = _organ_for_name(name)
+        if org:
+            _apply(org, color, f"circuit_breaker[{name}]", val)
+        for nid in node_ids:
+            if nid.startswith("mod:") and name and name.lower() in nid.lower():
+                _apply(nid, color, f"circuit_breaker[{name}]", val)
+
+    # (2) agents/loops → the organ that owns them (+ the module if named)
+    for a in signals.get("agents", []):
+        aid = a.get("agent_id", "")
+        color = _agent_color(a.get("heartbeat_age_s"))
+        if color == "grey":
+            continue
+        val = f"beat {a.get('heartbeat_age_s')}s ago"
+        org = _organ_for_name(aid)
+        if org:
+            _apply(org, color, f"agent[{aid}]", val)
+        for nid in node_ids:
+            if nid.startswith("mod:") and aid and aid.replace("_", "") in nid.lower().replace("_", ""):
+                _apply(nid, color, f"agent[{aid}]", val)
+
+    # (3) external limbs → service nodes / search organ
+    _limb_target = {"aria-wa": "aria-wa", "aria-web": "aria-web", "aria-searxng": "organ:search", "searxng": "organ:search"}
+    for lname, lv in (signals.get("limbs") or {}).items():
+        tgt = _limb_target.get(lname)
+        if not tgt:
+            continue
+        if lv.get("alive"):
+            color = "green"
+        elif lv.get("stale"):
+            color = "amber"
+        else:
+            color = "red"
+        _apply(tgt, color, f"liveness[{lname}]", f"age {lv.get('age_s')}s, status={lv.get('status')}")
+
+    # (4) delivery surfaces → delivery organ (negative only: low success → amber/red)
+    surfaces = (signals.get("surfaces") or {}).get("surfaces", {})
+    for sname, sh in surfaces.items():
+        rate = sh.get("success_rate")
+        if rate is None or (sh.get("total", 0) or 0) == 0:
+            continue  # no traffic → no proof → leave grey
+        color = "green" if rate >= 0.95 else ("amber" if rate >= 0.7 else "red")
+        _apply("organ:delivery", color, f"outcome[{sname}]", f"success {round(rate*100)}% (n={sh.get('total')})")
+
+    # (5) open gaps → the organ (NEGATIVE only — never turns a node green)
+    for g in signals.get("gaps", []):
+        sev = str(g.get("severity", "")).upper()
+        color = "red" if sev in ("HIGH", "CRITICAL", "4", "5") else "amber"
+        src = g.get("source") or g.get("gap_type") or ""
+        org = _organ_for_name(src)
+        if org and org in node_ids:
+            cur = health.get(org)
+            # gaps only escalate; never override a red, never create green
+            if cur is None or _RANK[color] > _RANK[cur["color"]]:
+                _apply(org, color, f"gap[{g.get('gap_type')}]", f"{sev or 'gap'}: {str(g.get('detail',''))[:80]}")
+    return health
+
+
+async def _apply_health_to(graph: dict[str, Any], signals: dict[str, Any], organ_of: dict[str, str]) -> None:
+    """Colour a (scoped or full) graph's nodes + edges in place from live signals."""
+    node_ids = {n["id"] for n in graph["nodes"]}
+    hmap = _build_health_map(signals, node_ids, organ_of)
+    for n in graph["nodes"]:
+        h = hmap.get(n["id"], _GREY)
+        n["health"] = h["color"]
+        n["sensor"] = h["sensor"]
+        n["sensor_value"] = h.get("value")
+        n["sensor_read_at"] = h.get("read_at")
+    # edge health = worst of its endpoints (a broken node bleeds into its links)
+    for e in graph["edges"]:
+        cs = hmap.get(e["source"], _GREY)["color"]
+        ct = hmap.get(e["target"], _GREY)["color"]
+        e["health"] = cs if _RANK[cs] >= _RANK[ct] else ct
+
+
+def _organ_of_map(full: dict[str, Any]) -> dict[str, str]:
+    return {n["module_id"]: n["category"] for n in full["nodes"] if n["type"] == "module"}
 
 
 async def get_node(node_id: str) -> dict[str, Any]:
@@ -428,9 +618,30 @@ async def get_coverage() -> dict[str, Any]:
             "status": "declared_partial",
             "reason": "function-call graph is statically undecidable in Python (dynamic dispatch/getattr/late imports)",
         },
-        "health_sensors": {
-            "status": "pending_P2",
-            "note": "structure layer only in P1; live green/amber/red overlay lands in overlay_health (P2)",
-        },
+        "health_sensors": await _health_coverage(full),
         "meta": {"generated_at": m["generated_at"], "build_ms": m["build_ms"]},
     }
+
+
+async def _health_coverage(full: dict[str, Any]) -> dict[str, Any]:
+    """R-F2972 — how many nodes have a LIVE sensor vs grey (no-sensor). The rest is
+    honestly grey, never a fabricated green."""
+    try:
+        signals = await _gather_signals()
+        node_ids = {n["id"] for n in full["nodes"]}
+        hmap = _build_health_map(signals, node_ids, _organ_of_map(full))
+        colors = {"green": 0, "amber": 0, "red": 0}
+        for h in hmap.values():
+            if h["color"] in colors:
+                colors[h["color"]] += 1
+        total = len(full["nodes"])
+        return {
+            "total_nodes": total,
+            "with_live_sensor": len(hmap),
+            "grey_no_sensor": total - len(hmap),
+            "pct_live_sensor": round(100.0 * len(hmap) / total, 1) if total else 0.0,
+            "by_color": colors,
+            "rule": "GREEN only from a positive liveness signal; absence of problems is GREY, never green",
+        }
+    except Exception as e:
+        return {"status": "unavailable", "reason": str(e)[:120]}

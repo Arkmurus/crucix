@@ -1404,11 +1404,13 @@ async function loadCompounding() {
 // health overlay lands in P2. Drill: service → organ → module → import neighbours.
 let _ecoStack = [];  // breadcrumb drill path: [{id,label}]
 function _ecoHue(s){ let h=0; for(const c of (s||'x')) h=(h*31+c.charCodeAt(0))%360; return h; }
-function _ecoColor(n){
-  if(n.type==='service') return '#4aa3ff';
-  if(n.orphan_alert) return 'var(--red)';           // unassigned bucket = red completeness alert
-  return `hsl(${_ecoHue(n.category)},45%,56%)`;      // stable per-organ hue = a "line"
+const _ECO_HCOL = {green:'var(--green)', amber:'var(--yellow)', red:'var(--red)', grey:'#5a6470'};
+// P2: node FILL = live health; ring STROKE = organ "line" hue. Grey = no live sensor (never faked green).
+function _ecoFill(n){
+  if(n.orphan_alert) return 'var(--red)';                 // unassigned bucket = red completeness alert
+  return _ECO_HCOL[n.health] || '#5a6470';                // grey when unmeasured
 }
+function _ecoStroke(n){ return n.type==='service' ? '#4aa3ff' : `hsl(${_ecoHue(n.category)},50%,45%)`; }
 async function loadEcosystem(root){
   const el = document.getElementById('ecosystem-map');
   if(!el) return;
@@ -1429,8 +1431,16 @@ async function loadEcosystem(root){
   if(cov && cov.modules && cvEl){
     const c = cov.modules, ie = cov.import_edges;
     const oc = c.orphans>0 ? 'warn' : 'good';
+    const hs = cov.health_sensors || {};
+    const bc = hs.by_color || {};
+    let health = '';
+    if(hs.pct_live_sensor!=null){
+      health = ` · <strong>sensors:</strong> ${hs.with_live_sensor}/${hs.total_nodes} live (${hs.pct_live_sensor}%) `
+        + `<span class="good">${bc.green||0}●</span> <span class="warn">${bc.amber||0}●</span> <span style="color:var(--red)">${bc.red||0}●</span> `
+        + `<span class="neutral">${hs.grey_no_sensor} grey</span>`;
+    }
     cvEl.innerHTML = `<strong>Coverage:</strong> ${c.on_map}/${c.total_on_disk} modules on map <em>(100% by construction)</em> · `
-      + `<span class="${oc}">${c.orphans} unassigned</span> · ${ie.resolved_intra_repo} import links · call-graph <span class="neutral">${cov.call_edges.status.replace('_',' ')}</span>`;
+      + `<span class="${oc}">${c.orphans} unassigned</span> · ${ie.resolved_intra_repo} import links · call-graph <span class="neutral">${cov.call_edges.status.replace('_',' ')}</span>` + health;
   } else if(cvEl && root){ cvEl.innerHTML = ''; }
 
   // radial layout: focus at centre, everything else on a ring
@@ -1442,19 +1452,28 @@ async function loadEcosystem(root){
   others.forEach((n,i)=>{ const a=(i/Math.max(1,others.length))*2*Math.PI - Math.PI/2; pos[n.id]={x:cx+R*Math.cos(a), y:cy+R*Math.sin(a)}; });
 
   let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;font-size:9px" preserveAspectRatio="xMidYMid meet">`;
-  // edges (vessels/tracks): contains = thick spine, import = thin link
+  // edges (vessels/tracks) — coloured by live health where known; a broken node bleeds into its links
   g.edges.forEach(e=>{ const s=pos[e.source], t=pos[e.target]; if(!s||!t) return;
     const imp = e.type==='import';
-    svg += `<line x1="${s.x.toFixed(1)}" y1="${s.y.toFixed(1)}" x2="${t.x.toFixed(1)}" y2="${t.y.toFixed(1)}" stroke="${imp?'#33404f':'#4a5a6a'}" stroke-width="${imp?1:2}" opacity="${imp?0.35:0.6}"/>`; });
-  // nodes (organs/stations)
+    const hc = (e.health && e.health!=='grey') ? _ECO_HCOL[e.health] : (imp?'#33404f':'#4a5a6a');
+    const op = (e.health && e.health!=='grey') ? 0.75 : (imp?0.3:0.55);
+    svg += `<line x1="${s.x.toFixed(1)}" y1="${s.y.toFixed(1)}" x2="${t.x.toFixed(1)}" y2="${t.y.toFixed(1)}" stroke="${hc}" stroke-width="${imp?1:2.5}" opacity="${op}"/>`; });
+  // nodes (organs/stations): fill = health, ring = organ line hue
   nodes.forEach(n=>{ const p=pos[n.id]; if(!p) return;
-    const col=_ecoColor(n); const r = n.type==='service'?15:(n.type==='organ'?11:6);
+    const fill=_ecoFill(n), stroke=_ecoStroke(n), r = n.type==='service'?15:(n.type==='organ'?11:6);
     const drill = n.type!=='function';
     const meta = (n.module_count!=null?`, ${n.module_count} modules`:'') + (n.r_numbers&&n.r_numbers.length?`, ${n.r_numbers.length} R#`:'');
+    const sens = n.sensor ? `\n[${n.health||'grey'}] sensor: ${n.sensor}${n.sensor_value!=null?(' = '+n.sensor_value):''}` : '';
     svg += `<g style="cursor:${drill?'pointer':'default'}"${drill?` onclick="ecoDrill('${n.id}','${(n.label||'').replace(/'/g,'')}')"`:''}>`;
-    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r}" fill="${col}" stroke="#0a0e14" stroke-width="1.5"><title>${n.label} (${n.type}${meta})</title></circle>`;
+    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="2.5"><title>${n.label} (${n.type}${meta})${sens}</title></circle>`;
     const lbl = (n.label||'').length>20?(n.label.slice(0,19)+'…'):(n.label||'');
     svg += `<text x="${p.x.toFixed(1)}" y="${(p.y+r+9).toFixed(1)}" text-anchor="middle" fill="#c9c4b8">${lbl}</text></g>`; });
+  // legend
+  svg += `<g font-size="9" transform="translate(8,${H-10})">`
+    + `<circle cx="4" cy="-3" r="5" fill="var(--green)"/><text x="12" y="0" fill="#9b968c">healthy</text>`
+    + `<circle cx="66" cy="-3" r="5" fill="var(--yellow)"/><text x="74" y="0" fill="#9b968c">degraded</text>`
+    + `<circle cx="140" cy="-3" r="5" fill="var(--red)"/><text x="148" y="0" fill="#9b968c">broken</text>`
+    + `<circle cx="196" cy="-3" r="5" fill="#5a6470"/><text x="204" y="0" fill="#9b968c">no sensor (grey ≠ green)</text></g>`;
   svg += '</svg>';
   el.classList.remove('loading'); el.innerHTML = svg;
 }

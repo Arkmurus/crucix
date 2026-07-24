@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2972,
+  "next_available": 2974,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23541,32 +23541,54 @@
       "title": "test-isolation: rf2433 _install_fakes leaked sys.modules+student fns without cleanup, polluting 16 downstream tests (dd_ecosystem) — snapshot/restore fixture contains the roller-coaster",
       "claimed_at": "2026-07-24T08:59:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0839c65b",
+      "notes": null,
+      "shipped_at": "2026-07-24T09:43:26Z"
     },
     {
       "r_number": "R-F2969",
       "title": "P1a ecosystem_map.build_structure: honest code-derived architecture graph (modules=scan_modules, import-edge AST walk, organ map, orphan compute, cached/to_thread)",
       "claimed_at": "2026-07-24T09:08:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0839c65b",
+      "notes": null,
+      "shipped_at": "2026-07-24T09:43:26Z"
     },
     {
       "r_number": "R-F2970",
       "title": "P1b /api/aria/ecosystem/graph + /coverage endpoints (mirror /neural/graph shape, wired)",
       "claimed_at": "2026-07-24T09:08:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0839c65b",
+      "notes": null,
+      "shipped_at": "2026-07-24T09:43:27Z"
     },
     {
       "r_number": "R-F2971",
       "title": "P1c aria-brain ARIA Ecosystem card + loadEcosystem() inline-SVG T0/T1 render + bi-diagram-3 nav",
       "claimed_at": "2026-07-24T09:08:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0839c65b",
+      "notes": null,
+      "shipped_at": "2026-07-24T09:43:27Z"
+    },
+    {
+      "r_number": "R-F2972",
+      "title": "P2a ecosystem_map.overlay_health: live green/amber/red/grey overlay from real signals (breakers/heartbeats/limbs/sources-health/outcomes/fallback/gaps), grey-not-green sentinel + per-node sensor",
+      "claimed_at": "2026-07-24T09:53:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2973",
+      "title": "P2b ecosystem graph health merge + frontend node/edge coloring + sensor hover popover",
+      "claimed_at": "2026-07-24T09:53:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
