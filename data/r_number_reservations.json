@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3003,
+  "next_available": 3006,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23874,6 +23874,35 @@
       "r_number": "R-F3002",
       "title": "FCA Financial Services Register adapter (dormant until FCA_API_EMAIL/FCA_API_KEY set) + GB identity wiring",
       "claimed_at": "2026-07-24T16:39:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e3126a52",
+      "notes": null,
+      "shipped_at": "2026-07-24T16:42:20Z"
+    },
+    {
+      "r_number": "R-F3003",
+      "title": "cost tracker: reconcile month rollup - re-price mispriced records exactly, correct historical overcount",
+      "claimed_at": "2026-07-24T16:44:10Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6bb8645f",
+      "notes": null,
+      "shipped_at": "2026-07-24T17:00:50Z"
+    },
+    {
+      "r_number": "R-F3004",
+      "title": "cost reconcile: rebuild rollup from records (delta-adjust invalid vs diverged rollup); report ground truth",
+      "claimed_at": "2026-07-24T17:05:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3005",
+      "title": "DD PDF: OK->COMPLETED section labels (reads as quality while grade D)",
+      "claimed_at": "2026-07-24T17:07:23Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
