@@ -23,6 +23,42 @@ import os
 import sys
 import types
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _contain_fakes():
+    """R-F2965 (containment): _install_fakes() below reassigns student module
+    functions and injects fake sys.modules entries (web_search/capability_gaps/
+    engine_wiring) WITHOUT cleanup — a pre-existing isolation leak that polluted
+    every downstream test (e.g. dd_ecosystem rf298/rf305 fail when rf2433 runs
+    first). Snapshot + restore everything this file mutates so the roller-coaster
+    stops at the file boundary."""
+    from aria_service.intel import student
+    _mods = ("aria_service.intel.web_search", "aria_service.intel.capability_gaps",
+             "aria_service.intel.engine_wiring")
+    saved_mods = {m: sys.modules.get(m) for m in _mods}
+    saved_fns = {k: getattr(student, k, None) for k in
+                 ("update_regional_mastery", "get_regional_heatmap")}
+    saved_env = {k: os.environ.get(k) for k in
+                 ("ARIA_STUDENT_SEED_ALL_REGIONS", "ARIA_STUDENT_SEED_BATCH")}
+    try:
+        yield
+    finally:
+        for m, orig in saved_mods.items():
+            if orig is None:
+                sys.modules.pop(m, None)
+            else:
+                sys.modules[m] = orig
+        for k, orig in saved_fns.items():
+            if orig is not None:
+                setattr(student, k, orig)
+        for k, orig in saved_env.items():
+            if orig is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = orig
+
 
 def _install_fakes(credit_calls):
     from aria_service.intel import student
