@@ -152,16 +152,17 @@
 <body>
   <div class="container">
     <h1><span class="logo"></span> WhatsApp Connections</h1>
-    <p class="subtitle">Link WhatsApp numbers as connected devices. QR codes expire after 60 seconds.</p>
+    <p class="subtitle">One WhatsApp connection per account. Link a device via QR (codes expire after 60 seconds); remove the existing connection to link a different device.</p>
 
     <div id="error" class="error"></div>
     <div id="toast" class="toast"></div>
 
-    <!-- Create new account -->
-    <div class="create-bar">
+    <!-- Create new account (R-F2984: one per account — hidden once a connection exists) -->
+    <div class="create-bar" id="createBar">
       <input type="text" id="accountName" placeholder="e.g. ARIA Portugal" maxlength="50">
       <button class="btn btn-primary" id="createBtn">+ Add</button>
     </div>
+    <div id="limitNote" class="subtitle" style="display:none;">You have your one WhatsApp connection (the maximum per account). Remove it below to link a different device.</div>
 
     <!-- Refresh -->
     <div class="refresh-bar">
@@ -261,6 +262,17 @@
       const loading = document.getElementById('loading');
 
       loading.style.display = 'none';
+
+      // R-F2984 — one connection per account: hide the create form once one exists.
+      const createBar = document.getElementById('createBar');
+      const limitNote = document.getElementById('limitNote');
+      if (accounts.length >= 1) {
+        if (createBar) createBar.style.display = 'none';
+        if (limitNote) limitNote.style.display = 'block';
+      } else {
+        if (createBar) createBar.style.display = '';
+        if (limitNote) limitNote.style.display = 'none';
+      }
 
       if (accounts.length === 0) {
         empty.style.display = 'block';

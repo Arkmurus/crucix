@@ -3461,8 +3461,21 @@ app.post('/api/wa-listener/accounts', requireAuth, async (req, res) => {
   const { name } = req.body || {};
   const accountId = `wa_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  // Rate limit: max 5 accounts
-  if (_accounts.size >= 5) {
+  // R-F2984 — ONE WhatsApp connection PER ACCOUNT. Before this the only cap was a
+  // GLOBAL _accounts.size >= 5 (5 total across ALL users), so a single user could
+  // link several devices. The operator requires one device per account: reject a
+  // second connection for the SAME owner (they must remove the existing one first).
+  // An admin/internal caller with no pinned user (u === '') keeps the global cap.
+  const _owner = _waUser(req);
+  if (_owner) {
+    const _ownCount = [..._accounts.values()].filter(a => a.ownerUserId === _owner).length;
+    if (_ownCount >= 1) {
+      return res.status(409).json({
+        error: 'one_connection_per_account',
+        message: 'Only one WhatsApp connection is allowed per account. Remove your existing connection before linking a new device.',
+      });
+    }
+  } else if (_accounts.size >= 5) {
     return res.status(429).json({ error: 'Maximum 5 accounts allowed' });
   }
 
