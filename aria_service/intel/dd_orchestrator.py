@@ -3781,6 +3781,51 @@ async def _run_identity(
             except Exception:
                 pass
 
+        # ── 1b-FCA. R-F3002 — FCA Financial Services Register (GB) ──
+        # Authorisation status is the FIRST question for a UK 'Capital Management' /
+        # investment firm; SIC 64999 evidences nothing. DORMANT until FCA_API_EMAIL +
+        # FCA_API_KEY are set — then a real authorisation lookup; until then an honest
+        # "not checked" gap, never a fabricated authorised/not-authorised status.
+        _fca_name = (getattr(report.identity, "entity_name", "") or "").strip()
+        if _fca_name:
+            try:
+                from . import fca_register
+                _fca = await fca_register.lookup_firm(_fca_name)
+                report.identity.meta.subcalls += 1
+                if not _fca.get("configured"):
+                    report.identity.data_gaps.append(
+                        "FCA Register not checked — FCA_API_EMAIL/FCA_API_KEY not configured; "
+                        "FCA authorisation status UNKNOWN (not a clean bill)."
+                    )
+                elif _fca.get("error"):
+                    report.identity.data_gaps.append(f"FCA Register lookup error: {_fca['error']}")
+                elif _fca.get("matched"):
+                    _auth = bool(_fca.get("is_authorised"))
+                    report.identity.findings.append(Finding(
+                        severity="info" if _auth else "amber",
+                        title=(f"FCA Register: {_fca.get('firm_name') or _fca_name} — "
+                               f"{_fca.get('status', '?')} (FRN {_fca.get('frn', '?')})"),
+                        detail=(f"FCA Financial Services Register status '{_fca.get('status', '?')}'. "
+                                + ("Authorised firm." if _auth
+                                   else "NOT currently authorised — verify before any regulated dealing.")
+                                + f" Source: {_fca.get('detail_url', '')}"),
+                        source="fca_register.lookup_firm",
+                        confidence="CONFIRMED",
+                    ))
+                else:
+                    report.identity.findings.append(Finding(
+                        severity="info",
+                        title=f"FCA Register: no authorised firm matched '{_fca_name}'",
+                        detail=("No firm on the FCA Financial Services Register matched this name. "
+                                "May simply mean the entity conducts no FCA-regulated activity; but if "
+                                "it holds itself out as providing regulated financial services, absence "
+                                "of authorisation is material — verify by FRN. Not conclusive on name alone."),
+                        source="fca_register.lookup_firm",
+                        confidence="ASSESSED",
+                    ))
+            except Exception as _fca_e:  # noqa: BLE001 — never break identity on the add-on
+                logger.debug("FCA register wiring failed (non-fatal): %s", _fca_e)
+
         # ── 1c. Financial DD — shell company detection (UK) ──────────
         # 2026-04-13: pulls Companies House filing history, detects dormant,
         # micro-entity, overdue, formation agent addresses.

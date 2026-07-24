@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3002,
+  "next_available": 3003,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23845,9 +23845,10 @@
       "title": "DD adverse-media findings carry URL/date/publisher provenance, else count is INFO not verdict-driving",
       "claimed_at": "2026-07-24T15:03:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c4fe9f57",
+      "notes": null,
+      "shipped_at": "2026-07-24T16:33:29Z"
     },
     {
       "r_number": "R-F3000",
@@ -23868,6 +23869,15 @@
       "commit_sha": "afb1a9c0",
       "notes": null,
       "shipped_at": "2026-07-24T15:32:56Z"
+    },
+    {
+      "r_number": "R-F3002",
+      "title": "FCA Financial Services Register adapter (dormant until FCA_API_EMAIL/FCA_API_KEY set) + GB identity wiring",
+      "claimed_at": "2026-07-24T16:39:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
