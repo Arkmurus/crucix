@@ -3560,9 +3560,13 @@ async def cost_daily_status_ep():
 async def cost_reconcile_ep(month: str | None = None, apply: bool = False):
     """R-F3003 — recompute a month's cost rollup by RE-PRICING each per-call record
     at the CURRENT pricing table, correcting historical mispricing such as the
-    R-F3001 deepseek-v4-flash over-count (operator-gated). Exact within the 90-day
-    record TTL. Dry-run by DEFAULT (apply=false → report only); apply=true backs up
-    the pre-reconcile rollup then writes the corrected one; records untouched.
+    R-F3001 deepseek-v4-flash over-count (operator-gated — it rewrites the aggregate
+    the monthly cap + dashboard read). Exact within the 90-day record TTL.
+
+    Dry-run by DEFAULT: apply=false returns the before/after report WITHOUT writing.
+    apply=true backs up the pre-reconcile rollup to a timestamped key, then writes
+    the corrected one; per-call records are never touched. month defaults to the
+    current UTC month (YYYY-MM).
     """
     return await cost_tracker.reconcile_month_costs(month, apply=apply)
 
@@ -25055,6 +25059,37 @@ async def health_check_ep():
     breakers = cb.get_all_breakers()
     open_breakers = [b for b in breakers if b["state"] == "OPEN"]
 
+    # R-F2988 — the top-level health badge must include the live ecosystem
+    # overlay it sits directly above. Before this join, /health could say
+    # "healthy" while /ecosystem/coverage simultaneously reported RED organs.
+    # Unknown is also not healthy: inability to read this signal is explicit.
+    ecosystem_health: dict = {
+        "red": None,
+        "amber": None,
+        "green": None,
+        "grey": None,
+        "with_live_sensor": None,
+        "total_nodes": None,
+        "measured_at": None,
+    }
+    ecosystem_health_error: str | None = None
+    try:
+        from ..intel import ecosystem_map as _ecosystem_map
+        _ecosystem_coverage = await _ecosystem_map.get_coverage()
+        _health_sensors = _ecosystem_coverage.get("health_sensors") or {}
+        _health_colors = _health_sensors.get("by_color") or {}
+        ecosystem_health = {
+            "red": int(_health_colors.get("red") or 0),
+            "amber": int(_health_colors.get("amber") or 0),
+            "green": int(_health_colors.get("green") or 0),
+            "grey": int(_health_sensors.get("grey_no_sensor") or 0),
+            "with_live_sensor": int(_health_sensors.get("with_live_sensor") or 0),
+            "total_nodes": int(_health_sensors.get("total_nodes") or 0),
+            "measured_at": (_ecosystem_coverage.get("meta") or {}).get("generated_at"),
+        }
+    except Exception as exc:
+        ecosystem_health_error = f"{type(exc).__name__}: {exc}"[:160]
+
     # R-F2146 — coding RAG stats (constitutional rules, fixes, failures, structure)
     coding_rag_stats = {}
     try:
@@ -25098,6 +25133,12 @@ async def health_check_ep():
         degraded_reasons.append("grounded_rate_unknown")
     if adversarial is None:
         degraded_reasons.append("adversarial_no_recent_run")
+    if ecosystem_health_error:
+        degraded_reasons.append("ecosystem_health_unknown")
+    elif ecosystem_health.get("red", 0) > 0:
+        degraded_reasons.append(
+            f"ecosystem_red_nodes_{ecosystem_health['red']}"
+        )
     core_breakdown = mastery.get("core_breakdown", {}) or {}
     if core_breakdown:
         scaffolded_core = sum(
@@ -25140,6 +25181,10 @@ async def health_check_ep():
             "adversarial_run_at": adversarial_run_at,
             "adversarial_age_hours": adversarial_age_hours,
             "predictor_blocks_24h": blocks_24h,
+        },
+        "ecosystem_health": {
+            **ecosystem_health,
+            "error": ecosystem_health_error,
         },
         "circuit_breakers": {
             "total": len(breakers),

@@ -698,7 +698,7 @@ async function loadHealth() {
 
   // Status bar
   const hb = document.getElementById('health-badge');
-  hb.textContent = d.status?.toUpperCase() || 'UNKNOWN';
+  hb.textContent = `ECOSYSTEM: ${d.status?.toUpperCase() || 'UNKNOWN'}`;
   hb.className = `badge ${d.status === 'healthy' ? 'badge-green' : 'badge-yellow'}`;
 
   document.getElementById('infra-metrics').innerHTML =
@@ -728,7 +728,9 @@ async function loadMode() {
     return;
   }
   const mb = document.getElementById('mode-badge');
-  mb.textContent = `MODE: ${d.mode}`;
+  // R-F2988: this mode is a narrow output guard driven by predictor blocks,
+  // adversarial score, and grounded rate. It is not whole-platform health.
+  mb.textContent = `GUARD MODE: ${d.mode}`;
   const cls = {NORMAL:'badge-green', DEGRADED:'badge-yellow', SUPERVISED:'badge-yellow', EMERGENCY:'badge-red'}[d.mode] || 'badge-blue';
   mb.className = `badge ${cls}`;
 
@@ -753,8 +755,10 @@ async function loadEngine() {
 
   const ab = document.getElementById('autonomy-badge');
   const label = e.autonomy_label || (e.enabled ? 'ON' : 'OFF');
-  ab.textContent = `AUTONOMY: ${label}`;
-  ab.className = `badge ${e.enabled ? 'badge-green' : 'badge-red'}`;
+  // R-F2988: FULL is the configured permission policy, not proof that the
+  // engine is successfully firing tasks. Running state participates in colour.
+  ab.textContent = `AUTONOMY POLICY: ${label}`;
+  ab.className = `badge ${e.enabled && e.running ? 'badge-green' : 'badge-red'}`;
 
   document.getElementById('engine-metrics').innerHTML =
     metricRow('Running', e.running ? 'Yes' : 'No', e.running ? 'good' : 'bad') +
@@ -1672,7 +1676,8 @@ async function loadComposite() {
   cb.className = `badge ${cls}`;
 
   const pendingNote = pending > 0 ? ` (${pending} signal${pending > 1 ? 's' : ''} pending)` : '';
-  cb.textContent = `SCORE: ${pct(d.composite_score)} ${tierNameEff}${pendingNote}`;
+  const scoreLabel = pending > 0 ? 'PARTIAL SCORE' : 'SCORE';
+  cb.textContent = `${scoreLabel}: ${pct(d.composite_score)} ${tierNameEff}${pendingNote}`;
 
   let html = metricRow('Composite Score', pct(d.composite_score) + pendingNote, scoreClass(d.composite_score, 0.7, 0.5));
   html += metricRow('Displayed Tier', `${tierNameEff} (${tierEffective})`, tierEffective >= 3 ? 'good' : tierEffective >= 2 ? 'warn' : 'bad');

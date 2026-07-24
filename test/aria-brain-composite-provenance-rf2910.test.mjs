@@ -82,7 +82,7 @@ const partial = await render({
     honesty_rate_samples: 0,
   },
 });
-assert.match(partial['composite-badge'].textContent, /MEDIUM \(capped, signal-pending\)/);
+assert.match(partial['composite-badge'].textContent, /^PARTIAL SCORE: 82% MEDIUM \(capped, signal-pending\)/);
 assert.match(partial['composite-metrics'].innerHTML, /Measured Weight.*38%/s);
 assert.match(partial['composite-metrics'].innerHTML, /Displayed Tier.*MEDIUM \(capped, signal-pending\) \(2\)/s);
 assert.match(partial['composite-metrics'].innerHTML, /Raw Tier.*HIGH \(3\) — confidence cap applied/s);
@@ -107,7 +107,7 @@ const boundary = await render({
     honesty_rate_samples: 4,
   },
 });
-assert.match(boundary['composite-badge'].textContent, /MEDIUM \(capped, signal-pending\)/);
+assert.match(boundary['composite-badge'].textContent, /^PARTIAL SCORE: 78% MEDIUM \(capped, signal-pending\)/);
 assert.match(boundary['composite-metrics'].innerHTML, /Measured Weight.*81%/s);
 
 const measured = await render({
