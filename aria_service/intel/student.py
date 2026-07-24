@@ -1169,6 +1169,47 @@ def _quick_similarity(a: str, b: str) -> float:
 # R-F2283 raises reach (10→15 cells, 3→6 articles/cell) and records a per-CELL
 # §21e gap for uncredited floor breaches (the update_mastery gap is TOPIC-level
 # only). `explore` is injectable for tests.
+_CURRICULUM_CURSOR_KEY = "crucix:aria:student:regional_curriculum_cursor"
+
+
+async def _select_curriculum_cells(
+    below: list[dict], max_cells: int, *, head_n: int = 5,
+) -> list[dict]:
+    """R-F2955 (C1) — weakest-biased ROTATION over ALL below-floor cells.
+
+    The old selection studied `floor_breach_cells[:max_cells]` every session —
+    and `floor_breach_cells` is itself truncated to [:20] — so below-floor cells
+    ranked ~16+ were studied NEVER, permanently starved of attention while the
+    top-15 got hammered. This keeps the weakest `head_n` (which INCLUDES the
+    argmin — the gate closes only when the single weakest cell crosses 0.70) and
+    ROTATES the remaining window through the rest of the below-floor set via a
+    durable cursor advanced each session, so every below-floor cell gets periodic
+    read-grounded reinforcement. The cursor uses modulo so it survives the
+    below-floor set changing size between sessions (no crash, no permanent skip).
+    Grading is UNCHANGED — this only changes WHICH cells are attempted, never how
+    they are credited (§1: no clamping)."""
+    if not below:
+        return []
+    below = sorted(below, key=lambda c: c["score"])  # weakest-first
+    head = below[:max(0, head_n)]
+    tail = below[max(0, head_n):]
+    window = max(0, max_cells - len(head))
+    if not tail or window <= 0:
+        return list(head)
+    off = 0
+    try:
+        raw = await rs.get(_CURRICULUM_CURSOR_KEY)
+        off = (int(raw) % len(tail)) if raw is not None else 0
+    except Exception:
+        off = 0
+    rotated = [tail[(off + i) % len(tail)] for i in range(min(window, len(tail)))]
+    try:
+        await rs.set(_CURRICULUM_CURSOR_KEY, str((off + len(rotated)) % len(tail)))
+    except Exception:
+        pass
+    return list(head) + rotated
+
+
 async def _study_weak_regional_cells(
     *, explore=None, max_cells: int = 15, max_results_per_cell: int = 6,
 ) -> list[dict]:
@@ -1182,30 +1223,43 @@ async def _study_weak_regional_cells(
             from . import web_explorer as _we2
             explore = _we2.explore
         _hm = await get_regional_heatmap()
-        _weak_cells = (_hm.get("floor_breach_cells") or []) or (_hm.get("weak_cells") or [])
-        # R-F1925/R-F2283: target the weakest cells (10→15) and ALWAYS include the
-        # argmin floor cell — the gate only closes when the single weakest cell
-        # crosses 0.70, so it must be targeted every session regardless of breadth.
-        _target_cells = list(_weak_cells[:max_cells])
-        _floor_cells = _hm.get("floor_breach_cells") or []
-        if _floor_cells:
-            _floor = _floor_cells[0]
-            if _floor not in _target_cells:
-                _target_cells.append(_floor)
-        # R-F2433 — seed-all-regions bootstrap (flag ARIA_STUDENT_SEED_ALL_REGIONS,
-        # DEFAULT OFF → byte-identical to the block above). The loop can otherwise
-        # only REINFORCE cells already in get_regional_heatmap(), which only lists
-        # cells that already have samples — so a region with 0 samples can never be
-        # bootstrapped (chicken-and-egg; today the store holds only 'balkans'). When
-        # ON, extend the target list with up to ARIA_STUDENT_SEED_BATCH (default 10)
-        # not-yet-existing TOPIC×REGION cells per session so the loop ATTEMPTS to
-        # ground each region. The crediting path below is UNCHANGED — a seeded cell
-        # is credited ONLY if detect_regions confirms real region content (the
-        # R-F1947 gate at `if _stored and _grounded`), so this is NOT metric-gaming;
-        # it only broadens what the loop tries to read. Cost is bounded by the same
-        # per-session Brave budget + the seed batch. Flip ONLY after the R-F2277
-        # persistence fix lands, else credited cells get wiped under write-ceiling.
-        if os.getenv("ARIA_STUDENT_SEED_ALL_REGIONS", "").strip().lower() in ("1", "true", "yes", "on"):
+        # R-F2955 (C1): rotate over the FULL below-floor set (from the untruncated
+        # heatmap), NOT the [:20]-truncated floor_breach_cells — else cells ranked
+        # 21+ are never studied. Weakest-biased head (incl. argmin) + rotating tail.
+        _full_hm = _hm.get("heatmap") or {}
+        _below = [
+            {"topic": _t, "region": _r, "score": _s}
+            for _t, _regs in _full_hm.items()
+            for _r, _s in (_regs or {}).items()
+            if _s < GATE_2_FLOOR_TARGET
+        ]
+        _target_cells = await _select_curriculum_cells(_below, max_cells)
+        if not _target_cells:
+            # Early boot / empty heatmap fallback — legacy weakest-first slice.
+            _weak_cells = (_hm.get("floor_breach_cells") or []) or (_hm.get("weak_cells") or [])
+            _target_cells = list(_weak_cells[:max_cells])
+        # R-F2433/R-F2965 — seed-all-regions bootstrap (flag ARIA_STUDENT_SEED_ALL_REGIONS).
+        # The loop can otherwise only REINFORCE cells already in get_regional_heatmap(),
+        # which only lists cells that already have samples — so a region with 0 samples
+        # can never be bootstrapped (chicken-and-egg). When ON, extend the target list
+        # with up to ARIA_STUDENT_SEED_BATCH (default 10) not-yet-existing TOPIC×REGION
+        # cells per session so the loop ATTEMPTS to ground each region. The crediting
+        # path below is UNCHANGED — a seeded cell is credited ONLY if detect_regions
+        # confirms real region content (the R-F1947 gate at `if _stored and _grounded`),
+        # so this is NOT metric-gaming; it only broadens what the loop tries to read.
+        # Cost is bounded by the per-session Brave budget (now B3/R-F2961 cost-shed) +
+        # the seed batch.
+        # R-F2965 (C3): DEFAULT ON. CLAUDE.md §1 (binding) names "leaving
+        # ARIA_STUDENT_SEED_ALL_REGIONS off to keep 137 cells hidden" a forbidden
+        # measure-LESS clamp — so seeding must be the default, not opt-in. The
+        # R-F2433 "flip only after the persistence fix" warning is satisfied by
+        # the R-F2664 strict-read clobber guard already in _load/_update above (an
+        # absent/not-ready store can no longer wipe credited cells); R-F2963 (C0)
+        # write-coalescing is available (opt-in) if the larger cache is ever seen
+        # to pressure the single writer. EXPECTED: the honest floor DROPS as
+        # 0.5-seeded cells appear — that is the gate becoming EARNED (§1), not a
+        # regression; judge by A1 velocity over days.
+        if os.getenv("ARIA_STUDENT_SEED_ALL_REGIONS", "1").strip().lower() not in ("0", "false", "no"):
             try:
                 _seed_batch = max(1, int(os.getenv("ARIA_STUDENT_SEED_BATCH", "10") or "10"))
             except (TypeError, ValueError):
@@ -1248,6 +1302,21 @@ async def _study_weak_regional_cells(
             _ws = None
             _brave_available = False
         _brave_budget = int(os.getenv("ARIA_STUDENT_BRAVE_BUDGET", "3") or "3")
+        # R-F2961 (B3) — cost-aware graceful shed. When the day's LLM spend nears
+        # the cap, DON'T disable learning — just skip the PAID Brave escalation and
+        # keep the free multi-backend/SearXNG Pass-1 running. Evaluated ONCE per
+        # session (one cost read, not per-cell). This is why the feeds never need
+        # to be hard-turned-off for cost again.
+        _paid_shed = False
+        try:
+            from . import load_governor as _lg_paid
+            _paid_shed = await _lg_paid.should_shed_paid()
+            if _paid_shed:
+                logger.info(
+                    "[student] R-F2961 cost-shed: skipping PAID Brave escalation this "
+                    "session (daily budget pressure); free stack still learning at $0")
+        except Exception:
+            _paid_shed = False
 
         def _region_grounded(_er, _rgn: str):
             """Return (grounded, [(value, context) for facts with a source_url]).
@@ -1308,7 +1377,7 @@ async def _study_weak_regional_cells(
 
             # Pass 2 — Brave escalation (R-F2392): ONLY when the free stack could
             # not ground the region, per-session budget remains, and a key exists.
-            if (not _grounded) and _brave_budget > 0 and _brave_available:
+            if (not _grounded) and _brave_budget > 0 and _brave_available and not _paid_shed:
                 _brave_budget -= 1
                 _ber = await _explore_region(_query, use_brave=True)
                 if _ber is not None:
@@ -1445,6 +1514,13 @@ async def _study_weak_regional_cells(
                 gap_type="knowledge_gap",
                 source="student:_study_weak_regional_cells",
             )
+    except Exception:
+        pass
+    # R-F2963 (C0) — force-flush the coalesced regional writes now that this
+    # session's ~15-cell burst is done, so the whole-blob write lands promptly
+    # (bounded stranding) instead of only on the next update.
+    try:
+        await flush_regional()
     except Exception:
         pass
     return regional_studied
@@ -2079,7 +2155,7 @@ _REGION_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"\b(?:angola|mozambique|cape\s+verde|cabo\s+verde|guinea.bissau|"
         r"são\s+tomé|cplp|lusophone|portuguese|fadm|faa|fasb)\b", re.I)),
     ("west_africa", re.compile(
-        r"\b(?:nigeria|ghana|senegal|côte\s+d.ivoire|cameroon|ecowas|"
+        r"\b(?:west\s+africa|nigeria|ghana|senegal|côte\s+d.ivoire|cameroon|ecowas|"
         r"niger|mali|burkina|togo|benin|sierra\s+leone|liberia|aes\s+alliance)\b", re.I)),
     # R-F1947 (gate-#2 credit fix): Kenya/Nairobi/Tanzania/Uganda were miscategorised
     # under central_africa, so the osint×east_africa floor cell's own query
@@ -2089,16 +2165,19 @@ _REGION_PATTERNS: list[tuple[str, re.Pattern]] = [
     # Core East-African (EAC) states now correctly map to east_africa; central_africa
     # keeps the DRC/Congo cluster (+ Rwanda/Burundi, which sit in the DRC-conflict orbit).
     ("east_africa", re.compile(
-        r"\b(?:ethiopia|addis\s+ababa|somalia|mogadishu|eac|east\s+african\s+community|"
+        r"\b(?:east\s+africa|ethiopia|addis\s+ababa|somalia|mogadishu|eac|east\s+african\s+community|"
         r"amisom|djibouti|eritrea|south\s+sudan|sudan|"
         r"kenya|nairobi|mombasa|tanzania|dodoma|dar\s+es\s+salaam|uganda|kampala)\b", re.I)),
+    # R-F2964 (C2): added the genuine "central africa" region-name literal — the
+    # query phrase searches "…Central Africa" but the gate recognised only DRC/Congo
+    # tokens, so region-named content failed to ground → the cell froze at ~0.05.
     ("central_africa", re.compile(
-        r"\b(?:d\.?r\.?c\.?|drc|democratic\s+republic\s+of\s+(?:the\s+)?congo|congo|"
+        r"\b(?:central\s+africa|d\.?r\.?c\.?|drc|democratic\s+republic\s+of\s+(?:the\s+)?congo|congo|"
         r"kinshasa|brazzaville|rwanda|kigali|burundi|bujumbura|m23|monusco)\b", re.I)),
     ("north_africa", re.compile(
-        r"\b(?:libya|algeria|morocco|tunisia|egypt|sahel|maghreb)\b", re.I)),
+        r"\b(?:north\s+africa|libya|algeria|morocco|tunisia|egypt|sahel|maghreb)\b", re.I)),
     ("southern_africa", re.compile(
-        r"\b(?:south\s+africa|sadc|botswana|namibia|zimbabwe|zambia)\b", re.I)),
+        r"\b(?:southern\s+africa|south\s+africa|sadc|botswana|namibia|zimbabwe|zambia)\b", re.I)),
     ("mena", re.compile(
         r"\b(?:middle\s+east|syria|iraq|iran|jordan|lebanon|palestine|israel)\b", re.I)),
     ("gulf", re.compile(
@@ -2107,18 +2186,18 @@ _REGION_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"\b(?:turkey|türkiye|ssb|baykar|aselsan|roketsan|tai|stm|"
         r"savunma\s+sanayii|tb2|bayraktar|nihai\s+kullan)\b", re.I)),
     ("south_asia", re.compile(
-        r"\b(?:india|delhi|bengaluru|hindustan|hal\b|drdo|"
+        r"\b(?:south\s+asia|india|delhi|bengaluru|hindustan|hal\b|drdo|"
         r"pakistan|islamabad|bangladesh|dhaka|sri\s+lanka|nepal|"
         r"make\s+in\s+india|dap\s*2020|dpp)\b", re.I)),
     ("southeast_asia", re.compile(
-        r"\b(?:indonesia|jakarta|philippines|manila|vietnam|hanoi|thailand|"
+        r"\b(?:south[\s\-]*east\s+asia|indonesia|jakarta|philippines|manila|vietnam|hanoi|thailand|"
         r"bangkok|myanmar|burma|malaysia|kuala\s+lumpur|singapore|"
         r"asean|aukus|quad)\b", re.I)),
     ("latam_lusophone", re.compile(
         r"\b(?:brazil|brasília|brasilia|brasil|são\s+paulo|rio\s+de\s+janeiro|"
         r"embraer|taurus\s+armas|avibras)\b", re.I)),
     ("latam_non_lusophone", re.compile(
-        r"\b(?:colombia|bogotá|bogota|indumil|cotecmar|"
+        r"\b(?:latin\s+america|colombia|bogotá|bogota|indumil|cotecmar|"
         r"peru|lima|seace|"
         r"chile|santiago|dgmn|fidae|"
         r"argentina|buenos\s+aires|fabricaciones\s+militares|"
@@ -2126,7 +2205,7 @@ _REGION_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"mexico|méxico|sedena|"
         r"mercosur|central\s+america|panama|panamá)\b", re.I)),
     ("europe", re.compile(
-        r"\b(?:ukraine|kyiv|poland|warsaw|romania|bucharest|baltic|czech|hungary|"
+        r"\b(?:europe|ukraine|kyiv|poland|warsaw|romania|bucharest|baltic|czech|hungary|"
         r"european|pesco|edirpa|france|germany|italy|spain|portugal)\b", re.I)),
     ("balkans", re.compile(
         r"\b(?:serbia|belgrade|bosnia|sarajevo|kosovo|pristina|"
@@ -2200,6 +2279,78 @@ async def _save_regional_mastery() -> None:
     _regional_dirty = False
 
 
+# ── R-F2963 (C0): coalesce the whole-blob REGIONAL_MASTERY_KEY save ──────────
+# _save_regional_mastery rewrites the ENTIRE regional cache to ONE key via
+# set_json on EVERY observation. The reading loop grades ~15 cells in a tight
+# burst (student._study_weak_regional_cells), and with SEED_ALL_REGIONS on (C3)
+# the cache is ~224 cells — so per-observation whole-blob writes hammer the
+# single aiosqlite writer (the exact write-ceiling the R-F2433 comment warns
+# would "wipe credited cells"). This mirrors the R-F2408 topic-mastery coalesce:
+# collapse the burst to at most one write per interval; a force-flush at the end
+# of each reading session + the snapshot loop guarantees nothing is stranded.
+# Default OFF (like R-F2408): the C3 seed-all flip is made SAFE by the R-F2664
+# strict-read clobber guard (which already prevents the "credited cells wiped"
+# failure the R-F2433 comment warned about), so coalescing is write-HYGIENE, not
+# a correctness pre-req — appropriately opt-in. Flip ARIA_REGIONAL_COALESCE_SAVE=1
+# if the 224-cell whole-blob write is ever observed to pressure the single writer;
+# the force-flush is wired (reading session + snapshot loop) so turning it on
+# never strands the last update. OFF keeps update_regional_mastery's immediate-
+# write contract intact.
+_REGIONAL_SAVE_COALESCE = os.getenv(
+    "ARIA_REGIONAL_COALESCE_SAVE", "0").strip().lower() in ("1", "true", "yes", "on")
+_REGIONAL_FLUSH_INTERVAL_S = float(os.getenv("ARIA_REGIONAL_FLUSH_INTERVAL_S", "15"))
+_regional_last_save: float = 0.0
+_regional_save_lock: "asyncio.Lock | None" = None
+
+
+def _get_regional_save_lock() -> "asyncio.Lock":
+    """Lazy-bound single-flight lock (created inside the running loop, like
+    _get_mastery_save_lock) so pytest's per-test asyncio.run loops each bind a
+    fresh lock."""
+    global _regional_save_lock
+    if _regional_save_lock is None:
+        _regional_save_lock = asyncio.Lock()
+    return _regional_save_lock
+
+
+async def _maybe_flush_regional(force: bool = False) -> bool:
+    """R-F2963 — persist the regional cache, coalesced when the flag is ON.
+
+    Flag OFF: identical to the pre-R-F2963 inline behaviour (_save_regional_mastery,
+    which no-ops when not dirty). Flag ON (default): write at most once per
+    _REGIONAL_FLUSH_INTERVAL_S; intervening updates keep _regional_dirty=True so
+    the next flush (or a force flush) persists the latest whole-cache snapshot.
+    Single in-flight flush via a lazy lock. Returns True iff a DB write happened."""
+    global _regional_last_save
+    if not _REGIONAL_SAVE_COALESCE:
+        await _save_regional_mastery()
+        return True
+    if _regional_cache is None or not _regional_dirty:
+        return False
+    now = time.time()
+    if not force and (now - _regional_last_save) < _REGIONAL_FLUSH_INTERVAL_S:
+        return False  # coalesce — keep the dirty flag, defer the write
+    lock = _get_regional_save_lock()
+    if lock.locked() and not force:
+        return False
+    async with lock:
+        now = time.time()
+        if not force and (now - _regional_last_save) < _REGIONAL_FLUSH_INTERVAL_S:
+            return False
+        if _regional_cache is None or not _regional_dirty:
+            return False
+        await _save_regional_mastery()  # resets _regional_dirty on success
+        _regional_last_save = now
+        return True
+
+
+async def flush_regional() -> bool:
+    """R-F2963 — public force-flush of any deferred regional-mastery write. Wired
+    into the reading session + snapshot loop so a quiet period can't leave the
+    last learning signal unpersisted. Safe anytime; no-op when nothing pending."""
+    return await _maybe_flush_regional(force=True)
+
+
 @fail_wire(module="student", gap_type="engine_failure")
 async def update_regional_mastery(
     topics: list[str], regions: list[str], correct: bool, weight: float = 1.0,
@@ -2229,7 +2380,7 @@ async def update_regional_mastery(
             entry["samples"] = entry.get("samples", 0) + 1
     _regional_cache.update(rm)
     _mark_regional_dirty()  # R-F268 — actual regional-mastery update
-    await _save_regional_mastery()
+    await _maybe_flush_regional()  # R-F2963 — coalesced whole-blob write
 
 
 @fail_wire(module="student", gap_type="engine_failure")

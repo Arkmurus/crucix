@@ -26,6 +26,15 @@ from aria_service.intel import student
 from aria_service.intel import web_search as _ws
 
 
+@pytest.fixture(autouse=True)
+def _no_seed(monkeypatch):
+    # R-F2965 (C3): seeding now DEFAULTS ON. These tests assert the isolated
+    # single-cell Brave-escalation contract (exact free→brave pass sequence), so
+    # disable seeding here to avoid seeded-cell noise. Seeding is exercised by
+    # test_rf2433 and test_rf2965.
+    monkeypatch.setenv("ARIA_STUDENT_SEED_ALL_REGIONS", "0")
+
+
 # ── region-tagged vs non-region content fixtures ──────────────────────────────
 def _region_fact():
     # detect_regions() maps "saudi/uae/gcc" → "gulf".

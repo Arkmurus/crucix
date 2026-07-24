@@ -342,6 +342,12 @@ window.addEventListener('DOMContentLoaded', function () {
     </div>
   </div>
 
+  <!-- R-F2958: Compounding — is the gate #2 floor trending UP over time? -->
+  <div class="card wide">
+    <h2>Compounding (Gate #2 floor over time)</h2>
+    <div id="compounding" class="loading">Loading...</div>
+  </div>
+
   <!-- Mastery Heat Map -->
   <div class="card wide">
     <h2>Mastery Heat Map (Topic x Region)</h2>
@@ -1312,6 +1318,77 @@ async function loadAudit() {
   } else {
     document.getElementById('audit-recent').innerHTML = '<span class="neutral">No audit entries yet. Will populate after the first chat.</span>';
   }
+}
+
+// R-F2958 — compact single-series sparkline (change-over-time). Reuses the
+// dashboard status tokens; single series → no legend, no categorical palette.
+function _sparkline(values, opts) {
+  const o = opts || {};
+  const w = o.w || 260, h = o.h || 40, pad = 3;
+  const vals = values.filter(v => v != null);
+  if (vals.length < 2) return '<span class="neutral">—</span>';
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const span = (max - min) || 1;
+  const stroke = o.stroke || 'var(--blue)';
+  const n = values.length;
+  const pts = values.map((v, i) => {
+    if (v == null) return null;
+    const x = pad + (i * (w - 2 * pad)) / (n - 1);
+    const y = h - pad - ((v - min) / span) * (h - 2 * pad);
+    return [x, y];
+  }).filter(Boolean);
+  const path = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const dots = pts.map((p, i) => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2" fill="${stroke}"><title>${o.fmt ? o.fmt(vals[i]) : vals[i]}</title></circle>`).join('');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="overflow:visible">`
+    + `<path d="${path}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>${dots}</svg>`;
+}
+
+async function loadCompounding() {
+  const d = await fetchJson('/student/mastery/compounding');
+  const el = document.getElementById('compounding');
+  if (!el) return;
+  if (!d || !d.trend || d.trend.length === 0) {
+    el.innerHTML = '<span class="neutral">No snapshots yet. The regional snapshot loop records one every ~6h; a trend needs ≥2.</span>';
+    return;
+  }
+  const v = d.velocity || {};
+  // trend is newest-first from the ring → reverse to chronological for the plot.
+  const chrono = [...d.trend].reverse();
+  const floors = chrono.map(s => s.floor);
+  const counts = chrono.map(s => s.count_ge_070);
+  const cellCounts = chrono.map(s => s.cell_count);
+
+  let head;
+  if (!v.ok) {
+    // Honest: not enough history — never fabricate a compounding claim (§1/§22).
+    head = `<div class="metric"><span class="label">Compounding</span>`
+      + `<span class="value neutral">insufficient history (${d.snapshots} snapshot${d.snapshots === 1 ? '' : 's'})</span></div>`;
+  } else {
+    const fd = v.floor_delta || 0;
+    const rising = fd > 0 || (v.count_ge_070_delta || 0) > 0;
+    const cls = rising ? 'good' : (fd < 0 ? 'warn' : 'neutral');
+    const arrow = fd > 0 ? '▲' : (fd < 0 ? '▼' : '▬');
+    const perWk = v.floor_delta_per_week;
+    head = metricRow('Floor Δ (window)', `${arrow} ${fd >= 0 ? '+' : ''}${(fd * 100).toFixed(1)} pp`, cls)
+      + (perWk != null ? metricRow('Floor Δ / week', `${perWk >= 0 ? '+' : ''}${(perWk * 100).toFixed(1)} pp`, perWk > 0 ? 'good' : perWk < 0 ? 'warn' : 'neutral') : '')
+      + metricRow('Cells ≥ 70% (Δ)', `${v.latest_count_ge_070}/${v.latest_cell_count} (${(v.count_ge_070_delta || 0) >= 0 ? '+' : ''}${v.count_ge_070_delta || 0})`, (v.count_ge_070_delta || 0) >= 0 ? 'good' : 'warn');
+  }
+
+  // §1 honesty note: a falling floor while cell_count grows is EXPECTED (seeding
+  // new cells at 0.50 lowers the floor first) — that is the gate becoming earned.
+  const seeded = cellCounts.length >= 2 && cellCounts[cellCounts.length - 1] > cellCounts[0];
+  const note = '<div style="margin:8px 0;font-size:0.78em;color:#9b968c;line-height:1.5">'
+    + '<strong>Is she compounding?</strong> This tracks the gate&nbsp;#2 floor over time. '
+    + 'A rising floor / more cells ≥70% = real growth. '
+    + (seeded ? 'The floor can dip when new region cells appear (they start at 50% and must earn their score) — that is the gate becoming <em>earned</em>, not a regression.' : '')
+    + '</div>';
+
+  const floorSpark = '<div style="margin-top:6px"><div style="font-size:0.75em;color:#9b968c">Floor</div>'
+    + _sparkline(floors, { stroke: 'var(--green)', fmt: x => (x * 100).toFixed(1) + '%' }) + '</div>';
+  const countSpark = '<div style="margin-top:6px"><div style="font-size:0.75em;color:#9b968c">Cells ≥ 70%</div>'
+    + _sparkline(counts, { stroke: 'var(--blue)', fmt: x => x + ' cells' }) + '</div>';
+
+  el.innerHTML = head + note + floorSpark + countSpark;
 }
 
 async function loadHeatmap() {
@@ -2318,7 +2395,7 @@ async function refreshAll() {
   await runStaggered([
     loadHealth, loadMode, loadEngine, loadAdversarial,
     loadAmendments, loadBreakers, loadLayer5c, loadPredictor,
-    loadAudit, loadHeatmap, loadDLQ, loadMastery, loadComposite,
+    loadAudit, loadCompounding, loadHeatmap, loadDLQ, loadMastery, loadComposite,
     loadCalibration, loadSurface, loadLearning, loadSystemHealth,
     loadLlmCost,
     // R-F89/F88 panels added 2026-05-09

@@ -201,6 +201,66 @@ async def check_engine_liveness(now: float | None = None) -> dict:
     }
 
 
+async def check_feed_liveness() -> list[str]:
+    """R-F2959 (B1) — SYMMETRIC feed-liveness for the LEARNING feeds.
+
+    check_engine_liveness() above watches the autonomous ENGINE. But the two
+    gate-#2 mastery WRITERS — the RSS→facts research feed and the student
+    reading loop — are on independent switches with NO watchdog: disabling
+    ARIA_AUTONOMOUS_RESEARCH_ENABLED, or a reading loop that quietly died, threw
+    only an INFO log and silently throttled regional-mastery compounding (the
+    2026-07 incident). This returns a list of problem strings (empty = healthy)
+    so the R-F2006 watchdog can alarm on the feeds too. Never raises.
+
+    Fresh-not-alarm rules: a PAUSED engine (R-F2004 bounds pauses) and a
+    load-SHED cycle both legitimately explain an idle feed — neither is a fault.
+    An agent not yet registered (early boot) is skipped, not flagged.
+    """
+    problems: list[str] = []
+    # (1) research feed disabled at boot — pure boot flag, no override path.
+    research_on = (os.getenv("ARIA_AUTONOMOUS_RESEARCH_ENABLED", "1") or "1").strip().lower() not in ("0", "false", "no")
+    if not research_on:
+        problems.append(
+            "research feed DISABLED (ARIA_AUTONOMOUS_RESEARCH_ENABLED=0) — the RSS→facts "
+            "learning feed is dark; set the secret and restart to resume gate-#2 content flow")
+    # Paused → feeds legitimately idle; don't alarm.
+    try:
+        from . import safety as _safety
+        if await _safety.is_engine_paused():
+            return problems
+    except Exception:
+        pass
+    # Load-shed explains a skipped cycle → treat as fresh.
+    try:
+        from ..intel import load_governor as _lg
+        if _lg.should_shed():
+            return problems
+    except Exception:
+        pass
+    try:
+        from ..intel.agent_registry import AgentRegistry
+        reg = AgentRegistry()
+        read_int = float(os.getenv("ARIA_READING_INTERVAL_S", "9000") or "9000")
+        feeds = [("student_reading", 2.0 * read_int), ("regional_snapshot", 2.0 * 6 * 3600)]
+        if research_on:
+            feeds.append(("research_engine", 2.0 * 1800))
+        for aid, bound in feeds:
+            try:
+                st = await reg.get_agent_status(aid)
+            except Exception:
+                st = None
+            if not st:
+                continue  # not yet registered (early boot) — don't false-alarm
+            age = st.get("heartbeat_age_s")
+            if age is not None and age > bound:
+                problems.append(
+                    f"learning loop '{aid}' STALE: last beat {int(age)}s ago "
+                    f"(bound {int(bound)}s) — it may have crashed or been disabled")
+    except Exception:
+        pass
+    return problems
+
+
 @fail_wire(module="engine", gap_type="agent_cycle_failure")
 async def refresh_runtime_override() -> str | None:
     """Read the Redis override into the in-process cache. Called at

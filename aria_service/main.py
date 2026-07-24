@@ -2418,6 +2418,11 @@ async def lifespan(app: FastAPI):
         "library_consolidation", "student_brain",
         "Archive stale reasoning cases (daily)",
     ), name="register_agent_library_consolidation"))
+    # R-F2957 — regional-mastery compounding snapshot (gate #2 observability)
+    _bg_task(asyncio.create_task(_register_agent(
+        "regional_snapshot", "student_brain",
+        "Regional mastery time-series snapshot + brier snapshot (4×/day)",
+    ), name="register_agent_regional_snapshot"))
 
     # Register proactive watch
     _bg_task(asyncio.create_task(_register_agent(
@@ -2961,10 +2966,79 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Student] Library consolidate failed: %s", e)
             await asyncio.sleep(24 * 3600)  # Daily
 
+    async def _regional_snapshot_loop():
+        # R-F2957 — Phase A gate #2 COMPOUNDING observability. Regional mastery
+        # was a current-value snapshot with no history, so "is she compounding?"
+        # was unanswerable. This loop records a timestamped regional-mastery
+        # snapshot (floor / mean / cells≥0.70 / per-cell) to a ring, AND drives
+        # the brier (topic-mastery) snapshot — which, pre-R-F2957, had NO periodic
+        # caller and was itself dark. Cheap: one heatmap read + one small redis
+        # write; runs 4×/day. First snapshot 35 min after boot (after the reading
+        # loop's 25-min first tick so it captures a warm heatmap).
+        await asyncio.sleep(2100)
+        while True:
+            from .autonomous.safety import is_engine_paused as _is_paused
+            if await _is_paused():
+                logger.debug("[RegionalSnapshot] engine paused — skipping cycle")
+                await asyncio.sleep(21600)
+                continue
+            # Yield under serving pressure (mirrors the research loop). Snapshot is
+            # cheap, but never contend with chat/DD on the single-process brain.
+            try:
+                from .intel import load_governor as _lg
+                if _lg.should_shed():
+                    logger.debug("[RegionalSnapshot] load-shed — deferring cycle")
+                    await asyncio.sleep(3600)
+                    continue
+            except Exception:
+                pass
+            try:
+                await _tick_heartbeat("regional_snapshot", "Regional + topic mastery snapshot")
+                # R-F2963 (C0) — backstop force-flush so a chat-only regional update
+                # between reading sessions can't sit deferred indefinitely.
+                try:
+                    from .intel import student as _stu_flush
+                    await _stu_flush.flush_regional()
+                except Exception:
+                    pass
+                from .intel import regional_drift_monitor as _rdm
+                snap = await _rdm.snapshot_regional()
+                # Un-dark the brier (topic) snapshot in the same loop — no second scheduler.
+                try:
+                    from .intel import brier_drift_monitor as _bdm
+                    await _bdm.snapshot_mastery()
+                except Exception as _be:
+                    logger.debug("[RegionalSnapshot] brier snapshot failed: %s", _be)
+                # R-F2960 (B2) — score-stagnation: flag below-floor cells flat over the
+                # window as stalled_cell gaps (starved vs grade-failing). Non-fatal.
+                try:
+                    _stall = await _rdm.record_stalled_gaps(window_hours=168)
+                    if _stall.get("stalled"):
+                        logger.info(
+                            "[RegionalSnapshot] %d stalled cells (%d starved, %d grade-failing)",
+                            _stall.get("stalled"), _stall.get("starved", 0), _stall.get("grade_failing", 0))
+                except Exception as _se:
+                    logger.debug("[RegionalSnapshot] stall detection failed: %s", _se)
+                await _wire_agent_success(
+                    "regional_snapshot",
+                    f"Regional snapshot: floor={snap.get('floor')}, "
+                    f"cells≥0.70={snap.get('count_ge_070')}/{snap.get('cell_count')}",
+                )
+                logger.info(
+                    "[RegionalSnapshot] floor=%s mean=%s cells>=0.70=%s/%s",
+                    snap.get("floor"), snap.get("mean"),
+                    snap.get("count_ge_070"), snap.get("cell_count"),
+                )
+            except Exception as e:
+                await _wire_agent_failure("regional_snapshot", f"Regional snapshot failed: {e}")
+                logger.warning("[RegionalSnapshot] failed: %s", e)
+            await asyncio.sleep(6 * 3600)  # 4×/day
+
     quiz_task = _singleton_task(_quiz_loop, "quiz_loop")  # R-F2073 singleton
     reading_task = _singleton_task(_reading_loop, "reading_loop")  # R-F2073 singleton
     library_consolidate_task = _singleton_task(_library_consolidate_loop, "library_consolidate_loop")  # R-F2073 singleton
-    logger.info("Student loops started: self-quiz (3h), reading (6h), library consolidate (24h)")
+    regional_snapshot_task = _singleton_task(_regional_snapshot_loop, "regional_snapshot_loop")  # R-F2957 singleton
+    logger.info("Student loops started: self-quiz (3h), reading (6h), library consolidate (24h), regional snapshot (6h)")
 
     # ── RUNPOD SCHEDULER (R-F1335) ──────────────────────────────────────
     # ARIA runs her own GPU reasoning window: pod ON 10:00-18:00
@@ -3132,6 +3206,7 @@ async def lifespan(app: FastAPI):
         import time as _t
         from .autonomous import engine as _eng
         _last_alert = 0.0
+        _last_feed_alert = 0.0
         _RE_ALERT_S = 6 * 3600
         while True:
             try:
@@ -3183,6 +3258,46 @@ async def lifespan(app: FastAPI):
                     logger.warning("[R-F2178 liveness] STALE limbs: %s", ", ".join(_stale_limbs))
             except Exception as _le2178:
                 logger.debug("[R-F2178 liveness] limb check failed: %s", _le2178)
+            # R-F2959 (B1) — SYMMETRIC feed-liveness: alarm when the research/student
+            # LEARNING feeds are disabled or stale (the engine already has R-F2006;
+            # the feeds silently didn't-run). Own try + own 6h re-alert throttle so a
+            # feed problem never masks the engine check above.
+            try:
+                _feed_problems = await _eng.check_feed_liveness()
+                if _feed_problems:
+                    _now_fl = _t.time()
+                    logger.warning("[R-F2959 feed-liveness] %s", "; ".join(_feed_problems))
+                    if _now_fl - _last_feed_alert > _RE_ALERT_S:
+                        _last_feed_alert = _now_fl
+                        _summary = "; ".join(_feed_problems)
+                        try:
+                            from .intel import pending_actions as _pa_fl
+                            await _pa_fl.record(
+                                promise="ARIA's learning feeds must stay live so gate-#2 regional mastery compounds.",
+                                reason=_summary,
+                                severity="HIGH",
+                                source="student_brain",
+                                resolver_kind="operator_action",
+                                resolver_ref="learning_feed_liveness",
+                                operator_prompt=(
+                                    "A learning feed is DARK/STALE: " + _summary +
+                                    " — re-enable ARIA_AUTONOMOUS_RESEARCH_ENABLED / check the "
+                                    "student loops; regional mastery cannot compound while a feed is dark."
+                                ),
+                                metadata={"watchdog": "R-F2959", "problems": _feed_problems},
+                            )
+                        except Exception as _pe_fl:
+                            logger.warning("[R-F2959 feed-liveness] alert record failed: %s", _pe_fl)
+                        try:
+                            from .intel.engine_wiring import wire_failure as _wf_fl
+                            _wf_fl(module="student_brain",
+                                   detail=f"feed-liveness watchdog: {_summary}"[:400],
+                                   gap_type="agent_cycle_failure",
+                                   source="student_brain:feed_liveness_rf2959")
+                        except Exception:
+                            pass
+            except Exception as _fle:
+                logger.debug("[R-F2959 feed-liveness] check failed: %s", _fle)
             await asyncio.sleep(900)   # every 15 min
 
     liveness_task = _singleton_task(_engine_liveness_watchdog_loop, "engine_liveness_watchdog")  # R-F2073 singleton (watches the engine — which only runs on the engine role)

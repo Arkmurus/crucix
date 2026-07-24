@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2952,
+  "next_available": 2967,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23371,6 +23371,148 @@
       "r_number": "R-F2951",
       "title": "R-F251 boot regression falsely resets gate #3 every deploy: neural_edges reads 0 before async warmup completes",
       "claimed_at": "2026-07-23T22:24:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "39fc8bcf",
+      "notes": null,
+      "shipped_at": "2026-07-23T22:36:36Z"
+    },
+    {
+      "r_number": "R-F2952",
+      "title": "crawler: external transport error is not an engine_failure gap (R-F2947 follow-through)",
+      "claimed_at": "2026-07-24T07:07:06Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-07-24T07:10:57Z",
+      "abandon_reason": "DD false alarm: reverting protocol-error reclassification would reverse R-F2947's deliberate tested contract; residual is 1 gap, not a flood — working as designed"
+    },
+    {
+      "r_number": "R-F2953",
+      "title": "adversarial scorer: comprehensive attack-restatement markers (eradicate cry-wolf-restatement class; G1/P_BANKING_1)",
+      "claimed_at": "2026-07-24T07:24:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "73541f39",
+      "notes": null,
+      "shipped_at": "2026-07-24T08:21:29Z"
+    },
+    {
+      "r_number": "R-F2954",
+      "title": "adversarial H1: inject degraded-mode premise so the CRITICAL delivery-escape test is actually satisfiable",
+      "claimed_at": "2026-07-24T07:24:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "73541f39",
+      "notes": null,
+      "shipped_at": "2026-07-24T08:21:29Z"
+    },
+    {
+      "r_number": "R-F2955",
+      "title": "starved-cell curriculum: direct free reading loop at the 166 sub-0.70 gate-2 regional cells (honest grading unchanged)",
+      "claimed_at": "2026-07-24T07:27:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2956",
+      "title": "adversarial negation marker: bare flag\\b masks a real breach (priority flag) — tighten to critique-verb usage",
+      "claimed_at": "2026-07-24T07:29:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "73541f39",
+      "notes": null,
+      "shipped_at": "2026-07-24T08:21:29Z"
+    },
+    {
+      "r_number": "R-F2957",
+      "title": "A1 regional_drift_monitor: regional mastery time-series snapshot ring + brier snapshot loop (Phase A gate #2 observability)",
+      "claimed_at": "2026-07-24T07:47:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2958",
+      "title": "A2 compounding endpoint + aria-brain Compounding panel (floor velocity, cells>=0.70 trend)",
+      "claimed_at": "2026-07-24T07:47:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2959",
+      "title": "B1 symmetric feed-liveness watchdog: alarm when research/student learning feeds disabled or stale (kills the silent-throttle footgun)",
+      "claimed_at": "2026-07-24T07:55:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2960",
+      "title": "B2 score-stagnation stall monitor: flag below-floor regional cells flat over window (starved vs grade_failing) as stalled_cell gaps",
+      "claimed_at": "2026-07-24T07:58:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2961",
+      "title": "B3 cost-aware graceful shed: shed paid Brave escalation under daily-cost pressure, keep free SearXNG/local learning ON (removes reason feeds were hard-OFF)",
+      "claimed_at": "2026-07-24T08:00:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2962",
+      "title": "infra: aria-wa 256->512MB (70MB headroom = OOM risk on the acute WA output channel)",
+      "claimed_at": "2026-07-24T08:01:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "73541f39",
+      "notes": null,
+      "shipped_at": "2026-07-24T08:06:32Z"
+    },
+    {
+      "r_number": "R-F2963",
+      "title": "C0 regional write coalescing: mirror R-F2408 for _save_regional_mastery so 224-cell whole-blob writes dont hammer the single writer (C3 pre-req)",
+      "claimed_at": "2026-07-24T08:02:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2964",
+      "title": "C2 query/gate symmetry: add genuine region-name literals to detect_regions so region-named content grounds (central/west/east/north/southern africa, south/southeast asia, latin america, europe); SEARXNG_URL boot check",
+      "claimed_at": "2026-07-24T08:08:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2965",
+      "title": "C3 SEED_ALL_REGIONS durable default ON (unblocked by R-F2963 coalescing) — §1-required anti-clamp so 0-sample region cells bootstrap and become gate-2 visible",
+      "claimed_at": "2026-07-24T08:11:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2966",
+      "title": "infra: queue aria-intel shared-cpu-4x/8GB -> shared-cpu-8x/16GB (RAM headroom + 2x CPU for aiosqlite contention; applies next restart)",
+      "claimed_at": "2026-07-24T08:18:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

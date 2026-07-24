@@ -26261,6 +26261,43 @@ async def mastery_heatmap_alias_ep():
     return await student.get_regional_heatmap()
 
 
+@router.get("/student/mastery/compounding")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def mastery_compounding_ep(window_hours: int = 168):
+    """R-F2958 — "is she compounding?" Phase A gate #2 velocity surface.
+
+    Reads the R-F2957 regional-mastery time-series (crucix:aria:student:
+    regional_mastery_snapshots) and returns floor velocity + cells≥0.70 trend +
+    the raw snapshot ring for the aria-brain Compounding panel. Distinct from
+    /student/mastery/heatmap (a current snapshot) — this shows MOVEMENT over time.
+
+    NOTE (§1): a flat/negative floor with new cells appearing is EXPECTED
+    (seeding lowers the floor first) — the panel annotates this; do not read a
+    single-snapshot floor as compounding.
+    """
+    from ..intel import regional_drift_monitor as rdm
+    velocity = await rdm.floor_velocity(window_hours=window_hours)
+    snapshots = await rdm._read_snapshots()
+    # Trim the per-cell map out of the ring returned to the client (it can be
+    # ~224 keys/snapshot); the panel only needs the aggregates for the trend line.
+    trend = [
+        {
+            "ts": s.get("ts"),
+            "floor": s.get("floor"),
+            "mean": s.get("mean"),
+            "count_ge_070": s.get("count_ge_070"),
+            "cell_count": s.get("cell_count"),
+        }
+        for s in snapshots
+    ]
+    return {
+        "velocity": velocity,
+        "snapshots": len(snapshots),
+        "trend": trend,  # newest-first
+        "gate_2_target": 0.70,
+    }
+
+
 # ── Chat Audit Trail (Week 4a) ───────────────────────────────────────────
 
 @router.get("/chat-audit/recent")

@@ -19,6 +19,13 @@ import pytest
 from aria_service.intel import student
 
 
+@pytest.fixture(autouse=True)
+def _no_seed(monkeypatch):
+    # R-F2965 (C3): seeding now DEFAULTS ON. These tests assert the pre-seed
+    # cell-selection contract (e.g. the max_cells cap), so disable seeding here.
+    monkeypatch.setenv("ARIA_STUDENT_SEED_ALL_REGIONS", "0")
+
+
 @pytest.mark.asyncio
 async def test_rf2283_throughput_and_grounded_lift(monkeypatch):
     cell = {"topic": "competitor_intel", "region": "southern_africa", "score": 0.52}

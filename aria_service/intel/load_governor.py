@@ -171,6 +171,50 @@ def should_shed() -> bool:
     return shed
 
 
+def _paid_shed_threshold() -> float:
+    """R-F2961 — fraction of the daily LLM cost cap at which PAID background
+    sourcing (e.g. the student loop's Brave escalation) sheds. Default 0.8 so
+    the last 20% of the day's budget is reserved for user-facing DD/chat."""
+    try:
+        return float(os.getenv("ARIA_PAID_SHED_THRESHOLD", "0.8"))
+    except (TypeError, ValueError):
+        return 0.8
+
+
+async def cost_pressure() -> float:
+    """R-F2961 — daily LLM-spend pressure, 0.0 (fresh budget) … 1.0 (cap hit).
+
+    Distinct from pressure() (serving/queue/stall pressure). Reuses the
+    authoritative daily-spend counter from autonomous.safety.check_cost_cap so
+    there is ONE source of truth for the day's spend. Fail-safe: a probe error
+    reports 0.0 (no pressure) so a bug can never wrongly starve learning."""
+    try:
+        from ..autonomous import safety as _safety
+        _within, spent = await _safety.check_cost_cap()
+        cap = float(getattr(_safety, "DAILY_COST_CAP_USD", 0.0) or 0.0)
+        if cap <= 0:
+            return 0.0
+        return round(min(max(spent / cap, 0.0), 1.0), 3)
+    except Exception as e:
+        logger.debug("cost_pressure probe failed (reporting 0.0): %s", e)
+        return 0.0
+
+
+async def should_shed_paid() -> bool:
+    """R-F2961 — True when PAID background sourcing should back off to protect the
+    remaining daily budget (and user-facing serving) — WITHOUT turning learning
+    off. Callers shed only their PAID escalation (e.g. Brave) and keep the free
+    SearXNG/local path running, so learning continues at $0. This is the
+    graceful-degrade that removes the reason the feeds were ever hard-disabled.
+    Fail-safe: governor disabled or probe error → False (don't shed)."""
+    if not _enabled():
+        return False
+    try:
+        return (await cost_pressure()) >= _paid_shed_threshold()
+    except Exception:
+        return False
+
+
 def _note_shed(p: dict) -> None:
     """Record a shed decision + rate-limited self-aware log/brain-wire."""
     global _shed_total, _last_shed_log

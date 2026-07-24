@@ -69,19 +69,50 @@ async def _attempts(flag_on, batch=5):
         os.environ["ARIA_STUDENT_SEED_ALL_REGIONS"] = "1"
         os.environ["ARIA_STUDENT_SEED_BATCH"] = str(batch)
     else:
-        os.environ.pop("ARIA_STUDENT_SEED_ALL_REGIONS", None)
+        # R-F2965 (C3): the default is now ON (§1 names seeding-off a clamp), so
+        # to get the OFF behaviour the flag must be EXPLICITLY "0" — unsetting it
+        # would now default ON.
+        os.environ["ARIA_STUDENT_SEED_ALL_REGIONS"] = "0"
 
     await student._study_weak_regional_cells(explore=_fake_explore)
     return queries, credit_calls
 
 
+async def _attempts_default(batch=5):
+    """R-F2965 (C3): with the flag UNSET, seeding must default ON."""
+    from aria_service.intel import student
+    credit_calls = []
+    _install_fakes(credit_calls)
+    WEAK = [{"topic": "compliance", "region": "balkans", "score": 0.507}]
+
+    async def _fake_hm():
+        return {"heatmap": {}, "weak_cells": list(WEAK), "floor_breach_cells": list(WEAK)}
+    student.get_regional_heatmap = _fake_hm
+    queries = []
+
+    async def _fake_explore(**kw):
+        queries.append(kw.get("query", ""))
+        return None
+    os.environ.pop("ARIA_STUDENT_SEED_ALL_REGIONS", None)  # UNSET → default ON
+    os.environ["ARIA_STUDENT_SEED_BATCH"] = str(batch)
+    await student._study_weak_regional_cells(explore=_fake_explore)
+    return queries
+
+
 async def _run_all():
-    # 1) OFF → only the 3 existing balkans weak cells attempted; byte-identical
+    # 1) explicit OFF ("0") → only the 3 existing balkans weak cells attempted
     q_off, credit_off = await _attempts(False)
     assert len(q_off) == 3, f"OFF attempted {len(q_off)} cells, expected 3 (the weak cells)"
     assert all("balkan" in q.lower() for q in q_off), f"OFF attempted non-balkans cells: {q_off}"
     assert credit_off == [], f"OFF must not credit when nothing grounds: {credit_off}"
-    print(f"  ✓ OFF: byte-identical — {len(q_off)} attempts (existing weak cells only), 0 credits")
+    print(f"  ✓ OFF('0'): {len(q_off)} attempts (existing weak cells only), 0 credits")
+
+    # 1b) R-F2965 (C3): UNSET → default ON → existing + seeded cells attempted
+    q_default = await _attempts_default(batch=5)
+    assert len(q_default) > 1, f"default (unset) must seed, got {len(q_default)} attempts"
+    seeded_default = [q for q in q_default if "balkan" not in q.lower()]
+    assert len(seeded_default) == 5, f"default ON must seed 5 cells, got {len(seeded_default)}"
+    print(f"  ✓ DEFAULT(unset): seeding ON — {len(q_default)} attempts ({len(seeded_default)} seeded)")
 
     # 2) ON (batch=5) → 3 existing + 5 seeded = 8 attempted
     q_on, credit_on = await _attempts(True, batch=5)

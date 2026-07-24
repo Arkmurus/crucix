@@ -604,6 +604,14 @@ def test_rf306_capability_reading_session_uses_only_free_paths(monkeypatch):
     from aria_service.intel import student
     from aria_service.intel import researcher as _res
 
+    # R-F2965 (C3): seeding now DEFAULTS ON, so reading_session's region-targeted
+    # branch does explore(cost_free=True) for seeded cells — that free path calls
+    # web_search.search_multilingual (free multilingual search; Brave stays gated
+    # by key + cost-shed). This test isolates the ARTICLE/RSS path's freeness, so
+    # disable seeding here; the seeding path's cost-safety (cost_free, no Brave
+    # without a key) is covered by test_rf2433 / test_rf2392.
+    monkeypatch.setenv("ARIA_STUDENT_SEED_ALL_REGIONS", "0")
+
     paid_calls: list[str] = []
 
     def _spy(name):
