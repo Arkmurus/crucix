@@ -195,6 +195,15 @@ _COST_FLUSH_INTERVAL_S = float(os.getenv("ARIA_COST_FLUSH_INTERVAL_S", "15"))
 _cost_flush_lock = asyncio.Lock()
 _cost_last_flush: float = 0.0
 _pending_cost_records: list[dict] = []   # raw records since the last flush
+# R-F3006 — rollup-only RETRY buffer. When a month-rollup read fails
+# (_load_rollup_for_update returns None under store pressure), the batch's records
+# have ALREADY been counted into the index + per-feature aggregate, so they must NOT
+# be re-applied there — but their ROLLUP contribution was skipped. Instead of
+# dropping it (the ~89% under-count root cause), we re-queue those records here and
+# retry ONLY the rollup step on the next flush. Bounded so a wedged store can't grow
+# it without limit (the durable per-call records remain the rebuild source of truth).
+_pending_rollup_records: list[dict] = []
+_ROLLUP_RETRY_CAP = int(os.getenv("ARIA_COST_ROLLUP_RETRY_CAP", "100000"))
 
 # R-F2483 — the SAME coalescing for the EXTERNAL call path (record_external_call).
 # A DD fires dozens of external searches, each previously doing ~7 state_store ops
@@ -1139,11 +1148,13 @@ async def _flush_cost_pending(force: bool = False) -> bool:
     _COST_FLUSH_INTERVAL_S unless `force`; single in-flight flush (lock). On DB
     failure the batch is folded back so no cost data is lost. Returns True if a
     flush actually wrote."""
-    global _cost_last_flush, _pending_cost_records
+    global _cost_last_flush, _pending_cost_records, _pending_rollup_records
     now = time.time()
     if not force and (now - _cost_last_flush) < _COST_FLUSH_INTERVAL_S:
         return False
-    if not _pending_cost_records:
+    # R-F3006 — flush when there are NEW records OR rollup retries pending (a prior
+    # flush whose rollup read failed left records to re-apply once the store recovers).
+    if not _pending_cost_records and not _pending_rollup_records:
         _cost_last_flush = now
         return False
     if _cost_flush_lock.locked():
@@ -1154,6 +1165,8 @@ async def _flush_cost_pending(force: bool = False) -> bool:
             return False
         batch = _pending_cost_records
         _pending_cost_records = []
+        retry_in = _pending_rollup_records
+        _pending_rollup_records = []
         try:
             # 1. Index — prepend newest-first, cap at _INDEX_CAP. batch is in
             # chronological order; insert(0) each in order so the LAST (newest)
@@ -1181,10 +1194,13 @@ async def _flush_cost_pending(force: bool = False) -> bool:
                 agg[feat] = fa
             await rs.set_json(COST_AGG_KEY, agg, ex=COST_TTL)
 
-            # 3. Month rollup(s) — group by the record's calendar month.
+            # 3. Month rollup(s) — group by calendar month. Process the NEW batch
+            # AND any records a prior flush could not roll up (R-F3006 retry buffer).
+            # index+agg above counted the batch ONLY, so retries touch the ROLLUP
+            # ONLY here — they are never double-applied to index/agg.
             from collections import defaultdict
             by_month: dict[str, list[dict]] = defaultdict(list)
-            for rec in batch:
+            for rec in list(batch) + list(retry_in):
                 m = datetime.fromtimestamp(
                     float(rec.get("ts") or now), tz=timezone.utc).strftime("%Y-%m")
                 by_month[m].append(rec)
@@ -1192,7 +1208,12 @@ async def _flush_cost_pending(force: bool = False) -> bool:
                 key = f"{COST_MONTH_PREFIX}{m}"
                 roll = await _load_rollup_for_update(key, m, recs[0]["ts"])
                 if roll is None:
-                    continue  # R-F2854: skip rather than reset the month total
+                    # R-F3006 — read failed (R-F2854 fail-closed). Do NOT drop these
+                    # records' rollup contribution (the ~89% under-count root cause):
+                    # re-queue for the next flush so the rollup stays exact once the
+                    # store recovers.
+                    _pending_rollup_records.extend(recs)
+                    continue
                 for rec in recs:
                     _merge_record_into_rollup(roll, rec)
                 await rs.set_json(key, roll, ex=COST_MONTH_TTL)
@@ -1203,13 +1224,36 @@ async def _flush_cost_pending(force: bool = False) -> bool:
                     _month_cache["loaded_at"] = time.time()
                     _emit_threshold_warnings(roll["total_cost_usd"], _monthly_cap_usd(), m)
 
+            # Bound the retry buffer: a persistently-wedged store must not grow it
+            # without limit. The durable per-call records remain the rebuild source
+            # (reconcile_month_costs), so shedding the oldest retries here is safe.
+            if len(_pending_rollup_records) > _ROLLUP_RETRY_CAP:
+                _dropped = len(_pending_rollup_records) - _ROLLUP_RETRY_CAP
+                _pending_rollup_records = _pending_rollup_records[-_ROLLUP_RETRY_CAP:]
+                logger.warning(
+                    "[R-F3006] rollup retry buffer over cap — shed %d oldest "
+                    "(store wedged?); rebuild via reconcile_month_costs if needed", _dropped)
+
             _cost_last_flush = now
             return True
         except Exception as e:
             # Fold the batch back so the next flush retries it — no cost lost.
+            # R-F3006 — also restore the rollup-retry records we consumed so a
+            # failed flush never loses them (worst case a rare duplicate the monthly
+            # reconcile corrects; under-counting is the failure we are eliminating).
             _pending_cost_records = batch + _pending_cost_records
+            _pending_rollup_records = retry_in + _pending_rollup_records
             logger.debug("cost_tracker flush failed (folded back): %s", e)
             return False
+
+
+async def flush_pending_cost() -> bool:
+    """R-F3006 — public force-flush of the cost buffers (new batch + rollup retries).
+    Wired into lifespan shutdown so a graceful restart (deploy) drains the in-memory
+    buffers into the durable month rollup instead of losing them — one of the two
+    causes of the observed rollup under-count (the other, the read-fail skip, is fixed
+    inline by the retry buffer above)."""
+    return await _flush_cost_pending(force=True)
 
 
 async def _flush_external_pending(force: bool = False) -> bool:

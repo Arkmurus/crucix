@@ -4245,6 +4245,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("%s shutdown failed (non-fatal): %s", label, e)
 
+    # R-F3006 -- drain buffered cost records into the durable month rollup BEFORE
+    # teardown, so a graceful restart (deploy) never loses the in-memory pending /
+    # rollup-retry buffers from the spend gauge + $300 cap. Runs first (cheap,
+    # timeout-guarded) so later teardown hangs can't skip it.
+    try:
+        from .intel import cost_tracker as _ct_shutdown
+        await _shutdown_await("[R-F3006] cost flush", _ct_shutdown.flush_pending_cost())
+    except Exception as _ct_e:
+        logger.warning("[R-F3006] cost flush on shutdown failed (non-fatal): %s", _ct_e)
+
     # R-F1051 -- stop self-healing infrastructure
     try:
         from .intel.self_healing import stop_self_healing
