@@ -1441,33 +1441,61 @@ async function loadEcosystem(root){
     }
     cvEl.innerHTML = `<strong>Coverage:</strong> ${c.on_map}/${c.total_on_disk} modules on map <em>(100% by construction)</em> · `
       + `<span class="${oc}">${c.orphans} unassigned</span> · ${ie.resolved_intra_repo} import links · call-graph <span class="neutral">${cov.call_edges.status.replace('_',' ')}</span>` + health;
+  } else if(cvEl && root && root.startsWith('mod:')){
+    // module drill → show its audit R-numbers (with titles) + function wired/dark (T3)
+    try {
+      const nd = await fetchJson('/ecosystem/node/' + encodeURIComponent(root));
+      if(nd && nd.node){
+        const ar = (nd.audit_refs||[]).slice(-6).reverse();
+        const chips = ar.map(a=>`<span title="${(a.title||'').replace(/"/g,'')}" style="background:#1c2430;border:1px solid #2b3644;border-radius:3px;padding:1px 5px;margin-right:4px;color:#8fa3b8">${a.r}</span>`).join('');
+        const fw = nd.function_count!=null ? ` · <span class="neutral">${nd.wired_functions}/${nd.function_count} functions wired to brain</span>` : '';
+        cvEl.innerHTML = `<strong>${nd.node.label}</strong> · fan-in ${nd.fan_in} / fan-out ${nd.fan_out}${fw}<div style="margin-top:4px">audit: ${chips || '<span class="neutral">none</span>'}</div>`;
+      } else { cvEl.innerHTML = ''; }
+    } catch(e){ cvEl.innerHTML = ''; }
   } else if(cvEl && root){ cvEl.innerHTML = ''; }
 
-  // radial layout: focus at centre, everything else on a ring
-  const W=820, H=440, cx=W/2, cy=H/2, R=Math.min(cx,cy)-58;
+  // P3 metro/train-track layout: tiers as COLUMNS, nodes as stations stacked in y,
+  // edges as right-angled elbow "tracks". Deterministic (no physics jitter).
   const nodes = g.nodes.slice();
-  const focusId = root || (nodes.find(n=>n.id==='aria-intel')||nodes[0]).id;
-  const pos = {}; pos[focusId] = {x:cx, y:cy};
-  const others = nodes.filter(n=>n.id!==focusId);
-  others.forEach((n,i)=>{ const a=(i/Math.max(1,others.length))*2*Math.PI - Math.PI/2; pos[n.id]={x:cx+R*Math.cos(a), y:cy+R*Math.sin(a)}; });
+  const W=860;
+  const _colOf = (n) => {
+    if(!root) return n.type==='service'?0:1;
+    if(root.startsWith('organ:')) return n.type==='service'?0:(n.type==='organ'?1:2);
+    return n.type==='function'?2:(n.id===root?1:0);        // mod: drill
+  };
+  const cols = {}; nodes.forEach(n=>{ const c=_colOf(n); (cols[c]=cols[c]||[]).push(n); });
+  const colKeys = Object.keys(cols).map(Number).sort((a,b)=>a-b);
+  const nCols = colKeys.length;
+  const maxCol = Math.max(...colKeys.map(c=>cols[c].length));
+  const H = Math.max(360, maxCol*26 + 70);                  // grow tall for big columns
+  const xFor = (c) => { const i=colKeys.indexOf(c); return nCols>1 ? (120 + i*((W-240)/(nCols-1))) : W/2; };
+  const pos = {};
+  colKeys.forEach(c=>{ const arr=cols[c]; arr.forEach((n,i)=>{ pos[n.id]={ x:xFor(c), y: arr.length>1 ? (44 + i*((H-88)/(arr.length-1))) : H/2 }; }); });
 
   let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;font-size:9px" preserveAspectRatio="xMidYMid meet">`;
-  // edges (vessels/tracks) — coloured by live health where known; a broken node bleeds into its links
+  // edges = elbow "tracks", coloured by live health; a broken node bleeds into its links
   g.edges.forEach(e=>{ const s=pos[e.source], t=pos[e.target]; if(!s||!t) return;
     const imp = e.type==='import';
     const hc = (e.health && e.health!=='grey') ? _ECO_HCOL[e.health] : (imp?'#33404f':'#4a5a6a');
-    const op = (e.health && e.health!=='grey') ? 0.75 : (imp?0.3:0.55);
-    svg += `<line x1="${s.x.toFixed(1)}" y1="${s.y.toFixed(1)}" x2="${t.x.toFixed(1)}" y2="${t.y.toFixed(1)}" stroke="${hc}" stroke-width="${imp?1:2.5}" opacity="${op}"/>`; });
-  // nodes (organs/stations): fill = health, ring = organ line hue
+    const op = (e.health && e.health!=='grey') ? 0.8 : (imp?0.3:0.6);
+    const mx=((s.x+t.x)/2).toFixed(1);
+    svg += `<path d="M ${s.x.toFixed(1)} ${s.y.toFixed(1)} L ${mx} ${s.y.toFixed(1)} L ${mx} ${t.y.toFixed(1)} L ${t.x.toFixed(1)} ${t.y.toFixed(1)}" fill="none" stroke="${hc}" stroke-width="${imp?1.2:3}" opacity="${op}" stroke-linejoin="round"/>`; });
+  // nodes = stations: fill = health, ring = organ line hue
   nodes.forEach(n=>{ const p=pos[n.id]; if(!p) return;
-    const fill=_ecoFill(n), stroke=_ecoStroke(n), r = n.type==='service'?15:(n.type==='organ'?11:6);
+    const fill=_ecoFill(n), stroke=_ecoStroke(n), r = n.type==='service'?13:(n.type==='organ'?10:(n.type==='function'?5:6));
     const drill = n.type!=='function';
-    const meta = (n.module_count!=null?`, ${n.module_count} modules`:'') + (n.r_numbers&&n.r_numbers.length?`, ${n.r_numbers.length} R#`:'');
+    const rn = n.r_numbers||[];
+    const meta = (n.module_count!=null?`, ${n.module_count} modules`:'') + (rn.length?`, ${rn.length} R#`:'') + (n.type==='function'?(n.wired?', wired':', dark'):'');
+    const topR = rn.length? (rn.slice(-3).reverse().join(', ')+(rn.length>3?` +${rn.length-3}`:'')) : '';
     const sens = n.sensor ? `\n[${n.health||'grey'}] sensor: ${n.sensor}${n.sensor_value!=null?(' = '+n.sensor_value):''}` : '';
+    const audit = topR ? `\naudit: ${topR}` : '';
     svg += `<g style="cursor:${drill?'pointer':'default'}"${drill?` onclick="ecoDrill('${n.id}','${(n.label||'').replace(/'/g,'')}')"`:''}>`;
-    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="2.5"><title>${n.label} (${n.type}${meta})${sens}</title></circle>`;
-    const lbl = (n.label||'').length>20?(n.label.slice(0,19)+'…'):(n.label||'');
-    svg += `<text x="${p.x.toFixed(1)}" y="${(p.y+r+9).toFixed(1)}" text-anchor="middle" fill="#c9c4b8">${lbl}</text></g>`; });
+    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="2.5"><title>${n.label} (${n.type}${meta})${sens}${audit}</title></circle>`;
+    const lbl = (n.label||'').length>22?(n.label.slice(0,21)+'…'):(n.label||'');
+    svg += `<text x="${(p.x+r+4).toFixed(1)}" y="${(p.y+3).toFixed(1)}" fill="#c9c4b8">${lbl}</text>`;
+    // R-number / audit chip on the intersection (operator's explicit ask)
+    if(rn.length){ svg += `<text x="${(p.x+r+4).toFixed(1)}" y="${(p.y+12).toFixed(1)}" fill="#6f7d8c" font-size="7.5">${rn[rn.length-1]}${rn.length>1?` +${rn.length-1}`:''}</text>`; }
+    svg += `</g>`; });
   // legend
   svg += `<g font-size="9" transform="translate(8,${H-10})">`
     + `<circle cx="4" cy="-3" r="5" fill="var(--green)"/><text x="12" y="0" fill="#9b968c">healthy</text>`

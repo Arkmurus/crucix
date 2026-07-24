@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2974,
+  "next_available": 2976,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23581,14 +23581,34 @@
       "title": "P2a ecosystem_map.overlay_health: live green/amber/red/grey overlay from real signals (breakers/heartbeats/limbs/sources-health/outcomes/fallback/gaps), grey-not-green sentinel + per-node sensor",
       "claimed_at": "2026-07-24T09:53:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "eebf4e61",
+      "notes": null,
+      "shipped_at": "2026-07-24T10:10:25Z"
     },
     {
       "r_number": "R-F2973",
       "title": "P2b ecosystem graph health merge + frontend node/edge coloring + sensor hover popover",
       "claimed_at": "2026-07-24T09:53:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "eebf4e61",
+      "notes": null,
+      "shipped_at": "2026-07-24T10:10:25Z"
+    },
+    {
+      "r_number": "R-F2974",
+      "title": "P3a ecosystem R-number/audit labels: join R-F tokens to titles+commits (r_number_registry), chips on nodes/intersections + node-detail",
+      "claimed_at": "2026-07-24T10:29:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2975",
+      "title": "P3b ecosystem metro/elbow train-track layout + function-level (T3) drill + gap-label fix",
+      "claimed_at": "2026-07-24T10:29:55Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

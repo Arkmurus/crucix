@@ -372,6 +372,17 @@ async def get_graph(root: str | None = None, tier: int | None = None) -> dict[st
     health overlay (R-F2972). Structure is cached; health is read fresh each call."""
     full = await build_structure()
     scoped = _scope_graph(full, root, tier)
+    # T3 (R-F2975): drilling into a module reveals its FUNCTIONS (the lowest level) —
+    # on-demand + bounded (one module's fns), never in the full graph.
+    if root and root.startswith("mod:"):
+        mid = root[4:]
+        for f in _module_functions(mid):
+            fid = f"fn:{mid}:{f['name']}"
+            scoped["nodes"].append({
+                "id": fid, "label": f["name"] + ("" if not f["async"] else " ⟳"),
+                "type": "function", "tier": 3, "category": "function", "parent": root,
+                "size": 4, "wired": f["wired"], "line": f["line"], "r_numbers": []})
+            scoped["edges"].append({"source": fid, "target": root, "type": "contains", "weight": 1})
     try:
         signals = await _gather_signals()
         await _apply_health_to(scoped, signals, _organ_of_map(full))
@@ -532,13 +543,14 @@ def _build_health_map(signals: dict[str, Any], node_ids: set[str], organ_of: dic
     for g in signals.get("gaps", []):
         sev = str(g.get("severity", "")).upper()
         color = "red" if sev in ("HIGH", "CRITICAL", "4", "5") else "amber"
-        src = g.get("source") or g.get("gap_type") or ""
+        gtype = g.get("type") or g.get("gap_type") or "gap"  # record_gap stores under "type"
+        src = g.get("source") or gtype or ""
         org = _organ_for_name(src)
         if org and org in node_ids:
             cur = health.get(org)
             # gaps only escalate; never override a red, never create green
             if cur is None or _RANK[color] > _RANK[cur["color"]]:
-                _apply(org, color, f"gap[{g.get('gap_type')}]", f"{sev or 'gap'}: {str(g.get('detail',''))[:80]}")
+                _apply(org, color, f"gap[{gtype}]", f"{sev or 'gap'}: {str(g.get('detail',''))[:80]}")
     return health
 
 
@@ -547,6 +559,16 @@ async def _apply_health_to(graph: dict[str, Any], signals: dict[str, Any], organ
     node_ids = {n["id"] for n in graph["nodes"]}
     hmap = _build_health_map(signals, node_ids, organ_of)
     for n in graph["nodes"]:
+        # Function nodes have no live sensor, but §21 brain-wiring IS a real,
+        # checkable structural signal: wired→green ("reports to the brain"),
+        # dark→grey ("not wired" — a §21 gap, not a live fault).
+        if n.get("type") == "function":
+            wired = n.get("wired")
+            n["health"] = "green" if wired else "grey"
+            n["sensor"] = "§21 brain-wiring (@fail_wire)" if wired else "dark — no brain wiring"
+            n["sensor_value"] = "wired" if wired else "dark"
+            n["sensor_read_at"] = signals.get("read_at")
+            continue
         h = hmap.get(n["id"], _GREY)
         n["health"] = h["color"]
         n["sensor"] = h["sensor"]
@@ -563,8 +585,76 @@ def _organ_of_map(full: dict[str, Any]) -> dict[str, str]:
     return {n["module_id"]: n["category"] for n in full["nodes"] if n["type"] == "module"}
 
 
+# ── R-F2974 (P3) — R-number / audit label join ──────────────────────────────
+_RNUM_INDEX: dict[str, Any] = {"data": None, "at": 0.0}
+
+
+def _load_rnum_index() -> dict[str, dict]:
+    """{R-F####: {title, commit, status}} from the R-F540 reservation registry.
+    Cached ~10 min (the log only grows)."""
+    now = time.time()
+    if _RNUM_INDEX["data"] is not None and (now - _RNUM_INDEX["at"]) < 600:
+        return _RNUM_INDEX["data"]
+    idx: dict[str, dict] = {}
+    try:
+        from . import r_number_registry as _rr
+        for r in _rr.list_reservations():
+            rn = r.get("r_number")
+            if rn:
+                idx[rn] = {"title": r.get("title", ""), "commit": r.get("commit_sha", ""),
+                           "status": r.get("status", "")}
+    except Exception as e:
+        logger.debug("[ecosystem_map] rnum index load failed: %s", e)
+    _RNUM_INDEX.update(data=idx, at=now)
+    return idx
+
+
+def _audit_refs(r_numbers: list[str]) -> list[dict]:
+    idx = _load_rnum_index()
+    out = []
+    for rn in (r_numbers or []):
+        meta = idx.get(rn, {})
+        out.append({"r": rn, "title": meta.get("title", ""), "commit": meta.get("commit", ""),
+                    "status": meta.get("status", "")})
+    return out
+
+
+def _module_functions(module_id: str) -> list[dict]:
+    """T3: the functions of ONE module (bounded), with wired/dark status. On-demand
+    only (never in the full graph — that'd be ~5000 nodes)."""
+    rel = module_id.replace("aria_service.", "", 1).replace(".", os.sep) + ".py"
+    path = _ARIA_SERVICE / rel
+    if not path.exists():
+        return []
+    try:
+        src = _read(path)
+        tree = ast.parse(src)
+    except Exception:
+        return []
+    wired_names: set[str] = set()
+    try:
+        from . import wiring_harness as _wh
+        for fn in _wh.fail_wire_decorators(str(path)) or []:
+            if isinstance(fn, dict) and fn.get("name"):
+                wired_names.add(fn["name"])
+            elif isinstance(fn, str):
+                wired_names.add(fn)
+    except Exception:
+        pass
+    fns = []
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if n.name.startswith("_") and not n.name.startswith("__"):
+                pass  # keep privates too (they're real intersections) — no filter
+            fns.append({"name": n.name, "line": n.lineno,
+                        "async": isinstance(n, ast.AsyncFunctionDef),
+                        "wired": n.name in wired_names})
+    return fns
+
+
 async def get_node(node_id: str) -> dict[str, Any]:
-    """Detail for one node: parent, children, in/out import edges, R-numbers."""
+    """Detail for one node: parent, children, in/out import edges, R-numbers (with
+    titles/commits), and — for a module — its functions (wired/dark)."""
     full = await build_structure()
     by_id = {n["id"]: n for n in full["nodes"]}
     node = by_id.get(node_id)
@@ -579,7 +669,7 @@ async def get_node(node_id: str) -> dict[str, Any]:
             imports_out.append(e["target"])
         elif e["target"] == node_id:
             imports_in.append(e["source"])
-    return {
+    detail: dict[str, Any] = {
         "node": node,
         "parent": node.get("parent"),
         "children": children,
@@ -589,7 +679,15 @@ async def get_node(node_id: str) -> dict[str, Any]:
         "fan_in": len(imports_in),
         "fan_out": len(imports_out),
         "r_numbers": node.get("r_numbers", []),
+        "audit_refs": _audit_refs(node.get("r_numbers", [])),  # R-F2974 — titles/commits
     }
+    # T3 (R-F2975): a module's functions (wired/dark) — the lowest level
+    if node.get("type") == "module" and node.get("module_id"):
+        fns = _module_functions(node["module_id"])
+        detail["functions"] = fns
+        detail["function_count"] = len(fns)
+        detail["wired_functions"] = sum(1 for f in fns if f["wired"])
+    return detail
 
 
 async def get_coverage() -> dict[str, Any]:
