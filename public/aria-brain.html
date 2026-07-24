@@ -1553,14 +1553,21 @@ async function loadHeatmap() {
   // back to a tight score band only if an older backend hasn't sent cell_coverage.
   const _cov = d.cell_coverage || null;
   const _scaffold = _cov ? _cov.scaffold_cells : _cells.filter(v => v >= 0.48 && v <= 0.52).length;
+  const _weak = _cov ? _cov.measured_weak_cells : _cells.filter(v => v < 0.48).length;
   const _total = _cov ? _cov.sampled_cells : _cells.length;
   const _rc = regionList.length;
+  // R-F2997 — honest framing. The samples-based split (R-F2990) showed only ~4/189
+  // cells are actually unmeasured; the rest ARE measured, many sitting low. So the
+  // old "a cell near 50% = not measured yet" line was contradicted by the data. A
+  // low cell is a MEASURED regional coverage gap (thin region-specific signal for
+  // that topic), NOT a statement about subject competence (gate #1, in the Mastery
+  // panel). We surface the real gaps rather than relabel them "unmeasured".
   const _caption = '<div style="margin-bottom:8px;font-size:0.78em;color:#9b968c;line-height:1.5">'
     + '<strong>Region-specific coverage</strong> (Phase&nbsp;A gate&nbsp;#2). '
-    + 'A cell near 50% means that topic has <em>not been measured for that region yet</em>, not low competence. '
-    + 'Topic mastery (how well ARIA knows each subject) is tracked separately in the Mastery panel above. '
-    + _rc + ' region' + (_rc === 1 ? '' : 's') + ' ' + (_rc === 1 ? 'has' : 'have') + ' regional samples so far'
-    + (_total ? ('; ' + _scaffold + '/' + _total + ' cell' + (_scaffold === 1 ? '' : 's') + ' not yet measured (still at the ~50% scaffold)') : '')
+    + 'A low cell is a <em>measured regional coverage gap</em> — thin region-specific signal for that topic — not a statement about ARIA\'s subject competence, which is tracked separately in the Mastery panel above. '
+    + _rc + ' region' + (_rc === 1 ? '' : 's') + ' sampled'
+    + (_total ? ('; of ' + _total + ' cells, ' + _scaffold + ' not yet measured (&le;1 observation)'
+        + (_weak ? ', ' + _weak + ' measured-weak — real gate-#2 gaps the study loop targets' : '')) : '')
     + '.</div>';
 
   let html = _caption + '<table><tr><th></th>';

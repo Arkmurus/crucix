@@ -92,10 +92,22 @@ def invalidate_heatmap_cache() -> None:
     mid-`await` on an inflight future would otherwise still receive the
     pre-invalidation result. Inflight futures dropped here are completed
     by their leader's `set_result` regardless — awaiters still resolve,
-    they just don't block a fresh recompute on the next call."""
+    they just don't block a fresh recompute on the next call.
+
+    R-F2996 — DO NOT clear `_HEATMAP_DISK_SEEDED` here. That guard is the
+    ONE-SHOT cold-start disk seed (R-F931): serve the last-persisted matrix
+    on the FIRST post-boot read so a synchronous heavy recompute can't wedge
+    the boot loop. Clearing it on every invalidation re-armed that seed, so
+    each invalidation (continuous_update fires periodically) RE-SERVED the
+    stale on-disk matrix instead of recomputing — a live bug that pinned the
+    coverage dashboard on a pre-deploy snapshot across reboots (observed
+    2026-07-24: R-F2987's honest freshness fields never surfaced because the
+    disk seed kept re-serving the old-format matrix). Invalidation means
+    "recompute fresh", which is exactly what LEAVING the seed guard set
+    achieves: memory miss → seed already consumed → skip disk → recompute →
+    persist fresh. The seed stays a genuine per-process one-shot."""
     _HEATMAP_CACHE.clear()
     _HEATMAP_INFLIGHT.clear()
-    _HEATMAP_DISK_SEEDED.clear()
 
 
 # R-F931 (2026-05-27) — disk-persist the matrix to the aria_rag volume so a
