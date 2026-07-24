@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2998,
+  "next_available": 3001,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23776,50 +23776,83 @@
       "title": "DD: reconcile R-F2779/R-F2780 adverse-media contradiction (scrub stale did-not-complete when follow-up completes)",
       "claimed_at": "2026-07-24T14:46:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2e473f10",
+      "notes": null,
+      "shipped_at": "2026-07-24T15:07:46Z"
     },
     {
       "r_number": "R-F2993",
       "title": "DD network_walker: count director appointments by officer_id not name-match (cap nominee signal to real person)",
       "claimed_at": "2026-07-24T14:46:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2e473f10",
+      "notes": null,
+      "shipped_at": "2026-07-24T15:07:47Z"
     },
     {
       "r_number": "R-F2994",
       "title": "DD sanctions: suppress/hard-label low-name-similarity transparency matches (System Capital Management 1.00 vs Silverbrook)",
       "claimed_at": "2026-07-24T14:46:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2e473f10",
+      "notes": null,
+      "shipped_at": "2026-07-24T15:07:47Z"
     },
     {
       "r_number": "R-F2995",
       "title": "DD scorecard: identity not YES-verified when R-F1636 registry-unavailable gap present",
       "claimed_at": "2026-07-24T14:46:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2e473f10",
+      "notes": null,
+      "shipped_at": "2026-07-24T15:07:47Z"
     },
     {
       "r_number": "R-F2996",
       "title": "coverage heatmap: invalidate must force recompute, not re-seed stale disk cache",
       "claimed_at": "2026-07-24T14:50:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4104cd2d",
+      "notes": null,
+      "shipped_at": "2026-07-24T15:05:35Z"
     },
     {
       "r_number": "R-F2997",
       "title": "gate-2 heatmap caption: reframe near-50pct as measured regional gap not unmeasured",
       "claimed_at": "2026-07-24T14:50:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4104cd2d",
+      "notes": null,
+      "shipped_at": "2026-07-24T15:05:35Z"
+    },
+    {
+      "r_number": "R-F2998",
+      "title": "DD Compliance section: render the named sanctions lists (OFAC/EU/UN/OFSI) + per-list status + screening date",
+      "claimed_at": "2026-07-24T15:03:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2999",
+      "title": "DD adverse-media findings carry URL/date/publisher provenance, else count is INFO not verdict-driving",
+      "claimed_at": "2026-07-24T15:03:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3000",
+      "title": "DD: sovereign macro debt is context (INFO) not an AMBER risk flag on a private-company DD",
+      "claimed_at": "2026-07-24T15:10:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

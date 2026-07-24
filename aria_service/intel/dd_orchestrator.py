@@ -4455,12 +4455,19 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                 _debt = _macro.get("debt_to_gdp_pct")
                 if isinstance(_debt, (int, float)) and _debt > 100:
                     report.compliance.findings.append(Finding(
-                        severity="amber",
-                        title=f"Sovereign debt elevated: {_debt:.1f}% of GDP",
+                        # R-F3000 — sovereign macro debt is CONTEXT, not a counterparty
+                        # risk flag on a private-company DD. As amber it fired for the
+                        # UK/US/Japan (all >100%) and inflated the risk picture with a
+                        # signal the reviewer must then discount. INFO surfaces it without
+                        # polluting the verdict. (A sovereign/state-entity DD surfaces
+                        # fiscal stress through its own counterparty path.)
+                        severity="info",
+                        title=f"Sovereign macro context: central-govt debt {_debt:.1f}% of GDP",
                         detail=(
                             f"Central government debt for {iso2_for_overlay} = {_debt:.1f}% of GDP "
-                            f"(WB threshold for fiscal-stress concern: ~100%). Adds context for "
-                            f"sovereign-counterparty + payment-currency risk."
+                            f"(WB threshold for fiscal-stress concern: ~100%). Country-level "
+                            f"context for sovereign-counterparty + payment-currency risk — not a "
+                            f"finding against this entity."
                         ),
                         source=f"worldbank_indicators.country_risk_overlay [from {overlay.get('primary_source_url','')}]",
                         confidence="CONFIRMED",
