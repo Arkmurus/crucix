@@ -50,4 +50,7 @@ primary_region = "lhr"
 
 [[vm]]
   size   = "shared-cpu-1x"
-  memory = "256mb"
+  # R-F2962 — 256->512MB. Live 2026-07-24 the Baileys listener ran at ~142MB used
+  # / 70MB free (33% headroom) on the 256MB box; a media-handling or reconnect
+  # spike would OOM the acute §25 WhatsApp output channel. 512MB restores margin.
+  memory = "512mb"
