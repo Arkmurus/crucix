@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3001,
+  "next_available": 3002,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23854,9 +23854,20 @@
       "title": "DD: sovereign macro debt is context (INFO) not an AMBER risk flag on a private-company DD",
       "claimed_at": "2026-07-24T15:10:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0a156443",
+      "notes": null,
+      "shipped_at": "2026-07-24T15:11:51Z"
+    },
+    {
+      "r_number": "R-F3001",
+      "title": "cost tracker: price deepseek-v4-flash/pro correctly (was DEFAULT Claude-Sonnet 3/15 -> 20-50x overcount)",
+      "claimed_at": "2026-07-24T15:20:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "afb1a9c0",
+      "notes": null,
+      "shipped_at": "2026-07-24T15:32:56Z"
     }
   ]
 }

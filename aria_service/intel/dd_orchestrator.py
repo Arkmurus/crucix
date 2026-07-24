@@ -9073,6 +9073,39 @@ def _adverse_media_materiality(am_result: dict) -> dict:
     }
 
 
+def _adverse_example_has_provenance(e: dict) -> bool:
+    """R-F2999 — an adverse-media example is evidence a reviewer can check only if it
+    carries a resolvable URL. A 'title' that is really a source label (e.g.
+    'brain_hook:web_search') is not provenance."""
+    if not isinstance(e, dict):
+        return False
+    return bool((e.get("url") or e.get("link") or "").strip())
+
+
+def _format_adverse_example(e: dict) -> str:
+    """R-F2999 — render an adverse-media example with the provenance a DD reviewer
+    needs (title · URL · date · publisher), falling back HONESTLY when a field is
+    absent rather than printing a source label as if it were an article."""
+    if not isinstance(e, dict):
+        return "[unverified item]"
+    title = (e.get("title") or "").strip()
+    url = (e.get("url") or e.get("link") or "").strip()
+    src = (e.get("source") or e.get("publisher") or "").strip()
+    date = (e.get("date") or e.get("published") or e.get("published_at") or "").strip()
+    # a 'title' equal to / derived from the source label is not a headline
+    title_is_label = (not title) or title == src or title.startswith("brain_hook:")
+    parts: list[str] = []
+    if title and not title_is_label:
+        parts.append(title[:90])
+    if url:
+        parts.append(url[:120])
+    if date:
+        parts.append(f"({date[:10]})")
+    if src and (title_is_label or not title):
+        parts.append(f"[source: {src}]")
+    return " — ".join(parts) if parts else "[unverified item — no title/URL carried]"
+
+
 def _append_adverse_verdict_finding(body: dict, mat: dict, *, escalated: bool) -> None:
     syn = body.setdefault("synthesis", {})
     if not isinstance(syn, dict):
@@ -9080,14 +9113,24 @@ def _append_adverse_verdict_finding(body: dict, mat: dict, *, escalated: bool) -
     kf = syn.setdefault("key_findings", [])
     if not isinstance(kf, list):
         return
-    titles = " | ".join((e.get("title") or "")[:80] for e in (mat.get("examples") or [])[:3])
+    _examples = [e for e in (mat.get("examples") or [])[:3] if isinstance(e, dict)]
+    examples_str = " ; ".join(_format_adverse_example(e) for e in _examples) or "—"
+    # R-F2999 — verdict-driving evidence must be checkable. If NONE of the shown
+    # items carry a URL, say so plainly: the count alone is not evidence (the DD
+    # reviewer must verify each before relying). The conservative verdict stands
+    # (never-false-clean); only the honesty of the evidence display changes.
+    _have_prov = any(_adverse_example_has_provenance(e) for e in _examples)
+    prov_note = "" if _have_prov else (
+        " ⚠ Individual article URLs were not carried through to these items — the "
+        "count alone is not evidence; each must be verified before relying on it."
+    )
     kf.append({
         "severity": "amber" if escalated else "info",
         "title": ("Adverse-media escalation — credible adverse coverage names this entity"
                   if escalated else
                   "Adverse-media: credible coverage present (verdict already elevated)"),
         "detail": (f"{mat['credible_count']} credible subject-named adverse-media item(s) "
-                   f"[{mat['official']} official-tier]. Examples: {titles}"),
+                   f"[{mat['official']} official-tier]. Examples: {examples_str}.{prov_note}"),
         "source": "dd_orchestrator._run_adverse_media_followup:R-F2780",
         "confidence": "ASSESSED",
     })
