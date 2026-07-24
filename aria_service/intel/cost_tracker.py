@@ -987,6 +987,131 @@ async def _update_month_rollup(record: dict) -> None:
         logger.warning("cost_tracker._update_month_rollup failed: %s", e)
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
+async def reconcile_month_costs(month: str | None = None, *, apply: bool = False) -> dict:
+    """R-F3003 — recompute a month's rollup by RE-PRICING each per-call record at
+    the CURRENT pricing table, correcting historical mispricing (e.g. the R-F3001
+    deepseek-v4-flash over-count that reported $141.72 when the real cost is ~$5.6).
+
+    EXACT, not estimated: every LLM record keeps its own input/output token split
+    and lives 90 days (COST_TTL), so within that window the corrected cost of each
+    record is deterministic. SURGICAL: it does not rebuild the rollup from scratch
+    (which could drop external/Brave or edge records) — it computes the per-record
+    delta (correct_cost - stored_cost) ONLY for records whose price actually changed
+    and shifts the affected total / by_provider / by_feature / by_model / by_tier
+    cost cells by exactly that delta. Calls, tokens and every non-mispriced cell are
+    preserved byte-for-byte.
+
+    Read-only unless apply=True. When applying it BACKS UP the pre-reconcile rollup
+    to a timestamped key first (auditable + reversible) and never touches the
+    per-call records themselves (they expire in 90d; going forward they are already
+    priced correctly by R-F3001). `completeness` reports scanned-in-month vs the
+    rollup's own call count so a partial scan can never masquerade as exact.
+    """
+    month = month or _current_month_key()
+    key = f"{COST_MONTH_PREFIX}{month}"
+    try:
+        before = await rs.get_json(key)
+    except Exception as e:
+        return {"month": month, "error": f"rollup read failed: {e}"}
+    if not before:
+        return {"month": month, "error": "no rollup to reconcile"}
+
+    try:
+        pairs = await rs.scan_json(f"{COST_RECORD_PREFIX}*", count=200000)
+    except Exception as e:
+        return {"month": month, "error": f"record scan failed: {e}"}
+
+    delta_by: dict[str, dict[str, float]] = {
+        "by_provider": {}, "by_feature": {}, "by_model": {}, "by_tier": {}}
+    total_delta = 0.0
+    scanned = 0
+    in_month = 0
+    corrected = 0
+    corrected_models: dict[str, int] = {}
+    for _k, rec in pairs:
+        scanned += 1
+        if not isinstance(rec, dict):
+            continue
+        ts = rec.get("ts")
+        if not ts:
+            continue
+        try:
+            rec_month = datetime.fromtimestamp(float(ts), timezone.utc).strftime("%Y-%m")
+        except Exception:
+            continue
+        if rec_month != month:
+            continue
+        in_month += 1
+        model = rec.get("model") or ""
+        itok = int(rec.get("input_tokens") or 0)
+        otok = int(rec.get("output_tokens") or 0)
+        # Only re-price genuine LLM calls (a model + real tokens). Token-less /
+        # externally-priced records (Brave etc.) keep their stored cost.
+        if not model or (itok == 0 and otok == 0):
+            continue
+        stored = float(rec.get("cost_usd") or 0.0)
+        correct = estimate_cost_usd(model, itok, otok)
+        d = correct - stored
+        if abs(d) < 1e-9:
+            continue  # already priced correctly
+        total_delta += d
+        corrected += 1
+        corrected_models[model] = corrected_models.get(model, 0) + 1
+        for bk, val in (
+            ("by_provider", rec.get("provider") or "unknown"),
+            ("by_feature", rec.get("feature") or "uncategorized"),
+            ("by_model", model),
+            ("by_tier", rec.get("tier") or "unattributed"),
+        ):
+            delta_by[bk][val] = delta_by[bk].get(val, 0.0) + d
+
+    import copy as _copy
+    after = _copy.deepcopy(before)
+    after["total_cost_usd"] = round(float(before.get("total_cost_usd") or 0.0) + total_delta, 6)
+    for bk in ("by_provider", "by_feature", "by_model", "by_tier"):
+        bucket = after.setdefault(bk, {})
+        for val, d in delta_by[bk].items():
+            cell = bucket.get(val)
+            if isinstance(cell, dict):
+                cell["cost_usd"] = round(float(cell.get("cost_usd") or 0.0) + d, 6)
+
+    rollup_calls = int(before.get("total_calls") or 0)
+    result = {
+        "month": month,
+        "records_scanned": scanned,
+        "records_in_month": in_month,
+        "rollup_total_calls": rollup_calls,
+        "completeness": ("exact" if in_month >= rollup_calls else "partial_records_missing"),
+        "corrected_records": corrected,
+        "corrected_models": corrected_models,
+        "before_total_usd": round(float(before.get("total_cost_usd") or 0.0), 6),
+        "after_total_usd": after["total_cost_usd"],
+        "delta_usd": round(total_delta, 6),
+        "applied": False,
+    }
+    if apply:
+        backup_key = f"{key}:pre_reconcile:{int(time.time())}"
+        try:
+            await rs.set_json(backup_key, before, ex=COST_MONTH_TTL)
+            await rs.set_json(key, after, ex=COST_MONTH_TTL)
+            # Refresh the in-process month cache so the cap + gauge reflect the
+            # corrected total immediately (else it lags up to _MONTH_CACHE_TTL_S).
+            _month_cache["month"] = month
+            _month_cache["total"] = after["total_cost_usd"]
+            _month_cache["loaded_at"] = time.time()
+            result["applied"] = True
+            result["backup_key"] = backup_key
+            logger.warning(
+                "[R-F3003] month %s rollup reconciled: $%.4f -> $%.4f (%d records re-priced; backup %s)",
+                month, result["before_total_usd"], result["after_total_usd"],
+                corrected, backup_key,
+            )
+        except Exception as e:
+            result["error"] = f"apply failed: {e}"
+    return result
+
+
 def _index_summary(record: dict) -> dict:
     """The compact per-call entry kept in COST_INDEX_KEY."""
     return {

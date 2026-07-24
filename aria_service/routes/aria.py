@@ -304,7 +304,7 @@ _OPERATOR_ONLY_RE = re.compile(
     # llm(?![-\w/]) exempts EXACTLY coder/llm — NOT coder/llm-sensitive and NOT any future
     # coder/llm/<subpath> (security Pass-2: keep sub-paths gated so a later control sub-route
     # can't silently inherit the service-token exemption).
-    r"|coder/(?!rag/|llm(?![-\w/]))|cost/set-cap|cost/reset-task|cost/daily/reset|admin/state/key|admin/purge|capability-gaps/purge"
+    r"|coder/(?!rag/|llm(?![-\w/]))|cost/set-cap|cost/reset-task|cost/daily/reset|cost/reconcile|admin/state/key|admin/purge|capability-gaps/purge"
     r"|memory/backup/restore|student/mastery/reset|portal/credentials|session/forget"
     r"|eval/|operating-mode/set|knowledge/fact"
     # R-F2458: /training-data/library-export + /export dump up to 5000 Q&A tuples
@@ -3553,6 +3553,18 @@ async def cost_daily_reset_ep():
 async def cost_daily_status_ep():
     """Quick gauge: how much of the DAILY LLM cap is used (UTC day)."""
     return await cost_tracker.get_day_spend()
+
+
+@router.post("/cost/reconcile")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def cost_reconcile_ep(month: str | None = None, apply: bool = False):
+    """R-F3003 — recompute a month's cost rollup by RE-PRICING each per-call record
+    at the CURRENT pricing table, correcting historical mispricing such as the
+    R-F3001 deepseek-v4-flash over-count (operator-gated). Exact within the 90-day
+    record TTL. Dry-run by DEFAULT (apply=false → report only); apply=true backs up
+    the pre-reconcile rollup then writes the corrected one; records untouched.
+    """
+    return await cost_tracker.reconcile_month_costs(month, apply=apply)
 
 
 class WebLLMCostIn(BaseModel):
