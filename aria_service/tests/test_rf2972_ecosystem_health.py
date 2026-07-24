@@ -38,10 +38,20 @@ def test_rf2972_open_breaker_is_red():
     assert "circuit_breaker[ofac]" in hmap["organ:sanctions"]["sensor"]
 
 
-def test_rf2972_closed_breaker_is_green():
+def test_rf2972_closed_breaker_green_ONLY_with_proven_success():
+    """R-F2980 (F1): CLOSED→green ONLY with a proven success (total_successes>0) and
+    no current failures. A CLOSED breaker that never succeeded is NOT a positive
+    signal → grey, never a fabricated green."""
     node_ids = {"organ:sanctions"}
-    hmap = em._build_health_map(_sig(breakers=[{"name": "ofac", "state": "CLOSED"}]), node_ids, {})
-    assert hmap["organ:sanctions"]["color"] == "green"
+    # proven healthy → green
+    ok = em._build_health_map(_sig(breakers=[{"name": "ofac", "state": "CLOSED", "total_successes": 5, "consecutive_failures": 0}]), node_ids, {})
+    assert ok["organ:sanctions"]["color"] == "green"
+    # never succeeded → GREY (not a fabricated green)
+    unproven = em._build_health_map(_sig(breakers=[{"name": "ofac", "state": "CLOSED", "total_successes": 0}]), node_ids, {})
+    assert "organ:sanctions" not in unproven, "unproven CLOSED breaker must NOT paint green"
+    # closed but failing below threshold → GREY (last calls failed)
+    failing = em._build_health_map(_sig(breakers=[{"name": "ofac", "state": "CLOSED", "total_successes": 9, "consecutive_failures": 2}]), node_ids, {})
+    assert "organ:sanctions" not in failing, "recently-failing CLOSED breaker must NOT paint green"
 
 
 def test_rf2972_stale_agent_is_amber_not_red():

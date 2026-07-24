@@ -3019,11 +3019,15 @@ async def lifespan(app: FastAPI):
                             _stall.get("stalled"), _stall.get("starved", 0), _stall.get("grade_failing", 0))
                 except Exception as _se:
                     logger.debug("[RegionalSnapshot] stall detection failed: %s", _se)
-                await _wire_agent_success(
-                    "regional_snapshot",
-                    f"Regional snapshot: floor={snap.get('floor')}, "
-                    f"cells≥0.70={snap.get('count_ge_070')}/{snap.get('cell_count')}",
-                )
+                # R-F2980 (review F8): only wire SUCCESS if the snapshot actually persisted.
+                if snap.get("persisted"):
+                    await _wire_agent_success(
+                        "regional_snapshot",
+                        f"Regional snapshot: floor={snap.get('floor')}, "
+                        f"cells≥0.70={snap.get('count_ge_070')}/{snap.get('cell_count')}",
+                    )
+                elif snap.get("skipped") != "no_cells":
+                    await _wire_agent_failure("regional_snapshot", "snapshot write did not persist")
                 logger.info(
                     "[RegionalSnapshot] floor=%s mean=%s cells>=0.70=%s/%s",
                     snap.get("floor"), snap.get("mean"),

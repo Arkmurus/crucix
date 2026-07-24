@@ -44,7 +44,12 @@ logger = logging.getLogger("aria.ecosystem_map")
 # No os.chdir (unlike scripts/ecosystem_audit) so importing this is side-effect-free.
 _ARIA_SERVICE = Path(__file__).resolve().parent.parent
 _SKIP_DIRS = {"__pycache__", ".git", ".venv", "node_modules", "data"}
-_SKIP_FILES = {"__init__.py", "conftest.py"}
+# R-F2980 (F2): __init__.py is NO LONGER skipped — package __init__ files carry
+# real, load-bearing code (e.g. personas/__init__.py = 273 lines, 3 public fns),
+# so excluding them made the "100% by construction" claim FALSE. They are now
+# nodes (mapped to their PACKAGE dotted name). Only conftest.py (pytest infra) is
+# excluded — and that exclusion is stated in the coverage payload, not implied away.
+_SKIP_FILES = {"conftest.py"}
 _RNUM_RE = re.compile(r"R-F\d+")
 
 # The three deployed services (T0). Every organ belongs to one.
@@ -156,7 +161,13 @@ def scan_modules() -> list[Path]:
 
 def _module_id(path: Path) -> str:
     rel = path.relative_to(_ARIA_SERVICE).with_suffix("")
-    return "aria_service." + str(rel).replace(os.sep, ".").replace("/", ".")
+    dotted = "aria_service." + str(rel).replace(os.sep, ".").replace("/", ".")
+    # R-F2980 (F2): a package's __init__.py IS the package — map it to the package
+    # dotted name (aria_service.personas), not ...personas.__init__. This also lets
+    # `from aria_service.personas import X` resolve to a real node (fixes F4).
+    if dotted.endswith(".__init__"):
+        dotted = dotted[: -len(".__init__")]
+    return dotted
 
 
 def _read(path: Path) -> str:
@@ -228,10 +239,14 @@ def _build_structure_sync() -> dict[str, Any]:
                 for t in targets:
                     if t != mid:
                         import_edges.add((mid, t))
-                # count intra-repo imports we could NOT resolve to a module node
-                raw = getattr(n, "module", None) if isinstance(n, ast.ImportFrom) else None
-                if raw and raw.startswith("aria_service") and not targets:
-                    unresolved_intra += 1
+                # Count intra-repo imports we could NOT resolve to a module node.
+                # R-F2980 (review F4): also count RELATIVE imports (from . import x /
+                # from .foo import y) — their node.module doesn't start with
+                # "aria_service", so the old check silently UNDER-counted them.
+                if not targets and isinstance(n, ast.ImportFrom):
+                    raw = n.module
+                    if (raw and raw.startswith("aria_service")) or (n.level and n.level > 0):
+                        unresolved_intra += 1
 
     # Organ assignment + orphans
     organ_of: dict[str, str] = {}
@@ -445,22 +460,37 @@ async def _gather_signals() -> dict[str, Any]:
     }
 
 
-def _breaker_color(state: str, reason: str | None) -> str:
-    st = (state or "").upper()
+def _breaker_color(b: dict) -> str:
+    # R-F2980 (F1): CLOSED is NOT automatically a positive signal. get_all_breakers
+    # returns EVERY registered breaker, including ones that never recorded a success
+    # (total_successes=0) or are failing below the trip threshold
+    # (consecutive_failures>0, still CLOSED). Those are NOT "this backend is healthy"
+    # — treating them as green was a fabricated green (violates law #4). CLOSED→green
+    # ONLY with a proven success and no current failures; otherwise GREY (unproven).
+    st = (str(b.get("state") or "")).upper()
     if st == "OPEN":
         return "red"
     if st == "HALF_OPEN":
         return "amber"
-    return "green"  # CLOSED = a positive, live "this backend is healthy" signal
+    try:
+        succ = int(b.get("total_successes") or 0)
+        cons = int(b.get("consecutive_failures") or 0)
+    except (TypeError, ValueError):
+        succ, cons = 0, 0
+    if succ > 0 and cons == 0:
+        return "green"
+    return "grey"  # registered but never proven healthy → no positive signal
 
 
 def _agent_color(age: float | None) -> str:
     # Anti-cry-wolf: many agents are long-cycle (tender_monitor@6h, eagle_eye@30m),
-    # so a beat older than a few minutes is NORMAL, not broken. Heartbeat age only
-    # ever yields green (recently active) or amber (not-recently-active / worth a
-    # look); it NEVER cries RED — confirmed-broken comes from breakers/limbs/HIGH
-    # gaps, not from a slow-cycle agent between its beats. Only a >24h silence
-    # (abandoned by any conceivable schedule) escalates to red.
+    # so a beat older than a few minutes is NORMAL, not broken. Heartbeat age yields
+    # green (<5min, recently active) or amber (worth a look) for anything under 24h;
+    # confirmed-broken normally comes from breakers/limbs/HIGH gaps, not a slow-cycle
+    # agent between beats. Honest caveats (R-F2980 F6): a >24h silence DOES escalate
+    # to red — a legitimately >24h-cycle agent would false-red there (rare); and
+    # there is an inherent ~5-min window after a crash where the last beat is still
+    # <300s and the node reads green. Both are accepted trade-offs, not "never red".
     if age is None:
         return "grey"
     if age < 300:
@@ -487,19 +517,32 @@ def _build_health_map(signals: dict[str, Any], node_ids: set[str], organ_of: dic
         org = _assign_organ(name.lower())
         return f"organ:{org}" if org else None
 
+    def _module_name_matches(name: str, nid: str) -> bool:
+        # R-F2980 (F5): match a backend/agent name against the module's BASENAME
+        # token, NOT any path substring — a naked `in nid.lower()` let a generic
+        # name (e.g. "search") paint health onto unrelated modules (phantom
+        # attribution). Require the name to BE a token of the basename.
+        base = nid.split(".")[-1].lower()
+        nm = name.lower()
+        return bool(nm) and (nm == base or nm in base.split("_") or base in nm.split("_"))
+
     # aria-intel brain is answering THIS request → alive (honest positive signal)
     _apply("aria-intel", "green", "brain process (this request served)", "alive")
 
-    # (1) breakers → the organ (and any matching module) the backend belongs to
+    # (1) breakers → the organ (and any matching module) the backend belongs to.
+    # A grey breaker (unproven) applies NOTHING — grey is the absence-default, not a
+    # sensor reading, so it must not enter the health map / inflate sensor coverage.
     for b in signals.get("breakers", []):
         name = b.get("name", "")
-        color = _breaker_color(b.get("state"), b.get("last_failure_reason"))
+        color = _breaker_color(b)
+        if color == "grey":
+            continue
         val = f"{b.get('state')}" + (f"/{b['last_failure_reason']}" if b.get("last_failure_reason") else "")
         org = _organ_for_name(name)
         if org:
             _apply(org, color, f"circuit_breaker[{name}]", val)
         for nid in node_ids:
-            if nid.startswith("mod:") and name and name.lower() in nid.lower():
+            if nid.startswith("mod:") and _module_name_matches(name, nid):
                 _apply(nid, color, f"circuit_breaker[{name}]", val)
 
     # (2) agents/loops → the organ that owns them (+ the module if named)
@@ -513,7 +556,7 @@ def _build_health_map(signals: dict[str, Any], node_ids: set[str], organ_of: dic
         if org:
             _apply(org, color, f"agent[{aid}]", val)
         for nid in node_ids:
-            if nid.startswith("mod:") and aid and aid.replace("_", "") in nid.lower().replace("_", ""):
+            if nid.startswith("mod:") and _module_name_matches(aid, nid):
                 _apply(nid, color, f"agent[{aid}]", val)
 
     # (3) external limbs → service nodes / search organ
@@ -619,11 +662,23 @@ def _audit_refs(r_numbers: list[str]) -> list[dict]:
     return out
 
 
+# R-F2980 (F3): honest §21 brain-wiring tokens — checked in each function's OWN
+# source span (decorators + body), so a function wired via ANY mechanism (@fail_wire,
+# @wired, or an inline wire_success/brain_hook/record_gap call) is detected — and
+# private functions are NOT falsely called "dark" (the old @fail_wire-only check
+# skipped every _-prefixed function, over-claiming "no brain wiring").
+_FN_WIRE_TOKENS = ("fail_wire", "@wired", "wire_success", "wire_failure",
+                   "brain_hook.absorb", "brain_hook.observe", "capability_gaps.record_gap",
+                   "record_gap(", "mistake_ledger.record", "record_error(", "record_signal(")
+
+
 def _module_functions(module_id: str) -> list[dict]:
-    """T3: the functions of ONE module (bounded), with wired/dark status. On-demand
-    only (never in the full graph — that'd be ~5000 nodes)."""
-    rel = module_id.replace("aria_service.", "", 1).replace(".", os.sep) + ".py"
-    path = _ARIA_SERVICE / rel
+    """T3: the functions of ONE module (bounded), with honest §21 wired/dark status.
+    On-demand only (never in the full graph — that'd be ~5000 nodes)."""
+    rel = module_id.replace("aria_service.", "", 1).replace(".", os.sep)
+    path = _ARIA_SERVICE / (rel + ".py")
+    if not path.exists():                       # a PACKAGE node → its __init__.py
+        path = _ARIA_SERVICE / rel / "__init__.py"
     if not path.exists():
         return []
     try:
@@ -631,24 +686,18 @@ def _module_functions(module_id: str) -> list[dict]:
         tree = ast.parse(src)
     except Exception:
         return []
-    wired_names: set[str] = set()
-    try:
-        from . import wiring_harness as _wh
-        for fn in _wh.fail_wire_decorators(str(path)) or []:
-            if isinstance(fn, dict) and fn.get("name"):
-                wired_names.add(fn["name"])
-            elif isinstance(fn, str):
-                wired_names.add(fn)
-    except Exception:
-        pass
+    lines = src.splitlines()
     fns = []
     for n in ast.walk(tree):
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if n.name.startswith("_") and not n.name.startswith("__"):
-                pass  # keep privates too (they're real intersections) — no filter
+            # scan from the first decorator (above the def) to the function end
+            starts = [n.lineno] + [getattr(d, "lineno", n.lineno) for d in getattr(n, "decorator_list", [])]
+            start = max(1, min(starts))
+            end = getattr(n, "end_lineno", n.lineno) or n.lineno
+            span = "\n".join(lines[start - 1:end])
+            wired = any(t in span for t in _FN_WIRE_TOKENS)
             fns.append({"name": n.name, "line": n.lineno,
-                        "async": isinstance(n, ast.AsyncFunctionDef),
-                        "wired": n.name in wired_names})
+                        "async": isinstance(n, ast.AsyncFunctionDef), "wired": wired})
     return fns
 
 
@@ -706,11 +755,15 @@ async def get_coverage() -> dict[str, Any]:
             "orphan_ids": m["orphans"][:100],
             "pct_mapped": 100.0,
             "pct_assigned": round(100.0 * mapped / total_mods, 1) if total_mods else 0.0,
+            # R-F2980 (review F2): state the exclusions precisely so "100%" is not
+            # implied over a hidden set. Packages (__init__.py) ARE now included.
+            "scope": "all non-test aria_service .py incl package __init__.py",
+            "excluded": "conftest.py (pytest infra); tests/, __pycache__/, data/ dirs",
         },
         "import_edges": {
             "resolved_intra_repo": m["import_edge_count"],
-            "unresolved_dynamic": m["unresolved_intra_imports"],
-            "note": "100% of statically-resolvable intra-repo imports; dynamic/unresolvable counted, not hidden",
+            "unresolved_intra_repo": m["unresolved_intra_imports"],  # R-F2980 F4: renamed — includes relative-import misses
+            "note": "100% of statically-resolvable intra-repo imports resolved; the rest (dynamic/getattr/late) are counted here, not hidden",
         },
         "call_edges": {
             "status": "declared_partial",

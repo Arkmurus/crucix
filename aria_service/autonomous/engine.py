@@ -230,10 +230,14 @@ async def check_feed_liveness() -> list[str]:
             return problems
     except Exception:
         pass
-    # Load-shed explains a skipped cycle → treat as fresh.
+    # Load-shed explains a skipped cycle → treat as fresh. R-F2980 (review F2): use
+    # the PURE pressure() read, NOT should_shed() — should_shed() calls _note_shed()
+    # which wires a fabricated "I throttled myself to protect serving" SUCCESS signal
+    # + WARNING to the brain. This is a read-only liveness probe that sheds nothing,
+    # so it must not pollute the self-record with a false shed-success.
     try:
         from ..intel import load_governor as _lg
-        if _lg.should_shed():
+        if _lg.pressure().get("shedding"):
             return problems
     except Exception:
         pass
@@ -243,7 +247,13 @@ async def check_feed_liveness() -> list[str]:
         read_int = float(os.getenv("ARIA_READING_INTERVAL_S", "9000") or "9000")
         feeds = [("student_reading", 2.0 * read_int), ("regional_snapshot", 2.0 * 6 * 3600)]
         if research_on:
-            feeds.append(("research_engine", 2.0 * 1800))
+            # R-F2980 (review F1): 4x (not 2x) the 30-min interval. The research cycle
+            # is heavy (research_and_learn + up to 8 sequential BACKGROUND-priority LLM
+            # validations) BEFORE the 30-min sleep, so inter-beat gap = cycle-time + 30m.
+            # A 2x (1h) bound left only 30m headroom → a slow/rate-limited provider cycle
+            # (~40m) false-RED'd. Provider latency is NOT covered by the pressure-shed
+            # suppression above, so widen the bound to ~2h of headroom.
+            feeds.append(("research_engine", 4.0 * 1800))
         for aid, bound in feeds:
             try:
                 st = await reg.get_agent_status(aid)

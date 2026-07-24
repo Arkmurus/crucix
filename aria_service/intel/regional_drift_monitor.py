@@ -95,11 +95,14 @@ async def snapshot_regional() -> dict[str, Any]:
         "gate_2_target": _GATE_2_TARGET,
         "cells": cells,  # UNBOUNDED per §1 — no [:N] truncation on the durable record
     }
+    persisted = False
     try:
         await rs.lpush(_SNAPSHOT_KEY, json.dumps(snapshot))
         await rs.ltrim(_SNAPSHOT_KEY, 0, _MAX_SNAPSHOTS - 1)
+        persisted = True
     except Exception as e:
         logger.warning("snapshot_regional: redis write failed: %s", e)
+    snapshot["persisted"] = persisted  # R-F2980 (review F8): so the loop doesn't wire a false success
     return snapshot
 
 
@@ -215,12 +218,20 @@ async def floor_velocity(window_hours: int = 168) -> dict[str, Any]:
     except Exception:
         span_h = 0.0
     floor_delta = drift.get("floor_delta") or 0.0
-    per_week = round(floor_delta * (168.0 / span_h), 4) if span_h > 0 else None
+    count_delta = drift.get("count_ge_070_delta") or 0
+    # R-F2980 (review F6): only extrapolate to a week when the span is meaningful
+    # (>=48h). Early on, baseline falls back to the oldest snapshot (~6h span), and
+    # 168/6 = 28x turns 0.001 of noise into 0.028/week — a misleading headline.
+    per_week = round(floor_delta * (168.0 / span_h), 4) if span_h >= 48.0 else None
 
-    # compounding=True when the floor rose OR more cells crossed the target over
-    # the span. A flat/negative reading with new cells appearing is EXPECTED
-    # (seeding lowers the floor first, §1) — the endpoint/panel annotate this.
-    compounding = (floor_delta > 0) or ((drift.get("count_ge_070_delta") or 0) > 0)
+    # R-F2980 (review F3): the FLOOR is the gate-binding signal (gate #2 closes only
+    # when the weakest cell >=0.70). The old OR meant a floor REGRESSION + one
+    # unrelated cell crossing 0.70 read "compounding=True" — an overclaim on the
+    # headline signal. Require the floor to NOT have regressed. A flat/negative floor
+    # with new cells appearing is EXPECTED under seeding (§1) — surfaced honestly via
+    # floor_regressed + count_delta, not by greening the compounding flag.
+    floor_regressed = floor_delta < 0
+    compounding = (floor_delta > 0) or (floor_delta == 0 and count_delta > 0)
 
     return {
         "ok": True,
@@ -228,11 +239,12 @@ async def floor_velocity(window_hours: int = 168) -> dict[str, Any]:
         "span_hours": round(span_h, 2),
         "floor_delta": floor_delta,
         "floor_delta_per_week": per_week,
-        "count_ge_070_delta": drift.get("count_ge_070_delta"),
+        "count_ge_070_delta": count_delta,
         "latest_floor": drift.get("latest_floor"),
         "latest_count_ge_070": drift.get("latest_count_ge_070"),
         "latest_cell_count": drift.get("latest_cell_count"),
         "compounding": compounding,
+        "floor_regressed": floor_regressed,
         "top_risers": drift.get("top_risers"),
         "top_fallers": drift.get("top_fallers"),
     }
@@ -308,12 +320,23 @@ async def record_stalled_gaps(window_hours: int = 168, *, min_snapshots: int = 3
     if not stalled:
         return {"stalled": 0, "recorded": False}
 
+    # R-F2980 (review F4): report the ACTUAL measured span, not the literal
+    # window_hours. _pick_baseline falls back to the oldest snapshot when the full
+    # window isn't covered yet, so early on the real span is ~12-18h — claiming
+    # "over 168h" in a HIGH gap would be a fabricated measurement window.
+    _snaps = await _read_snapshots()
+    _bl = _pick_baseline(_snaps, window_hours) if len(_snaps) >= 2 else None
+    try:
+        span_h = round(max(0.0, ((_snaps[0].get("ts") or 0) - (_bl.get("ts") or 0)) / 3600.0), 1) if _bl else float(window_hours)
+    except Exception:
+        span_h = float(window_hours)
+
     starved = [c for c in stalled if c["why"] == "starved"]
     grade_failing = [c for c in stalled if c["why"] == "grade_failing"]
     worst = ", ".join(f"{c['cell']}={c['score']}({c['why']})" for c in stalled[:6])
     detail = (
-        f"{len(stalled)} gate-#2 regional cells STALLED (flat below 0.70 over "
-        f"{window_hours}h): {len(starved)} starved (content pipeline can't ground "
+        f"{len(stalled)} gate-#2 regional cells STALLED (flat below 0.70 over the "
+        f"measured {span_h}h): {len(starved)} starved (content pipeline can't ground "
         f"them), {len(grade_failing)} grade-failing (ingesting but recall grade "
         f"keeps failing). Worst: {worst}. Starved cells need a content-source lever "
         f"(SearXNG/Brave/feed); grade-failing cells need more grounded reads to cross "

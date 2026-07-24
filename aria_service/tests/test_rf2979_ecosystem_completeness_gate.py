@@ -31,7 +31,7 @@ def test_rf2979_coverage_reports_100pct_modules():
     assert cov["modules"]["pct_mapped"] == 100.0
     assert cov["modules"]["on_map"] == cov["modules"]["total_on_disk"]
     # honest: unresolvable import edges are reported, never silently dropped
-    assert "unresolved_dynamic" in cov["import_edges"]
+    assert "unresolved_intra_repo" in cov["import_edges"]
 
 
 def test_rf2979_organ_table_covers_a_healthy_majority():

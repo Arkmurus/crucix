@@ -29,7 +29,7 @@ def _run(env, ages, *, paused=False, shedding=False):
 
     with mock.patch.dict("os.environ", env, clear=False), \
          mock.patch("aria_service.autonomous.safety.is_engine_paused", side_effect=fake_paused), \
-         mock.patch("aria_service.intel.load_governor.should_shed", return_value=shedding), \
+         mock.patch("aria_service.intel.load_governor.pressure", return_value={"shedding": shedding}), \
          mock.patch("aria_service.intel.agent_registry.AgentRegistry", return_value=_FakeReg(ages)):
         return asyncio.run(eng.check_feed_liveness())
 

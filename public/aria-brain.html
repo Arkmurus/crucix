@@ -246,9 +246,9 @@ window.addEventListener('DOMContentLoaded', function () {
   <!-- R-F2971: ARIA Ecosystem — live architecture map (train-track / bloodstream) -->
   <div class="card wide">
     <h2><i class="bi bi-diagram-3"></i> ARIA Ecosystem</h2>
-    <div id="ecosystem-breadcrumb" style="font-size:0.8em;color:#9b968c;margin-bottom:6px"></div>
-    <div id="ecosystem-coverage" style="font-size:0.78em;color:#9b968c;margin-bottom:8px"></div>
-    <div id="ecosystem-map" class="loading" style="min-height:360px">Loading...</div>
+    <div id="ecosystem-breadcrumb" style="font-size:0.75em;color:#9b968c;margin-bottom:5px"></div>
+    <div id="ecosystem-coverage" style="font-size:0.7em;color:#9b968c;margin-bottom:8px;line-height:1.5"></div>
+    <div id="ecosystem-map" class="loading" style="max-height:560px;overflow-y:auto;min-height:100px">Loading...</div>
   </div>
 
   <!-- Composite Autonomy Score -->
@@ -1454,56 +1454,52 @@ async function loadEcosystem(root){
     } catch(e){ cvEl.innerHTML = ''; }
   } else if(cvEl && root){ cvEl.innerHTML = ''; }
 
-  // P3 metro/train-track layout: tiers as COLUMNS, nodes as stations stacked in y,
-  // edges as right-angled elbow "tracks". Deterministic (no physics jitter).
+  // R-F2980 (UX review) — professional, compact "system board". The old SVG graph
+  // grew unbounded (20 organs stacked → off-screen) with clipped labels. Now: the
+  // ENTIRE ecosystem is visible at once as small health-coloured tiles (colour =
+  // live health), labels always on-screen (ellipsis + full-text tooltip), bounded
+  // height (the card scrolls), drill on click. Reduced font throughout.
   const nodes = g.nodes.slice();
-  const W=860;
-  const _colOf = (n) => {
-    if(!root) return n.type==='service'?0:1;
-    if(root.startsWith('organ:')) return n.type==='service'?0:(n.type==='organ'?1:2);
-    return n.type==='function'?2:(n.id===root?1:0);        // mod: drill
+  const byType = (t) => nodes.filter(n => n.type === t);
+  const _tile = (n) => {
+    const hc = _ECO_HCOL[n.health] || '#5a6470';
+    const rn = n.r_numbers || [];
+    const topR = rn.length ? (rn[rn.length - 1] + (rn.length > 1 ? ` +${rn.length - 1}` : '')) : '';
+    let sub = '';
+    if (n.type === 'service') sub = n.detail || ('port ' + (n.port || ''));
+    else if (n.type === 'organ') sub = (n.module_count != null ? n.module_count + ' modules' : '') + (n.orphan_alert ? ' — unassigned' : '');
+    else if (n.type === 'function') sub = (n.wired ? 'wired' : 'dark') + ' · L' + (n.line || '');
+    else sub = topR || (n.category || '');
+    const drill = n.type !== 'function';
+    const nm = (n.label || '');
+    const tip = `${nm} (${n.type})`
+      + (n.sensor ? ` — [${n.health || 'grey'}] ${n.sensor}${n.sensor_value != null ? (' = ' + n.sensor_value) : ''}` : '')
+      + (topR ? ` — audit ${rn.slice(-4).reverse().join(', ')}` : '');
+    return `<div ${drill ? `onclick="ecoDrill('${n.id}','${nm.replace(/'/g, '')}')" style="cursor:pointer;` : 'style="'}`
+      + `background:#141a22;border:1px solid #232c38;border-left:3px solid ${hc};border-radius:4px;padding:5px 7px;overflow:hidden" title="${tip.replace(/"/g, '')}">`
+      + `<div style="display:flex;align-items:center;gap:5px">`
+      + `<span style="width:7px;height:7px;border-radius:50%;background:${hc};flex:0 0 auto"></span>`
+      + `<span style="font-size:11px;color:#d6d2c8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${nm}</span></div>`
+      + (sub ? `<div style="font-size:8.5px;color:#7a8593;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sub}</div>` : '')
+      + `</div>`;
   };
-  const cols = {}; nodes.forEach(n=>{ const c=_colOf(n); (cols[c]=cols[c]||[]).push(n); });
-  const colKeys = Object.keys(cols).map(Number).sort((a,b)=>a-b);
-  const nCols = colKeys.length;
-  const maxCol = Math.max(...colKeys.map(c=>cols[c].length));
-  const H = Math.max(360, maxCol*26 + 70);                  // grow tall for big columns
-  const xFor = (c) => { const i=colKeys.indexOf(c); return nCols>1 ? (120 + i*((W-240)/(nCols-1))) : W/2; };
-  const pos = {};
-  colKeys.forEach(c=>{ const arr=cols[c]; arr.forEach((n,i)=>{ pos[n.id]={ x:xFor(c), y: arr.length>1 ? (44 + i*((H-88)/(arr.length-1))) : H/2 }; }); });
-
-  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;font-size:9px" preserveAspectRatio="xMidYMid meet">`;
-  // edges = elbow "tracks", coloured by live health; a broken node bleeds into its links
-  g.edges.forEach(e=>{ const s=pos[e.source], t=pos[e.target]; if(!s||!t) return;
-    const imp = e.type==='import';
-    const hc = (e.health && e.health!=='grey') ? _ECO_HCOL[e.health] : (imp?'#33404f':'#4a5a6a');
-    const op = (e.health && e.health!=='grey') ? 0.8 : (imp?0.3:0.6);
-    const mx=((s.x+t.x)/2).toFixed(1);
-    svg += `<path d="M ${s.x.toFixed(1)} ${s.y.toFixed(1)} L ${mx} ${s.y.toFixed(1)} L ${mx} ${t.y.toFixed(1)} L ${t.x.toFixed(1)} ${t.y.toFixed(1)}" fill="none" stroke="${hc}" stroke-width="${imp?1.2:3}" opacity="${op}" stroke-linejoin="round"/>`; });
-  // nodes = stations: fill = health, ring = organ line hue
-  nodes.forEach(n=>{ const p=pos[n.id]; if(!p) return;
-    const fill=_ecoFill(n), stroke=_ecoStroke(n), r = n.type==='service'?13:(n.type==='organ'?10:(n.type==='function'?5:6));
-    const drill = n.type!=='function';
-    const rn = n.r_numbers||[];
-    const meta = (n.module_count!=null?`, ${n.module_count} modules`:'') + (rn.length?`, ${rn.length} R#`:'') + (n.type==='function'?(n.wired?', wired':', dark'):'');
-    const topR = rn.length? (rn.slice(-3).reverse().join(', ')+(rn.length>3?` +${rn.length-3}`:'')) : '';
-    const sens = n.sensor ? `\n[${n.health||'grey'}] sensor: ${n.sensor}${n.sensor_value!=null?(' = '+n.sensor_value):''}` : '';
-    const audit = topR ? `\naudit: ${topR}` : '';
-    svg += `<g style="cursor:${drill?'pointer':'default'}"${drill?` onclick="ecoDrill('${n.id}','${(n.label||'').replace(/'/g,'')}')"`:''}>`;
-    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="2.5"><title>${n.label} (${n.type}${meta})${sens}${audit}</title></circle>`;
-    const lbl = (n.label||'').length>22?(n.label.slice(0,21)+'…'):(n.label||'');
-    svg += `<text x="${(p.x+r+4).toFixed(1)}" y="${(p.y+3).toFixed(1)}" fill="#c9c4b8">${lbl}</text>`;
-    // R-number / audit chip on the intersection (operator's explicit ask)
-    if(rn.length){ svg += `<text x="${(p.x+r+4).toFixed(1)}" y="${(p.y+12).toFixed(1)}" fill="#6f7d8c" font-size="7.5">${rn[rn.length-1]}${rn.length>1?` +${rn.length-1}`:''}</text>`; }
-    svg += `</g>`; });
-  // legend
-  svg += `<g font-size="9" transform="translate(8,${H-10})">`
-    + `<circle cx="4" cy="-3" r="5" fill="var(--green)"/><text x="12" y="0" fill="#9b968c">healthy</text>`
-    + `<circle cx="66" cy="-3" r="5" fill="var(--yellow)"/><text x="74" y="0" fill="#9b968c">degraded</text>`
-    + `<circle cx="140" cy="-3" r="5" fill="var(--red)"/><text x="148" y="0" fill="#9b968c">broken</text>`
-    + `<circle cx="196" cy="-3" r="5" fill="#5a6470"/><text x="204" y="0" fill="#9b968c">no sensor (grey ≠ green)</text></g>`;
-  svg += '</svg>';
-  el.classList.remove('loading'); el.innerHTML = svg;
+  const _section = (label, arr) => arr.length
+    ? `<div style="font-size:9px;color:#7a8593;letter-spacing:0.5px;margin:8px 0 4px">${label}</div>`
+      + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:6px">${arr.map(_tile).join('')}</div>`
+    : '';
+  const services = byType('service'), organs = byType('organ'),
+        modules = byType('module'), functions = byType('function');
+  let html = _section('SERVICES', services)
+    + _section('ORGANS', organs)
+    + _section(`FUNCTIONS (${functions.filter(f => f.wired).length}/${functions.length} wired)`, functions)
+    + _section(functions.length ? 'CONNECTED MODULES (imports)' : 'MODULES', modules);
+  html += `<div style="margin-top:10px;font-size:9px;color:#9b968c;display:flex;gap:14px;flex-wrap:wrap">`
+    + `<span><span style="color:var(--green)">●</span> healthy</span>`
+    + `<span><span style="color:var(--yellow)">●</span> degraded</span>`
+    + `<span><span style="color:var(--red)">●</span> broken</span>`
+    + `<span><span style="color:#5a6470">●</span> no sensor (grey ≠ green)</span>`
+    + `<span style="color:#7a8593">click a tile to drill in</span></div>`;
+  el.classList.remove('loading'); el.innerHTML = html;
 }
 function ecoDrill(id,label){ if(!id) return;
   if(id.startsWith('organ:')||id.startsWith('mod:')){ _ecoStack.push({id,label:label||id}); loadEcosystem(id); }
