@@ -198,6 +198,61 @@ async def search_companies(query: str, limit: int = 5) -> list[dict]:
     ]
 
 
+# ── R-F3014 — best-match company resolution (never blindly results[0]) ──────
+_GENERIC_COMPANY_TOKENS = frozenset({
+    "limited", "ltd", "plc", "llp", "lp", "uk", "gb", "group", "holdings",
+    "holding", "the", "and", "co", "company", "international", "services",
+})
+
+
+def _name_tokens(s: str) -> set[str]:
+    import re
+    return {t for t in re.split(r"[^a-z0-9]+", (s or "").lower()) if t}
+
+
+def _company_name_match(query: str, title: str) -> float:
+    """Jaccard overlap of DISTINCTIVE tokens (generic corporate suffixes removed),
+    so an exact 'COHORT PLC' beats 'COHORT SECURITY SYSTEMS LTD' for query
+    'Cohort plc' — coverage alone would score both 1.0. 1.0 == same distinctive name."""
+    q = _name_tokens(query) - _GENERIC_COMPANY_TOKENS
+    t = _name_tokens(title) - _GENERIC_COMPANY_TOKENS
+    q = q or _name_tokens(query)
+    t = t or _name_tokens(title)
+    if not q or not t:
+        return 0.0
+    return len(q & t) / len(q | t)
+
+
+def _is_overseas_entity(row: dict) -> bool:
+    """A Register-of-Overseas-Entities record: an 'OE'-prefixed number or an overseas
+    company_type. It has no officers/PSC at the standard company endpoints, so it is
+    the WRONG target for a trading-company DD when a normal company shares the name."""
+    num = str((row or {}).get("company_number") or "").strip().upper()
+    ctype = str((row or {}).get("company_type") or "").lower()
+    return num.startswith("OE") or "overseas" in ctype
+
+
+def _pick_best_company(query: str, results: list[dict]) -> dict:
+    """R-F3014 — choose the best CH search hit instead of blindly results[0].
+    Rank: distinctive-name match, then a NON-overseas trading company, then an
+    active status, then the original search rank. Prevents a same-named Overseas
+    Entity (e.g. OE003509 'COHORT PLC', Jersey) from being resolved for a DD whose
+    real subject is the trading company (05684823)."""
+    if not results:
+        return {}
+
+    def _rank(item):
+        idx, row = item
+        return (
+            _company_name_match(query, str(row.get("title") or "")),
+            0 if _is_overseas_entity(row) else 1,
+            1 if "active" in str(row.get("company_status") or "").lower() else 0,
+            -idx,
+        )
+
+    return max(enumerate(results), key=_rank)[1]
+
+
 @fail_wire(module="companies_house", gap_type="api_missing")
 def _accounts_block(accounts: dict | None) -> dict:
     """Normalise the Companies House `accounts` object (R-F2782).
@@ -727,8 +782,13 @@ async def investigate_uk_entity(
                 "query": company_name,
                 "error": "No UK company found matching this name",
             }
-        # Take the best match (first result)
-        company_number = results[0].get("company_number")
+        # R-F3014 — do NOT blindly take results[0]. An Overseas Entity (ROE,
+        # "OE"-prefixed) named the same as the trading company ranks high in CH
+        # search but has no officers/PSC at the standard endpoints — so a "Cohort plc"
+        # DD resolved OE003509 (Jersey) instead of the real 05684823 defence group and
+        # reported empty ownership. Prefer the best name match on a non-overseas active
+        # company; fall back to overseas only when it is genuinely the best hit.
+        company_number = (_pick_best_company(company_name, results) or {}).get("company_number")
 
     if not company_number:
         return {"error": "No company number or name provided"}

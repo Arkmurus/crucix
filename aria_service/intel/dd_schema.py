@@ -1252,6 +1252,34 @@ def _quality_grade(score: int, blockers: list[str]) -> str:
     return "D"
 
 
+# R-F3013 — the evidence grade is a RELIANCE grade. The evidence-DEPTH scorer can
+# reach A/B off enriched (GLEIF/vault) identity while the decision-readiness
+# scorecard leaves decision-critical questions UNRESOLVED — so a report read
+# "3 of 5 answered | evidence grade A", which is incoherent (Grade A means
+# decision-ready). Cap the grade by how many of the five questions are answered.
+_GRADE_ORDER = {"D": 0, "C": 1, "B": 2, "A": 3}
+
+
+def _readiness_grade_cap(answered: int, required: int) -> str:
+    """Highest grade the answered decision-critical questions can support.
+    All answered → A; one gap → B; more → C. (D is never a cap — it can only be
+    reached by the depth score, never forced up.)"""
+    missing = max(0, int(required) - int(answered))
+    if missing <= 0:
+        return "A"
+    if missing == 1:
+        return "B"
+    return "C"
+
+
+def _cap_grade(grade: str, cap: str) -> str:
+    """Return grade lowered to `cap` if it exceeds it; NEVER raises a grade.
+    Non-letter grades (INCOMPLETE / unknown) are left untouched."""
+    if grade not in _GRADE_ORDER or cap not in _GRADE_ORDER:
+        return grade
+    return grade if _GRADE_ORDER[grade] <= _GRADE_ORDER[cap] else cap
+
+
 def _quality_penalties(metrics: dict) -> list[tuple[int, str]]:
     """Return score penalties and reasons for DD evidence-depth weaknesses."""
     reputable = metrics["verified_sources"] + metrics["quality_press"]
@@ -1328,6 +1356,22 @@ def _dd_quality_assessment(r: dict) -> dict:
             "identity/registry check did not complete (errored or clamped) — grade "
             "WITHHELD, not a thin-evidence verdict; re-run may resolve"
         ] + blockers
+    # R-F3013 — cap the reliance grade by decision-readiness completeness WHEN the
+    # scorecard is already on the report (this call is the vault + BLUF path, which
+    # run after _dd_decision_readiness set it). The readiness builder itself applies
+    # the identical cap with its freshly-computed count, so all three surfaces —
+    # header, BLUF, vault — agree. Caps DOWN only; INCOMPLETE is left untouched.
+    _dr = r.get("decision_readiness") if isinstance(r, dict) else None
+    if isinstance(_dr, dict):
+        _ans, _req = _dr.get("answered"), _dr.get("required")
+        if isinstance(_ans, int) and isinstance(_req, int) and _req > 0:
+            _capped = _cap_grade(grade, _readiness_grade_cap(_ans, _req))
+            if _capped != grade:
+                blockers = [
+                    f"grade capped to {_capped}: only {_ans}/{_req} decision-critical "
+                    f"questions answered (Grade A requires all five)"
+                ] + blockers
+                grade = _capped
     public_metrics = dict(metrics)
     public_metrics.pop("adverse_media_skipped", None)
     public_metrics.pop("has_search_degradation_gap", None)
@@ -1665,9 +1709,16 @@ def _dd_decision_readiness(r: dict) -> dict:
     answered = sum(1 for q in questions.values() if q["answered"])
     blockers = [q["blocker"] for q in questions.values() if q["blocker"]]
     try:
-        evidence_grade = str(_dd_quality_assessment(r).get("grade") or "INCOMPLETE")
+        # R-F3013 — strip any STALE decision_readiness left on `r` from a prior
+        # refresh so the internal depth-grade call is UNCAPPED (self-capping there
+        # would use an out-of-date answered count and _cap_grade never re-raises).
+        # We apply the fresh cap below with this run's answered count. Grade A ⟺
+        # decision-ready, so the header can never read "3 of 5 answered | grade A".
+        _r_grade = {k: v for k, v in r.items() if k != "decision_readiness"} if isinstance(r, dict) else r
+        evidence_grade = str(_dd_quality_assessment(_r_grade).get("grade") or "INCOMPLETE")
     except Exception:
         evidence_grade = "INCOMPLETE"
+    evidence_grade = _cap_grade(evidence_grade, _readiness_grade_cap(answered, len(questions)))
     evidence_ready = evidence_grade == "A"
     if not evidence_ready:
         blockers.append(
