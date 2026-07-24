@@ -1499,6 +1499,44 @@ def _env_int(name: str, default: int) -> int:
 
 DEFAULT_COST_CAP_USD = _env_float("ARIA_DD_COST_CAP_USD", 0.50)
 DEFAULT_LAYER_TIMEOUT_S = _env_int("ARIA_DD_LAYER_TIMEOUT_S", 90)
+
+# R-F2977 — PER-OP timeouts. Live DD 2026-07-24 (Silverbrook) showed the COMPLIANCE
+# layer ERROR 'timeout after 90s' and the DIGITAL layer ERROR 'timeout after 180s':
+# each layer runs several heavy external sub-ops SEQUENTIALLY with NO per-op bound,
+# so one slow/hung call (or the sum) exceeds the layer budget → the whole layer is
+# CANCELLED mid-op → status ERROR (health showed digital 29 err / 1 ok over 7d).
+# §1 root fix (NOT a layer-timeout bump): bound each heavy op so a slow one degrades
+# to a data_gap and the LAYER COMPLETES (status OK) with partial-but-honest results.
+# Bounds are sized so the worst-case SUM stays under the layer budget with margin
+# (compliance ~57s < 90s; digital ~145s < 180s). All env-tunable.
+_OP_T_USASPENDING   = _env_float("ARIA_DD_OP_T_USASPENDING_S", 12.0)
+_OP_T_FINANCIAL     = _env_float("ARIA_DD_OP_T_FINANCIAL_S", 25.0)
+_OP_T_WORLDBANK     = _env_float("ARIA_DD_OP_T_WORLDBANK_S", 15.0)
+_OP_T_MULTIQUERY    = _env_float("ARIA_DD_OP_T_MULTIQUERY_S", 45.0)
+_OP_T_WEBSEARCH     = _env_float("ARIA_DD_OP_T_WEBSEARCH_S", 30.0)
+_OP_T_WEBSITE_MINE  = _env_float("ARIA_DD_OP_T_WEBSITE_MINE_S", 30.0)
+_OP_T_RAG           = _env_float("ARIA_DD_OP_T_RAG_S", 15.0)
+_OP_T_KB            = _env_float("ARIA_DD_OP_T_KB_S", 15.0)
+_OP_T_DEEPRESEARCH  = _env_float("ARIA_DD_OP_T_DEEPRESEARCH_S", 40.0)
+
+
+async def _bounded_dd_op(coro, timeout_s: float, layer, op_name: str, default=None):
+    """R-F2977 — await `coro` under a hard per-op timeout. On timeout: record a
+    data_gap on `layer` and return `default` so the layer KEEPS GOING and completes
+    (status OK) instead of the whole layer being cancelled → ERROR. Any OTHER
+    exception propagates unchanged to the caller's existing try/except."""
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout_s)
+    except asyncio.TimeoutError:
+        try:
+            layer.data_gaps.append(
+                f"{op_name} did not complete within {int(timeout_s)}s (bounded) "
+                f"— partial result, NOT a clean check")
+        except Exception:
+            pass
+        logger.warning("[R-F2977] DD op '%s' exceeded %ss — bounded, layer continues",
+                       op_name, timeout_s)
+        return default
 DEEP_RESEARCH_ENABLED = (os.getenv("ARIA_DD_DEEP_RESEARCH", "1") or "1").strip() not in ("0", "false", "no", "off")
 ORCHESTRATOR_ENABLED = (os.getenv("ARIA_DD_ORCHESTRATOR_ENABLED", "1") or "1").strip() not in ("0", "false", "no", "off")
 
@@ -4318,7 +4356,7 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                       or getattr(report.identity, "entity_name", "") or "").strip()
         if len(_proc_name) >= 3:
             from .sources import usaspending as _usa
-            _proc = await _usa.lookup(_proc_name)
+            _proc = await _bounded_dd_op(_usa.lookup(_proc_name), _OP_T_USASPENDING, report.compliance, "US procurement (USASpending)")
             if _proc and _proc.get("award_count"):
                 report.compliance.meta.subcalls += 1
                 _val = float(_proc.get("total_value_usd") or 0)
@@ -4344,13 +4382,13 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                      or getattr(report.identity, "entity_name", "") or "").strip()
         if len(_fin_name) >= 3:
             from . import financial_health as _fh
-            _fin = await _fh.assess(
+            _fin = await _bounded_dd_op(_fh.assess(
                 _fin_name,
                 jurisdiction_iso2=(report.identity.jurisdiction_iso2 or target.get("jurisdiction_iso2") or ""),
                 registration_number=(getattr(report.identity, "registration_number", "")
                                      or target.get("registration_number") or ""),
                 entity_type=(target.get("type") or "company"),
-            )
+            ), _OP_T_FINANCIAL, report.compliance, "financial health", default={})
             report.compliance.financial_health = _fin
             report.compliance.meta.subcalls += 1
             for _f in _fh.financial_health_findings(_fin):
@@ -4374,7 +4412,7 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
         from .sources import worldbank_indicators as _wbi
         iso2_for_overlay = report.identity.jurisdiction_iso2 or target.get("destination_iso2")
         if iso2_for_overlay:
-            overlay = await _wbi.country_risk_overlay(iso2_for_overlay)
+            overlay = await _bounded_dd_op(_wbi.country_risk_overlay(iso2_for_overlay), _OP_T_WORLDBANK, report.compliance, "World Bank country overlay", default={})
             if overlay.get("ok"):
                 report.compliance.macro_overlay = overlay
                 report.compliance.meta.subcalls += 1
@@ -5045,12 +5083,12 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
     try:
         from . import web_search
         if _DD_MULTIQUERY_ENABLED:
-            hits = await _multi_query_search(name_for_search, target)
+            hits = await _bounded_dd_op(_multi_query_search(name_for_search, target), _OP_T_MULTIQUERY, report.digital, "multi-angle web search", default=[])
         else:
-            hits = await web_search.search_multilingual(
+            hits = await _bounded_dd_op(web_search.search_multilingual(
                 f"{name_for_search} defence procurement",
                 max_results=12,
-            )
+            ), _OP_T_WEBSEARCH, report.digital, "web search (fallback)", default=[])
         # R-F1880 (search best-effort honesty): a BLOCKED search (all engines
         # 403/CAPTCHA the datacenter IP) must NOT be read as "no adverse media →
         # clean entity". Inspect the backend ecosystem; when search is DEAD/
@@ -5164,7 +5202,7 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 # mines the site to derive jurisdiction); avoid a second fetch.
                 _mined = target.get("_mined_pages")
                 if not _mined:
-                    _mined = await _mine_entity_website(_site)
+                    _mined = await _bounded_dd_op(_mine_entity_website(_site), _OP_T_WEBSITE_MINE, report.digital, "entity website mining")
             except Exception as _mine_e:
                 _mined = []
                 logger.debug("R-F1874 site-mine failed: %s", _mine_e)
@@ -5198,7 +5236,7 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
         if not hits:
             try:
                 from . import rag_store as _rs_dd
-                rag_results = await _rs_dd.search(name, top_k=10)
+                rag_results = await _bounded_dd_op(_rs_dd.search(name, top_k=10), _OP_T_RAG, report.digital, "RAG search", default=[])
                 if rag_results:
                     memory_press: list[Evidence] = []
                     for hit in rag_results[:10]:
@@ -5259,7 +5297,7 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
         # self-yields the GIL via R-F939, and to_thread lets the event loop run
         # during the scan) so concurrent DDs don't serialize on it. Mirrors the
         # deep_researcher pattern.
-        kb = await asyncio.to_thread(knowledge.search_knowledge, name)
+        kb = await _bounded_dd_op(asyncio.to_thread(knowledge.search_knowledge, name), _OP_T_KB, report.digital, "knowledge-base search", default=[])
         if kb and kb.strip():
             report.digital.knowledge_base_hits.append({"query": name, "excerpt": kb[:1500], "tier": "aria_knowledge"})
             report.digital.meta.subcalls += 1
@@ -5310,9 +5348,9 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                         _seed.append(_nm)
             except Exception:
                 _seed = []
-            dr = await deep_researcher.investigate(
+            dr = await _bounded_dd_op(deep_researcher.investigate(
                 llm, name, depth=dr_depth, investigate_people=_dd_people,
-                seed_people=_seed or None)
+                seed_people=_seed or None), _OP_T_DEEPRESEARCH, report.digital, "deep research", default={})
             if isinstance(dr, dict):
                 synth = dr.get("synthesis") or {}
                 report.digital.web_footprint = {
