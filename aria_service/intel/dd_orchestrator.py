@@ -3799,18 +3799,40 @@ async def _run_identity(
                     )
                 elif _fca.get("error"):
                     report.identity.data_gaps.append(f"FCA Register lookup error: {_fca['error']}")
-                elif _fca.get("matched"):
-                    _auth = bool(_fca.get("is_authorised"))
+                elif _fca.get("matched") and _fca.get("clone_warning") and _fca.get("is_authorised") is None:
+                    # R-F3011 — FCA returned ONLY clone-firm scam warnings for this
+                    # name. The legitimate firm was not resolved by name; NEVER report
+                    # the subject as "Unauthorised" off a clone warning (that is a
+                    # false accusation — the real firm is the one being impersonated).
                     report.identity.findings.append(Finding(
-                        severity="info" if _auth else "amber",
+                        severity="info",
+                        title=f"FCA Register: clone-firm scam warning(s) for names resembling '{_fca_name}'",
+                        detail=(str(_fca.get("reason") or "")
+                                + " Verify the genuine firm's authorisation by FRN on register.fca.org.uk."),
+                        source="fca_register.lookup_firm",
+                        confidence="ASSESSED",
+                    ))
+                elif _fca.get("matched"):
+                    _auth = _fca.get("is_authorised")   # True / False / None (unknown)
+                    # AMBER only for a GENUINE firm confirmed NOT authorised; an
+                    # unknown/unconfirmed status is INFO, never a false accusation.
+                    _sev = "info" if (_auth or _auth is None) else "amber"
+                    _clone_note = (" NOTE: FCA also lists clone-firm scam warning(s) for similar names — "
+                                   "verify you are dealing with this FRN, not an impersonator."
+                                   if _fca.get("clone_warning") else "")
+                    report.identity.findings.append(Finding(
+                        severity=_sev,
                         title=(f"FCA Register: {_fca.get('firm_name') or _fca_name} — "
                                f"{_fca.get('status', '?')} (FRN {_fca.get('frn', '?')})"),
                         detail=(f"FCA Financial Services Register status '{_fca.get('status', '?')}'. "
                                 + ("Authorised firm." if _auth
-                                   else "NOT currently authorised — verify before any regulated dealing.")
+                                   else ("Authorisation status could not be confirmed on the register — "
+                                         "verify by FRN." if _auth is None
+                                         else "NOT currently authorised — verify before any regulated dealing."))
+                                + _clone_note
                                 + f" Source: {_fca.get('detail_url', '')}"),
                         source="fca_register.lookup_firm",
-                        confidence="CONFIRMED",
+                        confidence="CONFIRMED" if _auth is not None else "ASSESSED",
                     ))
                 else:
                     report.identity.findings.append(Finding(
@@ -9389,27 +9411,42 @@ def _scrub_stale_adverse_incomplete(body: dict) -> bool:
             or "adverse-media screening incomplete" in str(f.get("title") or "").lower()
         )
 
-    try:
-        dgs = body.get("data_gaps_summary")
-        if isinstance(dgs, list):
-            kept = [g for g in dgs if not _stale_str(g)]
-            if len(kept) != len(dgs):
-                body["data_gaps_summary"] = kept
+    def _scrub_str_list(container: dict, key: str) -> None:
+        nonlocal removed
+        lst = container.get(key)
+        if isinstance(lst, list):
+            kept = [x for x in lst if not _stale_str(x)]
+            if len(kept) != len(lst):
+                container[key] = kept
                 removed = True
+
+    def _scrub_finding_list(container: dict, key: str) -> None:
+        nonlocal removed
+        lst = container.get(key)
+        if isinstance(lst, list):
+            kept = [f for f in lst if not _stale_finding(f)]
+            if len(kept) != len(lst):
+                container[key] = kept
+                removed = True
+
+    try:
+        _scrub_str_list(body, "data_gaps_summary")
         dig = body.get("digital")
         if isinstance(dig, dict):
-            dg = dig.get("data_gaps")
-            if isinstance(dg, list):
-                kept = [g for g in dg if not _stale_str(g)]
-                if len(kept) != len(dg):
-                    dig["data_gaps"] = kept
-                    removed = True
-            fnd = dig.get("findings")
-            if isinstance(fnd, list):
-                kept = [f for f in fnd if not _stale_finding(f)]
-                if len(kept) != len(fnd):
-                    dig["findings"] = kept
-                    removed = True
+            _scrub_str_list(dig, "data_gaps")
+            _scrub_finding_list(dig, "findings")
+        # R-F3012 — the synthesis-time R-F2779 finding was ALSO propagated into the
+        # RENDERED surfaces the report/PDF actually read: synthesis.key_findings (the
+        # "KEY FINDINGS" the PDF prints), synthesis.residual_unknowns, and
+        # version_diff.new_findings. R-F2992 only cleaned digital.* so the contradiction
+        # survived in the render. Scrub every place the disclosure was copied to.
+        syn = body.get("synthesis")
+        if isinstance(syn, dict):
+            _scrub_finding_list(syn, "key_findings")
+            _scrub_str_list(syn, "residual_unknowns")
+        vd = body.get("version_diff")
+        if isinstance(vd, dict):
+            _scrub_finding_list(vd, "new_findings")
     except Exception as _e:  # noqa: BLE001 — scrub must never break the merge
         logger.debug("[R-F2992] adverse-incomplete scrub failed (non-fatal): %s", _e)
     return removed
