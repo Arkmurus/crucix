@@ -243,6 +243,14 @@ window.addEventListener('DOMContentLoaded', function () {
 </div>
 
 <div class="grid">
+  <!-- R-F2971: ARIA Ecosystem — live architecture map (train-track / bloodstream) -->
+  <div class="card wide">
+    <h2><i class="bi bi-diagram-3"></i> ARIA Ecosystem</h2>
+    <div id="ecosystem-breadcrumb" style="font-size:0.8em;color:#9b968c;margin-bottom:6px"></div>
+    <div id="ecosystem-coverage" style="font-size:0.78em;color:#9b968c;margin-bottom:8px"></div>
+    <div id="ecosystem-map" class="loading" style="min-height:360px">Loading...</div>
+  </div>
+
   <!-- Composite Autonomy Score -->
   <div class="card">
     <h2>Composite Autonomy</h2>
@@ -1391,6 +1399,71 @@ async function loadCompounding() {
   el.innerHTML = head + note + floorSpark + countSpark;
 }
 
+// R-F2971 — ARIA Ecosystem live architecture map. Radial drill-down, inline SVG
+// (no graph lib / no CDN). P1: subsystem-hue "metro lines"; live green/amber/red
+// health overlay lands in P2. Drill: service → organ → module → import neighbours.
+let _ecoStack = [];  // breadcrumb drill path: [{id,label}]
+function _ecoHue(s){ let h=0; for(const c of (s||'x')) h=(h*31+c.charCodeAt(0))%360; return h; }
+function _ecoColor(n){
+  if(n.type==='service') return '#4aa3ff';
+  if(n.orphan_alert) return 'var(--red)';           // unassigned bucket = red completeness alert
+  return `hsl(${_ecoHue(n.category)},45%,56%)`;      // stable per-organ hue = a "line"
+}
+async function loadEcosystem(root){
+  const el = document.getElementById('ecosystem-map');
+  if(!el) return;
+  const q = root ? ('?root=' + encodeURIComponent(root)) : '';
+  const g = await fetchJson('/ecosystem/graph' + q);
+  const cov = root ? null : await fetchJson('/ecosystem/coverage');
+  const bc = document.getElementById('ecosystem-breadcrumb');
+  const cvEl = document.getElementById('ecosystem-coverage');
+  if(!g || !g.nodes || !g.nodes.length){ el.classList.remove('loading'); el.innerHTML = '<span class="neutral">No ecosystem data.</span>'; return; }
+
+  // breadcrumb
+  if(bc){
+    let crumbs = `<span style="cursor:pointer;color:#4aa3ff" onclick="ecoHome()">⌂ Ecosystem</span>`;
+    _ecoStack.forEach((c,i)=>{ crumbs += ` <span style="color:#555">/</span> <span style="cursor:pointer;color:#4aa3ff" onclick="ecoJump(${i})">${c.label}</span>`; });
+    bc.innerHTML = crumbs;
+  }
+  // coverage banner (root view only) — the honest completeness proof
+  if(cov && cov.modules && cvEl){
+    const c = cov.modules, ie = cov.import_edges;
+    const oc = c.orphans>0 ? 'warn' : 'good';
+    cvEl.innerHTML = `<strong>Coverage:</strong> ${c.on_map}/${c.total_on_disk} modules on map <em>(100% by construction)</em> · `
+      + `<span class="${oc}">${c.orphans} unassigned</span> · ${ie.resolved_intra_repo} import links · call-graph <span class="neutral">${cov.call_edges.status.replace('_',' ')}</span>`;
+  } else if(cvEl && root){ cvEl.innerHTML = ''; }
+
+  // radial layout: focus at centre, everything else on a ring
+  const W=820, H=440, cx=W/2, cy=H/2, R=Math.min(cx,cy)-58;
+  const nodes = g.nodes.slice();
+  const focusId = root || (nodes.find(n=>n.id==='aria-intel')||nodes[0]).id;
+  const pos = {}; pos[focusId] = {x:cx, y:cy};
+  const others = nodes.filter(n=>n.id!==focusId);
+  others.forEach((n,i)=>{ const a=(i/Math.max(1,others.length))*2*Math.PI - Math.PI/2; pos[n.id]={x:cx+R*Math.cos(a), y:cy+R*Math.sin(a)}; });
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;font-size:9px" preserveAspectRatio="xMidYMid meet">`;
+  // edges (vessels/tracks): contains = thick spine, import = thin link
+  g.edges.forEach(e=>{ const s=pos[e.source], t=pos[e.target]; if(!s||!t) return;
+    const imp = e.type==='import';
+    svg += `<line x1="${s.x.toFixed(1)}" y1="${s.y.toFixed(1)}" x2="${t.x.toFixed(1)}" y2="${t.y.toFixed(1)}" stroke="${imp?'#33404f':'#4a5a6a'}" stroke-width="${imp?1:2}" opacity="${imp?0.35:0.6}"/>`; });
+  // nodes (organs/stations)
+  nodes.forEach(n=>{ const p=pos[n.id]; if(!p) return;
+    const col=_ecoColor(n); const r = n.type==='service'?15:(n.type==='organ'?11:6);
+    const drill = n.type!=='function';
+    const meta = (n.module_count!=null?`, ${n.module_count} modules`:'') + (n.r_numbers&&n.r_numbers.length?`, ${n.r_numbers.length} R#`:'');
+    svg += `<g style="cursor:${drill?'pointer':'default'}"${drill?` onclick="ecoDrill('${n.id}','${(n.label||'').replace(/'/g,'')}')"`:''}>`;
+    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r}" fill="${col}" stroke="#0a0e14" stroke-width="1.5"><title>${n.label} (${n.type}${meta})</title></circle>`;
+    const lbl = (n.label||'').length>20?(n.label.slice(0,19)+'…'):(n.label||'');
+    svg += `<text x="${p.x.toFixed(1)}" y="${(p.y+r+9).toFixed(1)}" text-anchor="middle" fill="#c9c4b8">${lbl}</text></g>`; });
+  svg += '</svg>';
+  el.classList.remove('loading'); el.innerHTML = svg;
+}
+function ecoDrill(id,label){ if(!id) return;
+  if(id.startsWith('organ:')||id.startsWith('mod:')){ _ecoStack.push({id,label:label||id}); loadEcosystem(id); }
+  else { ecoHome(); } }
+function ecoHome(){ _ecoStack=[]; loadEcosystem(); }
+function ecoJump(i){ const t=_ecoStack[i]; _ecoStack=_ecoStack.slice(0,i+1); loadEcosystem(t.id); }
+
 async function loadHeatmap() {
   const d = await fetchJson('/student/mastery/heatmap');
   if (!d || !d.heatmap || !Object.keys(d.heatmap).length) {
@@ -2400,6 +2473,8 @@ async function refreshAll() {
     loadLlmCost,
     // R-F89/F88 panels added 2026-05-09
     loadCoverageHeatmap, loadFreshness,
+    // R-F2971 — ARIA Ecosystem map (heavy; late wave). Only reloads at overview.
+    () => loadEcosystem(_ecoStack.length ? _ecoStack[_ecoStack.length-1].id : undefined),
     // R-F407 panel added 2026-05-13
     loadHallucination,
   ], 3, 250);

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 2967,
+  "next_available": 2972,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23413,9 +23413,10 @@
       "title": "starved-cell curriculum: direct free reading loop at the 166 sub-0.70 gate-2 regional cells (honest grading unchanged)",
       "claimed_at": "2026-07-24T07:27:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e3ae4a04",
+      "notes": null,
+      "shipped_at": "2026-07-24T08:51:23Z"
     },
     {
       "r_number": "R-F2956",
@@ -23432,45 +23433,50 @@
       "title": "A1 regional_drift_monitor: regional mastery time-series snapshot ring + brier snapshot loop (Phase A gate #2 observability)",
       "claimed_at": "2026-07-24T07:47:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e3ae4a04",
+      "notes": null,
+      "shipped_at": "2026-07-24T08:51:23Z"
     },
     {
       "r_number": "R-F2958",
       "title": "A2 compounding endpoint + aria-brain Compounding panel (floor velocity, cells>=0.70 trend)",
       "claimed_at": "2026-07-24T07:47:21Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e3ae4a04",
+      "notes": null,
+      "shipped_at": "2026-07-24T08:51:24Z"
     },
     {
       "r_number": "R-F2959",
       "title": "B1 symmetric feed-liveness watchdog: alarm when research/student learning feeds disabled or stale (kills the silent-throttle footgun)",
       "claimed_at": "2026-07-24T07:55:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e3ae4a04",
+      "notes": null,
+      "shipped_at": "2026-07-24T08:51:24Z"
     },
     {
       "r_number": "R-F2960",
       "title": "B2 score-stagnation stall monitor: flag below-floor regional cells flat over window (starved vs grade_failing) as stalled_cell gaps",
       "claimed_at": "2026-07-24T07:58:21Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e3ae4a04",
+      "notes": null,
+      "shipped_at": "2026-07-24T08:51:24Z"
     },
     {
       "r_number": "R-F2961",
       "title": "B3 cost-aware graceful shed: shed paid Brave escalation under daily-cost pressure, keep free SearXNG/local learning ON (removes reason feeds were hard-OFF)",
       "claimed_at": "2026-07-24T08:00:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e3ae4a04",
+      "notes": null,
+      "shipped_at": "2026-07-24T08:51:24Z"
     },
     {
       "r_number": "R-F2962",
@@ -23487,32 +23493,80 @@
       "title": "C0 regional write coalescing: mirror R-F2408 for _save_regional_mastery so 224-cell whole-blob writes dont hammer the single writer (C3 pre-req)",
       "claimed_at": "2026-07-24T08:02:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e3ae4a04",
+      "notes": null,
+      "shipped_at": "2026-07-24T08:51:25Z"
     },
     {
       "r_number": "R-F2964",
       "title": "C2 query/gate symmetry: add genuine region-name literals to detect_regions so region-named content grounds (central/west/east/north/southern africa, south/southeast asia, latin america, europe); SEARXNG_URL boot check",
       "claimed_at": "2026-07-24T08:08:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e3ae4a04",
+      "notes": null,
+      "shipped_at": "2026-07-24T08:51:25Z"
     },
     {
       "r_number": "R-F2965",
       "title": "C3 SEED_ALL_REGIONS durable default ON (unblocked by R-F2963 coalescing) — §1-required anti-clamp so 0-sample region cells bootstrap and become gate-2 visible",
       "claimed_at": "2026-07-24T08:11:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e3ae4a04",
+      "notes": null,
+      "shipped_at": "2026-07-24T08:51:25Z"
     },
     {
       "r_number": "R-F2966",
       "title": "infra: queue aria-intel shared-cpu-4x/8GB -> shared-cpu-8x/16GB (RAM headroom + 2x CPU for aiosqlite contention; applies next restart)",
       "claimed_at": "2026-07-24T08:18:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2967",
+      "title": "re-enable learning content feeds: ARIA_AUTONOMOUS_ENABLED + RESEARCH_ENABLED (staged to ride the compounding-engine deploy)",
+      "claimed_at": "2026-07-24T08:43:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2968",
+      "title": "test-isolation: rf2433 _install_fakes leaked sys.modules+student fns without cleanup, polluting 16 downstream tests (dd_ecosystem) — snapshot/restore fixture contains the roller-coaster",
+      "claimed_at": "2026-07-24T08:59:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2969",
+      "title": "P1a ecosystem_map.build_structure: honest code-derived architecture graph (modules=scan_modules, import-edge AST walk, organ map, orphan compute, cached/to_thread)",
+      "claimed_at": "2026-07-24T09:08:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2970",
+      "title": "P1b /api/aria/ecosystem/graph + /coverage endpoints (mirror /neural/graph shape, wired)",
+      "claimed_at": "2026-07-24T09:08:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F2971",
+      "title": "P1c aria-brain ARIA Ecosystem card + loadEcosystem() inline-SVG T0/T1 render + bi-diagram-3 nav",
+      "claimed_at": "2026-07-24T09:08:49Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

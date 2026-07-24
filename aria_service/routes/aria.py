@@ -15571,6 +15571,48 @@ async def neural_graph_ep(limit: int = 200):
     }
 
 
+# ── R-F2970 — ARIA Ecosystem architecture map (structure layer, P1) ──────────
+@router.get("/ecosystem/graph")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def ecosystem_graph_ep(root: str | None = None, tier: int | None = None):
+    """ARIA Ecosystem live architecture map — a drill-down, code-derived graph of
+    every organ (subsystem) and the connections between them. Mirrors the
+    /neural/graph node/edge shape. Drill-down:
+      root=None         → T0 services + T1 organs
+      root=organ:<id>   → that organ + its modules + import edges among them
+      root=mod:<dotted> → that module + its direct import neighbours
+    Structure only in P1; the live green/amber/red health overlay lands in P2."""
+    from ..intel import ecosystem_map as _em
+    g = await _em.get_graph(root=root, tier=tier)
+    try:
+        from ..intel.engine_wiring import wire_success as _ws
+        _ws(module="ecosystem_map", summary=f"ecosystem graph root={root} nodes={len(g.get('nodes', []))}",
+            source_id="ecosystem_map:graph")
+    except Exception:
+        pass
+    return g
+
+
+@router.get("/ecosystem/coverage")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def ecosystem_coverage_ep():
+    """The ecosystem map's COMPLETENESS PROOF (anti-hallucination law #4): modules
+    are 100% on the map by construction; orphans (unassigned modules) are surfaced,
+    not hidden; import edges report resolved vs unresolvable; call-edges are declared
+    partial. This is the 'nothing gets missed' guarantee as a measurable artifact."""
+    from ..intel import ecosystem_map as _em
+    return await _em.get_coverage()
+
+
+@router.get("/ecosystem/node/{node_id:path}")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def ecosystem_node_ep(node_id: str):
+    """Detail for one ecosystem node: its parent, children, in/out import edges, and
+    the R-numbers that govern it (from source-grep, joined to the reservation log)."""
+    from ..intel import ecosystem_map as _em
+    return await _em.get_node(node_id)
+
+
 # 33b. POST /api/aria/neural/consolidate — Nightly memory consolidation cycle
 @router.post("/neural/consolidate")
 @fail_wire(module="aria", gap_type="engine_failure")
