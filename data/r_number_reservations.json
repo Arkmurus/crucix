@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3070,
+  "next_available": 3077,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24385,18 +24385,20 @@
       "title": "counter-sanctions must not HARD_STOP a Western counterparty (BAE CEO false refusal)",
       "claimed_at": "2026-07-25T11:27:30Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f9524718",
+      "notes": null,
+      "shipped_at": "2026-07-25T16:03:46Z"
     },
     {
       "r_number": "R-F3054",
       "title": "readiness blocker must state the real identity failure, not a false status complaint",
       "claimed_at": "2026-07-25T11:33:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f9524718",
+      "notes": null,
+      "shipped_at": "2026-07-25T16:03:48Z"
     },
     {
       "r_number": "R-F3055",
@@ -24521,23 +24523,88 @@
       "title": "adverse-media follow-up must stamp an explicit terminal status",
       "claimed_at": "2026-07-25T15:15:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d4cb28a0",
+      "notes": null,
+      "shipped_at": "2026-07-25T15:52:46Z"
     },
     {
       "r_number": "R-F3068",
       "title": "person subjects: state the adverse-media position accurately",
       "claimed_at": "2026-07-25T15:15:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d4cb28a0",
+      "notes": null,
+      "shipped_at": "2026-07-25T15:52:46Z"
     },
     {
       "r_number": "R-F3069",
       "title": "DD evidence governance foundation",
       "claimed_at": "2026-07-25T15:37:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3070",
+      "title": "chat short-circuit turns are never persisted or registered",
+      "claimed_at": "2026-07-25T15:55:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3071",
+      "title": "DD vault stats leak global counts to every user",
+      "claimed_at": "2026-07-25T15:55:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3072",
+      "title": "app polling burns its own per-IP rate budget",
+      "claimed_at": "2026-07-25T15:55:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3073",
+      "title": "search attributes SearXNG results to Brave",
+      "claimed_at": "2026-07-25T15:55:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3074",
+      "title": "logout does not revoke the bearer token",
+      "claimed_at": "2026-07-25T15:55:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3075",
+      "title": "Fix false ecosystem degradation signals",
+      "claimed_at": "2026-07-25T15:57:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3076",
+      "title": "ipKeyGenerator called with (req,res) under express-rate-limit v8 - LLM rate limits counted nothing",
+      "claimed_at": "2026-07-25T16:03:07Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
