@@ -24305,18 +24305,20 @@
       "title": "prompt_budget: deepseek-v4 missing from _CONTEXT_WINDOWS truncated ARIA constitution to 8pct",
       "claimed_at": "2026-07-25T10:39:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dc6eebc0",
+      "notes": null,
+      "shipped_at": "2026-07-25T10:58:55Z"
     },
     {
       "r_number": "R-F3046",
       "title": "adversarial degraded flag always-true for single-turn attacks blinds the SUPERVISED governor",
       "claimed_at": "2026-07-25T10:39:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dc6eebc0",
+      "notes": null,
+      "shipped_at": "2026-07-25T10:58:56Z"
     },
     {
       "r_number": "R-F3047",
@@ -24341,18 +24343,20 @@
       "title": "DD PDF must render the same values as the online view, not counts and (present)",
       "claimed_at": "2026-07-25T10:42:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6951f4e4",
+      "notes": null,
+      "shipped_at": "2026-07-25T10:56:26Z"
     },
     {
       "r_number": "R-F3050",
       "title": "one coverage-clause helper for both BLUF sites (completes R-F3039)",
       "claimed_at": "2026-07-25T10:44:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6951f4e4",
+      "notes": null,
+      "shipped_at": "2026-07-25T10:56:26Z"
     }
   ]
 }
