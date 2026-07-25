@@ -1,6 +1,6 @@
-"""R-F3056 + R-F3057 — the two REDs left on the brain dashboard.
+"""R-F3061 + R-F3062 — the two REDs left on the brain dashboard.
 
-R-F3056: `outcome[dd] success 0% (n=17)` turned the Delivery organ RED. It was
+R-F3061: `outcome[dd] success 0% (n=17)` turned the Delivery organ RED. It was
     NOT 17 broken DDs. `_finalize_dd_run` computed
     `layers_errored = layers_total - layers_ok`, and `layers_ok` required each
     layer to expose `.meta.status`. Five of the twelve layers can never do
@@ -11,7 +11,7 @@ R-F3056: `outcome[dd] success 0% (n=17)` turned the Delivery organ RED. It was
     /brain/stats `fail` could never increment: a metric that cannot succeed by
     construction.
 
-R-F3057: /api/aria/health awaited get_coverage() inline. The first call after
+R-F3062: /api/aria/health awaited get_coverage() inline. The first call after
     every deploy re-parses every module (~5.8s), blowing the brain dashboard's
     8s per-panel budget; the panel was dropped and public/aria-brain.html
     rendered `ECOSYSTEM: UNKNOWN`.
@@ -28,7 +28,7 @@ from aria_service.intel import ecosystem_map as em
 
 
 # ---------------------------------------------------------------------------
-# R-F3056 — a layer's honest state
+# R-F3061 — a layer's honest state
 # ---------------------------------------------------------------------------
 
 def _meta(status):
@@ -42,18 +42,18 @@ def _report(**layers):
     return r
 
 
-def test_rf3056_section_with_meta_ok():
+def test_rf3061_section_with_meta_ok():
     r = _report(identity=types.SimpleNamespace(meta=_meta("ok")))
     assert ddo._dd_layer_state(r, "identity") == "ok"
 
 
 @pytest.mark.parametrize("status", ["error", "timeout"])
-def test_rf3056_section_with_meta_error(status):
+def test_rf3061_section_with_meta_error(status):
     r = _report(digital=types.SimpleNamespace(meta=_meta(status)))
     assert ddo._dd_layer_state(r, "digital") == "error"
 
 
-def test_rf3056_plain_dict_layer_is_ok_not_error():
+def test_rf3061_plain_dict_layer_is_ok_not_error():
     """counter_intelligence / sanctions_divergence are PLAIN DICTS with no
     meta. They produced a payload — scoring them as failures is a fabricated
     negative.
@@ -64,13 +64,13 @@ def test_rf3056_plain_dict_layer_is_ok_not_error():
     assert ddo._dd_layer_state(r, "counter_intelligence") == "ok"
 
 
-def test_rf3056_plain_dict_with_explicit_failure_is_error():
+def test_rf3061_plain_dict_with_explicit_failure_is_error():
     """The guard must not become a way to hide a real failure."""
     r = _report(sanctions_divergence={"name": "X", "ok": False})
     assert ddo._dd_layer_state(r, "sanctions_divergence") == "error"
 
 
-def test_rf3056_name_alias_is_resolved():
+def test_rf3061_name_alias_is_resolved():
     """`sweep_intelligence` appears in layers_run; the result lives on
     `sweep_data`.
 
@@ -81,7 +81,7 @@ def test_rf3056_name_alias_is_resolved():
     assert ddo._DD_LAYER_ATTR_ALIAS["sweep_intelligence"] == "sweep_data"
 
 
-def test_rf3056_absent_layer_is_unobservable_not_error():
+def test_rf3061_absent_layer_is_unobservable_not_error():
     """`forensic` / `deterministic_primitives` store no attribute at all. They
     ran but left nothing to inspect — neither proof of success nor evidence of
     failure. Calling that an error is what produced the permanent 0%."""
@@ -90,7 +90,7 @@ def test_rf3056_absent_layer_is_unobservable_not_error():
     assert ddo._dd_layer_state(r, "deterministic_primitives") == "unobservable"
 
 
-def test_rf3056_the_live_rheinmetall_shape_scores_one_error_not_six():
+def test_rf3061_the_live_rheinmetall_shape_scores_one_error_not_six():
     """THE bug, reproduced from the real report dd_75bc5a5a7e7c.
 
     Exactly one layer failed (digital, timeout 90s). The old counter said six.
@@ -125,7 +125,7 @@ def test_rf3056_the_live_rheinmetall_shape_scores_one_error_not_six():
     assert states["digital"] == "error"
 
 
-def test_rf3056_a_clean_run_can_actually_succeed():
+def test_rf3061_a_clean_run_can_actually_succeed():
     """The whole point: `all_layers_ok` must be reachable. Before, five layers
     guaranteed at least five 'errors', so no DD could ever be recorded as a
     successful delivery."""
@@ -140,14 +140,14 @@ def test_rf3056_a_clean_run_can_actually_succeed():
 
 
 # ---------------------------------------------------------------------------
-# R-F3057 — /health must not block on a cold ecosystem build
+# R-F3062 — /health must not block on a cold ecosystem build
 # ---------------------------------------------------------------------------
 
-def test_rf3057_nonblocking_helper_exists():
+def test_rf3062_nonblocking_helper_exists():
     assert hasattr(em, "get_coverage_nonblocking")
 
 
-def test_rf3057_health_uses_the_nonblocking_path():
+def test_rf3062_health_uses_the_nonblocking_path():
     """The endpoint must not await get_coverage() inline."""
     src = open(
         __import__("aria_service.routes.aria", fromlist=["x"]).__file__,
@@ -161,7 +161,7 @@ def test_rf3057_health_uses_the_nonblocking_path():
     )
 
 
-def test_rf3057_cold_cache_returns_none_fast_and_starts_a_build(monkeypatch):
+def test_rf3062_cold_cache_returns_none_fast_and_starts_a_build(monkeypatch):
     """Cold cache ⇒ return None quickly (caller reports unknown) while a
     background build warms it. FAILS BEFORE: the helper did not exist and the
     caller blocked for ~6s."""
@@ -198,7 +198,7 @@ def test_rf3057_cold_cache_returns_none_fast_and_starts_a_build(monkeypatch):
     assert started["n"] == 1, "no background build was started; cache stays cold forever"
 
 
-def test_rf3057_wait_is_shielded_so_a_timeout_cannot_discard_the_build():
+def test_rf3062_wait_is_shielded_so_a_timeout_cannot_discard_the_build():
     """`asyncio.wait_for` CANCELS its awaitable. Cancelling a ~6s parse on
     every timeout would leave the cache permanently cold — the same
     'wait_for cancels, so the work was discarded' trap seen in the DD path.
