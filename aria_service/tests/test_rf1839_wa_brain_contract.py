@@ -30,6 +30,7 @@ from aria_service.main import app
 from aria_service.intel import capability_gaps
 
 client = TestClient(app)
+AUTH_TOKEN = "rf1839-contract-token"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 WA_LISTENER = REPO_ROOT / "services" / "wa-listener" / "aria_wa_listener.mjs"
@@ -55,12 +56,17 @@ def test_wa_listener_targets_the_path_the_brain_serves():
 
 # ── Python side of the seam ───────────────────────────────────────────────────
 
-def test_brain_accepts_wa_failure_payload_and_routes_to_capability_gap():
+def test_brain_accepts_wa_failure_payload_and_routes_to_capability_gap(monkeypatch):
     """The listener's wa_chat_failed payload must be accepted AND routed to
     capability_gaps so the coder sees it (not silently absorbed/dropped)."""
+    monkeypatch.setenv("ARIA_INTERNAL_TOKEN", AUTH_TOKEN)
     spy = AsyncMock()
     with patch.object(capability_gaps, "record_gap", spy):
-        resp = client.post("/api/aria/brain/signal", json=WA_CHAT_FAILED_PAYLOAD)
+        resp = client.post(
+            "/api/aria/brain/signal",
+            json=WA_CHAT_FAILED_PAYLOAD,
+            headers={"Authorization": f"Bearer {AUTH_TOKEN}"},
+        )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["accepted"] is True
@@ -73,37 +79,57 @@ def test_brain_accepts_wa_failure_payload_and_routes_to_capability_gap():
     assert "wa_chat_failed" in (kwargs.get("detail") or "")
 
 
-def test_brain_routes_non_failure_signal_to_absorb_not_gap():
+def test_brain_routes_non_failure_signal_to_absorb_not_gap(monkeypatch):
     """A normal (non-failure) signal must NOT be misrouted to a capability gap."""
+    monkeypatch.setenv("ARIA_INTERNAL_TOKEN", AUTH_TOKEN)
     spy = AsyncMock()
     with patch.object(capability_gaps, "record_gap", spy), \
          patch("aria_service.intel.brain_hook.absorb", AsyncMock()):
-        resp = client.post("/api/aria/brain/signal", json={
-            "content": "routine heartbeat from wa",
-            "source": "aria-wa",
-            "signal_type": "wa_status",
-            "metadata": {},
-        })
+        resp = client.post(
+            "/api/aria/brain/signal",
+            json={
+                "content": "routine heartbeat from wa",
+                "source": "aria-wa",
+                "signal_type": "wa_status",
+                "metadata": {},
+            },
+            headers={"Authorization": f"Bearer {AUTH_TOKEN}"},
+        )
     assert resp.status_code == 200, resp.text
     assert resp.json()["routed"] == "brain_absorb"
     # A non-failure signal must not be recorded as a gap.
     assert spy.await_count == 0
 
 
-def test_brain_signal_requires_content():
-    resp = client.post("/api/aria/brain/signal", json={
-        "source": "aria-wa", "signal_type": "wa_chat_failed", "metadata": {},
-    })
-    assert resp.status_code == 400
+def test_brain_signal_skips_empty_content_without_false_acceptance(monkeypatch):
+    monkeypatch.setenv("ARIA_INTERNAL_TOKEN", AUTH_TOKEN)
+    resp = client.post(
+        "/api/aria/brain/signal",
+        json={"source": "aria-wa", "signal_type": "wa_chat_failed", "metadata": {}},
+        headers={"Authorization": f"Bearer {AUTH_TOKEN}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "ok": True,
+        "accepted": False,
+        "skipped": "empty_content",
+        "source": "aria-wa",
+    }
 
 
 @pytest.mark.parametrize("sig_type", ["wa_chat_failed", "send_failed", "ocr_error", "dd_timeout"])
-def test_failure_taxonomy_all_route_to_gap(sig_type):
+def test_failure_taxonomy_all_route_to_gap(sig_type, monkeypatch):
     """Every failure-ish signal_type the surfaces emit must reach the coder."""
+    monkeypatch.setenv("ARIA_INTERNAL_TOKEN", AUTH_TOKEN)
     spy = AsyncMock()
     with patch.object(capability_gaps, "record_gap", spy):
-        resp = client.post("/api/aria/brain/signal", json={
-            "content": f"test {sig_type}", "source": "aria-wa",
-            "signal_type": sig_type, "metadata": {},
-        })
+        resp = client.post(
+            "/api/aria/brain/signal",
+            json={
+                "content": f"test {sig_type}", "source": "aria-wa",
+                "signal_type": sig_type, "metadata": {},
+            },
+            headers={"Authorization": f"Bearer {AUTH_TOKEN}"},
+        )
+    assert resp.status_code == 200, resp.text
     assert resp.json()["routed"] == "capability_gap", f"{sig_type} must be coder-visible"

@@ -91,12 +91,12 @@ class TestRealCorroboration:
         assert r.verification.grounded_rate >= 0.5
 
 
-class TestSourceVerifierActuallyRuns:
+class TestCitationGroundingDoesNotMasqueradeAsIndependentVerification:
     @pytest.mark.asyncio
-    async def test_independent_verification_flag_true(self):
+    async def test_independent_verification_flag_stays_false_without_refetch(self):
         r = _build_report()
         await ddo._run_verification({}, r)
-        assert r.verification.independent_source_verification_run is True
+        assert r.verification.independent_source_verification_run is False
 
     @pytest.mark.asyncio
     async def test_citation_grounding_is_real(self):
@@ -123,6 +123,7 @@ class TestHonestOnEmptyReport:
         await ddo._run_verification({}, r)
         # No claims → grounded_rate None (honest, not a fake number).
         assert r.verification.grounded_rate is None
-        # source_verifier still runs; no citations → citation rate None.
-        assert r.verification.independent_source_verification_run is True
+        # Citation grounding still runs; no citations → citation rate None. It is
+        # not an independent source re-fetch, so the stronger flag stays false.
+        assert r.verification.independent_source_verification_run is False
         assert r.verification.citation_grounding_rate is None

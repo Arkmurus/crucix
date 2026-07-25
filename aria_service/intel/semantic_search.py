@@ -15,7 +15,7 @@ Upgrades ARIA from "find exact words" to "find related concepts":
 Runs alongside keyword search (knowledge.py) — results are merged for best recall.
 """
 from __future__ import annotations
-from .engine_wiring import wire_failure
+from .engine_wiring import wire_failure, wire_success
 
 import asyncio
 import logging
@@ -756,15 +756,26 @@ def rebuild_index_from_knowledge(facts: list[dict]) -> int:
 
 @fail_wire(module="semantic_search", gap_type="embedder_failure")
 def get_index_stats() -> dict:
-    """Return index size, model status, and backend info."""
-    model = _get_embedder()
-    return {
+    """Return index size, loaded-model status, and backend info.
+
+    This observational path must not cold-load the sentence transformer merely
+    because a health or dashboard endpoint requested stats.
+    """
+    model = _embedder
+    embeddings_available = model is not None and _index.embedding_count > 0
+    stats = {
         "indexed_documents": _index.size,
         "vocabulary_size": len(_index._idf),
         "embedding_count": _index.embedding_count,
         "embedding_model": "all-MiniLM-L6-v2" if model is not None else None,
-        "search_backend": "sentence-transformers" if _index.has_embeddings else "tfidf",
+        "search_backend": "sentence-transformers" if embeddings_available else "tfidf",
     }
+    wire_success(
+        module="semantic_search",
+        summary=f"Semantic index stats observed via {stats['search_backend']}",
+        source_id="semantic_search:get_index_stats",
+    )
+    return stats
 
 
 @fail_wire(module="semantic_search", gap_type="embedder_failure")

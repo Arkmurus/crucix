@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3077,
+  "next_available": 3078,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24543,9 +24543,10 @@
       "title": "DD evidence governance foundation",
       "claimed_at": "2026-07-25T15:37:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c17fea8f",
+      "notes": null,
+      "shipped_at": "2026-07-25T16:13:19Z"
     },
     {
       "r_number": "R-F3070",
@@ -24597,14 +24598,24 @@
       "title": "Fix false ecosystem degradation signals",
       "claimed_at": "2026-07-25T15:57:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "afefb20c",
+      "notes": null,
+      "shipped_at": "2026-07-25T16:14:07Z"
     },
     {
       "r_number": "R-F3076",
       "title": "ipKeyGenerator called with (req,res) under express-rate-limit v8 - LLM rate limits counted nothing",
       "claimed_at": "2026-07-25T16:03:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3077",
+      "title": "DD test truth and observability root causes",
+      "claimed_at": "2026-07-25T16:05:05Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

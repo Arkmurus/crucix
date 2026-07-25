@@ -84,7 +84,7 @@ def test_keepalive_cancel_is_in_a_finally():
     found = False
     for node in ast.walk(func):
         if isinstance(node, ast.Try) and node.finalbody:
-            fin = ast.get_source_segment(src, node.finalbody[0]) or ""
+            fin = "\n".join(ast.unparse(statement) for statement in node.finalbody)
             if "_ka_task.cancel()" in fin:
                 found = True
                 break

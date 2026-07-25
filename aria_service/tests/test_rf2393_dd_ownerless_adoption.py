@@ -34,12 +34,27 @@ class _FakeRS:
         self.store[key] = value
 
 
+class _FakeVault:
+    """Hermetic durable-owner tier for volatile-index ownership tests."""
+
+    def list_all(self, limit=100):
+        return []
+
+    def get_report_owner(self, run_id):
+        return None
+
+    def record_report_owner(self, *args, **kwargs):
+        return None
+
+
 @pytest.fixture
 def fake_rs(monkeypatch):
     from aria_service.intel import redis_store as real_rs
+    from aria_service.intel import dd_vault
     fake = _FakeRS()
     monkeypatch.setattr(real_rs, "get_json", fake.get_json)
     monkeypatch.setattr(real_rs, "set_json", fake.set_json)
+    monkeypatch.setattr(dd_vault, "get_vault", lambda: _FakeVault())
     return fake
 
 
@@ -50,6 +65,7 @@ def _clean_operator_env(monkeypatch):
     monkeypatch.delenv("ARIA_DD_LEGACY_OWNER_UID", raising=False)
     monkeypatch.delenv("ARIA_CODER_OPERATOR_USER_ID", raising=False)
     monkeypatch.delenv("ARIA_OPERATOR_EMAIL", raising=False)
+    monkeypatch.delenv("ARIA_DD_LEGACY_OWNER_FALLBACK", raising=False)
 
 
 def _seed(fake, *, index, watchlist=None):
@@ -118,6 +134,7 @@ def test_ownerless_report_adopted_by_legacy_operator(fake_rs, monkeypatch):
 
     monkeypatch.setenv("ARIA_DD_LEGACY_OWNER_UID", "operator123")
     monkeypatch.setenv("ARIA_OPERATOR_EMAIL", "op@arkmurus.com")
+    monkeypatch.setenv("ARIA_DD_LEGACY_OWNER_FALLBACK", "1")
     _seed(fake_rs, index=[
         {"run_id": "dd_orphan", "entity_name": "Orphan Co", "user_id": None},
     ], watchlist=[])
@@ -151,6 +168,7 @@ def test_adopted_entry_not_visible_to_other_user(fake_rs, monkeypatch):
     from aria_service.intel import dd_orchestrator
 
     monkeypatch.setenv("ARIA_DD_LEGACY_OWNER_UID", "operator123")
+    monkeypatch.setenv("ARIA_DD_LEGACY_OWNER_FALLBACK", "1")
     _seed(fake_rs, index=[
         {"run_id": "dd_orphan", "entity_name": "Orphan Co", "user_id": None},
     ], watchlist=[])
@@ -165,6 +183,7 @@ def test_admin_view_still_returns_everything(fake_rs, monkeypatch):
     from aria_service.intel import dd_orchestrator
 
     monkeypatch.setenv("ARIA_DD_LEGACY_OWNER_UID", "operator123")
+    monkeypatch.setenv("ARIA_DD_LEGACY_OWNER_FALLBACK", "1")
     _seed(fake_rs, index=[
         {"run_id": "a", "entity_name": "A", "user_id": None},
         {"run_id": "b", "entity_name": "B", "user_id": "someone"},

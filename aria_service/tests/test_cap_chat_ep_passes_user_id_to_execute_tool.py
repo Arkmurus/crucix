@@ -34,12 +34,7 @@ def test_chat_stream_ep_passes_user_id_to_execute_tool():
 
 
 def test_launch_deep_dd_bg_guards_against_empty_user_id():
-    """_launch_deep_dd_bg must return False when user_id is empty."""
-    # Static check: the guard exists
-    assert "if not user_id:" in src, (
-        "_launch_deep_dd_bg missing user_id guard — "
-        "will attempt deep-bg DD without owner"
-    )
-    assert "return False" in src[src.find("if not user_id:"):src.find("if not user_id:") + 200], (
-        "_launch_deep_dd_bg user_id guard must return False"
-    )
+    """Drive the real launcher: anonymous chat cannot create an unowned DD."""
+    assert aria._launch_deep_dd_bg(
+        {"name": "Acme Corp"}, object(), user_id="", user_email=None,
+    ) is False

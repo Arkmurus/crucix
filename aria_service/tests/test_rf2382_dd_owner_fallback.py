@@ -37,6 +37,10 @@ def _setup(monkeypatch, cases, op_uid="2e953a9b1da0", op_email="acorrea@arkmurus
     monkeypatch.setattr(vault_mod, "get_vault", lambda *a, **k: _FakeVault(cases))
     monkeypatch.setenv("ARIA_CODER_OPERATOR_USER_ID", op_uid)
     monkeypatch.setenv("ARIA_OPERATOR_EMAIL", op_email)
+    if op_uid:
+        monkeypatch.setenv("ARIA_DD_LEGACY_OWNER_FALLBACK", "1")
+    else:
+        monkeypatch.delenv("ARIA_DD_LEGACY_OWNER_FALLBACK", raising=False)
 
 
 _OWNERLESS_CASES = [

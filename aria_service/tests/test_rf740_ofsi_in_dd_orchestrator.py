@@ -68,13 +68,20 @@ def test_rf740_failure_is_fail_open():
     from aria_service.intel import dd_orchestrator
 
     src = inspect.getsource(dd_orchestrator)
-    # Look for the R-F740 block and verify there's a try/except around it
-    rf740_idx = src.find("R-F740 (2026-05-20)")
-    assert rf740_idx >= 0
-    block = src[rf740_idx:rf740_idx + 2500]
-    assert "try:" in block
-    assert "except Exception" in block
-    assert "fcdo_sanctions.lookup failed" in block
+    import ast
+
+    tree = ast.parse(src)
+    guarded = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try):
+            continue
+        body = "\n".join(ast.unparse(statement) for statement in node.body)
+        handlers = "\n".join(ast.unparse(handler) for handler in node.handlers)
+        if "_fcdo.lookup(name)" in body and "except Exception" in handlers:
+            guarded = "fcdo_sanctions.lookup failed" in handlers
+            if guarded:
+                break
+    assert guarded, "the OFSI lookup must remain inside its failure-tolerant exception boundary"
 
 
 def test_rf740_merged_hits_have_uk_ofsi_list_marker():

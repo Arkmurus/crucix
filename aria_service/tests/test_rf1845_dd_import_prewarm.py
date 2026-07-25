@@ -57,7 +57,17 @@ def test_lifespan_wires_the_prewarm():
     assert "_prewarm_heavy_imports" in body_src, "lifespan must define the pre-warm"
     assert "asyncio.to_thread" in body_src, "pre-warm must run OFF the event loop"
     assert PREWARM_MODULE in body_src, "pre-warm must target the heavy DD-path module"
-    assert "asyncio.create_task(_prewarm_heavy_imports())" in body_src, "pre-warm must be scheduled at boot"
+    scheduled = any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "create_task"
+        and node.args
+        and isinstance(node.args[0], ast.Call)
+        and isinstance(node.args[0].func, ast.Name)
+        and node.args[0].func.id == "_prewarm_heavy_imports"
+        for node in ast.walk(lifespan)
+    )
+    assert scheduled, "pre-warm must be scheduled at boot"
 
 
 def test_lifespan_warms_sanctions_source_caches():

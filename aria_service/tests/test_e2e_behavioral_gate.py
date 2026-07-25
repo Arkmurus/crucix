@@ -17,14 +17,11 @@ Assertions:
   3. LOOP SUPERVISION — main._bg_supervisor_tick re-spawns a registered dead
                       bg loop. (R-F1610)
   4. DD SOURCING    — dd_orchestrator report carries source URLs on press
-                      coverage / findings (best-effort; SKIPs if too heavy to
-                      set up reliably).
+                      coverage / findings.
 """
 from __future__ import annotations
 
 import asyncio
-
-import pytest
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -157,17 +154,47 @@ def test_bg_supervisor_respawns_dead_loop():
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 4. DD SOURCING (best-effort) — the DD report's press coverage / findings must
-#    carry source URLs when web search returns real results. The orchestrator
-#    is very heavy (many sub-runs, registry/LLM/web deps); driving it reliably
-#    with mocked search across every branch is fragile, so this SKIPs with a
-#    clear reason rather than asserting a fake pass.
+# 4. DD SOURCING — drive the real digital-layer mapper while replacing only
+#    external I/O. A retrieved source must survive into the report with its URL.
 # ──────────────────────────────────────────────────────────────────────────
-def test_dd_report_findings_carry_source_urls():
-    pytest.importorskip("aria_service.intel.dd_orchestrator")
-    pytest.skip(
-        "DD sourcing not driven here: dd_orchestrator._run_digital depends on "
-        "web_explorer + DeepSeek + registry adapters across many branches; a "
-        "reliable mocked end-to-end harness is out of scope for this gate. "
-        "Tracked for a dedicated DD-sourcing capability test (R-F1617 follow-up)."
+def test_dd_report_findings_carry_source_urls(monkeypatch):
+    from types import SimpleNamespace
+
+    from aria_service.intel import (
+        dd_orchestrator as ddo,
+        dd_schema,
+        knowledge,
+        neural_memory,
+        rag_store,
     )
+
+    source_url = "https://www.reuters.com/world/acme-defence-investigation"
+    hit = SimpleNamespace(
+        title="Acme Defence investigation",
+        url=source_url,
+        snippet="Independent reporting about Acme Defence.",
+        source_tier="T3",
+        published_at="2026-07-24",
+    )
+
+    async def _search(*args, **kwargs):
+        return [hit]
+
+    async def _empty_async(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(ddo, "_multi_query_search", _search)
+    monkeypatch.setattr(rag_store, "get_rag_context", _empty_async)
+    monkeypatch.setattr(neural_memory, "get_neural_context", _empty_async)
+    monkeypatch.setattr(knowledge, "search_knowledge", lambda *args, **kwargs: "")
+
+    report = dd_schema.ARKDDReport(target={"name": "Acme Defence"})
+    asyncio.run(ddo._run_digital(
+        {"name": "Acme Defence"},
+        report,
+        llm=None,
+        _mode_is_deep=False,
+    ))
+
+    assert report.digital.press_coverage, "the real digital layer dropped its retrieved source"
+    assert any(item.url == source_url for item in report.digital.press_coverage)
