@@ -852,6 +852,11 @@ class ARKDDReport:
             if self.digital.source_tier_breakdown:
                 parts = [f"{k}:{v}" for k, v in self.digital.source_tier_breakdown.items()]
                 lines.append(f"Source tiers: {', '.join(parts)}")
+            # R-F3055 — the adverse-media screening, on the surface a human reads.
+            # `adverse_media` is a TOP-LEVEL report key, which is exactly why every
+            # renderer had been missing it.
+            for _am_line in _render_adverse_media(getattr(self, "adverse_media", None)):
+                lines.append(_am_line)
             # Deep-research summary (deep_researcher.investigate)
             _wf = self.digital.web_footprint or {}
             if isinstance(_wf, dict):
@@ -1618,6 +1623,85 @@ def _format_previous_name(p) -> str:
             f"{', from ' + str(p['effective_from']) if p.get('effective_from') else ''})")
 
 
+# ── R-F3055 — ADVERSE MEDIA MUST BE ON EVERY SURFACE ────────────────────────
+#
+# OPERATOR (2026-07-25): "the adverse media section does not show on the pdf report
+# it must be included also, the online report must match 100% the downloaded version".
+#
+# Two causes, both real:
+#   1. `adverse_media` is a TOP-LEVEL key on the report, not a layer, so the PDF's
+#      `_DD_LAYER_PLAN` never reached it — the downloaded report showed nothing.
+#   2. The online view has "Adverse Media" in its section TITLE but rendered only
+#      press coverage and source tiers, so it under-reported it too.
+#
+# And the state itself is load-bearing: on every completed report checked,
+# `adverse_media.status` was still `in_progress`, because the sweep is a detached
+# follow-up that merges after the DD returns. A section that is simply ABSENT while
+# a screening is unfinished reads as "nothing adverse found" — the false clean this
+# product exists to prevent. So the renderer states the STATE first, always.
+_ADVERSE_STATUS_WORDS = {
+    "completed": "COMPLETED",
+    "complete": "COMPLETED",
+    "in_progress": "STILL RUNNING",
+    "running": "STILL RUNNING",
+    "incomplete": "DID NOT COMPLETE",
+    "failed": "FAILED",
+    "error": "FAILED",
+}
+
+
+def _render_adverse_media(am) -> list[str]:
+    """R-F3055 — the adverse-media screening as report lines, for BOTH surfaces.
+
+    Renders only what the blob records. Module-level and pure so the PDF's mirror
+    implementation can be tested against the same expectations."""
+    if not isinstance(am, dict) or not am:
+        return ["Adverse media: NOT RUN — no adverse-media screening is recorded on "
+                "this report. Treat as UNCHECKED, not as clean."]
+    raw_status = str(am.get("status") or "").strip().lower()
+    if not raw_status:
+        raw_status = "completed" if am.get("ok") else ""
+    label = _ADVERSE_STATUS_WORDS.get(raw_status, raw_status.upper() or "UNKNOWN")
+    out: list[str] = [f"Adverse media screening: {label}"]
+
+    searched = am.get("templates_searched")
+    if searched is not None:
+        out.append(f"  • Query templates actually searched: {searched}"
+                   f"{' of ' + str(am.get('templates_total_in_set')) if am.get('templates_total_in_set') else ''}")
+    if am.get("search_backends_answered") is not None:
+        out.append("  • Search backends answered: "
+                   f"{'yes' if am.get('search_backends_answered') else 'NO — the sweep could not observe the web'}")
+    findings = am.get("findings") if isinstance(am.get("findings"), list) else []
+    out.append(f"  • Subject-named items returned: {len(findings)}")
+
+    # The materiality arithmetic, when the verdict path recorded it (R-F3022).
+    mat = am.get("materiality") if isinstance(am.get("materiality"), dict) else {}
+    if mat:
+        out.append(
+            f"  • After de-duplication and filtering: {mat.get('credible_count', 0)} credible "
+            f"adverse item(s) from {mat.get('raw_count', 0)} raw hit(s) "
+            f"({mat.get('duplicates_dropped', 0)} duplicate, "
+            f"{mat.get('self_references_dropped', 0)} self-referential, "
+            f"{mat.get('non_adverse_dropped', 0)} non-adverse)")
+    for f in findings[:5]:
+        if not isinstance(f, dict):
+            continue
+        url = str(f.get("source_url") or f.get("url") or "").strip()
+        title = str(f.get("title") or "").strip()
+        out.append(f"    - {title[:90]}{' — ' + url[:110] if url else ' [no URL carried]'}")
+    if len(findings) > 5:
+        out.append(f"    … and {len(findings) - 5} more")
+
+    if raw_status in ("in_progress", "running"):
+        out.append("  ⚠ This screening had NOT finished when the report was rendered — "
+                   "it is UNCHECKED, not clean. Re-open the report to pick up the result.")
+    elif not findings:
+        out.append("  • No adverse coverage found in the sources searched. That is an "
+                   "absence of COVERAGE, not proof of good standing — the sources that "
+                   "did not answer are listed in the data gaps.")
+    return out
+
+
 def _render_screened_lists(screen) -> list[str]:
     """R-F3019 — the sanctions lists actually screened, their per-list verdict, and
     the screening DATE, as report lines. Module-level so it is directly testable.
@@ -2129,6 +2213,12 @@ def structured_view(r: dict) -> dict:
             ("Press coverage", _press_metric),
             ("People investigated", len(dig.get("people") or []) or None),
             ("Source tiers", ", ".join(f"{k}:{v}" for k, v in (dig.get("source_tier_breakdown") or {}).items()) or None),
+            # R-F3055 — this section is TITLED "Adverse Media" and showed none of it.
+            # Rendered from the SAME `_render_adverse_media` contract the markdown and
+            # the PDF use, so the three surfaces cannot disagree.
+            ("Adverse media", " · ".join(
+                l.strip().lstrip("•-⚠ ") for l in _render_adverse_media(r.get("adverse_media"))
+            )[:600] or None),
         ], evidence=press_ev),
         # 5) COMMERCIAL COHERENCE (only if populated)
         _sv_section("commercial", "Commercial Coherence", "🧭", comm, []),
