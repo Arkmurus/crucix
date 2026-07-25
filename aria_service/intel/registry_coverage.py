@@ -77,7 +77,7 @@ _ADAPTER_NOTES: dict[str, dict] = {
     # No registry to read. These will never go live without a paid provider or a
     # manual process — an operator decision (§6/§17), not a defect to fix.
     **{c: {"class": "stub_no_registry_api", "probed_at": "2026-07-23"}
-       for c in ("AO", "BG", "GH", "IL", "KE", "PA", "SA", "US", "ZA")},
+       for c in ("AO", "BG", "GH", "KE", "PA", "SA", "US", "ZA")},
     # Sources confirmed gone from TWO independent networks (this workstation and the
     # fly datacenter) so a single network's failure could not be mistaken for a dead source.
     "DE": {"class": "source_gone", "probed_at": "2026-07-23",

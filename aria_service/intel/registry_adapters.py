@@ -2571,15 +2571,17 @@ async def _lookup_south_africa(name: str, reg_number: str | None) -> dict | None
 # ╚══════════════════════════════════════════════════════════════════════╝
 
 _IL_REGISTRAR_BASE = "https://www.gov.il/en/departments/corporations_authority"
-_IL_REGISTRAR_DATA = "https://data.gov.il"  # partial open-data mirror
+_IL_REGISTRAR_DATA = "https://data.gov.il"
+_IL_COMPANIES_DATASET = "https://data.gov.il/dataset/ica_companies"
+_IL_COMPANIES_RESOURCE = "f004176c-b85f-4542-8901-7b3176f9a054"
 
 
 async def _lookup_israel(name: str, reg_number: str | None) -> dict | None:
-    """Israel Companies Registrar — best-effort public-data lookup.
+    """Israel Companies Registrar — official daily open-data lookup.
 
-    The official registrar site requires Hebrew-locale forms and CAPTCHA.
-    data.gov.il exposes a partial mirror of the registrar dataset; we
-    probe it here and degrade gracefully to a stub otherwise.
+    The Ministry of Justice publishes the Corporations Authority company list
+    through data.gov.il's CKAN DataStore. Full extracts remain a separate paid
+    service; this adapter returns only fields present in the open dataset.
     """
     from .ua_rotation import random_ua
     query = reg_number or name
@@ -2590,7 +2592,7 @@ async def _lookup_israel(name: str, reg_number: str | None) -> dict | None:
             resp = await client.get(
                 f"{_IL_REGISTRAR_DATA}/api/3/action/datastore_search",
                 params={
-                    "resource_id": "f004176c-b85f-4542-8901-7b3176f9a054",
+                    "resource_id": _IL_COMPANIES_RESOURCE,
                     "q": query,
                     "limit": 5,
                 },
@@ -2603,28 +2605,46 @@ async def _lookup_israel(name: str, reg_number: str | None) -> dict | None:
             if resp.status_code == 200:
                 data = resp.json()
                 records = ((data.get("result") or {}).get("records") or [])
-                for rec in records[:1]:  # top CKAN hit — but only if it MATCHES the query
-                    _ex_name = str(rec.get("שם חברה") or rec.get("company_name") or "").strip()
+                for rec in records:
+                    _hebrew_name = str(rec.get("שם חברה") or "").strip()
+                    _english_name = str(
+                        rec.get("שם באנגלית") or rec.get("company_name") or ""
+                    ).strip()
                     _ex_reg = str(rec.get("מספר חברה") or rec.get("company_id") or "").strip()
-                    # R-F2736 — a CKAN full-text `q=` search ranks by relevance; the top hit
-                    # may not be the queried company. Attach ONLY if it corroborates the query.
-                    if not _scrape_confirms_query(name, reg_number, _ex_name, _ex_reg):
+                    # R-F3088 — the official dataset has separate Hebrew and English
+                    # name columns. English queries cannot corroborate the Hebrew column,
+                    # so accept whichever source-supplied name actually matches. Check all
+                    # returned records because CKAN full-text ranking is not an identity
+                    # guarantee.
+                    _matched_name = next((
+                        candidate for candidate in (_english_name, _hebrew_name)
+                        if candidate and _scrape_confirms_query(
+                            name, reg_number, candidate, _ex_reg
+                        )
+                    ), "")
+                    if not _matched_name:
                         _unconfirmed = True
-                        logger.debug("Israel data.gov.il: top record did not confirm query %r — not attaching", query)
-                        break
+                        continue
+                    _address = ", ".join(part for part in (
+                        " ".join(part for part in (
+                            str(rec.get("שם רחוב") or "").strip(),
+                            str(rec.get("מספר בית") or "").strip(),
+                        ) if part),
+                        str(rec.get("שם עיר") or "").strip(),
+                        str(rec.get("מיקוד") or "").strip(),
+                        str(rec.get("מדינה") or "").strip(),
+                    ) if part)
                     return _build_result(
-                        company_name=_ex_name or name,
+                        company_name=_matched_name,
                         company_number=_ex_reg or reg_number or "",
                         company_status=(rec.get("סטטוס חברה") or rec.get("status") or "unknown"),
                         date_of_creation=(rec.get("תאריך התאגדות") or rec.get("date_of_registration") or ""),
-                        registered_office_address=(
-                            rec.get("כתובת מלאה") or rec.get("address") or ""
-                        ),
+                        registered_office_address=_address,
                         jurisdiction="IL",
                         sic_codes=[],
                         officers=[],
                         psc=[],
-                        source_url=f"{_IL_REGISTRAR_BASE}",
+                        source_url=_IL_COMPANIES_DATASET,
                         adapter="israel_registrar_datagovil",
                     )
     except Exception as exc:
@@ -2647,9 +2667,8 @@ async def _lookup_israel(name: str, reg_number: str | None) -> dict | None:
         f"Israel data.gov.il returned a record but it did NOT match '{query}' — "
         f"no confirmed record; identifier NOT attached (R-F2736)."
     ] if _unconfirmed else []) + [
-        "Official Israel Companies Registrar requires Hebrew-locale forms + CAPTCHA.",
-        "data.gov.il exposes a partial mirror but dataset IDs change — "
-        "verify the current `resource_id` if the probe fails.",
+        "The official open dataset did not return a confirmed matching company.",
+        "Full Companies Registrar extracts are a separate paid service.",
         "IL company numbers are 9 digits. Non-profits use a separate "
         "Amutot registrar; charities use a third registry.",
         "Recommend: engage a local due-diligence firm for full registry "

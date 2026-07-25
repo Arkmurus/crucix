@@ -79,7 +79,7 @@ def test_rf2927_no_fabricated_identifiers():
     """
     body = _endpoint_body()
     ids = set(re.findall(r'"(\d{6,20})"', body))
-    assert ids <= {"33000167000101", "31322832"}, (
+    assert ids <= {"33000167000101", "31322832", "520035874"}, (
         f"unverified registration number(s) in the probe table: {ids}"
     )
 
