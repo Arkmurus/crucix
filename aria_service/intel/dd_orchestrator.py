@@ -9173,7 +9173,7 @@ async def _record_source_reliability(report: "ARKDDReport") -> int:
     return recorded
 
 
-# R-F3056 — `layers_run` records the layer's RUN NAME, which is not always the
+# R-F3061 — `layers_run` records the layer's RUN NAME, which is not always the
 # attribute the result is stored under. Only genuine aliases belong here.
 _DD_LAYER_ATTR_ALIAS: dict[str, str] = {
     "sweep_intelligence": "sweep_data",
@@ -9181,7 +9181,7 @@ _DD_LAYER_ATTR_ALIAS: dict[str, str] = {
 
 
 def _dd_layer_state(report: "ARKDDReport", layer_name: str) -> str:
-    """R-F3056 — one layer's honest state: 'ok' | 'error' | 'unobservable'.
+    """R-F3061 — one layer's honest state: 'ok' | 'error' | 'unobservable'.
 
     Three shapes exist in a report and the old counter only understood the
     first, silently scoring the other two as failures:
@@ -9240,7 +9240,7 @@ async def _finalize_dd_run(report: "ARKDDReport", hard_deadline_hit: bool = Fals
 
         # Compute per-layer completion stats.
         #
-        # R-F3056 (2026-07-25) — this counted `layers_total - layers_ok` as
+        # R-F3061 (2026-07-25) — this counted `layers_total - layers_ok` as
         # ERRORED, and `layers_ok` required the layer to be an object carrying
         # `.meta.status`. Five of the twelve layers can never satisfy that:
         #   sweep_intelligence        the attribute is `sweep_data` (name alias)
@@ -9293,7 +9293,7 @@ async def _finalize_dd_run(report: "ARKDDReport", hard_deadline_hit: bool = Fals
                 source_id=f'dd_orchestrator:run:{getattr(report, "trace_id", "none")}',
             )
         else:
-            # R-F3056 — name the layers that actually failed. "6 layer(s)
+            # R-F3061 — name the layers that actually failed. "6 layer(s)
             # errored" sent the operator hunting for six broken layers when one
             # had failed; a reason that cannot be checked is not a reason.
             reason = (

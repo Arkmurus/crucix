@@ -25089,7 +25089,7 @@ async def health_check_ep():
     ecosystem_health_error: str | None = None
     try:
         from ..intel import ecosystem_map as _ecosystem_map
-        # R-F3057 — never block /health on a COLD ecosystem build. The first
+        # R-F3062 — never block /health on a COLD ecosystem build. The first
         # call after every deploy re-parses every module (~5.8s), which blew
         # the brain dashboard's 8s per-panel budget; the panel was dropped and
         # public/aria-brain.html rendered `ECOSYSTEM: UNKNOWN`. Take the cached

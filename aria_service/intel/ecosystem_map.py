@@ -446,7 +446,7 @@ async def get_graph(root: str | None = None, tier: int | None = None) -> dict[st
 _RANK = {"grey": 0, "green": 1, "amber": 2, "red": 3}
 _GREY = {"color": "grey", "sensor": "no live sensor", "value": None}
 
-# R-F3057 — strong refs to the background coverage build so it is never
+# R-F3062 — strong refs to the background coverage build so it is never
 # garbage-collected mid-flight (the R-F1776 fire-and-forget discipline).
 _COVERAGE_TASK: "asyncio.Task | None" = None
 _COVERAGE_TASKS: set = set()
@@ -898,7 +898,7 @@ async def get_node(node_id: str) -> dict[str, Any]:
 
 
 async def get_coverage_nonblocking(max_wait_s: float = 2.5) -> dict[str, Any] | None:
-    """R-F3057 (2026-07-25) — coverage for callers that must NOT block.
+    """R-F3062 (2026-07-25) — coverage for callers that must NOT block.
 
     `get_coverage()` awaits `build_structure()`, which re-parses every module
     when the file fingerprint changes — i.e. on the FIRST call after every
@@ -937,7 +937,7 @@ async def get_coverage_nonblocking(max_wait_s: float = 2.5) -> dict[str, Any] | 
         _COVERAGE_TASKS.add(_COVERAGE_TASK)
         _COVERAGE_TASK.add_done_callback(_COVERAGE_TASKS.discard)
         logger.info(
-            "[R-F3057] ecosystem coverage cold — started a background build; "
+            "[R-F3062] ecosystem coverage cold — started a background build; "
             "callers get 'not measured yet' until it lands"
         )
     try:
