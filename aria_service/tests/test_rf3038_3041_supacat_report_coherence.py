@@ -121,3 +121,59 @@ def test_rf3041_unknown_accounts_type_makes_no_claim_about_exemptions():
     basis = fh._balance_sheet_basis(None)
     assert "small-company exemption" not in basis
     assert "balance sheet only" in basis
+
+
+# ── R-F3043 — derived text must not be served frozen from the vault ────────
+def test_rf3043_vault_profile_gets_its_basis_line_re_derived():
+    """LIVE (dd_f4a7635c6efa): R-F3041's corrected wording did NOT appear, because
+    `uk_balance_sheet.basis` was frozen into the vault by an earlier run and
+    assess() returns the cached profile verbatim (`from_vault: True`)."""
+    stale = {
+        "from_vault": True,
+        "uk_balance_sheet": {
+            "figures": {"net_assets": {"current": 19968397.0}},
+            "accounts_type": "accounts-with-accounts-type-full",
+            "basis": ("balance sheet only — P&L (turnover/profit) not publicly filed "
+                      "under the small-company exemption"),   # the stale sentence
+        },
+    }
+    fh._refresh_derived_text(stale)
+    basis = stale["uk_balance_sheet"]["basis"]
+    assert "small-company exemption" not in basis, "the stale sentence must be replaced"
+    assert "scope limit of the reader" in basis
+
+
+def test_rf3043_figures_are_never_touched_only_the_words():
+    prof = {"uk_balance_sheet": {"figures": {"net_assets": {"current": 19968397.0}},
+                                 "accounts_type": "small", "basis": "x"},
+            "health_verdict": "STRONG", "data_available": True}
+    fh._refresh_derived_text(prof)
+    assert prof["uk_balance_sheet"]["figures"]["net_assets"]["current"] == 19968397.0
+    assert prof["health_verdict"] == "STRONG" and prof["data_available"] is True
+    assert "small-company exemption" in prof["uk_balance_sheet"]["basis"], (
+        "a genuine small filer keeps the exemption explanation")
+
+
+def test_rf3043_unavailable_explanation_is_refreshed_too():
+    prof = {"financial_figures_unavailable": {
+        "reason": "accounts_not_machine_readable", "made_up_to": "2025-10-31",
+        "accounts_type": "accounts-with-accounts-type-full", "pages": 42,
+        "explanation": "stale text"}}
+    fh._refresh_derived_text(prof)
+    exp = prof["financial_figures_unavailable"]["explanation"]
+    assert "2025-10-31" in exp and "42" in exp and "stale text" not in exp
+
+
+def test_rf3043_never_raises_on_a_malformed_profile():
+    for bad in ({}, {"uk_balance_sheet": None}, {"uk_balance_sheet": {"figures": {}}},
+                {"financial_figures_unavailable": "not a dict"}):
+        fh._refresh_derived_text(bad)      # must not raise
+
+
+def test_rf3043_is_wired_into_the_vault_hit_path():
+    import inspect
+    src = inspect.getsource(fh.assess)
+    i = src.index('cached["from_vault"] = True')
+    window = src[i:i + 1800]
+    assert "_refresh_derived_text(cached)" in window
+    assert window.index("_refresh_derived_text(cached)") < window.index("return cached")

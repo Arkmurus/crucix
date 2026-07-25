@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3043,
+  "next_available": 3044,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24276,6 +24276,15 @@
       "r_number": "R-F3042",
       "title": "ARIA services forensic health audit",
       "claimed_at": "2026-07-25T10:04:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3043",
+      "title": "derived explanatory text must be re-derived on a vault read, never served frozen",
+      "claimed_at": "2026-07-25T10:25:13Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

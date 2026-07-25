@@ -687,6 +687,40 @@ def _replace_superseded_summary(prior: str, fresh: str) -> str:
     return (fresh.strip() + (" " + tail if tail else "")).strip()
 
 
+def _refresh_derived_text(profile: dict) -> None:
+    """R-F3043 — re-derive EXPLANATORY text on a vault read, in place.
+
+    THE DEFECT (live, dd_f4a7635c6efa). R-F3041 corrected the balance-sheet basis
+    line so a FULL-accounts filer is no longer told it uses the small-company
+    exemption. The next DD still printed the old sentence, because
+    `uk_balance_sheet.basis` had been FROZEN into the vault profile by an earlier
+    run and `assess()` returns that profile verbatim (`from_vault: True`).
+
+    The distinction that matters: FIGURES are evidence and must be cached (§15,
+    pay-once). Sentences ABOUT those figures are derived — they encode this build's
+    understanding, so caching them means a wording or accuracy fix cannot reach any
+    already-assessed entity for the whole 30-day freshness window. That is the
+    R-F2834 failure class ("the feature looked broken in production while being
+    perfectly correct"), in its explanatory-text form.
+
+    Only regenerates text from data already in the profile — never fetches, never
+    changes a verdict, and never raises."""
+    try:
+        ub = profile.get("uk_balance_sheet")
+        if isinstance(ub, dict) and ub.get("figures"):
+            ub["basis"] = _balance_sheet_basis(ub.get("accounts_type"))
+        unavail = profile.get("financial_figures_unavailable")
+        if isinstance(unavail, dict) and unavail.get("reason"):
+            unavail["explanation"] = _figures_unavailable_explanation({
+                "unavailable_reason": unavail.get("reason"),
+                "made_up_to": unavail.get("made_up_to"),
+                "accounts_type": unavail.get("accounts_type"),
+                "pages": unavail.get("pages"),
+            })
+    except Exception as e:      # derived text must never break a served profile
+        logger.debug("derived-text refresh skipped: %s", e)
+
+
 def _balance_sheet_basis(accounts_type) -> str:
     """R-F3041 — state the basis of the solvency read WITHOUT asserting an
     exemption the filer may not use.
@@ -1005,6 +1039,7 @@ async def assess(
                                 jurisdiction=jurisdiction_iso2)
                         except Exception as e:
                             logger.debug("vault re-register after enrichment failed: %s", e)
+                    _refresh_derived_text(cached)     # R-F3043
                     return cached
         except Exception as e:
             logger.debug("vault financial lookup failed: %s", e)
