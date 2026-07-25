@@ -53,7 +53,61 @@ def test_fast_lane_registers_before_returning():
         encoding="utf-8", errors="replace")
     start = engine.index("async def fast_lane_chat")
     body = engine[start:engine.index("\nasync def ", start + 10)]
-    assert "_register_shortcircuit_turn" in body, (
+    assert "_register_turn" in body, (
         "fast_lane_chat must register the conversation — it bypasses the main "
         "generator, which is the only other place that does"
+    )
+
+
+def _call_sites(func_name):
+    """Real Call nodes only — prose and docstrings that mention the old code
+    (this file's own explanation of the defect does) must not trip the guard."""
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    found = []
+    for path in root.rglob("*.py"):
+        if "tests" in path.parts or path.name == "conversation_store.py":
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            name = getattr(fn, "attr", None) or getattr(fn, "id", None)
+            if name == func_name:
+                found.append((f"{path.relative_to(root)}:{node.lineno}", node))
+    return found
+
+
+def test_no_call_site_decides_create_vs_touch_itself():
+    """R-F3081 — the branch that caused the defect must not come back.
+
+    Five sites used to run `if len(history) <= 2` and pick create-or-touch
+    themselves. That length test is a PROXY for "is this the first turn";
+    whenever it disagreed with reality the else branch created the conversation
+    with no first message and the row stayed "New conversation" for life.
+    conversation_store now owns the decision, from the authoritative check
+    (does the meta hash exist). Nobody outside it may create directly.
+    """
+    offenders = [loc for loc, _ in _call_sites("create_conversation")]
+    assert not offenders, (
+        "create_conversation must only be called by conversation_store itself — "
+        f"found: {offenders}. Use touch_conversation(session_id, user_id, "
+        "first_message=<the user's message>)."
+    )
+
+
+def test_every_registration_passes_a_first_message():
+    """A touch that can CREATE must carry a title (the R-F3070 root cause)."""
+    bad = [loc for loc, node in _call_sites("touch_conversation")
+           if not any(kw.arg == "first_message" for kw in node.keywords)
+           and len(node.args) < 3]
+    assert not bad, (
+        "touch_conversation can create the conversation, so every call must pass "
+        f"first_message or the sidebar row reads 'New conversation' forever: {bad}"
     )

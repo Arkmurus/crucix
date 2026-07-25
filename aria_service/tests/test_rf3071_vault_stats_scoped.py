@@ -107,3 +107,44 @@ def test_route_passes_ownership_through(monkeypatch):
         "the route must pass the caller's owned ids — passing None here is the "
         "pre-R-F3071 defect (it published the global aggregate)"
     )
+
+
+def test_every_vault_endpoint_takes_an_owner():
+    """R-F3071 recurrence guard — the reason this defect existed.
+
+    R-F2097 scoped the vault endpoints BY HAND, one at a time, and missed
+    `stats`, which then served platform-wide totals for months. The vault has no
+    owner column, so ownership can only come in as a parameter — an endpoint
+    that does not accept `user_id` CANNOT be scoped, and that is statically
+    checkable. Any new /dd/vault route must declare it (and use it) rather than
+    relying on someone remembering.
+    """
+    import ast
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "routes" / "aria.py"
+    tree = ast.parse(src.read_text(encoding="utf-8", errors="replace"))
+
+    unscoped = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
+            continue
+        routes = [d for d in node.decorator_list
+                  if isinstance(d, ast.Call)
+                  and any("/dd/vault" in a.value for a in d.args
+                          if isinstance(a, ast.Constant) and isinstance(a.value, str))]
+        if not routes:
+            continue
+        args = {a.arg for a in node.args.args} | {a.arg for a in node.args.kwonlyargs}
+        body = ast.dump(node)
+        if "user_id" not in args:
+            unscoped.append(f"{node.name} (no user_id parameter)")
+        elif "_dd_owned_entity_ids" not in body:
+            unscoped.append(f"{node.name} (takes user_id but never resolves ownership)")
+
+    assert not unscoped, (
+        "every /dd/vault endpoint must accept user_id AND resolve it through "
+        f"_dd_owned_entity_ids — these do not: {unscoped}. The vault is "
+        "entity-keyed with no owner column, so an endpoint that skips this "
+        "serves every tenant's data (the R-F3071 defect)."
+    )

@@ -1960,27 +1960,29 @@ FAST_LANE_SYSTEM = (
 )
 
 
-async def _register_shortcircuit_turn(session: dict, session_id: str,
-                                      user_id: str, message: str) -> None:
-    """R-F3070 — put a short-circuit turn on the conversation index.
+async def _register_turn(session: dict, session_id: str,
+                         user_id: str, message: str) -> None:
+    """R-F3081 — THE one place aria_engine records a turn on the sidebar index.
 
-    The chat endpoints answer some turns WITHOUT entering the main generator:
-    the trivial short-circuit (reasoning_library.trivial_reply) and the
-    adaptive fast lane (R-F1976/R-F2043). Both return before the R-F1875 early
-    registration, so the turn never reached conversation_store at all. Live
-    consequences (reproduced 2026-07-25):
+    Every reply path funnels through here: the two full pipelines' end-of-turn
+    persists, the R-F1875 early registration, and the two short-circuit paths
+    (trivial reply + fast lane) that R-F3070 found were not registering at all.
 
-      * a session whose turns are ALL short-circuit ("hi" → reply) NEVER
-        appeared in the chat sidebar — the user's conversation was simply gone
-        on refresh;
-      * a session that opened with a short-circuit turn and continued into the
-        full pipeline registered via touch_conversation's create-on-missing
-        branch, which had no first message → titled "New conversation" for
-        life.
+    Why one writer: before this there were five copies of
 
-    This is the ONE writer for that registration; both short-circuit paths call
-    it so the two endpoints can't drift (§13). Best-effort by construction — a
-    conversation-index failure must never fail a reply that already succeeded.
+        if len(history) <= 2: create_conversation(uid, sid, first_message)
+        else:                 touch_conversation(sid, uid)          # no title!
+
+    hand-copied across aria_engine and routes/aria (one copy even used `< 2`).
+    The branch is a PROXY for "first turn"; conversation_store already answers
+    the real question ("does the meta hash exist"). Every time the proxy was
+    wrong — a session opened by a short-circuit, a reopened conversation, a
+    store blip — the else branch created the conversation with NO first message
+    and it was titled "New conversation" permanently. Removing the branch makes
+    that failure unreachable rather than fixed-in-one-place-at-a-time.
+
+    Best-effort by construction: a conversation-index failure must never fail a
+    reply that already succeeded.
     """
     uid = (session.get("userId") or user_id or "").strip()
     if not uid or uid == "anon":
@@ -1990,8 +1992,7 @@ async def _register_shortcircuit_turn(session: dict, session_id: str,
         await conversation_store.touch_conversation(session_id, uid,
                                                     first_message=message)
     except Exception as e:
-        logger.debug("R-F3070 short-circuit conversation register failed "
-                     "(non-fatal): %s", e)
+        logger.debug("R-F3081 conversation register failed (non-fatal): %s", e)
 
 
 async def persist_trivial_turn(message: str, session_id: str, reply: str,
@@ -2017,7 +2018,7 @@ async def persist_trivial_turn(message: str, session_id: str, reply: str,
         session["messages"] = msgs[-MAX_TURNS * 2:]
         session["updatedAt"] = time.time()
         await _save_session(session_id, session)
-        await _register_shortcircuit_turn(session, session_id, user_id, message)
+        await _register_turn(session, session_id, user_id, message)
     except Exception as e:
         logger.debug("R-F3070 trivial-turn persist failed (non-fatal): %s", e)
 
@@ -2058,8 +2059,8 @@ async def fast_lane_chat(message: str, session_id: str, llm,
         await _save_session(session_id, session)
     except Exception:
         pass  # continuity is best-effort; never fail the reply on a session write
-    # R-F3070 — register on the conversation index (see _register_shortcircuit_turn).
-    await _register_shortcircuit_turn(session, session_id, user_id, message)
+    # R-F3070 — register on the conversation index (see _register_turn).
+    await _register_turn(session, session_id, user_id, message)
     return text
 
 
@@ -4239,16 +4240,9 @@ async def _aria_chat_impl(
     session["updatedAt"] = time.time()
     await _save_session(session_id, session)
 
-    # Update conversation index (fire-and-forget)
-    try:
-        user_id = session.get("userId", "")
-        if user_id:
-            if len(history) <= 2:
-                await conversation_store.create_conversation(user_id, session_id, _user_persist)
-            else:
-                await conversation_store.touch_conversation(session_id, user_id)
-    except Exception as e:
-        logger.debug("Conversation store update failed (non-fatal): %s", e)
+    # Update conversation index (fire-and-forget). R-F3081 — no create-vs-touch
+    # branch here; touch_conversation owns that decision (see its docstring).
+    await _register_turn(session, session_id, session.get("userId", ""), _user_persist)
 
     # Auto-extract facts (non-blocking)
     try:
@@ -4772,10 +4766,7 @@ async def _aria_chat_stream_impl(
                 session["messages"] = _seed[-MAX_TURNS * 2:]
                 session["updatedAt"] = time.time()
                 await _save_session(session_id, session)
-            if len(history) < 2:
-                await conversation_store.create_conversation(_euid, session_id, _euser)
-            else:
-                await conversation_store.touch_conversation(session_id, _euid)
+            await _register_turn(session, session_id, _euid, _euser)   # R-F3081
     except Exception as _e_earlyreg:
         logger.debug("R-F1875 early conversation register failed (non-fatal): %s", _e_earlyreg)
 
@@ -5108,16 +5099,8 @@ async def _aria_chat_stream_impl(
     session["updatedAt"] = time.time()
     await _save_session(session_id, session)
 
-    # Update conversation index
-    try:
-        user_id = session.get("userId", "")
-        if user_id:
-            if len(history) <= 2:
-                await conversation_store.create_conversation(user_id, session_id, _user_persist)
-            else:
-                await conversation_store.touch_conversation(session_id, user_id)
-    except Exception as e:
-        logger.debug("Conversation store update failed in stream (non-fatal): %s", e)
+    # Update conversation index. R-F3081 — one writer, no local branch.
+    await _register_turn(session, session_id, session.get("userId", ""), _user_persist)
 
     # ── Fire-and-forget background tasks (same as aria_chat) ──────────
     def _bg_done(name):

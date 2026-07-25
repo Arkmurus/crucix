@@ -89,17 +89,26 @@ async def create_conversation(
 
 async def touch_conversation(session_id: str, user_id: str = "",
                              first_message: str = "") -> None:
-    """Update timestamp + increment message count after each turn.
+    """THE single entry point for putting a turn on the conversation index.
 
-    R-F3070 — ``first_message`` is used ONLY on the create-on-missing branch.
-    Pre-R-F3070 that branch always passed ``""``, so every conversation it
-    created was titled "New conversation" **forever** (the auto-title in
-    ``create_conversation`` could never fire from here). That branch is not a
-    rare edge: a turn answered by a short-circuit path (trivial reply / fast
-    lane) never registered the conversation, so the FIRST full-pipeline turn in
-    that session arrived with history already >= 2 and landed here — i.e. the
-    common "user said hi first" session was permanently untitled. Callers that
-    know the user's message should pass it; the fallback is unchanged.
+    Register-or-touch: creates the conversation when its meta hash is absent,
+    otherwise bumps updatedAt / messageCount and re-scores the sorted set.
+
+    R-F3081 — callers MUST NOT decide create-vs-touch themselves. Five call
+    sites used to branch on ``len(history) <= 2`` (one used ``< 2``) and call
+    ``create_conversation`` or this function accordingly. That branch is a
+    PROXY for "is this the first turn"; the authoritative question is "does the
+    meta hash exist", which this function already answers. Whenever the proxy
+    and the truth disagreed — a session opened by a short-circuit path, a
+    reopened conversation, a store blip — control landed on the else branch,
+    which passed no ``first_message``, and the conversation was titled
+    "New conversation" for life. R-F3070 fixed that for the short-circuit paths
+    by threading the message through; R-F3081 removes the branch entirely so
+    the create path can never again run without a title.
+
+    ``first_message`` is used only when this call creates the conversation.
+    Always pass the user's message; the empty fallback exists solely for
+    callers that genuinely have none.
     """
     now = time.time()
     meta_key = _META_KEY.format(session_id=session_id)

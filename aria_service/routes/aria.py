@@ -12902,11 +12902,10 @@ async def think_ep(req: ThinkRequest, request: Request):
             session["messages"] = history[-MAX_TURNS * 2:]
             session["updatedAt"] = time.time()
             await _save_session(req.session_id, session)
-            if len(history) <= 2:
-                await conversation_store.create_conversation(
-                    req.user_id, req.session_id, req.question)
-            else:
-                await conversation_store.touch_conversation(req.session_id, req.user_id)
+            # R-F3081 — no create-vs-touch branch; touch_conversation owns that
+            # decision and always gets the question so it can title a create.
+            await conversation_store.touch_conversation(
+                req.session_id, req.user_id, first_message=req.question)
     except Exception as _e:
         _log.debug("think persist failed (non-fatal): %s", _e)
     return result

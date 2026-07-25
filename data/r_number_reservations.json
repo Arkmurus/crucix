@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3080,
+  "next_available": 3083,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24627,14 +24627,43 @@
       "title": "Correct adversarial evaluator false failures",
       "claimed_at": "2026-07-25T16:36:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "49a764cb",
+      "notes": null,
+      "shipped_at": "2026-07-25T17:01:23Z"
     },
     {
       "r_number": "R-F3079",
       "title": "chat sidebar titles a document upload with the raw ATTACHED DOCUMENT scaffold",
       "claimed_at": "2026-07-25T16:36:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3080",
+      "title": "Generalise adversarial refusal recognition",
+      "claimed_at": "2026-07-25T16:51:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "79090fd5",
+      "notes": null,
+      "shipped_at": "2026-07-25T17:01:23Z"
+    },
+    {
+      "r_number": "R-F3081",
+      "title": "collapse five hand-copied conversation-registration sites into one writer (completes R-F3070 at root)",
+      "claimed_at": "2026-07-25T16:59:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3082",
+      "title": "derive the web source label from the results instead of a hardcoded literal (completes R-F3073 at root)",
+      "claimed_at": "2026-07-25T17:01:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
