@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import uuid4
 
@@ -36,6 +37,19 @@ def test_get_evidence_store_uses_configured_durable_paths(tmp_path, monkeypatch)
 
     assert configured.db_path == db_path
     assert configured.artifact_dir == artifact_dir
+
+
+def test_get_evidence_store_first_initialisation_is_thread_safe(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("ARIA_DD_EVIDENCE_DB", str(tmp_path / "singleton.db"))
+    monkeypatch.setenv(
+        "ARIA_DD_EVIDENCE_ARTIFACT_DIR", str(tmp_path / "singleton-artifacts"))
+    monkeypatch.setattr(dd_evidence_store, "_STORE", None)
+    with ThreadPoolExecutor(max_workers=16) as executor:
+        stores = list(executor.map(lambda _: get_evidence_store(), range(64)))
+
+    assert len({id(item) for item in stores}) == 1
 
 
 def test_answered_evidence_is_hash_verified_persisted_and_restart_safe(store):
@@ -79,6 +93,24 @@ def test_exact_replay_is_idempotent_but_mutation_is_rejected(store):
     changed["structured_payload"] = {"company_status": "dissolved"}
     with pytest.raises(EvidencePersistenceError, match="different content"):
         store.append(changed, raw)
+
+
+def test_concurrent_exact_replay_has_one_insert_and_no_lock_failures(store):
+    """Drive real SQLite and artifact I/O under the production contention shape."""
+    raw = b'{"company_number":"12345678","company_status":"active"}'
+    candidate = _candidate()
+    with ThreadPoolExecutor(max_workers=16) as executor:
+        statuses = list(executor.map(
+            lambda _: store.append(candidate, raw).status,
+            range(64),
+        ))
+
+    assert statuses.count("stored") == 1
+    assert statuses.count("already_present") == 63
+    stored = store.get(candidate["tenant_id"], candidate["evidence_id"])
+    assert stored is not None
+    assert stored["integrity"]["metadata_valid"] is True
+    assert stored["integrity"]["artifact_valid"] is True
 
 
 def test_tenant_boundary_and_retained_artifact_tamper_are_detected(store):
@@ -182,6 +214,38 @@ def test_capability_route_refuses_tampered_retained_artifact(store, monkeypatch)
         )
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "evidence_integrity_failure"
+
+
+def test_capability_route_rejects_malformed_and_oversized_input(
+    store, monkeypatch,
+):
+    monkeypatch.setattr(dd_evidence_store, "_STORE", store)
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[_router_auth_dep] = lambda: None
+
+    with TestClient(app) as client:
+        malformed = client.post(
+            "/api/aria/dd/evidence",
+            content=b"{not-json",
+            headers={"content-type": "application/json"},
+        )
+        oversized = client.post(
+            "/api/aria/dd/evidence",
+            json={
+                "record": _candidate(),
+                "artifact_base64": base64.b64encode(
+                    b"x" * (16 * 1024 * 1024 + 1)
+                ).decode("ascii"),
+            },
+        )
+    assert malformed.status_code == 422
+    assert malformed.json()["detail"]["code"] == "invalid_evidence_request"
+    assert oversized.status_code == 413
+    assert oversized.json()["detail"]["code"] in {
+        "evidence_request_too_large",
+        "evidence_artifact_too_large",
+    }
 
 
 def test_evidence_routes_require_operator_tier_when_scoping_is_configured(

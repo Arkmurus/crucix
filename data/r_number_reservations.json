@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3084,
+  "next_available": 3086,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24673,6 +24673,15 @@
       "r_number": "R-F3083",
       "title": "append-only DD evidence persistence",
       "claimed_at": "2026-07-25T17:22:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3085",
+      "title": "harden DD evidence concurrency and wiring",
+      "claimed_at": "2026-07-25T18:14:49Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

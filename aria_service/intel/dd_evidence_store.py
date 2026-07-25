@@ -13,6 +13,7 @@ import json
 import os
 import sqlite3
 import tempfile
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -92,6 +93,7 @@ CREATE TABLE IF NOT EXISTS dd_evidence (
 CREATE INDEX IF NOT EXISTS idx_dd_evidence_case
     ON dd_evidence(tenant_id, case_id, stored_at);
 """
+_SCHEMA_LOCK = threading.Lock()
 
 
 def _canonical_json(record: EvidenceRecord) -> str:
@@ -120,17 +122,40 @@ class DDEvidenceStore:
             Path(artifact_dir) if artifact_dir is not None
             else _default_artifact_dir()
         )
+        self._ensure_schema()
+
+    def _new_connection(self) -> sqlite3.Connection:
+        """Open one fully configured connection or close it on setup failure."""
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(str(self.db_path), timeout=15)
+        try:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA busy_timeout=15000")
+            connection.execute("PRAGMA synchronous=FULL")
+            return connection
+        except Exception:
+            connection.close()
+            raise
+
+    def _ensure_schema(self) -> None:
+        """Initialise WAL and schema once per store, outside request races."""
+        with _SCHEMA_LOCK:
+            connection = self._new_connection()
+            try:
+                connection.execute("PRAGMA journal_mode=WAL")
+                connection.executescript(_SCHEMA)
+                connection.commit()
+            finally:
+                connection.close()
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(str(self.db_path), timeout=15)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA synchronous=FULL")
-        connection.executescript(_SCHEMA)
+        connection = self._new_connection()
         try:
             yield connection
+        except Exception:
+            connection.rollback()
+            raise
         finally:
             connection.close()
 
@@ -288,18 +313,21 @@ class DDEvidenceStore:
         wire_failure(
             module="dd_evidence_store",
             detail=detail,
-            gap_type="evidence_integrity_failure",
+            gap_type="engine_failure",
             source=f"dd_evidence_store:{record.evidence_id}",
         )
         raise EvidencePersistenceError(detail)
 
 
 _STORE: DDEvidenceStore | None = None
+_STORE_LOCK = threading.Lock()
 
 
 def get_evidence_store() -> DDEvidenceStore:
     """Return the process-local store configured for the durable volume."""
     global _STORE
     if _STORE is None:
-        _STORE = DDEvidenceStore()
+        with _STORE_LOCK:
+            if _STORE is None:
+                _STORE = DDEvidenceStore()
     return _STORE

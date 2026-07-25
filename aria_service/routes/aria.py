@@ -788,8 +788,10 @@ async def dd_evidence_standard_validate_ep(req: Request):
 @fail_wire(module="aria", gap_type="engine_failure")
 async def dd_evidence_append_ep(req: Request):
     """R-F3083 — hash-verify and append one canonical evidence record."""
+    import asyncio
     import base64
     import binascii
+    import json
 
     from ..intel.dd_evidence_standard import EvidenceContractError
     from ..intel.dd_evidence_store import (
@@ -797,7 +799,21 @@ async def dd_evidence_append_ep(req: Request):
         get_evidence_store,
     )
 
-    body = await req.json()
+    request_bytes = await req.body()
+    max_request_bytes = 24 * 1024 * 1024
+    if len(request_bytes) > max_request_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail={"code": "evidence_request_too_large"},
+        )
+    try:
+        body = json.loads(request_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_evidence_request",
+                    "errors": ["request body must be valid JSON"]},
+        ) from exc
     if not isinstance(body, dict) or not isinstance(body.get("record"), dict):
         raise HTTPException(
             status_code=422,
@@ -821,8 +837,15 @@ async def dd_evidence_append_ep(req: Request):
                 detail={"code": "invalid_evidence_request",
                         "errors": ["artifact_base64 is not valid base64"]},
             ) from exc
+        if len(artifact) > 16 * 1024 * 1024:
+            raise HTTPException(
+                status_code=413,
+                detail={"code": "evidence_artifact_too_large"},
+            )
     try:
-        result = get_evidence_store().append(body["record"], artifact)
+        evidence_store = await asyncio.to_thread(get_evidence_store)
+        result = await asyncio.to_thread(
+            evidence_store.append, body["record"], artifact)
     except (EvidenceContractError, EvidencePersistenceError) as exc:
         errors = list(getattr(exc, "errors", (str(exc),)))
         raise HTTPException(
@@ -836,9 +859,13 @@ async def dd_evidence_append_ep(req: Request):
 @fail_wire(module="aria", gap_type="engine_failure")
 async def dd_evidence_get_ep(evidence_id: str, tenant_id: str):
     """R-F3083 — retrieve evidence only through its explicit tenant boundary."""
+    import asyncio
+
     from ..intel.dd_evidence_store import get_evidence_store
 
-    result = get_evidence_store().get(tenant_id, evidence_id)
+    evidence_store = await asyncio.to_thread(get_evidence_store)
+    result = await asyncio.to_thread(
+        evidence_store.get, tenant_id, evidence_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Evidence record not found")
     integrity = result["integrity"]
