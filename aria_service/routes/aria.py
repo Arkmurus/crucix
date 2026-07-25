@@ -324,7 +324,7 @@ _OPERATOR_ONLY_RE = re.compile(
     # R-F2559: operator-curated PUBLIC watchlist (add/remove/rescreen). Its risk
     # changes are the ONLY watchlist data promoted to the public Golden Intel feed,
     # so curation MUST be operator-only — a customer/service token must never write it.
-    r"|dd/watchlist/public)"
+    r"|dd/watchlist/public|dd/evidence(?:/|$))"
 )
 
 # R-F2374: paths that are operator-only for DESTRUCTIVE methods ONLY (a GET is a
@@ -782,6 +782,75 @@ async def dd_evidence_standard_validate_ep(req: Request):
             detail={"code": "invalid_evidence_record", "errors": list(exc.errors)},
         ) from exc
     return {"valid": True, "record": record.as_dict()}
+
+
+@router.post("/dd/evidence")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def dd_evidence_append_ep(req: Request):
+    """R-F3083 — hash-verify and append one canonical evidence record."""
+    import base64
+    import binascii
+
+    from ..intel.dd_evidence_standard import EvidenceContractError
+    from ..intel.dd_evidence_store import (
+        EvidencePersistenceError,
+        get_evidence_store,
+    )
+
+    body = await req.json()
+    if not isinstance(body, dict) or not isinstance(body.get("record"), dict):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_evidence_request",
+                    "errors": ["record must be an object"]},
+        )
+    artifact_base64 = body.get("artifact_base64")
+    artifact = None
+    if artifact_base64 is not None:
+        if not isinstance(artifact_base64, str):
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "invalid_evidence_request",
+                        "errors": ["artifact_base64 must be a string"]},
+            )
+        try:
+            artifact = base64.b64decode(artifact_base64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "invalid_evidence_request",
+                        "errors": ["artifact_base64 is not valid base64"]},
+            ) from exc
+    try:
+        result = get_evidence_store().append(body["record"], artifact)
+    except (EvidenceContractError, EvidencePersistenceError) as exc:
+        errors = list(getattr(exc, "errors", (str(exc),)))
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "evidence_not_persisted", "errors": errors},
+        ) from exc
+    return result.as_dict()
+
+
+@router.get("/dd/evidence/{evidence_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def dd_evidence_get_ep(evidence_id: str, tenant_id: str):
+    """R-F3083 — retrieve evidence only through its explicit tenant boundary."""
+    from ..intel.dd_evidence_store import get_evidence_store
+
+    result = get_evidence_store().get(tenant_id, evidence_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Evidence record not found")
+    integrity = result["integrity"]
+    if (
+        not integrity["metadata_valid"]
+        or integrity["artifact_valid"] is False
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "evidence_integrity_failure"},
+        )
+    return result
 
 
 def _brave_scope(fn):
