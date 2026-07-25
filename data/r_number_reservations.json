@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3030,
+  "next_available": 3037,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24027,113 +24027,189 @@
       "title": "GB financials: honest, evidenced UNKNOWN when CH accounts are not machine-readable",
       "claimed_at": "2026-07-25T08:27:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "944eaf26",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:17:18Z"
     },
     {
       "r_number": "R-F3018",
       "title": "deep research: cooperative deadline returns partial instead of being cancelled",
       "claimed_at": "2026-07-25T08:27:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "944eaf26",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:17:18Z"
     },
     {
       "r_number": "R-F3019",
       "title": "DD compliance: name the sanctions lists screened plus a screening date",
       "claimed_at": "2026-07-25T08:27:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "944eaf26",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:17:18Z"
     },
     {
       "r_number": "R-F3020",
       "title": "DD render: section status OK reads as COMPLETED",
       "claimed_at": "2026-07-25T08:27:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "944eaf26",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:17:19Z"
     },
     {
       "r_number": "R-F3021",
       "title": "DD identity: surface LEI LAPSED as a structured flag",
       "claimed_at": "2026-07-25T08:27:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "944eaf26",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:17:19Z"
     },
     {
       "r_number": "R-F3022",
       "title": "DD adverse-media materiality: dedup, self-reference exclusion, adverse-content gate",
       "claimed_at": "2026-07-25T08:41:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "944eaf26",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:17:19Z"
     },
     {
       "r_number": "R-F3023",
       "title": "adverse-media provenance: derive source class from the RESULT not the query template",
       "claimed_at": "2026-07-25T08:41:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "944eaf26",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:17:19Z"
     },
     {
       "r_number": "R-F3024",
       "title": "DD identity: previous company names as a first-class field and a coherence signal",
       "claimed_at": "2026-07-25T08:41:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "944eaf26",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:17:20Z"
     },
     {
       "r_number": "R-F3025",
       "title": "FCA attribution gate: require a name-match score plus identity corroboration",
       "claimed_at": "2026-07-25T08:41:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "944eaf26",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:17:20Z"
     },
     {
       "r_number": "R-F3026",
       "title": "DD render: officers, PSCs and other directorships on every surface",
       "claimed_at": "2026-07-25T08:41:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "944eaf26",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:17:20Z"
     },
     {
       "r_number": "R-F3027",
       "title": "UBO walk must traverse corporate PSCs and never call directors a UBO chain",
       "claimed_at": "2026-07-25T08:41:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "944eaf26",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:17:20Z"
     },
     {
       "r_number": "R-F3028",
       "title": "financial narrative: replace the superseded summary; accounts-type substring collision",
       "claimed_at": "2026-07-25T08:41:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "944eaf26",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:17:20Z"
     },
     {
       "r_number": "R-F3029",
       "title": "DD PDF: real grade-D reasons and layer timeouts in data gaps",
       "claimed_at": "2026-07-25T08:41:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "944eaf26",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:17:21Z"
+    },
+    {
+      "r_number": "R-F3030",
+      "title": "officer surname parsing + same-person dedup: false family cluster",
+      "claimed_at": "2026-07-25T09:29:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3031",
+      "title": "DD sanctions screen carries screened_at (R-F3019 completion)",
+      "claimed_at": "2026-07-25T09:32:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3032",
+      "title": "LLM primary dead: migrate retired deepseek-chat to env-driven deepseek-v4 across all call sites",
+      "claimed_at": "2026-07-25T09:34:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3033",
+      "title": "Reasoning-model empty content is a silent false-success: read reasoning_content, else fail honestly",
+      "claimed_at": "2026-07-25T09:34:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3034",
+      "title": "DD must never degrade off Claude to DeepSeek (operator directive 2026-07-25)",
+      "claimed_at": "2026-07-25T09:34:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3035",
+      "title": "Non-DD chain must survive a model retirement: second DeepSeek model entry",
+      "claimed_at": "2026-07-25T09:34:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3036",
+      "title": "Provider-health proprioception: all-providers-failed streak must reach the brain and the operator",
+      "claimed_at": "2026-07-25T09:34:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

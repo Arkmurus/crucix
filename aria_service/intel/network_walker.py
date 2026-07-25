@@ -116,6 +116,27 @@ async def _other_appointments_for_officer(
 # SANCTIONS NETWORK SCREEN (one-hop)
 # =============================================================================
 
+def _officer_surname(name: str) -> str:
+    """R-F3030 — the surname of an officer, honouring the Companies House format.
+
+    CH writes officer names as "SURNAME, Forename Middle" (e.g. "ELLARD, Sarah
+    Louise"), so taking the LAST whitespace token returns a forename — live, that
+    produced "2 officers share surname 'Louise'". When a comma is present the
+    surname is what precedes it; otherwise fall back to the last token, which is
+    right for the "Forename Surname" shape other sources use.
+
+    Returns "" for a single-token or empty name: one token cannot be split into a
+    forename and a surname, and guessing would be the same error in a new place.
+    """
+    raw = str(name or "").strip()
+    if not raw:
+        return ""
+    if "," in raw:
+        return raw.split(",", 1)[0].strip()
+    parts = raw.split()
+    return parts[-1].strip() if len(parts) >= 2 else ""
+
+
 async def _screen_name(name: str) -> dict:
     """Screen a single name against sanctions + PEP lists. Returns a
     normalised dict: {name, hit: bool, matches: [...], score: float}."""
@@ -309,24 +330,60 @@ async def walk_network(
     # Detect surname clusters among directors (family companies) and
     # screen any PEP-flagged director's relatives via surname variants.
     if len(officers) >= 2:
-        # Build surname map
-        _surnames: dict[str, list[str]] = {}  # surname → [full names]
+        # ── R-F3030 — two bugs made this fabricate a family ──────────────
+        #
+        # LIVE (Roke Manor Research 00267550, dd_ba494e53f850): the report
+        # asserted "Family cluster detected: 2 officers share surname 'Louise'".
+        # Companies House formats officer names "SURNAME, Forename Middle", so
+        # `parts[-1]` took the last FORENAME — "Louise" is not a surname at all.
+        # And the two "officers" were ONE PERSON: Sarah Louise Ellard is both the
+        # company secretary (appointed 2010-09-30) and a director (2014-07-24).
+        # A single individual in two roles was rendered as a family relationship
+        # between two people, off a token that was never a surname.
+        #
+        # Both halves are fixed: the surname is read from the CH comma form, and
+        # officers are de-duplicated by `officer_id` (the same anchor R-F2993 uses
+        # — never by name) before any clustering. The wording is also corrected:
+        # a shared surname is a PROMPT to check, not proof of a family, and
+        # asserting kinship from a name is the same fabrication class as
+        # asserting a relationship from a name match.
+        _seen_officer_ids: set[str] = set()
+        _unique_officers: list[dict] = []
         for o in officers:
+            oid = str((o.get("links") or {}).get("officer", {}).get("appointments")
+                      if isinstance((o.get("links") or {}).get("officer"), dict) else
+                      (o.get("officer_id") or "")).strip()
+            if not oid:
+                # No anchor → fall back to name + date of birth, NOT name alone.
+                _dob = o.get("date_of_birth") or {}
+                oid = (f"{(o.get('name') or '').strip().lower()}|"
+                       f"{_dob.get('year', '')}-{_dob.get('month', '')}")
+            if oid in _seen_officer_ids:
+                continue
+            _seen_officer_ids.add(oid)
+            _unique_officers.append(o)
+
+        _surnames: dict[str, list[str]] = {}  # surname → [full names]
+        for o in _unique_officers:
             oname = (o.get("name") or "").strip()
             if not oname:
                 continue
-            parts = oname.split()
-            if len(parts) >= 2:
-                surname = parts[-1]
+            surname = _officer_surname(oname)
+            if surname:
                 _surnames.setdefault(surname.lower(), []).append(oname)
 
-        # Flag surname clusters (3+ people with same surname = family company)
+        # Flag surname clusters (2+ DISTINCT people sharing a surname)
         for surname, names in _surnames.items():
             if len(names) >= 2:
                 findings.append({
                     "severity": "info",
-                    "title": f"Family cluster detected: {len(names)} officers share surname '{names[0].split()[-1]}'",
-                    "detail": f"Officers: {', '.join(names)}. Family-controlled companies are common but require UBO verification to confirm beneficial ownership chain.",
+                    "title": (f"{len(names)} officers share the surname "
+                              f"'{_officer_surname(names[0])}'"),
+                    "detail": (f"Officers: {', '.join(names)}. A shared surname is NOT proof "
+                               "of a family relationship — it may be coincidence. Family-"
+                               "controlled companies are common and legitimate; this is a "
+                               "prompt to verify the beneficial-ownership chain, not a finding "
+                               "that these people are related."),
                     "source": "network_walker.family_detection",
                     "confidence": "ASSESSED",
                 })
@@ -334,14 +391,15 @@ async def walk_network(
         # For PEP-flagged directors, screen close family variants
         for pep in pep_connections:
             pep_name = pep.get("name", "")
-            pep_parts = pep_name.split()
-            if len(pep_parts) < 2:
+            # R-F3030 — the SAME last-token bug lived here, and this branch emits
+            # AMBER: a mis-read forename would fabricate a "PEP family link"
+            # against a named individual. Use the CH-aware surname on both sides.
+            pep_surname = _officer_surname(pep_name)
+            if not pep_surname:
                 continue
-            pep_surname = pep_parts[-1]
-            # Check if other directors share this PEP's surname
             related_officers = [
                 o.get("name") for o in officers
-                if o.get("name", "").split()[-1:] == [pep_surname]
+                if _officer_surname(o.get("name", "")).lower() == pep_surname.lower()
                 and o.get("name") != pep_name
             ]
             for rel_name in related_officers[:3]:

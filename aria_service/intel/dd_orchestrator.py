@@ -1752,6 +1752,14 @@ async def _run_identity_person(
             "variants_screened": screened_variants,
             "source_unavailable": _sanctions_unverified,
             "verified_sources": _dvs(all_matches, screen_succeeded=_screen_ok),
+            # R-F3031 — completes R-F3019. That change stamped `screened_at` inside
+            # sanctions.fuzzy_screen(), but the DD does NOT use that dict: it builds
+            # its own screen blob here from the raw matches. Proven live on
+            # dd_ba494e53f850 (Roke Manor) — 11 lists screened CLEAN and
+            # `screened_at: None`, so the report rendered "screening date not
+            # recorded" while it had just screened them. Sanctions lists change
+            # daily; an undated clean is an undatable claim.
+            "screened_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
 
         classified = _cm(all_matches, query_name=name)
