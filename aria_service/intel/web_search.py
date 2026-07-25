@@ -452,7 +452,59 @@ _brave_last_call = 0.0
 _brave_lock = asyncio.Lock()
 
 
-async def _search_brave(query: str, max_results: int = 10, language: str = "en") -> list[SearchResult]:
+#: R-F3051 — a Brave query that returns HTTP 200 with ZERO results is not an error
+#: and not a rate limit: the query is simply over-constrained for Brave's engine.
+#: Proven live 2026-07-25 against the paid key, on the exact query a DD generates:
+#:
+#:   "SUPACAT LIMITED"                                                    -> 5
+#:   "SUPACAT LIMITED" United Kingdom                                     -> 5
+#:   "SUPACAT LIMITED" fine OR penalty OR enforcement                     -> 5
+#:   "SUPACAT LIMITED" regulator OR licence OR ... OR enforcement         -> 5
+#:   "SUPACAT LIMITED" United Kingdom fine OR penalty                     -> 0  ←
+#:   "SUPACAT LIMITED" United Kingdom regulator OR ... OR enforcement     -> 0  ←
+#:
+#: A quoted phrase PLUS a bare qualifier PLUS an OR-block is the combination that
+#: kills it — dropping just the qualifier restores results. The DD adverse-media
+#: templates build exactly that shape, so the PAID PRIMARY backend was contributing
+#: nothing to real reports while SearXNG carried them (live: primary_user_search
+#: state=silent, 0 results; searxng 10). The report said so honestly, which is why
+#: this was visible at all — but honest silence is still a wasted capability.
+_BRAVE_QUOTED_RE = re.compile(r'"[^"]+"')
+
+
+def _relax_brave_query(query: str) -> str:
+    """R-F3051 — fall back to the QUOTED ENTITY PHRASE alone.
+
+    The relaxation direction matters, and the obvious one is wrong. Measured against
+    the live paid key on the DD's own query (count = results / how many NAME the
+    subject):
+
+      "SUPACAT LIMITED"                                    5 / 4   ← on-subject
+      "SUPACAT LIMITED" fine OR penalty                    5 / 0   ← junk
+      "SUPACAT LIMITED" regulator OR licence OR ...        5 / 0   ← junk
+      "SUPACAT LIMITED" United Kingdom fine OR penalty     0 / 0
+
+    Brave SILENTLY DROPS the quoted phrase whenever an OR-block is present and
+    answers the OR terms generically — returning "Penalties | FinCEN.gov" and
+    "FIA Super Licence - Wikipedia" for a Devon vehicle manufacturer. So keeping the
+    OR-block (the intuitive relaxation) buys results that R-F2745's subject-name
+    filter then discards — which is exactly what the live reports showed
+    ("29 search result(s) excluded as not referencing 'SUPACAT LIMITED'"). The
+    entity phrase is the anchor; the OR terms are the part Brave cannot honour.
+
+    Returns "" when the query is already just the phrase, so no retry is spent."""
+    q = str(query or "").strip()
+    if not q:
+        return ""
+    quoted = _BRAVE_QUOTED_RE.findall(q)
+    if not quoted:
+        return ""                     # no phrase anchor → relaxing could change intent
+    relaxed = " ".join(quoted).strip()
+    return relaxed if relaxed and relaxed != q else ""
+
+
+async def _search_brave(query: str, max_results: int = 10, language: str = "en",
+                        *, _is_relaxed_retry: bool = False) -> list[SearchResult]:
     """Brave Web Search API. Returns [] when unconfigured, cooled, rate-limited, or
     on error (never raises) so the parallel gather degrades gracefully to the free
     stack (§14 fallback transparency). Gated upstream by the use_brave flag; this
@@ -514,6 +566,29 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en")
                     timestamp=(item.get("age") or item.get("page_age") or ""),
                 ))
             _cb.record_success()
+            # R-F3051 — 200-with-zero means over-constrained, not unavailable. Retry
+            # ONCE with the qualifier terms dropped (quoted phrase + OR-block kept).
+            # Bounded to a single extra call so a genuinely zero-result subject costs
+            # at most one more request, and only when relaxing actually changes the
+            # query. `_relaxed` is not recursive: the retry cannot itself retry.
+            if not results and not _is_relaxed_retry:
+                relaxed = _relax_brave_query(query)
+                if relaxed:
+                    logger.info(
+                        "[R-F3051] Brave returned 0 for an over-constrained query — "
+                        "retrying relaxed: %r -> %r", query[:70], relaxed[:70])
+                    retry = await _search_brave(
+                        relaxed, max_results=max_results, language=language,
+                        _is_relaxed_retry=True)
+                    if retry:
+                        for r in retry:
+                            # Honest provenance: this answered a RELAXED query, so a
+                            # consumer weighing precision knows the qualifier was dropped.
+                            try:
+                                r.query_relaxed = True
+                            except Exception:
+                                pass
+                        return retry
             logger.info("Brave search %r → %d results (lang=%s)", query[:60], len(results), language)
             return results
     except Exception as e:
