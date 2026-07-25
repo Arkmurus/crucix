@@ -56,11 +56,20 @@ test('a source URL on a finding is preserved for traceability', () => {
   assert.equal(id.findings[0].url, 'https://search.gleif.org/x');
 });
 
-test('nested structures are summarised as counts, not dumped', () => {
+test('nested structures are summarised, not dumped', () => {
+  // R-F3049 — formatting moved INTO ddReportSections so what the PDF will say is
+  // testable without rendering (the R-F2848 principle: the renderer computes
+  // nothing). This assertion used to pin the raw TYPE, which enforced nothing about
+  // the output; the intent — summarise, never dump a JSON blob — is asserted on the
+  // display string now. It is also stricter than before: a chain is NAMED rather
+  // than counted, because "1 item" told a reader nothing (see R-F3049).
   const net = ddReportSections(REPORT).find((s) => s.title === 'Ownership and control network');
   const ubo = net.facts.find(([k]) => k === 'ubo_chain');
   assert.ok(ubo, 'ubo_chain should surface as a fact');
-  assert.equal(typeof ubo[1], 'object', 'the raw value stays an array; the renderer counts it');
+  const shown = String(ubo[1]);
+  assert.equal(typeof ubo[1], 'string', 'the fact carries its display string');
+  assert.ok(!shown.includes('{') && !shown.includes('['), 'never dump raw structure');
+  assert.ok(shown.length < 400, 'summarised, not the whole chain');
 });
 
 test('nothing is invented — an empty report yields no findings sections', () => {

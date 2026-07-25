@@ -42,21 +42,18 @@ def test_rf3038_existing_stamp_is_never_overwritten():
 
 # ── R-F3039 ────────────────────────────────────────────────────────────────
 def test_rf3039_full_coverage_never_reads_as_only():
-    import inspect
-    src = inspect.getsource(ddo)
-    i = src.index('_answered = _ready.get("answered", 0)')
-    window = src[i:i + 1400]
-    assert "if _answered >= _required:" in window
-    assert 'all {_required}/{_required} decision-critical questions are answered' in window
-    assert "the evidence behind them does not yet meet the reliance bar" in window
+    """R-F3050 moved this wording into a shared helper so BOTH BLUF writers use it;
+    assert the BEHAVIOUR through that helper rather than the old inline source."""
+    clause = ddo._coverage_clause({"answered": 5, "required": 5, "completion_pct": 100})
+    assert clause.startswith("all 5/5")
+    assert "only" not in clause
+    assert "the evidence behind them does not yet meet the reliance bar" in clause
 
 
 def test_rf3039_partial_coverage_still_says_only():
-    import inspect
-    src = inspect.getsource(ddo)
-    i = src.index('_answered = _ready.get("answered", 0)')
-    window = src[i:i + 1400]
-    assert 'only {_answered}/{_required}' in window, "the partial wording must survive"
+    clause = ddo._coverage_clause({"answered": 4, "required": 5, "completion_pct": 80})
+    assert clause.startswith("only 4/5"), "the partial wording must survive"
+    assert "(80%)" in clause
 
 
 # ── R-F3040 ────────────────────────────────────────────────────────────────
@@ -177,3 +174,33 @@ def test_rf3043_is_wired_into_the_vault_hit_path():
     window = src[i:i + 1800]
     assert "_refresh_derived_text(cached)" in window
     assert window.index("_refresh_derived_text(cached)") < window.index("return cached")
+
+
+# ── R-F3050 — ONE coverage clause, used by BOTH BLUF writers ───────────────
+def test_rf3050_both_bluf_writers_use_the_shared_helper():
+    """The downloaded PDF of dd_f4a7635c6efa still read "but only 5/5 ... (100%)"
+    after R-F3039, because a SECOND writer (_refresh_persisted_decision_readiness,
+    which rewrites the BLUF once the adverse-media follow-up merges) carried its own
+    copy. That follow-up is precisely what moves a report from 4/5 to 5/5, so the
+    one path able to produce "only 5/5" was the one still unfixed."""
+    import inspect
+    src = inspect.getsource(ddo)
+    assert src.count("def _coverage_clause(") == 1, "exactly one implementation"
+    # both writers must call it, and neither may keep an inline copy
+    assert "_coverage_clause(_ready)" in src          # _assemble_bluf
+    assert "_coverage_clause(readiness)" in src       # _refresh_persisted_decision_readiness
+    assert "decision-critical questions are answered ({readiness.get" not in src
+
+
+def test_rf3050_clause_is_coherent_at_full_and_partial_coverage():
+    full = ddo._coverage_clause({"answered": 5, "required": 5, "completion_pct": 100})
+    assert full.startswith("all 5/5")
+    assert "only" not in full, "the contradiction the operator saw in the PDF"
+    assert "does not yet meet the reliance bar" in full
+    part = ddo._coverage_clause({"answered": 3, "required": 5, "completion_pct": 60})
+    assert part.startswith("only 3/5") and "(60%)" in part
+
+
+def test_rf3050_defaults_are_safe_on_a_malformed_readiness():
+    assert "5/5" in ddo._coverage_clause({"answered": 5})     # required defaults to 5
+    assert ddo._coverage_clause({})                            # must not raise

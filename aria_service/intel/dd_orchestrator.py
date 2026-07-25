@@ -8017,21 +8017,10 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
             # the file is not cleared (the evidence grade) behind a complaint about
             # coverage that is in fact complete. When every question is answered the
             # sentence has to name what is actually outstanding.
-            _answered = _ready.get("answered", 0)
-            _required = _ready.get("required", 5)
-            if _answered >= _required:
-                _coverage_clause = (
-                    f"all {_required}/{_required} decision-critical questions are answered, "
-                    "but the evidence behind them does not yet meet the reliance bar"
-                )
-            else:
-                _coverage_clause = (
-                    f"only {_answered}/{_required} decision-critical questions are answered "
-                    f"({_ready.get('completion_pct', 0)}%)"
-                )
+            # R-F3050 — shared helper; the second BLUF writer uses the same one.
             report.bottom_line = (
                 f"🟡 NOT CLEARED — {name} has no blocking risk in the checks that completed, "
-                f"but {_coverage_clause}. {_blocker_text}. "
+                f"but {_coverage_clause(_ready)}. {_blocker_text}. "
                 "This is not a clean bill and the standard contracting path is NOT available."
             )
             report.recommendation = (
@@ -9872,6 +9861,28 @@ async def _sync_report_surfaces_after_followup(body: dict, run_id: str) -> None:
         logger.debug("[R-F2794] index risk sync failed (non-fatal): %s", _e)
 
 
+def _coverage_clause(readiness: dict) -> str:
+    """R-F3050 (completes R-F3039) — ONE wording for decision-critical coverage.
+
+    R-F3039 fixed the "but only 5/5 … (100%)" contradiction in `_assemble_bluf`.
+    The live PDF of dd_f4a7635c6efa printed it anyway, because a SECOND site —
+    `_refresh_persisted_decision_readiness`, which rewrites the BLUF after the
+    adverse-media follow-up merges — carried its own copy of the sentence. That
+    follow-up is exactly what moves a report from 4/5 to 5/5, so the one path that
+    could produce "only 5/5" was the one still unfixed.
+
+    This is the third time in this campaign that a fix reached one of two writers
+    (R-F3019→R-F3031→R-F3038 for `screened_at`; now R-F3039→R-F3050). The fix is
+    not another copy — it is a single helper both callers must use."""
+    answered = readiness.get("answered", 0) or 0
+    required = readiness.get("required", 5) or 5
+    if answered >= required:
+        return (f"all {required}/{required} decision-critical questions are answered, "
+                "but the evidence behind them does not yet meet the reliance bar")
+    return (f"only {answered}/{required} decision-critical questions are answered "
+            f"({readiness.get('completion_pct', 0)}%)")
+
+
 def _refresh_persisted_decision_readiness(body: dict) -> dict:
     """Refresh readiness and a GREEN report's wording after a follow-up merge.
 
@@ -9917,8 +9928,7 @@ def _refresh_persisted_decision_readiness(body: dict) -> dict:
     blocker_text = "; ".join(blockers[:3]) or "decision-critical coverage incomplete"
     body["bottom_line"] = (
         f"🟡 NOT CLEARED — {name} has no blocking risk in the checks that completed, "
-        f"but only {readiness.get('answered', 0)}/{readiness.get('required', 5)} "
-        f"decision-critical questions are answered ({readiness.get('completion_pct', 0)}%). "
+        f"but {_coverage_clause(readiness)}. "
         f"{blocker_text}. This is not a clean bill and the standard contracting path "
         "is NOT available."
     )
