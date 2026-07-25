@@ -24157,18 +24157,20 @@
       "title": "officer surname parsing + same-person dedup: false family cluster",
       "claimed_at": "2026-07-25T09:29:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "526ded39",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:42:04Z"
     },
     {
       "r_number": "R-F3031",
       "title": "DD sanctions screen carries screened_at (R-F3019 completion)",
       "claimed_at": "2026-07-25T09:32:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "526ded39",
+      "notes": null,
+      "shipped_at": "2026-07-25T09:42:04Z"
     },
     {
       "r_number": "R-F3032",
