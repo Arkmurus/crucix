@@ -440,7 +440,7 @@ def verify_officeholder_premise(p: Premise) -> Premise:
         org = p.entities[2] if len(p.entities) > 2 else ""
         if person and org:
             q = f"{person} {org} officeholder"
-            hits = _kb.search_knowledge(q, max_results=3)
+            hits = _kb.search_fact_records(q, limit=3)
             if hits:
                 p.verdict = "CONFIRMED"
                 p.sources = [
@@ -564,7 +564,7 @@ def verify_programme_premise(p: Premise) -> Premise:
     name = p.entities[0]
     try:
         from . import knowledge as _kb
-        hits = _kb.search_knowledge(name, max_results=3)
+        hits = _kb.search_fact_records(name, limit=3)
         if hits:
             # If knowledge store knows this programme name, it might be
             # real — but still mark CONFIRMED only with moderate

@@ -47,6 +47,7 @@ import { buildHealthSourceBuckets } from './lib/health/sourceBuckets.mjs';      
 import { createLivenessObserver } from './lib/observability/livenessObserver.mjs';  // R-F2860
 import { operatorPageFor, navPagesForRole } from './lib/auth/operatorPages.mjs';  // R-F2785 table + R-F2818 lookup + R-F2822 nav entitlement
 import { classifyDeliveryOutcome, degradedDetail } from './lib/aria/deliveryOutcome.mjs';  // R-F1965
+import { containsAnswerChunk } from './lib/aria_sse_delivery.mjs';  // R-F3075
 import { classifySourceHealth } from './lib/source/healthBuckets.mjs';  // R-F2719
 import { createBillingRouter } from './lib/billing/routes.mjs';
 import { enforceQuota } from './lib/billing/enforce.mjs';  // R-F2765 — per-tier quota enforcement on the web path
@@ -4346,7 +4347,7 @@ app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
-        if (!_sawContent && chunk.indexOf('"type":"chunk"') !== -1) _sawContent = true;
+        if (!_sawContent && containsAnswerChunk(chunk)) _sawContent = true;
         res.write(chunk);
       }
       // Stream finished cleanly — report whether real content was delivered.

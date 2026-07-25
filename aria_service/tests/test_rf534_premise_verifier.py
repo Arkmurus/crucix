@@ -185,7 +185,7 @@ def test_rf534_officeholder_no_knowledge_marked_unverifiable(monkeypatch):
     from aria_service.intel import premise_verifier as pv
 
     import aria_service.intel.knowledge as _kb
-    monkeypatch.setattr(_kb, "search_knowledge", lambda *a, **kw: [])
+    monkeypatch.setattr(_kb, "search_fact_records", lambda *a, **kw: [])
 
     text = "Jane Smith is the CEO of Aurora Defence Limited."
     report = pv.verify_premises(text)
@@ -205,7 +205,7 @@ def test_rf534_officeholder_with_knowledge_marked_confirmed(monkeypatch):
         return [{"id": "fact_42", "text": "Jane Smith CEO Aurora Defence"}]
 
     import aria_service.intel.knowledge as _kb
-    monkeypatch.setattr(_kb, "search_knowledge", _fake_search)
+    monkeypatch.setattr(_kb, "search_fact_records", _fake_search)
 
     text = "Jane Smith is the CEO of Aurora Defence Limited."
     report = pv.verify_premises(text)
@@ -222,7 +222,7 @@ def test_rf534_fabricated_programme_unverifiable(monkeypatch):
     from aria_service.intel import premise_verifier as pv
 
     import aria_service.intel.knowledge as _kb
-    monkeypatch.setattr(_kb, "search_knowledge", lambda *a, **kw: [])
+    monkeypatch.setattr(_kb, "search_fact_records", lambda *a, **kw: [])
 
     text = "Programme Aurora was awarded to Bumblestaff Industries in Q3 2024."
     report = pv.verify_premises(text)

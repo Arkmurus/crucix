@@ -1732,14 +1732,13 @@ def facts_by_tag(tag: str, limit: int = 50) -> list[dict]:
     return matches[: max(1, min(limit, 200))]
 
 
-@fail_wire(module="knowledge", gap_type="engine_failure")
-def search_knowledge(query: str) -> str:
-    """Synchronous search for prompt injection. Returns formatted string."""
+def _rank_knowledge_facts(query: str, limit: int) -> list[dict]:
+    """Return ranked fact records for the shared knowledge search paths."""
     if not _cache:
-        return ""
+        return []
     words = [w.lower() for w in query.split() if len(w) > 2]
     if not words:
-        return ""
+        return []
 
     # R-F939 — reuse the lowercased fact-text cache; clear it when the facts
     # list object is replaced (reload), so removed/renumbered ids don't linger.
@@ -1780,7 +1779,20 @@ def search_knowledge(query: str) -> str:
             scored.append((score, f))
 
     scored.sort(key=lambda x: x[0], reverse=True)
-    if not scored:
+    return [fact for _, fact in scored[: max(1, min(limit, 200))]]
+
+
+@fail_wire(module="knowledge", gap_type="engine_failure")
+def search_fact_records(query: str, limit: int = 10) -> list[dict]:
+    """Return ranked knowledge fact records for programmatic consumers."""
+    return _rank_knowledge_facts(query, limit)
+
+
+@fail_wire(module="knowledge", gap_type="engine_failure")
+def search_knowledge(query: str) -> str:
+    """Synchronous search for prompt injection. Returns formatted string."""
+    top = _rank_knowledge_facts(query, 10)
+    if not top:
         return ""
 
     # Two-tier rendering so rich case-library findings (Serban et al.)
@@ -1790,9 +1802,8 @@ def search_knowledge(query: str) -> str:
     # exposure, and the recommended Arkmurus action. Other facts stay
     # at a 400-char snippet so the context budget is still bounded.
     # Top N is lowered to 10 to compensate for longer case rows.
-    top = scored[:10]
     lines = ["\n[ARIA KNOWLEDGE BASE — verified facts]"]
-    for _, f in top:
+    for f in top:
         src = (f.get("source") or "").lower()
         content = f.get("content") or ""
         if src.startswith("dd_case_library:"):
