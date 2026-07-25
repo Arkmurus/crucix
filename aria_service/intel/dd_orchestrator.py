@@ -1527,6 +1527,19 @@ _LAYER_DEADLINE: "contextvars.ContextVar[float | None]" = contextvars.ContextVar
     "dd_layer_deadline", default=None)
 
 
+def _layer_budget_left(default: float = 0.0) -> float:
+    """R-F3066 — seconds remaining in the current layer's budget.
+
+    Returns `default` when no layer deadline is in scope (direct calls, tests), so a
+    caller that asks for a sub-budget still gets its normal allowance outside a
+    bounded layer. Used to DERIVE a child operation's own wall budget instead of
+    letting it claim a flat constant the layer cannot afford."""
+    dl = _LAYER_DEADLINE.get()
+    if dl is None:
+        return float(default)
+    return max(0.0, dl - time.monotonic() - 1.0)
+
+
 def _subject_is_person(report) -> bool:
     """R-F3063 — True when the DD subject is an INDIVIDUAL.
 
@@ -5664,7 +5677,11 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
     # ── 5b. RAG context ──
     try:
         from . import rag_store
-        rag_ctx = await rag_store.get_rag_context(f"{name}", max_chars=2500)
+        # R-F3066 — was UNBOUNDED. Bounded blocks alone could not keep the layer
+        # inside its budget while blocks like this ran free.
+        rag_ctx = await _bounded_dd_op(
+            rag_store.get_rag_context(f"{name}", max_chars=2500),
+            _OP_T_RAG, report.digital, "RAG context", default="")
         if rag_ctx and rag_ctx.strip():
             report.digital.knowledge_base_hits = [{"query": name, "excerpt": rag_ctx[:1500]}]
             report.digital.meta.subcalls += 1
@@ -5674,7 +5691,10 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
     # ── 5c. Neural associations ──
     try:
         from . import neural_memory
-        neural = await neural_memory.get_neural_context(name)
+        # R-F3066 — was UNBOUNDED (the neural graph can be slow under load).
+        neural = await _bounded_dd_op(
+            neural_memory.get_neural_context(name),
+            _OP_T_KB, report.digital, "neural associations", default="")
         if neural and neural.strip():
             # Pull out first N concept names from the neural block
             for line in neural.split("\n")[:8]:
@@ -5851,15 +5871,40 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                     _llm_budget = _env_float(
                         "ARIA_LINKTREE_LLM_BUDGET_USD", 0.20,
                     )
-                tree = await link_investigator.investigate_link_tree(
-                    seed_url=seed_url,
-                    query_context=name,
-                    max_depth=2,
-                    max_pages=20,
-                    wall_budget_s=90,  # +30s for LLM extraction
-                    cost_budget_usd=_llm_budget,
-                    llm=_llm_for_linktree,
-                )
+                # R-F3066 — the link tree claimed a FLAT 90s wall budget inside a
+                # 180s layer that had already spent ~82s on bounded ops (multi-query
+                # 45 + deep research 37). 82 + 90 > 180, so a deep-mode DD was
+                # arithmetically certain to blow the layer — which is what every
+                # live deep report showed. Its budget is now DERIVED from what the
+                # layer actually has left, and the call is bounded like every other
+                # heavy op so it degrades to a data_gap instead of taking the layer
+                # down with it.
+                # (R-F340 remains in force below: the LLM is passed through with a
+                # cost cap for prose-heavy corporate pages — R-F3066 changes only
+                # the WALL BUDGET, never whether the LLM is supplied.)
+                _lt_budget = _layer_budget_left(default=90.0)
+                tree = None
+                if _lt_budget < 15.0:
+                    report.digital.data_gaps.append(
+                        "link-tree investigation SKIPPED — insufficient layer budget "
+                        "remained. Not attempted, so treat as unchecked, not as clean.")
+                else:
+                    tree = await _bounded_dd_op(link_investigator.investigate_link_tree(
+                        seed_url=seed_url,
+                        query_context=name,
+                        max_depth=2,
+                        max_pages=20,
+                        wall_budget_s=min(90.0, _lt_budget),
+                        cost_budget_usd=_llm_budget,
+                        llm=_llm_for_linktree,
+                    ), min(90.0, _lt_budget) + 5.0, report.digital,
+                        "link-tree investigation", default=None)
+                if tree is None:
+                    # R-F3066 — bounded out or skipped. The consuming block below
+                    # dereferences `tree`, so bail through the enclosing handler
+                    # rather than re-indenting ~200 lines; the data_gap explaining
+                    # WHY was already recorded by _bounded_dd_op / the skip branch.
+                    raise RuntimeError("link-tree investigation not completed within budget")
                 report.digital.web_footprint = dict(report.digital.web_footprint or {})
                 report.digital.web_footprint["link_tree"] = {
                     "tree_id": tree.tree_id,

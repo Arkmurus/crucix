@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3066,
+  "next_available": 3067,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24499,6 +24499,15 @@
       "r_number": "R-F3065",
       "title": "start_profiler is not idempotent: every call leaks a sampler thread (7 observed)",
       "claimed_at": "2026-07-25T13:10:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3066",
+      "title": "digital layer: bound the remaining unbounded blocks and checkpoint the budget",
+      "claimed_at": "2026-07-25T13:13:06Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

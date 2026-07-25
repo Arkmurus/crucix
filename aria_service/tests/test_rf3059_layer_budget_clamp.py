@@ -107,3 +107,47 @@ def test_rf3059_every_bounded_layer_publishes_its_deadline():
     # the digital wrapper is the one that was failing live
     i = src.index("_digital_budget = DEFAULT_LAYER_TIMEOUT_S")
     assert "_LAYER_DEADLINE.set(" in src[i:i + 900]
+
+
+# ── R-F3066 — the blocks that were still UNBOUNDED ─────────────────────────
+def test_rf3066_layer_budget_left_reports_the_remainder():
+    ddo._LAYER_DEADLINE.set(time.monotonic() + 30.0)
+    left = ddo._layer_budget_left()
+    assert 27.0 < left < 30.0
+    ddo._LAYER_DEADLINE.set(time.monotonic() - 5.0)
+    assert ddo._layer_budget_left() == 0.0
+
+
+def test_rf3066_no_deadline_returns_the_callers_default():
+    """Outside a bounded layer (direct calls, tests) a caller keeps its allowance."""
+    ddo._LAYER_DEADLINE.set(None)
+    assert ddo._layer_budget_left(default=90.0) == 90.0
+
+
+def test_rf3066_rag_and_neural_blocks_are_bounded():
+    """LIVE: ops WERE bounded (45s + 37s honoured) yet the layer still overran at
+    180s — because these blocks ran free."""
+    import inspect
+    src = inspect.getsource(ddo)
+    assert '_OP_T_RAG, report.digital, "RAG context"' in src
+    assert '"neural associations"' in src
+
+
+def test_rf3066_link_tree_budget_is_derived_not_flat():
+    """THE deep-mode overrun: the link tree claimed a flat 90s inside a 180s layer
+    that had already spent ~82s (multi-query 45 + deep research 37). 82+90 > 180, so
+    a deep DD was arithmetically certain to blow the layer."""
+    import inspect
+    src = inspect.getsource(ddo)
+    assert "wall_budget_s=min(90.0, _lt_budget)" in src, "must not claim a flat 90s"
+    assert "_lt_budget = _layer_budget_left(default=90.0)" in src
+    assert '"link-tree investigation"' in src, "and it must be bounded like every other op"
+
+
+def test_rf3066_link_tree_skips_honestly_when_there_is_no_budget():
+    import inspect
+    src = inspect.getsource(ddo)
+    i = src.index("_lt_budget = _layer_budget_left")
+    window = src[i:i + 900]
+    assert "if _lt_budget < 15.0:" in window
+    assert "SKIPPED" in window and "unchecked, not as clean" in window
