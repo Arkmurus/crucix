@@ -24375,9 +24375,10 @@
       "title": "remove duplicate sidebar tabs and preserve spacing",
       "claimed_at": "2026-07-25T11:21:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e5c9840f",
+      "notes": null,
+      "shipped_at": "2026-07-25T11:55:39Z"
     },
     {
       "r_number": "R-F3053",
