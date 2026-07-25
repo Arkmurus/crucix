@@ -687,6 +687,24 @@ def _replace_superseded_summary(prior: str, fresh: str) -> str:
     return (fresh.strip() + (" " + tail if tail else "")).strip()
 
 
+def _balance_sheet_basis(accounts_type) -> str:
+    """R-F3041 — state the basis of the solvency read WITHOUT asserting an
+    exemption the filer may not use.
+
+    The small-company exemption (filleted P&L) is real and worth naming when the
+    filing is small/micro/abridged. On a FULL or GROUP filing it is simply false —
+    those accounts do include a P&L; this reader just does not extract it. Saying
+    otherwise misattributes our own scope limit to the company's filing choices."""
+    t = str(accounts_type or "").lower()
+    small = any(k in t for k in ("small", "micro", "abridged", "filleted", "dormant"))
+    base = ("solvency read from the balance sheet only — turnover and profit are not "
+            "extracted by this reader")
+    if small:
+        return (base + ", and are not publicly filed under the small-company exemption "
+                       "for this filing type")
+    return base + " (this is a scope limit of the reader, not of the filing)"
+
+
 def _figures_unavailable_explanation(fig: dict) -> str:
     """R-F3017 — one honest sentence for WHY filed accounts yield no figures.
 
@@ -778,8 +796,14 @@ async def _enrich_with_registry_figures(
             "accounts_type": fig.get("accounts_type"),
             "reasons": verdict["reasons"],
             "source_url": fig.get("source_url"),
-            "basis": ("balance sheet only — P&L (turnover/profit) not publicly filed "
-                      "under the small-company exemption"),
+            # R-F3041 — do not cite the small-company exemption on a FULL filer.
+            # Live on dd_71553f511d72 (Supacat, accounts-with-accounts-type-FULL,
+            # net assets £19.97m) the basis line still read "not publicly filed
+            # under the small-company exemption" — an exemption that entity does
+            # not use. The true, filer-agnostic statement is that THIS reader
+            # extracts the balance sheet only; the exemption is named only when
+            # the filing type says it applies.
+            "basis": _balance_sheet_basis(fig.get("accounts_type")),
         }
         # ── R-F3028 — REPLACE the superseded narrative, do not append to it ──
         #
@@ -801,8 +825,7 @@ async def _enrich_with_registry_figures(
             f"Companies House filed accounts (made up to "
             f"{fig.get('made_up_to') or 'an unstated date'}): "
             + "; ".join(verdict["reasons"])
-            + ". Solvency read from the balance sheet only — turnover/profit are not "
-              "publicly filed under the small-company exemption.",
+            + ". " + _balance_sheet_basis(fig.get("accounts_type")).capitalize() + ".",
         )
         result["source"] = "companies_house_accounts"
         result["reason"] = ("solvency assessed from Companies House filed iXBRL "

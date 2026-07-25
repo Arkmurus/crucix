@@ -3439,6 +3439,14 @@ async def _run_identity(
                 name, _ofsi_e,
             )
 
+        # R-F3038 — completes R-F3019/R-F3031. There are TWO places that assign
+        # identity.sanctions_screen; R-F3031 stamped only the first. This is the
+        # alias/OFSI path, and it is the one a company DD actually takes — proven
+        # live on dd_71553f511d72 (Supacat): 11 lists screened, `screened_at: None`,
+        # so the report still could not date its own screen. Stamped here too, and
+        # never overwritten if the screen already carries one.
+        if isinstance(screen, dict) and not screen.get("screened_at"):
+            screen["screened_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         report.identity.sanctions_screen = screen
         report.identity.meta.subcalls += 1
 
@@ -4987,15 +4995,74 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
     # site by R-F1895/R-F1903) when no explicit product/goods was supplied — so a
     # URL-only DD of a defence/dual-use entity ("C2 and ISR solutions") still gets
     # an export-control read instead of being skipped. Tagged self-described.
-    product_text = target.get("product_description") or target.get("goods") or (report.identity.declared_activity or "")
-    _ec_from_self_desc = not (target.get("product_description") or target.get("goods")) and bool(report.identity.declared_activity)
+    # R-F3040 — the REGISTRY's own activity code outranks self-description.
+    #
+    # THE DEFECT (live, dd_71553f511d72 — SUPACAT LIMITED, maker of the Jackal and
+    # Coyote high-mobility vehicles for the British Army). The report said
+    # "Export control: civilian or unclassified". Its own identity section carried
+    # `declared_activity: "30400, 30990, 33170, 71129"` — because the GB path sets
+    # declared_activity to the raw SIC CODES — and UK SIC 30400 is, verbatim,
+    # "Manufacture of military fighting vehicles". The classifier was handed bare
+    # DIGITS, found no military words in them, and returned civilian.
+    #
+    # A registry-declared SIC code is a primary-source statement by the company
+    # itself, and it is machine-readable. Expanding it costs nothing and is the
+    # difference between "we classified from the website" and "the register says
+    # this is a military manufacturer".
+    _sic_codes = [c for c in (report.identity.sic_codes or []) if c] \
+        if hasattr(report.identity, "sic_codes") else []
+    if not _sic_codes:
+        _sic_codes = [c.strip() for c in str(report.identity.declared_activity or "").split(",")
+                      if c.strip().isdigit()]
+    _sic_text = _describe_sic_codes(_sic_codes)
+    product_text = (target.get("product_description") or target.get("goods")
+                    or _sic_text or (report.identity.declared_activity or ""))
+    _ec_from_self_desc = (not (target.get("product_description") or target.get("goods"))
+                          and not _sic_text and bool(report.identity.declared_activity))
     if product_text:
         try:
             from . import tech_classifier
             ec = tech_classifier.classify_export_control(product_text)
             if isinstance(ec, dict) and _ec_from_self_desc:
                 ec["basis"] = "classified from the entity's SELF-DESCRIBED activity (website), not a supplied product spec — indicative only"
+            if isinstance(ec, dict) and _sic_text:
+                ec["registry_sic"] = _sic_text          # R-F3040 — show the input
             report.compliance.export_control = ec
+            # R-F3040 — a registry-declared MILITARY activity is stated outright and
+            # NEVER depends on the text classifier agreeing. Without this, a company
+            # whose own SIC code reads "Manufacture of military fighting vehicles"
+            # could still be summarised as "civilian or unclassified" — the single
+            # most misleading sentence a defence-DD product can print.
+            _mil_sics = _military_sic_codes(_sic_codes)
+            if _mil_sics:
+                _rec = str((ec or {}).get("recommendation") or "")
+                _contradiction = ("civilian" in _rec.lower() or "unclassified" in _rec.lower())
+                report.compliance.findings.append(Finding(
+                    severity="amber" if _contradiction else "info",
+                    title=("Registry-declared MILITARY activity: "
+                           + "; ".join(f"SIC {c} — {d}" for c, d in _mil_sics[:3])),
+                    detail=(
+                        "Companies House records this entity's own declared activity under "
+                        + ", ".join(f"SIC {c} ({d})" for c, d in _mil_sics)
+                        + ". This is the company's primary-source declaration to the registrar, "
+                          "not an inference."
+                        + (" It CONTRADICTS the automated export-control read of "
+                           f"'{_rec}', which is derived from free-text activity description and "
+                           "must not be relied on here: treat this entity as in scope for "
+                           "military/dual-use export control until a product-level "
+                           "classification says otherwise."
+                           if _contradiction else
+                           " Export-control scope should be confirmed at product level.")
+                    ),
+                    source="companies_house.sic_codes:R-F3040",
+                    confidence="CONFIRMED",
+                ))
+                if _contradiction:
+                    report.compliance.data_gaps.append(
+                        "Export-control classification says 'civilian or unclassified' while the "
+                        "registry SIC code declares military manufacture — the automated read is "
+                        "NOT reliable for this entity; obtain a product-level classification."
+                    )
             report.compliance.meta.subcalls += 1
             if ec.get("multilateral"):
                 for hit in ec.get("multilateral", []):
@@ -7944,10 +8011,27 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
         if not _ready.get("clearance_ready"):
             _blockers = list(_ready.get("blocking_reasons") or [])
             _blocker_text = "; ".join(_blockers[:3]) or "decision-critical coverage incomplete"
+            # R-F3039 — do not say "only 5/5 … (100%)". Live on dd_71553f511d72
+            # (Supacat) the BLUF read "but only 5/5 decision-critical questions are
+            # answered (100%)" — self-contradictory, and it buries the REAL reason
+            # the file is not cleared (the evidence grade) behind a complaint about
+            # coverage that is in fact complete. When every question is answered the
+            # sentence has to name what is actually outstanding.
+            _answered = _ready.get("answered", 0)
+            _required = _ready.get("required", 5)
+            if _answered >= _required:
+                _coverage_clause = (
+                    f"all {_required}/{_required} decision-critical questions are answered, "
+                    "but the evidence behind them does not yet meet the reliance bar"
+                )
+            else:
+                _coverage_clause = (
+                    f"only {_answered}/{_required} decision-critical questions are answered "
+                    f"({_ready.get('completion_pct', 0)}%)"
+                )
             report.bottom_line = (
                 f"🟡 NOT CLEARED — {name} has no blocking risk in the checks that completed, "
-                f"but only {_ready.get('answered', 0)}/{_ready.get('required', 5)} decision-critical "
-                f"questions are answered ({_ready.get('completion_pct', 0)}%). {_blocker_text}. "
+                f"but {_coverage_clause}. {_blocker_text}. "
                 "This is not a clean bill and the standard contracting path is NOT available."
             )
             report.recommendation = (
@@ -9394,6 +9478,51 @@ _ADVERSE_CONTENT_RE = re.compile(
     r"strike[- ]off|ceased trading|default|arrears|unpaid|winding up petition"
     r")", re.I,
 )
+
+
+# R-F3040 — UK SIC 2007 codes whose OFFICIAL description is itself defence or
+# dual-use. Deliberately a short, defensible list of unambiguous codes rather than
+# a 700-entry dictionary: each entry is the registrar's own wording, so quoting it
+# is a primary-source statement, not an inference. `military=True` marks the codes
+# that describe weapons/military production outright.
+_SIC_DEFENCE_CODES: dict[str, tuple[str, bool]] = {
+    "25400": ("Manufacture of weapons and ammunition", True),
+    "30400": ("Manufacture of military fighting vehicles", True),
+    "84220": ("Defence activities", True),
+    "20510": ("Manufacture of explosives", True),
+    "25110": ("Manufacture of metal structures and parts of structures", False),
+    "30300": ("Manufacture of air and spacecraft and related machinery", False),
+    "30110": ("Building of ships and floating structures", False),
+    "26511": ("Manufacture of electronic measuring, testing etc. equipment", False),
+    "26512": ("Manufacture of electronic industrial process control equipment", False),
+    "26300": ("Manufacture of communication equipment", False),
+    "26200": ("Manufacture of computers and peripheral equipment", False),
+    "72190": ("Other research and experimental development on natural sciences "
+              "and engineering", False),
+    "33170": ("Repair and maintenance of other transport equipment", False),
+    "30990": ("Manufacture of other transport equipment n.e.c.", False),
+}
+
+
+def _describe_sic_codes(codes) -> str:
+    """R-F3040 — expand registry SIC codes into their official descriptions.
+
+    Returns "" when no code is recognised, so the caller falls back to whatever it
+    used before — an unknown code must never be silently described as something.
+    Module-level and pure, so the mapping is directly testable."""
+    out: list[str] = []
+    for c in (codes or []):
+        desc = _SIC_DEFENCE_CODES.get(str(c).strip())
+        if desc:
+            out.append(f"SIC {c}: {desc[0]}")
+    return "; ".join(out)
+
+
+def _military_sic_codes(codes) -> list[tuple[str, str]]:
+    """R-F3040 — the subset whose OFFICIAL description is military on its face."""
+    return [(str(c).strip(), _SIC_DEFENCE_CODES[str(c).strip()][0])
+            for c in (codes or [])
+            if str(c).strip() in _SIC_DEFENCE_CODES and _SIC_DEFENCE_CODES[str(c).strip()][1]]
 
 
 def _recent_name_changes(previous_names, *, within_days: int = 365) -> list[dict]:

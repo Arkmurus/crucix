@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3037,
+  "next_available": 3043,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24212,6 +24212,60 @@
       "r_number": "R-F3036",
       "title": "Provider-health proprioception: all-providers-failed streak must reach the brain and the operator",
       "claimed_at": "2026-07-25T09:34:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3037",
+      "title": "legal-person PSCs (state/statutory controllers) must not be dropped from control edges",
+      "claimed_at": "2026-07-25T09:49:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3038",
+      "title": "DD screen: screened_at on the second (alias/OFSI) screen path",
+      "claimed_at": "2026-07-25T09:58:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3039",
+      "title": "BLUF coherence: 'only 5/5 (100%)' when every question is answered",
+      "claimed_at": "2026-07-25T09:58:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3040",
+      "title": "export control must read the registry SIC code, not only self-described activity",
+      "claimed_at": "2026-07-25T09:58:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3041",
+      "title": "balance-sheet basis must not cite the small-company exemption on full accounts",
+      "claimed_at": "2026-07-25T09:58:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3042",
+      "title": "ARIA services forensic health audit",
+      "claimed_at": "2026-07-25T10:04:39Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

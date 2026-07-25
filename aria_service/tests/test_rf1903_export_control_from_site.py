@@ -33,9 +33,29 @@ def test_identity_seeds_declared_activity_from_site():
 
 def test_compliance_export_control_falls_back_to_declared_activity():
     src = inspect.getsource(dd._run_compliance)
-    # product_text now falls back to declared_activity...
+    # product_text still falls back to declared_activity when nothing was supplied...
     assert "report.identity.declared_activity" in src
-    assert "target.get(\"product_description\") or target.get(\"goods\") or (report.identity.declared_activity" in src
+    # R-F3040 — the fallback CHAIN gained one earlier link: the registry's own SIC
+    # code, expanded to its official description. This assertion used to pin the
+    # exact expression text, which said nothing about behaviour and broke the moment
+    # a better source was added ahead of it. What R-F1903 actually protects is that
+    # declared_activity remains the fallback and that a self-described read is
+    # labelled as such — both still true, and now asserted as such.
+    assert 'target.get("product_description") or target.get("goods")' in src
+    assert "_sic_text or (report.identity.declared_activity" in src, (
+        "declared_activity must remain the last-resort fallback")
     # ...and the result is tagged as self-described / indicative, not authoritative
     assert "_ec_from_self_desc" in src
     assert "SELF-DESCRIBED" in src
+
+
+def test_rf3040_registry_sic_outranks_self_description():
+    """R-F3040 — a registry SIC code is a primary-source declaration by the company
+    to the registrar; the website blurb is not. SIC must be consulted FIRST, and a
+    self-described read must not be labelled self-described when SIC supplied it."""
+    src = inspect.getsource(dd._run_compliance)
+    i = src.index("product_text = (target.get")
+    window = src[i:i + 500]
+    assert "_sic_text" in window
+    assert "and not _sic_text and" in window, (
+        "when SIC supplied the text, the read is registry-derived, not self-described")

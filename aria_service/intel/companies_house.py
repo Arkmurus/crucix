@@ -1074,7 +1074,19 @@ async def investigate_uk_entity(
         ident = p.get("identification") or {}
         regno = str(ident.get("registration_number") or "").strip()
         kind = str(p.get("kind") or "").lower()
-        if "corporate" in kind and not regno:
+        # R-F3037 — a LEGAL-PERSON PSC is a controller too, and the most
+        # consequential kind for a defence DD. Companies House uses
+        # `legal-person-person-with-significant-control` for governments,
+        # statutory bodies and other non-corporate legal entities — verified live
+        # 2026-07-25 on PEARSON ENGINEERING LIMITED (01876136), whose PSC is
+        # "Government Companies Authority, State Of Israel" with NO registration
+        # number. The kind test below was `"corporate" in kind`, so such a
+        # controller matched NEITHER list: not anchored (no regno) and not
+        # un-anchored (not "corporate") — it vanished entirely. Foreign STATE
+        # ownership of a UK defence supplier is precisely the fact a DD exists to
+        # surface, and it was the one shape that could not reach the report.
+        _is_controller_kind = ("corporate" in kind) or ("legal-person" in kind)
+        if _is_controller_kind and not regno:
             controlled_by_unanchored.append({
                 "relationship": "controlled_by",
                 "controller_name": p.get("name"),
@@ -1084,10 +1096,18 @@ async def investigate_uk_entity(
                 "natures_of_control": p.get("natures_of_control", []),
                 "anchor": "none — Companies House supplied no registration number",
                 "grade": "B",
-                "note": ("Corporate controller disclosed by the subject's own PSC filing. "
-                         "NOT resolved to a registry entity: Companies House carries no "
-                         "registration number for it, and resolving the name against the "
-                         "register would be a name match, not an identification."),
+                # R-F3037 — say WHICH kind. "Corporate controller" would misdescribe a
+                # state/statutory body, and for a defence subject that distinction is
+                # the whole point of the line.
+                "controller_kind": ("legal-person" if "legal-person" in kind else "corporate"),
+                "note": (
+                    ("State / statutory (legal-person) controller"
+                     if "legal-person" in kind else "Corporate controller")
+                    + " disclosed by the subject's own PSC filing. NOT resolved to a "
+                      "registry entity: Companies House carries no registration number "
+                      "for it, and resolving the name against the register would be a "
+                      "name match, not an identification."
+                ),
             })
         if regno and "corporate" in kind:
             controlled_by.append({

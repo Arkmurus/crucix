@@ -160,7 +160,10 @@ def test_rf3027_corporate_psc_without_a_regno_is_carried_not_dropped():
     import inspect
     from aria_service.intel import companies_house as ch
     src = inspect.getsource(ch.investigate_uk_entity)
-    assert 'if "corporate" in kind and not regno:' in src
+    # R-F3037 widened the kind test from corporate-only to include legal-person
+    # controllers (state / statutory bodies), which were falling through BOTH lists.
+    assert '_is_controller_kind = ("corporate" in kind) or ("legal-person" in kind)' in src
+    assert "if _is_controller_kind and not regno:" in src
     assert '"controlled_by_unanchored"' in inspect.getsource(ch)
 
 

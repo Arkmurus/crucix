@@ -153,3 +153,36 @@ def test_rf3031_renderer_prints_a_date_when_one_is_present():
     assert "Sanctions lists screened: 2" in joined
     assert "2026-07-25" in joined
     assert "screening date not recorded" not in joined
+
+
+# ── R-F3037 — a legal-person (state/statutory) controller must not vanish ───
+def test_rf3037_legal_person_psc_is_carried_as_an_unanchored_controller():
+    """LIVE-VERIFIED shape (PEARSON ENGINEERING LIMITED 01876136, 2026-07-25):
+
+        kind:  legal-person-person-with-significant-control
+        name:  Government Companies Authority, State Of Israel
+        identification: {legal_form: Government Authority, legal_authority: Israel}
+        natures: ownership-of-shares-75-to-100-percent, voting-rights-75-to-100-percent,
+                 right-to-appoint-and-remove-directors
+
+    The kind test was `"corporate" in kind`, so this matched NEITHER list — not
+    anchored (no registration number) and not un-anchored (not "corporate"). A
+    foreign STATE holding 75-100% of a UK defence supplier reached no surface at
+    all, which is the single most consequential ownership fact a defence DD exists
+    to report."""
+    import inspect
+    from aria_service.intel import companies_house as ch
+    src = inspect.getsource(ch.investigate_uk_entity)
+    assert '_is_controller_kind = ("corporate" in kind) or ("legal-person" in kind)' in src
+    assert "if _is_controller_kind and not regno:" in src
+    # the Grade-A anchored edge stays corporate-only (a state body has no regno)
+    assert 'if regno and "corporate" in kind:' in src
+
+
+def test_rf3037_controller_kind_is_recorded_so_the_wording_cannot_misdescribe_it():
+    import inspect
+    from aria_service.intel import companies_house as ch
+    src = inspect.getsource(ch.investigate_uk_entity)
+    assert '"controller_kind"' in src
+    assert "State / statutory (legal-person) controller" in src, (
+        "calling a government authority a 'corporate controller' misdescribes it")
