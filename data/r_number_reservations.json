@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3087,
+  "next_available": 3088,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24716,6 +24716,15 @@
       "commit_sha": "4ca72f53",
       "notes": null,
       "shipped_at": "2026-07-25T19:28:22Z"
+    },
+    {
+      "r_number": "R-F3087",
+      "title": "bulletproof DD Brave and Claude routing",
+      "claimed_at": "2026-07-25T22:00:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

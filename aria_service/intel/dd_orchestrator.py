@@ -10306,10 +10306,13 @@ async def _run_adverse_media_followup(
     # unset → SearXNG-only → the partial/timeout this whole thread is fixing. Set
     # Brave-primary explicitly here so the deep adverse-media search leads with the
     # reliable backend regardless of how it was launched (normal or reconciled).
+    _followup_brave_token = None
+    _followup_brave_module = None
     if (os.getenv("ARIA_DD_BRAVE_PRIMARY", "1") or "1").strip().lower() not in ("0", "false", "no"):
         try:
             from . import web_search as _ws_brave
-            _ws_brave.enable_brave_for_scope(True)
+            _followup_brave_module = _ws_brave
+            _followup_brave_token = _ws_brave.enable_brave_for_scope(True)
         except Exception:
             pass
     _budget = float(_env_int("ARIA_DD_ADVERSE_FOLLOWUP_S", 180))
@@ -10341,6 +10344,12 @@ async def _run_adverse_media_followup(
             "framework_version": "R-F2657 async follow-up",
             "trigger": trigger_reason,
         }
+    finally:
+        if _followup_brave_token is not None and _followup_brave_module is not None:
+            try:
+                _followup_brave_module.reset_brave_scope(_followup_brave_token)
+            except Exception:
+                pass
     # ── R-F3067 — STAMP AN EXPLICIT TERMINAL STATUS ─────────────────────────
     #
     # THE DEFECT. `adverse_media.status` was reported as stuck at "in_progress"
@@ -10548,6 +10557,25 @@ def _dd_inflight_dec() -> None:
     _INFLIGHT_DDS = max(0, _INFLIGHT_DDS - 1)
 
 
+def _resolve_dd_llm(llm: Any) -> Any:
+    """Return the injected LLM or the live application provider.
+
+    R-F3087: non-HTTP DD callers (trigger reconciliation and orphan recovery)
+    legitimately have no Request object, so they previously passed ``llm=None``.
+    The Anthropic context preference was still set, but there was no provider to
+    route and every Claude-backed DD layer silently skipped.  Resolve the single
+    application provider here, at the choke point shared by every trigger path.
+    """
+    if llm is not None:
+        return llm
+    try:
+        from ..main import app as _app
+        return getattr(getattr(_app, "state", None), "llm_provider", None)
+    except Exception as exc:
+        logger.warning("[R-F3087] DD could not resolve the live LLM provider: %s", exc)
+        return None
+
+
 async def orchestrate_dd(
     target: dict,
     *,
@@ -10593,10 +10621,13 @@ async def orchestrate_dd(
     # through — so the guarantee cannot be bypassed by a new caller. DD is the USP
     # and is not high-volume, so the Brave cost is bounded and the $/day cap still
     # applies. Flip ARIA_DD_BRAVE_PRIMARY=0 to fall back to the free stack.
+    _dd_brave_token = None
+    _dd_brave_module = None
     if (os.getenv("ARIA_DD_BRAVE_PRIMARY", "1") or "1").strip().lower() not in ("0", "false", "no"):
         try:
             from . import web_search as _ws_brave
-            _ws_brave.enable_brave_for_scope(True)
+            _dd_brave_module = _ws_brave
+            _dd_brave_token = _ws_brave.enable_brave_for_scope(True)
         except Exception:
             pass
 
@@ -10641,6 +10672,10 @@ async def orchestrate_dd(
     )
     hard = budget + float(_env_int("ARIA_DD_HARD_MARGIN_S", 150))
     holder: dict = {}
+    # R-F3087 — background/recovery callers do not have a Request from which to
+    # inject app.state.llm_provider. Resolve it centrally so the Anthropic scope
+    # below controls a real provider chain on every production trigger path.
+    llm = _resolve_dd_llm(llm)
     # R-F1855: keep the interactive-yield window alive for the whole DD so the
     # existing _interactive_active()-gated background work stays deferred and the
     # DD wins the event loop (cancelled in finally; bounded by the hard deadline).
@@ -10776,6 +10811,14 @@ async def orchestrate_dd(
         if _dd_ctx_token is not None:
             try:
                 _fb2917._preferred_provider.reset(_dd_ctx_token)
+            except Exception:
+                pass
+        # R-F3087 — restore the caller's Brave state just like the Claude
+        # preference. This prevents one autonomous DD from routing unrelated
+        # later searches in the same task through the paid API.
+        if _dd_brave_token is not None and _dd_brave_module is not None:
+            try:
+                _dd_brave_module.reset_brave_scope(_dd_brave_token)
             except Exception:
                 pass
 

@@ -891,12 +891,25 @@ def _brave_scope(fn):
 
     @_ft.wraps(fn)
     async def _wrapped(*args, **kwargs):
+        _brave_token = None
+        _brave_module = None
         try:
             from ..intel import web_search as _ws_brave
-            _ws_brave.enable_brave_for_scope(True)
+            _brave_module = _ws_brave
+            _brave_token = _ws_brave.enable_brave_for_scope(True)
         except Exception:
             pass
-        return await fn(*args, **kwargs)
+        try:
+            return await fn(*args, **kwargs)
+        finally:
+            # R-F3087 — ASGI implementations normally isolate request tasks, but
+            # the paid-backend boundary must not depend on that implementation
+            # detail. Restore the incoming context on success and failure.
+            if _brave_token is not None and _brave_module is not None:
+                try:
+                    _brave_module.reset_brave_scope(_brave_token)
+                except Exception:
+                    pass
 
     return _wrapped
 

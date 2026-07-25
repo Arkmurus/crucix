@@ -148,11 +148,20 @@ _BRAVE_CTX: "_contextvars.ContextVar[bool]" = _contextvars.ContextVar("aria_brav
 _BRAVE_GLOBALLY_OFF = (os.getenv("ARIA_BRAVE_DISABLED") or "").lower() in ("1", "true", "yes")
 
 
-def enable_brave_for_scope(on: bool = True) -> None:
+def enable_brave_for_scope(on: bool = True) -> _contextvars.Token:
     """Enable Brave as the primary search backend for the CURRENT async context and
     everything it awaits/spawns. Call at user-facing entry points (DD / deep-research /
-    chat search). The continuous researcher never calls this → stays on the free stack."""
-    _BRAVE_CTX.set(bool(on))
+    chat search). The continuous researcher never calls this → stays on the free stack.
+
+    R-F3087: return the ContextVar token so long-lived caller tasks can restore their
+    previous state.  Without restoration, an autonomous task that ran one DD kept the
+    paid Brave path enabled for unrelated searches later in the same task."""
+    return _BRAVE_CTX.set(bool(on))
+
+
+def reset_brave_scope(token: _contextvars.Token) -> None:
+    """Restore the Brave context to the value captured by ``enable_brave_for_scope``."""
+    _BRAVE_CTX.reset(token)
 
 
 def brave_is_enabled() -> bool:

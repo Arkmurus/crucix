@@ -516,6 +516,26 @@ class FallbackProvider(LLMProvider):
                         p for p in order if p.name != prefer_provider
                     ]
             else:
+                # R-F3087 — a preference-only provider is a hard contract, not
+                # a best-effort ordering hint.  Before this guard, a DD scoped
+                # to Anthropic silently ran on DeepSeek whenever Anthropic was
+                # absent from the constructed chain.  That is worse than an
+                # honest incomplete DD because the report still looked
+                # Claude-authored.  Ordinary preferences retain the historical
+                # fallback behaviour; the explicit operator escape hatch also
+                # remains available.
+                _missing_pinned = (
+                    (prefer_provider or "").lower() in _pref_only
+                    and os.getenv("ARIA_PREFERRED_MAY_DEGRADE", "").lower()
+                    not in ("1", "true", "yes")
+                )
+                if _missing_pinned:
+                    raise ProviderError(
+                        prefer_provider,
+                        "preferred provider is not configured in the LLM chain",
+                        kind="other",
+                        retryable=False,
+                    )
                 logger.debug(
                     "prefer_provider=%r not in chain %s — using normal order",
                     prefer_provider, [p.name for p in self.providers],
