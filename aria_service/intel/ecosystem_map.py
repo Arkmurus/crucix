@@ -446,6 +446,67 @@ async def get_graph(root: str | None = None, tier: int | None = None) -> dict[st
 _RANK = {"grey": 0, "green": 1, "amber": 2, "red": 3}
 _GREY = {"color": "grey", "sensor": "no live sensor", "value": None}
 
+# R-F3048 — minimum denominator before a delivery success-rate may colour a
+# node. Below this the surface stays grey ("not enough traffic to judge").
+# 5 keeps a single failure from reading as a red organ while still colouring
+# on a genuinely bad run (e.g. 1/10).
+_MIN_OUTCOME_SAMPLES = 5
+
+# R-F3047 — EXPLICIT sensor→organ registry. Keys are the bare backend/agent
+# name with any "prefix:" stripped (so "search:duckduckgo" looks up as
+# "duckduckgo"). A name absent from this map paints NOTHING; see
+# _organ_for_name for why a keyword match is not safe here.
+#
+# Rule of thumb: file a backend under the organ that OWNS the capability it
+# serves, not the organ whose module names happen to share a word. Academic
+# literature APIs serve retrieval, so they belong to search — NOT to brain,
+# however much "semantic_scholar" looks like "semantic_search".
+_SENSOR_ORGAN: dict[str, str] = {
+    # ── retrieval / crawl backends ──
+    "duckduckgo": "search",
+    "searxng": "search",
+    "searxng-selfhost": "search",
+    "google_news": "search",
+    "bing_news": "search",
+    "gnews_api": "search",
+    "brave": "search",
+    "academic": "search",
+    "semantic_scholar": "search",   # academic paper API — NOT the brain
+    "openalex": "search",           # academic graph API — NOT the brain
+    "crossref": "search",
+    "wayback": "search",
+    "archive_is": "search",
+    # ── sanctions / screening sources ──
+    "opensanctions": "sanctions",
+    "ofac": "sanctions",
+    "un_sc": "sanctions",
+    "fcdo": "sanctions",
+    "worldbank_debarred": "sanctions",
+    # ── company registries ──
+    "companies_house": "registries",
+    "sec_edgar": "registries",
+    "ares": "registries",
+    "rpo": "registries",
+    # ── regulators / intel feeds ──
+    "fca_register": "compliance",
+    "worldbank_indicators": "intel_sources",
+    "acled": "intel_sources",
+    "gdelt": "intel_sources",
+    # ── delivery surfaces ──
+    "whatsapp": "delivery",
+    "telegram": "delivery",
+    "web": "delivery",
+    # ── model providers ──
+    "anthropic": "llm",
+    "deepseek": "llm",
+    "deepseek_backup": "llm",
+    "openai": "llm",
+    "groq": "llm",
+    "gemini": "llm",
+    "ollama": "llm",
+    "aria_llm": "llm",
+}
+
 
 async def _gather_signals() -> dict[str, Any]:
     """Fetch all live health signals concurrently; a dead source degrades to {}
@@ -541,8 +602,53 @@ def _build_health_map(signals: dict[str, Any], node_ids: set[str], organ_of: dic
             health[nid] = {"color": color, "sensor": sensor, "value": value, "read_at": read_at}
 
     def _organ_for_name(name: str) -> str | None:
+        """Internal names (agent ids, gap module names) → organ by keyword.
+
+        R-F3047 scopes this back to INTERNAL names only. These are ARIA's own
+        module/agent identifiers, which is exactly what the _ORGANS keyword
+        lists were written against, so substring matching is right here — and
+        the agent/gap tests depend on it (a stale `student_loop` must reach
+        organ:learning, a HIGH gap in `brain_hook` must reach organ:brain).
+        EXTERNAL backends go through _organ_for_backend instead.
+        """
         org = _assign_organ(name.lower())
         return f"organ:{org}" if org else None
+
+    def _organ_for_backend(name: str) -> str | None:
+        """R-F3047 (2026-07-25) — attribute an EXTERNAL BACKEND (circuit-breaker
+        name) to an organ from an EXPLICIT registry, never a keyword substring.
+
+        `_assign_organ` exists to file MODULE PATHS into organs, and substring
+        matching is right for that ("rag_", "brain_hook", "neural"). Reusing it
+        for backend names produced two opposite errors at once, both measured
+        live on 2026-07-25:
+
+          semantic_scholar  -> organ:brain   FALSE POSITIVE. The brain keyword
+              list contains "semantic" (for ARIA's own semantic_search), so an
+              external academic-paper API being RATE-LIMITED painted "Brain &
+              Memory" (56 modules) RED — and that single node was one of the
+              three reds that put the whole ecosystem banner in DEGRADED. The
+              same payload reported the real brain healthy: RAG available,
+              459,634 facts indexed.
+          search:duckduckgo -> None          FALSE NEGATIVE. A genuine search
+          openalex          -> None          backend outage painted nothing.
+
+        Token-matching would not have saved it either: "semantic" IS a token of
+        "semantic_scholar". A backend's organ is a curation decision, not a
+        string coincidence — so it is declared here. An UNKNOWN backend paints
+        NOTHING (stays grey) rather than guessing, which is the same discipline
+        this module already applies to colour: absence of proof is grey, never
+        a claim.
+        """
+        base = name.lower().split(":")[-1].strip()
+        org = _SENSOR_ORGAN.get(base)
+        if org:
+            return f"organ:{org}"
+        logger.debug(
+            "[R-F3047] sensor %r has no _SENSOR_ORGAN entry — painting nothing "
+            "(add it there rather than relying on a keyword match)", name,
+        )
+        return None
 
     def _module_name_matches(name: str, nid: str) -> bool:
         # R-F2980 (F5): match a backend/agent name against the module's BASENAME
@@ -565,7 +671,7 @@ def _build_health_map(signals: dict[str, Any], node_ids: set[str], organ_of: dic
         if color == "grey":
             continue
         val = f"{b.get('state')}" + (f"/{b['last_failure_reason']}" if b.get("last_failure_reason") else "")
-        org = _organ_for_name(name)
+        org = _organ_for_backend(name)   # R-F3047 — explicit registry, not keywords
         if org:
             _apply(org, color, f"circuit_breaker[{name}]", val)
         for nid in node_ids:
@@ -601,13 +707,33 @@ def _build_health_map(signals: dict[str, Any], node_ids: set[str], organ_of: dic
         _apply(tgt, color, f"liveness[{lname}]", f"age {lv.get('age_s')}s, status={lv.get('status')}")
 
     # (4) delivery surfaces → delivery organ (negative only: low success → amber/red)
+    # R-F3048 (2026-07-25) — the guard was `total == 0`, which protects against
+    # NO traffic but not against a sample too small to mean anything. Measured
+    # live: "Delivery & Surfaces" went RED on `outcome[web] success 33% (n=3)`
+    # — one failure in three — and that node was one of the three reds that put
+    # the whole ecosystem banner in DEGRADED. A parallel audit found those three
+    # records were in fact ONE logical interaction (one success plus two
+    # duplicate empty_stream failures), so the true sample was n=1.
+    #
+    # A rate needs enough denominator to be a measurement rather than an
+    # anecdote. Below the floor the surface stays GREY ("not enough traffic to
+    # judge") — the same honest not-measured state this module already uses for
+    # a node with no sensor, rather than a colour the number cannot support.
     surfaces = (signals.get("surfaces") or {}).get("surfaces", {})
     for sname, sh in surfaces.items():
         rate = sh.get("success_rate")
-        if rate is None or (sh.get("total", 0) or 0) == 0:
+        total = int(sh.get("total", 0) or 0)
+        if rate is None or total == 0:
             continue  # no traffic → no proof → leave grey
+        if total < _MIN_OUTCOME_SAMPLES:
+            logger.debug(
+                "[R-F3048] surface %s: n=%d below the %d-sample floor — leaving "
+                "grey (rate %.0f%% is an anecdote, not a measurement)",
+                sname, total, _MIN_OUTCOME_SAMPLES, (rate or 0) * 100,
+            )
+            continue
         color = "green" if rate >= 0.95 else ("amber" if rate >= 0.7 else "red")
-        _apply("organ:delivery", color, f"outcome[{sname}]", f"success {round(rate*100)}% (n={sh.get('total')})")
+        _apply("organ:delivery", color, f"outcome[{sname}]", f"success {round(rate*100)}% (n={total})")
 
     # (5) open gaps → the organ (NEGATIVE only — never turns a node green)
     for g in signals.get("gaps", []):
