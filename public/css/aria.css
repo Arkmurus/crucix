@@ -132,8 +132,8 @@ body.nav-expanded .rail-label { display: block; }
 .rail-link.aria-link.active { color: var(--sc-prime-dark); }
 .rail-link:focus-visible { outline: 2px solid var(--sc-prime); outline-offset: -2px; }
 
-/* top cluster: brand/toggle row + new-chat */
-.rail-top { flex-shrink: 0; padding: 10px 10px 6px; display: flex; flex-direction: column; gap: 3px; }
+/* top cluster: brand/toggle row */
+.rail-top { flex-shrink: 0; padding: 10px 10px 6px; }
 .rail-toprow { display: flex; align-items: center; height: 40px; }
 .rail-logo {
   width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
@@ -160,8 +160,6 @@ body.nav-expanded .rail-name { display: block; }
 body:not(.nav-expanded) .rail-toprow { justify-content: center; }
 body:not(.nav-expanded) .rail-toggle { margin: 0; }
 
-.rail-new > i { color: var(--sc-prime); }
-
 /* scrolling nav — R-F2379: balanced rhythm that fits all items; a thin visible
    scrollbar means nothing is ever "missing" when the list overflows a short screen. */
 /* R-F2381 — flat list, no section headers → one uniform even gap everywhere */
@@ -176,7 +174,7 @@ body:not(.nav-expanded) .rail-toggle { margin: 0; }
   height: 0; opacity: 0; padding: 0 12px; transition: opacity 0.15s;
 }
 body.nav-expanded .rail-section { height: auto; opacity: 1; padding: 20px 12px 7px; }
-/* first section sits right under "New chat" — trim its top padding */
+/* first section sits directly under the brand row — trim its top padding */
 body.nav-expanded .rail-nav > .rail-section:first-child { padding-top: 6px; }
 .rail-divider { height: 1px; background: var(--sc-border); margin: 10px 10px; }
 body.nav-expanded .rail-divider { display: none; }   /* section labels replace dividers when expanded */
