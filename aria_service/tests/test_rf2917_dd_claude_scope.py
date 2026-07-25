@@ -91,8 +91,21 @@ class TestDDScopeRoutesToClaude:
             _run(chain.complete("s", "u"))
         assert ds.served == 1
 
-    def test_a_failing_claude_degrades_to_deepseek(self):
-        """A DD must never DIE because Anthropic is rate-limited — it degrades."""
+    def test_a_failing_claude_does_NOT_degrade_to_deepseek(self):
+        """SUPERSEDED BY R-F3034 (operator directive 2026-07-25): "DD reports
+        are to be ran fully on Claude no deepseek, and deepseek is for
+        everything else."
+
+        This previously asserted the opposite — that a rate-limited Claude
+        degrades the DD to DeepSeek so the run never dies. That trades the
+        wrong way for this product: the DD line's guarantee is
+        never-false-clean, the DD path is deliberately deterministic because
+        DeepSeek fabricates grounding (R-F2779/R-F2780), and the orchestrator
+        already renders an honest "INSUFFICIENT EVIDENCE / AMBER-LIGHT" when
+        synthesis fails, keeping every deterministic layer. An honest
+        incomplete report beats a DeepSeek-authored verdict wearing a
+        Claude-grade badge.
+        """
         ds, an = _P("deepseek"), _P("anthropic")
 
         async def _boom(*a, **k):
@@ -101,9 +114,12 @@ class TestDDScopeRoutesToClaude:
         an.complete = _boom
         chain = FallbackProvider([ds, an])
         with provider_scope("anthropic"):
-            out = _run(chain.complete("s", "u"))
-        assert ds.served == 1, "DD did not degrade to DeepSeek"
-        assert "deepseek" in out.text
+            with pytest.raises(Exception):
+                _run(chain.complete("s", "u"))
+        assert ds.served == 0, (
+            "a Claude-pinned (DD) call was served by DeepSeek — R-F3034 "
+            "violated and the DD verdict would carry DeepSeek-generated content"
+        )
 
 
 class TestNesting:
@@ -209,8 +225,10 @@ class TestClaudeIsDDOnly:
             _run(chain.complete("s", "u"))
         assert an.served == 1 and ds.served == 0
 
-    def test_dd_still_degrades_to_deepseek_when_claude_fails(self):
-        """A DD must never DIE because Claude is rate-limited."""
+    def test_dd_does_NOT_degrade_to_deepseek_when_claude_fails(self):
+        """SUPERSEDED BY R-F3034 — see the note on the sibling test above.
+        A Claude-pinned DD now fails honestly rather than being served by
+        DeepSeek; the orchestrator turns that into INSUFFICIENT EVIDENCE."""
         ds, an = _P("deepseek"), _P("anthropic")
 
         async def _boom(*a, **k):
@@ -219,8 +237,9 @@ class TestClaudeIsDDOnly:
         an.complete = _boom
         chain = FallbackProvider([ds, an])
         with provider_scope("anthropic"):
-            out = _run(chain.complete("s", "u"))
-        assert ds.served == 1 and "deepseek" in out.text
+            with pytest.raises(Exception):
+                _run(chain.complete("s", "u"))
+        assert ds.served == 0
 
     def test_the_mechanism_is_env_disableable(self, monkeypatch):
         monkeypatch.setenv("ARIA_PREFERENCE_ONLY_PROVIDERS", "")
@@ -316,14 +335,29 @@ class TestModelForwardGuard:
     and cooled down, starving the DD's other DeepSeek layers."""
 
     def test_claude_id_reaches_anthropic_only(self):
-        ds, an = _ModelCapturingP("deepseek"), _ModelCapturingP("anthropic")
-        an.fail = True  # force degrade to DeepSeek
-        chain = FallbackProvider([an, ds])
+        """R-F3034 split this into the two scenarios that now exist.
+
+        Previously one call covered both halves: a PINNED call whose Claude
+        failed degraded to DeepSeek, so a single run proved "anthropic got the
+        id" AND "deepseek did not". A pinned call no longer degrades, and an
+        unpinned call never reaches anthropic at all (R-F2922 keeps it out of
+        the default order) — so each half needs its own scenario.
+        """
+        # (a) PINNED — anthropic serves and must receive the routed id.
+        an = _ModelCapturingP("anthropic")
+        ds = _ModelCapturingP("deepseek")
         with provider_scope("anthropic"):
-            _run(chain.complete("s", "u", model="claude-opus-4-8"))
+            _run(FallbackProvider([an, ds]).complete(
+                "s", "u", model="claude-opus-4-8"))
         assert an.seen_model == "claude-opus-4-8", "anthropic must get the routed id"
-        assert ds.seen_model in (None, ""), (
-            f"DeepSeek was handed a claude id: {ds.seen_model!r}")
+
+        # (b) UNPINNED — anthropic is preference-only so DeepSeek serves, and
+        # it must NEVER be handed a claude id (it would 400).
+        ds2 = _ModelCapturingP("deepseek")
+        _run(FallbackProvider([_ModelCapturingP("anthropic"), ds2]).complete(
+            "s", "u", model="claude-opus-4-8"))
+        assert ds2.seen_model in (None, "", "UNSET"), (
+            f"DeepSeek was handed a claude id: {ds2.seen_model!r}")
 
     def test_a_deepseek_model_id_still_forwards_to_deepseek(self):
         """The guard must be claude-specific, not block all routing."""

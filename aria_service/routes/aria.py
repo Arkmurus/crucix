@@ -25089,7 +25089,17 @@ async def health_check_ep():
     ecosystem_health_error: str | None = None
     try:
         from ..intel import ecosystem_map as _ecosystem_map
-        _ecosystem_coverage = await _ecosystem_map.get_coverage()
+        # R-F3057 — never block /health on a COLD ecosystem build. The first
+        # call after every deploy re-parses every module (~5.8s), which blew
+        # the brain dashboard's 8s per-panel budget; the panel was dropped and
+        # public/aria-brain.html rendered `ECOSYSTEM: UNKNOWN`. Take the cached
+        # value, else report not-measured while a background build warms it.
+        _ecosystem_coverage = await _ecosystem_map.get_coverage_nonblocking()
+        if _ecosystem_coverage is None:
+            raise RuntimeError(
+                "ecosystem coverage not measured yet (cold cache; background "
+                "build in flight) — unknown, NOT healthy"
+            )
         _health_sensors = _ecosystem_coverage.get("health_sensors") or {}
         _health_colors = _health_sensors.get("by_color") or {}
         ecosystem_health = {

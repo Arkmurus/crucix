@@ -9173,6 +9173,50 @@ async def _record_source_reliability(report: "ARKDDReport") -> int:
     return recorded
 
 
+# R-F3056 — `layers_run` records the layer's RUN NAME, which is not always the
+# attribute the result is stored under. Only genuine aliases belong here.
+_DD_LAYER_ATTR_ALIAS: dict[str, str] = {
+    "sweep_intelligence": "sweep_data",
+}
+
+
+def _dd_layer_state(report: "ARKDDReport", layer_name: str) -> str:
+    """R-F3056 — one layer's honest state: 'ok' | 'error' | 'unobservable'.
+
+    Three shapes exist in a report and the old counter only understood the
+    first, silently scoring the other two as failures:
+      1. a section object / dict carrying `meta.status`  (identity, digital, …)
+      2. a PLAIN DICT with no meta at all               (counter_intelligence,
+                                                          sanctions_divergence)
+      3. no stored attribute whatsoever                 (forensic,
+                                                          deterministic_primitives)
+
+    Shape 3 is 'unobservable' — the layer ran but left nothing to inspect, so
+    it is neither proof of success nor evidence of failure, and calling it an
+    error is a fabricated negative. Shape 2 produced a payload, so it counts as
+    ok unless it carries an explicit `ok: False`.
+    """
+    attr = _DD_LAYER_ATTR_ALIAS.get(layer_name, layer_name)
+    value = getattr(report, attr, None)
+    if value is None:
+        return "unobservable"
+
+    meta = getattr(value, "meta", None)
+    if meta is None and isinstance(value, dict):
+        meta = value.get("meta")
+
+    if meta is None:
+        # Shape 2 — a payload with no meta. Honour an explicit failure marker.
+        if isinstance(value, dict) and value.get("ok") is False:
+            return "error"
+        return "ok"
+
+    status = getattr(meta, "status", None)
+    if status is None and isinstance(meta, dict):
+        status = meta.get("status")
+    return "error" if status in ("error", "timeout") else "ok"
+
+
 async def _finalize_dd_run(report: "ARKDDReport", hard_deadline_hit: bool = False) -> None:
     """Centralized DD run finalizer — wires success/failure to brain and records layer stats.
 
@@ -9194,14 +9238,38 @@ async def _finalize_dd_run(report: "ARKDDReport", hard_deadline_hit: bool = Fals
         from .engine_wiring import wire_success, wire_failure
         from . import redis_store as _rs
 
-        # Compute per-layer completion stats
+        # Compute per-layer completion stats.
+        #
+        # R-F3056 (2026-07-25) — this counted `layers_total - layers_ok` as
+        # ERRORED, and `layers_ok` required the layer to be an object carrying
+        # `.meta.status`. Five of the twelve layers can never satisfy that:
+        #   sweep_intelligence        the attribute is `sweep_data` (name alias)
+        #   forensic                  no result attribute is ever stored
+        #   deterministic_primitives  no result attribute is ever stored
+        #   counter_intelligence      a PLAIN DICT — has no `.meta`
+        #   sanctions_divergence      a PLAIN DICT — has no `.meta`
+        # so `layers_errored >= 5` on every run, `all_layers_ok` could never be
+        # true, and EVERY DD wired a failure. Live proof (Rheinmetall
+        # dd_75bc5a5a7e7c): layers_total=12, layers_ok=6, "6 layer(s) errored"
+        # — while exactly ONE layer had actually failed (digital, timeout 90s).
+        # 19 of 19 dd outcomes in 24h read `error`, which showed on the brain
+        # dashboard as `outcome[dd] success 0% (n=17)` and turned the Delivery
+        # organ RED. A metric that cannot succeed by construction — the mirror
+        # image of R-F3036, where /brain/stats `fail` could never increment.
+        #
+        # A layer now resolves to one of three honest states, and only a real
+        # failure counts against the run. "Ran but stores no observable result"
+        # is reported separately instead of being silently called an error.
         layers_total = len(report.layers_run) + len(report.layers_skipped)
-        layers_ok = sum(
-            1 for layer_name in report.layers_run
-            if getattr(getattr(report, layer_name, None), 'meta', None) is not None
-            and getattr(report, layer_name).meta.status not in ('error', 'timeout')
+        _layer_states = {
+            name: _dd_layer_state(report, name) for name in report.layers_run
+        }
+        layers_ok = sum(1 for s in _layer_states.values() if s == 'ok')
+        layers_errored = sum(1 for s in _layer_states.values() if s == 'error')
+        layers_unobservable = sum(
+            1 for s in _layer_states.values() if s == 'unobservable'
         )
-        layers_errored = layers_total - layers_ok
+        _errored_names = sorted(n for n, s in _layer_states.items() if s == 'error')
         data_gaps = len(getattr(report, 'data_gaps_summary', []))
 
         # Determine overall success
@@ -9225,10 +9293,19 @@ async def _finalize_dd_run(report: "ARKDDReport", hard_deadline_hit: bool = Fals
                 source_id=f'dd_orchestrator:run:{getattr(report, "trace_id", "none")}',
             )
         else:
-            reason = 'hard deadline' if hard_deadline_hit else f'{layers_errored} layer(s) errored'
+            # R-F3056 — name the layers that actually failed. "6 layer(s)
+            # errored" sent the operator hunting for six broken layers when one
+            # had failed; a reason that cannot be checked is not a reason.
+            reason = (
+                'hard deadline' if hard_deadline_hit
+                else f'{layers_errored} layer(s) errored: {", ".join(_errored_names)}'
+            )
+            _unobs = (f', {layers_unobservable} unobservable'
+                      if layers_unobservable else '')
             wire_failure(
                 module='dd_orchestrator',
-                detail=f'DD incomplete for {entity_name}: {reason} ({layers_ok}/{layers_total} layers ok)',
+                detail=(f'DD incomplete for {entity_name}: {reason} '
+                        f'({layers_ok}/{layers_total} layers ok{_unobs})'),
                 gap_type='dd_layer_failure',
                 source=f'dd_orchestrator:run:{getattr(report, "trace_id", "none")}',
             )

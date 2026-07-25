@@ -446,6 +446,11 @@ async def get_graph(root: str | None = None, tier: int | None = None) -> dict[st
 _RANK = {"grey": 0, "green": 1, "amber": 2, "red": 3}
 _GREY = {"color": "grey", "sensor": "no live sensor", "value": None}
 
+# R-F3057 — strong refs to the background coverage build so it is never
+# garbage-collected mid-flight (the R-F1776 fire-and-forget discipline).
+_COVERAGE_TASK: "asyncio.Task | None" = None
+_COVERAGE_TASKS: set = set()
+
 # R-F3048 — minimum denominator before a delivery success-rate may colour a
 # node. Below this the surface stays grey ("not enough traffic to judge").
 # 5 keeps a single failure from reading as a red organ while still colouring
@@ -890,6 +895,55 @@ async def get_node(node_id: str) -> dict[str, Any]:
         detail["function_count"] = len(fns)
         detail["wired_functions"] = sum(1 for f in fns if f["wired"])
     return detail
+
+
+async def get_coverage_nonblocking(max_wait_s: float = 2.5) -> dict[str, Any] | None:
+    """R-F3057 (2026-07-25) — coverage for callers that must NOT block.
+
+    `get_coverage()` awaits `build_structure()`, which re-parses every module
+    when the file fingerprint changes — i.e. on the FIRST call after every
+    deploy. Measured `build_ms=5823`. `/api/aria/health` awaited it inline, so
+    that first call blew the brain dashboard's 8s per-panel budget, the panel
+    was dropped from the aggregate, and `public/aria-brain.html` rendered
+    `ECOSYSTEM: UNKNOWN` (`d.status?.toUpperCase() || 'UNKNOWN'`) — a blank
+    banner on the operator's main surface purely because the cache was cold.
+
+    Returns the coverage when it is already cached (or completes within
+    `max_wait_s`), else None — having STARTED a background rebuild so the next
+    caller is warm. The build task is held in a module-level set so it is never
+    garbage-collected mid-flight, and it is never cancelled: `asyncio.wait_for`
+    CANCELS its awaitable, which would throw away a 6-second parse and leave
+    the cache cold forever, so the wait is done on a SHIELDED future.
+
+    None means "not measured yet", which the caller must report as unknown —
+    never as healthy. That is the same discipline this module applies to
+    colour: absence of proof is grey, never green.
+
+    Only a TIMEOUT yields None. A real exception PROPAGATES, because the
+    caller's job is to report the actual reason: R-F2988 exists so /health
+    surfaces "RuntimeError: sensor store unavailable" rather than a generic
+    message, and swallowing it here would destroy that diagnostic.
+    """
+    global _COVERAGE_TASK
+    if _CACHE.get("data") is not None:
+        # Structure is cached; the remaining work is cheap signal-gathering.
+        try:
+            return await asyncio.wait_for(asyncio.shield(get_coverage()), max_wait_s)
+        except asyncio.TimeoutError:
+            return None
+
+    if _COVERAGE_TASK is None or _COVERAGE_TASK.done():
+        _COVERAGE_TASK = asyncio.create_task(get_coverage())
+        _COVERAGE_TASKS.add(_COVERAGE_TASK)
+        _COVERAGE_TASK.add_done_callback(_COVERAGE_TASKS.discard)
+        logger.info(
+            "[R-F3057] ecosystem coverage cold — started a background build; "
+            "callers get 'not measured yet' until it lands"
+        )
+    try:
+        return await asyncio.wait_for(asyncio.shield(_COVERAGE_TASK), max_wait_s)
+    except asyncio.TimeoutError:
+        return None
 
 
 async def get_coverage() -> dict[str, Any]:
