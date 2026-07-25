@@ -140,14 +140,38 @@ def test_rf3066_link_tree_budget_is_derived_not_flat():
     import inspect
     src = inspect.getsource(ddo)
     assert "wall_budget_s=min(90.0, _lt_budget)" in src, "must not claim a flat 90s"
-    assert "_lt_budget = _layer_budget_left(default=90.0)" in src
+    assert "_lt_budget = min(90.0, _layer_budget_left(default=90.0) * 0.6)" in src, (
+        "a trailing op must take at most a FRACTION of the remainder, or it starves "
+        "every block after it — which is how the 90s person path still overran")
     assert '"link-tree investigation"' in src, "and it must be bounded like every other op"
 
 
 def test_rf3066_link_tree_skips_honestly_when_there_is_no_budget():
     import inspect
     src = inspect.getsource(ddo)
-    i = src.index("_lt_budget = _layer_budget_left")
+    i = src.index("_lt_budget = min(90.0, _layer_budget_left")
     window = src[i:i + 900]
     assert "if _lt_budget < 15.0:" in window
     assert "SKIPPED" in window and "unchecked, not as clean" in window
+
+
+def test_rf3066_a_real_tail_is_reserved_for_the_layers_own_work():
+    """With a 1s tail the last op could return at the wall and the layer still
+    overran on its own post-op work (press processing, tiering, wiring)."""
+    assert ddo._LAYER_TAIL_S >= 5.0
+    import inspect
+    assert "_dl - time.monotonic() - _LAYER_TAIL_S" in inspect.getsource(ddo._bounded_dd_op)
+
+
+def test_rf3066_the_last_op_cannot_consume_the_whole_remainder():
+    async def go():
+        layer = _layer()
+        ddo._LAYER_DEADLINE.set(time.monotonic() + 30.0)
+        # an op asking for far more than remains is clamped BELOW the remainder
+        import asyncio as _a
+        async def slow():
+            await _a.sleep(60)
+        t0 = time.time()
+        await ddo._bounded_dd_op(slow(), 90.0, layer, "greedy op", default=None)
+        assert time.time() - t0 < 30.0 - ddo._LAYER_TAIL_S + 3
+    asyncio.run(go())

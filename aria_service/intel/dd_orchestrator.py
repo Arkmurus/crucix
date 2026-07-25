@@ -1519,6 +1519,9 @@ _OP_T_WEBSITE_MINE  = _env_float("ARIA_DD_OP_T_WEBSITE_MINE_S", 30.0)
 _OP_T_RAG           = _env_float("ARIA_DD_OP_T_RAG_S", 15.0)
 _OP_T_KB            = _env_float("ARIA_DD_OP_T_KB_S", 15.0)
 _OP_T_DEEPRESEARCH  = _env_float("ARIA_DD_OP_T_DEEPRESEARCH_S", 40.0)
+#: R-F3066 — seconds reserved at the end of a layer's budget for its own post-op
+#: work, so the LAST bounded op cannot return at the wall and still overrun.
+_LAYER_TAIL_S = _env_float("ARIA_DD_LAYER_TAIL_S", 6.0)
 
 
 #: R-F3059 — the deadline of the LAYER currently running, as a `time.monotonic()`
@@ -1573,7 +1576,10 @@ async def _bounded_dd_op(coro, timeout_s: float, layer, op_name: str, default=No
     to a data_gap and the LAYER COMPLETES."""
     _dl = _LAYER_DEADLINE.get()
     if _dl is not None:
-        _remaining = _dl - time.monotonic() - 1.0   # keep a tail for the layer's own bookkeeping
+        # R-F3066 — the tail must cover the layer's OWN post-op work (press
+        # processing, tier breakdown, wiring), not just one second of slack. With a
+        # 1s tail a single op could return at T-1 and the layer still overran.
+        _remaining = _dl - time.monotonic() - _LAYER_TAIL_S
         if _remaining <= 0:
             try:
                 layer.data_gaps.append(
@@ -5882,7 +5888,11 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 # (R-F340 remains in force below: the LLM is passed through with a
                 # cost cap for prose-heavy corporate pages — R-F3066 changes only
                 # the WALL BUDGET, never whether the LLM is supplied.)
-                _lt_budget = _layer_budget_left(default=90.0)
+                # R-F3066 — take at most a FRACTION of what is left. A trailing op
+                # that claims the entire remainder starves every block after it, which
+                # is how the person path (90s budget) still overran even once the
+                # budget was derived rather than flat.
+                _lt_budget = min(90.0, _layer_budget_left(default=90.0) * 0.6)
                 tree = None
                 if _lt_budget < 15.0:
                     report.digital.data_gaps.append(
