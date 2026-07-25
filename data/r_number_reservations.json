@@ -24679,6 +24679,16 @@
       "notes": null
     },
     {
+      "r_number": "R-F3084",
+      "title": "DD red-risk and adverse-media truth",
+      "claimed_at": "2026-07-25T17:39:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4bb8ceed7b8ac56b1c4866b2d415beeb248c24e7",
+      "notes": null,
+      "shipped_at": "2026-07-25T18:38:00Z"
+    },
+    {
       "r_number": "R-F3085",
       "title": "harden DD evidence concurrency and wiring",
       "claimed_at": "2026-07-25T18:14:49Z",
