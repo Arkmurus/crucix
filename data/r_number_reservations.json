@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3078,
+  "next_available": 3080,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24616,6 +24616,24 @@
       "r_number": "R-F3077",
       "title": "DD test truth and observability root causes",
       "claimed_at": "2026-07-25T16:05:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3078",
+      "title": "Correct adversarial evaluator false failures",
+      "claimed_at": "2026-07-25T16:36:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3079",
+      "title": "chat sidebar titles a document upload with the raw ATTACHED DOCUMENT scaffold",
+      "claimed_at": "2026-07-25T16:36:23Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

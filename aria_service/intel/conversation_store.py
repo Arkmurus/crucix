@@ -10,6 +10,7 @@ from __future__ import annotations
 from .engine_wiring import wire_failure
 
 import logging
+import re
 import time
 
 from . import redis_store as rs
@@ -21,6 +22,39 @@ _META_KEY = "crucix:aria:conv:meta:{session_id}"
 _SESSION_KEY = "crucix:aria:session:{session_id}"
 
 
+_DOC_BLOCK_RE = re.compile(
+    r"\[ATTACHED DOCUMENT:?(?P<label>[^\]\n]*)\].*?(?:\[/ATTACHED DOCUMENT\]|\Z)",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _title_from_message(first_message: str) -> str:
+    """R-F3079 — derive a readable sidebar title from the user's first message.
+
+    A document upload sends `[ATTACHED DOCUMENT: <name> · <method> · <n>%]` +
+    the WHOLE extracted document + the user's question. Titling on the raw
+    string put the internal scaffold and a slab of document text in the
+    sidebar, across multiple lines, e.g.
+        "[ATTACHED DOCUMENT: test_nda.txt · PLAINTEXT · 99%]\\nMUTUAL N..."
+    Prefer what the human actually typed; if the message is only a document,
+    fall back to the document's NAME, which is the honest title for that turn.
+    """
+    msg = (first_message or "").strip()
+    if not msg:
+        return ""
+    label = ""
+    m = _DOC_BLOCK_RE.search(msg)
+    if m:
+        # The label is "<name> · <method> · <confidence>" — the name is enough.
+        label = (m.group("label") or "").split("·")[0].strip()
+        msg = _DOC_BLOCK_RE.sub(" ", msg).strip()
+    # Collapse newlines so a multi-line first message can't break the row.
+    msg = " ".join(msg.split())
+    if not msg:
+        msg = label
+    return msg
+
+
 async def create_conversation(
     user_id: str,
     session_id: str,
@@ -28,7 +62,8 @@ async def create_conversation(
 ) -> dict:
     """Register a new conversation for a user. Auto-titles from first message."""
     now = time.time()
-    title = (first_message.strip()[:60] + "...") if len(first_message.strip()) > 60 else first_message.strip()
+    cleaned = _title_from_message(first_message)
+    title = (cleaned[:60] + "...") if len(cleaned) > 60 else cleaned
     title = title or "New conversation"
 
     meta = {
