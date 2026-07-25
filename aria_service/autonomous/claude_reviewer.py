@@ -99,7 +99,10 @@ API_KEY_VAR = "ANTHROPIC_API_KEY"
 # tier, then the paid fallbacks. The self-check (deterministic, always
 # free) remains the last resort — never a blind APPROVED (R-F923).
 _REVIEW_CHAIN: tuple[tuple[str, str, str, str], ...] = (
-    ("deepseek", "DEEPSEEK_API_KEY",    "DEEPSEEK_MODEL",        "deepseek-chat"),
+    # R-F3032 — `deepseek-chat` was retired upstream (HTTP 400); a review chain
+    # whose first tier is a dead model id burns straight through to the paid
+    # tiers on every review.
+    ("deepseek", "DEEPSEEK_API_KEY",    "DEEPSEEK_MODEL",        "deepseek-v4-flash"),
     ("ollama",   "OLLAMA_URL",          "OLLAMA_MODEL",          "llama3.2:3b"),
     ("anthropic","ANTHROPIC_API_KEY",   "ARIA_CODER_CLAUDE_REVIEW_MODEL", "claude-sonnet-4-6"),
     ("groq",     "GROQ_API_KEY",        "GROQ_MODEL",            "llama-3.3-70b-versatile"),

@@ -82,8 +82,14 @@ def preference_only_providers() -> set[str]:
 
     Naming a provider here removes it from the DEFAULT order entirely. It stays
     fully available to anything that asks for it by name (the DD scope, the
-    R-F1366 coder pin), and a preferred call still degrades through the ordinary
-    providers, so a rate-limited Claude never kills a DD.
+    R-F1366 coder pin).
+
+    R-F3034 (2026-07-25) — a call PINNED to a provider named here no longer
+    degrades to the ordinary chain either. The operator restated the directive
+    as "DD reports are to be ran fully on Claude no deepseek", and a DD served
+    by DeepSeek is a fabrication risk rather than a graceful degradation (see
+    the note at the degrade branch in complete()). Set
+    ARIA_PREFERRED_MAY_DEGRADE=1 to restore the old behaviour without a deploy.
 
     Empty string disables the mechanism (every provider serves normally).
     """
@@ -473,12 +479,42 @@ class FallbackProvider(LLMProvider):
         if prefer_provider:
             preferred = [p for p in self.providers if p.name == prefer_provider]
             if preferred:
-                # Preferred first, then the ORDINARY providers as fallback, so a
-                # rate-limited Claude degrades a DD to DeepSeek instead of
-                # killing it.
-                order = preferred + [
-                    p for p in order if p.name != prefer_provider
-                ]
+                # R-F3034 (operator directive 2026-07-25): "DD reports are to
+                # be ran fully on Claude no deepseek, and deepseek is for
+                # everything else."
+                #
+                # This previously read `preferred + ordinary providers`, so a
+                # rate-limited or cooling Claude silently handed DD work to
+                # DeepSeek. That trades the wrong way for this product: the DD
+                # line's entire guarantee is never-false-clean, the DD path is
+                # deliberately deterministic because DeepSeek fabricates
+                # grounding (R-F2779/R-F2780), and the orchestrator ALREADY has
+                # an honest failure path — a failed synthesis renders
+                # "🟠 INSUFFICIENT EVIDENCE … treat this as 'incomplete', NOT as
+                # 'nothing found'" at AMBER-LIGHT, keeping every deterministic
+                # layer. An honest incomplete report beats a DeepSeek-authored
+                # verdict wearing a Claude-grade badge.
+                #
+                # Scope: only providers named in ARIA_PREFERENCE_ONLY_PROVIDERS
+                # (default: anthropic) are pinned this way. An ordinary
+                # prefer_provider (e.g. the R-F1366 coder pin) still degrades
+                # through the chain exactly as before.
+                _pinned = (prefer_provider or "").lower() in _pref_only
+                _allow_degrade = (
+                    os.getenv("ARIA_PREFERRED_MAY_DEGRADE", "").lower()
+                    in ("1", "true", "yes")
+                )
+                if _pinned and not _allow_degrade:
+                    order = preferred
+                    logger.debug(
+                        "[R-F3034] %r is preference-only — pinned with NO "
+                        "degrade path (set ARIA_PREFERRED_MAY_DEGRADE=1 to "
+                        "restore fallback)", prefer_provider,
+                    )
+                else:
+                    order = preferred + [
+                        p for p in order if p.name != prefer_provider
+                    ]
             else:
                 logger.debug(
                     "prefer_provider=%r not in chain %s — using normal order",
@@ -534,6 +570,29 @@ class FallbackProvider(LLMProvider):
             except Exception as e:
                 self._record_failure(provider, stats, e)
                 last_error = e
+
+        # R-F3036 — EVERY candidate provider is gone. A single provider failing
+        # is routine (the chain usually covers it); having no LLM at all is an
+        # outage, and it has to be distinguishable from a blip on the surfaces
+        # the operator reads. On 2026-07-25 this condition held for hours while
+        # /api/aria/brain/stats showed 106 modules at success_rate 1.0 and the
+        # daily spend line read $0.00 — a dead limb that looked like a quiet day.
+        try:
+            from ..intel.engine_wiring import wire_failure as _wf
+            _tried = ", ".join(p.name for p in order) or "<none>"
+            _wf(
+                module="llm_chain_exhausted",
+                detail=(
+                    f"ALL LLM providers failed — no provider served this call. "
+                    f"tried=[{_tried}] attempts={attempted} "
+                    f"prefer_provider={prefer_provider or '<none>'} "
+                    f"last_error={str(last_error)[:200]}"
+                ),
+                gap_type="llm_provider_failure",
+                source="llm_chain_exhausted",
+            )
+        except Exception:
+            pass
 
         if isinstance(last_error, ProviderError):
             raise last_error
@@ -805,12 +864,34 @@ def create_fallback_chain(
     _anthropic_enabled = (
         os.getenv("ARIA_ANTHROPIC_ENABLED", "").lower() in ("1", "true", "yes")
     )
+    # R-F3032 / R-F3035 (2026-07-25) — the DeepSeek entry was hardcoded to
+    # `deepseek-chat`, which DeepSeek RETIRED. Because DeepSeek is the primary
+    # and Anthropic is preference-only (R-F2922), and groq/openai/gemini/ollama
+    # are all unset in production, the DEFAULT chain had exactly ONE member —
+    # so a single upstream model retirement took the entire non-DD ecosystem
+    # down with no fallback at all (258/258 calls failed, $0.00 for the day).
+    #
+    # Two changes, both aimed at that single point of failure:
+    #   1. the model id is env-driven, so a future retirement is a secret set
+    #      rather than a code deploy;
+    #   2. a SECOND DeepSeek entry on a different model id, so retiring one
+    #      leaves a working member behind. Same key and account — this buys
+    #      resilience against a model retirement (the failure that actually
+    #      happened), NOT against an account/key/network failure. R-F3036
+    #      covers that case by making the dead chain loud instead of silent.
+    from .openai_compat import default_deepseek_model, backup_deepseek_model
+    _ds_key = os.getenv("DEEPSEEK_API_KEY", "")
+    _ds_primary = default_deepseek_model()
+    _ds_backup = backup_deepseek_model()
     fallback_configs = [
-        ("deepseek",  os.getenv("DEEPSEEK_API_KEY", ""),  "deepseek-chat"),
+        ("deepseek",  _ds_key,                            _ds_primary),
         ("groq",      os.getenv("GROQ_API_KEY", ""),      "llama-3.3-70b-versatile"),
         ("openai",    os.getenv("OPENAI_API_KEY", ""),    "gpt-4o-mini"),
         ("gemini",    os.getenv("GEMINI_API_KEY", ""),    "gemini-2.5-flash"),
     ]
+    if _ds_key and _ds_backup and _ds_backup != _ds_primary:
+        # Appended last: it only serves once every other provider is gone.
+        fallback_configs.append(("deepseek", _ds_key, _ds_backup))
     if _anthropic_enabled:
         # Operator explicitly re-enabled — prepend at the head.
         #
@@ -884,8 +965,39 @@ def create_fallback_chain(
                         fallback_configs[i] = (name, key, model)
 
     _dropped = []
+    # R-F3035 — FallbackProvider keys its per-provider stats (failure counts
+    # and cooldowns) by `p.name`, so two entries sharing a name would share
+    # ONE cooldown: the first failure would cool both and the backup would
+    # never be tried, silently defeating the redundancy it exists to provide.
+    # Give any repeat of a name its own identity so it gets its own stats.
+    # R-F3035 — seed from the providers already registered (the primary, and
+    # ARIA-LLM when configured). Counting only loop-built entries left the
+    # production shape with TWO providers both named "deepseek" — the primary
+    # plus the backup — which is the shared-cooldown collision this rename
+    # exists to prevent.
+    _seen_names: dict[str, int] = {}
+    for _p in providers:
+        _pn = getattr(_p, "name", "") or ""
+        _seen_names[_pn] = _seen_names.get(_pn, 0) + 1
+    # R-F3035 — the skip below used to be `name == primary_provider`, which
+    # dropped EVERY entry for the primary's provider. In production
+    # (LLM_PROVIDER=deepseek) that silently discarded the backup DeepSeek entry
+    # this fix exists to add, leaving the default chain at one member again —
+    # caught by the §9 lifespan smoke, not by the unit test, because the test
+    # built the chain with no primary. Compare the effective MODEL too, so the
+    # primary is still de-duplicated while a same-provider/different-model
+    # entry is kept.
+    _primary_obj = next(
+        (p for p in providers if (getattr(p, "name", "") or "") == primary_provider),
+        None,
+    )
+    _primary_model = (
+        getattr(_primary_obj, "_model", "") or primary_model or ""
+    ).strip()
     for name, key, model in fallback_configs:
-        if name == primary_provider:
+        if name == primary_provider and (
+            not _primary_model or (model or "").strip() == _primary_model
+        ):
             continue
         if not key:
             _dropped.append((name, "missing API key"))
@@ -902,6 +1014,18 @@ def create_fallback_chain(
         else:
             fb = create_llm_provider(name, key, model)
         if fb and fb.is_configured:
+            # R-F3035 — construct under the real provider name (the factory
+            # derives base_url/auth from it), then disambiguate the SECOND
+            # and later entries so their stats and cooldowns are independent.
+            _n = _seen_names.get(name, 0)
+            _seen_names[name] = _n + 1
+            if _n:
+                fb.name = f"{name}_backup{_n if _n > 1 else ''}"
+                logger.info(
+                    "[R-F3035] %s registered as %r (model=%r) — independent "
+                    "cooldown so a retired model id cannot zero the chain",
+                    name, fb.name, model,
+                )
             providers.append(fb)
         else:
             _dropped.append((name, "provider returned not-configured"))

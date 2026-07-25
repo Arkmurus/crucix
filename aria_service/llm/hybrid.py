@@ -21,15 +21,16 @@ class HybridProvider(LLMProvider):
         self,
         *,
         deepseek_key: str,
-        deepseek_model: str = "deepseek-chat",
+        deepseek_model: str = "",   # R-F3032 — resolved below; never a retired literal
         deepseek_url: str = "https://api.deepseek.com/v1",
         ollama_model: str = "llama3.1:8b",
         ollama_url: str = "http://localhost:11434",
     ):
+        from .openai_compat import default_deepseek_model  # R-F3032
         self.primary = OpenAICompatProvider(
             name="deepseek",
             api_key=deepseek_key,
-            model=deepseek_model,
+            model=deepseek_model or default_deepseek_model(),
             base_url=deepseek_url,
         )
         self.secondary = OpenAICompatProvider(

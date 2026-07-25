@@ -80,9 +80,21 @@ PRICING = {
         "input_per_mtok":  0.80,
         "output_per_mtok":  4.00,
     },
-    "deepseek-chat": {           # Fallback model
+    "deepseek-chat": {           # RETIRED upstream 2026-07 — kept to price history
         "input_per_mtok":  0.14,
         "output_per_mtok": 0.28,
+    },
+    # R-F3032 — the CURRENT DeepSeek ids. Every ACTIVE model needs an explicit
+    # row or it prices at "_default" (Sonnet rates, ~21x too high) — the same
+    # mispricing class R-F3001 fixed in intel/cost_tracker.py. Rates mirror
+    # cost_tracker.PRICING so the two tables cannot disagree.
+    "deepseek-v4-flash": {
+        "input_per_mtok":  0.14,
+        "output_per_mtok": 0.28,
+    },
+    "deepseek-v4-pro": {
+        "input_per_mtok":  0.435,
+        "output_per_mtok": 0.87,
     },
     "_default": {
         "input_per_mtok":  3.00,   # Assume Sonnet if unknown

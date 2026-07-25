@@ -33,7 +33,13 @@ from aria_service.intel.engine_wiring import wire_success, wire_failure  # R-F24
 logger = logging.getLogger("aria.learning.deepseek_clients")
 
 _DEEPSEEK_URL = os.environ.get("ARIA_DEEPSEEK_URL", "https://api.deepseek.com/v1")
-_DEEPSEEK_MODEL = os.environ.get("ARIA_DEEPSEEK_MODEL", "deepseek-chat")
+# R-F3032 — `deepseek-chat` was retired upstream (HTTP 400). Default to the
+# same current id the LLM chain resolves, so the learning path cannot be left
+# behind on a dead model when the chain is migrated.
+_DEEPSEEK_MODEL = os.environ.get(
+    "ARIA_DEEPSEEK_MODEL",
+    os.environ.get("ARIA_DEEPSEEK_CHAT_MODEL", "deepseek-v4-flash"),
+)
 
 
 def _api_key() -> str:

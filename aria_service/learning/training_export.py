@@ -394,7 +394,12 @@ _JUDGE_GATE_ENABLED = (os.getenv("ARIA_TRAINING_JUDGE_GATE") or "0").strip() in 
 
 # Judge endpoint — uses DeepSeek (same rubric as eval_judge.py R-F1396).
 _JUDGE_URL = os.getenv("ARIA_JUDGE_URL", "https://api.deepseek.com/v1")
-_JUDGE_MODEL = os.getenv("ARIA_JUDGE_MODEL", "deepseek-chat")
+# R-F3032 — `deepseek-chat` was retired upstream; a judge on a dead model id
+# fails every gated export with an HTTP 400.
+_JUDGE_MODEL = os.getenv(
+    "ARIA_JUDGE_MODEL",
+    os.getenv("ARIA_DEEPSEEK_CHAT_MODEL", "deepseek-v4-flash"),
+)
 _JUDGE_API_KEY = os.getenv("DEEPSEEK_API_KEY") or os.getenv("ARIA_DEEPSEEK_API_KEY") or ""
 
 

@@ -176,8 +176,28 @@ def wire_failure(
 ) -> None:
     """Fire-and-forget brain signal for an engine failure.
 
-    Writes to capability_gaps.record_gap so the coder sees the failure
-    and can attempt a fix. Never raises, never blocks the caller.
+    Writes to BOTH sinks, because they answer different questions:
+      - capability_gaps.record_gap → the coder loop ("something to fix"),
+        deduped 1h (R-F66) and capped at 500 (R-F1669)
+      - brain_hook.record_signal(success=False) → the HEALTH metric
+        ("this module is failing"), which is what /api/aria/brain/stats reads
+
+    R-F3036 (2026-07-25) — the second sink was MISSING, and the asymmetry was
+    structural: wire_success routed to brain_hook.record_signal while
+    wire_failure routed only to record_gap. A module's `fail` counter could
+    therefore never be incremented by the wiring layer, so EVERY module on
+    /api/aria/brain/stats read `fail=0, success_rate=1.0` — a health surface
+    that certifies health by construction, in the same family as the Phase A
+    gates that "could not fail" (CLAUDE.md §1).
+
+    Measured 2026-07-25: the primary LLM was returning HTTP 400 on 100% of
+    calls (retired `deepseek-chat` model id). 258/258 calls failed over
+    ~2h40m. Across all 106 modules on /brain/stats: `fail=0` everywhere,
+    every success_rate 1.0. The gap was filed and deduped to roughly one an
+    hour; nothing the operator watches ever moved. Recording the failure
+    metric as well is what makes a dead limb visible (§25a proprioception).
+
+    Never raises, never blocks the caller.
     """
     try:
         from . import capability_gaps as _cg
@@ -189,6 +209,20 @@ def wire_failure(
         ))
     except Exception:
         logger.debug("[engine_wiring] wire_failure failed for %s", module, exc_info=True)
+
+    # R-F3036 — the health metric. Dispatched separately so a failure in the
+    # gap sink can never suppress the health signal (and vice versa): before
+    # this, one shared try/except meant a single broken sink silenced both.
+    try:
+        from . import brain_hook as _bh
+
+        _dispatch_fire_and_forget(lambda: _bh.record_signal(
+            module=module,
+            success=False,
+            summary=detail[:300],
+        ))
+    except Exception:
+        logger.debug("[engine_wiring] wire_failure metric failed for %s", module, exc_info=True)
 
 
 def _noop_callback(t: "asyncio.Task") -> None:

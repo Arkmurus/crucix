@@ -67,10 +67,13 @@ def _build_provider(
         )
 
     if p == "deepseek":
+        # R-F3032 — never hardcode a DeepSeek model id here; `deepseek-chat`
+        # was retired upstream and this default silently kept it alive.
+        from .openai_compat import default_deepseek_model
         return OpenAICompatProvider(
             name="deepseek",
             api_key=api_key,
-            model=model or "deepseek-chat",
+            model=model or default_deepseek_model(),
             base_url=base_url or "https://api.deepseek.com/v1",
         )
 
@@ -127,9 +130,10 @@ def _build_provider(
         )
 
     if p == "hybrid":
+        from .openai_compat import default_deepseek_model  # R-F3032
         return HybridProvider(
             deepseek_key=api_key,
-            deepseek_model=model or "deepseek-chat",
+            deepseek_model=model or default_deepseek_model(),
             ollama_model=ollama_model,
             ollama_url=ollama_url,
         )

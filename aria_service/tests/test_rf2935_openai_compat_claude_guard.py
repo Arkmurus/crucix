@@ -16,6 +16,7 @@ import pytest
 from aria_service.llm.openai_compat import (
     OpenAICompatProvider,
     _OPENAI_COMPAT_SAFE_DEFAULT,
+    default_deepseek_model,   # R-F3032 — the id is env-resolved, not a literal
 )
 
 
@@ -26,11 +27,16 @@ class TestConfiguredModelGuard:
             name="deepseek", api_key="k", model="claude-opus-4-8",
             base_url="https://api.deepseek.com/v1",
         )
-        assert p._model == "deepseek-chat"
+        # R-F3032: was "deepseek-chat" — RETIRED upstream, so the R-F2935
+        # rescue path degraded a bad secret INTO a guaranteed HTTP 400. The
+        # guard's contract is "fall back to a WORKING model for this
+        # provider", so it now resolves the current id from the env.
+        assert p._model == default_deepseek_model()
+        assert p._model not in ("deepseek-chat", "deepseek-reasoner")
         assert not p._model.startswith("claude")
 
     @pytest.mark.parametrize("provider,expected", [
-        ("deepseek", "deepseek-chat"),
+        ("deepseek", "deepseek-v4-flash"),
         ("openai", "gpt-4"),
         ("groq", "llama-3.3-70b-versatile"),
         ("mistral", "mistral-large-latest"),
