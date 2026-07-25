@@ -24459,18 +24459,20 @@
       "title": "DD delivery outcome can never succeed: 5 layers structurally uncountable as ok",
       "claimed_at": "2026-07-25T12:25:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b7d794b9",
+      "notes": null,
+      "shipped_at": "2026-07-25T12:38:15Z"
     },
     {
       "r_number": "R-F3062",
       "title": "health endpoint must not block on a cold ecosystem build (banner reads UNKNOWN)",
       "claimed_at": "2026-07-25T12:25:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b7d794b9",
+      "notes": null,
+      "shipped_at": "2026-07-25T12:38:16Z"
     }
   ]
 }
