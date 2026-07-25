@@ -24553,45 +24553,50 @@
       "title": "chat short-circuit turns are never persisted or registered",
       "claimed_at": "2026-07-25T15:55:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4ca72f53",
+      "notes": null,
+      "shipped_at": "2026-07-25T19:28:20Z"
     },
     {
       "r_number": "R-F3071",
       "title": "DD vault stats leak global counts to every user",
       "claimed_at": "2026-07-25T15:55:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4ca72f53",
+      "notes": null,
+      "shipped_at": "2026-07-25T19:28:20Z"
     },
     {
       "r_number": "R-F3072",
       "title": "app polling burns its own per-IP rate budget",
       "claimed_at": "2026-07-25T15:55:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4ca72f53",
+      "notes": null,
+      "shipped_at": "2026-07-25T19:28:20Z"
     },
     {
       "r_number": "R-F3073",
       "title": "search attributes SearXNG results to Brave",
       "claimed_at": "2026-07-25T15:55:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4ca72f53",
+      "notes": null,
+      "shipped_at": "2026-07-25T19:28:21Z"
     },
     {
       "r_number": "R-F3074",
       "title": "logout does not revoke the bearer token",
       "claimed_at": "2026-07-25T15:55:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4ca72f53",
+      "notes": null,
+      "shipped_at": "2026-07-25T19:28:21Z"
     },
     {
       "r_number": "R-F3075",
@@ -24608,9 +24613,10 @@
       "title": "ipKeyGenerator called with (req,res) under express-rate-limit v8 - LLM rate limits counted nothing",
       "claimed_at": "2026-07-25T16:03:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4ca72f53",
+      "notes": null,
+      "shipped_at": "2026-07-25T19:28:21Z"
     },
     {
       "r_number": "R-F3077",
@@ -24637,9 +24643,10 @@
       "title": "chat sidebar titles a document upload with the raw ATTACHED DOCUMENT scaffold",
       "claimed_at": "2026-07-25T16:36:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4ca72f53",
+      "notes": null,
+      "shipped_at": "2026-07-25T19:28:21Z"
     },
     {
       "r_number": "R-F3080",
@@ -24656,18 +24663,20 @@
       "title": "collapse five hand-copied conversation-registration sites into one writer (completes R-F3070 at root)",
       "claimed_at": "2026-07-25T16:59:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4ca72f53",
+      "notes": null,
+      "shipped_at": "2026-07-25T19:28:22Z"
     },
     {
       "r_number": "R-F3082",
       "title": "derive the web source label from the results instead of a hardcoded literal (completes R-F3073 at root)",
       "claimed_at": "2026-07-25T17:01:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4ca72f53",
+      "notes": null,
+      "shipped_at": "2026-07-25T19:28:22Z"
     },
     {
       "r_number": "R-F3083",
@@ -24703,9 +24712,10 @@
       "title": "2FA dead - otplib v13 API vs v12 call shapes (renumbered from R-F3085 after a peer collision)",
       "claimed_at": "2026-07-25T19:10:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4ca72f53",
+      "notes": null,
+      "shipped_at": "2026-07-25T19:28:22Z"
     }
   ]
 }
