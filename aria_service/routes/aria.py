@@ -759,6 +759,31 @@ async def knowledge_seed_latam_asia_catalogue_ep():
 # endpoints continue to work unchanged. This is the entry point when a
 # caller wants a full structured report instead of ad-hoc chat reasoning.
 
+@router.get("/dd/evidence-standard")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def dd_evidence_standard_ep():
+    """R-F3069 — return the versioned canonical DD evidence contract."""
+    from ..intel.dd_evidence_standard import describe_standard
+    return describe_standard()
+
+
+@router.post("/dd/evidence-standard/validate")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def dd_evidence_standard_validate_ep(req: Request):
+    """R-F3069 — validate an evidence record without persisting it."""
+    from ..intel.dd_evidence_standard import EvidenceContractError, EvidenceRecord
+
+    candidate = await req.json()
+    try:
+        record = EvidenceRecord.from_mapping(candidate)
+    except EvidenceContractError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_evidence_record", "errors": list(exc.errors)},
+        ) from exc
+    return {"valid": True, "record": record.as_dict()}
+
+
 def _brave_scope(fn):
     """R-F2318 — enable Brave as the PRIMARY search backend for the wrapped
     user-facing handler's async context (DD / research / user search). Sets the
@@ -28475,6 +28500,5 @@ async def runpod_stop_ep() -> dict:
         return {"ok": True, "stop": res}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
-
 
 
