@@ -52,15 +52,27 @@ async def create_conversation(
     }
 
 
-async def touch_conversation(session_id: str, user_id: str = "") -> None:
-    """Update timestamp + increment message count after each turn."""
+async def touch_conversation(session_id: str, user_id: str = "",
+                             first_message: str = "") -> None:
+    """Update timestamp + increment message count after each turn.
+
+    R-F3070 — ``first_message`` is used ONLY on the create-on-missing branch.
+    Pre-R-F3070 that branch always passed ``""``, so every conversation it
+    created was titled "New conversation" **forever** (the auto-title in
+    ``create_conversation`` could never fire from here). That branch is not a
+    rare edge: a turn answered by a short-circuit path (trivial reply / fast
+    lane) never registered the conversation, so the FIRST full-pipeline turn in
+    that session arrived with history already >= 2 and landed here — i.e. the
+    common "user said hi first" session was permanently untitled. Callers that
+    know the user's message should pass it; the fallback is unchanged.
+    """
     now = time.time()
     meta_key = _META_KEY.format(session_id=session_id)
     existing = await rs.hgetall(meta_key)
     if not existing:
         # Conversation doesn't exist yet — create it
         if user_id:
-            await create_conversation(user_id, session_id, "")
+            await create_conversation(user_id, session_id, first_message)
         return
 
     count = int(existing.get("messageCount", "0")) + 1

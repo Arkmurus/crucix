@@ -812,9 +812,58 @@ class DDVault:
     # ── Stats ────────────────────────────────────────────────────────────
 
     @fail_wire(module="dd_vault", gap_type="engine_failure")
-    def stats(self) -> dict[str, Any]:
-        """Get aggregate statistics about the DD vault."""
+    def stats(self, entity_ids: "set[str] | None" = None) -> dict[str, Any]:
+        """Get aggregate statistics about the DD vault.
+
+        R-F3071 — ``entity_ids`` scopes every count to those canonical ids. The
+        vault has no owner column (it is entity-keyed), so ownership is resolved
+        by the caller and passed down, exactly as ``search``/``get_case`` do via
+        R-F2097. Pass ``None`` ONLY for a genuinely unrestricted caller (the
+        internal service token); a per-user caller that passes None publishes
+        platform-wide case volume to that user.
+        """
         conn = self._get_conn()
+        if entity_ids is not None:
+            ids = [str(i) for i in entity_ids if i]
+            if not ids:
+                # Owns nothing → all-zero stats. Never fall through to global.
+                return {
+                    "total_cases": 0, "by_status": {}, "by_type": {},
+                    "total_cross_references": 0, "run_last_7d": 0,
+                }
+            # Chunk to stay under SQLite's variable limit on a large portfolio.
+            def _counts(sql_tmpl: str, extra: tuple = ()) -> list:
+                out = []
+                for i in range(0, len(ids), 500):
+                    chunk = ids[i:i + 500]
+                    ph = ",".join("?" * len(chunk))
+                    out.extend(conn.execute(
+                        sql_tmpl.format(ph=ph), (*extra, *chunk)).fetchall())
+                return out
+
+            total = sum(r[0] for r in _counts(
+                "SELECT COUNT(*) FROM dd_cases WHERE canonical_entity_id IN ({ph})"))
+            by_status: dict[str, int] = {}
+            for row in _counts("SELECT status, COUNT(*) FROM dd_cases "
+                               "WHERE canonical_entity_id IN ({ph}) GROUP BY status"):
+                by_status[row[0]] = by_status.get(row[0], 0) + row[1]
+            by_type: dict[str, int] = {}
+            for row in _counts("SELECT entity_type, COUNT(*) FROM dd_cases "
+                               "WHERE canonical_entity_id IN ({ph}) GROUP BY entity_type"):
+                by_type[row[0]] = by_type.get(row[0], 0) + row[1]
+            total_refs = sum(r[0] for r in _counts(
+                "SELECT COUNT(*) FROM dd_cross_references WHERE source_entity IN ({ph})"))
+            recent = sum(r[0] for r in _counts(
+                "SELECT COUNT(*) FROM dd_cases WHERE last_run_at > ? "
+                "AND canonical_entity_id IN ({ph})", (time.time() - 7 * 86400,)))
+            return {
+                "total_cases": total,
+                "by_status": by_status,
+                "by_type": by_type,
+                "total_cross_references": total_refs,
+                "run_last_7d": recent,
+            }
+
         total = conn.execute("SELECT COUNT(*) FROM dd_cases").fetchone()[0]
         by_status = {}
         for row in conn.execute("SELECT status, COUNT(*) FROM dd_cases GROUP BY status"):

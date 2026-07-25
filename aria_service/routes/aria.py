@@ -10583,6 +10583,11 @@ async def chat_ep(req: ChatRequest, request: Request):
     _trivial = _rl.trivial_reply(req.message)
     if _trivial is not None:
         _log.info("[chat] trivial short-circuit: %r → fixed reply", req.message[:80])
+        # R-F3070 — persist + index the turn. Pre-fix this returned without
+        # touching the session or the conversation store, so the exchange was
+        # invisible to both ARIA's own history and the sidebar.
+        from ..aria_engine import persist_trivial_turn as _ptt
+        await _ptt(req.message, session_id, _trivial, user_id=(req.user_id or ""))
         return {
             "response": _trivial,
             "session_id": session_id,
@@ -10631,7 +10636,10 @@ async def chat_ep(req: ChatRequest, request: Request):
     if req.auto_tools and not req.async_mode and _fast_lane_eligible(req.message):
         try:
             from ..aria_engine import fast_lane_chat
-            _fl = await fast_lane_chat(req.message, session_id, llm)
+            # R-F3070 — pass the owner so the fast lane can stamp session["userId"]
+            # and index the conversation (it bypasses the generator that does both).
+            _fl = await fast_lane_chat(req.message, session_id, llm,
+                                       user_id=(req.user_id or ""))
             if _fl:
                 _log.info("[chat] fast-lane: %r → lean reply (%d chars)", req.message[:60], len(_fl))
                 return {"response": _fl, "session_id": session_id, "fast_lane": True}
@@ -12165,6 +12173,11 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
     _trivial = _rl.trivial_reply(req.message)
     if _trivial is not None:
         _log.info("[chat/stream] trivial short-circuit: %r", req.message[:80])
+        # R-F3070 — mirror of the chat_ep persist above (§13: every hook lives on
+        # BOTH paths). Awaited before the stream so a client that disconnects the
+        # moment it has the text still leaves the turn on the sidebar.
+        from ..aria_engine import persist_trivial_turn as _ptt
+        await _ptt(req.message, session_id, _trivial, user_id=(req.user_id or ""))
         async def _trivial_stream():
             yield f'data: {json.dumps({"type":"chunk","text":_trivial})}\n\n'
             yield f'data: {json.dumps({"type":"done","session_id":session_id,"trivial":True})}\n\n'
@@ -12196,7 +12209,9 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
         _fl = None
         try:
             from ..aria_engine import fast_lane_chat
-            _fl = await fast_lane_chat(req.message, session_id, llm)
+            # R-F3070 — see chat_ep sibling (§13).
+            _fl = await fast_lane_chat(req.message, session_id, llm,
+                                       user_id=(req.user_id or ""))
         except Exception as _fle:
             _log.warning("[chat/stream] fast-lane errored, falling through to full pipeline: %s", _fle)
             _fl = None
@@ -26739,12 +26754,21 @@ async def dd_quarantine_closure_summary_ep():
 
 @router.get("/dd/vault/stats")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_vault_stats_ep():
-    """Get DD vault statistics."""
+async def dd_vault_stats_ep(user_id: str = "", user_email_domain: str = ""):
+    """Get DD vault statistics.
+
+    R-F3071 — ownership-scoped, like its `search` / `case` siblings. R-F2097
+    scoped those two and MISSED this one, so the DD Vault panel on
+    dd-reports.html served every authenticated user the platform-wide case
+    count, per-type/status split and 7-day run volume — other tenants' business
+    activity, and numbers that matched nothing the user could open (their own
+    search is scoped, so it returned zero against a headline of 28).
+    """
     try:
         from ..intel.dd_vault import get_vault as _get_dd_vault
         vault = _get_dd_vault()
-        return {"success": True, "stats": vault.stats()}
+        _owned = await _dd_owned_entity_ids(user_id, user_email_domain)
+        return {"success": True, "stats": vault.stats(entity_ids=_owned)}
     except Exception as e:
         return {"success": False, "error": str(e)}
 

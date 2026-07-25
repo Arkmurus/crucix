@@ -1960,8 +1960,71 @@ FAST_LANE_SYSTEM = (
 )
 
 
+async def _register_shortcircuit_turn(session: dict, session_id: str,
+                                      user_id: str, message: str) -> None:
+    """R-F3070 — put a short-circuit turn on the conversation index.
+
+    The chat endpoints answer some turns WITHOUT entering the main generator:
+    the trivial short-circuit (reasoning_library.trivial_reply) and the
+    adaptive fast lane (R-F1976/R-F2043). Both return before the R-F1875 early
+    registration, so the turn never reached conversation_store at all. Live
+    consequences (reproduced 2026-07-25):
+
+      * a session whose turns are ALL short-circuit ("hi" → reply) NEVER
+        appeared in the chat sidebar — the user's conversation was simply gone
+        on refresh;
+      * a session that opened with a short-circuit turn and continued into the
+        full pipeline registered via touch_conversation's create-on-missing
+        branch, which had no first message → titled "New conversation" for
+        life.
+
+    This is the ONE writer for that registration; both short-circuit paths call
+    it so the two endpoints can't drift (§13). Best-effort by construction — a
+    conversation-index failure must never fail a reply that already succeeded.
+    """
+    uid = (session.get("userId") or user_id or "").strip()
+    if not uid or uid == "anon":
+        return
+    try:
+        from .intel import conversation_store
+        await conversation_store.touch_conversation(session_id, uid,
+                                                    first_message=message)
+    except Exception as e:
+        logger.debug("R-F3070 short-circuit conversation register failed "
+                     "(non-fatal): %s", e)
+
+
+async def persist_trivial_turn(message: str, session_id: str, reply: str,
+                               user_id: str = "") -> None:
+    """R-F3070 — persist a turn answered by the trivial short-circuit.
+
+    ``trivial_reply`` returns a canned answer without touching the session at
+    all, so the exchange was invisible everywhere afterwards: absent from the
+    session history (ARIA had no memory of it on the next turn) and absent from
+    the sidebar. Mirror the fast lane: append both sides, save, register.
+    """
+    if not (message or "").strip() or not (reply or "").strip():
+        return
+    try:
+        session = await _get_session(session_id)
+        if not session.get("userId"):
+            _uid = (user_id or "").strip()
+            if _uid and _uid != "anon":
+                session["userId"] = _uid
+        msgs = session.get("messages") or []
+        msgs.append({"role": "user", "content": message})
+        msgs.append({"role": "aria", "content": reply})
+        session["messages"] = msgs[-MAX_TURNS * 2:]
+        session["updatedAt"] = time.time()
+        await _save_session(session_id, session)
+        await _register_shortcircuit_turn(session, session_id, user_id, message)
+    except Exception as e:
+        logger.debug("R-F3070 trivial-turn persist failed (non-fatal): %s", e)
+
+
 async def fast_lane_chat(message: str, session_id: str, llm,
-                         *, max_tokens: int = 600, timeout: float = 30.0):
+                         *, user_id: str = "",
+                         max_tokens: int = 600, timeout: float = 30.0):
     """Lean single-LLM-call reply for a basic question (R-F1976). Reuses the
     session store for continuity but skips the heavy context/verification path.
     Returns the answer text, or None to signal 'fall through to the full pipeline'."""
@@ -1984,10 +2047,19 @@ async def fast_lane_chat(message: str, session_id: str, llm,
     msgs.append({"role": "user", "content": message})
     msgs.append({"role": "aria", "content": text})
     session["messages"] = msgs[-20:]
+    # R-F3070 — stamp the owner. The fast lane bypasses the main generator, which
+    # is the only other place session["userId"] is set, so a session whose first
+    # turn is fast-lane had NO owner and could never be indexed.
+    if not session.get("userId"):
+        _uid = (user_id or "").strip()
+        if _uid and _uid != "anon":
+            session["userId"] = _uid
     try:
         await _save_session(session_id, session)
     except Exception:
         pass  # continuity is best-effort; never fail the reply on a session write
+    # R-F3070 — register on the conversation index (see _register_shortcircuit_turn).
+    await _register_shortcircuit_turn(session, session_id, user_id, message)
     return text
 
 

@@ -72,6 +72,7 @@ import {
 } from './lib/messages.mjs';
 import { ariaChat as ariaLocalChat, ariaThink as ariaLocalThink } from './lib/aria/aria.mjs';
 import { applyRateLimiting, applyInputValidation, applySecurityHeaders } from './middleware/rateLimiter.mjs';
+import { initTokenDenylist, revokeToken, isTokenRevoked } from './lib/auth/tokenDenylist.mjs';   // R-F3074
 import { handleTelegramWebhook, setLLMProvider as setTelegramLLM, handleAriaCommand, buildArkmursBrief } from './lib/telegram/telegramCommands.mjs';
 import * as channelHooks from './lib/telegram/channelServerHooks.mjs';
 import { startComplianceRefreshScheduler, screenEntity, getComplianceVersions } from './lib/compliance/listRefresher.mjs';
@@ -343,6 +344,7 @@ const channelPublisher = {
 (async () => {
   try {
     await initUsersStore();
+    await initTokenDenylist();   // R-F3074 — must be loaded before the first requireAuth
     await initLearningStore();
     await initBDStore();
     await initIncidentsStore();
@@ -3447,6 +3449,18 @@ function _ddPinUserParams(req) {
   } catch {}
   return params;
 }
+// R-F3071 — pin the owner for the vault STATS panel too. R-F2097 added explicit
+// pinned routes for search + case and left stats to the generic catch-all, which
+// does not pin for admin/privileged callers — so the operator's dd-reports.html
+// showed platform-wide totals next to an owner-scoped search, the same
+// "headline matches nothing you can open" incoherence this R-number fixes for
+// customers. dd-reports.html is the CUSTOMER surface; the platform-wide view
+// belongs on aria-brain.html.
+app.get('/api/aria/dd/vault/stats', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/dd/vault/stats?${_ddPinUserParams(req).toString()}`, { fallback: async () => res.status(503).json(_brainFallback()) });
+});
 app.get('/api/aria/dd/vault/search', requireAuth, (req, res) => {
   const userId = req.user?.userId || '';
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
@@ -4787,6 +4801,14 @@ function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Authentication required' });
 
+  // R-F3074 — a token the user has logged out is dead, even though its
+  // signature and exp still verify. Checked BEFORE the internal-token branch
+  // is irrelevant (that token is never issued to a browser) but AFTER the
+  // presence check so the cost is one object lookup on authenticated traffic.
+  if (isTokenRevoked(token)) {
+    return res.status(401).json({ error: 'Session ended — please log in again' });
+  }
+
   // Allow ARIA internal token (used by WhatsApp, email reader, proactive system).
   // SECURITY 2026-04-09: removed the hardcoded 'aria-internal' fallback. The
   // previous default value was readable in the public source repo, so anyone
@@ -5182,6 +5204,17 @@ app.post('/api/auth/2fa/authenticate', async (req, res) => {
 // touch an httpOnly cookie). The client also clears its localStorage token.
 app.post('/api/auth/logout', (req, res) => {
   _clearAuthCookie(res);
+  // R-F3074 — actually end the session. The app authenticates with the bearer
+  // in localStorage, not the cookie, so clearing the cookie alone left the
+  // token live for the rest of its 7-day life (verified: logout → 200, same
+  // token → /api/auth/me 200). Revoke THIS token only, so signing out on one
+  // device does not sign the same person out everywhere.
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (token) {
+    let expiresAt = 0;
+    try { expiresAt = verifyToken(token)?.exp || 0; } catch { /* expired/invalid — nothing to revoke */ }
+    if (expiresAt) revokeToken(token, expiresAt);
+  }
   res.json({ ok: true });
 });
 

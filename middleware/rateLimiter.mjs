@@ -12,6 +12,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import slowDown  from 'express-slow-down';
 import helmet    from 'helmet';
 import { body, query, param, validationResult } from 'express-validator';
+import { verifyToken } from '../lib/auth/users.mjs';   // R-F3072 — identity-keyed buckets
 
 // R-F35 (2026-05-03): IPv6-safe IP fallback. express-rate-limit v8+ emits
 // ERR_ERL_KEY_GEN_IPV6 if you mix req.ip into a custom keyGenerator
@@ -20,7 +21,67 @@ import { body, query, param, validationResult } from 'express-validator';
 // applies a /64 prefix mask to v6 and leaves v4 alone. Live evidence
 // 2026-05-03 11:09:55: 3× ValidationError stack traces at boot from
 // rateLimiter.mjs:112/113/119 (ariaThin/ariaChat/admin tiers).
-const _ipFallback = (req, res) => ipKeyGenerator(req, res);
+//
+// R-F3076 (2026-07-25) — THIS WAS SILENTLY COUNTING NOTHING. express-rate-limit
+// v8 changed the helper's signature to `ipKeyGenerator(ip: string, ipv6Subnet?)`
+// (v6/v7, which R-F35 was written against, took `(req, res)`). Passing `req` as
+// `ip` means `isIPv6(req)` is false and the helper returns **the Request object
+// itself** as the bucket key. Every request is a distinct object, so every
+// request minted a fresh bucket and the counter never incremented past 1.
+//
+// Blast radius: every tier that reached this fallback — and since the limiters
+// are mounted BEFORE any auth middleware (server.mjs:1462, see R-F3072 below),
+// `req.user` was always undefined, so ariaThin (think, 5/min), ariaChat (chat,
+// 20/min) and admin (30/min) reached it on EVERY request. ARIA's per-user LLM
+// rate limits have therefore been enforcing nothing; the $300/mo cap (§17) and
+// the brain-side per-user quota were the only live brakes. Verified 2026-07-25:
+// 175 consecutive anonymous requests through a keyGenerator using this helper
+// returned `RateLimit-Remaining: 149` — i.e. one hit, not 175.
+const _ipFallback = (req, res) => ipKeyGenerator(req.ip);
+
+// ── R-F3072: identity-keyed buckets ──────────────────────────────────────────
+// The limiters ran BEFORE any auth middleware, so `req.user` was ALWAYS
+// undefined here — applyRateLimiting(app) is mounted at server.mjs:1461 and
+// every requireAuth is registered later, per route. So the tiers that read
+// `req.user?.userId` (ariaThin / ariaChat / admin, R-F2383) silently degraded
+// to per-IP, and the standard tier had no key at all. Decode the bearer
+// ourselves — one HMAC, no store hit — so a signed-in human gets their OWN
+// bucket instead of sharing one with everyone behind the same NAT.
+//
+// This also fixes what the per-IP bucket did to the app's OWN traffic: the
+// standard tier is an ANTI-ABUSE control, but the dominant caller on /api/ is
+// first-party polling. Measured steady state (2026-07-25): the shared sidebar
+// alerts badge is 1 req/60s = 15 per 15-min window on EVERY app page; the
+// dashboard auto-refresh is 6 requests/90s = 60 per window; vault.html runs two
+// 60s pollers = 30; wa-connections refreshes every 15s = 60. One dashboard tab
+// left open idles at ~75 of the 150 budget, so a second tab (dashboard + chat is
+// the normal working posture) exhausted it — the user hit the express-slow-down
+// ramp at 80 (+200ms per request, up to 5s) and then a hard 15-minute
+// "Too many requests" across the WHOLE app, chat included, without doing
+// anything unusual. Sizing the authenticated bucket from that measured profile
+// leaves ~3x headroom for a power user with several tabs; the expensive and
+// abusable routes are NOT covered by this number — they keep their own much
+// tighter per-route tiers below (chat 20/min, think 5/min, compliance 10/min,
+// export 3/min, admin 30/min, auth 10 per 15min), which are what actually
+// bound cost and brute force. Anonymous traffic keeps the old 150/15min.
+function _bearerUserId(req) {
+  if (req._rlUserId !== undefined) return req._rlUserId;
+  let uid = null;
+  const m = /^Bearer\s+(.+)$/i.exec(req.headers?.authorization || '');
+  if (m) {
+    try {
+      const p = verifyToken(m[1].trim());
+      if (p && p.userId) uid = String(p.userId);
+    } catch { /* expired / forged / internal-token → anonymous bucket */ }
+  }
+  req._rlUserId = uid;
+  return uid;
+}
+const _identityKey = (req, res) => {
+  const uid = _bearerUserId(req);
+  return uid ? `u:${uid}` : _ipFallback(req, res);
+};
+const _authedMax = (authed, anon) => (req) => (_bearerUserId(req) ? authed : anon);
 
 // R-F390 (2026-05-12): bypass user-facing rate limiters for requests that
 // carry the internal-service bearer. The WA listener calls /api/aria/chat
@@ -51,7 +112,10 @@ const TIERS = {
   // Standard API — generous but not unlimited
   standard: {
     windowMs:  15 * 60 * 1000,  // 15 min
-    max:       150,
+    // R-F3072 — sized from the app's own measured polling profile (see
+    // _bearerUserId above). Anonymous callers keep the original 150.
+    max:       _authedMax(600, 150),
+    keyGenerator: _identityKey,
     message:   { error: 'Too many requests. Please wait 15 minutes.' },
     standardHeaders: true,
     legacyHeaders:   false,
@@ -78,7 +142,7 @@ const TIERS = {
     windowMs:  60 * 1000,
     max:       5,
     message:   { error: 'ARIA think rate limit reached. Max 5 requests/minute.' },
-    keyGenerator: (req, res) => req.user?.userId || req.user?.id || _ipFallback(req, res),  // R-F2383: JWT payload is {userId,...}; `.id` was always undefined → per-IP
+    keyGenerator: _identityKey,   // R-F3072: req.user is not populated at limiter time (mounted pre-auth) — decode the bearer instead
     skip:      _internalTokenBypass,   // R-F390
   },
 
@@ -87,7 +151,7 @@ const TIERS = {
     windowMs:  60 * 1000,
     max:       20,
     message:   { error: 'ARIA chat rate limit reached. Max 20 messages/minute.' },
-    keyGenerator: (req, res) => req.user?.userId || req.user?.id || _ipFallback(req, res),  // R-F2383: JWT payload is {userId,...}; `.id` was always undefined → per-IP
+    keyGenerator: _identityKey,   // R-F3072: req.user is not populated at limiter time (mounted pre-auth) — decode the bearer instead
     skip:      _internalTokenBypass,   // R-F390
   },
 
@@ -110,18 +174,24 @@ const TIERS = {
     windowMs:  60 * 1000,
     max:       30,
     message:   { error: 'Admin rate limit reached.' },
-    keyGenerator: (req, res) => req.user?.userId || req.user?.id || _ipFallback(req, res),  // R-F2383: JWT payload is {userId,...}; `.id` was always undefined → per-IP
+    keyGenerator: _identityKey,   // R-F3072: req.user is not populated at limiter time (mounted pre-auth) — decode the bearer instead
     skip:      _internalTokenBypass,   // R-F390
   },
 };
 
 // ── Slow-down for repeated requests (progressive delay) ───────────────────────
 
+// R-F3072 — same split as the standard tier. At delayAfter:80 the ramp fired on
+// a single dashboard tab left open ~12 minutes (~85 first-party requests) and
+// added up to 5s to every subsequent call — the "the app got really slow and
+// then stopped working" symptom, caused entirely by our own auto-refresh.
+const _slowAfter = _authedMax(400, 80);
 const speedLimiter = slowDown({
   windowMs:        15 * 60 * 1000,
-  delayAfter:      80,             // start slowing after 80 req/15min
-  delayMs:         (used, req) => (used - 80) * 200,   // +200ms per req over limit
+  delayAfter:      _slowAfter,
+  delayMs:         (used, req) => Math.max(0, used - _slowAfter(req)) * 200,
   maxDelayMs:      5000,           // max 5s delay
+  keyGenerator:    _identityKey,
   skip:            _internalTokenBypass,   // R-F390
 });
 
