@@ -34,8 +34,18 @@ _CONTEXT_WINDOWS: dict[str, int] = {
     "claude-3-sonnet":          200000,
     "claude-3-haiku":           200000,
     # DeepSeek
+    # R-F3045 (2026-07-25) — the v4 ids were MISSING here while R-F3032
+    # migrated the live model to `deepseek-v4-flash`. Unknown model →
+    # _DEFAULT_CONTEXT_WINDOW (8192) → prompt budget 4096, an 8-16x cut.
+    # Measured live: ARIA_SYSTEM_PROMPT 83,519 chars was truncated to 7,059
+    # (92% of her constitution DISCARDED) and a 418-char user message to 71,
+    # ending mid-word at "...the Angol" — which is verbatim what she then
+    # reported back ("your message cut off after 'Ango...'"). Every non-DD
+    # LLM call ran that way from the migration until this fix.
     "deepseek-chat":            65536,
     "deepseek-reasoner":        65536,
+    "deepseek-v4-flash":        65536,
+    "deepseek-v4-pro":          65536,
     # Groq
     "llama-3.3-70b-versatile":  131072,
     "llama-3.1-70b-versatile":  131072,
