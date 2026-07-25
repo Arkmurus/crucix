@@ -25,7 +25,30 @@ _TOPIC_SEVERITY: dict[str, str] = {
     # ── HARD STOP ── active sanction / asset freeze / export prohibition
     "sanction":         "hard_stop",
     "sanction.linked":  "hard_stop",
-    "sanction.counter": "hard_stop",
+    # R-F3053 (2026-07-25) — COUNTER-sanctions are NOT a Western legal bar, and
+    # treating them as one produces a false mandatory refusal against exactly the
+    # people this product exists to serve.
+    #
+    # Live evidence: a DD on **Charles Woodburn — the CEO of BAE Systems** returned
+    # `HARD STOP — triggers a mandatory refusal. Do NOT proceed with the
+    # transaction.` The underlying fact is TRUE and correctly matched (OpenSanctions
+    # Q32159211, lists `wikidata, cn_sanctions`, topic `sanction.counter`): China
+    # counter-sanctioned him. But a Chinese counter-designation of a UK defence
+    # executive creates NO prohibition for a UK/EU/US counterparty — it is imposed
+    # in retaliation for legitimate Western defence work, so for our users it is
+    # closer to the opposite signal.
+    #
+    # This is the same correction R-F569 made for `export.risk` (Embraer HARD_STOP'd
+    # at an MVP fire-test), and the same principle as R-F3000 (UK sovereign debt
+    # demoted from AMBER to country-context INFO): the FACT is reported, the
+    # unjustified BLOCKING VERDICT is not.
+    #
+    # NEVER-FALSE-CLEAN IS PRESERVED: this only reclassifies the counter-sanctions
+    # topic. A genuine OFAC/EU/UN/OFSI listing on the same entity carries the
+    # `sanction` topic above and still HARD_STOPs, and the counter-sanction itself
+    # remains visible at AMBER with an explanation — it is material to the
+    # counterparty's banking, travel and ability to operate in that jurisdiction.
+    "sanction.counter": "amber",
     "asset.frozen":     "hard_stop",
     "frozen":           "hard_stop",
     "export.control":   "hard_stop",
@@ -865,6 +888,19 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
     summary = "; ".join(parts)
     if len(worst_matches) > 3:
         summary += f" [+{len(worst_matches) - 3} more]"
+    # R-F3053 — a counter-sanction needs its meaning stated, or an AMBER on a
+    # Western defence executive reads as an accusation. Appended once, only when a
+    # counter-sanctions topic is actually present among the driving matches.
+    if any("sanction.counter" in (t or "") for pm in worst_matches for t in (pm.get("topics") or [])):
+        summary += (
+            " — NOTE: this is a COUNTER-SANCTIONS listing (a designation made by a state "
+            "in retaliation for another state's sanctions, e.g. the Chinese or Russian "
+            "counter-lists). It is NOT a UK/EU/US legal prohibition and does not by itself "
+            "bar dealing with this party; for a Western defence counterparty it commonly "
+            "reflects their legitimate defence work. It IS material to that party's banking, "
+            "travel and ability to operate in the designating jurisdiction — verify the "
+            "listing and assess exposure there."
+        )
     if not summary:
         if noise_filtered > 0:
             summary = (

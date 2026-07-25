@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3053,
+  "next_available": 3055,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24363,14 +24363,33 @@
       "title": "Brave: relaxed retry when an over-constrained query returns 200 with zero results",
       "claimed_at": "2026-07-25T11:09:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "48181c14",
+      "notes": null,
+      "shipped_at": "2026-07-25T11:20:44Z"
     },
     {
       "r_number": "R-F3052",
       "title": "remove duplicate sidebar tabs and preserve spacing",
       "claimed_at": "2026-07-25T11:21:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3053",
+      "title": "counter-sanctions must not HARD_STOP a Western counterparty (BAE CEO false refusal)",
+      "claimed_at": "2026-07-25T11:27:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3054",
+      "title": "readiness blocker must state the real identity failure, not a false status complaint",
+      "claimed_at": "2026-07-25T11:33:33Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

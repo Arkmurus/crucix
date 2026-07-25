@@ -1850,13 +1850,31 @@ def _dd_decision_readiness(r: dict) -> dict:
             # R-F2793 — name the offending status so the blocker is actionable:
             # "registry status is 'dissolved'" is a different instruction to the
             # reader than a generic "not substantiated".
+            # R-F3054 — name the condition that ACTUALLY failed.
+            #
+            # Live on dd_fd2216746c15 (Rheinmetall AG, DE) the blocker read
+            # "registry status 'active' is not a recognised live status" — while
+            # 'active' is precisely the live status the gate recognises. The status
+            # branch fired only because it was the last truthy test in the chain;
+            # the real failure was that the registry returned no directors and no
+            # incorporation date (the report's own bottom_line said so). Telling a
+            # customer the wrong reason is worse than telling them nothing: it sends
+            # them to check a field that is already correct, and on a non-GB DD —
+            # where this path is the norm — it makes the whole gate look broken.
             "blocker": (
                 "" if identity_ok
                 else "identity enriched from OSINT/vault — registry was unavailable this "
                      "run (not registry-verified)" if registry_unavailable
                 else f"registry status is {registration_status_raw!r}" if _status_dead
+                # status present but NOT recognised as live — the original case
                 else f"registry status {registration_status_raw!r} is not a recognised live status"
-                if registration_status_raw
+                if registration_status_raw and not registry_status_live
+                # status IS live; the substantiating fields are what is missing
+                else "registry status is live but the registry returned neither directors "
+                     "nor an incorporation date — identity is not registry-substantiated"
+                if registry_status_live and not registry_profile
+                else "no registration number was established for this entity"
+                if not registration_number
                 else "legal identity is not registry-substantiated"
             ),
         },
