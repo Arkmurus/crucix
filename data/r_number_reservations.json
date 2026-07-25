@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3086,
+  "next_available": 3087,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24697,6 +24697,15 @@
       "commit_sha": "d582f14ed2021c7bf6fce1e1c5158f6995767dff",
       "notes": null,
       "shipped_at": "2026-07-25T18:50:28Z"
+    },
+    {
+      "r_number": "R-F3086",
+      "title": "2FA dead - otplib v13 API vs v12 call shapes (renumbered from R-F3085 after a peer collision)",
+      "claimed_at": "2026-07-25T19:10:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

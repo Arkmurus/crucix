@@ -5177,6 +5177,42 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// ── R-F3086 — the ONE place a TOTP code is checked ───────────────────────────
+// otplib v13 (package.json pins ^13.4.0) removed the `TOTP.verify()` static and
+// changed `generateURI` to a single options object. Three call sites still used
+// the v12 shapes, so the entire 2FA subsystem was dead:
+//   * /2fa/setup      → generateURI('TOTP', {...}) threw "Cannot read properties
+//                       of undefined (reading 'split')" → 500 "2FA setup failed"
+//   * /2fa/enable     → TOTP.verify is not a function → 500
+//   * /2fa/disable    → same → 500
+//   * /2fa/authenticate → same → 500
+// Verified against the installed otplib 13.4.0, not from memory.
+//
+// Scope, stated precisely: 2FA has NEVER worked here. The feature commit
+// (7a5e29d3, 2026-04-02) added no otplib dependency; 045ffdae added it the same
+// day directly at ^13.4.0, so the v12 call shapes this code was written against
+// were never the installed ones. Nobody is locked out — `twoFactorEnabled` can
+// only be set by /2fa/enable, which always 500'd — but the account-security
+// feature has been dead since the day it shipped, and the sign-in half IS wired
+// (signin.html:174 handles requires2FA), so it would have locked out anyone who
+// had managed to turn it on. There is still no UI to enable 2FA; these routes
+// are API-only. Surfacing that is a product decision, not this R-number's.
+//
+// The v13 replacement is `verifySync()`, which returns an OBJECT
+// `{ valid, delta, ... }` — NOT a boolean. A naive swap keeps `if (!valid)`
+// working syntactically while `{valid:false}` is TRUTHY, i.e. every code would
+// be accepted: a silent auth BYPASS that is strictly worse than the outage it
+// replaces. Reading `.valid` is the whole point of centralising this.
+async function verifyTotpCode(code, secret) {
+  if (!code || !secret) return false;
+  const { verifySync } = await import('otplib');
+  const result = verifySync({
+    token: String(code).replace(/\s/g, ''),
+    secret,
+  });
+  return result?.valid === true;
+}
+
 // ── 2FA: verify TOTP code after password (second step) ───────────────────────
 app.post('/api/auth/2fa/authenticate', async (req, res) => {
   try {
@@ -5186,8 +5222,7 @@ app.post('/api/auth/2fa/authenticate', async (req, res) => {
     try { payload = verifyToken(preToken); } catch { return res.status(401).json({ error: 'Pre-auth token invalid or expired' }); }
     const user = findUserById(payload.userId);
     if (!user || !user.twoFactorSecret) return res.status(401).json({ error: 'Invalid session' });
-    const { TOTP } = await import('otplib');
-    const valid = TOTP.verify({ token: String(code).replace(/\s/g, ''), secret: user.twoFactorSecret });
+    const valid = await verifyTotpCode(code, user.twoFactorSecret);   // R-F3086
     if (!valid) return res.status(401).json({ error: 'Invalid authenticator code' });
     const token = createToken(user.id, user.role, '7d', user.tokenVersion || 0);
     const cleanUser = updateUser(user.id, { lastLogin: new Date().toISOString() });
@@ -5224,10 +5259,14 @@ app.post('/api/auth/2fa/setup', requireAuth, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     const { generateSecret, generateURI } = await import('otplib');
     const secret = generateSecret();
-    const uri = generateURI('TOTP', {
+    // R-F3086 — otplib v13 takes ONE options object; the v12 ('TOTP', {...})
+    // form threw "Cannot read properties of undefined (reading 'split')" and
+    // made this endpoint a guaranteed 500.
+    const uri = generateURI({
+      strategy: 'totp',
+      issuer: 'Arkmurus Intelligence',
       label: user.email,
       secret,
-      issuer: 'Arkmurus Intelligence',
     });
     const QRCode = (await import('qrcode')).default;
     const qrDataUrl = await QRCode.toDataURL(uri);
@@ -5246,8 +5285,7 @@ app.post('/api/auth/2fa/enable', requireAuth, async (req, res) => {
     if (!code) return res.status(400).json({ error: 'Authenticator code required' });
     const user = findUserById(req.user.userId);
     if (!user?.twoFactorSecret) return res.status(400).json({ error: 'Run /api/auth/2fa/setup first' });
-    const { TOTP } = await import('otplib');
-    const valid = TOTP.verify({ token: String(code).replace(/\s/g, ''), secret: user.twoFactorSecret });
+    const valid = await verifyTotpCode(code, user.twoFactorSecret);   // R-F3086
     if (!valid) return res.status(400).json({ error: 'Invalid code — check your authenticator app and try again' });
     updateUser(user.id, { twoFactorEnabled: true });
     res.json({ message: '2FA enabled successfully' });
@@ -5263,8 +5301,7 @@ app.post('/api/auth/2fa/disable', requireAuth, async (req, res) => {
     if (!code) return res.status(400).json({ error: 'Authenticator code required to disable 2FA' });
     const user = findUserById(req.user.userId);
     if (!user?.twoFactorSecret) return res.status(400).json({ error: '2FA is not enabled' });
-    const { TOTP } = await import('otplib');
-    const valid = TOTP.verify({ token: String(code).replace(/\s/g, ''), secret: user.twoFactorSecret });
+    const valid = await verifyTotpCode(code, user.twoFactorSecret);   // R-F3086
     if (!valid) return res.status(400).json({ error: 'Invalid code' });
     updateUser(user.id, { twoFactorEnabled: false, twoFactorSecret: null });
     res.json({ message: '2FA disabled' });

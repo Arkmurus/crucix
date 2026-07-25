@@ -17,6 +17,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
+import { allowLoopbackNetwork } from './helpers/net_guard.mjs';
+
+// R-F2739 hatch: these cases drive the REAL middleware through a real express
+// app on an ephemeral loopback port — the only way to observe the bucket the
+// limiter actually uses. Without this the suite's net_guard blocks the fetch and
+// the tests pass in isolation but fail under `npm test`, which is worse than not
+// having them. Loopback-only; it can never reach production or the LAN.
+allowLoopbackNetwork();
 
 process.env.JWT_SECRET = process.env.JWT_SECRET
   || 'rf3072-test-secret-long-enough-to-pass-the-32-char-guard';
