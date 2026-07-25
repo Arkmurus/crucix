@@ -166,3 +166,69 @@ def test_rf3060_pdf_mirror_uses_the_same_advice_wording():
                    "native-language and offline media check",
                    "Do not treat this as clean"):
         assert phrase in js, f"PDF summary mirror missing: {phrase!r}"
+
+
+# ── R-F3067 — the follow-up must stamp a TERMINAL status ───────────────────
+def test_rf3067_success_path_stamps_an_explicit_status():
+    """THE DEFECT. The follow-up DOES complete and merge — live: dd_eb5c9f6f2e1d
+    32 findings / 12 templates, dd_2556c66e95ee 118 / 30, both ok=True — but
+    `run_adverse_media_deep_search` returns a dict with NO `status` key and the merge
+    writes it verbatim. So the field went "in_progress" -> ABSENT and never once said
+    "completed". Only the FAILURE path ever wrote a status, which is why the error
+    case looked right while success silently had none."""
+    import inspect
+    from aria_service.intel import dd_orchestrator as ddo
+    src = inspect.getsource(ddo._run_adverse_media_followup)
+    assert 'if isinstance(_am_result, dict) and not _am_result.get("status"):' in src
+    assert '_am_result["status"] = "partial" if _am_result.get("partial") else "completed"' in src
+    assert '_am_result["status"] = "incomplete"' in src
+    assert '_am_result.setdefault("completed_at"' in src
+
+
+def test_rf3067_the_live_success_shape_now_reads_as_completed():
+    """The exact shape the search returns: ok=True, findings, NO status key."""
+    live = {"ok": True, "findings": [{"title": "x"}], "templates_searched": 12,
+            "findings_count": 32}
+    assert "COMPLETED" in _render_adverse_media(live)[0]
+
+
+def test_rf3067_a_bounded_sweep_is_not_reported_as_a_failure():
+    lines = _render_adverse_media({"ok": True, "partial": True, "status": "partial",
+                                   "findings": [{"title": "x"}]})
+    assert "COMPLETED (bounded — stopped early)" in lines[0]
+    assert "DID NOT COMPLETE" not in lines[0]
+
+
+# ── R-F3068 — a person is not "unscreened" ─────────────────────────────────
+def test_rf3068_person_wording_does_not_overstate_the_gap():
+    """The deep media sweep is gated to company subjects, but a person DOES get a
+    sanctions/PEP screen. Saying "NOT RUN ... treat as UNCHECKED" implies nothing
+    was done."""
+    line = _render_adverse_media({}, entity_type="person")[0]
+    assert "MEDIA SWEEP NOT RUN for an individual" in line
+    assert "sanctions/PEP screen" in line and "DID run" in line
+    assert "commission one" in line
+
+
+def test_rf3068_company_wording_is_unchanged():
+    line = _render_adverse_media({}, entity_type="company")[0]
+    assert "Adverse media: NOT RUN" in line
+    assert "UNCHECKED, not as clean" in line
+
+
+def test_rf3068_person_summary_and_readiness_agree():
+    from aria_service.intel.dd_schema import _dd_decision_readiness
+    s = _adverse_media_summary({}, None, entity_type="person")
+    assert "media sweep not run for an individual" in s["headline"]
+    q = _dd_decision_readiness({"identity": {"entity_type": "person", "data_gaps": []},
+                                "network": {}, "compliance": {}, "digital": {}})["questions"]["adverse_media"]
+    assert "MEDIA SWEEP not run for an individual" in q["blocker"], (
+        "the scorecard must not say 'did not complete' next to a summary saying it was never run")
+
+
+def test_rf3068_pdf_mirror_carries_the_person_wording():
+    from pathlib import Path
+    js = Path("lib/reports/pdf_generator.mjs").read_text(encoding="utf8")
+    assert "MEDIA SWEEP NOT RUN for an individual subject" in js
+    assert "media sweep not run for an individual" in js
+    assert "COMPLETED (bounded — stopped early)" in js

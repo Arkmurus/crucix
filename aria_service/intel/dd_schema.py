@@ -857,14 +857,16 @@ class ARKDDReport:
             # out of a status, a count and a filter arithmetic.
             _am_sum = _adverse_media_summary(
                 getattr(self, "adverse_media", None), self.digital.as_dict()
-                if hasattr(self.digital, "as_dict") else None)
+                if hasattr(self.digital, "as_dict") else None,
+                entity_type=self.identity.entity_type)          # R-F3068
             lines.append(f"⚑ {_am_sum['headline']}")
             lines.append(f"   Concern: {_am_sum['concern']}")
             lines.append(f"   Advice:  {_am_sum['advice']}")
             # R-F3055 — the adverse-media screening, on the surface a human reads.
             # `adverse_media` is a TOP-LEVEL report key, which is exactly why every
             # renderer had been missing it.
-            for _am_line in _render_adverse_media(getattr(self, "adverse_media", None)):
+            for _am_line in _render_adverse_media(getattr(self, "adverse_media", None),
+                                                  entity_type=self.identity.entity_type):
                 lines.append(_am_line)
             # Deep-research summary (deep_researcher.investigate)
             _wf = self.digital.web_footprint or {}
@@ -1651,6 +1653,9 @@ def _format_previous_name(p) -> str:
 _ADVERSE_STATUS_WORDS = {
     "completed": "COMPLETED",
     "complete": "COMPLETED",
+    # R-F3067 — a self-bounded sweep that returned real findings is NOT the same as
+    # one that failed. It ran, it answered, and it stopped early: say so.
+    "partial": "COMPLETED (bounded — stopped early)",
     "in_progress": "STILL RUNNING",
     "running": "STILL RUNNING",
     "incomplete": "DID NOT COMPLETE",
@@ -1659,12 +1664,25 @@ _ADVERSE_STATUS_WORDS = {
 }
 
 
-def _render_adverse_media(am) -> list[str]:
+def _render_adverse_media(am, entity_type: str = "") -> list[str]:
     """R-F3055 — the adverse-media screening as report lines, for BOTH surfaces.
 
     Renders only what the blob records. Module-level and pure so the PDF's mirror
     implementation can be tested against the same expectations."""
     if not isinstance(am, dict) or not am:
+        # R-F3068 — be accurate about WHY there is nothing here. For an INDIVIDUAL
+        # the deep media sweep is deliberately not run (it is gated to company
+        # subjects, `_is_company_dd`), but a sanctions/PEP screen — which covers the
+        # adverse-media LISTS — did run and is reported under Compliance. Saying
+        # "NOT RUN … treat as UNCHECKED" flatly is therefore wrong for a person: it
+        # implies nothing was done. Naming the real position is both honest and
+        # more useful than an alarm that overstates the gap.
+        if str(entity_type or "").strip().lower() == "person":
+            return ["Adverse media: MEDIA SWEEP NOT RUN for an individual subject — the "
+                    "sanctions/PEP screen (which covers adverse-media watchlists) DID run "
+                    "and is reported under Compliance. A dedicated press/court media search "
+                    "on this individual has NOT been performed; commission one before "
+                    "relying on this file."]
         return ["Adverse media: NOT RUN — no adverse-media screening is recorded on "
                 "this report. Treat as UNCHECKED, not as clean."]
     raw_status = str(am.get("status") or "").strip().lower()
@@ -1711,7 +1729,7 @@ def _render_adverse_media(am) -> list[str]:
     return out
 
 
-def _adverse_media_summary(am, digital=None) -> dict:
+def _adverse_media_summary(am, digital=None, entity_type: str = "") -> dict:
     """R-F3060 — a decision-ready SUMMARY of the adverse-media position: what the
     concern is (if any), and what the reader should do next.
 
@@ -1738,6 +1756,19 @@ def _adverse_media_summary(am, digital=None) -> dict:
     layer_broken = str((digital.get("meta") or {}).get("status") or "").lower() in ("error", "partial")
 
     if not am:
+        if str(entity_type or "").strip().lower() == "person":
+            # R-F3068 — a person DID get a sanctions/PEP screen; only the media sweep
+            # is absent. Overstating the gap is its own kind of dishonesty.
+            return {
+                "severity": "unknown",
+                "headline": "Adverse media: media sweep not run for an individual",
+                "concern": "The sanctions/PEP screen ran and is reported under Compliance, "
+                           "but no press, court or regulatory media search was performed on "
+                           "this individual.",
+                "advice": "Commission a dedicated media search on this person before relying "
+                          "on the file. Do not read the sanctions/PEP result as adverse-media "
+                          "coverage.",
+            }
         return {
             "severity": "unknown",
             "headline": "Adverse media: NOT SCREENED",
@@ -2080,8 +2111,16 @@ def _dd_decision_readiness(r: dict) -> dict:
             # the same principle — do not assert what you cannot show — applied
             # to opposite polarities: R-F2693 avoids a false ACCUSATION, R-F2791
             # avoids a false CLEAN. Failing closed stays; the wording gets honest.
+            # R-F3068 — for an INDIVIDUAL the deep media sweep is deliberately not
+            # run (it is gated to company subjects), so "did not complete" reports a
+            # failure that never occurred and contradicts the adverse-media summary
+            # rendered alongside it. Name the real position instead.
             "blocker": (
                 "" if adverse_ok
+                else "adverse-media MEDIA SWEEP not run for an individual subject — the "
+                     "sanctions/PEP screen ran; a dedicated press/court search has not"
+                if (str(ident.get("entity_type") or "").strip().lower() == "person"
+                    and not _mapping(r.get("adverse_media")))
                 else "adverse-media screening predates backend-verification "
                      "(cannot be confirmed complete — re-run to clear)"
                 if _adverse_is_legacy_blob
@@ -2332,12 +2371,14 @@ def structured_view(r: dict) -> dict:
             # R-F3060 — the decision-ready summary first: concern + advice.
             ("Adverse media — assessment",
              (lambda s: f"{s['headline']} · Concern: {s['concern']} · Advice: {s['advice']}")(
-                 _adverse_media_summary(r.get("adverse_media"), dig)) or None),
+                 _adverse_media_summary(r.get("adverse_media"), dig,
+                                        entity_type=ident.get("entity_type"))) or None),
             # R-F3055 — this section is TITLED "Adverse Media" and showed none of it.
             # Rendered from the SAME `_render_adverse_media` contract the markdown and
             # the PDF use, so the three surfaces cannot disagree.
             ("Adverse media", " · ".join(
-                l.strip().lstrip("•-⚠ ") for l in _render_adverse_media(r.get("adverse_media"))
+                l.strip().lstrip("•-⚠ ") for l in _render_adverse_media(
+                    r.get("adverse_media"), entity_type=ident.get("entity_type"))
             )[:600] or None),
         ], evidence=press_ev),
         # 5) COMMERCIAL COHERENCE (only if populated)

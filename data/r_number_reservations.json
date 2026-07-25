@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3067,
+  "next_available": 3070,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24515,6 +24515,33 @@
       "commit_sha": "c160297a",
       "notes": null,
       "shipped_at": "2026-07-25T13:28:52Z"
+    },
+    {
+      "r_number": "R-F3067",
+      "title": "adverse-media follow-up must stamp an explicit terminal status",
+      "claimed_at": "2026-07-25T15:15:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3068",
+      "title": "person subjects: state the adverse-media position accurately",
+      "claimed_at": "2026-07-25T15:15:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3069",
+      "title": "DD evidence governance foundation",
+      "claimed_at": "2026-07-25T15:37:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

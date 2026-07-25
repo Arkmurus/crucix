@@ -55,8 +55,20 @@ async def test_followup_merges_findings_into_stored_report(monkeypatch) -> None:
     )
 
     assert written["key"] == ddo.REPORT_REDIS_KEY.format(run_id="r1")
-    assert written["value"]["adverse_media"] == {"ok": True, "findings_count": 3,
-                                                 "coverage_by_class": {"press": 1}}
+    # R-F3067 — the merge no longer writes the search result VERBATIM: it stamps a
+    # terminal `status` (and `completed_at`) first. That is the whole fix — the
+    # search returns NO status key, so the field went "in_progress" -> ABSENT and
+    # never once read "completed", leaving the honest state unrepresentable. The
+    # intent of this assertion (the search's own fields are merged faithfully and
+    # nothing else is invented) is preserved below.
+    _am = written["value"]["adverse_media"]
+    assert _am["ok"] is True
+    assert _am["findings_count"] == 3
+    assert _am["coverage_by_class"] == {"press": 1}
+    assert _am["status"] == "completed", "a finished sweep must SAY it finished"
+    assert isinstance(_am.get("completed_at"), float)
+    assert set(_am) == {"ok", "findings_count", "coverage_by_class",
+                        "status", "completed_at"}, "nothing else invented"
     # merge touched ONLY adverse_media — the verdict and other fields are intact
     assert written["value"]["risk_classification"] == "RED"
     assert written["value"]["bottom_line"] == "verdict already delivered"

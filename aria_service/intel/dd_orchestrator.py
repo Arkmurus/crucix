@@ -10297,6 +10297,33 @@ async def _run_adverse_media_followup(
             "framework_version": "R-F2657 async follow-up",
             "trigger": trigger_reason,
         }
+    # ── R-F3067 — STAMP AN EXPLICIT TERMINAL STATUS ─────────────────────────
+    #
+    # THE DEFECT. `adverse_media.status` was reported as stuck at "in_progress"
+    # forever. It is the inverse: the follow-up DOES complete and merge (live:
+    # dd_eb5c9f6f2e1d 32 findings / 12 templates, dd_2556c66e95ee 118 / 30, both
+    # ok=True) — but `run_adverse_media_deep_search` returns a dict with NO `status`
+    # key, and the merge writes that dict VERBATIM. So the field goes
+    #   "in_progress"  →  absent
+    # and NEVER says "completed". Every consumer keyed on `status` therefore sees
+    # either the stale stub (before the merge) or nothing at all (after it), and the
+    # only honest reading — "this screening finished" — was unrepresentable.
+    #
+    # Only the FAILURE path ever wrote a status ("incomplete"), which is why the
+    # error case looked correct while the success case silently had none. The
+    # terminal state is now stamped on EVERY outcome, derived from what the search
+    # actually reported rather than assumed: `partial` when the search self-bounded,
+    # `completed` when it ran to the end, `incomplete` when it could not answer.
+    try:
+        if isinstance(_am_result, dict) and not _am_result.get("status"):
+            if _am_result.get("ok"):
+                _am_result["status"] = "partial" if _am_result.get("partial") else "completed"
+            else:
+                _am_result["status"] = "incomplete"
+        if isinstance(_am_result, dict):
+            _am_result.setdefault("completed_at", time.time())
+    except Exception:      # a status stamp must never break the merge
+        pass
     # Merge ONLY adverse_media into the stored blob (read-modify-write).
     # R-F2671 — serialized against the independent-verification follow-up so the two
     # concurrent RMWs on this blob cannot clobber each other.
