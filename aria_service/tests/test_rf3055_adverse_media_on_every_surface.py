@@ -104,3 +104,65 @@ def test_rf3055_online_and_pdf_use_the_same_status_vocabulary():
     for word in ("STILL RUNNING", "DID NOT COMPLETE", "NOT RUN", "COMPLETED",
                  "UNCHECKED, not clean", "absence of COVERAGE, not proof of good standing"):
         assert word in js, f"PDF mirror is missing the shared wording: {word!r}"
+
+
+# ── R-F3060 — the decision-ready summary (concern + advice) ────────────────
+from aria_service.intel.dd_schema import _adverse_media_summary
+
+
+def test_rf3060_unfinished_screening_advises_not_to_decide_yet():
+    s = _adverse_media_summary({"status": "in_progress"})
+    assert s["severity"] == "unknown"
+    assert "UNFINISHED" in s["headline"]
+    assert "not evidence of absence" in s["concern"]
+    assert "UNCHECKED" in s["advice"]
+
+
+def test_rf3060_clean_result_never_claims_good_standing():
+    s = _adverse_media_summary({"status": "completed", "findings": []})
+    assert "nothing found in the sources searched" in s["headline"]
+    assert "not proof of good standing" in s["concern"]
+    assert "native-language and offline" in s["advice"], "say what ARIA cannot see"
+
+
+def test_rf3060_a_broken_digital_layer_downgrades_a_clean_result():
+    """A layer that did not complete cannot support an adverse-media conclusion."""
+    s = _adverse_media_summary({"status": "completed", "findings": []},
+                               {"meta": {"status": "error"}})
+    assert s["severity"] == "unknown"
+    assert "did not complete" in s["headline"]
+    assert "narrower than intended" in s["concern"]
+
+
+def test_rf3060_hits_are_amber_and_hand_the_judgement_to_the_reader():
+    s = _adverse_media_summary({"status": "completed", "findings": [{"title": "x"}],
+                                "materiality": {"credible_count": 2}})
+    assert s["severity"] == "amber"
+    assert "2 item(s) require review" in s["headline"]
+    assert "does not decide materiality on your behalf" in s["advice"]
+
+
+def test_rf3060_never_screened_is_not_clean():
+    s = _adverse_media_summary({})
+    assert "NOT SCREENED" in s["headline"]
+    assert "Do not treat this as clean" in s["advice"]
+
+
+def test_rf3060_summary_reaches_the_markdown_and_online_surfaces():
+    r = ARKDDReport()
+    r.identity.entity_name = "Acme Defence Ltd"
+    r.adverse_media = {"status": "completed", "findings": []}
+    md = r.render_markdown()
+    assert "⚑ Adverse media:" in md and "Advice:" in md
+    blob = str(structured_view(r.as_dict()))
+    assert "Adverse media — assessment" in blob
+
+
+def test_rf3060_pdf_mirror_uses_the_same_advice_wording():
+    from pathlib import Path
+    js = Path("lib/reports/pdf_generator.mjs").read_text(encoding="utf8")
+    for phrase in ("SCREENING UNFINISHED", "NOT SCREENED",
+                   "does not decide materiality on your behalf",
+                   "native-language and offline media check",
+                   "Do not treat this as clean"):
+        assert phrase in js, f"PDF summary mirror missing: {phrase!r}"

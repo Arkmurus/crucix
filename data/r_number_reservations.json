@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3063,
+  "next_available": 3064,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24473,6 +24473,15 @@
       "commit_sha": "b7d794b9",
       "notes": null,
       "shipped_at": "2026-07-25T12:38:16Z"
+    },
+    {
+      "r_number": "R-F3063",
+      "title": "P0: company-only enrichment must never run for a person (Woodburn contamination)",
+      "claimed_at": "2026-07-25T12:38:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

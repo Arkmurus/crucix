@@ -852,6 +852,15 @@ class ARKDDReport:
             if self.digital.source_tier_breakdown:
                 parts = [f"{k}:{v}" for k, v in self.digital.source_tier_breakdown.items()]
                 lines.append(f"Source tiers: {', '.join(parts)}")
+            # R-F3060 — lead with the SO-WHAT. The detail lines below say what was
+            # run; a reader had to assemble the concern and the next step themselves
+            # out of a status, a count and a filter arithmetic.
+            _am_sum = _adverse_media_summary(
+                getattr(self, "adverse_media", None), self.digital.as_dict()
+                if hasattr(self.digital, "as_dict") else None)
+            lines.append(f"⚑ {_am_sum['headline']}")
+            lines.append(f"   Concern: {_am_sum['concern']}")
+            lines.append(f"   Advice:  {_am_sum['advice']}")
             # R-F3055 — the adverse-media screening, on the surface a human reads.
             # `adverse_media` is a TOP-LEVEL report key, which is exactly why every
             # renderer had been missing it.
@@ -1702,6 +1711,87 @@ def _render_adverse_media(am) -> list[str]:
     return out
 
 
+def _adverse_media_summary(am, digital=None) -> dict:
+    """R-F3060 — a decision-ready SUMMARY of the adverse-media position: what the
+    concern is (if any), and what the reader should do next.
+
+    Operator ask: the digital layer needs "a summary section highlighting any adverse
+    media concerns or advice". The detail lines (`_render_adverse_media`) answer WHAT
+    was run; a reader still had to assemble the SO-WHAT themselves from a screening
+    state, a count, and a filter arithmetic.
+
+    Returns {"headline", "concern", "advice", "severity"}. Every field is derived
+    from what the blob records — this never invents a concern, and never reports
+    reassurance the evidence does not support. `severity` is presentational only; it
+    does NOT feed the verdict (R-F3022 owns escalation).
+    """
+    am = am if isinstance(am, dict) else {}
+    digital = digital if isinstance(digital, dict) else {}
+    status = str(am.get("status") or "").strip().lower()
+    if not status:
+        status = "completed" if am.get("ok") else ""
+    findings = am.get("findings") if isinstance(am.get("findings"), list) else []
+    mat = am.get("materiality") if isinstance(am.get("materiality"), dict) else {}
+    credible = int(mat.get("credible_count") or 0)
+
+    # A layer that did not finish cannot support ANY adverse-media conclusion.
+    layer_broken = str((digital.get("meta") or {}).get("status") or "").lower() in ("error", "partial")
+
+    if not am:
+        return {
+            "severity": "unknown",
+            "headline": "Adverse media: NOT SCREENED",
+            "concern": "No adverse-media screening is recorded on this report, so nothing "
+                       "is known either way.",
+            "advice": "Do not treat this as clean. Re-run the DD, or commission a manual "
+                      "adverse-media search, before relying on the file.",
+        }
+    if status in ("in_progress", "running"):
+        return {
+            "severity": "unknown",
+            "headline": "Adverse media: SCREENING UNFINISHED",
+            "concern": "The screening had not completed when this report was rendered, so "
+                       "the absence of findings below is not evidence of absence.",
+            "advice": "Re-open the report to pick up the completed sweep before making a "
+                      "decision. Until then treat adverse media as UNCHECKED.",
+        }
+    if status in ("incomplete", "failed", "error") or am.get("error"):
+        return {
+            "severity": "unknown",
+            "headline": "Adverse media: SCREENING DID NOT COMPLETE",
+            "concern": ("The sweep failed or was cut short"
+                        + (f" ({str(am.get('error'))[:120]})" if am.get("error") else "")
+                        + ", so coverage is unknown."),
+            "advice": "Re-run the DD. Do not record this entity as adverse-media clear on "
+                      "the strength of this run.",
+        }
+    if credible or findings:
+        n = credible or len(findings)
+        return {
+            "severity": "amber" if credible else "info",
+            "headline": f"Adverse media: {n} item(s) require review",
+            "concern": (f"{n} subject-named item(s) survived de-duplication and filtering. "
+                        "They are listed with their sources below."),
+            "advice": "Open each cited source and judge it on its merits before relying on "
+                      "this file — the count alone is not a finding, and ARIA does not "
+                      "decide materiality on your behalf.",
+        }
+    # Completed, nothing found — the honest wording matters most here.
+    return {
+        "severity": "info" if not layer_broken else "unknown",
+        "headline": ("Adverse media: nothing found in the sources searched"
+                     if not layer_broken else
+                     "Adverse media: nothing found, but the digital layer did not complete"),
+        "concern": ("No adverse coverage was returned by the sources that answered. This is "
+                    "an absence of COVERAGE, not proof of good standing."
+                    + (" The digital layer did not complete, so coverage is narrower than "
+                       "intended." if layer_broken else "")),
+        "advice": ("Check the data gaps for sources that did not answer. For a high-value "
+                   "counterparty, commission a native-language and offline media check — "
+                   "ARIA searches what is indexed and reachable, which is not everything."),
+    }
+
+
 def _render_screened_lists(screen) -> list[str]:
     """R-F3019 — the sanctions lists actually screened, their per-list verdict, and
     the screening DATE, as report lines. Module-level so it is directly testable.
@@ -2036,7 +2126,33 @@ def _dd_decision_readiness(r: dict) -> dict:
             ),
         },
     }
-    answered = sum(1 for q in questions.values() if q["answered"])
+    # ── R-F3063 (P0) — the scorecard must be ENTITY-TYPE AWARE ──────────────
+    #
+    # "Ownership and control" and "Financial capacity" are COMPANY properties:
+    # shareholders, a UBO chain, filed accounts. Asked of an INDIVIDUAL they can
+    # never be answered, so every person DD was permanently capped at 3/5 and told
+    # the reader "ownership/control is unresolved" and "financial capacity is
+    # unknown" — which reads as a deficiency in the subject rather than a question
+    # that does not apply. It was also the pressure that made the company-registry
+    # contamination look like progress: filling those boxes for a person REQUIRES
+    # attaching some company to them.
+    #
+    # NOT_APPLICABLE is scored out of the APPLICABLE questions, never counted as
+    # answered — a person can reach decision-ready on the questions that apply to a
+    # person, and can never be made to look cleared on questions nobody asked.
+    if str(ident.get("entity_type") or "").strip().lower() == "person":
+        for _qk in ("ownership_control", "financial_capacity"):
+            _q = questions.get(_qk)
+            if not _q or _q.get("answered"):
+                continue          # a person WITH real company evidence keeps it
+            _q["status"] = "NOT_APPLICABLE"
+            _q["answered"] = False
+            _q["not_applicable"] = True
+            _q["blocker"] = ""    # not a blocker: it is not a question about a person
+            _q["evidence"] = ("not applicable to an individual — this is a corporate "
+                              "register question")
+    _applicable = {k: q for k, q in questions.items() if not q.get("not_applicable")}
+    answered = sum(1 for q in _applicable.values() if q["answered"])
     blockers = [q["blocker"] for q in questions.values() if q["blocker"]]
     try:
         # R-F3013 — strip any STALE decision_readiness left on `r` from a prior
@@ -2048,13 +2164,13 @@ def _dd_decision_readiness(r: dict) -> dict:
         evidence_grade = str(_dd_quality_assessment(_r_grade).get("grade") or "INCOMPLETE")
     except Exception:
         evidence_grade = "INCOMPLETE"
-    evidence_grade = _cap_grade(evidence_grade, _readiness_grade_cap(answered, len(questions)))
+    evidence_grade = _cap_grade(evidence_grade, _readiness_grade_cap(answered, len(_applicable)))
     evidence_ready = evidence_grade == "A"
     if not evidence_ready:
         blockers.append(
             f"evidence grade {evidence_grade} does not meet the Grade A reliance threshold"
         )
-    ready = answered == len(questions) and evidence_ready
+    ready = answered == len(_applicable) and evidence_ready
     return {
         # R-F2793 — "CLEARED_FOR_RELIANCE" over-claims and R-F2786's own author
         # flagged it. ARIA is an open-source DD system: search recall is not
@@ -2065,9 +2181,9 @@ def _dd_decision_readiness(r: dict) -> dict:
         # false-confidence failure this whole scorecard exists to prevent.
         "status": "DECISION_READY_FOR_HUMAN_REVIEW" if ready else "NOT_CLEARED",
         "clearance_ready": ready,
-        "completion_pct": int(answered * 100 / len(questions)),
+        "completion_pct": int(answered * 100 / max(1, len(_applicable))),
         "answered": answered,
-        "required": len(questions),
+        "required": len(_applicable),   # R-F3063 — APPLICABLE questions only
         "evidence_grade": evidence_grade,
         "evidence_ready": evidence_ready,
         "questions": questions,
@@ -2213,6 +2329,10 @@ def structured_view(r: dict) -> dict:
             ("Press coverage", _press_metric),
             ("People investigated", len(dig.get("people") or []) or None),
             ("Source tiers", ", ".join(f"{k}:{v}" for k, v in (dig.get("source_tier_breakdown") or {}).items()) or None),
+            # R-F3060 — the decision-ready summary first: concern + advice.
+            ("Adverse media — assessment",
+             (lambda s: f"{s['headline']} · Concern: {s['concern']} · Advice: {s['advice']}")(
+                 _adverse_media_summary(r.get("adverse_media"), dig)) or None),
             # R-F3055 — this section is TITLED "Adverse Media" and showed none of it.
             # Rendered from the SAME `_render_adverse_media` contract the markdown and
             # the PDF use, so the three surfaces cannot disagree.

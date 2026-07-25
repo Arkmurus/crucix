@@ -44,6 +44,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars   # R-F3059 — per-layer deadline used to clamp per-op bounds
 import json
 import logging
 import os
@@ -1520,11 +1521,56 @@ _OP_T_KB            = _env_float("ARIA_DD_OP_T_KB_S", 15.0)
 _OP_T_DEEPRESEARCH  = _env_float("ARIA_DD_OP_T_DEEPRESEARCH_S", 40.0)
 
 
+#: R-F3059 — the deadline of the LAYER currently running, as a `time.monotonic()`
+#: stamp. Published by each bounded layer wrapper, read by `_bounded_dd_op`.
+_LAYER_DEADLINE: "contextvars.ContextVar[float | None]" = contextvars.ContextVar(
+    "dd_layer_deadline", default=None)
+
+
+def _subject_is_person(report) -> bool:
+    """R-F3063 — True when the DD subject is an INDIVIDUAL.
+
+    Company-register enrichment (Companies House lookups, officer/PSC backfill,
+    filed-accounts financials) must never run for a person: those registers are
+    keyed by COMPANY, so resolving a human's name against them is a name match whose
+    output is then attributed to that human. Deliberately an explicit person test
+    rather than a company test, so a subject of genuinely unknown type keeps its
+    existing behaviour instead of silently losing registry coverage."""
+    try:
+        return str(getattr(getattr(report, "identity", None), "entity_type", "") or "").strip().lower() == "person"
+    except Exception:
+        return False
+
+
 async def _bounded_dd_op(coro, timeout_s: float, layer, op_name: str, default=None):
     """R-F2977 — await `coro` under a hard per-op timeout. On timeout: record a
     data_gap on `layer` and return `default` so the layer KEEPS GOING and completes
     (status OK) instead of the whole layer being cancelled → ERROR. Any OTHER
-    exception propagates unchanged to the caller's existing try/except."""
+    exception propagates unchanged to the caller's existing try/except.
+
+    R-F3059 — the per-op bound is ADDITIONALLY clamped to the LAYER's remaining
+    time. R-F2977 sized these bounds against the 180s digital budget (sum ≈145s),
+    but the digital layer only gets 180s when a website was supplied — otherwise it
+    is `DEFAULT_LAYER_TIMEOUT_S` (90s), while the op bounds still sum to ~175s:
+    multi-query 45 + web-search 30 + site-mine 30 + rag 15 + kb 15 + deep-research
+    40. So on the common no-website path the layer could NOT fit its own ops and was
+    guaranteed to be cancelled → `status=ERROR, "timeout after 90s"` — which is what
+    every live report showed, and it meant R-F2977's whole mechanism could never
+    take effect. Clamping makes that intent true for any budget: a slow op degrades
+    to a data_gap and the LAYER COMPLETES."""
+    _dl = _LAYER_DEADLINE.get()
+    if _dl is not None:
+        _remaining = _dl - time.monotonic() - 1.0   # keep a tail for the layer's own bookkeeping
+        if _remaining <= 0:
+            try:
+                layer.data_gaps.append(
+                    f"{op_name} was SKIPPED — the layer's time budget was already "
+                    "exhausted. Not attempted, so treat as unchecked, not as clean.")
+            except Exception:
+                pass
+            logger.info("[R-F3059] DD op '%s' skipped — layer budget exhausted", op_name)
+            return default
+        timeout_s = max(2.0, min(float(timeout_s), _remaining))
     try:
         return await asyncio.wait_for(coro, timeout=timeout_s)
     except asyncio.TimeoutError:
@@ -3679,8 +3725,27 @@ async def _run_identity(
         except Exception as e:
             logger.warning("Identity: director screen block failed: %s", e)
 
-    # ── 1b. Companies House lookup (UK only) ──
-    if jurisdiction_iso2 == "GB":
+    # ── 1b. Companies House lookup (UK COMPANIES only) ──
+    #
+    # R-F3063 (P0) — NEVER company-search a PERSON'S NAME. Companies House is a
+    # COMPANY register; resolving an individual's name against it is a name match,
+    # and the result is attributed to a named human being.
+    #
+    # LIVE PROOF (dd_7ac19aa7941d / dd_17ef831d42fe, subject "Charles Woodburn",
+    # entity_type=person): this branch and the R-F2515 backfill both ran, matched
+    # company 15016136, and wrote onto the PERSON:
+    #   registration_number 15016136
+    #   directors           WOODBURN, Amy Louise / WOODBURN, Andrew John  ← other people
+    #   shareholders        Mr Andrew John Woodburn / Mrs Amy Louise Woodburn
+    #   financial verdict   DISTRESSED                                    ← their company
+    # A named private individual was presented as financially distressed and tied to
+    # two unrelated named individuals, purely because a surname matched. That is the
+    # fabrication class R-F2726/R-F2993/R-F3014 removed elsewhere, at its most
+    # damaging: about a person.
+    #
+    # The gate is an explicit PERSON exclusion rather than a company requirement, so
+    # a subject whose type is genuinely unknown keeps its existing behaviour.
+    if jurisdiction_iso2 == "GB" and not _subject_is_person(report):
         try:
             from . import companies_house
             # R-F2501 — surface the ROOT cause of GB data-starvation. Without the (free)
@@ -4627,7 +4692,13 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
     try:
         _fin_name = (target.get("name") or target.get("entity")
                      or getattr(report.identity, "entity_name", "") or "").strip()
-        if len(_fin_name) >= 3:
+        # R-F3063 (P0) — defence in depth. Corporate financial health is a COMPANY
+        # property: filed accounts, SEC filings, solvency ratios. Running it for an
+        # individual can only produce a company's figures under a person's name —
+        # live, that printed "financial verdict: DISTRESSED" against a named human.
+        # Blocking the contamination at source (above) already prevents this, but a
+        # verdict this defamatory must not depend on one upstream guard holding.
+        if len(_fin_name) >= 3 and not _subject_is_person(report):
             from . import financial_health as _fh
             _fin = await _bounded_dd_op(_fh.assess(
                 _fin_name,
@@ -10934,7 +11005,12 @@ async def _orchestrate_dd_impl(
                 report.compliance.meta.status = LayerStatus.PREREQ_DEGRADED.value
                 report.compliance.data_gaps.append(_reason_c)
             try:
-                await asyncio.wait_for(_run_compliance(target, report), timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S))
+                _dl_tok_c = _LAYER_DEADLINE.set(                       # R-F3059
+                    time.monotonic() + _clamp(DEFAULT_LAYER_TIMEOUT_S))
+                try:
+                    await asyncio.wait_for(_run_compliance(target, report), timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S))
+                finally:
+                    _LAYER_DEADLINE.reset(_dl_tok_c)
             except asyncio.TimeoutError:
                 report.compliance.meta.status = LayerStatus.ERROR.value
                 report.compliance.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
@@ -10963,7 +11039,12 @@ async def _orchestrate_dd_impl(
                     return
                 report.layers_run.append("network")
                 try:
-                    await asyncio.wait_for(_run_network(target, report), timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S))
+                    _dl_tok_n = _LAYER_DEADLINE.set(                   # R-F3059
+                        time.monotonic() + _clamp(DEFAULT_LAYER_TIMEOUT_S))
+                    try:
+                        await asyncio.wait_for(_run_network(target, report), timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S))
+                    finally:
+                        _LAYER_DEADLINE.reset(_dl_tok_n)
                 except asyncio.TimeoutError:
                     report.network.meta.status = LayerStatus.ERROR.value
                     report.network.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
@@ -10990,6 +11071,11 @@ async def _orchestrate_dd_impl(
                     or target.get("url") or target.get("domain")
                 )
                 _digital_budget = DEFAULT_LAYER_TIMEOUT_S * (2 if _has_site else 1)
+                # R-F3059 — publish the layer deadline so every _bounded_dd_op inside
+                # clamps to what is actually left. ALWAYS reset it: a deadline left
+                # set would be inherited by the next layer in this context and would
+                # silently skip its ops as "budget exhausted".
+                _dl_tok = _LAYER_DEADLINE.set(time.monotonic() + _clamp(_digital_budget))
                 try:
                     await asyncio.wait_for(
                         _run_digital(target, report, llm, _mode_is_deep=(mode == "deep")),
@@ -10998,6 +11084,8 @@ async def _orchestrate_dd_impl(
                 except asyncio.TimeoutError:
                     report.digital.meta.status = LayerStatus.ERROR.value
                     report.digital.meta.error = f"timeout after {_digital_budget}s"
+                finally:
+                    _LAYER_DEADLINE.reset(_dl_tok)      # R-F3059
 
             await asyncio.gather(_run_network_layer(), _run_digital_layer(), return_exceptions=True)
 
@@ -11011,7 +11099,12 @@ async def _orchestrate_dd_impl(
         # get_officers/get_psc by reg# (2 calls); fall back to name resolution if reg# is
         # missing. Fires ONLY on the empty-GB failure case; never overwrites populated data.
         try:
+            # R-F3063 (P0) — and NEVER for a person. `not directors` is not a failure
+            # signal for an individual, it is the normal state, so this branch fired on
+            # EVERY GB person DD and company-searched their name (see the header note
+            # on the identity CH block above for the live contamination it produced).
             if (report.identity.jurisdiction_iso2 == "GB"
+                    and not _subject_is_person(report)
                     and not report.identity.directors):
                 from . import companies_house as _ch2515
                 if _ch2515.is_enabled():
