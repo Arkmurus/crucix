@@ -4312,6 +4312,50 @@ def _adverse_relevance_token_sets(names: list[str]) -> list[set[str]]:
     return out
 
 
+def _result_domain(url: str) -> str:
+    """R-F3023 — the registrable host of a result URL, lower-cased, `www.` stripped.
+    Returns "" for anything that is not an http(s) URL (including ARIA's own
+    `memory://` records, which are not external sources at all)."""
+    s = str(url or "").strip()
+    if not s.lower().startswith(("http://", "https://")):
+        return ""
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(s).hostname or "").lower()
+    except Exception:
+        return ""
+    return host[4:] if host.startswith("www.") else host
+
+
+def _query_site_hosts(query: str) -> list[str]:
+    """R-F3023 — the hosts a template CONSTRAINED itself to via `site:`.
+
+    The adverse templates are written as `"{name}" site:bailii.org` (see
+    dd_disciplines.py:1258+), so the intended domain is stated in the query itself —
+    no hand-maintained class→domain table to drift out of date."""
+    return [m.lower().lstrip(".") for m in
+            re.findall(r"site:([A-Za-z0-9.\-]+)", str(query or ""))]
+
+
+def _domain_corroborates_class(domain: str, source_class: str, query: str = "") -> bool | None:
+    """R-F3023 — does the RESULT's domain support the class the TEMPLATE asserted?
+
+    True  — the template constrained itself to a host and the result came from it.
+    False — it constrained itself and the result came from somewhere else (the live
+            failure: `site:justice.gov` answered by a doi.org academic paper because
+            every news/court backend was silent and only the academic backend replied).
+    None  — the template set no host constraint, so there is nothing to corroborate.
+            None is not False: "unverifiable" must never render as "contradicted".
+    """
+    hosts = _query_site_hosts(query)
+    if not hosts:
+        return None
+    d = (domain or "").lower()
+    if not d:
+        return False
+    return any(d == h or d.endswith("." + h) for h in hosts)
+
+
 def _adverse_hit_names_subject(text: str, name_token_sets: list[set[str]]) -> bool:
     """R-F2745 — does the article actually NAME the subject (or a named director/UBO)?
 
@@ -4541,6 +4585,24 @@ async def run_adverse_media_deep_search(
             if not _adverse_hit_names_subject(f"{title} {snippet}", _name_token_sets):
                 _off_subject_dropped += 1
                 continue
+            # ── R-F3023 — the source class describes the QUERY, not the RESULT ──
+            #
+            # THE DEFECT (live, dd_16db41eb5fa8). `source_class` and
+            # `matched_template_purpose` are the TEMPLATE's intent — "UK + Ireland
+            # case law involving this party", "regulatory_us_doj". They were written
+            # onto the finding verbatim, whatever actually came back. When the news
+            # and court backends were all silent and only the academic backend
+            # answered, a molecular-biology paper ("Genetically engineered bacterial
+            # cells", Toxicology Letters 1995) was stored as
+            # `source_class: regulatory_us_doj` / `legal_court_us_federal`. The
+            # report then presented academic DOIs as court and DOJ records.
+            #
+            # The template's intent is still recorded (it is real provenance about
+            # what was ASKED), but it is no longer allowed to masquerade as a fact
+            # about the result. `source_domain` is what the result IS, and
+            # `source_class_corroborated` says plainly whether the two agree — so a
+            # consumer can require corroboration before treating a class as true.
+            _domain = _result_domain(url)
             findings.append({
                 "source_class": source_class,
                 "source_url": url,
@@ -4549,6 +4611,10 @@ async def run_adverse_media_deep_search(
                 "credibility_tier": tier,
                 "query_executed": query[:240],
                 "matched_template_purpose": purpose[:240],
+                # R-F3023 — result-derived provenance
+                "source_domain": _domain,
+                "source_class_corroborated": _domain_corroborates_class(
+                    _domain, source_class, query),
             })
 
         coverage_by_class[source_class] = coverage_by_class.get(source_class, 0) + 1

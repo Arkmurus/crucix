@@ -325,6 +325,16 @@ async def get_company_profile(company_number: str) -> dict | None:
             "postal_code": addr.get("postal_code", ""),
             "country": addr.get("country", ""),
         },
+        # ── R-F3024 — NAME HISTORY. Companies House returns this on every profile
+        # and ARIA threw it away, so a report could not see a name change at all.
+        # Live 2026-07-25 on 07833187 (EFT CONSULT LTD): it traded as ENGINEERING
+        # FOR THE FUTURE LIMITED until 2025-12-24 — while 11346584, at the SAME
+        # registered address, took that name on the SAME day. A name swap between
+        # two co-located companies is a textbook DD flag, and the report scored the
+        # entity commercial-coherence 1.0/GREEN "no structural anomalies" and ghost
+        # 0/28 because nothing in it had ever heard of the old name.
+        # Shape: [{"name":…, "effective_from":…, "ceased_on":…}, …]
+        "previous_company_names": data.get("previous_company_names") or [],
         "has_been_liquidated": data.get("has_been_liquidated", False),
         "has_charges": data.get("has_charges", False),
         "has_insolvency_history": data.get("has_insolvency_history", False),
@@ -883,8 +893,18 @@ async def _get_document_content(dm_url: str, mime: str) -> str | None:
 
 async def fetch_accounts_figures(company_number: str) -> dict | None:
     """R-F3016 — BALANCE-SHEET figures (current + prior year) from the latest Companies
-    House iXBRL accounts. Returns None when the company filed PDF-only accounts (large
-    PLCs), no iXBRL is available, or CH is unavailable. Never raises.
+    House iXBRL accounts. Never raises.
+
+    Return contract (R-F3017):
+      * `{... "figures": {...}}`  — figures extracted.
+      * `{... "figures": None, "unavailable_reason": ...}` — an accounts filing EXISTS
+        but yields no figures. Reasons: `accounts_not_machine_readable` (filed as a
+        scanned/PDF document — every large listed PLC's group accounts; verified live
+        2026-07-25: Cohort PLC 05684823's 2025 accounts are a 129-page TIFF scan,
+        `Producer: libtiff/tiff2pdf`, zero text layer, no iXBRL resource) or
+        `ixbrl_no_balance_sheet_figures` (iXBRL present, no recognised tags).
+      * `None` — nothing proven: CH disabled/unavailable, or no accounts filed at all.
+    Callers that gate on `fig.get("figures")` are unaffected by the middle case.
 
     Balance sheet ONLY — small/micro companies fillet the P&L under the small-company
     exemption, so turnover/profit are not publicly filed. Any verdict built from this is
@@ -897,6 +917,11 @@ async def fetch_accounts_figures(company_number: str) -> dict | None:
         if not fh:
             return None
         dm = mime = made_up = atype = None
+        # R-F3017 — remember the LATEST accounts filing even when it carries no
+        # iXBRL, so a None answer can say WHY (see the unavailable_reason return
+        # below) instead of collapsing to an unexplained blank.
+        latest_filed = latest_type = latest_formats = None
+        latest_pages = None
         for it in (fh.get("items") or []):
             if it.get("category") != "accounts":
                 continue
@@ -904,7 +929,14 @@ async def fetch_accounts_figures(company_number: str) -> dict | None:
             if not _dm:
                 continue
             meta = await _get_json_url(_dm)
-            xh = [m for m in list(((meta or {}).get("resources") or {}).keys()) if "xhtml" in m]
+            _resources = list(((meta or {}).get("resources") or {}).keys())
+            if latest_filed is None:
+                latest_filed = ((it.get("description_values") or {}).get("made_up_date")
+                                or it.get("action_date") or it.get("date"))
+                latest_type = it.get("description")
+                latest_formats = _resources
+                latest_pages = (meta or {}).get("pages")
+            xh = [m for m in _resources if "xhtml" in m]
             if xh:
                 dm, mime = _dm, xh[0]
                 made_up = ((it.get("description_values") or {}).get("made_up_date")
@@ -912,13 +944,45 @@ async def fetch_accounts_figures(company_number: str) -> dict | None:
                 atype = it.get("description")
                 break
         if not dm:
-            return None      # PDF-only (e.g. a large PLC's group accounts) — honest None
+            # R-F3017 — PDF-only (e.g. a large PLC's group accounts). Previously a
+            # bare None, which the report rendered as "financial capacity is
+            # unknown" with no reason — indistinguishable from "we never looked"
+            # and from "the company filed nothing". Both are false. Return the
+            # EVIDENCE we do hold (a filing exists, when, what type, what format)
+            # with an explicit machine-readable reason. `figures` stays None so
+            # every existing caller (`if not fig or not fig.get("figures")`)
+            # behaves exactly as before.
+            if latest_filed is None:
+                return None      # no accounts filing at all — nothing proven
+            return {
+                "company_number": number,
+                "figures": None,
+                "unavailable_reason": "accounts_not_machine_readable",
+                "made_up_to": latest_filed,
+                "accounts_type": latest_type,
+                "document_formats": latest_formats or [],
+                "pages": latest_pages,
+                "source_url": ("https://find-and-update.company-information.service.gov.uk/"
+                               f"company/{number}/filing-history"),
+            }
         doc = await _get_document_content(dm, mime)
         if not doc:
             return None
         figures = _parse_ixbrl_balance_sheet(doc)
         if not figures:
-            return None
+            # R-F3017 — iXBRL was there but carried no balance-sheet tags we
+            # recognise. A DIFFERENT fact from "filed as a scanned PDF", and the
+            # report should not conflate the two.
+            return {
+                "company_number": number,
+                "figures": None,
+                "unavailable_reason": "ixbrl_no_balance_sheet_figures",
+                "made_up_to": made_up,
+                "accounts_type": atype,
+                "document_formats": [mime],
+                "source_url": ("https://find-and-update.company-information.service.gov.uk/"
+                               f"company/{number}/filing-history"),
+            }
         return {
             "company_number": number,
             "figures": figures,
@@ -989,11 +1053,42 @@ async def investigate_uk_entity(
     # which correctly refused to publish name-match "relationships"). Individual /
     # legal-person PSCs remain in psc.current as ownership facts, but are NOT emitted
     # as corporate control edges (no anchor → not Grade A).
+    #
+    # R-F3027 — a corporate controller with NO registry number must not vanish.
+    # Companies House makes `identification.registration_number` OPTIONAL for a
+    # corporate PSC, and plenty of real UK controllers omit it. Verified live
+    # 2026-07-25 on 07833187: `Raven Delta Limited`, kind
+    # `corporate-entity-person-with-significant-control`, ownership-of-shares
+    # 75-to-100%, right-to-appoint-and-remove-directors — and its `identification`
+    # holds only {legal_form, legal_authority}. The Grade-A anchor test below
+    # (`regno and "corporate" in kind`) therefore skipped it SILENTLY, so the one
+    # entity with 75-100% control of the subject appeared nowhere in the control
+    # graph and the DD reported ownership as answered.
+    #
+    # Grade A is still reserved for anchored edges — resolving this name against the
+    # register would be exactly the name-match fabrication R-F2703/R-F2726 removed.
+    # The fix is to carry it as an UNANCHORED controller and let the report say so.
     controlled_by = []
+    controlled_by_unanchored = []
     for p in current_psc:
         ident = p.get("identification") or {}
         regno = str(ident.get("registration_number") or "").strip()
         kind = str(p.get("kind") or "").lower()
+        if "corporate" in kind and not regno:
+            controlled_by_unanchored.append({
+                "relationship": "controlled_by",
+                "controller_name": p.get("name"),
+                "controller_registration_number": "",
+                "controller_legal_form": ident.get("legal_form"),
+                "controller_country_registered": ident.get("country_registered"),
+                "natures_of_control": p.get("natures_of_control", []),
+                "anchor": "none — Companies House supplied no registration number",
+                "grade": "B",
+                "note": ("Corporate controller disclosed by the subject's own PSC filing. "
+                         "NOT resolved to a registry entity: Companies House carries no "
+                         "registration number for it, and resolving the name against the "
+                         "register would be a name match, not an identification."),
+            })
         if regno and "corporate" in kind:
             controlled_by.append({
                 "relationship": "controlled_by",
@@ -1069,6 +1164,9 @@ async def investigate_uk_entity(
             "total": len(psc),
         },
         "controlled_by": controlled_by,  # R-F2726 — anchored (Grade-A) corporate control edges
+        # R-F3027 — corporate controllers CH gave us no registration number for.
+        # Disclosed, un-anchored, and never silently dropped.
+        "controlled_by_unanchored": controlled_by_unanchored,
         "filings": {
             "recent": filings,
             "total_shown": len(filings),

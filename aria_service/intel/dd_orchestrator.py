@@ -3062,6 +3062,42 @@ async def _run_identity(
                     report.identity.registration_status = (_gl["status"] or "").lower(); _filled.append("status")
                 if not report.identity.registered_address and _gl.get("legal_address"):
                     report.identity.registered_address = _gl["legal_address"]; _filled.append("address")
+                # R-F3021 — record the LEI registration state STRUCTURALLY before
+                # the prose finding. A LAPSED/RETIRED LEI means the holder stopped
+                # renewing it: for a regulated counterparty that is a real
+                # maintenance signal, and it was previously visible only inside a
+                # sentence of an info-severity finding — unreadable to the
+                # scorecard, the PDF, or any filter. Recorded for EVERY status
+                # (ISSUED included) so "not lapsed" is an observation, not a
+                # silence, and `lapsed` is only True when GLEIF actually said so.
+                _lei_reg_status = str(_gl.get("registration_status") or "").upper()
+                report.identity.lei_registration = {
+                    "lei": _gl.get("lei") or "",
+                    "registration_status": _lei_reg_status or "UNKNOWN",
+                    "entity_status": str(_gl.get("status") or "").upper() or "UNKNOWN",
+                    "lapsed": _lei_reg_status in {"LAPSED", "RETIRED", "ANNULLED"},
+                    "source_url": _gl.get("source_url") or "",
+                }
+                if report.identity.lei_registration["lapsed"]:
+                    report.identity.findings.append(Finding(
+                        severity="low",
+                        title=(f"LEI {_gl.get('lei')} is {_lei_reg_status} — the entity has "
+                               "not renewed its Legal Entity Identifier"),
+                        detail=(
+                            f"GLEIF reports LEI registration status {_lei_reg_status} for "
+                            f"'{_gl.get('legal_name')}'. An LEI lapses when the holder stops "
+                            "paying/confirming the annual renewal; GLEIF then stops validating "
+                            "the reference data. This is NOT a sanctions, solvency or legality "
+                            "signal and the entity may be trading normally — it does mean the "
+                            "LEI-sourced fields below are no longer GLEIF-validated, and that a "
+                            "counterparty required to hold a current LEI for regulated "
+                            "transactions would need to renew it. "
+                            f"Entity status per GLEIF: {_gl.get('status') or 'unknown'}. "
+                            f"Source: {_gl.get('source_url')}."
+                        ),
+                        source="gleif.search_lei",
+                        confidence="CONFIRMED",
+                    ))
                 report.identity.findings.append(Finding(
                     severity="info",
                     title=f"GLEIF: LEI {_gl.get('lei')} — {_gl.get('legal_name')}",
@@ -3688,6 +3724,39 @@ async def _run_identity(
                     elif isinstance(_addr, str) and _addr:
                         report.identity.registered_address = _addr
                     report.identity.declared_activity = ", ".join(profile.get("sic_codes") or [])[:200] or report.identity.declared_activity
+                    # ── R-F3024 — name history is EVIDENCE, not trivia ──
+                    _prev_names = profile.get("previous_company_names") or []
+                    if isinstance(_prev_names, list) and _prev_names:
+                        report.identity.previous_names = _prev_names[:10]
+                        _recent = _recent_name_changes(_prev_names, within_days=365)
+                        for _pn in (_recent or [])[:3]:
+                            report.identity.findings.append(Finding(
+                                severity="amber" if _recent else "info",
+                                title=(f"Recent name change: traded as "
+                                       f"'{_pn.get('name')}' until {_pn.get('ceased_on')}"),
+                                detail=(
+                                    f"Companies House records that {report.identity.entity_name} "
+                                    f"was named '{_pn.get('name')}' from "
+                                    f"{_pn.get('effective_from') or 'an unstated date'} until "
+                                    f"{_pn.get('ceased_on')} — within the last 12 months. A recent "
+                                    "rename is not wrongdoing, but it materially affects this file: "
+                                    "(a) filed accounts, contracts and press before that date sit "
+                                    "under the OLD name, (b) adverse-media and registry searches on "
+                                    "the CURRENT name will miss that history, and (c) if another "
+                                    "company has taken the old name, evidence found under it may "
+                                    "belong to a different legal entity. Search both names."
+                                ),
+                                source="companies_house.get_company_profile:R-F3024",
+                                confidence="CONFIRMED",
+                            ))
+                        if _recent:
+                            report.identity.data_gaps.append(
+                                "Adverse-media and press searches covered the CURRENT name only — "
+                                "this company was renamed within the last 12 months and its history "
+                                "under "
+                                + ", ".join(f"'{p.get('name')}'" for p in _recent[:2])
+                                + " has NOT been separately screened."
+                            )
                     _off = ch_result.get("officers")
                     report.identity.directors = (_off.get("current") if isinstance(_off, dict) else _off) or []
                     _psc_raw = ch_result.get("psc")
@@ -3699,6 +3768,39 @@ async def _run_identity(
                     _cb = ch_result.get("controlled_by")
                     if isinstance(_cb, list) and _cb:
                         report.network.controlled_by.extend(_cb)
+                    # R-F3027 — un-anchored corporate controllers (CH gave no registry
+                    # number). Kept OUT of `controlled_by` so Grade A keeps meaning
+                    # "anchored", but recorded and stated: a 75-100% controller that
+                    # nothing renders is the same failure as one that was never found.
+                    _cbu = ch_result.get("controlled_by_unanchored")
+                    if isinstance(_cbu, list) and _cbu:
+                        report.network.controlled_by_unanchored.extend(_cbu)
+                        for _u in _cbu[:5]:
+                            _nat = ", ".join(_u.get("natures_of_control") or [])[:160]
+                            report.network.findings.append(Finding(
+                                severity="info",
+                                title=(f"Corporate controller disclosed: {_u.get('controller_name') or '?'} "
+                                       "— not resolvable to a registry entity"),
+                                detail=(
+                                    f"The subject's own PSC filing names '{_u.get('controller_name')}' as a "
+                                    f"corporate person with significant control"
+                                    + (f" ({_nat})" if _nat else "")
+                                    + ". Companies House supplies NO registration number for it, so this "
+                                      "control edge cannot be anchored to a primary-source registry id "
+                                      "and the controller was NOT traversed. Resolving the name against "
+                                      "the register would be a name match, not an identification "
+                                      "(R-F2703). Verify the controller manually before relying on the "
+                                      "ownership picture."
+                                ),
+                                source="companies_house.investigate_uk_entity:R-F3027",
+                                confidence="CONFIRMED",
+                            ))
+                        report.identity.data_gaps.append(
+                            "Ownership NOT fully traced — corporate controller(s) "
+                            + ", ".join(str(_u.get("controller_name") or "?") for _u in _cbu[:3])
+                            + " are disclosed with significant control but carry no Companies House "
+                              "registration number, so the chain above them was not walked."
+                        )
                     # never-false-clean: an empty CH result caused by a rate-limit/timeout
                     # (after retries) must SURFACE as a gap, not read as "verified: no
                     # directors/PSC". A genuine not-found still surfaces its error.
@@ -3800,7 +3902,17 @@ async def _run_identity(
         if _fca_name:
             try:
                 from . import fca_register
-                _fca = await fca_register.lookup_firm(_fca_name)
+                # R-F3025 — hand the registry-verified postcode down so a same-ish
+                # name in a different town cannot be attributed to the subject.
+                _fca_pc = ""
+                try:
+                    _addr = report.identity.registered_address or ""
+                    _m_pc = re.search(
+                        r"\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b", str(_addr).upper())
+                    _fca_pc = _m_pc.group(1) if _m_pc else ""
+                except Exception:
+                    _fca_pc = ""
+                _fca = await fca_register.lookup_firm(_fca_name, postcode=_fca_pc)
                 report.identity.meta.subcalls += 1
                 if not _fca.get("configured"):
                     report.identity.data_gaps.append(
@@ -3844,6 +3956,27 @@ async def _run_identity(
                         source="fca_register.lookup_firm",
                         confidence="CONFIRMED" if _auth is not None else "ASSESSED",
                     ))
+                elif _fca.get("best_candidate"):
+                    # R-F3025 — a firm was returned but is NOT the subject (name match
+                    # below threshold, or a contradicting postcode). Report it as an
+                    # explicit non-attribution: the candidate is named so a human can
+                    # check, and nothing about its status is asserted of the subject.
+                    _bc = _fca.get("best_candidate") or {}
+                    report.identity.findings.append(Finding(
+                        severity="info",
+                        title=(f"FCA Register: no firm identified as '{_fca_name}' "
+                               f"(closest: {_bc.get('firm_name') or '?'} — NOT this subject)"),
+                        detail=(str(_fca.get("reason") or "")
+                                + f" [name match {_fca.get('name_match')} vs threshold "
+                                  f"{_fca.get('name_match_threshold')}]"),
+                        source="fca_register.lookup_firm",
+                        confidence="ASSESSED",
+                    ))
+                    report.identity.data_gaps.append(
+                        "FCA authorisation UNKNOWN — no FCA-registered firm could be "
+                        "identified as this subject (a similarly-named firm was found and "
+                        "deliberately NOT attributed)."
+                    )
                 else:
                     report.identity.findings.append(Finding(
                         severity="info",
@@ -5463,9 +5596,27 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                         _seed.append(_nm)
             except Exception:
                 _seed = []
+            # R-F3018 — hand deep research a COOPERATIVE budget slightly inside the
+            # hard per-op bound. Before this, the bound was a pure `wait_for` cancel:
+            # at 40s every article read and fact learned was thrown away and the DD
+            # got `{}` while the report claimed a "partial result". Now the engine
+            # owns the clock, returns what it gathered, and the outer bound is only
+            # a backstop for a genuinely wedged call.
+            _dr_deadline = max(5.0, _OP_T_DEEPRESEARCH - 3.0)
             dr = await _bounded_dd_op(deep_researcher.investigate(
                 llm, name, depth=dr_depth, investigate_people=_dd_people,
-                seed_people=_seed or None), _OP_T_DEEPRESEARCH, report.digital, "deep research", default={})
+                seed_people=_seed or None, deadline_s=_dr_deadline),
+                _OP_T_DEEPRESEARCH, report.digital, "deep research", default={})
+            if isinstance(dr, dict) and dr.get("partial"):
+                # Honest, specific, and — unlike the old wording — TRUE: name what
+                # was gathered before the cut, not just that a timer expired.
+                report.digital.data_gaps.append(
+                    f"deep research was bounded at {int(_dr_deadline)}s and stopped after "
+                    f"{dr.get('stopped_after') or 'an earlier stage'} — "
+                    f"{dr.get('articles_read', 0)} article(s) analysed, "
+                    f"{dr.get('facts_learned', 0)} fact(s) retained; "
+                    "the results below are real but NOT an exhaustive sweep"
+                )
             if isinstance(dr, dict):
                 synth = dr.get("synthesis") or {}
                 report.digital.web_footprint = {
@@ -7456,6 +7607,39 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
 # BOTTOM-LINE + RECOMMENDATION (programmatic, pre-LLM)
 # =============================================================================
 
+def _mark_layer_errors_as_gaps(report) -> int:
+    """R-F3029 — every errored/partial layer states its error in its OWN data_gaps.
+
+    Pure and idempotent (re-running adds nothing): the marker prefix is checked
+    before appending, because `_assemble_bluf` can run more than once per report.
+    Returns how many gaps were added, for the caller's diagnostics."""
+    _added = 0
+    for _key in ("identity", "network", "verification", "compliance", "digital",
+                 "synthesis", "sweep_data", "commercial_coherence"):
+        layer = getattr(report, _key, None)
+        meta = getattr(layer, "meta", None)
+        if layer is None or meta is None:
+            continue
+        status = str(getattr(meta, "status", "") or "").lower()
+        if status not in (LayerStatus.ERROR.value, LayerStatus.PARTIAL.value):
+            continue
+        err = str(getattr(meta, "error", "") or "").strip()
+        gaps = getattr(layer, "data_gaps", None)
+        if not isinstance(gaps, list):
+            continue
+        marker = f"[{_key} layer {status}]"
+        if any(isinstance(g, str) and g.startswith(marker) for g in gaps):
+            continue
+        gaps.append(
+            f"{marker} this layer did not complete"
+            + (f" — {err}" if err else "")
+            + ". Its results below are TRUNCATED, not exhaustive: treat an absence "
+              "here as unchecked, not as clean."
+        )
+        _added += 1
+    return _added
+
+
 async def _assemble_bluf(report: ARKDDReport) -> None:
     """Populate report.bottom_line / recommendation / next_actions / confidence.
 
@@ -7465,6 +7649,14 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
     """
     risk = report.risk_classification
     name = report.identity.entity_name or "subject"
+    # R-F3029 — a layer that ERRORED must appear in that layer's DATA GAPS.
+    # Live on dd_16db41eb5fa8 the digital layer carried
+    # `meta.status=error, meta.error="timeout after 90s"`, yet `layers_skipped` was
+    # empty, confidence read ASSESSED, and the timeout appeared in NO data-gaps
+    # list — so a reader saw a thin digital section with no way to know it was cut
+    # off rather than genuinely empty. The status field alone is not disclosure:
+    # a truncated layer must say so where the reader looks for what is missing.
+    _mark_layer_errors_as_gaps(report)
     # R-F2786 — the five customer questions are a clearance contract, not a
     # second risk model. Compute them before wording the BLUF so "no observed
     # red flags" can never become "standard contracting" while financials,
@@ -9144,16 +9336,170 @@ def _adverse_finding_tier(f: dict) -> int:
     return {"tier_1a": 1, "tier_1b": 2, "tier_2": 3, "tier_3": 4}.get(s, 5)
 
 
+# ── R-F3022 — WHAT COUNTS AS ADVERSE MEDIA ───────────────────────────────────
+#
+# THE DEFECT (live report dd_16db41eb5fa8, EFT CONSULT LTD). The verdict was raised
+# GREEN → AMBER-LIGHT on "37 credible adverse-media item(s) name this entity". A
+# review extracted all 37: they were 10 unique URLs, and NOT ONE was adverse media —
+# 14 Companies House officer/PSC pages (for a DIFFERENT company), 14 `memory://`
+# records that are ARIA's own brain, and 9 DOI links to academic papers matched on a
+# director's name ("Abdominal Aortic Trauma"; "Parachute Inflation Simulations").
+#
+# Four independent failures stacked:
+#   1. NO ADVERSE-CONTENT TEST. Any subject-named search result counted.
+#   2. NO DEDUP. The same URL re-counted once per query template → 10 became 37, a
+#      3.7× inflation of the number the verdict rests on.
+#   3. SELF-REFERENCE COUNTED AS CORROBORATION. `memory://` / `brain_hook:` items are
+#      ARIA's own prior records; a system citing itself is not a second source.
+#   4. THE CREDIBILITY FILTER WAS A NO-OP. The academic backend hardcodes
+#      `credibility_tier=2` for every result (web_search.py:708) and 2 is inside the
+#      "credible" set (1,2,4) — so credible_count == findings_count, always.
+#
+# THE PRINCIPLE. Escalate-only is a safe direction, but it is not a licence to
+# escalate on noise: a verdict that moves on 2 arbitrary search results is not
+# conservative, it is uninformative, and it trains a reader to ignore AMBER. What is
+# excluded here is never silently dropped — `_adverse_media_materiality` returns the
+# counts so the report can state "N items named the subject; none carried adverse
+# content" instead of implying nothing was found.
+_ADVERSE_SELF_SOURCE_MARKERS = ("memory://", "brain_hook:", "aria://", "rag://")
+
+# Domains that are adverse BY CONSTRUCTION — a hit here is a court/regulator/
+# insolvency record, so it counts even if the snippet reads neutrally.
+_ADVERSE_OFFICIAL_DOMAINS = (
+    "bailii.org", "courtlistener.com", "justice.gov", "sec.gov/litigation",
+    "fca.org.uk/news/warnings", "sanctionssearch", "insolvencydirect",
+    "thegazette.co.uk", "judiciary.uk", "supremecourt.uk", "tribunals.gov.uk",
+    "disqualified-directors", "sfo.gov.uk", "cps.gov.uk", "europa.eu/newsroom",
+)
+
+_ADVERSE_CONTENT_RE = re.compile(
+    r"\b("
+    r"fraud|bribe|briber|corrupt|launder|embezzl|misappropriat|kickback|"
+    r"sanction|sanctioned|indict|prosecut|convict|guilty|plead|arrest|charged with|"
+    r"investigat|probe|raid|dawn raid|whistleblow|allegation|alleged|accus|"
+    r"lawsuit|litigation|sued|claimant|tribunal|court|judgment|judgement|"
+    r"fine|fined|penalt|censur|reprimand|sanctioned by|enforcement action|"
+    r"insolven|liquidat|administration|receivership|wound up|winding[- ]up|bankrupt|"
+    r"disqualif|struck off|banned|barred|"
+    r"misconduct|malpractice|negligen|breach|violat|non[- ]compliance|"
+    r"scandal|controvers|misleading|falsif|forger|"
+    r"strike[- ]off|ceased trading|default|arrears|unpaid|winding up petition"
+    r")", re.I,
+)
+
+
+def _recent_name_changes(previous_names, *, within_days: int = 365) -> list[dict]:
+    """R-F3024 — the entries whose `ceased_on` falls inside the window, newest first.
+
+    Module-level and pure so it is directly testable. An unparseable or missing
+    `ceased_on` is NOT treated as recent: inventing recency would be as wrong as
+    missing it."""
+    out: list[tuple[str, dict]] = []
+    if not isinstance(previous_names, list):
+        return []
+    _today = datetime.now(timezone.utc).date()
+    for p in previous_names:
+        if not isinstance(p, dict):
+            continue
+        raw = str(p.get("ceased_on") or "").strip()[:10]
+        try:
+            ceased = datetime.strptime(raw, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            continue
+        if 0 <= (_today - ceased).days <= within_days:
+            out.append((raw, p))
+    out.sort(key=lambda t: t[0], reverse=True)
+    return [p for _, p in out]
+
+
+def _adverse_item_url(f) -> str:
+    """R-F3022 — the URL an adverse-media finding actually carries.
+
+    `researcher._deep_adverse_media_search` writes `source_url` (researcher.py:4545).
+    Reading only `url`/`link` — as R-F2999's provenance guard did — found nothing on
+    every real finding, so the report printed "Individual article URLs were not
+    carried through" about items that DID have URLs, while failing to flag the
+    `memory://` self-references that guard exists for."""
+    if not isinstance(f, dict):
+        return ""
+    return str(f.get("source_url") or f.get("url") or f.get("link") or "").strip()
+
+
+def _adverse_is_self_reference(f) -> bool:
+    """R-F3022 — True when the 'source' is ARIA's own memory. Self-citation cannot
+    corroborate; it is the same observation counted twice."""
+    if not isinstance(f, dict):
+        return False
+    blob = f"{_adverse_item_url(f)} {f.get('source') or ''} {f.get('title') or ''}".lower()
+    return any(m in blob for m in _ADVERSE_SELF_SOURCE_MARKERS)
+
+
+def _adverse_has_adverse_content(f) -> bool:
+    """R-F3022 — does this item actually carry adverse SIGNAL?
+
+    True when the title/snippet matches the adverse lexicon, OR the URL is an
+    official adverse-by-construction source (court/regulator/insolvency), where a
+    neutrally-worded record is still an adverse record. Deliberately inclusive: a
+    missed adverse item is the expensive error, so a borderline word counts."""
+    if not isinstance(f, dict):
+        return False
+    url = _adverse_item_url(f).lower()
+    if any(d in url for d in _ADVERSE_OFFICIAL_DOMAINS):
+        return True
+    return bool(_ADVERSE_CONTENT_RE.search(
+        f"{f.get('title') or ''} {f.get('snippet') or ''}"))
+
+
+def _adverse_dedup_key(f) -> str:
+    """R-F3022 — one item per URL, however many query templates surfaced it."""
+    url = _adverse_item_url(f).lower().rstrip("/")
+    if url:
+        return url.split("#", 1)[0]
+    return f"title::{str((f or {}).get('title') or '').strip().lower()[:120]}"
+
+
 def _adverse_media_materiality(am_result: dict) -> dict:
     """Classify how material the deep adverse-media findings are. Material when
     there is >=1 OFFICIAL-tier (tier 1: regulator/court/gov) finding, OR >=N
     credible findings, where credible = official + institution + quality-press
     (tiers 1, 2, 4) and N = ARIA_DD_ADVERSE_MIN_CREDIBLE (default 2). Industry
     (3) and general (5) are treated as weak and do not, alone, move the verdict —
-    the guard against single-source / low-quality false positives."""
+    the guard against single-source / low-quality false positives.
+
+    R-F3022 — a finding must ALSO be (a) unique by URL, (b) not one of ARIA's own
+    memory records, and (c) carry actual adverse content, before it can move a
+    verdict. Every exclusion is counted and returned, never silently dropped."""
     findings = (am_result.get("findings") or []) if isinstance(am_result, dict) else []
-    official = [f for f in findings if _adverse_finding_tier(f) == 1]
-    credible = [f for f in findings if _adverse_finding_tier(f) in (1, 2, 4)]
+    findings = [f for f in findings if isinstance(f, dict)]
+
+    # (a) dedup — the same URL surfaced by several query templates is ONE item
+    _seen: set[str] = set()
+    unique: list[dict] = []
+    for f in findings:
+        k = _adverse_dedup_key(f)
+        if k in _seen:
+            continue
+        _seen.add(k)
+        unique.append(f)
+    duplicates_dropped = len(findings) - len(unique)
+
+    # (b) self-references cannot corroborate
+    external = [f for f in unique if not _adverse_is_self_reference(f)]
+    self_refs_dropped = len(unique) - len(external)
+
+    # (c) R-F3023 — an item whose RESULT domain contradicts the class its query
+    # template asserted cannot be counted as that class of evidence. `False` means
+    # actively contradicted (a `site:justice.gov` query answered by doi.org);
+    # `None` means the template set no host constraint, which is not a strike.
+    corroborated = [f for f in external if f.get("source_class_corroborated") is not False]
+    class_contradicted_dropped = len(external) - len(corroborated)
+
+    # (d) subject-named is not the same as adverse
+    adverse = [f for f in corroborated if _adverse_has_adverse_content(f)]
+    non_adverse_dropped = len(corroborated) - len(adverse)
+
+    official = [f for f in adverse if _adverse_finding_tier(f) == 1]
+    credible = [f for f in adverse if _adverse_finding_tier(f) in (1, 2, 4)]
     try:
         _min_credible = int(os.getenv("ARIA_DD_ADVERSE_MIN_CREDIBLE", "2"))
     except (TypeError, ValueError):
@@ -9162,16 +9508,28 @@ def _adverse_media_materiality(am_result: dict) -> dict:
     return {
         "material": material, "official": len(official),
         "credible_count": len(credible), "examples": credible[:3],
+        # R-F3022 — the audit trail for what was excluded and why.
+        "raw_count": len(findings),
+        "unique_count": len(unique),
+        "duplicates_dropped": duplicates_dropped,
+        "self_references_dropped": self_refs_dropped,
+        "class_contradicted_dropped": class_contradicted_dropped,
+        "non_adverse_dropped": non_adverse_dropped,
     }
 
 
 def _adverse_example_has_provenance(e: dict) -> bool:
     """R-F2999 — an adverse-media example is evidence a reviewer can check only if it
     carries a resolvable URL. A 'title' that is really a source label (e.g.
-    'brain_hook:web_search') is not provenance."""
+    'brain_hook:web_search') is not provenance.
+
+    R-F3022 — read `source_url` too (the key the findings actually use) and reject
+    `memory://` self-references, which are exactly what this guard is for."""
     if not isinstance(e, dict):
         return False
-    return bool((e.get("url") or e.get("link") or "").strip())
+    if _adverse_is_self_reference(e):
+        return False
+    return bool(_adverse_item_url(e))
 
 
 def _format_adverse_example(e: dict) -> str:
@@ -9181,7 +9539,7 @@ def _format_adverse_example(e: dict) -> str:
     if not isinstance(e, dict):
         return "[unverified item]"
     title = (e.get("title") or "").strip()
-    url = (e.get("url") or e.get("link") or "").strip()
+    url = _adverse_item_url(e)   # R-F3022 — findings carry `source_url`
     src = (e.get("source") or e.get("publisher") or "").strip()
     date = (e.get("date") or e.get("published") or e.get("published_at") or "").strip()
     # a 'title' equal to / derived from the source label is not a headline
@@ -9196,6 +9554,43 @@ def _format_adverse_example(e: dict) -> str:
     if src and (title_is_label or not title):
         parts.append(f"[source: {src}]")
     return " — ".join(parts) if parts else "[unverified item — no title/URL carried]"
+
+
+def _append_adverse_screened_note(body: dict, mat: dict) -> None:
+    """R-F3022 — record an adverse-media sweep that found NOTHING MATERIAL, with the
+    arithmetic. 'No adverse media' and 'items matched the name but none were adverse'
+    are different claims, and a reader deserves the second one when it is the true
+    one. This never moves a verdict — it is the audit trail for a non-escalation."""
+    syn = body.setdefault("synthesis", {})
+    if not isinstance(syn, dict):
+        return
+    kf = syn.setdefault("key_findings", [])
+    if not isinstance(kf, list):
+        return
+    bits = [f"{mat.get('raw_count', 0)} raw item(s)"]
+    if mat.get("duplicates_dropped"):
+        bits.append(f"{mat['duplicates_dropped']} duplicate URL(s) collapsed")
+    if mat.get("self_references_dropped"):
+        bits.append(f"{mat['self_references_dropped']} of ARIA's own memory records excluded")
+    if mat.get("class_contradicted_dropped"):
+        bits.append(f"{mat['class_contradicted_dropped']} returned from a domain other than "
+                    "the one the query targeted")
+    if mat.get("non_adverse_dropped"):
+        bits.append(f"{mat['non_adverse_dropped']} named the subject but carried no adverse content")
+    kf.append({
+        "severity": "info",
+        "title": "Adverse-media sweep completed — nothing material found",
+        "detail": (
+            "The adverse-media sweep ran and returned " + "; ".join(bits) + ". "
+            f"{mat.get('credible_count', 0)} credible adverse item(s) remained, below the "
+            "materiality threshold, so the verdict was NOT escalated on this basis. "
+            "This is an absence of ADVERSE COVERAGE in the sources searched — it is not "
+            "proof of good standing, and the sources that did not answer are listed in "
+            "the data gaps."
+        ),
+        "source": "dd_orchestrator._adverse_media_materiality:R-F3022",
+        "confidence": "ASSESSED",
+    })
 
 
 def _append_adverse_verdict_finding(body: dict, mat: dict, *, escalated: bool) -> None:
@@ -9221,8 +9616,16 @@ def _append_adverse_verdict_finding(body: dict, mat: dict, *, escalated: bool) -
         "title": ("Adverse-media escalation — credible adverse coverage names this entity"
                   if escalated else
                   "Adverse-media: credible coverage present (verdict already elevated)"),
+        # R-F3022 — the count is now UNIQUE, ADVERSE and EXTERNAL, and the arithmetic
+        # that produced it is shown. The old headline ("37 credible items") was 10
+        # unique URLs re-counted once per query template, none of them adverse.
         "detail": (f"{mat['credible_count']} credible subject-named adverse-media item(s) "
-                   f"[{mat['official']} official-tier]. Examples: {examples_str}.{prov_note}"),
+                   f"[{mat['official']} official-tier], de-duplicated by URL from "
+                   f"{mat.get('raw_count', mat['credible_count'])} raw hit(s) "
+                   f"({mat.get('duplicates_dropped', 0)} duplicate, "
+                   f"{mat.get('self_references_dropped', 0)} self-referential, "
+                   f"{mat.get('non_adverse_dropped', 0)} non-adverse excluded). "
+                   f"Examples: {examples_str}.{prov_note}"),
         "source": "dd_orchestrator._run_adverse_media_followup:R-F2780",
         "confidence": "ASSESSED",
     })
@@ -9238,6 +9641,12 @@ def _apply_adverse_media_to_verdict(body: dict, am_result: dict) -> dict:
         return {"escalated": False, "reason": "search-not-ok"}
     mat = _adverse_media_materiality(am_result)
     if not mat["material"]:
+        # R-F3022 — do not go SILENT. The sweep may have matched many items on the
+        # subject's name while none carried adverse content; saying so is a
+        # different (and far more useful) statement than saying nothing, and it
+        # stops a later reader assuming the search never ran.
+        if mat["raw_count"]:
+            _append_adverse_screened_note(body, mat)
         return {"escalated": False, "reason": "no-material-adverse", **mat}
     cur = str(body.get("risk_classification") or "GREEN").upper()
     if _RISK_RANK_FOR_ADVERSE.get(cur, 0) >= _RISK_RANK_FOR_ADVERSE["AMBER-LIGHT"]:

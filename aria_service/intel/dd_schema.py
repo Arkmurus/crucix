@@ -267,6 +267,17 @@ class IdentitySection:
     directors: list[dict] = field(default_factory=list)
     shareholders: list[dict] = field(default_factory=list)
     ubo_chain: list[dict] = field(default_factory=list)
+    # R-F3024 — the registry's own name history: [{name, effective_from, ceased_on}].
+    # A recent change (and especially a swap with a co-located company) is a finding,
+    # not trivia — and it also explains why evidence gathered under the OLD name can
+    # belong to a different legal entity.
+    previous_names: list[dict] = field(default_factory=list)
+    # R-F3021 — GLEIF LEI registration state as STRUCTURED data, not prose. A LAPSED
+    # LEI (the holder stopped renewing) was reported only inside the sentence of an
+    # info-severity finding, so nothing downstream could see it: not the scorecard,
+    # not the PDF, not a filter. Shape:
+    # {lei, registration_status, entity_status, lapsed: bool, source_url}
+    lei_registration: dict = field(default_factory=dict)
     sanctions_screen: dict = field(default_factory=dict)  # from sanctions.screen_with_aliases
     ghost_score: dict = field(default_factory=dict)       # from due_diligence_playbooks.score_ghost_indicators
     findings: list[Finding] = field(default_factory=list)
@@ -284,6 +295,11 @@ class NetworkSection:
     # companies_house.investigate_uk_entity (R-F2726) and written to the relationship
     # graph. Distinct from cross_linked_entities (the disabled name-match source).
     controlled_by: list[dict] = field(default_factory=list)
+    # R-F3027 — corporate controllers disclosed by the subject's PSC filing that
+    # Companies House gives no registration number for. NOT Grade A (nothing to
+    # anchor to) and NOT traversable, but a 75-100% controller that no surface
+    # renders is indistinguishable from one that was never found.
+    controlled_by_unanchored: list[dict] = field(default_factory=list)
     address_cluster: dict = field(default_factory=dict)       # addresses with shared entities
     pep_connections: list[dict] = field(default_factory=list)
     sanctions_network: list[dict] = field(default_factory=list)  # flagged entities in the chain
@@ -678,7 +694,7 @@ class ARKDDReport:
             pass  # readiness rendering must never break report delivery
 
         def _sec_header(emoji: str, name: str, meta: SectionMeta) -> str:
-            return f"━━━ {emoji} {name} [{meta.status.upper()}] ━━━"
+            return f"━━━ {emoji} {name} [{_status_label(meta.status)}] ━━━"
 
         # 1. Identity
         _is_person = (self.identity.entity_type or "").lower() == "person"
@@ -690,6 +706,37 @@ class ARKDDReport:
             lines.append(f"Role: {self.identity.declared_activity}")
         if self.identity.registration_number and not _is_person:
             lines.append(f"Reg No: {self.identity.registration_number}  ·  Status: {self.identity.registration_status or '?'}")
+        # R-F3021 — surface the LEI registration state on its own line. Only when
+        # GLEIF actually returned one; a lapsed LEI is called out, an issued one is
+        # stated plainly so the reader knows it WAS checked.
+        # R-F3024 — former names, on the surface a human reads
+        _prev = [x for x in (_format_previous_name(p) for p in (self.identity.previous_names or [])) if x]
+        if _prev:
+            lines.append(f"Former name(s): {'; '.join(_prev[:5])}")
+        # R-F3026 — the directors and beneficial owners the scorecard already claims
+        _dirs = [x for x in (_format_officer(o) for o in (self.identity.directors or [])) if x]
+        if _dirs:
+            lines.append(f"Directors / officers ({len(_dirs)}):")
+            for _d in _dirs[:5 if concise else 25]:
+                lines.append(f"  • {_d}")
+            if len(_dirs) > (5 if concise else 25):
+                lines.append(f"  … and {len(_dirs) - (5 if concise else 25)} more")
+        _pscs = [x for x in (_format_psc(p) for p in (self.identity.shareholders or [])) if x]
+        if _pscs:
+            lines.append(f"Persons with significant control / shareholders ({len(_pscs)}):")
+            for _p in _pscs[:5 if concise else 25]:
+                lines.append(f"  • {_p}")
+        _lei_reg = self.identity.lei_registration or {}
+        if isinstance(_lei_reg, dict) and _lei_reg.get("lei"):
+            _lei_note = (
+                " — LAPSED: no longer GLEIF-validated (renewal not maintained); not a "
+                "sanctions or solvency signal"
+                if _lei_reg.get("lapsed") else ""
+            )
+            lines.append(
+                f"LEI: {_lei_reg.get('lei')}  ·  Registration: "
+                f"{_lei_reg.get('registration_status') or '?'}{_lei_note}"
+            )
         if _is_person and self.identity.sanctions_screen:
             _vars = self.identity.sanctions_screen.get("variants_screened") or []
             if _vars:
@@ -770,6 +817,15 @@ class ARKDDReport:
             lines.append(f"Regional bloc requirements: {len(self.compliance.regional_bloc_requirements)}")
         if self.compliance.licence_path:
             lines.append(f"Licence path: {self.compliance.licence_path}")
+        # R-F3019 — NAME THE LISTS AND THE DATE. The screen already derives a
+        # per-source verdict (`_sanctions_classify.derive_verified_sources`) and
+        # R-F3019 stamps `screened_at`, but the Compliance section printed
+        # neither — so a reader saw a sanctions verdict with no way to know which
+        # regimes it covered or when. "Clean" without a list and a date is not a
+        # compliance statement, it is an assertion. Renders what was measured;
+        # computes nothing (R-F2837).
+        for _sc_line in _render_screened_lists(self.identity.sanctions_screen):
+            lines.append(_sc_line)
         for f in self.compliance.findings[:5 if concise else 20]:
             lines.append(f"  • [{f.severity}] {f.title}")
         lines.append("")
@@ -888,7 +944,7 @@ class ARKDDReport:
         # 8. Counter-intelligence (R-F121, attached as instance attribute)
         _ci = getattr(self, "counter_intelligence", None)
         if isinstance(_ci, dict) and _ci.get("composite_score", 0) >= 0.3:
-            lines.append("━━━ 🛡 Counter-intelligence [OK] ━━━")
+            lines.append("━━━ 🛡 Counter-intelligence [COMPLETED] ━━━")  # R-F3020
             _patterns = _ci.get("patterns") or {}
             lines.append(
                 f"Composite score: {_ci.get('composite_score', 0):.2f} "
@@ -912,7 +968,7 @@ class ARKDDReport:
             and _sdiv.get("matches", 0) > 0
             and _sdiv.get("divergence_count", 0) >= 1
         ):
-            lines.append("━━━ ⚖ Sanctions Divergence [OK] ━━━")
+            lines.append("━━━ ⚖ Sanctions Divergence [COMPLETED] ━━━")  # R-F3020
             _listed = _sdiv.get("jurisdictions_listed") or []
             _silent = _sdiv.get("jurisdictions_not_listed") or []
             lines.append(f"Listed by: {', '.join(_listed) if _listed else '(none)'}")
@@ -924,7 +980,7 @@ class ARKDDReport:
         # 10. Forensic (Benford + TBML — R-F123, attached as instance attribute)
         _fo = getattr(self, "forensic", None)
         if isinstance(_fo, dict) and _fo:
-            lines.append("━━━ 🔬 Forensic [OK] ━━━")
+            lines.append("━━━ 🔬 Forensic [COMPLETED] ━━━")  # R-F3020
             _benf = _fo.get("benford") or {}
             if _benf:
                 lines.append(
@@ -1465,6 +1521,143 @@ def _has_named_holder(holders) -> bool:
     return False
 
 
+#: R-F3020 — DISPLAY labels for LayerStatus. The stored enum values are the wire
+#: contract and do NOT change; only what a human reads does. "OK" on a section
+#: header was read as a QUALITY verdict ("this section is fine") when it only ever
+#: meant "this layer ran to completion" — and it sat on reports graded D, next to
+#: real blockers. "COMPLETED" says the one thing the field actually knows.
+_STATUS_LABELS: dict[str, str] = {
+    LayerStatus.OK.value: "COMPLETED",
+    LayerStatus.PARTIAL.value: "PARTIAL",
+    LayerStatus.SKIPPED.value: "SKIPPED",
+    LayerStatus.ERROR.value: "ERROR",
+    LayerStatus.PREREQ_FAIL.value: "PREREQ_FAIL",
+    LayerStatus.PREREQ_DEGRADED.value: "DEGRADED",
+}
+
+
+def _status_label(status) -> str:
+    """R-F3020 — human label for a layer status; unknown values pass through
+    upper-cased so a new enum member never renders blank."""
+    raw = str(status or "").strip()
+    return _STATUS_LABELS.get(raw.lower(), raw.upper())
+
+
+# ── R-F3026 — RENDER THE PEOPLE ──────────────────────────────────────────────
+#
+# THE DEFECT. `identity.directors` and `identity.shareholders` are fully populated
+# by the Companies House investigation — officer_id, person_number, appointment
+# dates, nationality, natures of control — and then EVERY renderer dropped them:
+# markdown printed entity/jurisdiction/reg-no/sanctions/ghost and no people; the
+# structured view emitted counts only ("UBO chain depth: 3"); the PDF had no code
+# path for officers at all. Meanwhile the decision-readiness scorecard asserted its
+# identity evidence was "live registry status plus number and DIRECTORS/incorporation".
+# So the report claimed directors as evidence on a surface where no director was ever
+# shown. Same class as R-F2998 (lists screened, never rendered) and R-F3012 (scrubbed
+# the source list, not the render surface).
+def _format_officer(o) -> str:
+    """R-F3026 — one director/officer line. Renders only fields that are present."""
+    if isinstance(o, str):
+        return o.strip()
+    if not isinstance(o, dict):
+        return ""
+    name = str(o.get("name") or "").strip()
+    if not name:
+        return ""
+    bits = []
+    role = str(o.get("officer_role") or o.get("role") or "").replace("-", " ").strip()
+    if role:
+        bits.append(role)
+    if o.get("appointed_on"):
+        bits.append(f"appointed {o['appointed_on']}")
+    if o.get("resigned_on"):
+        bits.append(f"RESIGNED {o['resigned_on']}")
+    if o.get("nationality"):
+        bits.append(str(o["nationality"]))
+    if o.get("occupation"):
+        bits.append(str(o["occupation"]))
+    return f"{name}" + (f" — {', '.join(bits)}" if bits else "")
+
+
+def _format_psc(p) -> str:
+    """R-F3026 — one PSC / beneficial-owner line, with the natures of control that
+    make it meaningful (a name alone does not say 'holds 75-100%')."""
+    if isinstance(p, str):
+        return p.strip()
+    if not isinstance(p, dict):
+        return ""
+    name = str(p.get("name") or "").strip()
+    if not name:
+        return ""
+    bits = []
+    kind = str(p.get("kind") or "").replace("-person-with-significant-control", "")
+    kind = kind.replace("-", " ").strip()
+    if kind:
+        bits.append(kind)
+    natures = [str(n).replace("-", " ") for n in (p.get("natures_of_control") or [])]
+    if natures:
+        bits.append("; ".join(natures[:4]))
+    ident = p.get("identification") if isinstance(p.get("identification"), dict) else {}
+    if ident.get("registration_number"):
+        bits.append(f"reg {ident['registration_number']}")
+    if p.get("ceased_on"):
+        bits.append(f"CEASED {p['ceased_on']}")
+    if p.get("notified_on"):
+        bits.append(f"notified {p['notified_on']}")
+    return f"{name}" + (f" — {', '.join(bits)}" if bits else "")
+
+
+def _format_previous_name(p) -> str:
+    """R-F3024/R-F3026 — one former-name line."""
+    if not isinstance(p, dict):
+        return str(p or "").strip()
+    name = str(p.get("name") or "").strip()
+    if not name:
+        return ""
+    return (f"{name} (until {p.get('ceased_on') or '?'}"
+            f"{', from ' + str(p['effective_from']) if p.get('effective_from') else ''})")
+
+
+def _render_screened_lists(screen) -> list[str]:
+    """R-F3019 — the sanctions lists actually screened, their per-list verdict, and
+    the screening DATE, as report lines. Module-level so it is directly testable.
+
+    Renders ONLY what the screen recorded. An UNAVAILABLE list is named FIRST and
+    separately: a reader must never infer coverage from a summary that quietly
+    dropped the list that failed to answer (never-false-clean). Returns [] when the
+    screen carries no per-source detail — an empty section beats an invented one.
+    """
+    if not isinstance(screen, dict):
+        return []
+    sources = screen.get("verified_sources")
+    if not isinstance(sources, dict) or not sources:
+        return []
+    hit, clean, unavailable = [], [], []
+    for _name, _info in sources.items():
+        status = str((_info or {}).get("status") or "").upper() if isinstance(_info, dict) else ""
+        if status == "HIT":
+            hit.append(str(_name))
+        elif status == "CLEAN":
+            clean.append(str(_name))
+        elif status:
+            unavailable.append(str(_name))
+    out: list[str] = []
+    total = len(hit) + len(clean) + len(unavailable)
+    when = str(screen.get("screened_at") or "").strip()
+    when_txt = f" · screened {when}" if when else " · screening date not recorded"
+    out.append(f"Sanctions lists screened: {total}{when_txt}")
+    if hit:
+        out.append(f"  • MATCH ({len(hit)}): {', '.join(sorted(hit))}")
+    if unavailable:
+        out.append(
+            f"  • DID NOT ANSWER ({len(unavailable)}): {', '.join(sorted(unavailable))} "
+            "— NOT screened, treat as unchecked"
+        )
+    if clean:
+        out.append(f"  • No match ({len(clean)}): {', '.join(sorted(clean))}")
+    return out
+
+
 def _dd_decision_readiness(r: dict) -> dict:
     """Measure the five customer questions required before a DD can be relied on.
 
@@ -1623,13 +1816,30 @@ def _dd_decision_readiness(r: dict) -> dict:
             ident.get("shareholders"), ident.get("ubo_chain"), network.get("ubo_chain"),
         )
     )
-    ownership_ok = ownership_present and not budget_exhausted
+    # R-F3027 — an UNTRAVERSED corporate controller means ownership is NOT answered.
+    # Live on dd_16db41eb5fa8: `Raven Delta Limited` held 75-100% of shares and votes
+    # plus the right to appoint and remove directors; it appeared exactly ONCE in the
+    # whole report (in identity.shareholders) and was absent from ubo_chain,
+    # ubo_chain_walk.graph and controlled_by — while the walk reported verdict
+    # "traced" with no coverage gaps, and this gate said ANSWERED. What the report
+    # called a 3-deep UBO chain was the subject plus its two DIRECTORS, who are not
+    # beneficial owners at all.
+    untraversed_controllers = [
+        c for c in (network.get("controlled_by_unanchored") or [])
+        if isinstance(c, dict) and c.get("controller_name")
+    ]
+    ownership_ok = ownership_present and not budget_exhausted and not untraversed_controllers
 
     financial = _mapping(comp.get("financial_health"))
     financial_verdict = str(financial.get("health_verdict") or "UNKNOWN").upper()
     financial_ok = bool(financial.get("data_available")) and financial_verdict not in {
         "", "UNKNOWN", "UNAVAILABLE", "NOT_AVAILABLE",
     }
+    # R-F3017 — when the registry DOES hold accounts but they are not machine-readable
+    # (every large listed group: Companies House stores them as scanned documents),
+    # say so. Truncated because it rides in a one-line blocker.
+    _fin_unavail = _mapping(financial.get("financial_figures_unavailable"))
+    _financial_unknown_reason = str(_fin_unavail.get("explanation") or "").strip()
 
     questions = {
         "identity": {
@@ -1694,8 +1904,17 @@ def _dd_decision_readiness(r: dict) -> dict:
             "answered": ownership_ok,
             "evidence": "shareholder/UBO chain without an exhausted traversal",
             "blocker": (
-                "ownership/UBO traversal is incomplete"
-                if budget_exhausted else "ownership/control is unresolved" if not ownership_ok else ""
+                "" if ownership_ok
+                # R-F3027 — name the controller that was never walked; "unresolved"
+                # gives the reader nothing to act on.
+                else (
+                    "corporate controller "
+                    + ", ".join(str(c.get("controller_name")) for c in untraversed_controllers[:2])
+                    + " holds significant control but was NOT traversed (no registry "
+                      "number at Companies House) — ownership is not fully traced"
+                ) if untraversed_controllers
+                else "ownership/UBO traversal is incomplete" if budget_exhausted
+                else "ownership/control is unresolved"
             ),
         },
         "financial_capacity": {
@@ -1703,7 +1922,16 @@ def _dd_decision_readiness(r: dict) -> dict:
             "status": "ANSWERED" if financial_ok else "UNRESOLVED",
             "answered": financial_ok,
             "evidence": "financial data with a substantive health verdict",
-            "blocker": "financial capacity is unknown" if not financial_ok else "",
+            # R-F3017 — an unknown with a NAMED obstacle is actionable; a bare
+            # "unknown" is indistinguishable from "nothing was filed" and from
+            # "we never looked". Still UNRESOLVED (this does not answer capacity)
+            # — only the wording earns its keep.
+            "blocker": (
+                "" if financial_ok
+                else f"financial capacity is unknown — {_financial_unknown_reason}"
+                if _financial_unknown_reason
+                else "financial capacity is unknown"
+            ),
         },
     }
     answered = sum(1 for q in questions.values() if q["answered"])
@@ -1835,6 +2063,20 @@ def structured_view(r: dict) -> dict:
             ("Reg no", ident.get("registration_number")),
             ("Reg status", ident.get("registration_status")),
             ("Incorporated", ident.get("incorporation_date")),
+            # R-F3024/R-F3026 — NAMED, not counted. The structured view emitted
+            # counts only, so a director/PSC/former name never reached the screen.
+            ("Former names", "; ".join(
+                x for x in (_format_previous_name(p)
+                            for p in (ident.get("previous_names") or [])[:5]) if x) or None),
+            ("Directors / officers", "; ".join(
+                x for x in (_format_officer(o)
+                            for o in (ident.get("directors") or [])[:8]) if x) or None),
+            ("PSC / beneficial owners", "; ".join(
+                x for x in (_format_psc(p)
+                            for p in (ident.get("shareholders") or [])[:8]) if x) or None),
+            ("LEI", (f"{(ident.get('lei_registration') or {}).get('lei')} "
+                     f"({(ident.get('lei_registration') or {}).get('registration_status')})"
+                     if (ident.get("lei_registration") or {}).get("lei") else None)),
             ("Sanctions matches", (n_matches if sanc else None)),
             ("Ghost score", (f"{ghost.get('total')}/{ghost.get('max_total', '20')} "
                              f"{ghost.get('classification', '')}".strip() if ghost.get("total") is not None else None)),
@@ -1853,7 +2095,16 @@ def structured_view(r: dict) -> dict:
             ("Cross-linked entities", len(net.get("cross_linked_entities") or []) or None),
             ("PEP connections", len(net.get("pep_connections") or []) or None),
             ("Flagged in chain", len(net.get("sanctions_network") or []) or None),
-            ("UBO chain depth", len(net.get("ubo_chain") or []) or None),
+            # R-F3027 — "UBO chain depth: 3" was a NODE COUNT, and its nodes were the
+            # subject plus its two directors. Directors are not beneficial owners, and
+            # a count is not a depth. Say what it is, and name the controllers.
+            ("UBO chain nodes traversed", len(net.get("ubo_chain") or []) or None),
+            ("Controllers (registry-anchored)", "; ".join(
+                str(c.get("controller_name")) for c in (net.get("controlled_by") or [])[:5]
+                if isinstance(c, dict) and c.get("controller_name")) or None),
+            ("Controllers NOT traversed", "; ".join(
+                str(c.get("controller_name")) for c in (net.get("controlled_by_unanchored") or [])[:5]
+                if isinstance(c, dict) and c.get("controller_name")) or None),
         ]),
         # 4) DIGITAL & ADVERSE MEDIA
         _sv_section("digital", "Digital & Adverse Media", "🌐", dig, [

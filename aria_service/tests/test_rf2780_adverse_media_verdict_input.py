@@ -30,11 +30,22 @@ def _am(findings):
     return {"ok": True, "findings": findings, "findings_count": len(findings)}
 
 
-def _f(tier):
+def _f(tier, url=None, title=None):
     """A finding at the given credibility tier. Production carries the web_search
-    INT scale (1=official … 5=general); we pass ints to mirror reality."""
-    return {"credibility_tier": tier, "title": f"Adverse story (tier {tier})",
-            "source_url": "https://example.com/x", "snippet": "..."}
+    INT scale (1=official … 5=general); we pass ints to mirror reality.
+
+    R-F3022 — these fixtures used ONE shared URL and the placeholder title "Adverse
+    story", which the materiality gate now (correctly) rejects: one URL is one item
+    however many templates surfaced it, and a title carrying no adverse content is
+    not adverse media. That leniency is exactly what let 37 non-adverse hits — 14
+    registry pages, 14 of ARIA's own memory records and 9 academic papers — escalate
+    a live verdict to AMBER-LIGHT. The fixtures now carry DISTINCT URLs and real
+    adverse wording, so these tests still assert what they were written to assert."""
+    n = f"{tier}"
+    return {"credibility_tier": tier,
+            "title": title or f"Regulator fines Acme Ltd over bribery findings ({n})",
+            "source_url": url or f"https://www.ft.com/content/adverse-{n}",
+            "snippet": "enforcement action and penalty reported"}
 
 
 def test_rf2780_escalates_green_on_official_source():

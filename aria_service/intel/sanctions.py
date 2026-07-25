@@ -28,6 +28,7 @@ from .engine_wiring import wire_success, wire_failure
 import logging
 import os
 import re
+from datetime import datetime, timezone  # R-F3019 — screened_at stamp
 from typing import Any, NamedTuple
 
 import httpx
@@ -826,6 +827,11 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
         "top_score": top_score,
         "blocked": len(blocking_matches) > 0,
         "screened": screened,  # R-F1696
+        # R-F3019 — WHEN the screen ran. A compliance reader cannot rely on
+        # "clean" without a date: sanctions lists change daily, so an undated
+        # clean is an undatable claim. No field carried this before, so reports
+        # named neither the lists nor the moment they were checked.
+        "screened_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "threshold": threshold,
         "disclaimer": (
             "Pre-screen only. Blocking matches require manual verification against "

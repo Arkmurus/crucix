@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3011,
+  "next_available": 3030,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -23927,32 +23927,213 @@
       "title": "async DD: validate entity_type (R-F659) UPFRONT so a bad request fails loudly, not silent-no-persist",
       "claimed_at": "2026-07-24T18:04:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cc590ee6",
+      "notes": null,
+      "shipped_at": "2026-07-24T19:13:22Z"
     },
     {
       "r_number": "R-F3008",
       "title": "DD foreground-priority: in-flight-DD gauge; crawler yields to in-flight DDs (no stop)",
       "claimed_at": "2026-07-24T18:48:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cc590ee6",
+      "notes": null,
+      "shipped_at": "2026-07-24T19:13:23Z"
     },
     {
       "r_number": "R-F3009",
       "title": "DD orphan-resume: reconcile re-launches restart-killed DDs (retry-capped) from stored target",
       "claimed_at": "2026-07-24T18:48:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cc590ee6",
+      "notes": null,
+      "shipped_at": "2026-07-24T19:13:23Z"
     },
     {
       "r_number": "R-F3010",
       "title": "DD deploy-coordination: autonomous ci_deploy defers aria-intel restart while a DD is in-flight",
       "claimed_at": "2026-07-24T18:48:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cc590ee6",
+      "notes": null,
+      "shipped_at": "2026-07-24T19:13:23Z"
+    },
+    {
+      "r_number": "R-F3011",
+      "title": "FCA adapter: skip clone-firm warnings, match by name/FRN, never label a real firm Unauthorised off a clone entry",
+      "claimed_at": "2026-07-24T22:01:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0a5f549c",
+      "notes": null,
+      "shipped_at": "2026-07-24T22:19:44Z"
+    },
+    {
+      "r_number": "R-F3012",
+      "title": "adverse-media scrub: R-F2779 incomplete finding must be removed from digital.findings when R-F2780 completes (R-F2992 coverage gap)",
+      "claimed_at": "2026-07-24T22:01:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0a5f549c",
+      "notes": null,
+      "shipped_at": "2026-07-24T22:19:44Z"
+    },
+    {
+      "r_number": "R-F3013",
+      "title": "grade-cap: evidence grade capped by decision-readiness completeness (Grade A iff decision-ready) so header can't show 3/5 answered + grade A/B",
+      "claimed_at": "2026-07-24T22:27:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6381cfab",
+      "notes": null,
+      "shipped_at": "2026-07-24T22:47:23Z"
+    },
+    {
+      "r_number": "R-F3014",
+      "title": "identity resolver: prefer GB trading company over an Overseas-Entity (OE-prefix ROE) match so the officer/UBO walk runs on the real number",
+      "claimed_at": "2026-07-24T22:27:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6381cfab",
+      "notes": null,
+      "shipped_at": "2026-07-24T22:47:23Z"
+    },
+    {
+      "r_number": "R-F3015",
+      "title": "registry verification honesty: a LIVE Companies House hit (real profile+number, not unavailable) must not be flagged R-F1636 registry-unavailable; identity scores registry-verified",
+      "claimed_at": "2026-07-24T22:58:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "726cbcb2",
+      "notes": null,
+      "shipped_at": "2026-07-24T23:10:30Z"
+    },
+    {
+      "r_number": "R-F3016",
+      "title": "UK financial extraction: Companies House iXBRL balance-sheet figures + bounded solvency verdict answers financial_capacity for small/mid GB companies (R-F2782 Phase 2)",
+      "claimed_at": "2026-07-24T23:10:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "74d32205",
+      "notes": null,
+      "shipped_at": "2026-07-24T23:30:15Z"
+    },
+    {
+      "r_number": "R-F3017",
+      "title": "GB financials: honest, evidenced UNKNOWN when CH accounts are not machine-readable",
+      "claimed_at": "2026-07-25T08:27:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3018",
+      "title": "deep research: cooperative deadline returns partial instead of being cancelled",
+      "claimed_at": "2026-07-25T08:27:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3019",
+      "title": "DD compliance: name the sanctions lists screened plus a screening date",
+      "claimed_at": "2026-07-25T08:27:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3020",
+      "title": "DD render: section status OK reads as COMPLETED",
+      "claimed_at": "2026-07-25T08:27:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3021",
+      "title": "DD identity: surface LEI LAPSED as a structured flag",
+      "claimed_at": "2026-07-25T08:27:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3022",
+      "title": "DD adverse-media materiality: dedup, self-reference exclusion, adverse-content gate",
+      "claimed_at": "2026-07-25T08:41:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3023",
+      "title": "adverse-media provenance: derive source class from the RESULT not the query template",
+      "claimed_at": "2026-07-25T08:41:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3024",
+      "title": "DD identity: previous company names as a first-class field and a coherence signal",
+      "claimed_at": "2026-07-25T08:41:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3025",
+      "title": "FCA attribution gate: require a name-match score plus identity corroboration",
+      "claimed_at": "2026-07-25T08:41:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3026",
+      "title": "DD render: officers, PSCs and other directorships on every surface",
+      "claimed_at": "2026-07-25T08:41:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3027",
+      "title": "UBO walk must traverse corporate PSCs and never call directors a UBO chain",
+      "claimed_at": "2026-07-25T08:41:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3028",
+      "title": "financial narrative: replace the superseded summary; accounts-type substring collision",
+      "claimed_at": "2026-07-25T08:41:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3029",
+      "title": "DD PDF: real grade-D reasons and layer timeouts in data gaps",
+      "claimed_at": "2026-07-25T08:41:16Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

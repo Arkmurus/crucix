@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re   # R-F3025 — postcode normalisation at module scope
 from typing import Any
 
 logger = logging.getLogger("aria.intel.fca_register")
@@ -90,7 +91,56 @@ def _name_match_score(query: str, name: str) -> float:
     return len(qd & nd) / len(qd)
 
 
-async def lookup_firm(name: str, *, timeout_s: float = 10.0) -> dict[str, Any]:
+# ── R-F3025 — ATTRIBUTION GATE ───────────────────────────────────────────────
+#
+# THE DEFECT (live report dd_16db41eb5fa8). The subject was EFT CONSULT LTD, Swansea
+# SA7 9FG, SIC 74901 environmental consulting. Its FIRST key finding, at AMBER, read:
+#   "FCA Register: EFT Consultancy Services Limited (PO5 3DZ) — Appointed
+#    representative (FRN 924521). NOT currently authorised."
+# That is a different company, ~200 miles away, in a different business. R-F3011 made
+# the picker choose the BEST name match among genuine firms — but "best" is a
+# relative rank, and nothing checked whether the best was GOOD. `_name_match_score`
+# was computed, returned, and never read by anyone. {eft, consult} ∩ {eft,
+# consultancy} = {eft} → 0.5, which is a coincidence, not an identification.
+#
+# The gate is deliberately conservative in one direction only: below the threshold we
+# report UNKNOWN, never a status. A missed FCA authorisation is a data gap the report
+# states; a mis-attributed one is a false regulatory accusation against a named
+# company. Those costs are not symmetric.
+_MIN_NAME_MATCH = 0.75          # ARIA_FCA_MIN_NAME_MATCH
+_MIN_NAME_MATCH_CORROBORATED = 0.34   # accepted only WITH postcode corroboration
+
+
+def _min_name_match() -> float:
+    try:
+        return float(os.getenv("ARIA_FCA_MIN_NAME_MATCH", "") or _MIN_NAME_MATCH)
+    except (TypeError, ValueError):
+        return _MIN_NAME_MATCH
+
+
+def _norm_postcode(pc: str) -> str:
+    """UK postcode, upper-cased with all whitespace removed ('sa7 9fg' → 'SA79FG')."""
+    return re.sub(r"\s+", "", str(pc or "")).upper()
+
+
+def _row_postcode(row: dict) -> str:
+    for k in ("Postcode", "PostCode", "Post Code", "postcode"):
+        v = (row or {}).get(k)
+        if v:
+            return _norm_postcode(v)
+    return ""
+
+
+def _postcode_corroborates(subject_pc: str, row: dict) -> bool | None:
+    """R-F3025 — True/False when BOTH sides carry a postcode, None when either is
+    absent. None is 'cannot corroborate', which must never read as 'contradicted'."""
+    sp, rp = _norm_postcode(subject_pc), _row_postcode(row)
+    if not sp or not rp:
+        return None
+    return sp == rp
+
+
+async def lookup_firm(name: str, *, timeout_s: float = 10.0, postcode: str = "") -> dict[str, Any]:
     """Look up a firm's FCA authorisation status by name. Honest, never fabricated.
 
     Returns one of:
@@ -143,6 +193,41 @@ async def lookup_firm(name: str, *, timeout_s: float = 10.0) -> dict[str, Any]:
                 top = genuine[0]
                 frn = _row_frn(top)
                 firm_name = _row_name(top)
+                # ── R-F3025 — is the best match GOOD ENOUGH to be the subject? ──
+                _score = _name_match_score(name, firm_name)
+                _pc_ok = _postcode_corroborates(postcode, top)
+                _threshold = _min_name_match()
+                _accept = (
+                    _score >= _threshold
+                    or (_pc_ok is True and _score >= _MIN_NAME_MATCH_CORROBORATED)
+                )
+                if _pc_ok is False and _score < 1.0:
+                    # A stated postcode that DISAGREES is positive evidence of a
+                    # different firm — only an exact name match survives it.
+                    _accept = False
+                if not _accept:
+                    return {
+                        "configured": True, "matched": False, "is_authorised": None,
+                        "query": name,
+                        "name_match": round(_score, 3),
+                        "name_match_threshold": _threshold,
+                        "postcode_corroborated": _pc_ok,
+                        "best_candidate": {
+                            "firm_name": firm_name, "frn": frn,
+                            "postcode": _row_postcode(top),
+                            "status": str(top.get("Status") or "").strip() or "unknown",
+                        },
+                        "reason": (
+                            f"The closest firm on the FCA Register is '{firm_name}'"
+                            + (f" (postcode {_row_postcode(top)})" if _row_postcode(top) else "")
+                            + f", name match {_score:.2f} — below the {_threshold:.2f} "
+                            "identification threshold"
+                            + (" and its postcode does not match the subject's"
+                               if _pc_ok is False else "")
+                            + ". Its authorisation status is NOT attributed to this subject. "
+                            "FCA authorisation for the subject is UNKNOWN — verify by FRN."
+                        ),
+                    }
                 status = str(top.get("Status") or "").strip()
                 # If the search row didn't carry a status, fetch the firm detail for it.
                 if frn and not status:
@@ -155,7 +240,9 @@ async def lookup_firm(name: str, *, timeout_s: float = 10.0) -> dict[str, Any]:
                     "configured": True, "matched": True, "frn": frn, "firm_name": firm_name,
                     "status": status or "unknown",
                     "is_authorised": _is_authorised_status(status),
-                    "name_match": round(_name_match_score(name, firm_name), 3),
+                    "name_match": round(_score, 3),
+                    "name_match_threshold": _threshold,
+                    "postcode_corroborated": _pc_ok,   # R-F3025
                     "clone_warning": bool(clone_rows),
                     "clone_count": len(clone_rows),
                     "detail_url": (f"https://register.fca.org.uk/s/firm?firmReferenceNumber={frn}" if frn else ""),

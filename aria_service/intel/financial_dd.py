@@ -118,7 +118,18 @@ async def get_financial_profile(
             ]
 
             # Extract account type from filings
+            #
+            # R-F3028 — ACCOUNTS FILINGS ONLY. This loop ran over the WHOLE filing
+            # history, so `elif "full" in desc` matched
+            # `mortgage-satisfy-charge-full` — a charge satisfaction — and broke out
+            # with accounts_type "medium-full". Live on dd_16db41eb5fa8: Companies
+            # House says every accounts filing is `accounts-with-accounts-type-small`
+            # and ARIA's own registry_accounts.last_type said "small", while the same
+            # report's headline said "Accounts: medium-full". A report that
+            # contradicts itself teaches the reader to trust neither number.
             for f in filings:
+                if str(f.get("category") or "").strip().lower() != "accounts":
+                    continue
                 desc = (f.get("description") or "").lower()
                 if "micro" in desc:
                     result["accounts_type"] = "micro-entity"

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import logging
+import re   # R-F3028 — sentence-split for superseded-summary replacement
 from typing import Any
 
 from .sources import sec_edgar as _sec
@@ -656,6 +657,65 @@ def _uk_balance_sheet_verdict(figures: dict) -> dict | None:
     return {"verdict": verdict, "reasons": reasons}
 
 
+#: R-F3028 — sentences that assert we have NO figures. Once figures exist they are
+#: not context, they are contradictions, and a reader cannot tell which half to
+#: believe. Matched case-insensitively against each sentence of the prior summary.
+_SUPERSEDED_SUMMARY_MARKERS = (
+    "financial health is unknown",
+    "financial health remains unknown",
+    "figures are not extracted",
+    "no financial data",
+    "not a us-listed filer",
+    "no figures available",
+    "insufficient to assess solvency",
+)
+
+
+def _replace_superseded_summary(prior: str, fresh: str) -> str:
+    """R-F3028 — drop sentences of `prior` that a now-available figure contradicts,
+    then lead with `fresh`. Sentences that carry OTHER information (e.g. which
+    registry was searched) are kept: the goal is coherence, not amnesia."""
+    kept: list[str] = []
+    for sentence in re.split(r"(?<=[.!?])\s+", str(prior or "").strip()):
+        s = sentence.strip()
+        if not s:
+            continue
+        if any(m in s.lower() for m in _SUPERSEDED_SUMMARY_MARKERS):
+            continue
+        kept.append(s)
+    tail = " ".join(kept).strip()
+    return (fresh.strip() + (" " + tail if tail else "")).strip()
+
+
+def _figures_unavailable_explanation(fig: dict) -> str:
+    """R-F3017 — one honest sentence for WHY filed accounts yield no figures.
+
+    The gap this closes: a large listed PLC's report said only "financial capacity is
+    unknown", which reads identically to "no accounts were ever filed" and to "we did
+    not look". All three are different facts. Companies House holds large-group
+    accounts as SCANNED documents (no text layer, no iXBRL) — proven live on Cohort
+    PLC 05684823 — so the honest statement names the filing AND the obstacle."""
+    made = (fig.get("made_up_to") or "").strip() or "an unstated date"
+    atype = (fig.get("accounts_type") or "").strip()
+    pages = fig.get("pages")
+    reason = fig.get("unavailable_reason")
+    if reason == "ixbrl_no_balance_sheet_figures":
+        return (
+            f"Companies House holds accounts made up to {made}"
+            f"{' (' + atype + ')' if atype else ''}, and they are machine-readable, but "
+            "carry no balance-sheet tags this reader recognises — solvency NOT assessed."
+        )
+    return (
+        f"Companies House holds accounts made up to {made}"
+        f"{' (' + atype + ')' if atype else ''}"
+        f"{f', {pages} pages' if isinstance(pages, int) and pages else ''}, filed as a "
+        "scanned/PDF document with no machine-readable (iXBRL) figures — the filing is "
+        "EVIDENCE of an up-to-date statutory filing, but solvency was NOT assessed from "
+        "it. Large listed groups file this way; figures would need the issuer's own "
+        "published annual report."
+    )
+
+
 async def _enrich_with_registry_figures(
     result: dict,
     name: str,
@@ -685,6 +745,26 @@ async def _enrich_with_registry_figures(
             return False
         fig = await ch.fetch_accounts_figures(number)
         if not fig or not fig.get("figures"):
+            # R-F3017 — no figures, but we may know WHY. Record the evidence
+            # (a filing exists, made up to X, filed in format Y) so the report
+            # states an EVIDENCED unknown instead of a bare one. Never sets
+            # has_financials/data_available: this does not answer capacity, it
+            # explains why capacity cannot be answered.
+            if isinstance(fig, dict) and fig.get("unavailable_reason"):
+                result["financial_figures_unavailable"] = {
+                    "reason": fig["unavailable_reason"],
+                    "made_up_to": fig.get("made_up_to"),
+                    "accounts_type": fig.get("accounts_type"),
+                    "document_formats": fig.get("document_formats") or [],
+                    "pages": fig.get("pages"),
+                    "source_url": fig.get("source_url"),
+                    "explanation": _figures_unavailable_explanation(fig),
+                }
+                result["summary"] = (
+                    (result.get("summary", "") + " ").strip()
+                    + " " + _figures_unavailable_explanation(fig)
+                ).strip()
+                return True
             return False
         verdict = _uk_balance_sheet_verdict(fig["figures"])
         if not verdict:
@@ -701,13 +781,32 @@ async def _enrich_with_registry_figures(
             "basis": ("balance sheet only — P&L (turnover/profit) not publicly filed "
                       "under the small-company exemption"),
         }
-        result["summary"] = (
-            (result.get("summary", "") + " ").strip()
-            + f" Companies House filed accounts (made up to {fig.get('made_up_to') or 'an unstated date'}): "
+        # ── R-F3028 — REPLACE the superseded narrative, do not append to it ──
+        #
+        # THE DEFECT (live, dd_16db41eb5fa8). The pre-existing summary was the
+        # SEC-EDGAR one: "financial health is UNKNOWN, not a clean bill… Figures are
+        # not extracted from these filings, so financial health remains UNKNOWN".
+        # Appending the Companies House result produced one paragraph that said
+        # UNKNOWN twice and then quoted net assets of £69,482 — under the title
+        # "Financial health: STRONG", at confidence CONFIRMED. Every sentence was
+        # individually true and the paragraph as a whole was incoherent.
+        #
+        # Once real figures are extracted, the "no figures available" narrative is
+        # SUPERSEDED — it is not additional context, it is a statement this run has
+        # just falsified. `source`/`reason` are re-stamped for the same reason: they
+        # still read `sec_edgar_financials` / "not a US-listed filer" while the
+        # verdict now comes from Companies House.
+        result["summary"] = _replace_superseded_summary(
+            result.get("summary", ""),
+            f"Companies House filed accounts (made up to "
+            f"{fig.get('made_up_to') or 'an unstated date'}): "
             + "; ".join(verdict["reasons"])
             + ". Solvency read from the balance sheet only — turnover/profit are not "
-              "publicly filed under the small-company exemption."
-        ).strip()
+              "publicly filed under the small-company exemption.",
+        )
+        result["source"] = "companies_house_accounts"
+        result["reason"] = ("solvency assessed from Companies House filed iXBRL "
+                            "balance-sheet figures")
         return True
     except Exception as e:
         logger.debug("UK registry figures enrichment failed: %s", e)

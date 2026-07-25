@@ -846,6 +846,7 @@ async def investigate(
     depth: str = "thorough",  # quick (5), thorough (15), exhaustive (30)
     investigate_people: int | None = None,  # R-F1812: recursive person drill-down cap
     seed_people: list | None = None,  # R-F1823: caller-known names (registry/contacts) to investigate
+    deadline_s: float | None = None,  # R-F3018: cooperative wall-clock budget
 ) -> dict:
     """
     Deep multi-source investigation on a topic.
@@ -873,6 +874,50 @@ async def investigate(
         _person_budget_s = float(os.getenv("ARIA_DD_PERSON_BUDGET_S", "200"))
     except (ValueError, TypeError):
         _person_budget_s = 200.0
+
+    # ── R-F3018 — COOPERATIVE DEADLINE ───────────────────────────────────────
+    #
+    # THE DEFECT. Inside a DD this coroutine ran under an OUTER
+    # `asyncio.wait_for(..., 40s)` (`dd_orchestrator._OP_T_DEEPRESEARCH`). Two
+    # budgets that never agreed: the outer 40s, and this function's own 200s
+    # person-drill-down guard — 5× larger, so it could never be honoured. And the
+    # work is structurally bigger than 40s regardless: N sequential web searches
+    # (each spaced 0.5s by R-F1594) + per-article LLM analysis + a person walk +
+    # a synthesis call.
+    #
+    # The consequence was not "less research" — `wait_for` CANCELS, so every
+    # article read and every fact learned was DISCARDED at the 40s mark and the
+    # DD received `{}`. The report then said "deep research did not complete
+    # within 40s (bounded) — partial result", which was itself false: the result
+    # was not partial, it was zero. Every DD report carried that line.
+    #
+    # THE FIX (root cause, not a bigger bound). The budget becomes COOPERATIVE
+    # and owned by this function: it is checked at every stage boundary, each
+    # sub-budget is derived from what REMAINS (never a fixed constant that can
+    # exceed the caller's budget), the article gather is harvested with
+    # `asyncio.wait(timeout=)` so finished articles survive, and the function
+    # RETURNS what it has with `partial=True` + `stopped_after`. 40s of real
+    # evidence beats 40s of work thrown away. The caller keeps its `wait_for` as
+    # a hard backstop for a genuinely wedged call.
+    _t_deadline = (t_start + deadline_s) if (deadline_s and deadline_s > 0) else None
+
+    def _remaining() -> float:
+        """Seconds left in the caller's budget; +inf when unbounded."""
+        return float("inf") if _t_deadline is None else (_t_deadline - time.time())
+
+    # Reserve for the closing synthesis LLM call, so a bounded run still returns
+    # an ASSESSMENT rather than a bag of raw facts. Proportional: reserving a flat
+    # 12s out of a 10s budget would leave nothing to research with.
+    _synth_reserve_s = 12.0 if _t_deadline is None else max(2.0, min(12.0, deadline_s * 0.3))
+    _partial = False
+    _stopped_after = ""
+
+    def _mark_partial(stage: str) -> None:
+        nonlocal _partial, _stopped_after
+        if not _partial:
+            _partial, _stopped_after = True, stage
+            logger.info("[R-F3018] deep research bounded at %.0fs — stopping after %s, "
+                        "returning partial results", deadline_s or 0, stage)
 
     logger.info(f"ARIA investigating: '{topic}' (depth={depth}, {max_searches} search angles)")
 
@@ -1054,12 +1099,20 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
     queries_to_run = dedup[:_effective_cap]
 
     article_jobs: list[tuple[str, dict]] = []  # (query, article)
+    _queries_run = 0
     for query in queries_to_run:
+        # R-F3018 — stop SEARCHING while there is still budget left to READ what
+        # we already found. Searching until the clock dies returns links nobody
+        # analysed, which is not evidence.
+        if _remaining() <= _synth_reserve_s:
+            _mark_partial(f"search fan-out ({_queries_run} of {len(queries_to_run)} angles)")
+            break
         try:
             results = await _web_search(query)
         except Exception as _e:
             logger.debug("web_search failed for %r: %s", query, _e)
             continue
+        _queries_run += 1
         # R-F1594: space sequential searches to avoid DDG rate limiting
         await asyncio.sleep(0.5)
         unread = [a for a in results if a.get("link") not in read_urls]
@@ -1105,10 +1158,32 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
                 return None
             return {"parsed": parsed, "article": article}
 
-    parallel_results = await _aio.gather(
-        *(_process_one_article(q, a) for q, a in article_jobs),
-        return_exceptions=False,
-    )
+    # R-F3018 — harvest what FINISHES inside the budget instead of discarding
+    # everything. `gather` is all-or-nothing under an outer cancel; `wait` with a
+    # timeout hands back the completed set and lets us cancel the stragglers.
+    _article_budget = _remaining() - _synth_reserve_s
+    if _t_deadline is not None and _article_budget <= 0:
+        _mark_partial("article read (no budget left to analyse articles)")
+        parallel_results = []
+    elif _t_deadline is None:
+        parallel_results = await _aio.gather(
+            *(_process_one_article(q, a) for q, a in article_jobs),
+            return_exceptions=False,
+        )
+    else:
+        _tasks = [_aio.ensure_future(_process_one_article(q, a)) for q, a in article_jobs]
+        parallel_results = []
+        if _tasks:
+            _done, _pending = await _aio.wait(_tasks, timeout=_article_budget)
+            for _t in _pending:
+                _t.cancel()
+            if _pending:
+                _mark_partial(f"article read ({len(_done)} of {len(_tasks)} articles analysed)")
+            for _t in _done:
+                try:
+                    parallel_results.append(_t.result())
+                except Exception as _e:
+                    logger.debug("article task failed: %s", _e)
 
     # Sequential post-processing so _process_analysis can mutate the
     # hypothesis dict consistently (it isn't reentrant-safe).
@@ -1138,10 +1213,22 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
     # R-F1812 — recursive person drill-down (before synthesis so the people
     # appear IN the assessment). Bounded by investigate_people + time-guarded.
     people: list[dict] = []
-    if (_is_entity_dd or seed_people) and investigate_people > 0 and (time.time() - t_start) < _person_budget_s:
+    # R-F3018 — the person budget is now DERIVED from what remains, never a fixed
+    # 200s constant that can exceed the caller's whole budget. Starting a ~7-search
+    # walk with 4s left produced nothing and cost the synthesis its reserve.
+    _person_min_s = 15.0
+    _person_avail = _remaining() - _synth_reserve_s
+    _person_budget_effective = (
+        _person_budget_s if _t_deadline is None
+        else min(_person_budget_s, (time.time() - t_start) + _person_avail)
+    )
+    if (_is_entity_dd or seed_people) and investigate_people > 0 and _t_deadline is not None \
+            and _person_avail < _person_min_s:
+        _mark_partial("person drill-down (skipped — insufficient remaining budget)")
+    elif (_is_entity_dd or seed_people) and investigate_people > 0 and (time.time() - t_start) < _person_budget_s:
         people = await _discover_and_investigate_people(
             llm, topic, all_facts,
-            max_people=investigate_people, t_start=t_start, budget_s=_person_budget_s,
+            max_people=investigate_people, t_start=t_start, budget_s=_person_budget_effective,
             seed_people=seed_people,
         )
         if people:
@@ -1204,17 +1291,22 @@ Return JSON:
 }}"""
 
         try:
+            # R-F3018 — the synthesis call is capped by what is actually left, so a
+            # bounded run still returns an assessment (the reserve exists for this)
+            # instead of blocking past the caller's deadline and being cancelled.
+            _synth_timeout = 60.0 if _t_deadline is None else max(5.0, min(60.0, _remaining()))
             result = await llm.complete(
                 "ARIA — senior intelligence analyst producing an assessment.",
                 synth_prompt,
                 max_tokens=2000,
-                timeout=60.0,
+                timeout=_synth_timeout,
             )
             parsed = parse_llm_json(result.text, source='deep_researcher')
             if isinstance(parsed, dict):
                 synthesis = parsed
         except Exception as e:
             logger.warning(f"Synthesis failed: {e}")
+            _mark_partial("synthesis (did not complete in the remaining budget)")
 
     duration = int((time.time() - t_start) * 1000)
     logger.info(f"Investigation complete: '{topic}' — {articles_read} articles, {total_facts} facts ({duration}ms)")
@@ -1332,6 +1424,12 @@ Return JSON:
         "username_enumeration": _username_results,  # R-F1828: maigret social profile discovery
         "verification_summary": verification_summary,
         "duration_ms": duration,
+        # R-F3018 — say honestly whether the budget cut the work short, and WHERE.
+        # A caller that reports "partial" must be able to show what was gathered
+        # and what was skipped; before this, "partial" meant zero.
+        "partial": _partial,
+        "stopped_after": _stopped_after,
+        "budget_s": deadline_s,
     }
 
 
