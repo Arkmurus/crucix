@@ -24,6 +24,7 @@ Critical invariants tested
 from __future__ import annotations
 
 import asyncio
+import os   # R-F3064 — the coder lane is gated by ARIA_CODER_ENABLED
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -316,6 +317,25 @@ class TestStageOrDeploy:
 # ════════════════════════════════════════════════════════════════════════════
 
 class TestSafetyGate:
+    """R-F3064: fix_gap now refuses outright unless ARIA_CODER_ENABLED is
+    truthy (the flag previously gated only the loop starter, so the coder ran
+    while the operator believed it was off). These tests exercise the SAFETY
+    gate that sits after it, so they enable the lane — otherwise they would be
+    asserting the wrong refusal. The enable-flag gate itself is covered by
+    test_rf3064_3065_coder_gate_and_profiler_idempotence.py."""
+
+    @pytest.fixture(autouse=True)
+    def _enable_coder_lane(self):
+        _prev = os.environ.get("ARIA_CODER_ENABLED")
+        os.environ["ARIA_CODER_ENABLED"] = "1"
+        try:
+            yield
+        finally:
+            if _prev is None:
+                os.environ.pop("ARIA_CODER_ENABLED", None)
+            else:
+                os.environ["ARIA_CODER_ENABLED"] = _prev
+
     def test_fix_gap_blocked_when_safety_refuses(self) -> None:
         """CAPABILITY TEST: when safety.can_task_run returns False (engine
         paused, rate-limited, dedupe, etc.), fix_gap must return a

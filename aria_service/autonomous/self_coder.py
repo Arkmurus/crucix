@@ -671,6 +671,39 @@ class ARIACoder:
         approve in Redis). Pipeline emits live progress to
         `crucix:aria:coder:progress:{fix_id}` for /api/aria/coder/status.
         """
+        # R-F3064 (2026-07-25) — HONOUR THE OFF SWITCH.
+        # ARIA_CODER_ENABLED gated only coder_entrypoint (the loop starter), so
+        # every OTHER caller of fix_gap ran regardless. Measured live with
+        # ARIA_CODER_ENABLED=0: repeated `[aria_coder] fix_gap … stage=starting`
+        # on "Event-loop stall in aria_service/main.py", including TWO fix_ids
+        # inside the same second — the R-F903 de-dup does not cover this path.
+        # self_introspect_guard.py:224,313 already record the same contradiction
+        # ("reported ARIA_CODER_ENABLED=0 (dormant) while the coder was actively
+        # fixing gaps"); it was documented but never gated.
+        #
+        # An operator who sets the flag to 0 has withdrawn consent for the lane.
+        # Honouring it here — at the ONE entry every caller funnels through —
+        # is what makes the switch mean what it says.
+        #
+        # operator_initiated=True is exempt: that is a human explicitly asking
+        # for this fix now (R-F824), which is consent, not the autonomous lane.
+        if not operator_initiated:
+            _enabled = (os.getenv("ARIA_CODER_ENABLED", "") or "").strip().lower()
+            if _enabled not in ("1", "true", "yes"):
+                logger.info(
+                    "[aria_coder] fix_gap REFUSED for %s — ARIA_CODER_ENABLED=%r "
+                    "(the autonomous coder lane is off). Set it to 1, or call "
+                    "with operator_initiated=True.",
+                    gap.gap_id, _enabled or "<unset>",
+                )
+                return FixResult(
+                    success=False,
+                    fix_id="",
+                    gap_id=gap.gap_id,
+                    failure_reason="coder_disabled",
+                    error="ARIA_CODER_ENABLED is not set — autonomous coder lane is off",
+                )
+
         fix_id = uuid.uuid4().hex[:12]
         start_ts = time.monotonic()
         workspace = self.workspace_base / fix_id

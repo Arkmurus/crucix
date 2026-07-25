@@ -43,6 +43,11 @@ _STALL_THRESHOLD_S = float(os.getenv("ARIA_PROFILER_STALL_THRESHOLD_S", "2.0"))
 # Shared state between the sampler thread and the async reporter
 _state: dict[str, Any] = {
     "running": False,
+    # R-F3065 — idempotence guard. `running` alone was set but never checked,
+    # so repeat start_profiler() calls each leaked a sampler thread (7 seen live).
+    # Holds the live sampler Thread; loop-bound asyncio tasks are deliberately
+    # NOT cached here (see start_profiler).
+    "sampler_thread": None,
     "samples": Counter(),       # stack frame signature → count
     "total_samples": 0,
     "last_sample_at": 0.0,
@@ -187,12 +192,45 @@ def start_profiler() -> list[asyncio.Task]:
         logger.info("[continuous_profiler] DISABLED via ARIA_CONTINUOUS_PROFILER_ENABLED=0")
         return []
 
+    # R-F3065 (2026-07-25) — IDEMPOTENT. This set _state["running"]=True but
+    # never CHECKED it, so every call spawned another daemon sampler thread and
+    # two more asyncio tasks. Measured live in a wedge dump: SEVEN
+    # `continuous_profiler.py:_sample_thread` threads where exactly one is
+    # correct — each one sampling sys._current_frames() every 100ms, so the
+    # profiler was multiplying the very overhead it exists to measure.
+    #
+    # The caller is coder_entrypoint (R-F1080), which starts the profiler each
+    # time the coder lane starts — so a restarting lane leaked a thread per
+    # start. That same dump showed 203 threads total; at that count GIL
+    # contention alone stalls the loop, which is what the R-F703 detector was
+    # firing on (~3-6 stalls/hour, 526 wedge files).
+    #
+    # A profiler must never be able to make the process it profiles worse.
+    #
+    # The guard is on the THREAD only. Caching the asyncio tasks and handing
+    # them back was the obvious next step and it is WRONG: tasks are bound to
+    # the loop that created them, so a later caller on a different loop would
+    # receive tasks from a dead one — which hung the test suite outright. The
+    # leak being fixed is the sampler THREAD (a real OS thread, loop-independent);
+    # the two async tasks are cheap and are always created for the CURRENT loop.
+    _existing = _state.get("sampler_thread")
+    _sampler_running = bool(
+        _state.get("running") and _existing is not None and _existing.is_alive()
+    )
+    if _sampler_running:
+        logger.info(
+            "[continuous_profiler] sampler thread already alive — not spawning "
+            "a second one (R-F3065)"
+        )
+    else:
+        _state["running"] = True
+        thread = threading.Thread(
+            target=_sample_thread, daemon=True, name="continuous-profiler")
+        thread.start()
+        _state["sampler_thread"] = thread
+
     _state["running"] = True
     _state["main_loop_heartbeat"] = time.time()
-
-    # Start the sampling daemon thread
-    thread = threading.Thread(target=_sample_thread, daemon=True, name="continuous-profiler")
-    thread.start()
 
     # Start the async report loop
     loop = asyncio.get_event_loop()
@@ -208,9 +246,14 @@ def start_profiler() -> list[asyncio.Task]:
 def stop_profiler(tasks: list[asyncio.Task] | None = None) -> None:
     """Stop the continuous profiler."""
     _state["running"] = False
-    if tasks:
-        for t in tasks:
-            t.cancel()
+    # R-F3065 — the sampler loop exits on `running=False`; clear the guard so a
+    # later start_profiler() may legitimately spawn a fresh sampler. Without
+    # this, stop→start would leave the profiler permanently dead.
+    # The sampler loop exits on running=False; drop the handle so a later
+    # start_profiler() spawns a fresh one.
+    _state["sampler_thread"] = None
+    for t in (tasks or []):
+        t.cancel()
     logger.info("[continuous_profiler] Stopped")
 
     # R-F2118/R-F2119 §21a — wire module active

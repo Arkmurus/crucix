@@ -40,6 +40,27 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _rf3064_enable_coder_lane():
+    """R-F3064: fix_gap now refuses unless ARIA_CODER_ENABLED is truthy (the
+    flag previously gated only the loop starter, so the coder ran while the
+    operator believed it was off). These tests exercise behaviour DOWNSTREAM of
+    that gate, so they enable the lane explicitly. The gate itself is covered by
+    test_rf3064_3065_coder_gate_and_profiler_idempotence.py."""
+    import os as _os
+    _prev = _os.environ.get("ARIA_CODER_ENABLED")
+    _os.environ["ARIA_CODER_ENABLED"] = "1"
+    try:
+        yield
+    finally:
+        if _prev is None:
+            _os.environ.pop("ARIA_CODER_ENABLED", None)
+        else:
+            _os.environ["ARIA_CODER_ENABLED"] = _prev
+
+
+
+
 # ── minimal in-memory redis stub (async surface used by the coder) ──────────
 class _StubRedis:
     def __init__(self) -> None:

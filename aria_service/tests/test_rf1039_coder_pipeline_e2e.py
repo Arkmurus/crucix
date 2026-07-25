@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os   # R-F3064 — patch.dict(os.environ) to enable the coder lane
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -176,7 +177,15 @@ def test_capability_full_pipeline_gap_to_staged_fix():
     # NOTE: self_coder.fix_gap does `from . import safety as _safety` locally
     # inside the method, so we patch the function at its real module path.
     # Also patch self_improve.stage_improvement and deploy_improvement
-    with patch("aria_service.autonomous.safety.can_task_run",
+    #
+    # R-F3064: fix_gap now REFUSES when ARIA_CODER_ENABLED is not truthy (the
+    # flag previously gated only the loop starter, so the coder ran while the
+    # operator believed it was off). This test exercises the PIPELINE, not the
+    # gate, so it enables the lane explicitly — which is also the honest
+    # statement of its precondition. The gate itself is covered by
+    # test_rf3064_3065_coder_gate_and_profiler_idempotence.py.
+    with patch.dict(os.environ, {"ARIA_CODER_ENABLED": "1"}), \
+         patch("aria_service.autonomous.safety.can_task_run",
                AsyncMock(return_value=(True, "ok"))), \
          patch("aria_service.intel.self_improve.stage_improvement", fake_stage), \
          patch("aria_service.intel.self_improve.deploy_improvement", mock_deploy), \
