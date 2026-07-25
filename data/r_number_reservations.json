@@ -24693,9 +24693,10 @@
       "title": "harden DD evidence concurrency and wiring",
       "claimed_at": "2026-07-25T18:14:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d582f14ed2021c7bf6fce1e1c5158f6995767dff",
+      "notes": null,
+      "shipped_at": "2026-07-25T18:50:28Z"
     }
   ]
 }
