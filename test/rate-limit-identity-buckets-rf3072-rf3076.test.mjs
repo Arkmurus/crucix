@@ -25,11 +25,11 @@ delete process.env.ARIA_INTERNAL_TOKEN;   // no bypass in this test
 const { createToken } = await import('../lib/auth/users.mjs');
 const { applyRateLimiting } = await import('../middleware/rateLimiter.mjs');
 
-function makeApp() {
+function makeApp({ trustProxy = false } = {}) {
   const app = express();
-  app.set('trust proxy', false);
+  app.set('trust proxy', trustProxy);
   applyRateLimiting(app);
-  app.get('/api/ping', (req, res) => res.json({ ok: true }));
+  app.get('/api/ping', (req, res) => res.json({ ok: true, ip: req.ip }));
   return app;
 }
 
@@ -122,4 +122,32 @@ test('R-F3072: the app\'s measured idle polling fits inside the budget', async (
     `the new ${AUTHED_BUDGET} budget leaves headroom beyond the ~${TWO_TABS} idle cost `
     + '(measured 2026-07-25). If this fails, the polling profile changed — re-derive the budget '
     + 'from the new profile rather than raising the number.');
+});
+
+test('R-F3076: behind the fly proxy, anonymous buckets follow the REAL client IP', async () => {
+  // Second-order risk introduced by R-F3076: the counter never worked before, so
+  // req.ip correctness did not matter. Now that it counts, an untrusted proxy
+  // setting would collapse every anonymous visitor onto the fly-proxy's single
+  // IP — one shared 150/15min bucket for the whole internet, i.e. the public
+  // landing and sign-in pages 429'ing globally. server.mjs:1233 sets
+  // `trust proxy: 1` BEFORE applyRateLimiting (server.mjs:1462); this pins that
+  // ordering invariant.
+  const server = await listen(makeApp({ trustProxy: 1 }));
+  try {
+    const { port } = server.address();
+    const hit = async (xff) => {
+      const r = await fetch(`http://127.0.0.1:${port}/api/ping`, { headers: { 'X-Forwarded-For': xff } });
+      const body = await r.json();
+      return { remaining: Number(r.headers.get('ratelimit-remaining')), ip: body.ip };
+    };
+    const a1 = await hit('203.0.113.5');
+    const a2 = await hit('203.0.113.5');
+    const b1 = await hit('198.51.100.9');
+
+    assert.equal(a1.ip, '203.0.113.5', 'req.ip must come from X-Forwarded-For');
+    assert.ok(a2.remaining < a1.remaining, 'the same client must share one bucket');
+    assert.equal(b1.remaining, a1.remaining,
+      'a DIFFERENT client IP must get its own full bucket — if these share, every '
+      + 'anonymous visitor is on one bucket and the public pages lock out globally');
+  } finally { server.close(); }
 });
