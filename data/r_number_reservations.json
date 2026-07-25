@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3064,
+  "next_available": 3066,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24441,18 +24441,20 @@
       "title": "digital layer clamp: per-op bounds must fit the layer budget",
       "claimed_at": "2026-07-25T12:23:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "54699e98",
+      "notes": null,
+      "shipped_at": "2026-07-25T13:06:25Z"
     },
     {
       "r_number": "R-F3060",
       "title": "digital layer summary of adverse-media concerns and advice",
       "claimed_at": "2026-07-25T12:23:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "54699e98",
+      "notes": null,
+      "shipped_at": "2026-07-25T13:06:25Z"
     },
     {
       "r_number": "R-F3061",
@@ -24478,6 +24480,25 @@
       "r_number": "R-F3063",
       "title": "P0: company-only enrichment must never run for a person (Woodburn contamination)",
       "claimed_at": "2026-07-25T12:38:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "54699e98",
+      "notes": null,
+      "shipped_at": "2026-07-25T13:06:25Z"
+    },
+    {
+      "r_number": "R-F3064",
+      "title": "self_coder.fix_gap runs while ARIA_CODER_ENABLED=0 (only the loop starter gates it)",
+      "claimed_at": "2026-07-25T13:10:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3065",
+      "title": "start_profiler is not idempotent: every call leaks a sampler thread (7 observed)",
+      "claimed_at": "2026-07-25T13:10:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
