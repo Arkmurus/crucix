@@ -24491,27 +24491,30 @@
       "title": "self_coder.fix_gap runs while ARIA_CODER_ENABLED=0 (only the loop starter gates it)",
       "claimed_at": "2026-07-25T13:10:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8a867f1f",
+      "notes": null,
+      "shipped_at": "2026-07-25T14:22:48Z"
     },
     {
       "r_number": "R-F3065",
       "title": "start_profiler is not idempotent: every call leaks a sampler thread (7 observed)",
       "claimed_at": "2026-07-25T13:10:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8a867f1f",
+      "notes": null,
+      "shipped_at": "2026-07-25T14:22:48Z"
     },
     {
       "r_number": "R-F3066",
       "title": "digital layer: bound the remaining unbounded blocks and checkpoint the budget",
       "claimed_at": "2026-07-25T13:13:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c160297a",
+      "notes": null,
+      "shipped_at": "2026-07-25T13:28:52Z"
     }
   ]
 }
