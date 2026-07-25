@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3057,
+  "next_available": 3063,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -24403,14 +24403,70 @@
       "title": "adverse media must render on BOTH the online view and the PDF, with its true state",
       "claimed_at": "2026-07-25T12:00:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "68c0bf24",
+      "notes": null,
+      "shipped_at": "2026-07-25T12:14:33Z"
     },
     {
       "r_number": "R-F3056",
       "title": "DD PDF: source and media URLs as clickable hyperlink annotations",
       "claimed_at": "2026-07-25T12:03:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "68c0bf24",
+      "notes": null,
+      "shipped_at": "2026-07-25T12:14:33Z"
+    },
+    {
+      "r_number": "R-F3057",
+      "title": "digital layer: clamp per-op bounds to the layer budget so the layer completes",
+      "claimed_at": "2026-07-25T12:22:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3058",
+      "title": "digital layer summary: adverse-media concerns and what to do about them",
+      "claimed_at": "2026-07-25T12:22:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3059",
+      "title": "digital layer clamp: per-op bounds must fit the layer budget",
+      "claimed_at": "2026-07-25T12:23:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3060",
+      "title": "digital layer summary of adverse-media concerns and advice",
+      "claimed_at": "2026-07-25T12:23:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3061",
+      "title": "DD delivery outcome can never succeed: 5 layers structurally uncountable as ok",
+      "claimed_at": "2026-07-25T12:25:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3062",
+      "title": "health endpoint must not block on a cold ecosystem build (banner reads UNKNOWN)",
+      "claimed_at": "2026-07-25T12:25:04Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
