@@ -7331,6 +7331,35 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
                 candidates.append("HARD_STOP")
                 break
 
+    # R-F3084 — an explicit RED finding is a risk signal, not presentation
+    # decoration. The Measure Group Europe report carried a CONFIRMED red
+    # balance-sheet-insolvency finding while this aggregator considered only
+    # hard stops, ghost/country risk and commercial coherence, so the customer
+    # headline remained GREEN and claimed "no blocking risk". Aggregate the
+    # severity the evidence layer already assigned; do not independently
+    # reinterpret finding text here.
+    if any(
+        str(getattr(f, "severity", "") or "").strip().lower() == "red"
+        for section in (
+            report.identity, report.network, report.compliance,
+            report.digital, report.verification, report.commercial_coherence,
+        )
+        for f in (getattr(section, "findings", []) or [])
+    ):
+        candidates.append("RED")
+
+    # R-F3084 — financial capacity being ANSWERED does not mean it passed.
+    # Consume the structured verdict directly as well as the finding severity,
+    # so a caller cannot accidentally suppress the risk merely by omitting the
+    # display finding. UNKNOWN stays neutral and is handled by readiness.
+    _financial_verdict_for_risk = str(
+        (report.compliance.financial_health or {}).get("health_verdict") or ""
+    ).strip().upper()
+    if _financial_verdict_for_risk == "DISTRESSED":
+        candidates.append("RED")
+    elif _financial_verdict_for_risk == "WEAK":
+        candidates.append("AMBER-LIGHT")
+
     # Commercial coherence contribution (2026-04-22, Layer 5c)
     # HIGH + sector_mismatch (fronting pattern) → RED.
     # HIGH alone → AMBER-DARK. ELEVATED → AMBER-LIGHT. GREEN → neutral.
@@ -9837,6 +9866,11 @@ def _adverse_media_materiality(am_result: dict) -> dict:
     return {
         "material": material, "official": len(official),
         "credible_count": len(credible), "examples": credible[:3],
+        # R-F3084 — the customer-facing review set is the unique, external,
+        # source-class-corroborated, adverse set. Raw findings remain available
+        # for diagnostics but must never be presented as subject-attributed
+        # adverse items before passing these filters.
+        "review_findings": adverse,
         # R-F3022 — the audit trail for what was excluded and why.
         "raw_count": len(findings),
         "unique_count": len(unique),
@@ -9969,6 +10003,16 @@ def _apply_adverse_media_to_verdict(body: dict, am_result: dict) -> dict:
     if not am_result.get("ok"):
         return {"escalated": False, "reason": "search-not-ok"}
     mat = _adverse_media_materiality(am_result)
+    # R-F3084 — persist the exact arithmetic the verdict consumed BEFORE the
+    # report blob is rendered. Previously this existed only in the transient
+    # return value, while the PDF saw 26 raw hits and called them 26
+    # subject-named items that "survived filtering". Keep the filtered review
+    # set separate from raw diagnostics and avoid duplicating it inside the
+    # compact materiality summary.
+    am_result["findings_for_review"] = list(mat.get("review_findings") or [])
+    am_result["materiality"] = {
+        key: value for key, value in mat.items() if key != "review_findings"
+    }
     if not mat["material"]:
         # R-F3022 — do not go SILENT. The sweep may have matched many items on the
         # subject's name while none carried adverse content; saying so is a

@@ -1698,31 +1698,52 @@ def _render_adverse_media(am, entity_type: str = "") -> list[str]:
     if am.get("search_backends_answered") is not None:
         out.append("  • Search backends answered: "
                    f"{'yes' if am.get('search_backends_answered') else 'NO — the sweep could not observe the web'}")
-    findings = am.get("findings") if isinstance(am.get("findings"), list) else []
-    out.append(f"  • Subject-named items returned: {len(findings)}")
-
+    raw_findings = am.get("findings") if isinstance(am.get("findings"), list) else []
     # The materiality arithmetic, when the verdict path recorded it (R-F3022).
     mat = am.get("materiality") if isinstance(am.get("materiality"), dict) else {}
+    review_findings = (
+        am.get("findings_for_review")
+        if isinstance(am.get("findings_for_review"), list)
+        else []
+    )
     if mat:
+        out.append(f"  • Raw search results returned: {len(raw_findings)}")
         out.append(
             f"  • After de-duplication and filtering: {mat.get('credible_count', 0)} credible "
             f"adverse item(s) from {mat.get('raw_count', 0)} raw hit(s) "
             f"({mat.get('duplicates_dropped', 0)} duplicate, "
             f"{mat.get('self_references_dropped', 0)} self-referential, "
             f"{mat.get('non_adverse_dropped', 0)} non-adverse)")
-    for f in findings[:5]:
+        out.append(
+            f"  • {len(review_findings)} item(s) require human review after filtering"
+        )
+        findings_to_render = review_findings
+    else:
+        # R-F3084 — a legacy blob with raw hits but no persisted materiality has
+        # NOT established subject attribution or adverse content. Keep the data
+        # visible for audit, but never call it "subject-named" or say it survived
+        # filtering.
+        out.append(
+            f"  • Raw, unfiltered search results returned: {len(raw_findings)}"
+        )
+        findings_to_render = raw_findings
+    for f in findings_to_render[:5]:
         if not isinstance(f, dict):
             continue
         url = str(f.get("source_url") or f.get("url") or "").strip()
         title = str(f.get("title") or "").strip()
-        out.append(f"    - {title[:90]}{' — ' + url[:110] if url else ' [no URL carried]'}")
-    if len(findings) > 5:
-        out.append(f"    … and {len(findings) - 5} more")
+        prefix = "" if mat else "[RAW/UNFILTERED] "
+        out.append(
+            f"    - {prefix}{title[:90]}"
+            f"{' — ' + url[:110] if url else ' [no URL carried]'}"
+        )
+    if len(findings_to_render) > 5:
+        out.append(f"    … and {len(findings_to_render) - 5} more")
 
     if raw_status in ("in_progress", "running"):
         out.append("  ⚠ This screening had NOT finished when the report was rendered — "
                    "it is UNCHECKED, not clean. Re-open the report to pick up the result.")
-    elif not findings:
+    elif not raw_findings:
         out.append("  • No adverse coverage found in the sources searched. That is an "
                    "absence of COVERAGE, not proof of good standing — the sources that "
                    "did not answer are listed in the data gaps.")
@@ -1751,6 +1772,11 @@ def _adverse_media_summary(am, digital=None, entity_type: str = "") -> dict:
     findings = am.get("findings") if isinstance(am.get("findings"), list) else []
     mat = am.get("materiality") if isinstance(am.get("materiality"), dict) else {}
     credible = int(mat.get("credible_count") or 0)
+    review_findings = (
+        am.get("findings_for_review")
+        if isinstance(am.get("findings_for_review"), list)
+        else []
+    )
 
     # A layer that did not finish cannot support ANY adverse-media conclusion.
     layer_broken = str((digital.get("meta") or {}).get("status") or "").lower() in ("error", "partial")
@@ -1796,8 +1822,8 @@ def _adverse_media_summary(am, digital=None, entity_type: str = "") -> dict:
             "advice": "Re-run the DD. Do not record this entity as adverse-media clear on "
                       "the strength of this run.",
         }
-    if credible or findings:
-        n = credible or len(findings)
+    if credible or review_findings:
+        n = credible or len(review_findings)
         return {
             "severity": "amber" if credible else "info",
             "headline": f"Adverse media: {n} item(s) require review",
@@ -1806,6 +1832,24 @@ def _adverse_media_summary(am, digital=None, entity_type: str = "") -> dict:
             "advice": "Open each cited source and judge it on its merits before relying on "
                       "this file — the count alone is not a finding, and ARIA does not "
                       "decide materiality on your behalf.",
+        }
+    if findings and not mat:
+        # R-F3084 — raw search output is not a subject-attributed allegation.
+        # Historic blobs created before materiality persistence must fail closed
+        # rather than rebranding every search hit as an item that survived
+        # de-duplication and relevance filtering.
+        return {
+            "severity": "unknown",
+            "headline": "Adverse media: RAW SEARCH RESULTS REQUIRE FILTERING",
+            "concern": (
+                f"{len(findings)} raw search result(s) were stored, but subject "
+                "attribution has not been verified and no persisted materiality "
+                "decision shows which, if any, are adverse."
+            ),
+            "advice": (
+                "Do not treat the raw count as a finding or a clean result. Re-run "
+                "the screening or review and classify every cited source."
+            ),
         }
     # Completed, nothing found — the honest wording matters most here.
     return {
