@@ -1579,6 +1579,18 @@ app.use((req, res, next) => {
   return requirePageRole(...page.roles)(req, res, () => _sendOperatorPage(page.file)(req, res));
 });
 
+// ── R-F3142: the standalone status PAGE is retired ──────────────────────────
+// public/status.html is gone; the Vetting module took its place in the nav.
+// /api/status is UNCHANGED and still public — it is the machine-readable
+// availability surface, external monitors may already poll it, and terms.html
+// §"availability" now names it as the contractual publication point.
+//
+// A permanent redirect rather than a 404 because the retired URL was published
+// in our own Terms of Service and model card for months; a bookmark or an
+// external monitor pointed at it must land somewhere truthful, not on a dead
+// page. 308 (not 301) so a monitor issuing HEAD/GET keeps its method.
+app.get('/status.html', (_req, res) => res.redirect(308, '/api/status'));
+
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {

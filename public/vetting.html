@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vetting | ARIA</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/aria.css?v=15">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { background: var(--sc-bg); margin: 0; font-family: 'gorditaregular', 'Segoe UI', system-ui, -apple-system, sans-serif; color: var(--sc-text); line-height: 1.65; }
+    .vt-shell { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
+    .vt-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--sc-prime); font-weight: 700; margin-bottom: 8px; }
+    .vt-title { font-size: 28px; font-weight: 800; color: var(--sc-heading); margin: 0 0 6px; letter-spacing: -0.02em; }
+    .vt-sub { font-size: 13px; color: var(--sc-muted); margin: 0 0 22px; max-width: 70ch; }
+
+    .vt-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
+    .vt-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 10px 16px; border-radius: 9px; border: none;
+      background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .vt-btn.secondary { background: #fff; color: var(--sc-heading); border: 1px solid var(--sc-border-strong); }
+    .vt-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+    /* ── verdict banner ───────────────────────────────────────────────────
+       R-F3142 — ships in the UNKNOWN state, exactly as status.html was made
+       to (R-F2819). A screening verdict is the LAST thing that may ever be
+       green by default: "we could not measure" is not "measured and clear". */
+    .vt-banner { display: flex; align-items: center; gap: 16px; padding: 20px 24px; border-radius: 14px; margin-bottom: 22px; border: 1px solid; }
+    .vt-banner-icon { font-size: 34px; flex-shrink: 0; }
+    .vt-banner-status { font-size: 20px; font-weight: 800; margin: 0; line-height: 1.2; }
+    .vt-banner-summary { font-size: 13px; color: var(--sc-text); margin: 6px 0 0; }
+    .vt-banner.unknown { background: rgba(120,113,108,0.08); border-color: rgba(120,113,108,0.30); color: #57534e; }
+    .vt-banner.unknown .vt-banner-icon { color: #78716c; }
+    .vt-banner.not_ready { background: rgba(239,68,68,0.09); border-color: rgba(239,68,68,0.34); color: #b91c1c; }
+    .vt-banner.not_ready .vt-banner-icon { color: #dc2626; }
+    .vt-banner.awaiting_signoff { background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.32); color: #c2410c; }
+    .vt-banner.awaiting_signoff .vt-banner-icon { color: #d97706; }
+    .vt-banner.in_progress { background: rgba(37,99,235,0.08); border-color: rgba(37,99,235,0.28); color: #1d4ed8; }
+    .vt-banner.in_progress .vt-banner-icon { color: #2563eb; }
+    .vt-banner.ready_for_controller_review, .vt-banner.evidence_complete { background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.32); color: #15803d; }
+    .vt-banner.ready_for_controller_review .vt-banner-icon, .vt-banner.evidence_complete .vt-banner-icon { color: #16a34a; }
+
+    .vt-pack { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; background: #f5f4ef; border: 1px solid var(--sc-border); border-radius: 10px; margin-bottom: 22px; font-size: 12.5px; }
+    .vt-pack-warn { background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.32); }
+
+    .vt-section-title { font-size: 13px; font-weight: 700; color: var(--sc-muted); text-transform: uppercase; letter-spacing: 1.5px; margin: 30px 0 12px; }
+    .vt-card { background: #fff; border: 1px solid var(--sc-border); border-radius: 12px; padding: 14px 18px; margin-bottom: 10px; }
+    .vt-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .vt-card-title { font-size: 14.5px; font-weight: 700; color: var(--sc-heading); margin: 0; }
+    .vt-card-meta { font-size: 12px; color: var(--sc-muted); }
+    .vt-msg { font-size: 13px; margin: 6px 0 0; }
+    .vt-ref { font-size: 11px; color: var(--sc-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .vt-pill { display: inline-block; padding: 3px 9px; border-radius: 5px; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; flex-shrink: 0; }
+    .vt-pill.blocker { background: rgba(239,68,68,0.16); color: #b91c1c; }
+    .vt-pill.signoff { background: rgba(245,158,11,0.18); color: #c2410c; }
+    .vt-pill.action { background: rgba(37,99,235,0.14); color: #1d4ed8; }
+    .vt-pill.deadline { background: rgba(217,119,6,0.16); color: #b45309; }
+    .vt-pill.info { background: rgba(120,113,108,0.14); color: #57534e; }
+
+    .vt-empty { padding: 26px; text-align: center; color: var(--sc-muted); font-size: 13px; border: 1px dashed var(--sc-border-strong); border-radius: 12px; }
+    .vt-error { padding: 16px 20px; border-radius: 10px; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.3); color: #b91c1c; font-size: 13px; }
+
+    .vt-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; background: #fff; border: 1px solid var(--sc-border); border-radius: 12px; padding: 18px; margin-bottom: 22px; }
+    .vt-field label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--sc-muted); margin-bottom: 5px; }
+    .vt-field input, .vt-field select { width: 100%; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--sc-border-strong); font-family: inherit; font-size: 13px; }
+
+    .vt-note { font-size: 12px; color: var(--sc-muted); font-style: italic; margin-top: 10px; }
+  </style>
+</head>
+<body>
+<div id="sidebar-placeholder"></div>
+<div id="header-placeholder"></div>
+
+<main id="app-main">
+  <div class="vt-shell">
+
+    <div class="vt-eyebrow">Workforce trust</div>
+    <h1 class="vt-title">Employment vetting</h1>
+    <p class="vt-sub">
+      Deterministic pre-employment screening. Every gap, clock and threshold is
+      computed from a versioned rule pack — not inferred by a model. The module
+      produces an evidence file and a clause-referenced finding list; a named
+      human makes the employment decision.
+    </p>
+
+    <!-- R-F3142: ships UNKNOWN. Never green until an assessment has actually
+         been read back from the server. -->
+    <div id="verdict" class="vt-banner unknown">
+      <i id="verdict-icon" class="bi bi-question-circle vt-banner-icon" aria-hidden="true"></i>
+      <div>
+        <p id="verdict-status" class="vt-banner-status">No assessment loaded</p>
+        <p id="verdict-summary" class="vt-banner-summary">Select or create a case, then run an assessment.</p>
+      </div>
+    </div>
+
+    <div id="pack-info" class="vt-pack" style="display:none">
+      <i class="bi bi-file-earmark-ruled" aria-hidden="true"></i>
+      <div id="pack-text"></div>
+    </div>
+
+    <div class="vt-toolbar">
+      <button class="vt-btn" id="new-case-btn"><i class="bi bi-plus-lg"></i> New case</button>
+      <button class="vt-btn secondary" id="refresh-btn"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+    </div>
+
+    <form class="vt-form" id="new-case-form" style="display:none">
+      <div class="vt-field">
+        <label for="f-case-id">Case reference</label>
+        <input id="f-case-id" required placeholder="VET-2026-001">
+      </div>
+      <div class="vt-field">
+        <label for="f-name">Applicant name</label>
+        <input id="f-name" required placeholder="Full name">
+      </div>
+      <div class="vt-field">
+        <label for="f-dob">Date of birth</label>
+        <input id="f-dob" type="date" required>
+      </div>
+      <div class="vt-field">
+        <label for="f-start">Employment start</label>
+        <input id="f-start" type="date" required>
+      </div>
+      <div class="vt-field">
+        <label for="f-pack">Rule pack</label>
+        <select id="f-pack"></select>
+      </div>
+      <div class="vt-field" style="display:flex;align-items:flex-end">
+        <button class="vt-btn" type="submit" id="create-btn">Create case</button>
+      </div>
+    </form>
+
+    <div class="vt-section-title">Cases</div>
+    <div id="cases"><div class="vt-empty">Loading…</div></div>
+
+    <div id="findings-wrap" style="display:none">
+      <div class="vt-section-title">Findings <span id="findings-count" class="vt-card-meta"></span></div>
+      <div id="findings"></div>
+      <p class="vt-note" id="controller-notes"></p>
+    </div>
+
+  </div>
+</main>
+
+<script src="js/app.js?v=8"></script>
+<script src="js/sidebar.js?v=13"></script>
+<script>
+// R-F3143 — vetting surface loader.
+//
+// Honesty contract (inherited from R-F2819, which was written for status.html
+// and must outlive it): the verdict banner ships UNKNOWN and may only leave
+// that state after a successful read. A failed or unreachable /assess must
+// return the banner to UNKNOWN — never leave a stale green verdict on screen
+// beside an error. On a screening product a false clean is the one failure
+// that matters.
+(async () => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  const STATUS_TEXT = {
+    NOT_READY: ['Not ready', 'Blocking findings must be cleared before this file can go to review.'],
+    AWAITING_SIGNOFF: ['Awaiting sign-off', 'Requires a documented top-management acceptance-of-risk decision.'],
+    IN_PROGRESS: ['In progress', 'Outstanding actions remain on the checklist or timeline.'],
+    READY_FOR_CONTROLLER_REVIEW: ['Ready for controller review', 'Evidence is complete. A named human makes the employment decision — this module does not.'],
+    EVIDENCE_COMPLETE: ['Evidence complete', 'Organised under a framework-only pack, which cannot issue jurisdictional decision-readiness.'],
+  };
+  const ICONS = {
+    NOT_READY: 'bi-x-octagon-fill', AWAITING_SIGNOFF: 'bi-exclamation-triangle-fill',
+    IN_PROGRESS: 'bi-hourglass-split', READY_FOR_CONTROLLER_REVIEW: 'bi-check-circle-fill',
+    EVIDENCE_COMPLETE: 'bi-check-circle',
+  };
+
+  function setUnknown(summary) {
+    $('verdict').className = 'vt-banner unknown';
+    $('verdict-icon').className = 'bi bi-question-circle vt-banner-icon';
+    $('verdict-status').textContent = 'Assessment unavailable';
+    $('verdict-summary').textContent = summary;
+    $('findings-wrap').style.display = 'none';
+  }
+
+  function renderVerdict(result) {
+    const status = result && result.status;
+    const known = STATUS_TEXT[status];
+    if (!known) { setUnknown('The server returned a status this page does not recognise.'); return; }
+    $('verdict').className = 'vt-banner ' + status.toLowerCase();
+    $('verdict-icon').className = 'bi ' + (ICONS[status] || 'bi-question-circle') + ' vt-banner-icon';
+    $('verdict-status').textContent = known[0];
+    const c = result.counts || {};
+    $('verdict-summary').textContent =
+      `${known[1]} — ${c.blockers || 0} blocker(s), ${c.signoffs || 0} sign-off(s), ${c.actions || 0} action(s).`;
+
+    const pack = result.pack || {};
+    $('pack-info').style.display = '';
+    $('pack-info').className = 'vt-pack' + (pack.employment_decision_eligible ? '' : ' vt-pack-warn');
+    $('pack-text').innerHTML =
+      `<strong>${esc(pack.pack_id)} v${esc(pack.version)}</strong> · ${esc(pack.jurisdiction)} · ${esc(pack.status)}` +
+      `<br>${pack.employment_decision_eligible
+        ? 'Legally reviewed for this jurisdiction; may support decision-readiness.'
+        : 'FRAMEWORK-ONLY pack — organises and grades evidence, but cannot state whether screening is lawful or sufficient in any jurisdiction. Engage local counsel.'}` +
+      `<br><span class="vt-ref">screening period ${esc((result.screening_period || [])[0])} → ${esc((result.screening_period || [])[1])} · assessed as of ${esc(result.as_of)}</span>`;
+
+    const findings = Array.isArray(result.findings) ? result.findings : [];
+    const order = { BLOCKER: 0, SIGNOFF: 1, DEADLINE: 2, ACTION: 3, INFO: 4 };
+    findings.sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
+    $('findings-count').textContent = `(${findings.length})`;
+    $('findings').innerHTML = findings.length
+      ? findings.map((f) => `
+        <div class="vt-card">
+          <div class="vt-card-head">
+            <p class="vt-card-title">${esc(f.code)}</p>
+            <span class="vt-pill ${esc(String(f.severity || '').toLowerCase())}">${esc(f.severity)}</span>
+          </div>
+          <p class="vt-msg">${esc(f.message)}</p>
+          <span class="vt-ref">${esc(f.ref)}${f.due_date ? ' · due ' + esc(f.due_date) : ''}</span>
+        </div>`).join('')
+      : '<div class="vt-empty">No findings were returned for this assessment.</div>';
+    $('controller-notes').textContent = (result.controller_notes || []).join(' · ');
+    $('findings-wrap').style.display = '';
+  }
+
+  async function loadPacks() {
+    try {
+      const r = await authed('/api/aria/vetting/packs');
+      if (!r.ok) return;
+      const data = await r.json();
+      $('f-pack').innerHTML = (data.packs || [])
+        .filter((p) => p.status === 'PRODUCTION')
+        .map((p) => `<option value="${esc(p.pack_id)}">${esc(p.pack_id)} v${esc(p.version)}${p.decision_eligible ? '' : ' (framework only)'}</option>`)
+        .join('');
+    } catch (e) { /* the pack list is decoration; never block the page */ }
+  }
+
+  async function loadCases() {
+    try {
+      const r = await authed('/api/aria/vetting/cases');
+      if (!r.ok) {
+        $('cases').innerHTML = `<div class="vt-error">Could not load cases (HTTP ${r.status}).</div>`;
+        return;
+      }
+      const data = await r.json();
+      const cases = data.cases || [];
+      $('cases').innerHTML = cases.length
+        ? cases.map((c) => `
+          <div class="vt-card">
+            <div class="vt-card-head">
+              <div>
+                <p class="vt-card-title">${esc(c.applicant_name || '(unnamed)')}</p>
+                <span class="vt-card-meta">${esc(c.case_id)} · ${esc(c.pack_id)} v${esc(c.pack_version)}</span>
+              </div>
+              <button class="vt-btn secondary" data-assess="${esc(c.case_id)}">Assess</button>
+            </div>
+          </div>`).join('')
+        : '<div class="vt-empty">No vetting cases yet.</div>';
+    } catch (e) {
+      $('cases').innerHTML = '<div class="vt-error">Could not reach the vetting service.</div>';
+    }
+  }
+
+  async function assess(caseId) {
+    setUnknown('Running assessment…');
+    try {
+      const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/assess`, { method: 'POST' });
+      if (!r.ok) {
+        // Explicitly NOT a clean verdict. An unreachable or refusing server
+        // tells us nothing about the applicant.
+        setUnknown(`Assessment could not be completed (HTTP ${r.status}). No conclusion can be drawn from this.`);
+        return;
+      }
+      renderVerdict(await r.json());
+    } catch (e) {
+      setUnknown('Assessment could not be completed — the service was unreachable. No conclusion can be drawn from this.');
+    }
+  }
+
+  $('cases').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-assess]');
+    if (btn) assess(btn.getAttribute('data-assess'));
+  });
+  $('new-case-btn').addEventListener('click', () => {
+    const f = $('new-case-form');
+    f.style.display = f.style.display === 'none' ? '' : 'none';
+  });
+  $('refresh-btn').addEventListener('click', loadCases);
+
+  $('new-case-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    $('create-btn').disabled = true;
+    try {
+      const r = await authed('/api/aria/vetting/cases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          case_id: $('f-case-id').value.trim(),
+          applicant_name: $('f-name').value.trim(),
+          date_of_birth: $('f-dob').value,
+          employment_start: $('f-start').value,
+          pack_id: $('f-pack').value,
+        }),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        alert(`Could not create the case: ${body?.detail?.message || body?.detail || r.status}`);
+        return;
+      }
+      $('new-case-form').reset();
+      $('new-case-form').style.display = 'none';
+      await loadCases();
+    } finally {
+      $('create-btn').disabled = false;
+    }
+  });
+
+  await loadPacks();
+  await loadCases();
+})();
+</script>
+</body>
+</html>

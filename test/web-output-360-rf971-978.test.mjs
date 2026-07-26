@@ -21,7 +21,11 @@ const read = (...p) => readFileSync(join(__dirname, '..', ...p), 'utf8');
 const SRV = read('server.mjs');
 const DASH = read('public', 'dashboard.html');
 const BD = read('public', 'bd-intelligence.html');
-const STATUS_HTML = read('public', 'status.html');
+// R-F3142 — public/status.html was retired (the Vetting module took its nav
+// slot). /api/status and its R-F975 scope fields are UNCHANGED, so the three
+// routes.mjs checks below still apply; only the page-render check is dropped,
+// and its honesty property lives on in
+// test/vetting-page-false-clean-rf3143.test.mjs.
 const STATUS_RT = read('lib', 'status', 'routes.mjs');
 
 let failures = 0;
@@ -75,8 +79,8 @@ check('routes.mjs emits a measuresNote explaining the scope',
   /measuresNote:/.test(STATUS_RT) && /Not a measure of intelligence quality/.test(STATUS_RT));
 check('default summary no longer claims a blanket "All systems operational."',
   !/summary = 'All systems operational\.'/.test(STATUS_RT));
-check('status.html renders the scope caption (data.measuresNote)',
-  /data\.measuresNote/.test(STATUS_HTML) && /banner-scope/.test(STATUS_HTML));
+// (page-render check removed by R-F3142 — the page it asserted no longer exists;
+//  the API-side scope contract above is what consumers actually read.)
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} — ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

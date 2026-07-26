@@ -121,7 +121,10 @@
     <p>ARIA IS PROVIDED "AS IS". TO THE MAXIMUM EXTENT PERMITTED BY LAW, ARIA DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.</p>
   </div>
   <p>In particular, ARIA may produce outputs that are factually incorrect, incomplete, or out-of-date. The model card describes the constitutional safeguards we have in place against fabrication, source mis-attribution, and propaganda elevation, but no AI system is perfect. <strong>You are responsible for verifying any output before relying on it for a high-stakes decision.</strong></p>
-  <p>The service may be unavailable from time to time for maintenance, deployment, or unforeseen technical reasons. We publish operational status at <a href="/status.html">the status page</a>.</p>
+  <!-- R-F3142 — the standalone status PAGE was retired; this clause is a
+       contractual undertaking, so it now names the surface that actually
+       exists. /api/status is unchanged and still public and unauthenticated. -->
+  <p>The service may be unavailable from time to time for maintenance, deployment, or unforeseen technical reasons. We publish operational status at <a href="/api/status">/api/status</a>, a public endpoint reporting current service availability and any open incidents.</p>
 
   <h2>11. Limitation of liability</h2>
   <div class="legal-callout red">
@@ -153,7 +156,7 @@
   Privacy enquiries: <a href="mailto:support@imaria.io">support@imaria.io</a></p>
 
   <div class="legal-footer">
-    Companion documents: <a href="/about/privacy.html">Privacy policy</a> · <a href="/model-card.html">Model card</a> · <a href="/status.html">Status page</a>
+    Companion documents: <a href="/about/privacy.html">Privacy policy</a> · <a href="/model-card.html">Model card</a> · <a href="/api/status">Service status</a>
     <br><br>
     Operator: ARIA Intelligence Limited, England &amp; Wales
   </div>
