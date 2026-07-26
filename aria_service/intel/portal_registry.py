@@ -1236,7 +1236,8 @@ async def _register_via_email_form(portal: PortalDef, purpose: str = "") -> dict
         # solve the CAPTCHA and complete registration autonomously. Only defer to
         # operator if no solver is configured or solving fails.
         try:
-            from .captcha_solver import get_solver, detect_and_solve_captcha
+            # R-F3199 — 2captcha REMOVED (operator direction 2026-07-26).
+            raise ImportError('captcha solving removed (R-F3199)')
             solver = get_solver()
             if solver.is_ready:
                 logger.info(
@@ -1440,7 +1441,8 @@ async def _attempt_form_fill_submit(
         captcha_token = None
         if solve_captcha and pw_result.text:
             try:
-                from .captcha_solver import detect_and_solve_captcha
+                # R-F3199 — 2captcha REMOVED (operator direction 2026-07-26).
+                raise ImportError('captcha solving removed (R-F3199)')
                 captcha_token = await detect_and_solve_captcha(
                     register_url, pw_result.text,
                 )
@@ -1501,7 +1503,8 @@ async def _attempt_form_fill_submit(
             response_text = submit_result.get("response_text", "")
             if response_text:
                 try:
-                    from .captcha_solver import detect_and_solve_captcha as _dsc1707
+                    # R-F3199 — 2captcha REMOVED (operator direction 2026-07-26).
+                    raise ImportError('captcha solving removed (R-F3199)')
                     _post_submit_token = await _dsc1707(register_url, response_text)
                     if _post_submit_token:
                         logger.info(
@@ -2213,7 +2216,8 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
                 )
                 _hidden(pg, f)
                 if portal.requires_captcha:
-                    from .captcha_solver import detect_and_solve_captcha
+                    # R-F3199 — 2captcha REMOVED (operator direction 2026-07-26).
+                    raise ImportError('captcha solving removed (R-F3199)')
                     t = await detect_and_solve_captcha(reg_url, pg)
                     if not t:
                         return None
@@ -2768,7 +2772,8 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
         # solves the CAPTCHA via 2captcha and injects the token before submit.
         _solver_ready = False
         try:
-            from .captcha_solver import get_solver as _get_solver1719
+            # R-F3199 — 2captcha REMOVED (operator direction 2026-07-26).
+            raise ImportError('captcha solving removed (R-F3199)')
             _slv = _get_solver1719()
             _solver_ready = bool(_slv and getattr(_slv, "is_ready", False))
         except Exception:

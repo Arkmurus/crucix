@@ -319,13 +319,13 @@ class AutonomousScheduler:
                 results["reassess"] = False
 
             # Phase 5: Attempt vault registration for any new portals
-            try:
-                vault_result = await auto_register_all()
-                results["vault_new"] = vault_result.get("newly_registered", 0)
-                results["vault_captcha"] = vault_result.get("captcha_deferred", 0)
-            except Exception as e:
-                logger.debug("[R-F1653] Vault auto-register failed: %s", e)
-                results["vault_new"] = -1
+            # R-F3198 — RETIRED. This ran browser-driven portal signup, with
+            # CAPTCHA solving, on EVERY scheduler tick — the heaviest recurring
+            # background consumer that produced no user-facing output.
+            # Operator direction 2026-07-26: stop overloading the brain.
+            # The registry's LOOKUP helpers stay; only self-registration goes.
+            results["vault_new"] = 0
+            results["vault_retired"] = True
 
             # Log summary
             total_new = sum(v for v in results.values() if isinstance(v, int) and v > 0)

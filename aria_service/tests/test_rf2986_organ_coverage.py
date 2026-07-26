@@ -55,7 +55,6 @@ def test_rf2986_rescued_modules_land_in_correct_organ():
         "aria_service.intel.truth_verifier": "guardian",
         "aria_service.intel.pii_redaction": "guardian",
         "aria_service.intel.scraper": "search",
-        "aria_service.intel.captcha_solver": "search",
         "aria_service.intel.user_quota": "infra",
         "aria_service.intel.tenant_namespace": "infra",
         "aria_service.intel.report_builder": "documents",

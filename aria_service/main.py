@@ -120,13 +120,23 @@ def _portal_registration_enabled() -> bool:
     R-F2389: portal registration uses a real browser agent and is valuable only
     after the MVP data plane is stable. Keep curated vault/source ingestion live,
     but make human-like portal signup opt-in so it cannot starve brain endpoints.
+
+    R-F3198 (2026-07-26) — RETIRED, not merely defaulted off.
+
+    Operator direction: stop overloading the brain. Autonomous portal signup
+    drove a real browser agent plus third-party CAPTCHA solving on a schedule,
+    and it is the single heaviest background consumer that produces no
+    user-facing output. R-F2389 made it opt-in; this makes it unavailable, so
+    an env var set in a future deploy cannot silently restart it.
+
+    Retired at the GATE rather than by deleting the scheduler, because the
+    surrounding boot block, its logging and the R-F1447 asyncio note are all
+    still worth reading. And portal_registry.py itself STAYS: DD depends on its
+    lookup helpers (company_investigator imports lookup_contracts_by_uei), so
+    deleting the module to remove the signup behaviour would take a working
+    feature with it.
     """
-    return (_os.getenv("ARIA_PORTAL_REGISTRATION_ENABLED", "0") or "0").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+    return False
 
 
 def _singleton_task(factory, name: str, *, respawn: bool = True) -> "asyncio.Task | None":
@@ -4105,7 +4115,11 @@ async def lifespan(app: FastAPI):
             )
 
         # R-F1444: fire-and-forget auto-registration for pending portals
-        if vault.is_auto_seed_enabled():
+        # R-F3198 — RETIRED alongside the scheduler tick and the registration
+        # loop. Left as an explicit `False and ...` rather than deleted so the
+        # R-F1447 note below (module-level asyncio; a bare local import here
+        # once caused a boot outage) stays where the next reader will find it.
+        if False and vault.is_auto_seed_enabled():
             try:
                 from .intel.portal_registry import auto_register_all as _auto_reg
                 # R-F1447: use the module-level asyncio (line 14). A bare local

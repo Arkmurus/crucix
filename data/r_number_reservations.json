@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3198,
+  "next_available": 3201,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -26061,6 +26061,33 @@
       "notes": null,
       "abandoned_at": "2026-07-26T22:29:45Z",
       "abandon_reason": "R-F3187 post-deploy race probe — verification only, no work"
+    },
+    {
+      "r_number": "R-F3198",
+      "title": "retire the autonomous portal signup agent — stop the brain load",
+      "claimed_at": "2026-07-26T22:35:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3199",
+      "title": "remove 2captcha solver and its call sites",
+      "claimed_at": "2026-07-26T22:35:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3200",
+      "title": "mark_shipped/mark_abandoned write without verifying, silently losing status",
+      "claimed_at": "2026-07-26T22:37:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

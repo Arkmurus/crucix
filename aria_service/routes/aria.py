@@ -18681,9 +18681,15 @@ async def portal_registry_auto_register_ep():
     - failed: portals where registration errored
     - already_registered: portals already in the vault
     """
-    from ..intel.portal_registry import auto_register_all
-    result = await auto_register_all()
-    return result
+    # R-F3198 — RETIRED. Autonomous portal signup is removed; leaving a manual
+    # trigger would mean the feature was retired everywhere except the one place
+    # someone could still fire it by hand.
+    raise HTTPException(
+        status_code=410,
+        detail={"code": "portal_registration_retired",
+                "message": "Autonomous portal registration was retired "
+                           "(R-F3198). Portal lookups are unaffected."},
+    )
 
 
 @router.post("/portal-registry/drive/{portal_id}")
@@ -18728,7 +18734,8 @@ async def portal_registry_drive_one_ep(portal_id: str, fresh: bool = False, back
             _h = _lg.StreamHandler(_buf)
             _h.setLevel(_lg.DEBUG)
             _h.setFormatter(_lg.Formatter("%(levelname)s:%(name)s:%(message)s"))
-            _names = ["aria.portal_registry", "aria.captcha_solver",
+            # R-F3199 — aria.captcha_solver dropped: the module is removed.
+            _names = ["aria.portal_registry",
                       "aria_service.intel.scraper.playwright_engine"]
             _prev = {}
             for _n in _names:
