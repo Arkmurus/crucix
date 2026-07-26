@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3094,
+  "next_available": 3098,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4906,9 +4906,10 @@
       "title": "Add end-to-end coder pipeline capability test",
       "claimed_at": "2026-05-29T12:16:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c5097b38",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1040",
@@ -5580,9 +5581,10 @@
       "title": "Phase 2c — Real form-POST with per-portal field schemas + email-verify loop + Playwright signup",
       "claimed_at": "2026-05-30T08:48:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e46245c6",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1108",
@@ -5739,9 +5741,10 @@
       "title": "deploy.sh push guard + playbook upgrade",
       "claimed_at": "2026-05-30T15:29:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4981a7c9",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1124",
@@ -5798,9 +5801,10 @@
       "title": "generative red-team drill — LLM-vs-ARIA adversarial loop",
       "claimed_at": "2026-05-30T16:22:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "03f3fb2f",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1130",
@@ -5926,9 +5930,10 @@
       "title": "Wire DD trigger pipeline into autonomous scheduler",
       "claimed_at": "2026-05-30T17:42:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e385556f",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1143",
@@ -6304,9 +6309,10 @@
       "title": "PROVE auto-deploy: trivial change to verify end-to-end pipeline",
       "claimed_at": "2026-05-31T11:29:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "263042c8",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1181",
@@ -6432,9 +6438,10 @@
       "title": "Test autonomous deploy pipeline — R-F1191 verification",
       "claimed_at": "2026-05-31T16:37:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "24ffd00b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1194",
@@ -6571,9 +6578,10 @@
       "title": "Agent hardening: wire WebIntegrityAgent, register all agents, fix stubs, mark superseded",
       "claimed_at": "2026-05-31T18:04:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b3c92a32",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1208",
@@ -7346,36 +7354,40 @@
       "title": "Self-coder: AST preservation guard + protect coder files + fix truncation max_tokens",
       "claimed_at": "2026-06-03T10:19:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4d0bbc18",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1286",
       "title": "aria-web env-check leaked token first4/last4 on public host",
       "claimed_at": "2026-06-03T10:28:30Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0c2e0034",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1287",
       "title": "Restore constitutional validator (revert R-F1191) + wire to brain",
       "claimed_at": "2026-06-03T10:34:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "18a6d00d",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1288",
       "title": "aria-wa: add outbound /api/wa-listener/send route (proactive sends 404)",
       "claimed_at": "2026-06-03T10:41:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "417809a1",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1289",
@@ -7392,9 +7404,10 @@
       "title": "Transport-layer message sanitization in CLI llm.py (bulletproof tool/tool_calls)",
       "claimed_at": "2026-06-03T11:20:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dbdecf73",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1291",
@@ -7410,36 +7423,40 @@
       "title": "Wire web_integrity success heartbeat (success branch was dark per 21a)",
       "claimed_at": "2026-06-03T11:28:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f1080ada",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1293",
       "title": "Self-coder: dedup-by-file + skip-if-pending to kill staging churn (186x same file)",
       "claimed_at": "2026-06-03T13:54:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d63f9263",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1294",
       "title": "Coder skip-if-pending: stop regenerating fixes for files with a pending staged fix",
       "claimed_at": "2026-06-03T14:36:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d5cf3d62",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1295",
       "title": "Diff-based editing: coder emits surgical search/replace, no whole-file truncation",
       "claimed_at": "2026-06-03T15:03:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "67f2c1a6",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1296",
@@ -7656,9 +7673,10 @@
       "title": "HOTFIX brain_hook.py SyntaxError from R-F1316 premature docstring close; add real import/compile capability test (source-grep tests missed it)",
       "claimed_at": "2026-06-04T10:53:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "115ccbb5",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1318",
@@ -7695,9 +7713,10 @@
       "title": "Remove WA character caps + bulletproof chunking",
       "claimed_at": "2026-06-04T11:24:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d14c95c4",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1322",
@@ -7891,9 +7910,10 @@
       "title": "Pillar 1 reliability: bounded self-healing state_store lock (kill the 21-min-hold blackout cascade)",
       "claimed_at": "2026-06-05T15:40:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "64fc41a4",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1342",
@@ -8000,45 +8020,50 @@
       "title": "state_store READ path self-heals on dead connection (Connection-closed flood)",
       "claimed_at": "2026-06-05T19:12:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bf479e2c",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1353",
       "title": "DPO training readiness: chat-template format consistency (collapse fix) + coherence gate + shim-serve + safer hyperparams",
       "claimed_at": "2026-06-05T20:45:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cb9e1c27",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1354",
       "title": "ARIA CLI Claude-Code aesthetic redesign (bullets/tree/gerund-spinner) + dynamic provider banner",
       "claimed_at": "2026-06-05T21:41:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9b503250",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1355",
       "title": "Provisioning: 100GB container disk + vLLM-first fast eval (shim fallback) for same-day train/eval cycles",
       "claimed_at": "2026-06-05T22:01:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e6087073",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1356",
       "title": "DPO stability: max_grad_norm clip + bf16 (drop 4-bit) + lower lr to fix v0.2 grad-explosion collapse",
       "claimed_at": "2026-06-05T23:03:21Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dc82dfaf",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1357",
@@ -8054,45 +8079,50 @@
       "title": "serve_eval_shim non-blocking: to_thread generate + GPU lock (sync generate blocked the event loop -> health checks timed out -> aria-intel degraded)",
       "claimed_at": "2026-06-06T00:04:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0e590670",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1359",
       "title": "serve_eval_shim bf16 default (4-bit was 1.6 tok/s/125s per answer -> timeouts; bf16 on 80GB A100 ~10x faster, usable interactively)",
       "claimed_at": "2026-06-06T00:18:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9fbe3e92",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1360",
       "title": "sovereign chat path: cap completion to 800 tokens when ARIA_LLM active (4000 tok x slow 7B = 150-250s timeout->degraded)",
       "claimed_at": "2026-06-06T00:31:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1cb9f663",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1361",
       "title": "serve_eval_shim SSE streaming (stream:true) so aria-intel /chat/stream + the CLI work; streaming also avoids single-shot timeout",
       "claimed_at": "2026-06-06T00:37:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9698b13d",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1362",
       "title": "serve_eval_shim: optional ADAPTER (serve a base model with no LoRA) — to serve Qwen2.5-14B-Instruct as ARIA's sovereign brain",
       "claimed_at": "2026-06-06T01:09:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "daac9efb",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1363",
@@ -8119,9 +8149,10 @@
       "title": "14B chat viability: trim sovereign context budget + fast DeepSeek failover timeout",
       "claimed_at": "2026-06-06T12:51:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "84404aae",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1366",
@@ -8305,9 +8336,10 @@
       "title": "Fix context assembly order: current message must be last, not buried under recalled context",
       "claimed_at": "2026-06-06T20:37:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "381919d3",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1385",
@@ -8412,9 +8444,10 @@
       "title": "WS-1a kill-switch: pause checks in ALL loops",
       "claimed_at": "2026-06-07T12:28:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f8fef53b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1396",
@@ -8431,9 +8464,10 @@
       "title": "state_store conn-churn fix: probe-before-reset + new-conn-first swap + no silent upsert drop",
       "claimed_at": "2026-06-07T12:32:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3cb6965a",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1398",
@@ -8458,9 +8492,10 @@
       "title": "break state_store lock-storm feedback loop - skip-list + batched error-count + rate-limited warn + waiter shed",
       "claimed_at": "2026-06-07T13:33:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "af4191d4",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1401",
@@ -8485,9 +8520,10 @@
       "title": "Tier 1b: WebIntegrityAgent brain_hook injection fix",
       "claimed_at": "2026-06-07T18:09:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "53ecec49",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1404",
@@ -8561,18 +8597,20 @@
       "title": "T0star reusable outcome-wire primitive + WA delivery-outcome reporting",
       "claimed_at": "2026-06-07T20:29:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "78df7f2b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1412",
       "title": "ARIA indestructibility - resilience hardening initiative (real recovery from blackout/error/anything)",
       "claimed_at": "2026-06-07T20:55:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1c36dfc3",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1413",
@@ -8884,36 +8922,40 @@
       "title": "Portal registration pipeline: vault update + registration agent + email verification + autonomous task",
       "claimed_at": "2026-06-08T09:58:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dcd30598",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1445",
       "title": "land reviewed self-coded enforce_budget truncation fix (coder f61bf54c / R-F5880)",
       "claimed_at": "2026-06-08T10:03:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "42bae565",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1446",
       "title": "Fix agent registry heartbeat persistence under SQLite lock contention",
       "claimed_at": "2026-06-08T10:27:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d4126479",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1447",
       "title": "fix UnboundLocalError asyncio in main.py lifespan (R-F1444 broke boot -> outage)",
       "claimed_at": "2026-06-08T10:32:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fae1f4a8",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1448",
@@ -8930,9 +8972,10 @@
       "title": "Function-preservation gate: coder refuses to stage fixes that lose top-level defs/classes",
       "claimed_at": "2026-06-08T14:02:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "aadd1ae9",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1450",
@@ -9463,9 +9506,10 @@
       "title": "on-demand pod auto-create+resume eval launcher",
       "claimed_at": "2026-06-10T13:27:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bf8221e4",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1504",
@@ -9661,9 +9705,10 @@
       "title": "Add legal research sources infrastructure for autonomous legal knowledge acquisition",
       "claimed_at": "2026-06-12T14:08:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "91f322a5",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1524",
@@ -9950,36 +9995,40 @@
       "title": "Wire wiring_monitor into lifespan + remove dead duplicate in web_integrity_agent",
       "claimed_at": "2026-06-14T21:54:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "85333684",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1553",
       "title": "Add brain wiring + agent registration to eagle_eye",
       "claimed_at": "2026-06-14T22:01:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "85333684",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1554",
       "title": "Register contracts for all background agents in lifespan",
       "claimed_at": "2026-06-14T22:01:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "85333684",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1555",
       "title": "Add dedicated-DB fallback for agent messaging and gap claiming",
       "claimed_at": "2026-06-14T22:03:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "85333684",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1556",
@@ -10016,9 +10065,10 @@
       "title": "eagle_eye brain wiring + self-register agent + heartbeat",
       "claimed_at": "2026-06-14T22:30:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "73c1d07e",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1560",
@@ -10061,18 +10111,20 @@
       "title": "WA listener thread requestId through all sendReply sites (proprioception)",
       "claimed_at": "2026-06-14T22:30:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "39b75a1b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1565",
       "title": "server.mjs sweep-ingest wire to brain + web delivery-outcome",
       "claimed_at": "2026-06-14T22:30:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8e5cd2a9",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1566",
@@ -10106,9 +10158,10 @@
       "title": "stored-XSS web-tier render audit + escape fixes",
       "claimed_at": "2026-06-14T22:30:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8e5cd2a9",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1570",
@@ -10853,18 +10906,20 @@
       "title": "Decouple AssessmentWriter from Anthropic lock-in, route through llm provider",
       "claimed_at": "2026-06-18T06:31:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b41d581f",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1646",
       "title": "v0.6 bigger+sharper grounded corpus (more questions, higher-k retrieval, lower abstention)",
       "claimed_at": "2026-06-18T06:33:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f8076013",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1647",
@@ -10941,9 +10996,10 @@
       "title": "v0.7 sharper grounded corpus — fact-derived answerable questions (drive abstention 38pct to ~15pct)",
       "claimed_at": "2026-06-18T10:02:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "18ba0a51",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1655",
@@ -11067,9 +11123,10 @@
       "title": "v0.8 14B base experiment (Qwen2.5-14B on v0.7 grounded corpus — test if 7B capacity was the parity cap)",
       "claimed_at": "2026-06-18T14:11:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ac92467f",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1668",
@@ -11106,9 +11163,10 @@
       "title": "14B pod disk fix — bump container disk + disable HF xet (No space left on device on Qwen2.5-14B download)",
       "claimed_at": "2026-06-18T15:19:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4317f3df",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1672",
@@ -11244,9 +11302,10 @@
       "title": "existing-test reproduce path gold-eligible (enable known-failing-test fuel)",
       "claimed_at": "2026-06-19T06:58:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "83c98bf6",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1686",
@@ -11353,9 +11412,10 @@
       "title": "sanctions: source-unavailable != clean — propagate availability helpers->screen->DD render, never report unscreenable entity as cleared",
       "claimed_at": "2026-06-19T09:12:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6df5083c",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1697",
@@ -11382,18 +11442,20 @@
       "title": "CLI write guard fail-closed: run constitutional validator + PROTECTED_FILES in aria_cli (self-mode), close R-F995-class bypass",
       "claimed_at": "2026-06-19T09:36:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cfd96657",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1700",
       "title": "delete dead+dark autonomous_scheduler._fix_gaps duplicate (live coder run_forever owns gap-fixing)",
       "claimed_at": "2026-06-19T09:43:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a9a85c36",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1701",
@@ -11450,18 +11512,20 @@
       "title": "audit_log.record: serialize the entry ONCE (off-loop) instead of 4x inline json.dumps on the DD/compliance hot path",
       "claimed_at": "2026-06-19T12:47:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a1cc7f8a",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1707",
       "title": "Fix CAPTCHA detection for post-submit challenges - detect after form submission",
       "claimed_at": "2026-06-19T12:58:30Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c70e788c",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1708",
@@ -11478,9 +11542,10 @@
       "title": "Dockerfile: install heavy deps (torch) in a cached layer before app COPY so app-code changes don't trigger torch reinstall / deploy timeouts",
       "claimed_at": "2026-06-19T13:02:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2ddd47fd",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1710",
@@ -11497,18 +11562,20 @@
       "title": "autonomous onboarding: fix email-verify field-name bug + generic env-then-vault key accessor (obtained key goes live, zero operator)",
       "claimed_at": "2026-06-19T13:17:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ffd752f5",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1712",
       "title": "autonomous portal login + dashboard API-key retrieval -> store_obtained_key (close the onboarding loop), proven on a template portal",
       "claimed_at": "2026-06-19T13:24:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0d5e3183",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1713",
@@ -11525,27 +11592,30 @@
       "title": "fully configure newsapi autonomous onboarding (real fields + login + /account key regex) + type-aware form fill (checkbox/radio/select)",
       "claimed_at": "2026-06-19T14:53:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7d8fdb6c",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1715",
       "title": "onboarding bulletproofing: verify obtained API key WORKS before activating (try candidates, keep the validated one) + wire outcome to brain",
       "claimed_at": "2026-06-19T15:19:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "37f5cf28",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1716",
       "title": "autonomous driver re-drives needs_operator portals (not just pending) so newly-auto-onboardable portals get attempted; declined/deferred stay terminal",
       "claimed_at": "2026-06-19T16:15:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fd4f243f",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1717",
@@ -11562,18 +11632,20 @@
       "title": "newsapi requires_captcha=True (it has reCAPTCHA — engage 2captcha) + live registration verification",
       "claimed_at": "2026-06-19T16:25:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "62991fee",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1719",
       "title": "determine_and_drive: don't bail on captcha when a 2captcha solver is ready — proceed to register+solve",
       "claimed_at": "2026-06-19T16:35:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "10ac9703",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1720",
@@ -11589,45 +11661,50 @@
       "title": "api_key portals: registered REQUIRES a stored key — if account exists but no key, login+retrieve; don't fake 'registered'/'already registered'",
       "claimed_at": "2026-06-19T16:45:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9919926e",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1722",
       "title": "in-app POST /portal-registry/drive/{id}?fresh trigger for faithful live onboarding verification",
       "claimed_at": "2026-06-19T17:01:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6b21f07d",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1723",
       "title": "drive endpoint runs onboarding as in-app background task (beat fly HTTP timeout on the 74s captcha solve); poll vault for result",
       "claimed_at": "2026-06-19T17:24:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e558f45c",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1724",
       "title": "onboarding background task writes full result + DEBUG trace to /data/_onboarding/{id}.json for deterministic diagnosis",
       "claimed_at": "2026-06-19T18:09:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bf6318ae",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1725",
       "title": "Fix stream cut-off: guarantee done event on all exit paths in chat_stream_ep",
       "claimed_at": "2026-06-19T18:15:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "327545d5",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1726",
@@ -11724,18 +11801,20 @@
       "title": "EU/UN/UK sanctions ingesters - proven template fan-out",
       "claimed_at": "2026-06-19T23:18:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a2e3c059",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1736",
       "title": "EU Sanctions Map ingester - open_api sanctions_screening facts",
       "claimed_at": "2026-06-19T23:25:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d69c2e08",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1737",
@@ -11752,9 +11831,10 @@
       "title": "UN Sanctions ingester - open_api sanctions_screening facts",
       "claimed_at": "2026-06-19T23:25:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1dbbb445",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1739",
@@ -12495,9 +12575,10 @@
       "title": "DD depth — targeted person/procurement/native-lang fan-out + per-fact citations + bounded recursive investigate_person",
       "claimed_at": "2026-06-23T11:48:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0bee7161",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1813",
@@ -12822,18 +12903,20 @@
       "title": "fix DD event-loop wedge: pre-warm heavy writers/anthropic import off the request loop",
       "claimed_at": "2026-06-23T21:51:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "555c0a99",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1846",
       "title": "pre-warm sanctions-source caches at boot off the request loop (DD wedge cont.)",
       "claimed_at": "2026-06-23T22:14:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bf0dfbee",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1847",
@@ -12920,9 +13003,10 @@
       "title": "keep interactive-yield window alive for whole DD so background CPU work defers (wedge)",
       "claimed_at": "2026-06-23T23:39:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6c63823a",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1856",
@@ -13269,9 +13353,10 @@
       "title": "R-F1890: encode process-offload - route model.encode through a 1-worker spawn ProcessPool so it never holds the main GIL (kills the encode-on-loop wedge class)",
       "claimed_at": "2026-06-24T22:40:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8acd2668",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1891",
@@ -13378,27 +13463,30 @@
       "title": "verification_accumulator.stats scan_json batch (other half of get_stats /api/aria/health cost)",
       "claimed_at": "2026-06-24T23:45:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1d4a5e3a",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1902",
       "title": "comprehensive .gitignore for runtime/debug junk (stop blanket-git-add sweeps into repo)",
       "claimed_at": "2026-06-25T05:14:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "55aa3f8b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1903",
       "title": "Last-layer #4b: feed site-derived declared_activity to export-control classifier (defence/C2/ISR products discarded -> EC layer silent)",
       "claimed_at": "2026-06-25T05:18:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "203b78ab",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1904",
@@ -13625,9 +13713,10 @@
       "title": "coder first-gold canary: controlled reproducible bug to prove gold pipeline (gap->reproduce FAIL->fix->PASS->gold)",
       "claimed_at": "2026-06-25T10:19:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ce8fc358",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1927",
@@ -13644,9 +13733,10 @@
       "title": "TestRunner uses literal 'python' subprocess -> wrong interpreter (no pytest-timeout); use sys.executable",
       "claimed_at": "2026-06-25T10:40:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ce8fc358",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1929",
@@ -13673,9 +13763,10 @@
       "title": "ARIA local coder runner — run self_coder.fix_gap on the computer (pull brain gaps / canary), all lifecycle fixes baked",
       "claimed_at": "2026-06-25T11:34:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "af1d2dfb",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1932",
@@ -13702,9 +13793,10 @@
       "title": "curated RAG-grounded code-gap fuel source: filter StaticAnalysis firehose to real reliability issues in core modules, ground via code RAG, feed local coder",
       "claimed_at": "2026-06-25T12:31:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "92d8d50b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1935",
@@ -13721,36 +13813,40 @@
       "title": "code-gap fuel sources: failing-tests (gold-able) + curated reliability findings, RAG-grounded, feeding the local coder",
       "claimed_at": "2026-06-25T13:07:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "80e44c1a",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1937",
       "title": "aria_cli root fix: default coder LLM to direct deepseek when DEEPSEEK_API_KEY present (aria provider routed to slow /api/aria/chat/completions -> 122s timeout)",
       "claimed_at": "2026-06-25T13:24:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0303e82b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1938",
       "title": "autonomous local coder LOOP: daemon pulls RAG-grounded fuel -> fix_gap locally -> stage/gold on a timer, with per-cycle cap + dedup + brain outcome-wire",
       "claimed_at": "2026-06-25T13:55:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a1b20fd5",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1939",
       "title": "build_grounded_corpus: generate grounded answers for the 689 openbook items (question+RAG-context -> cited grounded answer) via DeepSeek, concurrent + resumable, for Track B SFT/RL corpus",
       "claimed_at": "2026-06-25T14:52:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1b8a293c",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1940",
@@ -13769,54 +13865,60 @@
       "title": "robust grounded-SFT trainer + fixed config: chat-template + completion-only loss, QLoRA, train/val split, eval, checkpointing, --validate no-GPU pipeline check; consumes the 664-example grounded corpus",
       "claimed_at": "2026-06-25T15:01:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b1547274",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1942",
       "title": "verifiable-reward grounding reward function: objective score (citations map to real context, fabrication penalty, abstention-correctness) — the reasoning analog of tests-pass; foundation for DPO/GRPO cap-breaker",
       "claimed_at": "2026-06-25T15:09:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "181cc5e1",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1943",
       "title": "DPO preference-pair builder: chosen=grounded corpus answer, rejected=ungrounded parametric answer, preference VERIFIED by the R-F1942 grounding reward (keep only chosen>rejected+margin)",
       "claimed_at": "2026-06-25T15:33:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7b5f4884",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1944",
       "title": "DPO trainer (verifiable-reward cap-breaker): TRL DPOTrainer + QLoRA on the 469 verified grounding preference pairs, init from the grounded-SFT adapter; --validate no-GPU check",
       "claimed_at": "2026-06-25T15:45:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e8fa4621",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1945",
       "title": "one-line RunPod launcher: clone/pull + install + grounded-SFT + DPO + eval vs DeepSeek 0.34, single command, robust (set -e, logged, reports pass/fail)",
       "claimed_at": "2026-06-25T16:22:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ea35ddb9",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1946",
       "title": "operationalize ARIA-LLM: persist adapter + push-to-HF + serverless shadow-wire prep scripts (serverless+shadow-first path)",
       "claimed_at": "2026-06-26T08:18:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4a6cd887",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1947",
@@ -14210,18 +14312,20 @@
       "title": "knowledge-to-mastery bridge",
       "claimed_at": "2026-06-27T07:36:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8b3c5954",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1987",
       "title": "design partner tracker",
       "claimed_at": "2026-06-27T07:37:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8b3c5954",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F1988",
@@ -14507,9 +14611,10 @@
       "title": "ARIA intelligence dashboard",
       "claimed_at": "2026-06-27T13:27:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d29b1e49",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2017",
@@ -14612,9 +14717,10 @@
       "title": "robust onboarding",
       "claimed_at": "2026-06-27T15:01:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bb520def",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2028",
@@ -14661,9 +14767,10 @@
       "title": "email.mjs read SMTP_USER/SMTP_PASS (and host/port) so auth uses the right credential namespace",
       "claimed_at": "2026-06-27T16:24:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b133127f",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2033",
@@ -15468,27 +15575,30 @@
       "title": "Session 2: embedded WA listener Â§25a outcome + brain signals",
       "claimed_at": "2026-06-28T20:55:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "97b55ae0",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2114",
       "title": "Session 3: document_reader + ocr circuit breakers + wiring",
       "claimed_at": "2026-06-28T20:55:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "97b55ae0",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2115",
       "title": "Session 4: deal_pipeline + sanctions + email_reader wiring",
       "claimed_at": "2026-06-28T20:55:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "97b55ae0",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2116",
@@ -15534,9 +15644,10 @@
       "title": "Campaign 3: 51 NO BREAKER + infra + remaining",
       "claimed_at": "2026-06-28T22:27:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8fb48dd2",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2121",
@@ -15553,9 +15664,10 @@
       "title": "lazy-load heavy boot data off critical path — kill the 10-min restart outage",
       "claimed_at": "2026-06-28T22:28:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "99155792",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2123",
@@ -15589,144 +15701,160 @@
       "title": "pre-commit syntax gate — block any broken .py from being committed (annotation-corruption backstop)",
       "claimed_at": "2026-06-28T23:08:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "129aa807",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2127",
       "title": "pre-commit syntax gate backstop",
       "claimed_at": "2026-06-28T23:09:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c277fbb8",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2128",
       "title": "aria CLI coder_tools shell-injection — apply _shq to ci_deploy/reserve/ship",
       "claimed_at": "2026-06-28T23:12:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4a8b0cca",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2129",
       "title": "aria CLI robustness follow-up — marker/stdout/poll-race/stream-cap/loop-guard from 4-step review",
       "claimed_at": "2026-06-28T23:18:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2eb26bf3",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2130",
       "title": "wire coding_constitutional RAG — author CLAUDE.md/AGENTS.md rules into index_constitutional_rules so the coder is grounded in the playbook",
       "claimed_at": "2026-06-28T23:24:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4f5ab7bf",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2131",
       "title": "Fix state_store _reconnect busy_timeout mismatch",
       "claimed_at": "2026-06-29T10:47:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0180765d",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2132",
       "title": "state_store PRAGMA ordering: busy_timeout before journal_mode (boot-deadlock root cause)",
       "claimed_at": "2026-06-29T11:13:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e0cf4f4b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2133",
       "title": "Fix state_store set() builtins shadowing + anti-hallucination laws 18-20",
       "claimed_at": "2026-06-29T11:23:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "633238ed",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2134",
       "title": "Add coding convention rules + pre-commit checklist + RAG priming ritual",
       "claimed_at": "2026-06-29T11:38:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d59f40f5",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2135",
       "title": "Add compile-gate, capability-test, and PowerShell-safety checks to pre-commit hook",
       "claimed_at": "2026-06-29T11:40:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7889e7dc",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2136",
       "title": "Wire pre-commit hook failures into coding_failures RAG collection",
       "claimed_at": "2026-06-29T11:50:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "813f6397",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2137",
       "title": "runtime WAL periodic checkpoint-truncate to stop unbounded WAL growth",
       "claimed_at": "2026-06-29T17:35:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c58ca053",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2138",
       "title": "DD structural IDOR fix",
       "claimed_at": "2026-06-29T18:14:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3af74e0b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2139",
       "title": "DD token scoping enable by default",
       "claimed_at": "2026-06-29T18:14:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "09ae6c39",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2140",
       "title": "DD unauthenticated surface lockdown",
       "claimed_at": "2026-06-29T18:14:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3af74e0b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2141",
       "title": "DD self-coder permanent kill switch",
       "claimed_at": "2026-06-29T18:14:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1e733f13",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2142",
@@ -15742,45 +15870,50 @@
       "title": "sanctions honesty — never assert CLEAN when the screen did not run (return COULD_NOT_VERIFY)",
       "claimed_at": "2026-06-29T18:21:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d5e48f16",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2144",
       "title": "reliability Phase-1: off-load boot warmup graph loads + gc.freeze so the event loop never starves",
       "claimed_at": "2026-06-29T18:30:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2fe5d57d",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2145",
       "title": "Wire CLI coder to coding RAG for pro-level coding",
       "claimed_at": "2026-06-29T20:38:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1343a777",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2146",
       "title": "Expose coding RAG stats in health endpoint",
       "claimed_at": "2026-06-29T20:38:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1343a777",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2147",
       "title": "Task-specific constitutional rule retrieval in CLI prompt",
       "claimed_at": "2026-06-29T20:38:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1343a777",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2148",
@@ -15817,18 +15950,20 @@
       "title": "RAG retry-with-cooldown — eliminate sticky _chromadb_failed",
       "claimed_at": "2026-06-30T11:26:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dfaf5ea8",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2152",
       "title": "Bound /health public status endpoint so it never hangs",
       "claimed_at": "2026-06-30T11:26:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "df0b2f8d",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2153",
@@ -15984,9 +16119,10 @@
       "title": "fix pre-commit compile gate: UTF-8 encoding (stop false-positive on box-drawing chars) + emit VERIFICATION FAILED sentinel so it actually blocks",
       "claimed_at": "2026-06-30T18:23:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f2072d88",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2169",
@@ -16003,9 +16139,10 @@
       "title": "auth role enum customer/support/admin + requireRole (replace binary requireAdmin)",
       "claimed_at": "2026-06-30T18:37:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7483da2e",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2171",
@@ -16151,9 +16288,10 @@
       "title": "adaptive load governor: autonomy self-regulates — sheds tick when state_store write-queue backs up or event-loop stalls, auto-resumes when calm; self-aware (wires shed to brain). The self-healing mechanism that stops background work starving serving on single-process brain",
       "claimed_at": "2026-06-30T20:38:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1483b480",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2186",
@@ -16230,9 +16368,10 @@
       "title": "Add loop-guard constitutional rule",
       "claimed_at": "2026-06-30T22:01:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "956d5a63",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2194",
@@ -17199,9 +17338,10 @@
       "title": "state_store hot/cold split Phase 0 — flag-gated router + cold-DB plumbing + K/V-path routing (default OFF)",
       "claimed_at": "2026-07-02T10:02:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c27ac3a8",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2291",
@@ -17927,9 +18067,10 @@
       "title": "Phase A gate #2 accel: reading-loop cadence env-tunable, default 6h->2.5h so region-grounded reads accumulate faster (honest EWMA, no alpha/weight/grounding change = no gaming)",
       "claimed_at": "2026-07-03T06:55:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "59c1779b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2364",
@@ -17946,27 +18087,30 @@
       "title": "DD honesty #3: fix false 'GB Companies House only' UBO-walk claim; surface CNPJ/registry-ID unlock (adapter supports BR)",
       "claimed_at": "2026-07-03T07:14:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "aaa33b14",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2366",
       "title": "DD quality #4: press relevance by aboutness (title/host, not passing mention) + report verified/unverified split not raw count",
       "claimed_at": "2026-07-03T07:14:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "aaa33b14",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2367",
       "title": "§24 eval-contamination pre-flight guard + quarantine contaminated DPO (dpo_v1 100%, dpo_v04 98% eval-derived) — a contaminated cycle must be impossible to run",
       "claimed_at": "2026-07-03T07:36:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6e08e69d",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2368",
@@ -18013,63 +18157,70 @@
       "title": "remove raw bidi controls",
       "claimed_at": "2026-07-06T14:48:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "62a44ab9",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2373",
       "title": "triage weak random usage",
       "claimed_at": "2026-07-06T17:50:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f7d8970b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2374",
       "title": "Fix live web brain signal delivery and sweep telemetry",
       "claimed_at": "2026-07-06T18:06:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f7d8970b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2375",
       "title": "Fix live web brain signal delivery and sweep telemetry unique",
       "claimed_at": "2026-07-06T18:06:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f7d8970b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2376",
       "title": "Fix live web brain delivery and health telemetry",
       "claimed_at": "2026-07-06T18:09:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f7d8970b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2377",
       "title": "fix adverse media search result normalization",
       "claimed_at": "2026-07-06T18:49:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0c1da8ff",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2378",
       "title": "bound state store WAL checkpoints",
       "claimed_at": "2026-07-06T18:55:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5a48559c",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2379",
@@ -18136,36 +18287,40 @@
       "title": "golden intel signals",
       "claimed_at": "2026-07-07T07:13:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9bf475c8",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2386",
       "title": "vault source ingestion wiring",
       "claimed_at": "2026-07-07T07:36:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "138e0320",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2387",
       "title": "aria web mvp ui hardening",
       "claimed_at": "2026-07-07T07:58:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ea3c61f1",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2388",
       "title": "dd report delete refresh fix",
       "claimed_at": "2026-07-07T08:26:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1340ead2",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2389",
@@ -18242,9 +18397,10 @@
       "title": "intel source health brain summary",
       "claimed_at": "2026-07-07T13:46:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "81124b95",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2397",
@@ -18261,9 +18417,10 @@
       "title": "landing capability claim truth",
       "claimed_at": "2026-07-07T14:47:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9d3fcbb3",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2399",
@@ -18381,9 +18538,10 @@
       "title": "DD rerun banner placeholder fix",
       "claimed_at": "2026-07-07T21:43:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5b1a74b2",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2411",
@@ -18420,18 +18578,20 @@
       "title": "DD placeholder guard preserve real entity fallback",
       "claimed_at": "2026-07-07T22:12:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dcad4d8a",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2415",
       "title": "fix record_gap callers: module=/description= kwargs dont exist (web_integrity + self_healing gap recording TypeError)",
       "claimed_at": "2026-07-07T22:21:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3acafdf6",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2416",
@@ -18751,18 +18911,20 @@
       "title": "canonical dedup: _scrub_regnum strip redundant registry-type label (CNPJ) so re-run versions same case",
       "claimed_at": "2026-07-08T07:51:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6963ed77",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2481",
       "title": "DD ownership robustness: capture owner at DD START (mark_dd_running) so orphaned/interrupted runs are never owner-less",
       "claimed_at": "2026-07-08T07:53:21Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6963ed77",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2482",
@@ -18829,9 +18991,10 @@
       "title": "fix ecosystem_audit.py brain-registry parser false-negative (_MODULE_TOPICS/_MODULE_WEIGHT not MODULE_REGISTRY/TOPIC_WEIGHTS)",
       "claimed_at": "2026-07-08T08:48:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1ae7f1c5",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2489",
@@ -19027,9 +19190,10 @@
       "title": "v0.6 full framework corpus (400) + fire v0.6 RunPod cycle (SFT framework-knowledge + grounding DPO)",
       "claimed_at": "2026-07-08T17:57:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c932ed33",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2509",
@@ -19067,9 +19231,10 @@
       "title": "v0.7 large per-layer framework corpus + counter-intel/PI protection (scale the dd_layer lever)",
       "claimed_at": "2026-07-08T21:48:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "09341861",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2513",
@@ -19104,9 +19269,10 @@
       "title": "fix: model network volume deleted -> create new 100GB volume + point ARIA_RUNPOD_VOLUME_ID (unblocks recover/persistent cycles)",
       "claimed_at": "2026-07-09T06:00:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "de857dfe",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2517",
@@ -19132,9 +19298,10 @@
       "title": "log-review findings hardening batch: brain/signal empty-content graceful (was 400), heartbeat-stale counter metric, WA periodic heartbeat log, push 0-subscriber operator warning, channel-card image pre-validation, source degraded-in-last-N surfacing",
       "claimed_at": "2026-07-09T17:42:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "72c9ec9d",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2520",
@@ -19171,45 +19338,50 @@
       "title": "web_integrity_agent lint fixes (Prospector): remove unused local wire_failure import (line 709); rename loop var field->fname (4 loops) so it stops shadowing dataclasses.field",
       "claimed_at": "2026-07-11T08:51:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3bfb5fca",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2524",
       "title": "cost monthly-cap HARD-BLOCK fix: assert_monthly_cap compared only the 5min-TTL reserve key (reconciled to ~0) vs cap, never adding actual month-to-date spend, so an over-cap month never blocked (only warned). Add recorded spend to the reserve for the ceiling check",
       "claimed_at": "2026-07-11T09:05:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ee6c2448",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2525",
       "title": "R-F743 test de-brittle (codex finding 7 test-drift): assert default timeout is present+substantial (was exact 20000, code now 30000) and check authedJson backwards-compat signature instead of stale specific PUT/DELETE caller strings (PUT refactored to raw fetch)",
       "claimed_at": "2026-07-11T09:09:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1520061a",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2526",
       "title": "scale-ready global DD concurrency gate: redis_store.is_shared() + _dd_admit_global/_dd_release_global — no-op single-machine (byte-identical), GLOBAL cap across workers when REDIS_URL set (codex scale blocker #2/#3: DD caps would multiply 3xN). Fail-open. Prepares horizontal scale as a config flip",
       "claimed_at": "2026-07-11T09:17:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ccb9166f",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2527",
       "title": "grounded-synthesis shadow flywheel: durable DPO capture + harvester",
       "claimed_at": "2026-07-11T09:18:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "891ee32e",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2528",
@@ -19225,27 +19397,30 @@
       "title": "widening-cycle DPO dataset v2 (format-varied + answerable-coverage)",
       "claimed_at": "2026-07-11T09:30:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ff7f69d4",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2530",
       "title": "cycle driver: forward DPO_BETA/DPO_LR env to on-pod orchestrator",
       "claimed_at": "2026-07-11T09:34:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2e74c057",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2531",
       "title": "canary not-selected grounded turns capture via shadow (flywheel-during-canary)",
       "claimed_at": "2026-07-11T09:42:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "46da8e87",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2532",
@@ -19322,18 +19497,20 @@
       "title": "objective citation-precision eval (grounding_reward, sovereign vs DeepSeek)",
       "claimed_at": "2026-07-11T12:49:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b04afd19",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2540",
       "title": "citation_verifier — deterministic citation verification (golden-reasoning layer)",
       "claimed_at": "2026-07-11T13:15:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "acb106a1",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2541",
@@ -19350,9 +19527,10 @@
       "title": "wire citation_verifier into live synthesis (complete + stream, no fabricated source ships)",
       "claimed_at": "2026-07-11T13:27:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b1121a78",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2543",
@@ -19379,18 +19557,20 @@
       "title": "CI fabrication gate — build fails if verifier unwired or fabrication survives",
       "claimed_at": "2026-07-11T13:42:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c865c675",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2546",
       "title": "wire citation_verifier into bypass paths (grounding-repair, doc_lane, /think, report_builder)",
       "claimed_at": "2026-07-11T13:49:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2afd3b5a",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2547",
@@ -19416,9 +19596,10 @@
       "title": "GRPO driver INIT_ON_POD — start from an adapter already on the pod volume",
       "claimed_at": "2026-07-11T15:36:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "afab7223",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2550",
@@ -19504,9 +19685,10 @@
       "title": "GRPO composite-win: fix dead recall+answerable signals, enrich keywords, cycle from grpo_v1",
       "claimed_at": "2026-07-12T07:59:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c99e58ed",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2559",
@@ -20018,9 +20200,10 @@
       "title": "csl activation state promotion hardening",
       "claimed_at": "2026-07-14T12:50:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cdc80495",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2611",
@@ -20247,9 +20430,10 @@
       "title": "SCOPE: Golden Intel corroboration engine — wire SourceIndependenceChecker to evidence_count",
       "claimed_at": "2026-07-15T16:07:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c5783d51",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2634",
@@ -20276,9 +20460,10 @@
       "title": "false-fresh: a scoped poll erases the full-poll source_failure_degraded signal",
       "claimed_at": "2026-07-15T17:01:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ccd3b2f6",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2637",
@@ -20465,9 +20650,10 @@
       "title": "retire intel arkmurus domain",
       "claimed_at": "2026-07-16T10:50:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3e1bf40e",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2656",
@@ -20504,9 +20690,10 @@
       "title": "repair source uptime stale and seed urls",
       "claimed_at": "2026-07-16T11:49:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9aa132e1",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2660",
@@ -20603,9 +20790,10 @@
       "title": "C-3 v2: real independent-verification classifier (domain-family + content-story dedup) — closes wire-syndication FP + multi-publisher FN; earns R-F2413 via eval",
       "claimed_at": "2026-07-16T13:27:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f1a3374c",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2670",
@@ -20632,9 +20820,10 @@
       "title": "wire defence seed failure branch",
       "claimed_at": "2026-07-16T15:09:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "12da171d",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2673",
@@ -20661,9 +20850,10 @@
       "title": "fix source monitor head false negatives",
       "claimed_at": "2026-07-16T16:03:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2294856d",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2676",
@@ -20690,9 +20880,10 @@
       "title": "verify source unsuspend persistence",
       "claimed_at": "2026-07-16T16:30:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c21f5089",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2679",
@@ -20927,9 +21118,10 @@
       "title": "vault htm alias",
       "claimed_at": "2026-07-17T11:47:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f69e1eca",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2703",
@@ -21725,9 +21917,10 @@
       "title": "financial health for non-US LSE/EU companies in DD",
       "claimed_at": "2026-07-18T23:20:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "671c3cac",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2783",
@@ -21763,9 +21956,10 @@
       "title": "DD decision readiness five question USP gate",
       "claimed_at": "2026-07-19T13:14:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "99c15e8b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2787",
@@ -22031,9 +22225,10 @@
       "title": "ARIA foundation HA re-architecture (readiness gate + interruptible writes + LiteFS + blue-green + surface self-heal)",
       "claimed_at": "2026-07-20T11:45:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "38193925",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2814",
@@ -22060,9 +22255,10 @@
       "title": "Stage B fix: move interruptible-write recovery into the boot-settle-armed R-F2277 watchdog (flush-path interrupt fired mid-boot → flap)",
       "claimed_at": "2026-07-20T13:37:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2f8f4c87",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2817",
@@ -22279,18 +22475,20 @@
       "title": "declared jurisdiction must beat suffix inference - SA maps to PT and overrode CH",
       "claimed_at": "2026-07-21T17:37:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "68dc749e",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2839",
       "title": "GLEIF date_of_creation is the LEI registration date not incorporation",
       "claimed_at": "2026-07-21T17:48:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8e4e9f06",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2840",
@@ -22386,9 +22584,10 @@
       "title": "event-loop lag monitor - make loop starvation observable in production",
       "claimed_at": "2026-07-22T10:48:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6bf70ca0",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2850",
@@ -22725,9 +22924,10 @@
       "title": "stripe product/price setup script - derive from tiers.mjs so amounts and GBP currency cannot be hand-typed wrong",
       "claimed_at": "2026-07-22T23:14:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "59fc23bc",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2884",
@@ -22904,9 +23104,10 @@
       "title": "autonomous engine loses a boot race with background LLM init and never retries",
       "claimed_at": "2026-07-23T12:13:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6941b5cc",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2902",
@@ -23004,18 +23205,20 @@
       "title": "registry coverage: curated real-entity liveness sweep so Live/Failing/Unproven is evidence, not absence",
       "claimed_at": "2026-07-23T14:27:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a2b97fec",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2912",
       "title": "self_improve loops the same Opus prompt - top attributable Claude cost",
       "claimed_at": "2026-07-23T14:38:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5efd5044",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2913",
@@ -23040,9 +23243,10 @@
       "title": "registry coverage: a stub adapter must never record registry liveness (it echoes the query, it does not read a registry)",
       "claimed_at": "2026-07-23T14:47:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7befe7ae",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2916",
@@ -23067,63 +23271,70 @@
       "title": "GB coverage: record Companies House liveness where the real call happens (GB is covered_elsewhere, never recorded)",
       "claimed_at": "2026-07-23T14:57:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0744bd2d",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2919",
       "title": "deploy: fail the build if any tracked file is missing from the tree (AV quarantine shipped a broken image)",
       "claimed_at": "2026-07-23T15:17:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3809ad82",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2920",
       "title": "file integrity audit: continuous tracked-file monitor with durable ledger, auto-restore and operator alert",
       "claimed_at": "2026-07-23T15:20:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3809ad82",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2921",
       "title": "aria client: ship the python client IN the bundle and stop the .bat downloading+executing code at runtime (Trojan signature + unverified RCE)",
       "claimed_at": "2026-07-23T15:25:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ffef3d24",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2922",
       "title": "Claude must be preference-only - excluded from the default chain so only DD can reach it",
       "claimed_at": "2026-07-23T15:26:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f16cd6fa",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2923",
       "title": "operator-gated endpoint to reset the daily cost meter",
       "claimed_at": "2026-07-23T15:26:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f16cd6fa",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2924",
       "title": "the Anthropic chain entry hardcoded sonnet-4-6 so DD ignored the chosen LLM_MODEL",
       "claimed_at": "2026-07-23T15:58:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fadd57ec",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2925",
@@ -23149,90 +23360,100 @@
       "title": "registry coverage: sweep must run IN the server process (side-car writes are refused by the store owner)",
       "claimed_at": "2026-07-23T16:45:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f454a5fc",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2928",
       "title": "operator-gated single-key state diagnostic to close the DD persistence root cause",
       "claimed_at": "2026-07-23T17:05:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d082b5c9",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2929",
       "title": "registry coverage: surface WHY a jurisdiction is unproven and flag live adapters with data-quality defects",
       "claimed_at": "2026-07-23T17:06:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7f990335",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2930",
       "title": "golden intel: provenance must be earned by item-specific content, not by which module wrote it",
       "claimed_at": "2026-07-23T17:19:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5d82dd6f",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2931",
       "title": "DD reports persist but the read path returns none - fix so reports show on the page",
       "claimed_at": "2026-07-23T17:20:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c0be6007",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2932",
       "title": "housekeeping: remove stale worktrees and the tracked $null artefact (AV quarantine surface + repo hygiene)",
       "claimed_at": "2026-07-23T17:38:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "102adc1c",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2933",
       "title": "a DD layer passes the claude model id to the DeepSeek provider - HTTP 400, DeepSeek cooldown, verification degraded",
       "claimed_at": "2026-07-23T17:49:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c8dc74c5",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2934",
       "title": "vault page: derive summary tiles from backend data (stop the hardcoded-vocabulary drift class) + reconcile + honest explored count + surface exploration reasons",
       "claimed_at": "2026-07-23T17:51:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1eaf52a9",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2935",
       "title": "OpenAICompatProvider sends a claude model to DeepSeek when its CONFIGURED default is a claude id",
       "claimed_at": "2026-07-23T18:11:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5306ca1b",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2936",
       "title": "intel_grade is THE customer decision authority: remove the dead customer_value gate helpers + guard test so a competing score can never return",
       "claimed_at": "2026-07-23T18:30:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c778597e",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2937",
@@ -23248,9 +23469,10 @@
       "title": "adverse-media screening did not complete - blocks Grade-A question 3 on every DD",
       "claimed_at": "2026-07-23T18:37:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "08c7e527",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2939",
@@ -23277,9 +23499,10 @@
       "title": "adverse-media follow-up is fire-and-forget - dies on restart, never merges, silently costs the Grade-A adverse question",
       "claimed_at": "2026-07-23T19:14:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fbbbce17",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2942",
@@ -23313,9 +23536,10 @@
       "title": "Brave primary + SearXNG non-blocking on DD search so a slow SearXNG cannot time out the digital/adverse layers",
       "claimed_at": "2026-07-23T20:14:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "24cd3ab5",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2946",
@@ -23523,9 +23747,10 @@
       "title": "infra: queue aria-intel shared-cpu-4x/8GB -> shared-cpu-8x/16GB (RAM headroom + 2x CPU for aiosqlite contention; applies next restart)",
       "claimed_at": "2026-07-24T08:18:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dee474d0",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2967",
@@ -23681,36 +23906,40 @@
       "title": "DD PDF: clean corporate letterhead (no dark header), Aria Intelligence branding, fix verdict-pill overflow, aligned",
       "claimed_at": "2026-07-24T12:22:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0c4d6227",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2983",
       "title": "ecosystem UI compaction: single-line health chips, tight grid, condensed coverage, 300px cap — halve the vertical footprint per operator",
       "claimed_at": "2026-07-24T12:25:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c1c022c6",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2984",
       "title": "WA: enforce one connection per account (proxy + listener) — model-card §12",
       "claimed_at": "2026-07-24T12:29:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "561495dc",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2985",
       "title": "ecosystem UI: slick LIGHT-THEME redesign — the dark boxes clashed with the light dashboard; native white icon-cards + soft health tints + health-summary bar (infographic aesthetic), full picture, compact",
       "claimed_at": "2026-07-24T12:31:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d116b0a7",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F2986",
@@ -24425,9 +24654,10 @@
       "title": "digital layer: clamp per-op bounds to the layer budget so the layer completes",
       "claimed_at": "2026-07-25T12:22:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ceced1fc",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T11:13:34Z"
     },
     {
       "r_number": "R-F3058",
@@ -24683,9 +24913,10 @@
       "title": "append-only DD evidence persistence",
       "claimed_at": "2026-07-25T17:22:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d00351d0",
+      "notes": null,
+      "shipped_at": "2026-07-26T11:03:33Z"
     },
     {
       "r_number": "R-F3084",
@@ -24742,41 +24973,82 @@
       "title": "DD adverse media subject-name gate",
       "claimed_at": "2026-07-26T10:19:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "50db2e66",
+      "notes": null,
+      "shipped_at": "2026-07-26T11:03:33Z"
     },
     {
       "r_number": "R-F3090",
       "title": "DD false-clean finding titles",
       "claimed_at": "2026-07-26T10:19:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "50db2e66",
+      "notes": null,
+      "shipped_at": "2026-07-26T11:03:33Z"
     },
     {
       "r_number": "R-F3091",
       "title": "DD entity scope group-first",
       "claimed_at": "2026-07-26T10:19:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "281f68d4",
+      "notes": null,
+      "shipped_at": "2026-07-26T11:03:34Z"
     },
     {
       "r_number": "R-F3092",
       "title": "DD report one-verdict evidence spine",
       "claimed_at": "2026-07-26T10:19:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "281f68d4",
+      "notes": null,
+      "shipped_at": "2026-07-26T11:03:34Z"
     },
     {
       "r_number": "R-F3093",
       "title": "DD deep research budget and Claude synthesis",
       "claimed_at": "2026-07-26T10:19:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "50db2e66",
+      "notes": null,
+      "shipped_at": "2026-07-26T11:03:33Z"
+    },
+    {
+      "r_number": "R-F3094",
+      "title": "vault clear and researched unique source admission",
+      "claimed_at": "2026-07-26T11:01:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3095",
+      "title": "R-number registry reconciler against git history",
+      "claimed_at": "2026-07-26T11:03:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3096",
+      "title": "register evidence_contract_violation gap type",
+      "claimed_at": "2026-07-26T11:03:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3097",
+      "title": "search_backend honest cold-window report",
+      "claimed_at": "2026-07-26T11:03:50Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

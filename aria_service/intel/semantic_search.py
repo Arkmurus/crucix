@@ -760,15 +760,50 @@ def get_index_stats() -> dict:
 
     This observational path must not cold-load the sentence transformer merely
     because a health or dashboard endpoint requested stats.
+
+    R-F3097 — but it must not UNDER-report either. R-F3077 correctly moved this off
+    `_index.has_embeddings` (which called `_get_embedder()` at :682 — the very
+    cold-load this endpoint exists to avoid). The side effect was that a cold process
+    reported a flat `"tfidf"`, while a real search would call `_get_embedder()`
+    (:445/:490/:540) and lazily load the transformer. So the dashboard said the box
+    was on TF-IDF for a system that was one query away from semantic search.
+
+    "Not yet loaded" is not "loaded and unavailable" — the same distinction the phase
+    gates learned the hard way: COULD NOT MEASURE is not MEASURED AND FAILED.
+    `_embedder_checked` is the discriminator and reading it costs nothing.
+
+    THE HONESTY IS ADDITIVE. `search_backend` keeps its two settled values — three
+    guards (R-F3077, R-F2942, R-F2943) assert that vocabulary, and their real subject
+    is "this read must not cold-load", which must not be weakened to widen a string.
+    The qualification rides alongside instead:
+
+        search_backend_state       sentence-transformers | indexing | tfidf | tfidf-cold
+        search_backend_is_final    False while the answer can still change on its own
+        search_backend_provisional True when "tfidf" only means "not loaded yet"
+
+    A surface that shows `search_backend` alone is no worse off than before; one that
+    reads the qualifiers can say "TF-IDF (embedder not yet loaded)" instead of
+    asserting a downgrade that never happened.
     """
     model = _embedder
     embeddings_available = model is not None and _index.embedding_count > 0
+    if embeddings_available:
+        state = "sentence-transformers"
+    elif model is not None:
+        state = "indexing"          # model up, index not yet embedded
+    elif _embedder_checked:
+        state = "tfidf"             # load ATTEMPTED and FAILED — genuinely TF-IDF
+    else:
+        state = "tfidf-cold"        # no attempt yet; a real search would load it
     stats = {
         "indexed_documents": _index.size,
         "vocabulary_size": len(_index._idf),
         "embedding_count": _index.embedding_count,
         "embedding_model": "all-MiniLM-L6-v2" if model is not None else None,
         "search_backend": "sentence-transformers" if embeddings_available else "tfidf",
+        "search_backend_state": state,
+        "search_backend_is_final": state in ("sentence-transformers", "tfidf"),
+        "search_backend_provisional": state == "tfidf-cold",
     }
     wire_success(
         module="semantic_search",

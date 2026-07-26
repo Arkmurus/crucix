@@ -298,6 +298,23 @@ VALID_GAP_TYPES = frozenset({
     "autonomous_gold_lane_unavailable",  # self_improve.py:392
     "source_seed_failure",               # defence_source_seed.py:677
     "stale_base_deploy",                 # self_improve.py:1029
+    # ── R-F3096 (2026-07-26) — the evidence contract's own rejection signal ───
+    # Emitted by dd_evidence_standard.py:358 when a record fails the strict
+    # evidence contract (timeout/unavailable payload, unknown field, NaN/inf,
+    # bad scope version, malformed hash or snapshot URI). Landed with R-F3083 and
+    # was NEVER registered — so every rejected record logged "Unknown gap type
+    # 'evidence_contract_violation' — recording anyway" at :259.
+    #
+    # WORTH NOTING FOR NEXT TIME: test_rf2644_gap_type_registry_drift CAUGHT this,
+    # named the exact file:line, and was RED at HEAD — the guard did its job and
+    # the work shipped past it anyway. Per CLAUDE.md §16 a new R-number must not
+    # add to the failing-test count; per §23 "RUN it, don't claim it". The guard is
+    # only as good as the decision to run it.
+    #
+    # Registration is inert (membership only gates the :259 warning; nothing
+    # branches on it) but it is what makes a contract REJECTION a first-class
+    # signal the gap_detector/self_coder loop can route (§21e) rather than noise.
+    "evidence_contract_violation",       # dd_evidence_standard.py:358
 })
 
 

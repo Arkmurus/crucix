@@ -43,6 +43,13 @@ def main() -> int:
     s_list = sub.add_parser("list", help="list reservations")
     s_list.add_argument("--status", default=None, choices=["in_progress", "shipped", "abandoned"])
 
+    # R-F3095 — §2 says "mark shipped at push"; nothing enforced it, and 372
+    # in_progress entries with no SHA accumulated. Git cannot forget, so reconcile
+    # against it. Dry-run by default.
+    s_rec = sub.add_parser("reconcile", help="ship-mark R-numbers already present in git history")
+    s_rec.add_argument("--ref", default="HEAD", help="only count commits reachable from this ref")
+    s_rec.add_argument("--apply", action="store_true", help="write the changes (default: dry run)")
+
     args = p.parse_args()
 
     if args.cmd == "reserve":
@@ -59,6 +66,18 @@ def main() -> int:
     elif args.cmd == "list":
         rs = reg.list_reservations(status_filter=args.status)
         print(json.dumps(rs, indent=2))
+    elif args.cmd == "reconcile":
+        res = reg.reconcile_with_git(args.ref, apply=args.apply)
+        for e in res["entries"]:
+            print(f"  {e['r_number']} -> {e['commit_sha']}  {e['title'][:60]}")
+        verb = "ship-marked" if args.apply else "would ship-mark (dry run; pass --apply)"
+        print(f"{res['drifted']} of {res['checked']} reservation(s) {verb}"
+              + (f"; {res['applied']} written" if args.apply else ""))
+        if res["review"]:
+            print(f"\n{len(res['review'])} mentioned ONLY in a commit body — NOT applied.")
+            print("A body mention is a reference, not a ship record. Judge each by hand:")
+            for e in res["review"]:
+                print(f"  {e['r_number']} ~ {e['commit_sha']}  {e['title'][:56]}")
     return 0
 
 
