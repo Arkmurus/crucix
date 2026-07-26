@@ -130,31 +130,7 @@
       <button class="vt-btn secondary" id="refresh-btn"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
     </div>
 
-    <form class="vt-form" id="new-case-form" style="display:none">
-      <div class="vt-field">
-        <label for="f-case-id">Case reference</label>
-        <input id="f-case-id" required placeholder="VET-2026-001">
-      </div>
-      <div class="vt-field">
-        <label for="f-name">Applicant name</label>
-        <input id="f-name" required placeholder="Full name">
-      </div>
-      <div class="vt-field">
-        <label for="f-dob">Date of birth</label>
-        <input id="f-dob" type="date" required>
-      </div>
-      <div class="vt-field">
-        <label for="f-start">Employment start</label>
-        <input id="f-start" type="date" required>
-      </div>
-      <div class="vt-field">
-        <label for="f-pack">Rule pack</label>
-        <select id="f-pack"></select>
-      </div>
-      <div class="vt-field" style="display:flex;align-items:flex-end">
-        <button class="vt-btn" type="submit" id="create-btn">Create case</button>
-      </div>
-    </form>
+    <!-- R-F3170: case creation is a Modal.form dialog, not an inline form -->
 
     <div class="vt-section-title">Cases</div>
     <div id="cases"><div class="vt-empty">Loading…</div></div>
@@ -361,16 +337,19 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
     return html;
   }
 
+  // R-F3170 — packs are loaded once and reused by the create dialog. A create
+  // attempt with no pack loaded used to send pack_id="" and fail server-side
+  // with "no PRODUCTION version of ''"; now the dialog refuses to open and says
+  // why, which is the difference between a dead button and an explained one.
+  let PACKS = [];
+
   async function loadPacks() {
     try {
       const r = await authed('/api/aria/vetting/packs');
       if (!r.ok) return;
       const data = await r.json();
-      $('f-pack').innerHTML = (data.packs || [])
-        .filter((p) => p.status === 'PRODUCTION')
-        .map((p) => `<option value="${esc(p.pack_id)}">${esc(p.pack_id)} v${esc(p.version)}${p.decision_eligible ? '' : ' (framework only)'}</option>`)
-        .join('');
-    } catch (e) { /* the pack list is decoration; never block the page */ }
+      PACKS = (data.packs || []).filter((p) => p.status === 'PRODUCTION');
+    } catch (e) { /* the dialog reports this; never block page load */ }
   }
 
   async function loadCases() {
@@ -463,50 +442,118 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
   // server requires so the user is never bounced by a rule they couldn't see.
   // Nothing here pre-fills a decision from the engine verdict — the whole
   // point is that a human supplies it.
+  // ── R-F3170: decision support, not a popup chain ─────────────────────────
+  //
+  // The old flow asked four window.prompt() questions in sequence. Beyond being
+  // ugly, it was ACTIVELY UNSAFE for this task: the officer answered from
+  // memory, with no sight of the file they were deciding on, and a typo in
+  // question two could not be corrected without abandoning the whole sequence.
+  //
+  // Now the dialog fetches the CURRENT assessment first and puts it in front of
+  // the officer as read-only context, and the adverse-decision requirements
+  // (reason, second reviewer) are enforced INLINE — the same rules the server
+  // enforces, surfaced before the round-trip so nobody is bounced by a rule
+  // they could not see.
   async function decide(caseId) {
-    const note = document.querySelector(`[data-status-for="${CSS.escape(caseId)}"]`);
-    const say = (html) => { if (note) note.innerHTML = html; };
+    let engine = null;
+    try {
+      const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/assess`,
+                             { method: 'POST' });
+      if (r.ok) engine = await r.json();
+    } catch (e) { /* handled below — we simply decide without the context */ }
 
-    const decision = (prompt(
-      'Decision for ' + caseId + '\n\n'
-      + 'APPROVED / APPROVED_WITH_CONDITIONS / REJECTED / DEFERRED / WITHDRAWN'
-    ) || '').trim().toUpperCase();
-    if (!decision) return;
-    const decidedBy = (prompt('Your full name (the decision is recorded against it):') || '').trim();
-    if (!decidedBy) return;
+    const counts = (engine && engine.counts) || {};
+    const blockers = Number(counts.blockers || 0);
+    const statusText = engine
+      ? `${esc(engine.status)} — ${blockers} blocker(s), ${Number(counts.signoffs || 0)} sign-off(s), ${Number(counts.actions || 0)} action(s)`
+      : 'Could not read the current assessment. Decide only if you have the file in front of you.';
 
-    const adverse = decision === 'REJECTED';
-    const reason = adverse
-      ? (prompt('Reason for the adverse decision (the applicant is entitled to be told):') || '').trim()
-      : (prompt('Note (optional):') || '').trim();
-    const assessedBy = adverse
-      ? (prompt('Who ran the screening? (an adverse decision needs a second pair of eyes):') || '').trim()
-      : '';
+    const values = await Modal.form({
+      title: 'Record employment decision',
+      message: `Case ${caseId}. The decision is recorded against your name — ARIA never decides.`,
+      icon: 'bi-person-check-fill',
+      okLabel: 'Record decision',
+      fields: [
+        { name: 'engine', label: 'Current assessment', type: 'static',
+          html: `<strong>${statusText}</strong>${blockers > 0
+            ? '<br><span style="color:var(--sc-red)">Approving over open blockers requires a recorded override reason.</span>' : ''}` },
+        { name: 'decision', label: 'Decision', type: 'select', required: true, autofocus: true,
+          options: [
+            { value: '', label: 'Select…' },
+            { value: 'APPROVED', label: 'Approved' },
+            { value: 'APPROVED_WITH_CONDITIONS', label: 'Approved with conditions' },
+            { value: 'REJECTED', label: 'Rejected' },
+            { value: 'DEFERRED', label: 'Deferred — more evidence sought' },
+            { value: 'WITHDRAWN', label: 'Withdrawn by applicant' },
+          ] },
+        { name: 'decided_by', label: 'Your full name', type: 'text', required: true,
+          help: 'An employment decision must be attributable to a named person (UK GDPR Art. 22).' },
+        { name: 'reason', label: 'Reason', type: 'textarea', rows: 3,
+          help: 'Required for a rejection — the applicant is entitled to be told why.' },
+        { name: 'assessed_by', label: 'Who ran the screening', type: 'text',
+          help: 'Required for a rejection: the screener may not also be the sole decision-maker.' },
+        { name: 'blocker_override_reason', label: 'Override reason', type: 'textarea', rows: 2,
+          help: 'Only needed when approving a file that still has open blockers.' },
+        { name: 'conditions', label: 'Conditions', type: 'text',
+          help: 'Comma-separated. Required when approving with conditions.' },
+      ],
+      // The same rules the server applies, checked before the round-trip.
+      validate: (v) => {
+        const errs = {};
+        const adverse = v.decision === 'REJECTED';
+        const approving = v.decision === 'APPROVED' || v.decision === 'APPROVED_WITH_CONDITIONS';
+        if (adverse && !v.reason) errs.reason = 'A rejection requires a stated reason.';
+        if (adverse && !v.assessed_by) errs.assessed_by = 'A rejection requires a second reviewer.';
+        if (adverse && v.assessed_by && v.decided_by
+            && v.assessed_by.toLowerCase() === v.decided_by.toLowerCase()) {
+          errs.assessed_by = 'The screener cannot be the sole decision-maker on a rejection.';
+        }
+        if (approving && blockers > 0 && !v.blocker_override_reason) {
+          errs.blocker_override_reason = `This file has ${blockers} open blocker(s); record why you are approving over them.`;
+        }
+        if (v.decision === 'APPROVED_WITH_CONDITIONS' && !v.conditions) {
+          errs.conditions = 'List at least one condition.';
+        }
+        return errs;
+      },
+    });
+    if (!values) return;
 
-    say('<span class="vt-card-meta">Recording decision…</span>');
     try {
       const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/decision`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          decision, decided_by: decidedBy, reason, assessed_by: assessedBy,
+          decision: values.decision,
+          decided_by: values.decided_by,
+          reason: values.reason,
+          assessed_by: values.assessed_by,
+          blocker_override_reason: values.blocker_override_reason,
+          conditions: values.conditions
+            ? values.conditions.split(',').map((c) => c.trim()).filter(Boolean) : [],
         }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        say(`<span class="vt-error" style="display:block;margin-top:8px">Decision NOT recorded: ${esc(body?.detail?.message || body?.detail || r.status)}</span>`);
+        Toast.show(`Decision not recorded: ${escHtml(body?.detail?.message || body?.detail || r.status)}`, 'danger', 8000);
         return;
       }
-      say(
-        `<div style="margin-top:8px;font-size:12.5px">`
-        + `<strong>${esc(body.decision)}</strong> recorded by ${esc(body.decided_by)}`
-        + (body.departed_from_engine
-          ? ` · <span class="vt-pill signoff">departed from recommendation</span>`
-          : ` · <span class="vt-pill info">matched recommendation</span>`)
-        + `<div class="vt-ref" style="margin-top:4px">engine at decision time: ${esc(body.engine_status)} · ${body.engine_blockers} blocker(s)</div>`
-        + `</div>`);
+      Toast.show(`${body.decision} recorded by ${escHtml(body.decided_by)}`, 'success');
+      Modal.info({
+        title: 'Decision recorded',
+        message: `Case ${caseId}`,
+        tone: 'success', icon: 'bi-check-circle-fill',
+        bodyHtml:
+          `<div class="sc-form-static"><strong>${escHtml(body.decision)}</strong> by ${escHtml(body.decided_by)}<br>`
+          + `Engine at decision time: ${escHtml(body.engine_status)} · ${body.engine_blockers} blocker(s)<br>`
+          + (body.departed_from_engine
+              ? '<span style="color:#c2410c">Departed from the recommendation — recorded.</span>'
+              : 'Matched the recommendation.')
+          + '</div>',
+      });
+      await loadCases();
     } catch (e) {
-      say('<span class="vt-error" style="display:block;margin-top:8px">Decision NOT recorded — the service was unreachable.</span>');
+      Toast.show('Decision not recorded — the service was unreachable.', 'danger', 8000);
     }
   }
 
@@ -562,38 +609,110 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
     const sarBtn = ev.target.closest('[data-sar]');
     if (sarBtn) { subjectAccess(sarBtn.getAttribute('data-sar')); }
   });
-  $('new-case-btn').addEventListener('click', () => {
-    const f = $('new-case-form');
-    f.style.display = f.style.display === 'none' ? '' : 'none';
-  });
-  $('refresh-btn').addEventListener('click', loadCases);
+  // ── R-F3170: guided case creation ────────────────────────────────────────
+  //
+  // The reported symptom was "does not allow you to create case". Root cause:
+  // the pack <select> was populated by loadPacks(), which itself failed on the
+  // R-F3167 400 — so the form submitted pack_id="" and the server correctly
+  // refused a case with no PRODUCTION pack. The button looked dead because the
+  // failure was reported through a window.alert the user had to dismiss.
+  //
+  // Now: packs are checked BEFORE the dialog opens, dates are validated inline
+  // against each other, and a successful create immediately runs the first
+  // assessment so the officer sees what is outstanding without a second click.
+  async function createCase() {
+    if (!PACKS.length) {
+      await loadPacks();
+    }
+    if (!PACKS.length) {
+      Modal.info({
+        title: 'No rule pack available',
+        message: 'A case must be pinned to a PRODUCTION screening pack, and none could be loaded.',
+        tone: 'danger', icon: 'bi-exclamation-triangle-fill',
+        bodyHtml: '<div class="sc-form-static">This usually means the vetting service is '
+          + 'unreachable. Nothing has been created. Try Refresh, and if it persists the '
+          + 'screening service needs attention.</div>',
+      });
+      return;
+    }
 
-  $('new-case-form').addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    $('create-btn').disabled = true;
+    const today = new Date().toISOString().slice(0, 10);
+    const values = await Modal.form({
+      title: 'New vetting case',
+      message: 'ARIA computes every gap, clock and threshold from the pinned rule pack.',
+      icon: 'bi-folder-plus',
+      okLabel: 'Create and assess',
+      fields: [
+        { name: 'case_id', label: 'Case reference', type: 'text', required: true,
+          autofocus: true, placeholder: 'VET-2026-001',
+          help: 'Your own reference. Must be unique within your organisation.' },
+        { name: 'applicant_name', label: 'Applicant full name', type: 'text', required: true,
+          placeholder: 'As it appears on their identity document' },
+        { name: 'date_of_birth', label: 'Date of birth', type: 'date', required: true,
+          help: 'Used to floor the screening period at the 16th birthday.' },
+        { name: 'employment_start', label: 'Employment start date', type: 'date', required: true,
+          value: today,
+          help: 'The screening period is counted back from this date.' },
+        { name: 'pack_id', label: 'Rule pack', type: 'select', required: true,
+          value: PACKS[0] && PACKS[0].pack_id,
+          options: PACKS.map((p) => ({
+            value: p.pack_id,
+            label: `${p.pack_id} v${p.version}${p.decision_eligible ? '' : ' — framework only'}`,
+          })),
+          help: 'A framework-only pack organises evidence but never issues decision-readiness.' },
+      ],
+      // Catch the mistakes a screening officer actually makes, before the
+      // round-trip, with the message on the offending field.
+      validate: (v) => {
+        const errs = {};
+        const dob = new Date(v.date_of_birth);
+        const start = new Date(v.employment_start);
+        if (v.date_of_birth && isNaN(dob.getTime())) errs.date_of_birth = 'Not a valid date.';
+        if (v.employment_start && isNaN(start.getTime())) errs.employment_start = 'Not a valid date.';
+        if (!errs.date_of_birth && !errs.employment_start) {
+          if (dob >= start) {
+            errs.date_of_birth = 'Date of birth must precede the employment start date.';
+          } else {
+            const years = (start - dob) / (365.25 * 24 * 3600 * 1000);
+            if (years < 16) errs.date_of_birth = `Applicant would be ${Math.floor(years)} at the start date; screening assumes at least 16.`;
+            if (years > 100) errs.date_of_birth = 'Date of birth looks implausible — please re-check.';
+          }
+        }
+        return errs;
+      },
+    });
+    if (!values) return;
+
     try {
       const r = await authed('/api/aria/vetting/cases', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          case_id: $('f-case-id').value.trim(),
-          applicant_name: $('f-name').value.trim(),
-          date_of_birth: $('f-dob').value,
-          employment_start: $('f-start').value,
-          pack_id: $('f-pack').value,
-        }),
+        body: JSON.stringify(values),
       });
+      const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const body = await r.json().catch(() => ({}));
-        alert(`Could not create the case: ${body?.detail?.message || body?.detail || r.status}`);
+        const msg = body?.detail?.message || body?.detail?.errors?.join('; ')
+                    || body?.detail || `HTTP ${r.status}`;
+        Toast.show(`Case not created: ${escHtml(msg)}`, 'danger', 9000);
         return;
       }
-      $('new-case-form').reset();
-      $('new-case-form').style.display = 'none';
+      Toast.show(`Case ${escHtml(values.case_id)} created`, 'success');
       await loadCases();
-    } finally {
-      $('create-btn').disabled = false;
+      // Run the first assessment straight away: the officer's next question is
+      // always "what is outstanding?", so answering it unprompted removes a
+      // step and starts the file with a real status instead of "not assessed".
+      await assess(values.case_id);
+      await loadCases();
+    } catch (e) {
+      Toast.show('Case not created — the vetting service was unreachable.', 'danger', 9000);
     }
+  }
+
+  $('new-case-btn').addEventListener('click', createCase);
+  $('refresh-btn').addEventListener('click', async () => {
+    await loadCases();
+    await loadRetention();
+    Toast.show('Refreshed', 'info', 2000);
   });
 
   await loadPacks();

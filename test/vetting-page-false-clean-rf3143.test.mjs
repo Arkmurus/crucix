@@ -129,7 +129,7 @@ async function runLoader({ fetchImpl }) {
   // a different script.
   const fn = new Function(
     'document', 'fetch', 'console', 'window', 'authed', 'API', 'alert',
-    'Sidebar', 'CSS', 'localStorage',
+    'Sidebar', 'CSS', 'localStorage', 'Modal', 'Toast', 'escHtml',
     `return (async () => { ${src} })();`);
   await fn(
     dom.document, fetchImpl,
@@ -140,6 +140,12 @@ async function runLoader({ fetchImpl }) {
     { init() {} },
     { escape: (v) => String(v) },
     { getItem: () => null, setItem() {} },
+    // R-F3170 — the loader now uses the SHARED Modal/Toast (app.js) instead of
+    // window.prompt/alert, so the harness supplies them. Stubs, not skips: this
+    // harness exists to run the real shipped script.
+    { form: async () => null, confirm: async () => false, info() {} },
+    { show() {} },
+    (v) => String(v == null ? '' : v),
   );
   await new Promise((r) => setTimeout(r, 5));
   return dom.nodes;
@@ -228,4 +234,49 @@ test('R-F3168 applicant photographs are deliberately not rendered', () => {
   assert.ok(!/avatarUrl|photo_url|applicant_photo|<img/i.test(HTML),
     'the card view must not render applicant photographs');
   assert.match(HTML, /vt-avatar/, 'initials avatars provide the affordance instead');
+});
+
+// ── R-F3170: no primitive browser dialogs ────────────────────────────────
+
+test('R-F3170 the page uses no window.prompt / alert / confirm', () => {
+  // R-F2293 established Modal/Toast precisely to replace these. Shipping a
+  // window.prompt chain for a four-field decision was worse than ugly: the
+  // officer answered from memory with no sight of the file, and a typo in
+  // question two could not be fixed without abandoning the sequence.
+  // Strip line comments so the prose ABOUT the old popups is not mistaken for
+  // the popups themselves.
+  const code = HTML.split('\n')
+    .map((line) => line.replace(/\/\/.*$/, ''))
+    .join('\n');
+  for (const bad of ['window.prompt', 'window.alert', 'window.confirm']) {
+    assert.ok(!code.includes(bad), `${bad} must not be used`);
+  }
+  assert.ok(!/(^|[^.\w])prompt\s*\(/.test(code), 'bare prompt() must not be used');
+  assert.ok(!/(^|[^.\w])alert\s*\(/.test(code), 'bare alert() must not be used');
+});
+
+test('R-F3170 it uses the SHARED modal + toast system', () => {
+  assert.match(HTML, /Modal\.form\(/, 'forms must use the shared Modal.form');
+  assert.match(HTML, /Toast\.show\(/, 'feedback must use the shared Toast');
+});
+
+test('R-F3170 the decision dialog shows the engine state as context', () => {
+  // The officer must decide WITH the file in front of them, not from memory.
+  assert.match(HTML, /Current assessment/,
+    'the decision dialog must show the current assessment');
+  assert.match(HTML, /type: 'static'/,
+    'read-only context is rendered as a static field');
+});
+
+test('R-F3170 adverse-decision rules are enforced client-side too', () => {
+  // The same rules the server enforces, surfaced BEFORE the round-trip, so a
+  // user is never bounced by a rule they could not see.
+  assert.match(HTML, /A rejection requires a stated reason/);
+  assert.match(HTML, /A rejection requires a second reviewer/);
+  assert.match(HTML, /cannot be the sole decision-maker/);
+});
+
+test('R-F3170 case creation validates dates against each other', () => {
+  assert.match(HTML, /must precede the employment start date/);
+  assert.match(HTML, /at least 16/);
 });

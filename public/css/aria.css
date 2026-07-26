@@ -378,6 +378,19 @@ body.nav-expanded .nav-dropdown-menu { left: calc(var(--rail-expanded-w) + 8px);
   background: #fff;
 }
 .sc-field input::placeholder { color: #9b968c; }
+
+/* R-F3169 — Modal.form() field furniture. Inline help + inline errors, so a
+   validation failure never becomes a popup and the user keeps their input. */
+.sc-form-help { font-size: 12px; color: var(--sc-muted); margin-top: 5px; line-height: 1.5; }
+.sc-form-err  { font-size: 12px; color: var(--sc-red); margin-top: 5px; min-height: 0; font-weight: 600; }
+.sc-form-err:empty { display: none; }
+.sc-field.has-error input,
+.sc-field.has-error select,
+.sc-field.has-error textarea { border-color: var(--sc-red); }
+.sc-form-static {
+  font-size: 13px; color: var(--sc-text); background: #f5f4ef;
+  border: 1px solid var(--sc-border); border-radius: 8px; padding: 10px 12px; line-height: 1.6;
+}
 .sc-field select option { background: #fff; color: var(--sc-heading); }
 .sc-field-error { font-size: 12px; color: var(--sc-red); margin-top: 4px; }
 

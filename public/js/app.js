@@ -323,6 +323,130 @@ const Modal = {
       document.addEventListener('keydown', this._onKey);
     });
   },
+  // R-F3169 — in-app FORM dialog. Modal.confirm/info (R-F2293) removed
+  // window.confirm/alert; this removes the remaining window.prompt, which is
+  // the worst of the three: it takes one unlabelled string, cannot validate,
+  // cannot show help text, and chains into a queue of popups for a
+  // multi-field task. The vetting decision flow was doing exactly that.
+  //
+  // fields: [{ name, label, type, required, value, options, help, placeholder,
+  //            rows, autofocus }]
+  //   type: text | date | number | select | textarea | static
+  //   'static' renders read-only context (e.g. the engine's current verdict)
+  //   so the user decides WITH the facts in front of them, not from memory.
+  //
+  // validate(values) -> { field: 'message' } | null   (async allowed)
+  //   Errors render INLINE against the field. Nothing is ever thrown at the
+  //   user as a popup, and the dialog stays open with their input intact.
+  //
+  // Resolves with the values object, or null if dismissed.
+  form({ title = '', message = '', fields = [], okLabel = 'Save',
+         cancelLabel = 'Cancel', icon = 'bi-pencil-square', validate = null } = {}) {
+    return new Promise(resolve => {
+      const fieldHtml = (f) => {
+        const id = 'scf-' + f.name;
+        const req = f.required ? ' <span style="color:var(--sc-red)">*</span>' : '';
+        if (f.type === 'static') {
+          return '<div class="sc-field"><label>' + escHtml(f.label) + '</label>'
+            + '<div class="sc-form-static">' + (f.html || escHtml(f.value || '')) + '</div></div>';
+        }
+        let input;
+        if (f.type === 'select') {
+          input = '<select id="' + id + '" name="' + escHtml(f.name) + '"'
+            + (f.autofocus ? ' data-autofocus' : '') + '>'
+            + (f.options || []).map(o =>
+                '<option value="' + escHtml(o.value) + '"'
+                + (String(o.value) === String(f.value || '') ? ' selected' : '') + '>'
+                + escHtml(o.label) + '</option>').join('')
+            + '</select>';
+        } else if (f.type === 'textarea') {
+          input = '<textarea id="' + id + '" name="' + escHtml(f.name) + '" rows="'
+            + (f.rows || 3) + '" placeholder="' + escHtml(f.placeholder || '') + '"'
+            + (f.autofocus ? ' data-autofocus' : '') + '>' + escHtml(f.value || '') + '</textarea>';
+        } else {
+          input = '<input id="' + id + '" name="' + escHtml(f.name) + '" type="'
+            + escHtml(f.type || 'text') + '" value="' + escHtml(f.value || '')
+            + '" placeholder="' + escHtml(f.placeholder || '') + '"'
+            + (f.autofocus ? ' data-autofocus' : '') + '>';
+        }
+        return '<div class="sc-field" data-field="' + escHtml(f.name) + '">'
+          + '<label for="' + id + '">' + escHtml(f.label) + req + '</label>'
+          + input
+          + (f.help ? '<div class="sc-form-help">' + escHtml(f.help) + '</div>' : '')
+          + '<div class="sc-form-err" data-err-for="' + escHtml(f.name) + '"></div>'
+          + '</div>';
+      };
+
+      const ov = this._open(
+        '<div class="sc-mod" style="max-width:560px">'
+        + '<div class="sc-mod-head">'
+        + '<div class="sc-mod-ico" style="background:rgba(124,58,237,0.12);color:var(--sc-prime)"><i class="bi ' + icon + '"></i></div>'
+        + '<div><h3 id="sc-fm-title">' + escHtml(title) + '</h3>'
+        + (message ? '<p>' + escHtml(message) + '</p>' : '') + '</div>'
+        + '<button class="sc-mod-x" data-fm="cancel" type="button" aria-label="Close">&times;</button>'
+        + '</div>'
+        + '<div class="sc-mod-body"><form id="sc-mod-form" novalidate>'
+        + fields.map(fieldHtml).join('') + '</form></div>'
+        + '<div class="sc-mod-foot">'
+        + '<button class="sc-btn sc-btn-outline" data-fm="cancel" type="button">' + escHtml(cancelLabel) + '</button>'
+        + '<button class="sc-btn sc-btn-primary" data-fm="ok" type="button">' + escHtml(okLabel) + '</button>'
+        + '</div></div>', 'sc-fm-title');
+
+      const done = (val) => { this._dismiss(); resolve(val); };
+      const readValues = () => {
+        const out = {};
+        for (const f of fields) {
+          if (f.type === 'static') continue;
+          const el = ov.querySelector('#scf-' + CSS.escape(f.name));
+          out[f.name] = el ? String(el.value || '').trim() : '';
+        }
+        return out;
+      };
+      const showErrors = (errs) => {
+        ov.querySelectorAll('.sc-form-err').forEach(e => { e.textContent = ''; });
+        ov.querySelectorAll('.sc-field').forEach(e => e.classList.remove('has-error'));
+        let firstBad = null;
+        for (const [name, msg] of Object.entries(errs || {})) {
+          const slot = ov.querySelector('[data-err-for="' + CSS.escape(name) + '"]');
+          if (slot) slot.textContent = msg;
+          const wrap = ov.querySelector('[data-field="' + CSS.escape(name) + '"]');
+          if (wrap) wrap.classList.add('has-error');
+          if (!firstBad) firstBad = ov.querySelector('#scf-' + CSS.escape(name));
+        }
+        if (firstBad) firstBad.focus();
+      };
+
+      const submit = async () => {
+        const values = readValues();
+        const errs = {};
+        for (const f of fields) {
+          if (f.type !== 'static' && f.required && !values[f.name]) {
+            errs[f.name] = 'Required';
+          }
+        }
+        if (Object.keys(errs).length) return showErrors(errs);
+        if (validate) {
+          const custom = await validate(values);
+          if (custom && Object.keys(custom).length) return showErrors(custom);
+        }
+        done(values);
+      };
+
+      ov.querySelectorAll('[data-fm="cancel"]').forEach(el => el.onclick = () => done(null));
+      ov.querySelector('[data-fm="ok"]').onclick = submit;
+      const formEl = ov.querySelector('#sc-mod-form');
+      if (formEl) formEl.onsubmit = (e) => { e.preventDefault(); submit(); };
+      ov.onclick = (e) => { if (e.target === ov) done(null); };
+      this._onKey = (e) => {
+        if (e.key === 'Escape') done(null);
+        else if (e.key === 'Tab') this._trap(e);
+        else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+          e.preventDefault(); submit();
+        }
+      };
+      document.addEventListener('keydown', this._onKey);
+    });
+  },
   info({ title = '', message = '', bodyHtml = '', icon = 'bi-info-circle-fill', tone = 'info' } = {}) {
     const tones = {
       info: ['rgba(37,99,235,0.12)', '#1d4ed8'], success: ['rgba(22,163,74,0.12)', '#15803d'],

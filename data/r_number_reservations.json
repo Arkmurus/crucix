@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3169,
+  "next_available": 3171,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25775,6 +25775,24 @@
       "r_number": "R-F3168",
       "title": "vetting page: missing Sidebar.init and card-based case UX",
       "claimed_at": "2026-07-26T20:22:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3169",
+      "title": "shared Modal.form for in-app forms with inline validation",
+      "claimed_at": "2026-07-26T20:39:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3170",
+      "title": "vetting UX: replace prompt/alert with shared modals, guided case creation, decision support",
+      "claimed_at": "2026-07-26T20:39:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
