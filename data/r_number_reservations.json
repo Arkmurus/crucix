@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3182,
+  "next_available": 3184,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25894,6 +25894,24 @@
       "r_number": "R-F3181",
       "title": "vetting portal page and QR code for case invite links",
       "claimed_at": "2026-07-26T21:33:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3182",
+      "title": "add authoritative early-warning news sources",
+      "claimed_at": "2026-07-26T21:50:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3183",
+      "title": "vetting card truncated the applicant full name",
+      "claimed_at": "2026-07-26T21:50:30Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

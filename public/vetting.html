@@ -105,10 +105,19 @@
     .vt-summary:hover { background: #faf9f6; }
     .vt-case[open] .vt-summary { border-bottom: 1px solid var(--sc-border); }
     .vt-ident { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+    /* R-F3183 — the applicant's FULL name, always. It was truncated with
+       text-overflow: ellipsis, so "Antonio Magalhaes Cande Correa" rendered
+       clipped. On a screening file the name IS the identity being verified —
+       against a passport, against a reference, against a register entry — and
+       a clipped name is the one field an officer cannot afford to guess at.
+       Long names wrap onto a second line; the card grows, which is correct. */
     .vt-name {
       font-size: 14.5px; font-weight: 700; color: var(--sc-heading);
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      white-space: normal; overflow-wrap: anywhere; word-break: break-word;
     }
+    /* Let the row grow with a wrapped name rather than squashing it. */
+    .vt-summary { align-items: flex-start; }
+    .vt-avatar, .vt-status, .vt-chev { margin-top: 2px; }
     .vt-status { flex-shrink: 0; }
     .vt-chev { color: var(--sc-muted); font-size: 13px; transition: transform .15s; flex-shrink: 0; }
     .vt-case[open] .vt-chev { transform: rotate(180deg); }

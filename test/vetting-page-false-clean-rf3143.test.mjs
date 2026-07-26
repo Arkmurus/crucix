@@ -280,3 +280,27 @@ test('R-F3170 case creation validates dates against each other', () => {
   assert.match(HTML, /must precede the employment start date/);
   assert.match(HTML, /at least 16/);
 });
+
+// ── R-F3183: the applicant's full name is never clipped ──────────────────
+
+test('R-F3183 the applicant name is not truncated', () => {
+  // Reported live: "Antonio Magalhaes Cande Correa" rendered clipped. On a
+  // screening file the name IS the identity being verified — against a
+  // passport, a reference, a register entry — and it is the one field an
+  // officer must not have to guess at.
+  const rule = /\.vt-name\s*\{([^}]*)\}/.exec(HTML);
+  assert.ok(rule, '.vt-name must be styled');
+  const body = rule[1];
+  assert.ok(!/text-overflow\s*:\s*ellipsis/.test(body),
+    '.vt-name must not ellipsis-truncate the applicant name');
+  assert.ok(!/white-space\s*:\s*nowrap/.test(body),
+    '.vt-name must be allowed to wrap');
+  assert.ok(/overflow-wrap|word-break/.test(body),
+    'a very long single-token name must still wrap rather than overflow');
+});
+
+test('R-F3183 the card renders the full name, unabbreviated', () => {
+  // The initials avatar is an ADDITION, not a replacement for the name.
+  assert.match(HTML, /class="vt-name">\$\{esc\(c\.applicant_name/,
+    'the card must render applicant_name in full');
+});
