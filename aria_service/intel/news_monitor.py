@@ -179,12 +179,28 @@ _SIGNAL_RULES: list[tuple[str, "re.Pattern[str]", str, str]] = [
     (
         "natural_hazard",
         re.compile(
-            r"\b(earthquake|tsunami (?:warning|advisory|threat)|"
+            r"\b(earthquake|m\s*\d(?:\.\d+)?\s*-\s*\d+\s*km|"
+            r"tsunami (?:warning|advisory|threat)|"
             r"(?:hurricane|typhoon|tropical cyclone|tropical storm) "
-            r"(?:warning|watch|advisory|forecast|expected|intensif(?:y|ies|ied|ication))|"
+            r"(?:warning|watch|advisory|forecast|expected|intensif(?:y|ies|ied|ication)|"
+            r"(?!season\b|conditions?\b)[a-z][a-z-]+)|"
             r"volcanic eruption|major flood(?:ing)?|storm surge warning)\b", re.I),
         "A natural hazard may disrupt people, infrastructure, ports, logistics, or operations.",
         "Assess geographic and continuity exposure",
+    ),
+    (
+        "security_operation",
+        re.compile(
+            r"\b((?:terrorist|extremist|smuggling|trafficking|organised crime) "
+            r"network (?:dismantled|disrupted)|"
+            r"(?:operation|action) against [^.]{0,100}"
+            r"(?:terrorism|terrorist|extremism|extremist|smuggling|trafficking|organised crime)|"
+            r"(?:terrorism|terrorist|extremism|extremist|smuggling|trafficking)[a-z ]{0,60}"
+            r"(?:arrested|dismantled|disrupted))\b",
+            re.I,
+        ),
+        "An official security operation may reveal active threat networks, routes, or counterparties.",
+        "Assess security and counterparty exposure",
     ),
     (
         "budget_movement",
@@ -482,7 +498,7 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
     # stale, HTML, and guessed endpoints were rejected rather than registered.
     ("UK NCSC Reports", "https://www.ncsc.gov.uk/api/1/services/v1/report-rss-feed.xml",
      "cyber_security", "en", "tier_1a",
-     ["cyber", "official", "primary", "early_warning"]),
+     ["cyber", "official", "primary", "strategic_assessment"]),
     ("CERT-EU Security Advisories", "https://cert.europa.eu/publications/security-advisories-rss",
      "cyber_security", "en", "tier_1a",
      ["cyber", "eu", "official", "primary", "early_warning"]),
@@ -729,6 +745,10 @@ _REL_EXCLUDE = re.compile(
     r"celebrit(?:y|ies)|box office|film festival|album|concert|fashion|horoscope|"
     r"lifestyle|travel guide|obituar(?:y|ies)|wedding"
     r")\b", re.I)
+_LOW_IMPACT_HAZARD = re.compile(
+    r"^\s*green\s+(?:earthquake|flood|forest fire|tropical cyclone|volcanic)",
+    re.I,
+)
 
 _SIGNAL_RELEVANCE_FLOOR = 0.34
 
@@ -736,7 +756,7 @@ _SIGNAL_RELEVANCE_FLOOR = 0.34
 _ACTIONABLE_TYPES = frozenset({
     "active_tender", "contract_award", "sanctions_change", "conflict_escalation",
     "budget_movement", "political_transition", "competitor_activity", "programme_signal",
-    "cyber_threat", "maritime_security", "natural_hazard",
+    "cyber_threat", "maritime_security", "natural_hazard", "security_operation",
 })
 
 
@@ -764,6 +784,20 @@ def _topical_relevance(article: dict) -> dict:
     """
     title = str(article.get("title") or "")
     body = " ".join(str(article.get(k) or "") for k in ("summary", "full_text"))
+    # R-F3201 — retain high-volume GDACS Green notices in the raw research
+    # record, but do not promote them as actionable user alerts.
+    if (
+        str(article.get("category") or "") == "crisis_early_warning"
+        and _LOW_IMPACT_HAZARD.search(title)
+    ):
+        return {
+            "score": 0.1,
+            "on_topic": False,
+            "terms": [],
+            "excluded_marker": False,
+            "reason": "low_impact_hazard",
+            "event_type": "situational_awareness",
+        }
     # Entities are extracted HERE, not read off the article: at promotion time the
     # raw article has no `entities` key (it is populated later, in
     # _build_intel_signal), so reading it would make entity_hit permanently False —
@@ -881,6 +915,10 @@ def _signal_priority(signal_type: str, entities: dict, tier: str) -> str:
         "contract_award",
         "sanctions_change",
         "conflict_escalation",
+        "cyber_threat",
+        "maritime_security",
+        "natural_hazard",
+        "security_operation",
     }
     if signal_type in high_types and (entities.get("countries") or entities.get("oems")):
         return "HIGH"
@@ -906,6 +944,7 @@ def _action_horizon(signal_type: str, priority: str) -> str:
         "cyber_threat",
         "maritime_security",
         "natural_hazard",
+        "security_operation",
     } or priority == "HIGH":
         return "0-72h"
     if signal_type in {"active_tender", "contract_award", "budget_movement"}:

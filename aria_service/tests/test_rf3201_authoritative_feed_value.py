@@ -1,0 +1,94 @@
+"""R-F3201 — authoritative feeds must yield useful, honest intelligence."""
+
+from __future__ import annotations
+
+import pytest
+
+from aria_service.intel import news_monitor as nm
+
+
+@pytest.mark.parametrize(
+    ("article", "expected_type"),
+    [
+        (
+            {
+                "title": "M 5.0 - 38 km SSE of Spearman, Texas",
+                "summary": "PAGER - GREEN; ShakeMap - VI",
+                "category": "crisis_early_warning",
+                "topics": ["earthquake", "official", "primary", "early_warning"],
+            },
+            "natural_hazard",
+        ),
+        (
+            {
+                "title": "Hurricane Genevieve Public Advisory Number 10",
+                "summary": "The hurricane is southwest of Mexico.",
+                "category": "maritime_risk",
+                "topics": ["maritime", "hurricane", "official", "primary", "early_warning"],
+            },
+            "natural_hazard",
+        ),
+        (
+            {
+                "title": "Migrant smuggling network dismantled across the Balkans",
+                "summary": "The action was supported by Europol.",
+                "category": "security",
+                "topics": ["security", "organised_crime", "official", "primary"],
+            },
+            "security_operation",
+        ),
+        (
+            {
+                "title": "Europol-led action against nihilistic violent extremist network The Com",
+                "summary": "An official counter-terrorism operation.",
+                "category": "security",
+                "topics": ["security", "terrorism", "official", "primary"],
+            },
+            "security_operation",
+        ),
+    ],
+)
+def test_rf3201_real_source_headlines_become_specific_signals(
+    article: dict,
+    expected_type: str,
+) -> None:
+    """Representative live payloads must survive the real relevance/classifier path."""
+    relevance = nm._topical_relevance(article)
+    signal = nm._build_intel_signal(article | {
+        "source": "authoritative test source",
+        "tier": "tier_1a",
+        "url": "https://example.gov/evidence",
+        "detected_at": "2026-07-26T22:00:00+00:00",
+    })
+
+    assert relevance["on_topic"] is True
+    assert signal["signal_type"] == expected_type
+    assert signal["priority"] == "HIGH"
+    assert signal["classification_evidence"].startswith("matched '")
+    assert signal["action_horizon"] == "0-72h"
+
+
+def test_rf3201_low_impact_gdacs_notice_is_retained_but_not_promoted() -> None:
+    """A GDACS Green notice is source evidence, not an actionable user alert."""
+    article = {
+        "title": (
+            "Green earthquake (Magnitude 5.8M, Depth:10km) in United States, "
+            "Few people affected in MMI III."
+        ),
+        "summary": "",
+        "category": "crisis_early_warning",
+        "topics": ["disaster", "official", "primary", "early_warning"],
+    }
+
+    relevance = nm._topical_relevance(article)
+
+    assert relevance["on_topic"] is False
+    assert relevance["reason"] == "low_impact_hazard"
+
+
+def test_rf3201_ncsc_reports_are_not_mislabeled_as_live_early_warning() -> None:
+    """NCSC's report archive is authoritative strategy, not a current-alert feed."""
+    source = next(source for source in nm.NEWS_SOURCES if source[0] == "UK NCSC Reports")
+
+    assert "early_warning" not in source[5]
+    assert "strategic_assessment" in source[5]
