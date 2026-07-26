@@ -25107,27 +25107,30 @@
       "title": "adapter outcome contract every source must express failure",
       "claimed_at": "2026-07-26T12:20:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "167be95a",
+      "notes": null,
+      "shipped_at": "2026-07-26T12:25:21Z"
     },
     {
       "r_number": "R-F3102",
       "title": "court records false clean on source failure",
       "claimed_at": "2026-07-26T12:20:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "167be95a",
+      "notes": null,
+      "shipped_at": "2026-07-26T12:25:21Z"
     },
     {
       "r_number": "R-F3103",
       "title": "adapter outcome conformance guard",
       "claimed_at": "2026-07-26T12:20:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "167be95a",
+      "notes": null,
+      "shipped_at": "2026-07-26T12:25:21Z"
     }
   ]
 }
