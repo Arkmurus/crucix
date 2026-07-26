@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3193,
+  "next_available": 3198,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -26006,6 +26006,61 @@
       "notes": null,
       "abandoned_at": "2026-07-26T22:19:30Z",
       "abandon_reason": "R-F3187 live concurrency probe — verification only, no work"
+    },
+    {
+      "r_number": "R-F3193",
+      "title": "R-F3187 post-deploy race probe 2",
+      "claimed_at": "2026-07-26T22:29:33Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-07-26T22:29:44Z",
+      "abandon_reason": "R-F3187 post-deploy race probe — verification only, no work"
+    },
+    {
+      "r_number": "R-F3194",
+      "title": "R-F3187 post-deploy race probe 1",
+      "claimed_at": "2026-07-26T22:29:33Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-07-26T22:29:44Z",
+      "abandon_reason": "R-F3187 post-deploy race probe — verification only, no work"
+    },
+    {
+      "r_number": "R-F3195",
+      "title": "R-F3187 post-deploy race probe 4",
+      "claimed_at": "2026-07-26T22:29:33Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-07-26T22:29:45Z",
+      "abandon_reason": "R-F3187 post-deploy race probe — verification only, no work"
+    },
+    {
+      "r_number": "R-F3196",
+      "title": "R-F3187 post-deploy race probe 3",
+      "claimed_at": "2026-07-26T22:29:33Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-07-26T22:29:45Z",
+      "abandon_reason": "R-F3187 post-deploy race probe — verification only, no work"
+    },
+    {
+      "r_number": "R-F3197",
+      "title": "R-F3187 post-deploy race probe 5",
+      "claimed_at": "2026-07-26T22:29:33Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-07-26T22:29:45Z",
+      "abandon_reason": "R-F3187 post-deploy race probe — verification only, no work"
     }
   ]
 }
