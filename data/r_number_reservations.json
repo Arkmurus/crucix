@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3132,
+  "next_available": 3133,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25411,6 +25411,15 @@
       "commit_sha": "f55c02cf",
       "notes": null,
       "shipped_at": "2026-07-26T16:15:36Z"
+    },
+    {
+      "r_number": "R-F3132",
+      "title": "citation grounding rate computed from an unrepresentative prose-URL sample",
+      "claimed_at": "2026-07-26T16:22:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

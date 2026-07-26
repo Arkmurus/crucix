@@ -1603,8 +1603,32 @@ def _quality_penalties(metrics: dict) -> list[tuple[int, str]]:
     """Return score penalties and reasons for DD evidence-depth weaknesses."""
     reputable = metrics["verified_sources"] + metrics["quality_press"]
     citation_rate = metrics["citation_grounding_rate"]
+    # ── R-F3132 — A 2-URL SAMPLE IS NOT A GROUNDING RATE ────────────────────
+    #
+    # LIVE on the Babcock DD (dd_8c7242c2b45b, 2026-07-26):
+    #     "Cited URLs that resolve: 0 of 2 cited links checked and reachable"
+    #     "Quality blocked by: ... citation grounding rate below 80% (0%)"  -> Grade C
+    # while the SAME report listed FIFTEEN cited sources.
+    #
+    # `citations_checked` does not count the report's citations. It counts URLs that
+    # happened to appear INLINE in prose `detail` text — here a GLEIF search link and
+    # an OpenSanctions verify link, neither of which is in the evidence blob. The
+    # check is `source_verifier.verify_response`, built for a CHAT answer that cites
+    # URLs in its prose; a DD cites through structured evidence instead, so the
+    # sample is incidental to how a finding happened to be worded.
+    #
+    # Penalising the evidence grade on a 2-item incidental sample is measuring
+    # formatting, not evidence. And "0 of 2" is not a measured failure — it is a
+    # sample too small to support any rate at all. This is the phase-gate rule
+    # (R-F2639) applied to a quality metric: COULD NOT MEASURE is not MEASURED AND
+    # FAILED, and it must never be rendered as a score of zero.
+    #
+    # The check still runs and is still reported — a genuinely ungrounded set of
+    # prose citations is a real signal — but it cannot move the grade until the
+    # sample can carry the claim.
+    _MIN_CITATION_SAMPLE = 3
     low_citation_rate = (
-        metrics["citations_checked"]
+        metrics["citations_checked"] >= _MIN_CITATION_SAMPLE
         and isinstance(citation_rate, (int, float))
         and citation_rate < 0.8
     )
@@ -2715,10 +2739,19 @@ def structured_view(r: dict) -> dict:
             ("Conflicts detected", len(ver.get("conflicts") or []) or None),
             ("Independent source verification",
              ("run" if ver.get("independent_source_verification_run") else "not run (triangulation + citation grounding only)")),
+            # R-F3132 — say when the sample is too small to mean anything. "0 of 2"
+            # rendered as a grounding figure invited exactly the reading it cannot
+            # support; the denominator is incidental prose URLs, not the report's
+            # citations (of which Babcock had fifteen).
             ("Cited URLs that resolve",
-             (f"{ver.get('citations_grounded', 0)} of {ver.get('citations_checked', 0)} "
-              "cited links checked and reachable"
-              if ver.get("citations_checked") else None)),
+             (None if not ver.get("citations_checked") else
+              (f"{ver.get('citations_grounded', 0)} of {ver.get('citations_checked', 0)} "
+               "inline prose links checked and reachable"
+               if int(ver.get("citations_checked") or 0) >= 3 else
+               f"NOT MEASURABLE — only {ver.get('citations_checked')} inline prose "
+               "link(s) appeared in this report, too few to support a rate. This is "
+               "not a score of zero, and it does not affect the evidence grade; the "
+               "report's cited sources are listed per section."))),
             ("What these measure",
              "Evidence GRADE scores depth and corroboration; the two figures above "
              "score traceability and link health. They are independent — a report can "
