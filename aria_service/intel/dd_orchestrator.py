@@ -3751,17 +3751,60 @@ async def _run_identity(
             # screen actually RAN and came back clean. Previously an empty
             # matches list produced no finding at all, which the LLM
             # (correctly) read as "sanctions screen not completed".
+            # ── R-F3129 — NAME ONLY THE LISTS YOU CAN EVIDENCE ──────────────
+            #
+            # THE DEFECT, live on the QinetiQ DD (dd_a56444e7647e) and the Mitie
+            # report before it. This finding HARDCODED five authorities — "OFAC SDN,
+            # UK OFSI, EU Consolidated, UN 1267, OpenSanctions" — and asserted "treat
+            # as clearance under standard commercial DD" at confidence=CONFIRMED,
+            # regardless of what `verified_sources` actually recorded. On both
+            # reports that structure was EMPTY (neither rendered a per-list block),
+            # so the prose named five authorities the report could not show were
+            # queried.
+            #
+            # The decision scorecard was already honest about this: `sanctions_ok`
+            # requires `verified_sources` (dd_schema.py), which is why QinetiQ read
+            # "Sanctions and export-control exposure — UNRESOLVED" on the same page
+            # as "CLEAN … treat as clearance". The SCORECARD was right; the PROSE was
+            # the overclaim — the same shape as R-F3089's "subject-named" assertion
+            # that nothing established.
+            #
+            # A clean screen is still reported — going silent would be the R-F1696
+            # defect in reverse — but it now states exactly what answered, and it
+            # does not offer clearance it cannot evidence.
+            _vs_clean = screen.get("verified_sources")
+            _vs_clean = _vs_clean if isinstance(_vs_clean, dict) else {}
+            _named = [
+                str((v or {}).get("label") or k)
+                for k, v in _vs_clean.items()
+                if isinstance(v, dict) and str(v.get("status") or "").upper() == "CLEAN"
+            ]
+            _when = str(screen.get("screened_at") or "").strip()
+            if _named:
+                _detail = (
+                    f"{name} — no matches on the list(s) that answered: "
+                    + "; ".join(_named[:8])
+                    + (f" · screened {_when}" if _when else "")
+                    + ". Fuzzy variants / aliases screened. This is a clean result for "
+                      "those lists — check the data gaps for any list that did not answer."
+                )
+                _conf = "CONFIRMED"
+            else:
+                _detail = (
+                    f"{name} — the screen ran and returned NO matches, but this report "
+                    "carries no per-list record of which authorities answered, so the "
+                    "coverage behind this result cannot be shown. Treat as NOT YET "
+                    "EVIDENCED rather than a clearance: re-screen, or confirm the "
+                    "list coverage, before relying on it."
+                )
+                _conf = "UNVERIFIED"
             report.identity.findings.append(Finding(
                 severity="info",
-                title=f"Sanctions screen CLEAN",
-                detail=(
-                    f"{name} — no matches across OFAC SDN, UK OFSI, EU Consolidated, "
-                    f"UN 1267, or OpenSanctions datasets. Fuzzy variants / aliases "
-                    f"screened. This is a POSITIVE CLEAN result — treat as clearance "
-                    f"under standard commercial DD."
-                ),
+                title=("Sanctions screen CLEAN" if _named
+                       else "Sanctions screen returned no matches — list coverage NOT evidenced"),
+                detail=_detail,
                 source="sanctions.screen_with_aliases",
-                confidence="CONFIRMED",
+                confidence=_conf,
             ))
     except Exception as e:
         logger.warning("Identity: sanctions screen failed: %s", e)
