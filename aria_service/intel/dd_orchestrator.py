@@ -1542,6 +1542,30 @@ _OP_T_DEEPRESEARCH  = _env_float("ARIA_DD_OP_T_DEEPRESEARCH_S", 40.0)
 # at the budget site). A deep DD is an explicit, low-volume operator choice served
 # by the fire-and-poll list, and already ran 10-15 min.
 _OP_T_DEEPRESEARCH_DEEP = _env_float("ARIA_DD_OP_T_DEEPRESEARCH_DEEP_S", 300.0)
+
+# ── R-F3131 — A CAPABILITY MUST FIT THE BUDGET IT RUNS IN ───────────────────
+#
+# MEASURED on the live Babcock DD (dd_8c7242c2b45b, 2026-07-26). The report said:
+#     "financial health did not complete within 25s (bounded) — partial result"
+#     "Financial capacity — UNRESOLVED — financial capacity is unknown"
+# R-F3124/R-F3128 added the issuer-annual-report route to exactly that op: it must
+# fetch a multi-hundred-page PDF, extract its text layer, and send ~120k characters
+# to Claude. That cannot happen in 25 SECONDS. The capability was shipped into a
+# budget it could never complete in, so financial capacity stayed UNKNOWN for the one
+# class of counterparty the route exists to answer — a listed group.
+#
+# This is the R-F3093 defect repeated: there, deep research had 37s and read ZERO
+# articles. Same lesson, and the same three-level fix, because `_bounded_dd_op`
+# clamps every op to the LAYER deadline (R-F3059) — raising the op alone changes
+# nothing:
+#     total budget  ->  compliance LAYER  ->  financial OP
+# Deep mode only. Standard/quick keep 25s and the 90s layer: they do not run the
+# issuer-report route to completion either way, and the 660s total that guarantees
+# WhatsApp delivery inside the poll window must not move.
+_OP_T_FINANCIAL_DEEP = _env_float("ARIA_DD_OP_T_FINANCIAL_DEEP_S", 150.0)
+#: Compliance-layer budget in deep mode: usaspending 12 + financial 150 + worldbank
+#: 15 = 177, plus the R-F3066 tail reserve and margin.
+_DEEP_COMPLIANCE_BUDGET_S = _env_float("ARIA_DD_DEEP_COMPLIANCE_BUDGET_S", 210.0)
 #: Digital-layer budget in deep mode. Must cover deep research (300) + the other
 #: bounded ops it shares the layer with (multi-query 45 + search 30 + site mine 30
 #: + RAG 15 + KB 15 + link-tree 90 ≈ 225) with margin.
@@ -4931,6 +4955,17 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
         # Blocking the contamination at source (above) already prevents this, but a
         # verdict this defamatory must not depend on one upstream guard holding.
         if len(_fin_name) >= 3 and not _subject_is_person(report):
+            # R-F3131 — the issuer-annual-report route (R-F3124/R-F3128) fetches a
+            # large PDF, extracts its text and calls Claude with ~120k chars. In 25s
+            # it cannot finish, so on the live Babcock DD this op reported "did not
+            # complete within 25s (bounded)" and financial capacity stayed UNKNOWN —
+            # for exactly the counterparty class the route exists to answer. Read the
+            # mode off the report so the signature is unchanged.
+            _fin_op_budget = (
+                _OP_T_FINANCIAL_DEEP
+                if str(getattr(report, "orchestrator_mode", "") or "").lower() == "deep"
+                else _OP_T_FINANCIAL
+            )
             from . import financial_health as _fh
             _fin = await _bounded_dd_op(_fh.assess(
                 _fin_name,
@@ -4938,7 +4973,7 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                 registration_number=(getattr(report.identity, "registration_number", "")
                                      or target.get("registration_number") or ""),
                 entity_type=(target.get("type") or "company"),
-            ), _OP_T_FINANCIAL, report.compliance, "financial health", default={})
+            ), _fin_op_budget, report.compliance, "financial health", default={})
             report.compliance.financial_health = _fin
             report.compliance.meta.subcalls += 1
             for _f in _fh.financial_health_findings(_fin):
@@ -11848,10 +11883,15 @@ async def _orchestrate_dd_impl(
                 report.compliance.meta.status = LayerStatus.PREREQ_DEGRADED.value
                 report.compliance.data_gaps.append(_reason_c)
             try:
+                # R-F3131 — deep mode needs room for the issuer-report route.
+                _compliance_budget = (
+                    _DEEP_COMPLIANCE_BUDGET_S if mode == "deep"
+                    else DEFAULT_LAYER_TIMEOUT_S
+                )
                 _dl_tok_c = _LAYER_DEADLINE.set(                       # R-F3059
-                    time.monotonic() + _clamp(DEFAULT_LAYER_TIMEOUT_S))
+                    time.monotonic() + _clamp(_compliance_budget))
                 try:
-                    await asyncio.wait_for(_run_compliance(target, report), timeout=_clamp(DEFAULT_LAYER_TIMEOUT_S))
+                    await asyncio.wait_for(_run_compliance(target, report), timeout=_clamp(_compliance_budget))
                 finally:
                     _LAYER_DEADLINE.reset(_dl_tok_c)
             except asyncio.TimeoutError:

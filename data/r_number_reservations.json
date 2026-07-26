@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3131,
+  "next_available": 3132,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25401,6 +25401,15 @@
       "commit_sha": "98fd4909",
       "notes": null,
       "shipped_at": "2026-07-26T15:08:32Z"
+    },
+    {
+      "r_number": "R-F3131",
+      "title": "financial op budget cannot fit the issuer-report route it must run",
+      "claimed_at": "2026-07-26T16:12:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
