@@ -2644,15 +2644,26 @@ def structured_view(r: dict) -> dict:
         # 6) LIVE SWEEP SIGNALS (only if populated)
         _sv_section("sweep", "Live Sweep Signals", "📡", sweep, []),
         # 7) VERIFICATION & METHODOLOGY — trust footer (core)
+        # R-F3092 — three numbers that look like they should agree, and do not,
+        # because they measure three different things: an evidence-DEPTH grade
+        # (Grade B · 80/100), the share of CLAIMS traced to a source (33%), and the
+        # share of CITED URLS that resolve (5/5). Presented bare, a reader reads them
+        # as a contradiction. Each now says what it counts.
         _sv_section("verification", "Verification & Methodology", "🧪", ver, [
-            ("Grounded rate", (f"{gr:.0%}" if isinstance(gr, (int, float)) else None)),
+            ("Claims traced to a source",
+             (f"{gr:.0%} of claims carry a source" if isinstance(gr, (int, float)) else None)),
             ("Confidence floor", ver.get("confidence_floor")),
             ("Conflicts detected", len(ver.get("conflicts") or []) or None),
             ("Independent source verification",
              ("run" if ver.get("independent_source_verification_run") else "not run (triangulation + citation grounding only)")),
-            ("Citations grounded",
-             (f"{ver.get('citations_grounded', 0)}/{ver.get('citations_checked', 0)}"
+            ("Cited URLs that resolve",
+             (f"{ver.get('citations_grounded', 0)} of {ver.get('citations_checked', 0)} "
+              "cited links checked and reachable"
               if ver.get("citations_checked") else None)),
+            ("What these measure",
+             "Evidence GRADE scores depth and corroboration; the two figures above "
+             "score traceability and link health. They are independent — a report can "
+             "cite five working links and still be graded low on depth."),
         ], kind="core"),
     ]
     sections = [s for s in sections if s]

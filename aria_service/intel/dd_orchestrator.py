@@ -2699,8 +2699,15 @@ async def _identity_primary_source_screen(
 
             if not _r.get("ok"):
                 if _r.get("error"):
+                    # R-F3092 — was `[:120]`, which cut the wb_debarred gap at
+                    # "…apigwext.worldbank.org returns 403). De" — mid-word, and it
+                    # amputated the two clauses that matter most: that the signal is
+                    # covered via the OpenSanctions dataset and that NO OPERATOR
+                    # ACTION IS REQUIRED. A gap truncated before its resolution reads
+                    # as an unresolved gap. Truncate on a boundary, and only when the
+                    # text is genuinely long.
                     report.identity.data_gaps.append(
-                        f"{_lbl}: {str(_r.get('error'))[:120]}"
+                        f"{_lbl}: {_truncate_on_boundary(str(_r.get('error')))}"
                     )
                 continue
 
@@ -9843,6 +9850,24 @@ def _recent_name_changes(previous_names, *, within_days: int = 365) -> list[dict
             out.append((raw, p))
     out.sort(key=lambda t: t[0], reverse=True)
     return [p for _, p in out]
+
+
+def _truncate_on_boundary(text: str, limit: int = 300) -> str:
+    """R-F3092 — shorten a reader-facing string without cutting it mid-word.
+
+    Prefers the last sentence end inside the limit, then the last word break, and
+    always marks that something was removed. A data gap chopped to
+    "…apigwext.worldbank.org returns 403). De" is not a shorter gap — it is a
+    different, and worse, statement than the full one."""
+    s = " ".join(str(text or "").split())
+    if len(s) <= limit:
+        return s
+    window = s[:limit]
+    cut = max(window.rfind(". "), window.rfind("; "))
+    if cut >= int(limit * 0.5):
+        return window[:cut + 1] + " …"
+    cut = window.rfind(" ")
+    return (window[:cut] if cut > 0 else window).rstrip(" ,;:-") + " …"
 
 
 def _adverse_item_url(f) -> str:
