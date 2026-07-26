@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from aria_service.intel import news_monitor as nm
@@ -115,3 +118,61 @@ def test_rf3201_ncsc_reports_are_not_mislabeled_as_live_early_warning() -> None:
 
     assert "early_warning" not in source[5]
     assert "strategic_assessment" in source[5]
+
+
+@pytest.mark.asyncio
+async def test_rf3201_classifier_replay_promotes_once_and_records_completion() -> None:
+    """Existing raw evidence must gain corrected output without hourly duplication."""
+    articles = [
+        {
+            "title": "Hurricane Genevieve Public Advisory Number 10",
+            "summary": "The hurricane is southwest of Mexico.",
+            "source": "NOAA NHC Eastern Pacific",
+            "url": "https://www.nhc.noaa.gov/genevieve",
+            "category": "maritime_risk",
+            "tier": "tier_1a",
+            "topics": ["maritime", "hurricane", "official", "primary", "early_warning"],
+        },
+        {
+            "title": "Green earthquake in United States, few people affected",
+            "summary": "",
+            "source": "GDACS Disaster Alerts",
+            "url": "https://www.gdacs.org/green-event",
+            "category": "crisis_early_warning",
+            "tier": "tier_1a",
+            "topics": ["disaster", "official", "primary", "early_warning"],
+        },
+    ]
+    writes: list[dict] = []
+
+    with (
+        patch.object(nm.rs, "get_json", AsyncMock(return_value=None)),
+        patch.object(
+            nm.rs,
+            "lrange",
+            AsyncMock(return_value=[json.dumps(article) for article in articles]),
+        ),
+        patch.object(nm.rs, "set_json", AsyncMock()) as set_marker,
+        patch.object(nm, "_store_intel_signal", AsyncMock(side_effect=writes.append)),
+    ):
+        result = await nm._replay_recent_articles_for_classifier()
+
+    assert result["status"] == "completed"
+    assert result["scanned"] == 2
+    assert result["promoted"] == 1
+    assert writes[0]["signal_type"] == "natural_hazard"
+    assert writes[0]["priority"] == "HIGH"
+    assert set_marker.await_args.args[1]["version"] == nm._CLASSIFIER_REPLAY_VERSION
+
+    with (
+        patch.object(
+            nm.rs,
+            "get_json",
+            AsyncMock(return_value={"version": nm._CLASSIFIER_REPLAY_VERSION}),
+        ),
+        patch.object(nm.rs, "lrange", AsyncMock()) as lrange,
+    ):
+        current = await nm._replay_recent_articles_for_classifier()
+
+    assert current == {"status": "current", "scanned": 0, "promoted": 0}
+    lrange.assert_not_awaited()

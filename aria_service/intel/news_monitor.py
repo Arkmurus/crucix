@@ -61,6 +61,8 @@ _SEEN_URLS_KEY = "crucix:news_monitor:seen_urls"
 _FEED_STATE_KEY = "crucix:news_monitor:feed_state"
 _ARTICLES_KEY = "crucix:news_monitor:articles"
 _INTEL_SIGNALS_KEY = "crucix:news_monitor:intel_signals"
+_CLASSIFIER_REPLAY_KEY = "crucix:news_monitor:classifier_replay"
+_CLASSIFIER_REPLAY_VERSION = "rf3201.v1"
 _POLL_STATE_KEY = "crucix:news_monitor:poll_state"
 _MAX_ARTICLES = 1000
 _MAX_INTEL_SIGNALS = 500
@@ -1360,6 +1362,41 @@ async def _backfill_intel_signals_from_articles(limit: int) -> list[dict]:
     return candidates[:limit]
 
 
+async def _replay_recent_articles_for_classifier(limit: int = 200) -> dict:
+    """Reclassify recent raw evidence once after a classifier contract upgrade."""
+    marker = await rs.get_json(_CLASSIFIER_REPLAY_KEY)
+    if isinstance(marker, dict) and marker.get("version") == _CLASSIFIER_REPLAY_VERSION:
+        return {"status": "current", "scanned": 0, "promoted": 0}
+
+    raw = await rs.lrange(_ARTICLES_KEY, 0, max(0, min(limit, _MAX_ARTICLES) - 1))
+    scanned = 0
+    promoted = 0
+    for item in raw:
+        try:
+            article = json.loads(item) if isinstance(item, str) else item
+        except Exception:
+            continue
+        if not isinstance(article, dict):
+            continue
+        scanned += 1
+        if await _promote_article_signal(article):
+            promoted += 1
+
+    completed_at = datetime.now(timezone.utc).isoformat()
+    await rs.set_json(_CLASSIFIER_REPLAY_KEY, {
+        "version": _CLASSIFIER_REPLAY_VERSION,
+        "completed_at": completed_at,
+        "scanned": scanned,
+        "promoted": promoted,
+    })
+    return {
+        "status": "completed",
+        "scanned": scanned,
+        "promoted": promoted,
+        "completed_at": completed_at,
+    }
+
+
 async def _promote_article_signal(article: dict) -> bool:
     """Promote a raw article to a dashboard decision signal — IF it is on-topic.
 
@@ -2114,6 +2151,14 @@ async def poll_feeds(
         summary["promotion_bridge"] = await golden_intel_bridge.run_promotion_pass()
     except Exception:
         logger.debug("[news_monitor] golden intel promotion pass failed", exc_info=True)
+
+    # R-F3201 — classifier upgrades must improve already-collected evidence, not
+    # wait indefinitely for a source to publish a new URL. The versioned marker
+    # makes this a bounded one-time replay rather than an hourly duplication loop.
+    try:
+        summary["classifier_replay"] = await _replay_recent_articles_for_classifier()
+    except Exception:
+        logger.debug("[news_monitor] classifier replay failed", exc_info=True)
 
     return summary
 
