@@ -183,7 +183,7 @@ _SIGNAL_RULES: list[tuple[str, "re.Pattern[str]", str, str]] = [
             r"tsunami (?:warning|advisory|threat)|"
             r"(?:hurricane|typhoon|tropical cyclone|tropical storm) "
             r"(?:warning|watch|advisory|forecast|expected|intensif(?:y|ies|ied|ication)|"
-            r"(?!season\b|conditions?\b)[a-z][a-z-]+)|"
+            r"(?!season\b|conditions?\b|center\b|centre\b|force\b)[a-z][a-z-]+)|"
             r"volcanic eruption|major flood(?:ing)?|storm surge warning)\b", re.I),
         "A natural hazard may disrupt people, infrastructure, ports, logistics, or operations.",
         "Assess geographic and continuity exposure",

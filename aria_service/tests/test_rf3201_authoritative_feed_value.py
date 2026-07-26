@@ -86,6 +86,29 @@ def test_rf3201_low_impact_gdacs_notice_is_retained_but_not_promoted() -> None:
     assert relevance["reason"] == "low_impact_hazard"
 
 
+def test_rf3201_hurricane_agency_name_does_not_invent_an_active_storm() -> None:
+    """“Hurricane Center” is an institution, not evidence of an active cyclone."""
+    article = {
+        "title": "Atlantic Tropical Weather Outlook",
+        "summary": (
+            "The National Hurricane Center reports there are no tropical "
+            "cyclones at this time."
+        ),
+        "category": "maritime_risk",
+        "topics": ["maritime", "hurricane", "official", "primary", "early_warning"],
+    }
+
+    relevance = nm._topical_relevance(article)
+    signal = nm._build_intel_signal(article | {
+        "source": "NOAA NHC Atlantic",
+        "tier": "tier_1a",
+        "url": "https://www.nhc.noaa.gov/",
+    })
+
+    assert relevance["on_topic"] is False
+    assert signal["signal_type"] == "situational_awareness"
+
+
 def test_rf3201_ncsc_reports_are_not_mislabeled_as_live_early_warning() -> None:
     """NCSC's report archive is authoritative strategy, not a current-alert feed."""
     source = next(source for source in nm.NEWS_SOURCES if source[0] == "UK NCSC Reports")
