@@ -6566,19 +6566,59 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                 "matched": True,
                                 "summary": _classified.get("summary", "")[:240],
                             })
-                            # Surface non-info as Digital findings
-                            if _sr_p.get(_worst, 0) >= _sr_p["amber"]:
+                            # ── R-F3130 — A HOMONYM IS NOT AN IDENTIFICATION ────
+                            #
+                            # LIVE on the Babcock DD (dd_8c7242c2b45b, 2026-07-26):
+                            #     RED  Site-extracted person Kevin Smith → sanctions red
+                            #     KEVIN SMITH (score 1.00, topics: debarment,
+                            #     lists: us_hhs_exclusions,us_sam_exclusions,
+                            #     matched_via=primary_name)
+                            # and that finding drove the whole ENTITY to RED — "very
+                            # likely unsuitable for onboarding" — on a FTSE-250
+                            # defence group whose sanctions screen, adverse media and
+                            # ownership were all ANSWERED and clean.
+                            #
+                            # "Kevin Smith" clears the R-F3126 gates: it IS a real
+                            # name shape and it DOES share distinctive tokens with the
+                            # listed entry. Those gates were never the problem here.
+                            # The problem is that a bare COMMON name screened against
+                            # a debarment list will always hit, and `score 1.00` means
+                            # the STRING matched — not that it is the same human.
+                            # `matched_via=primary_name` says so explicitly: no DOB,
+                            # no nationality, no passport, no address corroborated it.
+                            #
+                            # A person scraped off a website and matched by NAME ALONE
+                            # is not evidence about the COUNTERPARTY. It is a lead
+                            # requiring identity verification. So it is still SURFACED
+                            # (going silent would be the R-F1696 defect in reverse),
+                            # but capped at INFO and framed as an unconfirmed homonym,
+                            # and it can no longer drag the entity verdict. This is the
+                            # R-F2828 principle — resolve by identifier, never by name
+                            # — applied to people instead of companies.
+                            #
+                            # A match carrying a REAL secondary identifier keeps its
+                            # severity: that is an identification, not a coincidence.
+                            _identified = any(
+                                str((_m or {}).get("match_field") or "").strip().lower()
+                                not in ("", "primary_name", "alias", "weak_match", "name")
+                                for _m in _matches if isinstance(_m, dict)
+                            )
+                            _eff_worst = _worst if _identified else "info"
+                            if _sr_p.get(_eff_worst, 0) >= _sr_p["amber"] or not _identified:
                                 _ftitle = (
                                     f"Site-extracted person {_person} → "
                                     f"sanctions {_worst}"
+                                    if _identified else
+                                    f"Site-extracted person {_person} — possible "
+                                    f"NAME MATCH on a watchlist (identity NOT confirmed)"
                                 )
                                 _fconf = {
                                     "hard_stop": "CONFIRMED",
                                     "red": "PROBABLE",
                                     "amber": "ASSESSED",
-                                }.get(_worst, "ASSESSED")
+                                }.get(_worst, "ASSESSED") if _identified else "UNVERIFIED"
                                 report.digital.findings.append(Finding(
-                                    severity=_worst,
+                                    severity=_eff_worst,
                                     title=_ftitle,
                                     detail=(
                                         f"Name '{_person}' was extracted "
@@ -6588,6 +6628,16 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                         f"entity as legal-name "
                                         f"corroboration. "
                                         f"{_classified.get('summary', '')[:280]}"
+                                        + ("" if _identified else
+                                           " ⚠ MATCHED ON NAME ALONE — no date of "
+                                           "birth, nationality or document number "
+                                           "corroborated it, and a common name will "
+                                           "match a watchlist by coincidence. This is "
+                                           "a LEAD to verify, NOT a finding against "
+                                           "this counterparty, and it does not affect "
+                                           "the risk classification. Confirm the "
+                                           "individual's identity against the cited "
+                                           "record before acting on it.")
                                     ),
                                     source=(
                                         f"page_entity_extractor + "
