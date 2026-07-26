@@ -186,9 +186,17 @@ def test_rf3050_both_bluf_writers_use_the_shared_helper():
     import inspect
     src = inspect.getsource(ddo)
     assert src.count("def _coverage_clause(") == 1, "exactly one implementation"
-    # both writers must call it, and neither may keep an inline copy
-    assert "_coverage_clause(_ready)" in src          # _assemble_bluf
-    assert "_coverage_clause(readiness)" in src       # _refresh_persisted_decision_readiness
+    # R-F3116 — STRENGTHENED, not relaxed. R-F3050 made the two BLUF writers share
+    # the coverage CLAUSE; they still had two copies of everything else, and that
+    # remaining fork is exactly how R-F3091/R-F3092 came to be applied to only one
+    # of them and shipped dead on the customer path (proven by a live Mitie run:
+    # entity_scope None, next_actions as verbatim blocker restatements). The two
+    # writers now share the WHOLE composition, so asserting they both call one
+    # helper is superseded by asserting there is one writer.
+    assert src.count("def compose_decision_bluf(") == 1, "exactly one BLUF writer"
+    assert "_bluf = compose_decision_bluf(_ready, name)" in src, "synthesis delegates"
+    assert "compose_decision_bluf(readiness, _name0)" in src, "follow-up delegates"
+    assert "_coverage_clause(readiness)" in src, "the one writer uses the one clause"
     assert "decision-critical questions are answered ({readiness.get" not in src
 
 

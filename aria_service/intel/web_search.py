@@ -1568,6 +1568,33 @@ async def search(
     ]
     for _xl in extra_langs[:3]:  # cap fan-out at 3 extra langs
         backend_tasks.append(_search_google_news(query, MAX_RESULTS_PER_BACKEND, _xl))
+
+    # ── R-F3119 — IN DD SCOPE, BRAVE IS THE SEARCH TIER. NOT ONE OF TEN. ────
+    #
+    # OPERATOR DIRECTIVE (2026-07-26): "the entire DD tools should be using only
+    # Claude API and Brave API". R-F2318 made Brave the PRIMARY for DD and left the
+    # nine free backends running "as fallback (§14)" — but they do not run after
+    # Brave, they run WITH it, sharing one `SEARCH_GATHER_BUDGET` under a
+    # quorum+grace gather (R-F2226). Nine slow or silent backends therefore consume
+    # the budget the primary needs.
+    #
+    # MEASURED (local end-to-end DD, 2026-07-26): every backend came back
+    # `gather timeout` or `silent` — including Brave — while a DIRECT Brave call
+    # from the same machine returned HTTP 200 with 5 results in 1.2s. The paid,
+    # pinned primary was starved by contention with the free stack it was supposed
+    # to replace, and the DD fell back to RAG memory only (7 press items, adverse
+    # media never completed, evidence grade D).
+    #
+    # `memory` is kept: it is our own local cache, costs nothing, cannot time out on
+    # a network, and R-F185 treats it as the $0 first answer (§15 pay-once). The
+    # nine external free backends are dropped in DD scope only — the continuous
+    # researcher never sets the Brave flag, so its free stack is untouched.
+    _brave_exclusive = _brave_on and (
+        os.getenv("ARIA_DD_BRAVE_EXCLUSIVE", "1") or "1"
+    ).strip().lower() not in ("0", "false", "no")
+    if _brave_exclusive:
+        backend_tasks = backend_tasks[:1]      # Brave was prepended above
+        extra_langs = []
     if extra_langs:
         logger.info(
             "Search %r: language fan-out → %s (base=%s)",
@@ -1620,8 +1647,12 @@ async def search(
         # backend_tasks): [brave?], searxng, ddg, gnews_api, google_news, bing, academic,
         # defence_event, gdelt, gnews[langs]...
         + (["brave"] if _brave_on else [])
-        + ["searxng", "duckduckgo", "gnews_api", "google_news", "bing_news",
-           "academic", "defence_event", "gdelt"]   # R-F2318: added gdelt (was missing → off-by-one label drift)
+        # R-F3119 — the names MUST mirror `backend_tasks` exactly or the per-backend
+        # ecosystem snapshot mislabels every result (the off-by-one R-F2318 fixed).
+        # In DD scope the free stack is not launched, so it must not be named here.
+        + ([] if _brave_exclusive else
+           ["searxng", "duckduckgo", "gnews_api", "google_news", "bing_news",
+            "academic", "defence_event", "gdelt"])
         + [f"google_news[{l}]" for l in extra_langs[:3]]
     )
     import time as _t_ws

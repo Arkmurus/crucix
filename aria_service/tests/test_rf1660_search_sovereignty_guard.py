@@ -42,12 +42,39 @@ def test_researcher_web_search_has_no_third_party_search_api():
     )
 
 
-def test_web_search_brave_backend_is_permanent_stub():
-    # web_search._search_brave must remain a no-op stub (R-F320) — it must
-    # NOT make a network call.
+def test_rf3120_brave_is_the_sanctioned_paid_primary_not_a_forbidden_stub():
+    """R-F3120 — THIS GUARD ASSERTED A REVERSED DECISION AND HAD BEEN RED FOR WEEKS.
+
+    R-F1660 (2026-06) froze "no Brave, ever": `_search_brave` had to stay an R-F320
+    stub. That decision was REVERSED. CLAUDE.md §18 records it explicitly — Brave is
+    LIVE, PAID and ARIA's PRIMARY user-facing search (R-F2318 restored the real
+    backend, R-F2637 corrected the stale "declined" line that would have led a future
+    agent to rip out working primary search). The operator reaffirmed it on
+    2026-07-26: the DD tools run on Claude + Brave.
+
+    So the guard has been failing at HEAD ever since R-F2318, asserting a policy the
+    project no longer holds — a red test nobody retired, which is the mirror of the
+    R-F3096 lesson: a guard is only as good as the decision behind it, and a guard
+    defending a superseded decision is misinformation living in the suite.
+
+    What is STILL binding is narrower and is what this now checks: no third-party
+    search API OTHER than the sanctioned Brave primary may appear, and the continuous
+    researcher (below) must stay on the free stack.
+    """
     src = inspect.getsource(web_search._search_brave)
-    assert _FORBIDDEN.search(src) is None, (
-        "R-F1660: web_search._search_brave must stay a stub — no Brave API call."
+    for forbidden in ("api.bing.microsoft.com", "serpapi", "google.com/customsearch"):
+        assert forbidden not in src.lower(), (
+            f"R-F3120: {forbidden} is NOT a sanctioned search provider — only Brave is."
+        )
+    # And it must be the REAL Brave backend, not silently re-stubbed: a DD that
+    # believes it is searching Brave while calling nothing is the false clean this
+    # project exists to prevent.
+    # The endpoint itself is a module constant, so assert on the two things that
+    # only a REAL authenticated call carries: the subscription header and the key.
+    assert "X-Subscription-Token" in src and "BRAVE_SEARCH_API_KEY" in src, (
+        "R-F3120: _search_brave has been re-stubbed. Brave is the paid PRIMARY for "
+        "user-facing DD/research search (CLAUDE.md §18, R-F2318/R-F2637) — a stub "
+        "here silently removes the search tier the DD depends on."
     )
 
 

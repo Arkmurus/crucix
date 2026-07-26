@@ -8280,42 +8280,21 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
                 "Verify signatory identity via at least one independent source",
             ]
     else:
+        # ── R-F3116 — ONE BLUF WRITER. This was the second of two forks. ──────
+        # R-F3039/R-F3050 already noted "the second BLUF writer uses the same
+        # helper" — the fork was known and only the coverage CLAUSE was shared. So
+        # R-F3091 (entity scope) and R-F3092 (say each thing once) were applied to
+        # the OTHER writer and never ran on a normal DD: a live end-to-end run
+        # (Mitie, 2026-07-26) came back with `entity_scope: None` and next_actions
+        # reading "Resolve decision-readiness blocker: registry status is
+        # 'dissolved'" — verbatim restatements, the exact thing R-F3092 removed.
+        # Both writers now render from `compose_decision_bluf`; there is no second
+        # wording to drift.
         _ready = report.decision_readiness
-        if not _ready.get("clearance_ready"):
-            _blockers = list(_ready.get("blocking_reasons") or [])
-            _blocker_text = "; ".join(_blockers[:3]) or "decision-critical coverage incomplete"
-            # R-F3039 — do not say "only 5/5 … (100%)". Live on dd_71553f511d72
-            # (Supacat) the BLUF read "but only 5/5 decision-critical questions are
-            # answered (100%)" — self-contradictory, and it buries the REAL reason
-            # the file is not cleared (the evidence grade) behind a complaint about
-            # coverage that is in fact complete. When every question is answered the
-            # sentence has to name what is actually outstanding.
-            # R-F3050 — shared helper; the second BLUF writer uses the same one.
-            report.bottom_line = (
-                f"🟡 NOT CLEARED — {name} has no blocking risk in the checks that completed, "
-                f"but {_coverage_clause(_ready)}. {_blocker_text}. "
-                "This is not a clean bill and the standard contracting path is NOT available."
-            )
-            report.recommendation = (
-                "Do not rely on this report for counterparty clearance. Resolve every item in the "
-                "decision-readiness scorecard, then re-run or obtain independent commercial DD."
-            )
-            report.next_actions = [
-                f"Resolve decision-readiness blocker: {blocker}" for blocker in _blockers
-            ] or ["Complete all five decision-critical DD checks"]
-        else:
-            report.bottom_line = (
-                f"🟢 GREEN — {name} passes baseline due diligence and all five "
-                "decision-critical questions are answered. Standard contracting path available."
-            )
-            report.recommendation = (
-                "Proceed with standard DD. No blocking concerns identified in completed, "
-                "decision-ready evidence."
-            )
-            report.next_actions = [
-                "Proceed with standard commercial process",
-                "Apply regular sanctions-list re-screen on contract renewal",
-            ]
+        _bluf = compose_decision_bluf(_ready, name)
+        report.bottom_line = _bluf["bottom_line"]
+        report.recommendation = _bluf["recommendation"]
+        report.next_actions = _bluf["next_actions"]
 
     # ── Layer 5c tag on the BLUF (2026-04-22) ──
     # When commercial coherence is ELEVATED or HIGH, surface it in the
@@ -10421,30 +10400,23 @@ def _refresh_persisted_decision_readiness(body: dict) -> dict:
     # the scorecard marks it answered. The escalated verdict wording (bottom_line /
     # recommendation, set by _apply_adverse_media_to_verdict) is preserved — only
     # next_actions is synced to the current scorecard.
-    _fresh_blockers = list(readiness.get("blocking_reasons") or [])
-    body["next_actions"] = [
-        f"Resolve decision-readiness blocker: {_b}" for _b in _fresh_blockers
-    ] or ["Complete all five decision-critical DD checks"]
+    # R-F3116 — same single writer as synthesis; no second wording to drift.
+    _identity0 = body.get("identity") if isinstance(body.get("identity"), dict) else {}
+    _target0 = body.get("target") if isinstance(body.get("target"), dict) else {}
+    _name0 = (_identity0.get("entity_name") or _target0.get("name")
+              or _target0.get("query") or "subject")
+    body["next_actions"] = compose_decision_bluf(readiness, _name0)["next_actions"]
     if str(body.get("risk_classification") or "").upper() != "GREEN":
         return readiness
 
     identity = body.get("identity") if isinstance(body.get("identity"), dict) else {}
     target = body.get("target") if isinstance(body.get("target"), dict) else {}
     name = identity.get("entity_name") or target.get("name") or target.get("query") or "subject"
-    if readiness.get("clearance_ready"):
-        body["bottom_line"] = (
-            f"🟢 GREEN — {name} passes baseline due diligence and all five "
-            "decision-critical questions are answered. Standard contracting path available."
-        )
-        body["recommendation"] = (
-            "Proceed with standard DD. No blocking concerns identified in completed, "
-            "decision-ready evidence."
-        )
-        body["next_actions"] = [
-            "Proceed with standard commercial process",
-            "Apply regular sanctions-list re-screen on contract renewal",
-        ]
-        return readiness
+    _bluf = compose_decision_bluf(readiness, name)
+    body["bottom_line"] = _bluf["bottom_line"]
+    body["recommendation"] = _bluf["recommendation"]
+    body["next_actions"] = _bluf["next_actions"]
+    return readiness
 
     # ── R-F3092 — SAY EACH THING ONCE ───────────────────────────────────────
     #
@@ -10497,6 +10469,80 @@ def _refresh_persisted_decision_readiness(body: dict) -> dict:
 # the question keys `_dd_decision_readiness` emits (dd_schema.py). A restatement of
 # the blocker is not an action: the reader already has the blocker on the scorecard
 # row, and repeating it there taught them the section carried nothing new.
+def compose_decision_bluf(readiness: dict, name: str) -> dict:
+    """R-F3116 — the ONE place that turns a scorecard into the customer's BLUF.
+
+    THE DEFECT, proven by an end-to-end run (Mitie, 2026-07-26). There were TWO BLUF
+    writers: the SYNTHESIS one (dd_orchestrator.py:8295), which runs on every live
+    DD, and `_refresh_persisted_decision_readiness`, which runs only after an
+    adverse-media follow-up merges. R-F3091 (entity scope) and R-F3092 (say each
+    thing once) were applied to the SECOND one — so on a normal DD they never ran at
+    all. The live report still pasted the full blocker text into the bottom line and
+    still emitted `next_actions` as verbatim restatements:
+
+        "Resolve decision-readiness blocker: registry status is 'dissolved'"
+        "Resolve decision-readiness blocker: financial capacity is unknown"
+
+    and `entity_scope` came back None. Two shipped R-numbers, dead on the customer
+    path — the same "protection exists, just not on the path that produces the
+    answer" failure this codebase has hit before, and the same fork the phase gates
+    had to collapse in R-F2639.
+
+    Copying the fix into the second writer would preserve the fork that caused it.
+    So: one pure function, both callers assign what it returns. It computes nothing
+    about risk and decides no verdict — it renders a scorecard that is already final.
+    """
+    questions = readiness.get("questions") if isinstance(readiness.get("questions"), dict) else {}
+    unanswered = [(k, q) for k, q in questions.items()
+                  if isinstance(q, dict) and not q.get("answered")]
+    labels = [str(q.get("label") or k) for k, q in unanswered]
+
+    if readiness.get("clearance_ready"):
+        return {
+            "bottom_line": (
+                f"🟢 GREEN — {name} passes baseline due diligence and all five "
+                "decision-critical questions are answered. Standard contracting path "
+                "available."
+            ),
+            "recommendation": (
+                "Proceed with standard DD. No blocking concerns identified in "
+                "completed, decision-ready evidence."
+            ),
+            "next_actions": [
+                "Proceed with standard commercial process",
+                "Apply regular sanctions-list re-screen on contract renewal",
+            ],
+        }
+
+    open_clause = (
+        "; ".join(labels[:3]) + (f" (+{len(labels) - 3} more)" if len(labels) > 3 else "")
+        if labels else "decision-critical coverage is incomplete"
+    )
+    actions = [_DECISION_REMEDIES[k] for k, _q in unanswered if k in _DECISION_REMEDIES]
+    if not readiness.get("evidence_ready"):
+        actions.append(
+            "Raise evidence grade to A: obtain corroboration from a second independent "
+            "reputable source for the claims currently carried by one source."
+        )
+    uncodified = [str(q.get("label") or k) for k, q in unanswered if k not in _DECISION_REMEDIES]
+    if uncodified:
+        actions.append("Resolve the remaining scorecard item(s): " + "; ".join(uncodified))
+    return {
+        "bottom_line": (
+            f"🟡 NOT CLEARED — {name} has no blocking risk in the checks that "
+            f"completed, but {_coverage_clause(readiness)}. Unresolved: {open_clause}. "
+            "Each is explained on the decision-readiness scorecard. This is not a "
+            "clean bill and the standard contracting path is NOT available."
+        ),
+        "recommendation": (
+            "Do not rely on this report for counterparty clearance. Resolve every item "
+            "in the decision-readiness scorecard, then re-run or obtain independent "
+            "commercial DD."
+        ),
+        "next_actions": actions or ["Complete all five decision-critical DD checks"],
+    }
+
+
 _DECISION_REMEDIES: dict[str, str] = {
     "identity": (
         "Confirm legal identity directly with the companies registry: verify the "

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3114,
+  "next_available": 3121,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25227,6 +25227,69 @@
       "commit_sha": "5b376dd9",
       "notes": null,
       "shipped_at": "2026-07-26T12:48:05Z"
+    },
+    {
+      "r_number": "R-F3114",
+      "title": "eval aggregate scored unmeasured questions as zero not unmeasured",
+      "claimed_at": "2026-07-26T12:50:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3115",
+      "title": "eval runner dropped every golden question on a missing required id",
+      "claimed_at": "2026-07-26T12:59:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3116",
+      "title": "one decision BLUF writer not two forked ones",
+      "claimed_at": "2026-07-26T13:00:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3117",
+      "title": "ambiguous company name must be disclosed not silently picked",
+      "claimed_at": "2026-07-26T13:00:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3118",
+      "title": "risk chip must not read as clearance when NOT_CLEARED",
+      "claimed_at": "2026-07-26T13:00:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3119",
+      "title": "DD search must be Brave-only not Brave-primary-plus-nine",
+      "claimed_at": "2026-07-26T13:06:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3120",
+      "title": "retire stale R-F1660 no-Brave guard superseded by paid Brave primary",
+      "claimed_at": "2026-07-26T13:12:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
