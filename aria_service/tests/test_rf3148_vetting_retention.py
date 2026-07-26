@@ -31,10 +31,11 @@ TENANT = "tenant-a"
 TOKEN = "vetting-retention-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
-UK_PACK = registry.get_exact(
-    "uk_bs7858", "1.1.0",
-    next(p for p in [registry.latest_usable("uk_bs7858")]).content_hash(),
-)
+# R-F3174 — resolve whatever the CURRENT production UK pack is, by its own
+# hash. The old form pinned "1.1.0" against latest_usable()'s hash, which broke
+# the moment v1.2.0 was published — and the PackIntegrityError it raised was the
+# hash check doing its job, not a fault.
+UK_PACK = registry.latest_usable("uk_bs7858")
 
 
 def _case(**kw) -> VettingCase:

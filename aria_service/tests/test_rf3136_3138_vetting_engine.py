@@ -19,6 +19,7 @@ from aria_service.vetting import packs as _packs_pkg  # noqa: F401
 from aria_service.vetting.models import (
     CareerEntry,
     CareerEntryType,
+    DocumentType,
     FinancialFlags,
     Money,
     ScreeningInputs,
@@ -404,3 +405,110 @@ def test_rf3138_duplicate_case_id_is_409(client):
                          params={"user_id": TENANT}, headers=AUTH)
     assert second.status_code == 409
     assert second.json()["detail"]["code"] == "case_exists"
+
+
+# ── R-F3174/R-F3175 — verified against the licensed BS 7858:2019 ─────────
+
+def test_rf3174_uk_pack_v120_is_the_default_for_new_cases():
+    latest = registry.latest_usable("uk_bs7858")
+    assert latest.version == "1.2.0"
+
+
+def test_rf3175_versions_order_numerically_not_lexically():
+    """max() on the raw string picks "1.9.0" over "1.10.0", so the tenth
+    revision of a pack would silently never reach new cases while still being
+    reported PRODUCTION. Nothing fails; the wrong rules quietly stay in force."""
+    from aria_service.vetting.packs.base import PackRegistry
+    key = PackRegistry._version_key
+    assert key("1.10.0") > key("1.9.0")
+    assert key("1.2.0") > key("1.1.0")
+    assert max(["1.9.0", "1.10.0"], key=key) == "1.10.0"
+
+
+def test_rf3174_v110_still_resolves_so_old_cases_replay():
+    """A pack's hash is pinned in every manifest, so 1.2.0 had to be a NEW
+    version rather than an edit — editing 1.1.0 in place would break get_exact
+    for every case already opened under it."""
+    old = registry._packs[("uk_bs7858", "1.1.0")]
+    resolved = registry.get_exact("uk_bs7858", "1.1.0", old.content_hash())
+    assert resolved.version == "1.1.0"
+    assert resolved.max_unverified_gap_days == 31
+
+
+def test_rf3174_the_31_day_limit_is_unchanged():
+    """BS 7858 7.7: "no unverified periods greater than 31 days". The engine
+    flags at 32+, which is exactly that. Recorded as a test so a future reading
+    of "30 days" cannot quietly tighten the standard itself — a stricter house
+    limit belongs in a per-contract setting."""
+    for pack in (registry._packs[("uk_bs7858", "1.1.0")],
+                 registry._packs[("uk_bs7858", "1.2.0")]):
+        assert pack.max_unverified_gap_days == 31
+
+
+def test_rf3174_v120_captures_sia_expiry_and_register_check():
+    """7.3.2 a)8) requires the licence EXPIRY, and 7.4 c)1) requires
+    verification against the SIA public register — not merely sight of the
+    card. The security industry is this module's first sector."""
+    pack = registry._packs[("uk_bs7858", "1.2.0")]
+    fields = {c.field for c in pack.checklist}
+    assert "sia_licence_expiry" in fields
+    assert "sia_register_verified" in fields
+
+
+def test_rf3174_v120_splits_the_seven_public_record_elements():
+    """7.4 f) lists seven required elements. One tick let a partially performed
+    search read as complete."""
+    pack = registry._packs[("uk_bs7858", "1.2.0")]
+    fields = {c.field for c in pack.checklist}
+    for f in ("electoral_roll_confirmed", "linked_addresses_5y_searched",
+              "ccj_iva_searched", "bankruptcy_orders_searched", "aliases_searched"):
+        assert f in fields, f
+
+
+def test_rf3174_two_documentary_items_required_without_a_reference():
+    """7.7 b) — without a direct employer reference the fallback is "two or
+    more different items". The engine accepted one."""
+    from aria_service.vetting.models import UploadedDocument
+    from aria_service.vetting.rules import evidence_findings
+
+    pack = registry._packs[("uk_bs7858", "1.2.0")]
+    entry = CareerEntry(entry_id="e1", entry_type=CareerEntryType.EMPLOYMENT,
+                        start=date(2022, 1, 1), end=date(2023, 1, 1),
+                        organisation="Alpha",
+                        supporting_documents=["d1"])
+    case = VettingCase(
+        tenant_id=TENANT, case_id="EV", applicant_name="T",
+        date_of_birth=date(1990, 1, 1), employment_start=date(2026, 6, 1),
+        career=[entry],
+        documents=[UploadedDocument(document_id="d1", doc_type=DocumentType.PAYSLIP)])
+    codes = {f.code for f in evidence_findings(case, pack, AS_OF)}
+    assert "EVIDENCE_INSUFFICIENT" in codes, (
+        "one payslip and no reference must not satisfy a period")
+
+    # A second, DIFFERENT item satisfies it.
+    entry2 = entry.model_copy(update={"supporting_documents": ["d1", "d2"]})
+    case2 = case.model_copy(update={
+        "career": [entry2],
+        "documents": [*case.documents,
+                      UploadedDocument(document_id="d2", doc_type=DocumentType.P60)]})
+    assert "EVIDENCE_INSUFFICIENT" not in {
+        f.code for f in evidence_findings(case2, pack, AS_OF)}
+
+
+def test_rf3174_a_direct_reference_stands_alone():
+    """A reference from the employer is the primary route and needs no second
+    item — the two-item rule is the FALLBACK when a reference cannot be got."""
+    from aria_service.vetting.models import UploadedDocument
+    from aria_service.vetting.rules import evidence_findings
+
+    pack = registry._packs[("uk_bs7858", "1.2.0")]
+    case = VettingCase(
+        tenant_id=TENANT, case_id="EV2", applicant_name="T",
+        date_of_birth=date(1990, 1, 1), employment_start=date(2026, 6, 1),
+        career=[CareerEntry(entry_id="e1", entry_type=CareerEntryType.EMPLOYMENT,
+                            start=date(2022, 1, 1), end=date(2023, 1, 1),
+                            organisation="Alpha", supporting_documents=["r1"])],
+        documents=[UploadedDocument(document_id="r1",
+                                    doc_type=DocumentType.EMPLOYER_REFERENCE)])
+    assert "EVIDENCE_INSUFFICIENT" not in {
+        f.code for f in evidence_findings(case, pack, AS_OF)}

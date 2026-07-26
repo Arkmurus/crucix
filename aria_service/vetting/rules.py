@@ -164,6 +164,25 @@ def evidence_findings(case: VettingCase, pack: ScreeningPack, as_of: date) -> li
                 f"({e.start.isoformat()}-{(e.end or as_of).isoformat()}): no "
                 f"accepted evidence attached yet. Acceptable: {wanted}.",
                 entry_id=e.entry_id))
+            continue
+
+        # R-F3174 — BS 7858 7.7 b): a direct reference from the employer stands
+        # alone, but where one cannot be obtained the fallback is "two or more
+        # DIFFERENT items" of documentary evidence. Accepting a single payslip
+        # in place of a reference builds a thinner file than the standard asks
+        # for, and it is the substitution most likely to be made under time
+        # pressure.
+        minimum = pack.min_documentary_items_without_reference
+        direct = set(pack.direct_reference_documents)
+        if minimum > 1 and accepted and not (have & direct) and len(have) < minimum:
+            out.append(Finding(
+                "EVIDENCE_INSUFFICIENT", Severity.ACTION, ref,
+                f"'{e.organisation or e.entry_type.value}' "
+                f"({e.start.isoformat()}-{(e.end or as_of).isoformat()}): "
+                f"{len(have)} documentary item(s) on file and no direct "
+                f"reference. Without a reference this period needs at least "
+                f"{minimum} different items of evidence.",
+                entry_id=e.entry_id))
     return out
 
 

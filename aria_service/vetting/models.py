@@ -155,6 +155,34 @@ class ScreeningInputs(BaseModel):
     interview_done: bool = False
     criminality_route: DocumentType | None = None
 
+    # ── R-F3174: verified against BS 7858:2019 clause by clause ───────────
+    # Added after checking the pack against the licensed standard rather than
+    # against memory. Each field maps to a specific requirement that the old
+    # checklist either omitted or collapsed into a single tick.
+    #
+    # 7.3.2 a)8) — SIA licence NUMBER *and expiry date*. The number alone was
+    # captured; an expired licence is a live compliance failure in the security
+    # industry, which is the first sector this module serves.
+    sia_licence_expiry: date | None = None
+    # 7.4 c)1) — a licence holder's licence must be verified against the SIA
+    # public register, and a copy of the register search result retained.
+    # Seeing the card is not the check; the register is.
+    sia_register_verified: bool = False
+
+    # 7.4 f) — the public-record search is SEVEN required elements. One boolean
+    # let an officer tick "done" with only some of them performed, which is the
+    # collapse-to-a-single-tick pattern this module exists to avoid.
+    electoral_roll_confirmed: bool = False
+    linked_addresses_5y_searched: bool = False
+    ccj_iva_searched: bool = False
+    bankruptcy_orders_searched: bool = False
+    aliases_searched: bool = False
+
+    # 7.4 c) and d) — the standard requires a record of WHO examined and copied
+    # the original identity and address documents, not merely that it happened.
+    identity_examined_by: str = ""
+    address_examined_by: str = ""
+
 
 class CaseManifest(BaseModel):
     """Pins the exact rules a case is governed by. Immutable once set;

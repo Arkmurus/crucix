@@ -75,6 +75,15 @@ class ScreeningPack(BaseModel):
     checklist: list[ChecklistSpec] = Field(default_factory=list)
     accepted_evidence: dict[CareerEntryType, list[DocumentType]] = Field(default_factory=dict)
     evidence_references: dict[CareerEntryType, str] = Field(default_factory=dict)
+    # R-F3174 — BS 7858 7.7 b): where a previous employer cannot confirm a
+    # period, the fallback is "two or more different items" of documentary
+    # evidence. The engine previously accepted ONE, which is a weaker file than
+    # the standard asks for. Set per pack because it is a rule of the framework,
+    # not a house preference.
+    min_documentary_items_without_reference: int = 1
+    # Evidence that IS a direct reference, and therefore stands alone.
+    direct_reference_documents: list[DocumentType] = Field(default_factory=list)
+
     criminality_routes: list[DocumentType] = Field(default_factory=list)
     criminality_reference: str = ""
     signoff_triggers: list[SignoffTrigger] = Field(default_factory=list)
@@ -167,6 +176,22 @@ class PackRegistry:
                 f"{pack_id} v{version}: stored hash does not match manifest hash"
             )
         return pack
+
+    @staticmethod
+    def _version_key(version: str) -> tuple:
+        """R-F3175 — order versions NUMERICALLY, not as strings.
+
+        `max()` on the raw string picks "1.9.0" over "1.10.0", so the tenth
+        revision of a pack would silently never be issued to new cases while
+        the registry still reported it as PRODUCTION. Nothing would fail; the
+        wrong rules would just quietly stay in force — the worst shape of bug
+        for a compliance threshold.
+        """
+        parts = []
+        for chunk in str(version).split("."):
+            digits = "".join(c for c in chunk if c.isdigit())
+            parts.append(int(digits) if digits else 0)
+        return tuple(parts)
 
     def latest_usable(self, pack_id: str) -> ScreeningPack:
         """For NEW cases only: the newest PRODUCTION version. Existing cases

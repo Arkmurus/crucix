@@ -138,5 +138,63 @@ PT_GENERIC_DRAFT = ScreeningPack(
 # must survive a double import (see PackRegistry.ensure_registered). Identical
 # re-registration is a no-op; a CHANGED pack under an existing version still
 # raises, so version immutability is unaffected.
-for _p in (UK_BS7858, INTL_BASELINE, PT_GENERIC_DRAFT):
+# ── R-F3174: UK pack v1.2.0 — verified clause-by-clause against BS 7858:2019 ──
+#
+# Published as a NEW VERSION rather than an edit to 1.1.0. A pack's content hash
+# is pinned in every case manifest, so editing a released pack in place would
+# break `get_exact` for every existing case — replay is the whole reason the
+# hash is there. Cases opened under 1.1.0 stay on 1.1.0 and remain reproducible;
+# new cases get 1.2.0.
+#
+# What the clause-by-clause check against the licensed standard found:
+#   7.3.2 a)8)  SIA licence EXPIRY was not captured (only the number).
+#   7.4  c)1)   Verification against the SIA public register was absent — the
+#               standard requires the register check and a retained copy of the
+#               result, not merely sight of the licence.
+#   7.4  f)     The public-record search is SEVEN elements; the pack had one
+#               tick, so a partially-performed search could read as complete.
+#   7.4  c)/d)  The standard requires a record of WHO examined the original
+#               identity and address documents.
+#   7.7  b)     Without a direct employer reference, TWO OR MORE different
+#               documentary items are required; the engine accepted one.
+#
+# NOT changed: the 31-day unverified-period limit. The standard says "no
+# unverified periods greater than 31 days" (7.7), and the engine flags at 32+,
+# which is exactly that. A stricter house limit is a per-contract setting, not a
+# correction to the pack.
+UK_BS7858_V120 = UK_BS7858.model_copy(update={
+    "version": "1.2.0",
+    "checklist": _COMMON_CHECKLIST + [
+        ChecklistSpec(field="address_history_5y", label="Five-year address history", reference="7.3.2 a)4)"),
+        ChecklistSpec(field="ni_number", label="National Insurance number", reference="7.3.2 a)6)"),
+        ChecklistSpec(field="sia_licence_expiry", label="SIA licence expiry date recorded (if licence held)", reference="7.3.2 a)8)"),
+        ChecklistSpec(field="sia_register_verified", label="SIA licence verified against the public register, result retained", reference="7.4 c)1)"),
+        ChecklistSpec(field="identity_examined_by", label="Who examined the original identity document", reference="7.4 c)"),
+        ChecklistSpec(field="address_examined_by", label="Who examined the original address document", reference="7.4 d)"),
+        ChecklistSpec(field="convictions_declared", label="Convictions/cautions declaration", reference="7.3.2 c)"),
+        ChecklistSpec(field="financial_history_declared", label="Bankruptcy/CCJ/IVA declaration", reference="7.3.2 d)"),
+        ChecklistSpec(field="misrepresentation_ack_signed", label="Misrepresentation acknowledgement", reference="7.3.2 e)"),
+        ChecklistSpec(field="interview_done", label="Interview before any offer", reference="7.3.4"),
+        # 7.4 f) — the seven required elements, each answerable on its own.
+        ChecklistSpec(field="public_record_search_done", label="Public record search via credit reference agency", reference="7.4 f)"),
+        ChecklistSpec(field="electoral_roll_confirmed", label="Electoral roll listing confirmed (or alternative evidence)", reference="7.4 f)1)-2)"),
+        ChecklistSpec(field="linked_addresses_5y_searched", label="Linked addresses searched for the previous five years", reference="7.4 f)3)"),
+        ChecklistSpec(field="ccj_iva_searched", label="CCJs and IVAs searched", reference="7.4 f)4)"),
+        ChecklistSpec(field="bankruptcy_orders_searched", label="Bankruptcy orders searched", reference="7.4 f)5)"),
+        ChecklistSpec(field="aliases_searched", label="Aliases searched", reference="7.4 f)6)"),
+    ],
+    # 7.7 b) — two or more different items where no direct reference exists.
+    "min_documentary_items_without_reference": 2,
+    "direct_reference_documents": [
+        D.EMPLOYER_REFERENCE, D.EDUCATION_REFERENCE, D.ACCOUNTANT_REFERENCE,
+        D.DWP_CONFIRMATION,
+    ],
+    "source_references": [
+        "BS 7858:2019 (licensed copy required per customer)",
+        "Verified clause-by-clause 2026-07-26: 7.3.2, 7.4, 7.6, 7.7",
+    ],
+})
+
+
+for _p in (UK_BS7858, UK_BS7858_V120, INTL_BASELINE, PT_GENERIC_DRAFT):
     registry.ensure_registered(_p)

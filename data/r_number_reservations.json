@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3174,
+  "next_available": 3177,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25758,9 +25758,10 @@
       "title": "sanctions screen refuses any company name ending in a lowercase legal form (plc/ltd/bv/gmbh)",
       "claimed_at": "2026-07-26T20:18:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "38f3b31a",
+      "notes": null,
+      "shipped_at": "2026-07-26T21:08:43Z"
     },
     {
       "r_number": "R-F3167",
@@ -25820,6 +25821,34 @@
       "r_number": "R-F3173",
       "title": "BLUF malformed and misleading when all five questions answered but evidence grade below A",
       "claimed_at": "2026-07-26T20:55:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "38f3b31a",
+      "notes": null,
+      "shipped_at": "2026-07-26T21:08:43Z"
+    },
+    {
+      "r_number": "R-F3174",
+      "title": "BS7858 gap threshold: 31-day unverified span passed silently — UK pack v1.2.0 at 30 days",
+      "claimed_at": "2026-07-26T21:11:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3175",
+      "title": "pack registry: latest_usable compared versions as strings (1.10.0 < 1.9.0)",
+      "claimed_at": "2026-07-26T21:11:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3176",
+      "title": "vetting: outstanding-items surface replacing the manual Verification Progress Sheet",
+      "claimed_at": "2026-07-26T21:11:57Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
