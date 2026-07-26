@@ -4071,7 +4071,7 @@ async def lifespan(app: FastAPI):
         from .intel.portal_registry import PORTALS
         vault = get_vault()
         stats = vault.stats()
-        if stats.get("total", 0) == 0:
+        if stats.get("total", 0) == 0 and vault.is_auto_seed_enabled():
             # R-F1482: method is import_open_portals, not import_from_portal_registry
             count = vault.import_open_portals(PORTALS, agent_id="system")
             logger.info(
@@ -4085,23 +4085,29 @@ async def lifespan(app: FastAPI):
                     "[R-F1444] Marked %d open portals as registered (no signup needed)",
                     open_count,
                 )
-        else:
+        elif stats.get("total", 0) > 0:
             logger.debug(
                 "[R-F1253] Agent signup vault already has %d entries — skipping import",
                 stats["total"],
             )
+        else:
+            logger.info(
+                "[R-F3094] Agent signup vault is empty after an operator clear — "
+                "boot-time portal import remains disabled"
+            )
 
         # R-F1444: fire-and-forget auto-registration for pending portals
-        try:
-            from .intel.portal_registry import auto_register_all as _auto_reg
-            # R-F1447: use the module-level asyncio (line 14). A bare local
-            # `import asyncio` here made asyncio function-local for the WHOLE
-            # lifespan(), so the earlier asyncio.create_task at line ~450
-            # raised UnboundLocalError -> lifespan startup failed -> the app
-            # never bound :8000 -> deploy failed / OUTAGE. Same class as R-F1441.
-            _bg_task(asyncio.create_task(_delayed_auto_register(_auto_reg), name="portal_auto_register"))
-        except Exception as _reg_e:
-            logger.warning("[R-F1444] Auto-registration launch failed (non-fatal): %s", _reg_e)
+        if vault.is_auto_seed_enabled():
+            try:
+                from .intel.portal_registry import auto_register_all as _auto_reg
+                # R-F1447: use the module-level asyncio (line 14). A bare local
+                # `import asyncio` here made asyncio function-local for the WHOLE
+                # lifespan(), so the earlier asyncio.create_task at line ~450
+                # raised UnboundLocalError -> lifespan startup failed -> the app
+                # never bound :8000 -> deploy failed / OUTAGE. Same class as R-F1441.
+                _bg_task(asyncio.create_task(_delayed_auto_register(_auto_reg), name="portal_auto_register"))
+            except Exception as _reg_e:
+                logger.warning("[R-F1444] Auto-registration launch failed (non-fatal): %s", _reg_e)
 
     except Exception as _vault_e:
         logger.warning("[R-F1253] Vault auto-population failed (non-fatal): %s", _vault_e)

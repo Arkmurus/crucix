@@ -86,6 +86,22 @@
           <input id="add-src-type" type="hidden" value="website">
         </div>
         <div class="sc-mod-hint"><i class="bi bi-stars"></i><span>News Monitor reads unique Website/RSS additions as <b>vault_curated</b> intel. Existing ARIA catalogue sources are blocked to avoid duplicated signal.</span></div>
+        <div class="sc-mod-field">
+          <label>Topics / region <span class="opt">(required)</span></label>
+          <input id="add-src-topics" type="text" placeholder="e.g. sanctions, africa, naval">
+        </div>
+        <div class="sc-mod-field">
+          <label>Research summary <span class="opt">(required, 80+ characters)</span></label>
+          <textarea id="add-src-research" rows="3" placeholder="Publisher, provenance, update cadence, access limits, and evidence quality…"></textarea>
+        </div>
+        <div class="sc-mod-field">
+          <label>Relevance rationale <span class="opt">(required, 40+ characters)</span></label>
+          <textarea id="add-src-relevance" rows="2" placeholder="The intelligence gap this fills and why existing sources do not cover it…"></textarea>
+        </div>
+        <div class="sc-mod-field">
+          <label>Independent evidence URLs <span class="opt">(required, two or more)</span></label>
+          <textarea id="add-src-evidence" rows="2" placeholder="One https:// URL per line"></textarea>
+        </div>
       </div>
       <div class="sc-mod-foot">
         <button type="button" class="sc-btn sc-btn-outline" id="add-src-cancel">Cancel</button>
@@ -758,16 +774,41 @@ setInterval(loadAdversarial, 5 * 60 * 1000);
     var name = document.getElementById('add-src-name').value.trim();
     var url = document.getElementById('add-src-url').value.trim();
     var type = document.getElementById('add-src-type').value;
+    var topics = document.getElementById('add-src-topics').value.trim();
+    var research = document.getElementById('add-src-research').value.trim();
+    var relevance = document.getElementById('add-src-relevance').value.trim();
+    var evidence = document.getElementById('add-src-evidence').value.split(/\r?\n/).map(function (v) { return v.trim(); }).filter(Boolean);
     if (errEl) errEl.style.display = 'none';
     if (!name || !url) { if (errEl) { errEl.textContent = 'Name and URL are required.'; errEl.style.display = 'block'; } return; }
     if (!/^https?:\/\//i.test(url)) { if (errEl) { errEl.textContent = 'URL must start with http:// or https://'; errEl.style.display = 'block'; } return; }
+    if (!topics || research.length < 80 || relevance.length < 40 || evidence.length < 2) {
+      if (errEl) {
+        errEl.textContent = 'Research gate: add topics, an 80+ character research summary, a 40+ character relevance rationale, and at least two independent evidence URLs.';
+        errEl.style.display = 'block';
+      }
+      return;
+    }
     submit.disabled = true; submit.innerHTML = '<i class="bi bi-hourglass-split"></i> Adding…';
-    var body = { site_id: slugId(name, url), site_name: name, site_url: url, agent_id: 'admin_manual', site_type: type, status: 'verified' };
+    var body = {
+      site_id: slugId(name, url), site_name: name, site_url: url,
+      agent_id: 'admin_manual', site_type: type, status: 'pending',
+      notes: relevance,
+      metadata: {
+        topics: topics.split(',').map(function (v) { return v.trim(); }).filter(Boolean),
+        research_summary: research,
+        relevance_rationale: relevance,
+        evidence_urls: evidence,
+        research_method: 'operator_deep_research'
+      }
+    };
     var res = await API.post('/api/aria/vault', body);
     submit.disabled = false; submit.innerHTML = '<i class="bi bi-plus-lg"></i> Add source';
     if (res.ok && res.data && res.data.success) {
       document.getElementById('add-src-name').value = '';
       document.getElementById('add-src-url').value = '';
+      ['add-src-topics', 'add-src-research', 'add-src-relevance', 'add-src-evidence'].forEach(function (id) {
+        document.getElementById(id).value = '';
+      });
       closeM();
       if (window.Toast) {
         var msg = res.data.duplicate

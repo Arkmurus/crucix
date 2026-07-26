@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS vault_meta (
 );
 
 INSERT OR IGNORE INTO vault_meta (key, value) VALUES ('schema_version', '1');
+INSERT OR IGNORE INTO vault_meta (key, value) VALUES ('auto_seed_enabled', '1');
 """
 
 # ── Vault class ───────────────────────────────────────────────────────
@@ -525,18 +526,39 @@ class AgentSignupVault:
 
         keep_portals=True preserves auto-discovered `portal` entries (which need
         credentials and aren't manual data points); default clears everything.
+
+        R-F3094: a full operator clear also disables the boot-time portal seed.
+        Without the durable marker, the next restart silently restored every row
+        the operator had just removed.
         """
         conn = self._get_conn()
         if keep_portals:
             cursor = conn.execute("DELETE FROM signups WHERE site_type != 'portal'")
         else:
             cursor = conn.execute("DELETE FROM signups")
+            conn.execute(
+                """INSERT INTO vault_meta (key, value) VALUES ('auto_seed_enabled', '0')
+                   ON CONFLICT(key) DO UPDATE SET value = excluded.value"""
+            )
         conn.commit()
         n = int(cursor.rowcount or 0)
+        _wire_success("agent_signup_vault.cleared", {
+            "deleted": n,
+            "keep_portals": keep_portals,
+            "auto_seed_enabled": keep_portals,
+        })
         if n:
-            _wire_success("agent_signup_vault.cleared", {"deleted": n, "keep_portals": keep_portals})
             _notify_agents("signup_cleared", f"count={n}")
         return n
+
+    @fail_wire(module="agent_signup_vault", gap_type="registry_lookup")
+    def is_auto_seed_enabled(self) -> bool:
+        """Return whether an empty vault may be repopulated from portal defaults."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT value FROM vault_meta WHERE key = 'auto_seed_enabled'"
+        ).fetchone()
+        return row is None or str(row["value"]).strip() != "0"
 
     # ── Statistics ─────────────────────────────────────────────────────
 

@@ -28094,21 +28094,62 @@ async def sources_health_ep() -> dict:
 
 def _normalise_vault_source_url(url: str) -> str:
     """Return a stable comparison key for vault/source-monitor URLs."""
-    from urllib.parse import urlparse, urlunparse
+    from urllib.parse import parse_qsl, urlencode, urlparse
 
     raw = (url or "").strip()
     if not raw:
         return ""
     parsed = urlparse(raw)
-    scheme = (parsed.scheme or "https").lower()
     host = (parsed.hostname or "").lower()
     port = parsed.port
-    if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
+    if port and port not in {80, 443}:
         host = f"{host}:{port}"
-    path = parsed.path or ""
-    if path != "/":
-        path = path.rstrip("/")
-    return urlunparse((scheme, host, path, "", parsed.query, ""))
+    path = (parsed.path or "/").rstrip("/") or "/"
+    query = urlencode(sorted(
+        (key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if not key.lower().startswith("utm_")
+    ))
+    return f"{host}{path}" + (f"?{query}" if query else "")
+
+
+def _validate_manual_source_research(metadata: Any) -> str | None:
+    """Return a precise admission error when a manual source lacks research."""
+    from urllib.parse import urlparse
+
+    if not isinstance(metadata, dict):
+        return "research metadata is required"
+    raw_topics = metadata.get("topics")
+    raw_evidence = metadata.get("evidence_urls")
+    if not isinstance(raw_topics, list):
+        return "topics must be a list"
+    if not isinstance(raw_evidence, list):
+        return "evidence_urls must be a list"
+    topics = [str(v).strip() for v in raw_topics if str(v).strip()]
+    summary = str(metadata.get("research_summary") or "").strip()
+    rationale = str(metadata.get("relevance_rationale") or "").strip()
+    evidence = [
+        str(v).strip() for v in raw_evidence
+        if str(v).strip()
+    ]
+    if not topics:
+        return "at least one relevance topic is required"
+    if len(summary) < 80:
+        return "research_summary must be at least 80 characters"
+    if len(rationale) < 40:
+        return "relevance_rationale must be at least 40 characters"
+    evidence_hosts = {
+        (urlparse(value).hostname or "").lower().removeprefix("www.")
+        for value in evidence
+    }
+    evidence_hosts.discard("")
+    if len(evidence_hosts) < 2:
+        return "evidence URLs must cover at least two independent domains"
+    from ..intel import security as _sec
+    for evidence_url in evidence:
+        ok, why = _sec.validate_url(evidence_url)
+        if not ok:
+            return f"unsafe evidence URL: {why}"
+    return None
 
 
 def _vault_ingestion_contract(site_type: str) -> dict[str, Any]:
@@ -28238,6 +28279,14 @@ async def vault_record_ep(request: Request) -> dict:
     ok, why = _sec.validate_url(site_url)
     if not ok:
         return {"success": False, "error": f"unsafe URL: {why}"}
+    if agent_id == "admin_manual":
+        research_error = _validate_manual_source_research(body.get("metadata"))
+        if research_error:
+            return {
+                "success": False,
+                "admission_gate": "research",
+                "error": f"Source rejected by research gate: {research_error}",
+            }
     monitor_duplicate = _find_source_monitor_duplicate(site_url)
     if monitor_duplicate:
         return {
@@ -28258,6 +28307,15 @@ async def vault_record_ep(request: Request) -> dict:
             **_vault_ingestion_contract(vault_duplicate.get("site_type", site_type)),
         }
     try:
+        requested_status = body.get("status", "pending")
+        # A research review proves admission quality, not live reachability.
+        # News Monitor promotes Website/RSS rows to verified only after a real
+        # successful fetch (_reset_vault_failstreak).
+        effective_status = (
+            "pending"
+            if agent_id == "admin_manual" and site_type in {"website", "rss"}
+            else requested_status
+        )
         entry = vault.record(
             site_id=site_id,
             site_name=site_name,
@@ -28265,7 +28323,7 @@ async def vault_record_ep(request: Request) -> dict:
             agent_id=agent_id,
             site_type=site_type,
             agent_type=body.get("agent_type", "dd"),
-            status=body.get("status", "pending"),
+            status=effective_status,
             credential_ref=body.get("credential_ref"),
             notes=body.get("notes"),
             metadata=body.get("metadata"),

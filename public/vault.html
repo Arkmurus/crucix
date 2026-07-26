@@ -66,12 +66,20 @@
           <input id="as-cred" type="text" autocomplete="off" placeholder="API key, token, or login reference">
         </div>
         <div class="sc-mod-field">
-          <label>Topics / region <span class="opt">(optional, improves relevance)</span></label>
+          <label>Topics / region <span class="opt">(required)</span></label>
           <input id="as-topics" type="text" placeholder="e.g. sanctions, africa, naval">
         </div>
         <div class="sc-mod-field">
-          <label>Notes <span class="opt">(optional)</span></label>
-          <textarea id="as-notes" rows="2" placeholder="Why this source is relevant…"></textarea>
+          <label>Research summary <span class="opt">(required, 80+ characters)</span></label>
+          <textarea id="as-research-summary" rows="3" placeholder="What the source publishes, who owns it, update cadence, access limits, and evidence quality…"></textarea>
+        </div>
+        <div class="sc-mod-field">
+          <label>Relevance rationale <span class="opt">(required, 40+ characters)</span></label>
+          <textarea id="as-relevance" rows="2" placeholder="Which ARIA intelligence decision this source improves, and why existing sources do not cover it…"></textarea>
+        </div>
+        <div class="sc-mod-field">
+          <label>Independent evidence URLs <span class="opt">(required, two or more)</span></label>
+          <textarea id="as-evidence" rows="2" placeholder="One https:// URL per line"></textarea>
         </div>
       </div>
       <div class="sc-mod-foot">
@@ -499,7 +507,7 @@ setInterval(loadRegistryCoverage, 60000);
   function defaultStatusForType(siteType) {
     if (siteType === 'api') return 'open_api';
     if (siteType === 'portal') return 'needs_operator';
-    return 'verified';
+    return 'pending';
   }
 
   document.getElementById('as-submit').addEventListener('click', async () => {
@@ -507,12 +515,19 @@ setInterval(loadRegistryCoverage, 60000);
     const url = document.getElementById('as-url').value.trim();
     const site_type = document.getElementById('as-type').value;
     const status = defaultStatusForType(site_type);
-    const notes = document.getElementById('as-notes').value.trim();
+    const research_summary = document.getElementById('as-research-summary').value.trim();
+    const relevance_rationale = document.getElementById('as-relevance').value.trim();
+    const evidence_urls = document.getElementById('as-evidence').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
     const cred = document.getElementById('as-cred').value.trim();          // R-F2052
     const topics = document.getElementById('as-topics').value.trim();      // R-F2052
     errEl.style.display = 'none';
     if (!name || !url) { errEl.textContent = 'Site name and URL are required.'; errEl.style.display = 'block'; return; }
     if (!/^https?:\/\//i.test(url)) { errEl.textContent = 'URL must start with http:// or https://'; errEl.style.display = 'block'; return; }
+    if (!topics || research_summary.length < 80 || relevance_rationale.length < 40 || evidence_urls.length < 2) {
+      errEl.textContent = 'Research gate: add topics, an 80+ character research summary, a 40+ character relevance rationale, and at least two independent evidence URLs.';
+      errEl.style.display = 'block';
+      return;
+    }
     const btn = document.getElementById('as-submit');
     btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Adding…';
     const body = {
@@ -520,17 +535,24 @@ setInterval(loadRegistryCoverage, 60000);
       site_name: name,
       site_url: url,
       agent_id: 'admin_manual',   // R-F2048: admin/dev-added entries
-      site_type, status, notes,
+      site_type, status,
+      notes: relevance_rationale,
+      metadata: {
+        topics: topics.split(',').map(t => t.trim()).filter(Boolean),
+        research_summary,
+        relevance_rationale,
+        evidence_urls,
+        research_method: 'operator_deep_research',
+      },
     };
     // R-F2052 — API key / credential for sites needing authenticated access
     // (maps to the vault's credential_ref) + optional relevance topics.
     if (cred) body.credential_ref = cred;
-    if (topics) body.metadata = { topics: topics.split(',').map(t => t.trim()).filter(Boolean) };
     const res = await API.post('/api/aria/vault', body);
     btn.disabled = false; btn.innerHTML = '<i class="bi bi-plus-lg"></i> Add to vault';
     if (res.ok && res.data && res.data.success) {
       // R-F2052 — clear the form so the next open is fresh
-      ['as-name', 'as-url', 'as-cred', 'as-topics', 'as-notes'].forEach(id => { document.getElementById(id).value = ''; });
+      ['as-name', 'as-url', 'as-cred', 'as-topics', 'as-research-summary', 'as-relevance', 'as-evidence'].forEach(id => { document.getElementById(id).value = ''; });
       close();
       if (window.Toast) {
         const msg = res.data.duplicate

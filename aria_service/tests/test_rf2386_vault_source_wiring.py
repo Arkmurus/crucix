@@ -52,6 +52,20 @@ def _body(url: str = "https://new.example.com/feed.xml", site_type: str = "rss")
         "site_type": site_type,
         "agent_id": "admin_manual",
         "status": "verified",
+        "metadata": {
+            "topics": ["sanctions", "defence"],
+            "research_summary": (
+                "Independent review established the publisher, update cadence, "
+                "primary-source basis, access model, limitations, and provenance."
+            ),
+            "relevance_rationale": (
+                "This fills a documented intelligence gap not covered by existing sources."
+            ),
+            "evidence_urls": [
+                "https://evidence-one.example.org/methodology",
+                "https://evidence-two.example.net/review",
+            ],
+        },
     }
 
 
@@ -71,6 +85,40 @@ def test_vault_record_rejects_builtin_source_monitor_duplicate(monkeypatch):
     assert out["duplicate"] is True
     assert out["duplicate_scope"] == "aria_source_monitor"
     assert "Built In" in out["error"]
+    assert vault.record_calls == []
+
+
+def test_vault_record_rejects_source_monitor_variant(monkeypatch):
+    """Scheme, trailing slash, tracking and query order cannot bypass dedup."""
+    vault = _Vault()
+    monkeypatch.setattr("aria_service.intel.agent_signup_vault.get_vault", lambda: vault)
+    monkeypatch.setattr("aria_service.intel.security.validate_url", lambda _url: (True, "OK"))
+    monkeypatch.setattr(
+        "aria_service.intel.news_monitor.NEWS_SOURCES",
+        [("Built In", "http://feeds.example.com/rss?a=1&b=2", "defence_global", "en", "tier_1b", ["defence"])],
+    )
+    body = _body(url="https://feeds.example.com/rss/?utm_source=x&b=2&a=1")
+
+    out = asyncio.run(routes.vault_record_ep(_Req(body)))
+
+    assert out["success"] is False
+    assert out["duplicate_scope"] == "aria_source_monitor"
+    assert vault.record_calls == []
+
+
+def test_vault_record_rejects_unresearched_manual_source(monkeypatch):
+    """The real POST path blocks a relevant-looking but unresearched data point."""
+    vault = _Vault()
+    monkeypatch.setattr("aria_service.intel.agent_signup_vault.get_vault", lambda: vault)
+    monkeypatch.setattr("aria_service.intel.security.validate_url", lambda _url: (True, "OK"))
+    body = _body()
+    body["metadata"] = {"topics": ["defence"]}
+
+    out = asyncio.run(routes.vault_record_ep(_Req(body)))
+
+    assert out["success"] is False
+    assert out["admission_gate"] == "research"
+    assert "research gate" in out["error"]
     assert vault.record_calls == []
 
 
@@ -113,6 +161,7 @@ def test_vault_record_reports_ingestion_contract_for_new_feed(monkeypatch):
     assert out["ingestion_enabled"] is True
     assert out["output"] == "news_monitor.vault_curated"
     assert vault.record_calls[0]["site_type"] == "rss"
+    assert vault.record_calls[0]["status"] == "pending"
 
 
 def test_vault_record_reports_catalogue_contract_for_portal(monkeypatch):
@@ -142,8 +191,15 @@ def test_vault_and_sources_pages_keep_buttons_wired_to_vault_api():
     assert 'id="btn-add-site"' in vault_html
     assert "API.post('/api/aria/vault', body)" in vault_html
     assert "defaultStatusForType(site_type)" in vault_html
+    assert "Source rejected by research gate" not in vault_html
+    assert 'id="as-research-summary"' in vault_html
+    assert 'id="as-relevance"' in vault_html
+    assert 'id="as-evidence"' in vault_html
 
     assert 'id="btn-add-intel-source"' in sources_html
     assert "API.post('/api/aria/vault', body)" in sources_html
     assert "Source added to vault-curated News Monitor" in sources_html
     assert "Add &amp; start ingesting" not in sources_html
+    assert 'id="add-src-research"' in sources_html
+    assert 'id="add-src-relevance"' in sources_html
+    assert 'id="add-src-evidence"' in sources_html

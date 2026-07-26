@@ -22,6 +22,7 @@ def test_delete_all_clears_everything():
     n = v.delete_all()
     assert n == 2
     assert v.list(limit=100) == []
+    assert v.is_auto_seed_enabled() is False
 
 
 def test_delete_all_keep_portals():
@@ -32,11 +33,13 @@ def test_delete_all_keep_portals():
     assert n == 1
     rows = v.list(limit=100)
     assert len(rows) == 1 and rows[0]["site_type"] == "portal"
+    assert v.is_auto_seed_enabled() is True
 
 
 def test_delete_all_empty_vault_is_zero():
     v = _vault()
     assert v.delete_all() == 0
+    assert v.is_auto_seed_enabled() is False
 
 
 if __name__ == "__main__":

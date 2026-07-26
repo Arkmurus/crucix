@@ -101,7 +101,7 @@ describe('R-F2389 full public web smoke guard', () => {
       "fetch('/api/aria/adversarial/run_weekly'",
       "var addBtn = document.getElementById('btn-add-intel-source')",
       "API.post('/api/aria/vault', body)",
-      "site_type: type, status: 'verified'",
+      "site_type: type, status: 'pending'",
     ]);
     assert.ok(
       !/API\.post\('\/api\/aria\/sources\/uptime'/.test(html),
