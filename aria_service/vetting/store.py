@@ -79,6 +79,20 @@ CREATE TABLE IF NOT EXISTS vetting_case_keys (
     created_at  TEXT NOT NULL,
     PRIMARY KEY (tenant_id, case_id)
 );
+
+-- R-F3158 — the tenant's Art. 10 position for criminal-offence data: which
+-- DPA 2018 Sch. 1 condition is relied on, and the appropriate policy document
+-- that condition requires (Sch. 1 Pt 4 para 5). One row per tenant; absence
+-- means criminal-offence data may not be held for that tenant at all.
+CREATE TABLE IF NOT EXISTS vetting_art10_positions (
+    tenant_id        TEXT PRIMARY KEY,
+    condition_code   TEXT NOT NULL,
+    apd_reference    TEXT NOT NULL DEFAULT '',
+    apd_review_date  TEXT,
+    dpia_reference   TEXT NOT NULL DEFAULT '',
+    determined_by    TEXT NOT NULL DEFAULT '',
+    recorded_at      TEXT NOT NULL
+);
 """
 _SCHEMA_LOCK = threading.Lock()
 
@@ -291,6 +305,66 @@ class VettingCaseStore:
                 (tenant_id, case_id),
             ).fetchone()
         return bytes(row["case_key"]) if row is not None else None
+
+    # ── R-F3158: the tenant's Art. 10 position ────────────────────────────
+    def set_art10_position(self, position) -> None:
+        """Record (or replace) this tenant's criminal-offence-data position."""
+        from .legal_basis import Art10Position
+
+        if not isinstance(position, Art10Position):
+            raise TypeError("position must be an Art10Position")
+        if not position.tenant_id:
+            raise CasePersistenceError("tenant required")
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO vetting_art10_positions (tenant_id, condition_code, "
+                "apd_reference, apd_review_date, dpia_reference, determined_by, "
+                "recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(tenant_id) DO UPDATE SET "
+                "condition_code=excluded.condition_code, "
+                "apd_reference=excluded.apd_reference, "
+                "apd_review_date=excluded.apd_review_date, "
+                "dpia_reference=excluded.dpia_reference, "
+                "determined_by=excluded.determined_by, "
+                "recorded_at=excluded.recorded_at",
+                (position.tenant_id, position.condition.value,
+                 position.apd_reference,
+                 position.apd_review_date.isoformat() if position.apd_review_date else None,
+                 position.dpia_reference, position.determined_by, _now_iso()),
+            )
+            connection.commit()
+
+    def get_art10_position(self, tenant_id: str):
+        """The tenant's recorded position, or None. None means criminal-offence
+        data may not be held for this tenant."""
+        from datetime import date as _date
+
+        from .legal_basis import Art10Position, Sch1Condition
+
+        if not tenant_id:
+            return None
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM vetting_art10_positions WHERE tenant_id = ?",
+                (tenant_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            condition = Sch1Condition(row["condition_code"])
+        except ValueError:
+            # A stored code we no longer recognise is NOT treated as a valid
+            # position: an unrecognised condition cannot be demonstrated.
+            return None
+        review = row["apd_review_date"]
+        return Art10Position(
+            tenant_id=row["tenant_id"],
+            condition=condition,
+            apd_reference=row["apd_reference"] or "",
+            apd_review_date=_date.fromisoformat(review) if review else None,
+            dpia_reference=row["dpia_reference"] or "",
+            determined_by=row["determined_by"] or "",
+        )
 
     def destroy_case_key(self, tenant_id: str, case_id: str) -> bool:
         """Crypto-shred: make this case's stored documents irrecoverable."""

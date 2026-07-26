@@ -147,6 +147,7 @@
 
   <h2>8. International transfers</h2>
   <p>Our primary infrastructure is in the United Kingdom (fly.io LHR region). LLM provider calls may transfer your conversation content outside the UK/EU depending on the configured provider: the current primary provider is <strong>DeepSeek</strong> (processing may occur in China, which is <strong>not</strong> covered by a UK/EU adequacy decision); fail-over providers, when enabled, include Anthropic and OpenAI (United States), Mistral (EU) and Groq (Singapore). Where available, transfers rely on the UK / EU Standard Contractual Clauses (SCCs) or the applicable adequacy regulations. <em>This international-transfer analysis — in particular the lawful-transfer basis for the DeepSeek (China) data plane — is pending confirmation in legal review.</em></p>
+  <p><strong>Employment-vetting data is carved out of the above.</strong> Personal data in a vetting case — identity documents, career evidence and criminal-conviction information — is never sent to the general LLM chain. Vetting document classification uses an explicitly approved processor list only (currently Anthropic, United States), and the system <strong>fails closed</strong>: where no approved processor is available, no extraction takes place and the document is routed to a human instead. No vetting personal data is transmitted to DeepSeek or to any provider outside that approved list.</p>
 
   <h2>9. Security</h2>
   <ul>
@@ -155,7 +156,7 @@
     <li>Audit-log entries are HMAC-SHA-256 signed; the production fingerprint is published in the model card.</li>
     <li>API endpoints are bearer-token protected; tokens are constant-time compared.</li>
     <li>2FA (TOTP) is available on every account.</li>
-    <li>We monitor for sustained authentication failures + signal-bridge misconfiguration via boot self-checks (R-F45) and surface them on the public status page.</li>
+    <li>We monitor for sustained authentication failures + signal-bridge misconfiguration via boot self-checks (R-F45) and surface them at <a href="/api/status">/api/status</a>.</li>
   </ul>
   <p>No system is unbreachable. If we discover a breach affecting your data, we will notify you within 72 hours of becoming aware, in line with UK GDPR Art. 33.</p>
 
@@ -170,6 +171,25 @@
     <li>Return-or-delete obligations on contract end.</li>
   </ul>
   <p>Contact <a href="mailto:support@imaria.io">support@imaria.io</a> to request a DPA.</p>
+
+  <h2>10a. Employment vetting (you-as-controller)</h2>
+  <p>Where you use ARIA's employment-vetting module to screen an applicant, <strong>you are the data controller</strong> for that applicant's personal data and we act as your processor. Our processing schedule is available on request and covers roles, sub-processors, security measures, retention and deletion.</p>
+  <p>Three obligations sit with you and cannot be discharged by us:</p>
+  <ul>
+    <li>issuing the applicant's privacy notice (Arts. 13-14) when you invite them to submit information;</li>
+    <li>selecting the DPA 2018 Schedule 1 condition for criminal-offence data and issuing the Appropriate Policy Document it requires - our system will refuse to hold conviction data until both are recorded;</li>
+    <li>making the employment decision itself, and answering any challenge to it.</li>
+  </ul>
+
+  <h2>10b. Criminal-conviction and offence data</h2>
+  <p>The vetting module processes criminal-conviction and offence data (UK GDPR Art. 10) - convictions declarations, DBS/Disclosure certificates, NPCC police letters and SIA licences. This is processed only where authorised by domestic law under DPA 2018 s.10(5) and Schedule 1.</p>
+  <ul>
+    <li><strong>Enforced, not assumed:</strong> the system refuses to store conviction data for a customer until that customer has recorded which Schedule 1 condition they rely on and the Appropriate Policy Document that condition requires (Sch. 1 Pt 4 para 5), including a review date that has not passed.</li>
+    <li><strong>Consent is not used and is not offered.</strong> In an employment relationship consent is not freely given (Art. 4(11), Art. 7(4)), so it is not an available lawful basis in this module. A signed screening authorisation evidences that the screening was authorised; it is not the lawful basis.</li>
+    <li><strong>No automated decisions.</strong> Screening findings come from a deterministic rule engine, and every employment decision is recorded against a named human. Nothing in the module can issue a decision about a person.</li>
+    <li><strong>Erasure.</strong> Vetting documents are encrypted with a per-case key; disposal destroys that key, rendering the retained copies irrecoverable.</li>
+    <li><strong>Retention.</strong> 12 months for unsuccessful applications; 7 years from the end of employment for successful ones.</li>
+  </ul>
 
   <h2>11. Children</h2>
   <p>ARIA is a defence-industry tool intended for professional adults. We do not knowingly collect personal data from anyone under 18. If you believe a minor has registered, contact <a href="mailto:support@imaria.io">support@imaria.io</a> and we will delete the account.</p>

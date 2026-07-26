@@ -77,6 +77,51 @@ def _tenant(user_id: str) -> str:
     return tenant
 
 
+async def _require_art10_position(tenant: str, case, as_of: date) -> None:
+    """R-F3158 — refuse to HOLD criminal-offence data without an Art. 10 basis.
+
+    Enforced on WRITE, not on read: the point is that the data never enters
+    the file without an evidenced condition. Checking at read time would mean
+    the unlawful processing had already happened and we merely declined to
+    show it.
+
+    Cases that do not engage Art. 10 are untouched — requiring every tenant to
+    record a condition before they have any conviction data would be its own
+    compliance theatre.
+    """
+    import asyncio
+
+    from ..vetting.legal_basis import (
+        LegalBasisError, holds_criminal_offence_data, validate_position,
+    )
+
+    if not holds_criminal_offence_data(case):
+        return
+    store = get_case_store()
+    position = await asyncio.to_thread(store.get_art10_position, tenant)
+    if position is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "art10_basis_required",
+                "message": (
+                    "This case holds criminal-conviction or offence data. "
+                    "UK GDPR Art. 10 permits that only where authorised by "
+                    "domestic law (DPA 2018 s.10(5) + Schedule 1). Record the "
+                    "Schedule 1 condition and its appropriate policy document "
+                    "at POST /api/aria/vetting/legal-basis before continuing."
+                ),
+            },
+        )
+    try:
+        validate_position(position, as_of)
+    except LegalBasisError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "art10_basis_invalid", "message": str(exc)},
+        ) from exc
+
+
 def _service() -> AssessmentService:
     return AssessmentService(get_case_store(), registry)
 
@@ -136,6 +181,112 @@ class UpdateCaseRequest(BaseModel):
     outcome: CaseOutcomeLiteral | None = None
     outcome_date: date | None = None
     employment_end: date | None = None
+
+
+class LegalBasisRequest(BaseModel):
+    """The tenant's Art. 10 position. Every field is a legal determination."""
+    condition: str
+    apd_reference: str = ""
+    apd_review_date: date | None = None
+    dpia_reference: str = ""
+    determined_by: str = Field(min_length=1, max_length=200)
+
+
+@router.get("/legal-basis")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_legal_basis_get_ep(user_id: str = ""):
+    """R-F3158 — the tenant's recorded Art. 10 position, and the options.
+
+    The conditions are returned with their statutory notes so the choice is
+    made against what each actually authorises, rather than by picking the one
+    whose name reads best.
+    """
+    import asyncio
+
+    from ..vetting.legal_basis import (
+        CONDITION_NOTES, LegalBasisError, Sch1Condition, requires_apd,
+        validate_position,
+    )
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    position = await asyncio.to_thread(store.get_art10_position, tenant)
+
+    valid, problem = False, "no position recorded"
+    if position is not None:
+        try:
+            validate_position(position, datetime.now(UTC).date())
+            valid, problem = True, ""
+        except LegalBasisError as exc:
+            problem = str(exc)
+
+    wire_success(module=_MODULE, summary="art10 position read")
+    return {
+        "recorded": position is not None,
+        "valid": valid,
+        "problem": problem,
+        "position": None if position is None else {
+            "condition": position.condition.value,
+            "apd_reference": position.apd_reference,
+            "apd_review_date": (position.apd_review_date.isoformat()
+                                if position.apd_review_date else None),
+            "dpia_reference": position.dpia_reference,
+            "determined_by": position.determined_by,
+        },
+        "available_conditions": [
+            {"code": c.value, "note": CONDITION_NOTES[c],
+             "apd_required": requires_apd(c)}
+            for c in Sch1Condition
+        ],
+    }
+
+
+@router.post("/legal-basis")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_legal_basis_set_ep(body: LegalBasisRequest, user_id: str = ""):
+    """R-F3158 — record the Art. 10 condition and its appropriate policy document.
+
+    The position is VALIDATED before it is stored. Storing an invalid position
+    and reporting the problem later would leave a tenant believing they had a
+    basis; refusing here means the only positions on file are ones that hold.
+    """
+    import asyncio
+
+    from ..vetting.legal_basis import (
+        Art10Position, LegalBasisError, Sch1Condition, validate_position,
+    )
+
+    tenant = _tenant(user_id)
+    try:
+        condition = Sch1Condition(body.condition.strip().upper())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "unknown_condition",
+                    "accepted": [c.value for c in Sch1Condition]},
+        ) from exc
+
+    position = Art10Position(
+        tenant_id=tenant, condition=condition,
+        apd_reference=body.apd_reference.strip(),
+        apd_review_date=body.apd_review_date,
+        dpia_reference=body.dpia_reference.strip(),
+        determined_by=body.determined_by.strip(),
+    )
+    try:
+        validate_position(position, datetime.now(UTC).date())
+    except LegalBasisError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_legal_basis", "message": str(exc)},
+        ) from exc
+
+    store = get_case_store()
+    await asyncio.to_thread(store.set_art10_position, position)
+    wire_success(module=_MODULE,
+                 summary=f"art10 position recorded: {condition.value}")
+    return {"recorded": True, "condition": condition.value,
+            "apd_required": position.apd_required}
 
 
 # ── packs ─────────────────────────────────────────────────────────────────
@@ -257,15 +408,25 @@ async def vetting_update_case_ep(
             detail={"code": "empty_update", "message": "no fields to update"},
         )
     try:
-        updated = case.model_copy(update=updates)
-        # Re-validate: model_copy does NOT run validators, so a bad career
-        # entry would otherwise be persisted unchecked.
-        updated = VettingCase.model_validate(updated.model_dump())
+        # R-F3158 — merge as PLAIN DATA and validate once, rather than
+        # model_copy(update=<dumped dict>) followed by model_dump(). That older
+        # form left `inputs` as a raw dict on an intermediate object, which
+        # pydantic warned about and which any dict-unaware reader (the Art. 10
+        # detector among them) would silently mis-read. One validated object,
+        # no half-typed intermediate.
+        merged = case.model_dump()
+        merged.update(updates)
+        updated = VettingCase.model_validate(merged)
     except ValueError as exc:
         raise HTTPException(
             status_code=422,
             detail={"code": "invalid_case", "errors": [str(exc)]},
         ) from exc
+
+    # R-F3158 — if this update makes the case hold criminal-offence data, the
+    # tenant's Art. 10 position must already be evidenced. Checked BEFORE the
+    # write so the data never lands without a basis.
+    await _require_art10_position(tenant, updated, datetime.now(UTC).date())
 
     await asyncio.to_thread(store.save, updated)
     wire_success(module=_MODULE, summary="vetting case updated")
@@ -392,6 +553,11 @@ async def vetting_upload_document_ep(
                          "encrypted": encrypted})
 
     documents = [*case.documents, document]
+    # R-F3158 — a disclosure certificate or police letter engages Art. 10; the
+    # tenant's condition + APD must be evidenced before it joins the file.
+    await _require_art10_position(
+        tenant, case.model_copy(update={"documents": documents}),
+        datetime.now(UTC).date())
     career = case.career
     if body.attach_to_entry_id:
         career = [
