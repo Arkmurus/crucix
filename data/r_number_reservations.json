@@ -25167,18 +25167,20 @@
       "title": "retrieval guard blind to empty-literal failure returns",
       "claimed_at": "2026-07-26T12:42:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5b376dd9",
+      "notes": null,
+      "shipped_at": "2026-07-26T12:48:04Z"
     },
     {
       "r_number": "R-F3108",
       "title": "leaf retrievals must report their own failure not swallow to empty",
       "claimed_at": "2026-07-26T12:42:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5b376dd9",
+      "notes": null,
+      "shipped_at": "2026-07-26T12:48:04Z"
     },
     {
       "r_number": "R-F3109",
@@ -25221,9 +25223,10 @@
       "title": "non-answering source outcomes must reach the brain",
       "claimed_at": "2026-07-26T12:44:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5b376dd9",
+      "notes": null,
+      "shipped_at": "2026-07-26T12:48:05Z"
     }
   ]
 }
