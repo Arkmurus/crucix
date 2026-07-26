@@ -25137,27 +25137,30 @@
       "title": "narrow adapter outcome guard to retrieval functions",
       "claimed_at": "2026-07-26T12:33:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a17ca60c",
+      "notes": null,
+      "shipped_at": "2026-07-26T12:39:47Z"
     },
     {
       "r_number": "R-F3105",
       "title": "retrieval adapters must express failure gleif eccn cert",
       "claimed_at": "2026-07-26T12:33:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a17ca60c",
+      "notes": null,
+      "shipped_at": "2026-07-26T12:39:47Z"
     },
     {
       "r_number": "R-F3106",
       "title": "unavailable source must not score as clean ghost and export control",
       "claimed_at": "2026-07-26T12:33:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a17ca60c",
+      "notes": null,
+      "shipped_at": "2026-07-26T12:39:47Z"
     }
   ]
 }
