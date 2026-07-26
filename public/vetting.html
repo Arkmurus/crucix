@@ -90,6 +90,48 @@
       font-size: 12px; font-weight: 800; letter-spacing: .5px;
     }
     .vt-upload-note:empty { display: none; }
+
+    /* R-F3179 — expandable card. Collapsed it answers one question: what is
+       this case's state? Expanded it offers the actions. Both, at once, on
+       twenty cards, is what made the previous layout unreadable. */
+    .vt-case { padding: 0; overflow: hidden; }
+    .vt-case + .vt-case { margin-top: 10px; }
+    .vt-summary {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 18px; cursor: pointer; list-style: none;
+      transition: background .12s;
+    }
+    .vt-summary::-webkit-details-marker { display: none; }
+    .vt-summary:hover { background: #faf9f6; }
+    .vt-case[open] .vt-summary { border-bottom: 1px solid var(--sc-border); }
+    .vt-ident { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+    .vt-name {
+      font-size: 14.5px; font-weight: 700; color: var(--sc-heading);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .vt-status { flex-shrink: 0; }
+    .vt-chev { color: var(--sc-muted); font-size: 13px; transition: transform .15s; flex-shrink: 0; }
+    .vt-case[open] .vt-chev { transform: rotate(180deg); }
+
+    .vt-body { padding: 16px 18px 18px; }
+    /* A definition list, not a paragraph: an officer verifying a file scans
+       label/value pairs, and a table of five facts reads faster than prose. */
+    .vt-facts {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 12px 18px; margin: 0 0 14px;
+    }
+    .vt-facts dt {
+      font-size: 10.5px; font-weight: 700; letter-spacing: .8px;
+      text-transform: uppercase; color: var(--sc-muted); margin-bottom: 3px;
+    }
+    .vt-facts dd { margin: 0; font-size: 13.5px; color: var(--sc-heading); font-weight: 600; }
+    .vt-warn {
+      display: flex; gap: 8px; align-items: flex-start;
+      background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.32);
+      color: #b45309; border-radius: 9px; padding: 10px 12px;
+      font-size: 12.5px; margin: 0 0 14px;
+    }
+    .vt-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -270,13 +312,12 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
   }
 
   function caseCard(c) {
-    // An unassessed case is UNKNOWN, never clean — same rule as the verdict
-    // banner. The cached status is always shown WITH the date it was computed
-    // for, so a stale reading cannot pass as current.
-    // A stale verdict must never render as its cached state — that is exactly
-    // the false clean this module exists to prevent, and caching reintroduced
-    // it. Proven: a case assessed IN_PROGRESS/0 blockers, then given a
-    // future-dated entry, still showed IN_PROGRESS/0 blockers.
+    // R-F3179 — the actions live INSIDE the card, revealed on expand.
+    // Previously every card showed four buttons at once, so a queue of twenty
+    // cases was eighty competing controls and the status — the thing an
+    // officer actually scans for — was crowded out. Native <details> is used
+    // rather than a JS toggle: it is keyboard-accessible, survives a re-render
+    // without state bookkeeping, and degrades to "open" if scripting fails.
     const stale = !!c.assessment_stale;
     const [badgeCls, badgeText] = stale
       ? ['sc-badge-orange', 'Re-assess']
@@ -284,45 +325,46 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
     const asOf = !c.last_assessed_at
       ? 'never assessed'
       : stale
-        ? `file changed since ${esc(c.last_assessed_at)} assessment`
+        ? `file changed since ${esc(c.last_assessed_at)}`
         : `assessed ${esc(c.last_assessed_at)}`;
     const blockers = Number(c.last_blockers || 0);
+    const docs = Number(c.document_count || 0);
+    const decisions = Number(c.decision_count || 0);
+
     return `
-      <div class="sc-card vt-case" data-case="${esc(c.case_id)}">
-        <div class="sc-card-header">
-          <div class="sc-card-title" style="font-size:15px;display:flex;align-items:center;gap:10px">
-            <span class="vt-avatar">${esc(initials(c.applicant_name))}</span>
-            <span>${esc(c.applicant_name || '(unnamed)')}</span>
-          </div>
-          <span class="sc-badge ${badgeCls}">${esc(badgeText)}</span>
-        </div>
-        <div class="sc-card-body">
-          <div class="vt-ref" style="margin-bottom:10px">
-            ${esc(c.case_id)} · ${esc(c.pack_id)} v${esc(c.pack_version)} · ${asOf}
-          </div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-            ${stale
-              ? `<span class="sc-badge sc-badge-orange">verdict out of date</span>`
-              : (blockers > 0 ? `<span class="sc-badge sc-badge-red">${blockers} blocker${blockers !== 1 ? 's' : ''}</span>` : '')}
-            <span class="sc-badge sc-badge-muted">${Number(c.document_count || 0)} document${Number(c.document_count) !== 1 ? 's' : ''}</span>
-            ${Number(c.decision_count || 0) > 0
-              ? `<span class="sc-badge sc-badge-green">decision recorded</span>`
-              : `<span class="sc-badge sc-badge-muted">no decision yet</span>`}
-            ${c.outcome && c.outcome !== 'PENDING'
-              ? `<span class="sc-badge sc-badge-blue">${esc(c.outcome)}</span>` : ''}
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <details class="sc-card vt-case" data-case="${esc(c.case_id)}">
+        <summary class="vt-summary">
+          <span class="vt-avatar">${esc(initials(c.applicant_name))}</span>
+          <span class="vt-ident">
+            <span class="vt-name">${esc(c.applicant_name || '(unnamed)')}</span>
+            <span class="vt-ref">${esc(c.case_id)} · ${asOf}</span>
+          </span>
+          <span class="sc-badge ${badgeCls} vt-status">${esc(badgeText)}</span>
+          <i class="bi bi-chevron-down vt-chev" aria-hidden="true"></i>
+        </summary>
+
+        <div class="vt-body">
+          <dl class="vt-facts">
+            <div><dt>Rule pack</dt><dd>${esc(c.pack_id)} v${esc(c.pack_version)}</dd></div>
+            <div><dt>Blockers</dt><dd>${stale ? '—' : blockers}</dd></div>
+            <div><dt>Documents</dt><dd>${docs}</dd></div>
+            <div><dt>Decision</dt><dd>${decisions > 0 ? 'recorded' : 'not yet'}</dd></div>
+            <div><dt>Outcome</dt><dd>${esc(c.outcome || 'PENDING')}</dd></div>
+          </dl>
+          ${stale ? `<p class="vt-warn"><i class="bi bi-exclamation-triangle-fill"></i>
+             The file changed after this verdict was computed. Re-assess before relying on it.</p>` : ''}
+          <div class="vt-actions">
             <label class="vt-btn secondary" style="margin:0">
               <i class="bi bi-upload"></i> Upload
               <input type="file" data-upload="${esc(c.case_id)}" hidden>
             </label>
             <button class="vt-btn secondary" data-assess="${esc(c.case_id)}"><i class="bi bi-clipboard-check"></i> Assess</button>
             <button class="vt-btn secondary" data-decide="${esc(c.case_id)}"><i class="bi bi-person-check"></i> Decide</button>
-            <button class="vt-btn secondary" data-sar="${esc(c.case_id)}"><i class="bi bi-file-earmark-person"></i> SAR</button>
+            <button class="vt-btn secondary" data-sar="${esc(c.case_id)}"><i class="bi bi-file-earmark-person"></i> Subject access</button>
           </div>
           <div class="vt-upload-note" data-status-for="${esc(c.case_id)}"></div>
         </div>
-      </div>`;
+      </details>`;
   }
 
   function renderSections(cases) {

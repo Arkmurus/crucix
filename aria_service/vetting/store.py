@@ -93,6 +93,28 @@ CREATE TABLE IF NOT EXISTS vetting_art10_positions (
     determined_by    TEXT NOT NULL DEFAULT '',
     recorded_at      TEXT NOT NULL
 );
+
+-- R-F3178 — scoped applicant/referee invite links. token_hash ONLY: the
+-- plaintext is returned once at mint time and never stored, so a database read
+-- cannot recover a working link. Indexed on the hash because that is the sole
+-- lookup path (a presented token), and tenant/case are carried as columns so a
+-- redeemed token still resolves to exactly one scope.
+CREATE TABLE IF NOT EXISTS vetting_invites (
+    invite_id     TEXT PRIMARY KEY,
+    tenant_id     TEXT NOT NULL,
+    case_id       TEXT NOT NULL,
+    kind          TEXT NOT NULL,
+    token_hash    TEXT NOT NULL UNIQUE,
+    entry_id      TEXT NOT NULL DEFAULT '',
+    referee_name  TEXT NOT NULL DEFAULT '',
+    referee_email TEXT NOT NULL DEFAULT '',
+    expires_at    TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    revoked_at    TEXT NOT NULL DEFAULT '',
+    used_count    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_vetting_invites_case
+    ON vetting_invites(tenant_id, case_id, created_at DESC);
 """
 _SCHEMA_LOCK = threading.Lock()
 
@@ -389,6 +411,76 @@ class VettingCaseStore:
             dpia_reference=row["dpia_reference"] or "",
             determined_by=row["determined_by"] or "",
         )
+
+    # ── R-F3178: invite links ─────────────────────────────────────────────
+    def save_invite(self, invite) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO vetting_invites (invite_id, tenant_id, case_id, "
+                "kind, token_hash, entry_id, referee_name, referee_email, "
+                "expires_at, created_at, revoked_at, used_count) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (invite.invite_id, invite.tenant_id, invite.case_id,
+                 invite.kind.value, invite.token_hash, invite.entry_id,
+                 invite.referee_name, invite.referee_email, invite.expires_at,
+                 invite.created_at, invite.revoked_at, invite.used_count),
+            )
+            connection.commit()
+
+    def _row_to_invite(self, row):
+        from .invites import Invite, InviteKind
+        return Invite(
+            invite_id=row["invite_id"], tenant_id=row["tenant_id"],
+            case_id=row["case_id"], kind=InviteKind(row["kind"]),
+            token_hash=row["token_hash"], entry_id=row["entry_id"] or "",
+            referee_name=row["referee_name"] or "",
+            referee_email=row["referee_email"] or "",
+            expires_at=row["expires_at"], created_at=row["created_at"],
+            revoked_at=row["revoked_at"] or "", used_count=row["used_count"] or 0,
+        )
+
+    def get_invite_by_token_hash(self, hashed: str):
+        """The ONLY lookup a presented token can perform.
+
+        Deliberately not `get_invite(invite_id)` from an unauthenticated path:
+        an id is guessable-ish and appears in employer-facing responses, while
+        the hash requires possession of the token itself.
+        """
+        if not hashed:
+            return None
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM vetting_invites WHERE token_hash = ?", (hashed,),
+            ).fetchone()
+        return self._row_to_invite(row) if row is not None else None
+
+    def list_invites(self, tenant_id: str, case_id: str) -> list:
+        if not tenant_id:
+            return []
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM vetting_invites WHERE tenant_id = ? AND case_id = ? "
+                "ORDER BY created_at DESC", (tenant_id, case_id),
+            ).fetchall()
+        return [self._row_to_invite(r) for r in rows]
+
+    def revoke_invite(self, tenant_id: str, invite_id: str, when: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE vetting_invites SET revoked_at = ? "
+                "WHERE tenant_id = ? AND invite_id = ? AND revoked_at = ''",
+                (when, tenant_id, invite_id),
+            )
+            connection.commit()
+        return cursor.rowcount > 0
+
+    def record_invite_use(self, token_hash_value: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE vetting_invites SET used_count = used_count + 1 "
+                "WHERE token_hash = ?", (token_hash_value,),
+            )
+            connection.commit()
 
     def destroy_case_key(self, tenant_id: str, case_id: str) -> bool:
         """Crypto-shred: make this case's stored documents irrecoverable."""
