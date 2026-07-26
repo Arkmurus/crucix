@@ -25096,9 +25096,10 @@
       "title": "R-number scanner misses abbreviated and range subject forms",
       "claimed_at": "2026-07-26T12:05:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cddde694",
+      "notes": null,
+      "shipped_at": "2026-07-26T12:09:21Z"
     }
   ]
 }
