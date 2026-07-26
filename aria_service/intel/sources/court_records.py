@@ -52,6 +52,7 @@ from urllib.parse import quote_plus
 import httpx
 
 from ..engine_wiring import wired
+from . import _common          # R-F3102 — outcome vocabulary (never a bare empty list)
 
 logger = logging.getLogger("aria.intel.sources.court_records")
 
@@ -272,21 +273,45 @@ async def search_all(
             "sources":  ["courtlistener", "bailii"],
         }
 
-    Never raises. Per-source failures degrade gracefully — the other
-    source's hits are still returned. If both fail, hits is [] and
-    the caller's DD layer sees an honest zero-result.
+    Never raises.
+
+    R-F3102 — A FAILED FETCH IS NOT A ZERO RESULT. This docstring used to end
+    "If both fail, hits is [] and the caller's DD layer sees an honest zero-result",
+    and the code delivered exactly that: `if isinstance(us_hits, Exception):
+    us_hits = []` for BOTH sources. It is not honest — it is the false clean this
+    product exists to prevent. Downstream, `_emit_court_record_findings`
+    (dd_orchestrator.py:2118) returns [] when `hits` is empty, so CourtListener AND
+    BAILII both being down produced ZERO findings and ZERO data gaps: the report
+    showed no litigation section and no disclosure that litigation was never checked.
+
+    The merge behaviour is unchanged — one source failing still returns the other's
+    hits, which was always right. What changed is that the failure is now REPORTED:
+    `outcome`, `sources_failed` and `sources_answered` are carried out so the caller
+    can tell "we searched and found nothing" from "we could not search".
     """
     if not entity or not entity.strip():
-        return {"entity": "", "hits": [], "us_count": 0, "uk_count": 0, "sources": []}
+        return _common.stamp_outcome(
+            {"entity": "", "hits": [], "us_count": 0, "uk_count": 0, "sources": [],
+             "sources_answered": [], "sources_failed": []},
+            _common.OUTCOME_SKIPPED, detail="no entity supplied")
 
     name = _norm_entity(entity)
     us_task = asyncio.create_task(search_us_courts(name, limit=limit_per_source, timeout=timeout))
     uk_task = asyncio.create_task(search_uk_courts(name, limit=limit_per_source, timeout=timeout))
     us_hits, uk_hits = await asyncio.gather(us_task, uk_task, return_exceptions=True)
+    # R-F3102 — name which source failed, and why, instead of erasing it to [].
+    failed: list[dict[str, str]] = []
+    answered_sources: list[str] = []
     if isinstance(us_hits, Exception):
+        failed.append({"source": "courtlistener", "error": str(us_hits)[:200]})
         us_hits = []
+    else:
+        answered_sources.append("courtlistener")
     if isinstance(uk_hits, Exception):
+        failed.append({"source": "bailii", "error": str(uk_hits)[:200]})
         uk_hits = []
+    else:
+        answered_sources.append("bailii")
 
     # Dedupe by (jurisdiction, title) so an entity matching the same
     # case under two slightly-different captions doesn't double-count.
@@ -299,10 +324,24 @@ async def search_all(
         seen.add(k)
         merged.append(h)
 
-    return {
+    # R-F3102 — the outcome is derived from COVERAGE, not from the hit count.
+    # Both sources down => UNAVAILABLE (unknown), never an empty negative. One down
+    # => still unavailable-in-part, so the caller can disclose partial coverage
+    # rather than presenting half a search as a whole one.
+    if len(failed) == 2:
+        outcome = _common.OUTCOME_UNAVAILABLE
+    elif failed:
+        outcome = _common.OUTCOME_OK if merged else _common.OUTCOME_UNAVAILABLE
+    else:
+        outcome = _common.OUTCOME_OK if merged else _common.OUTCOME_EMPTY
+    return _common.stamp_outcome({
         "entity":   name,
         "hits":     merged,
         "us_count": len(us_hits or []),
         "uk_count": len(uk_hits or []),
+        # `sources` keeps its original meaning (the sources ATTEMPTED) so existing
+        # readers are unaffected; the two new keys say what actually happened.
         "sources":  ["courtlistener", "bailii"],
-    }
+        "sources_answered": answered_sources,
+        "sources_failed":   failed,
+    }, outcome, detail="; ".join(f"{f['source']}: {f['error']}" for f in failed))

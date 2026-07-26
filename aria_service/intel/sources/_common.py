@@ -61,6 +61,95 @@ def error_result(
     }
 
 
+# ── R-F3101 — EVERY ADAPTER MUST BE ABLE TO EXPRESS FAILURE ─────────────────
+#
+# THE ROOT, found while scoping evidence governance (2026-07-26). The gap
+# assessment's item 3 is "adapter enforcement": no source activity without a
+# recorded outcome. It cannot be built on the adapters as they are — an AST scan of
+# `sources/` found FIVE with public entry points returning dicts that carry NO
+# outcome field at all:
+#
+#   court_records.search_all      -> {entity, hits, us_count, uk_count, sources}
+#   eccn_lookup.lookup_by_eccn    -> {version, categories}
+#   cert_transparency.detect_*    -> {score, signals}
+#   gleif.build_profile / lookup  -> (no ok)
+#   ais_gap_detector.detect_gaps  -> (no ok)
+#
+# `EvidenceRecord.retrieval_outcome` is a REQUIRED field. An adapter that cannot say
+# whether it succeeded has no honest value to put there, so wiring it to the
+# evidence contract would mean inventing one — which is the failure mode the whole
+# contract exists to prevent.
+#
+# And this is not only architectural. It is already a live false clean: an adapter
+# that returns `{"hits": []}` on a fetch FAILURE is read downstream as "we looked and
+# found nothing" (see R-F3102 for the court-records case, proven).
+#
+# `outcome` is deliberately a SEPARATE vocabulary from `ok`. `ok=False` says "this
+# failed"; it does not distinguish "the source answered, with nothing" from "the
+# source never answered", and only the second is a coverage gap the report must
+# disclose. Mirrors `RetrievalOutcome` in dd_evidence_standard so an adapter result
+# can be lifted into an EvidenceRecord without a second act of interpretation.
+OUTCOME_OK = "ok"                    # source answered; hits may legitimately be empty
+OUTCOME_EMPTY = "empty"              # source answered and returned nothing (a real negative)
+OUTCOME_UNAVAILABLE = "unavailable"  # source did not answer — NOT a negative result
+OUTCOME_TIMEOUT = "timeout"
+OUTCOME_ERROR = "error"
+OUTCOME_SKIPPED = "skipped"          # deliberately not attempted (no key, not applicable)
+
+#: Outcomes that mean "this source did NOT give us an answer". A caller must never
+#: read one of these as an absence of findings.
+NON_ANSWERING_OUTCOMES = frozenset(
+    {OUTCOME_UNAVAILABLE, OUTCOME_TIMEOUT, OUTCOME_ERROR, OUTCOME_SKIPPED}
+)
+
+
+def source_outcome(result: Any) -> str:
+    """R-F3101 — the retrieval outcome of any adapter result, however shaped.
+
+    Reads an explicit `outcome` first, then falls back to the legacy `ok`/`error`/
+    `source_unavailable` triple that the seven `_common`-based adapters already use.
+    Returns `OUTCOME_ERROR` for a result that carries NO outcome signal at all —
+    deliberately, and this is the whole point: an unknown outcome must never be
+    reported as a successful empty screen. Failing closed here is what makes the
+    conformance guard (R-F3103) meaningful rather than cosmetic."""
+    if not isinstance(result, dict):
+        return OUTCOME_ERROR
+    explicit = str(result.get("outcome") or "").strip().lower()
+    if explicit:
+        return explicit
+    if result.get("source_unavailable") or result.get("stale"):
+        return OUTCOME_UNAVAILABLE
+    if "ok" in result:
+        if not result.get("ok"):
+            return OUTCOME_ERROR
+        return OUTCOME_EMPTY if not (result.get("hits") or []) else OUTCOME_OK
+    return OUTCOME_ERROR
+
+
+def answered(result: Any) -> bool:
+    """R-F3101 — True only when the source actually answered.
+
+    The one question every caller must ask before treating an empty result as a
+    negative finding. `answered(r) is False` means UNKNOWN, never CLEAR."""
+    return source_outcome(result) not in NON_ANSWERING_OUTCOMES
+
+
+def stamp_outcome(result: dict, outcome: str, *, detail: str = "") -> dict:
+    """R-F3101 — record the outcome on an adapter result, in place.
+
+    Additive by construction: it only ever ADDS `outcome` (and `ok`/`error` when
+    absent), so an existing caller reading the old keys is unaffected. That property
+    is what lets the five non-conforming adapters be brought into the contract
+    without a coordinated change to every reader."""
+    if not isinstance(result, dict):
+        return result
+    result["outcome"] = outcome
+    result.setdefault("ok", outcome in (OUTCOME_OK, OUTCOME_EMPTY))
+    if detail and not result.get("error"):
+        result["error"] = detail[:300]
+    return result
+
+
 def finalise(result: dict, started_at: float) -> dict:
     """Fill in hit_count + query_time_ms once the adapter has assembled
     its hits list. Returns the same dict for chaining."""

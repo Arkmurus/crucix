@@ -2114,6 +2114,28 @@ def _emit_court_record_findings(court_records_block: Any) -> list[Finding]:
     # Defensive: upstream contract says list[dict] but tolerate garbage
     if not isinstance(hits, list):
         return []
+    # ── R-F3102 — A COURT SEARCH THAT DID NOT RUN IS NOT A CLEAN LITIGATION FILE ──
+    #
+    # This function returned [] whenever `hits` was empty — and court_records
+    # erased a FAILED fetch to an empty list, calling it "an honest zero-result".
+    # So CourtListener and BAILII both being down produced zero findings AND zero
+    # data gaps: no litigation section, and no disclosure that litigation was never
+    # checked. Now the adapter reports coverage, this reads it and says so.
+    _failed = court_records_block.get("sources_failed") or []
+    if _failed and not hits:
+        _names = ", ".join(str(f.get("source") or "?") for f in _failed if isinstance(f, dict))
+        return [Finding(
+            severity="info",
+            title="Litigation search did NOT complete — coverage unknown",
+            detail=(
+                f"The court-record search could not reach: {_names}. No litigation "
+                "hits are shown because the sources did not answer, NOT because none "
+                "exist. Treat litigation exposure as UNCHECKED, not clear, and re-run "
+                "or search the relevant court registers directly."
+            ),
+            source="sources.court_records:R-F3102",
+            confidence="UNVERIFIED",
+        )]
     severity_label = (court_records_block.get("severity") or "NONE").upper()
     if severity_label == "NONE" or not hits:
         return []
