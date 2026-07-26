@@ -2587,9 +2587,26 @@ async def auto_register_all() -> dict[str, Any]:
         "failed": 0,
         "skipped_open": 0,
         "details": [],
+        "stopped_by_operator_clear": False,
     }
 
     for portal in PORTALS:
+        # R-F3094 — a live operator clear can race a sweep that was launched
+        # during boot. Re-check the durable marker before every portal so the
+        # already-running task cannot repopulate a vault after DELETE returns.
+        try:
+            from .agent_signup_vault import get_vault
+            if not get_vault().is_auto_seed_enabled():
+                results["stopped_by_operator_clear"] = True
+                break
+        except Exception as e:
+            results["failed"] += 1
+            results["details"].append({
+                "id": portal.id,
+                "status": "error",
+                "message": f"vault clear-state check failed: {str(e)[:160]}",
+            })
+            break
         if portal.registration_type == "none":
             results["skipped_open"] += 1
             continue
