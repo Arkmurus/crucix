@@ -5928,7 +5928,27 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
             # not classifying Reuters/BBC/Janes/etc. Now the tier
             # classifier runs ON the URL even if the upstream backend
             # didn't supply a source_tier.
-            if tier == "UNVERIFIED" and _url_for_tier:
+            # R-F3183 — a memory:// URL is ARIA'S OWN RAG, not an external source.
+            #
+            # THE DEFECT (live, Babcock dd_788e6f3ca2c3): the digital evidence pool
+            # contained `memory://7d38a9c87a8b` tiered UNVERIFIED, while the report's
+            # own `memory_only_sources` metric read 0. So a SELF-CITATION was counted
+            # in the external-source pool, and the tier built to exclude it recorded
+            # none present.
+            #
+            # MEMORY_ONLY is only ever assigned in the R-F188 fallback below, which
+            # fires when live search returns ZERO hits. But per R-F2346 `web_search`
+            # mixes RAG hits INTO normal results, so any memory:// arriving on the
+            # normal path missed the tier entirely — the mechanism existed, just not
+            # on the path that produces the answer.
+            #
+            # Tier by the SOURCE, not by the code path that fetched it: a memory://
+            # URL is ARIA quoting herself no matter which branch surfaced it. Checked
+            # BEFORE _classify_tier, which cannot classify a non-http scheme and
+            # would leave it in the UNVERIFIED remainder.
+            if _url_for_tier.startswith("memory://"):
+                tier = "MEMORY_ONLY"
+            elif tier == "UNVERIFIED" and _url_for_tier:
                 try:
                     from .web_explorer import _classify_tier as _ct
                     _tier_guess = _ct(_url_for_tier)

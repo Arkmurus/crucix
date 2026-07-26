@@ -1648,7 +1648,19 @@ def _quality_penalties(metrics: dict) -> list[tuple[int, str]]:
          "unverified sources outnumber reputable independent sources"),
         (metrics["own_site_sources"] and reputable == 0, 15,
          "evidence is own-site/self-reported without independent corroboration"),
-        (metrics["memory_only_sources"], 15,
+        # R-F3183 — this penalty names the R-F188 DEGRADED-SEARCH case: live web
+        # returned nothing and the digital layer was served wholesale from RAG
+        # (dd_orchestrator sets press_coverage = memory_press and flags
+        # degraded_search). Firing it on ANY non-zero count was safe only while
+        # memory:// hits were mis-tiered as UNVERIFIED and this counter sat at 0.
+        # Now that they are classified truthfully, a single incidental self-citation
+        # among live results would trigger a 15-point penalty written for total
+        # search failure — over-stating the defect as surely as hiding it understated
+        # it. Fire when memory-only evidence is at least HALF the pool, i.e. the
+        # report genuinely rests on ARIA's own memory. The wholesale R-F188 case
+        # (memory_only == press_total) still trips it.
+        (metrics["memory_only_sources"]
+         and metrics["memory_only_sources"] * 2 >= max(metrics["press_total"], 1), 15,
          "live web returned memory-only evidence"),
         (metrics["citations_checked"] == 0, 20,
          "no citations were grounded by source verifier"),
