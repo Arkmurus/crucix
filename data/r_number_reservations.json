@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3101,
+  "next_available": 3104,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25087,9 +25087,10 @@
       "title": "coding RAG constitutional priming never runs outside server boot",
       "claimed_at": "2026-07-26T11:51:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9b348083",
+      "notes": null,
+      "shipped_at": "2026-07-26T12:23:02Z"
     },
     {
       "r_number": "R-F3100",
@@ -25100,6 +25101,33 @@
       "commit_sha": "cddde694",
       "notes": null,
       "shipped_at": "2026-07-26T12:09:21Z"
+    },
+    {
+      "r_number": "R-F3101",
+      "title": "adapter outcome contract every source must express failure",
+      "claimed_at": "2026-07-26T12:20:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3102",
+      "title": "court records false clean on source failure",
+      "claimed_at": "2026-07-26T12:20:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3103",
+      "title": "adapter outcome conformance guard",
+      "claimed_at": "2026-07-26T12:20:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
