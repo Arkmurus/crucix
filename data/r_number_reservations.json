@@ -26135,18 +26135,20 @@
       "title": "deploy.ps1: fail fast in a git worktree instead of a 36-poll mystery failure",
       "claimed_at": "2026-07-26T23:32:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "RE-ISSUED from R-F3201, which was already used by two shipped commits (407b653f, 66da2054) whose reservations were never recorded."
+      "status": "shipped",
+      "commit_sha": "ede8b6b5",
+      "notes": "RE-ISSUED from R-F3201, which was already used by two shipped commits (407b653f, 66da2054) whose reservations were never recorded.",
+      "shipped_at": "2026-07-26T23:55:18Z"
     },
     {
       "r_number": "R-F3206",
       "title": "referee nominated on the application form must auto-fill the share dialog",
       "claimed_at": "2026-07-26T23:38:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ede8b6b5",
+      "notes": null,
+      "shipped_at": "2026-07-26T23:55:18Z"
     }
   ]
 }
