@@ -231,8 +231,17 @@ test('R-F3168 no case can silently vanish from the queue', () => {
 test('R-F3168 applicant photographs are deliberately not rendered', () => {
   // Extracting a face from a held passport would be biometric processing
   // (Art. 9) and would contradict our own AI Act assessment.
-  assert.ok(!/avatarUrl|photo_url|applicant_photo|<img/i.test(HTML),
+  // R-F3186 — narrowed from a blanket "<img" ban, which fired on the QR-code
+  // image. The property is "no APPLICANT PHOTOGRAPHS", not "no images": a QR
+  // for an upload link carries no personal data. Any <img> must be one we can
+  // name, so a future photo cannot slip in behind a generic allowance.
+  assert.ok(!/avatarUrl|photo_url|applicant_photo|passport_image|facial/i.test(HTML),
     'the card view must not render applicant photographs');
+  const imgs = [...HTML.matchAll(/<img[^>]*alt="([^"]*)"/gi)].map((m) => m[1]);
+  for (const alt of imgs) {
+    assert.match(alt, /QR code/i,
+      `unexpected image on the page ("${alt}") — only the QR code is allowed`);
+  }
   assert.match(HTML, /vt-avatar/, 'initials avatars provide the affordance instead');
 });
 
@@ -303,4 +312,37 @@ test('R-F3183 the card renders the full name, unabbreviated', () => {
   // The initials avatar is an ADDITION, not a replacement for the name.
   assert.match(HTML, /class="vt-name">\$\{esc\(c\.applicant_name/,
     'the card must render applicant_name in full');
+});
+
+// ── R-F3185/R-F3186: sharing a link ──────────────────────────────────────
+
+test('R-F3186 the share dialog exists and offers the real channels', () => {
+  assert.match(HTML, /data-share=/, 'each card must offer a share action');
+  assert.match(HTML, /Share a secure upload link/);
+  for (const ch of ['link', 'email', 'whatsapp']) {
+    assert.ok(HTML.includes(`value: '${ch}'`), `missing channel ${ch}`);
+  }
+});
+
+test('R-F3186 SMS is not offered, and says why', () => {
+  // No SMS provider exists in the tree or package.json. Offering the option
+  // and failing silently would be worse than not offering it.
+  assert.ok(!/value: 'sms'/.test(HTML), 'SMS must not be offered');
+  assert.match(HTML, /no SMS provider is configured/i,
+    'the absence must be explained, not left as a silent gap');
+});
+
+test('R-F3186 the user is told the link is shown only once', () => {
+  // There is no endpoint that can redisplay it, by design. Closing the dialog
+  // without copying loses it, so the dialog has to say so.
+  assert.match(HTML, /shown once/i);
+  assert.match(HTML, /cannot be displayed again/i);
+});
+
+test('R-F3186 a referee link must name its period, checked before sending', () => {
+  assert.match(HTML, /A referee link must name the period it covers/);
+});
+
+test('R-F3186 the share result warns that the link grants upload access', () => {
+  assert.match(HTML, /do not post it in a shared channel/i);
 });

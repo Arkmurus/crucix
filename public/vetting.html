@@ -369,6 +369,7 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
             </label>
             <button class="vt-btn secondary" data-assess="${esc(c.case_id)}"><i class="bi bi-clipboard-check"></i> Assess</button>
             <button class="vt-btn secondary" data-decide="${esc(c.case_id)}"><i class="bi bi-person-check"></i> Decide</button>
+            <button class="vt-btn secondary" data-share="${esc(c.case_id)}"><i class="bi bi-qr-code"></i> Share upload link</button>
             <button class="vt-btn secondary" data-sar="${esc(c.case_id)}"><i class="bi bi-file-earmark-person"></i> Subject access</button>
           </div>
           <div class="vt-upload-note" data-status-for="${esc(c.case_id)}"></div>
@@ -625,6 +626,133 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
     }
   }
 
+  // ── R-F3186: share an upload link ────────────────────────────────────────
+  //
+  // Minted and delivered in ONE call, because the plaintext token exists for
+  // exactly one moment — there is no endpoint that can show it again, by
+  // design. The result dialog is therefore the only chance to copy it, and it
+  // says so plainly rather than letting someone close it and lose the link.
+  async function shareLink(caseId) {
+    let caseData = null;
+    try {
+      const r = await authed('/api/aria/vetting/case/' + encodeURIComponent(caseId));
+      if (r.ok) caseData = await r.json();
+    } catch (e) { /* the dialog still works without the period list */ }
+
+    const entries = ((caseData && caseData.career) || []).map(function (e) {
+      return {
+        value: e.entry_id,
+        label: (e.organisation || e.entry_type) + ' (' + e.start + ' \u2192 ' + (e.end || 'present') + ')',
+      };
+    });
+
+    const values = await Modal.form({
+      title: 'Share a secure upload link',
+      message: 'Case ' + caseId + '. The link is shown once \u2014 copy or send it now.',
+      icon: 'bi-qr-code',
+      okLabel: 'Create and share',
+      fields: [
+        { name: 'kind', label: 'Who is this for?', type: 'select', required: true, autofocus: true,
+          options: [
+            { value: 'APPLICANT', label: 'The person being vetted \u2014 upload their own documents' },
+            { value: 'REFEREE', label: 'A referee or previous employer \u2014 confirm one period' },
+          ],
+          help: 'A referee link reveals only the one engagement they are confirming.' },
+        { name: 'entry_id', label: 'Which period? (referee links only)', type: 'select',
+          options: [{ value: '', label: '\u2014' }].concat(entries),
+          help: 'Required for a referee link. Nothing else on the file is shared with them.' },
+        { name: 'referee_name', label: 'Recipient name', type: 'text' },
+        { name: 'channel', label: 'How to send', type: 'select', required: true,
+          options: [
+            { value: 'link', label: 'Just give me the link and QR code' },
+            { value: 'email', label: 'Email it' },
+            { value: 'whatsapp', label: 'WhatsApp it' },
+          ],
+          help: 'SMS is not offered: no SMS provider is configured on this platform.' },
+        { name: 'to', label: 'Email address or WhatsApp number', type: 'text',
+          help: 'Not needed if you are only copying the link.' },
+        { name: 'ttl_days', label: 'Expires after (days)', type: 'number', value: '14',
+          help: 'Maximum 90.' },
+      ],
+      validate: function (v) {
+        const errs = {};
+        if (v.kind === 'REFEREE' && !v.entry_id) {
+          errs.entry_id = 'A referee link must name the period it covers.';
+        }
+        if (v.channel !== 'link' && !v.to) {
+          errs.to = 'Enter where to send it, or choose "just give me the link".';
+        }
+        if (v.channel === 'email' && v.to && v.to.indexOf('@') === -1) {
+          errs.to = 'That does not look like an email address.';
+        }
+        return errs;
+      },
+    });
+    if (!values) return;
+
+    let body;
+    try {
+      const r = await authed('/api/vetting/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          case_id: caseId, kind: values.kind, entry_id: values.entry_id,
+          referee_name: values.referee_name, channel: values.channel,
+          to: values.to, ttl_days: Number(values.ttl_days) || 14,
+          applicant_name: (caseData && caseData.applicant_name) || '',
+        }),
+      });
+      body = await r.json().catch(function () { return {}; });
+      if (!r.ok) {
+        Toast.show('Link not created: ' + escHtml((body && (body.error || (body.detail && body.detail.message))) || r.status), 'danger', 9000);
+        return;
+      }
+    } catch (e) {
+      Toast.show('Link not created \u2014 the service was unreachable.', 'danger', 9000);
+      return;
+    }
+
+    const d = body.delivery || {};
+    const deliveryLine = !d.attempted
+      ? '<span class="sc-badge sc-badge-muted">not sent \u2014 copy or scan below</span>'
+      : d.sent
+        ? '<span class="sc-badge sc-badge-green">sent by ' + escHtml(d.channel) + '</span>'
+        : '<span class="sc-badge sc-badge-orange">not sent</span><div class="vt-ref" style="margin-top:6px">' + escHtml(d.detail || 'delivery failed') + '</div>';
+
+    const qrSrc = '/api/vetting/qr?url=' + encodeURIComponent(body.link);
+    Modal.info({
+      title: 'Secure link created',
+      message: 'This link is shown once. Copy it now \u2014 it cannot be displayed again.',
+      tone: 'vls', icon: 'bi-qr-code',
+      bodyHtml:
+        '<div style="text-align:center;margin-bottom:16px">' +
+        '<img src="' + escHtml(qrSrc) + '" alt="QR code for the upload link" ' +
+        'style="width:200px;height:200px;border:1px solid var(--sc-border);border-radius:10px;padding:6px;background:#fff"></div>' +
+        '<div class="sc-form-static" style="word-break:break-all;font-size:12px">' + escHtml(body.link) + '</div>' +
+        '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
+        '<button class="sc-btn sc-btn-outline sc-btn-sm" id="vt-copy" type="button">Copy link</button>' +
+        '<a class="sc-btn sc-btn-outline sc-btn-sm" href="' + escHtml(qrSrc) + '" download="vetting-qr-' + escHtml(caseId) + '.svg">Download QR</a>' +
+        '</div>' +
+        '<div style="margin-top:14px">' + deliveryLine + '</div>' +
+        '<p class="vt-ref" style="margin-top:12px">Expires ' + escHtml(String(body.expires_at || '').slice(0, 10)) +
+        '. Anyone holding this link can upload to this case \u2014 do not post it in a shared channel.</p>',
+    });
+
+    setTimeout(function () {
+      const btn = document.getElementById('vt-copy');
+      if (!btn) return;
+      btn.onclick = async function () {
+        try {
+          await navigator.clipboard.writeText(body.link);
+          btn.textContent = 'Copied';
+        } catch (e) {
+          btn.textContent = 'Select the link above and copy';
+        }
+      };
+    }, 50);
+    await loadCases();
+  }
+
   // Art. 15 export. Opened as a download rather than rendered inline: it is a
   // record to be handed to a person, and inlining it would invite screenshots
   // of criminal-offence data into whatever chat the operator is in.
@@ -674,6 +802,8 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
     if (assessBtn) { assess(assessBtn.getAttribute('data-assess')); return; }
     const decideBtn = ev.target.closest('[data-decide]');
     if (decideBtn) { decide(decideBtn.getAttribute('data-decide')); return; }
+    const shareBtn = ev.target.closest('[data-share]');
+    if (shareBtn) { shareLink(shareBtn.getAttribute('data-share')); return; }
     const sarBtn = ev.target.closest('[data-sar]');
     if (sarBtn) { subjectAccess(sarBtn.getAttribute('data-sar')); }
   });

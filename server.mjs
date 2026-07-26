@@ -1635,6 +1635,132 @@ app.all(/^\/api\/vetting-portal\/(.+)$/, async (req, res) => {
   }
 });
 
+// ── R-F3185: mint a vetting invite AND deliver it, in one step ─────────────
+//
+// WHY MINT AND SEND TOGETHER, with no "re-send that link" button:
+// the plaintext token exists for exactly one moment — it is returned once by
+// the brain and never stored, which is what makes a database leak not also a
+// link leak. Delivering later would require keeping it. So the send happens
+// here, while it is in hand. Needing to reach someone again means minting a
+// FRESH link and revoking the old one, which is also the better practice:
+// re-sending one link to a second person is precisely what you do not want.
+//
+// Delivery lives in the WEB tier because both channels do — SMTP in
+// lib/auth/email.mjs, WhatsApp on aria-wa. Doing it from the brain would mean
+// a second hop carrying a live credential.
+app.post('/api/vetting/share', requireAuth, express.json({ limit: '64kb' }), async (req, res) => {
+  if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'Service temporarily unavailable' });
+  const b = req.body || {};
+  const caseId = String(b.case_id || '').trim();
+  if (!caseId) return res.status(400).json({ error: 'case_id required' });
+
+  const channel = String(b.channel || 'link').trim().toLowerCase();
+  const to = String(b.to || '').trim();
+  if (channel !== 'link' && !to) {
+    return res.status(400).json({ error: 'a recipient is required for that channel' });
+  }
+
+  // 1. Mint. user_id is pinned from the JWT — never taken from the body.
+  let minted;
+  try {
+    const r = await fetch(
+      `${ARIA_SERVICE_URL}/api/aria/vetting/case/${encodeURIComponent(caseId)}/invites`
+      + `?user_id=${encodeURIComponent(req.user?.userId || '')}`,
+      {
+        method: 'POST',
+        headers: _ariaHeaders(),
+        body: JSON.stringify({
+          kind: b.kind || 'APPLICANT', entry_id: b.entry_id || '',
+          referee_name: b.referee_name || '', referee_email: b.referee_email || '',
+          ttl_days: b.ttl_days || 14,
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+    minted = await r.json().catch(() => ({}));
+    if (!r.ok) return res.status(r.status).json(minted);
+  } catch (err) {
+    console.error('[vetting-share] mint failed:', err?.message || err);
+    return res.status(502).json({ error: 'Could not create the link' });
+  }
+
+  const link = `${_portalBase(req)}/vetting-portal/${minted.token}`;
+  const isReferee = (minted.kind || '') === 'REFEREE';
+  const subject = isReferee
+    ? 'Request to confirm an employment reference'
+    : 'Upload your screening documents';
+  const body = isReferee
+    ? `Hello${b.referee_name ? ' ' + b.referee_name : ''},
+
+`
+      + `You have been nominated to confirm an employment reference. Please use `
+      + `the secure link below. You will be asked only to confirm that one `
+      + `engagement — no other information about the applicant is shared with you.
+
+`
+      + `${link}
+
+This link expires on ${String(minted.expires_at || '').slice(0, 10)}. `
+      + `Please do not forward it.`
+    : `Hello,
+
+Please upload the documents needed for your pre-employment `
+      + `screening using the secure link below.
+
+${link}
+
+`
+      + `This link expires on ${String(minted.expires_at || '').slice(0, 10)}. `
+      + `It is private to you — please do not forward it.`;
+
+  // 2. Deliver. A delivery failure must NOT lose the link: the caller still
+  //    gets it back and can copy or print the QR, so a flaky mailbox never
+  //    strands a freshly minted credential nobody can see again.
+  let delivery = { channel, attempted: channel !== 'link', sent: false, detail: '' };
+  try {
+    if (channel === 'email') {
+      // R-F3185 §3b: sendVettingInviteEmail is verified to exist in
+      // lib/auth/email.mjs. The first cut of this called sendGenericEmail /
+      // sendRawEmail — NEITHER exists, and the optional-chaining fallback would
+      // have reported "sent" while sending nothing at all.
+      const mail = await import('./lib/auth/email.mjs');
+      await mail.sendVettingInviteEmail({
+        to, recipientName: b.referee_name || '', link,
+        expiresOn: String(minted.expires_at || '').slice(0, 10),
+        isReferee, organisation: b.organisation || '',
+        applicantName: b.applicant_name || '',
+      });
+      // isConfigured false means the module's relay wrote it to stdout. That is
+      // NOT delivery, and must not be reported as such.
+      delivery.sent = !!mail.isConfigured;
+      if (!mail.isConfigured) {
+        delivery.detail = 'SMTP is not configured on this server, so the message '
+          + 'was not sent. Copy the link or share the QR code instead.';
+      }
+    } else if (channel === 'whatsapp') {
+      const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': WA_SERVICE_AUTH },
+        body: JSON.stringify({ to, message: `${subject}
+
+${body}` }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const wa = await r.json().catch(() => ({}));
+      delivery.sent = r.ok;
+      if (!r.ok) delivery.detail = wa?.error || `WhatsApp send failed (${r.status})`;
+    }
+  } catch (err) {
+    delivery.detail = String(err?.message || err).slice(0, 200);
+  }
+
+  // The token is returned ONCE, here, exactly as the brain returns it once to
+  // us. There is no endpoint that can show it again.
+  return res.json({
+    invite_id: minted.invite_id, kind: minted.kind,
+    expires_at: minted.expires_at, link, delivery,
+  });
+});
+
 // R-F3181 — QR for a case invite link. Rendered SERVER-SIDE as an SVG so the
 // token never has to be handed to a third-party QR service or a CDN script,
 // which for a link into a screening file would be an avoidable disclosure.
