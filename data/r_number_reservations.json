@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3124,
+  "next_available": 3125,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25187,36 +25187,40 @@
       "title": "single structured LLM gateway schema validated or INVALID_OUTPUT",
       "claimed_at": "2026-07-26T12:43:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "46ba6336",
+      "notes": null,
+      "shipped_at": "2026-07-26T13:43:53Z"
     },
     {
       "r_number": "R-F3110",
       "title": "grounded reasoner LLM path dead since llm_pipeline import never existed",
       "claimed_at": "2026-07-26T12:43:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "46ba6336",
+      "notes": null,
+      "shipped_at": "2026-07-26T13:43:53Z"
     },
     {
       "r_number": "R-F3111",
       "title": "llm eval framework deepseek arm always errored and read wrong field",
       "claimed_at": "2026-07-26T12:43:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "46ba6336",
+      "notes": null,
+      "shipped_at": "2026-07-26T13:43:53Z"
     },
     {
       "r_number": "R-F3112",
       "title": "guard no module may hand-roll LLM acquisition outside the gateway",
       "claimed_at": "2026-07-26T12:43:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "46ba6336",
+      "notes": null,
+      "shipped_at": "2026-07-26T13:43:54Z"
     },
     {
       "r_number": "R-F3113",
@@ -25233,18 +25237,20 @@
       "title": "eval aggregate scored unmeasured questions as zero not unmeasured",
       "claimed_at": "2026-07-26T12:50:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "46ba6336",
+      "notes": null,
+      "shipped_at": "2026-07-26T13:43:54Z"
     },
     {
       "r_number": "R-F3115",
       "title": "eval runner dropped every golden question on a missing required id",
       "claimed_at": "2026-07-26T12:59:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "46ba6336",
+      "notes": null,
+      "shipped_at": "2026-07-26T13:43:54Z"
     },
     {
       "r_number": "R-F3116",
@@ -25325,6 +25331,15 @@
       "commit_sha": "740085d0",
       "notes": null,
       "shipped_at": "2026-07-26T13:35:35Z"
+    },
+    {
+      "r_number": "R-F3124",
+      "title": "issuer annual-report financial extraction with arithmetic self-check",
+      "claimed_at": "2026-07-26T13:40:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
