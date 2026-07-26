@@ -45,6 +45,8 @@ import httpx
 from ..ua_rotation import random_ua
 from ..engine_wiring import wired
 
+from . import _common          # R-F3108 — outcome vocabulary
+
 logger = logging.getLogger("aria.sources.academic")
 
 _TIMEOUT_SEC = 10.0
@@ -98,6 +100,8 @@ def _new_result(title: str, url: str, snippet: str, source: str) -> dict:
 async def search_semantic_scholar(
     query: str,
     max_results: int = _MAX_RESULTS_PER_API,
+    *,
+    _outcome: dict | None = None,
 ) -> list[dict]:
     """Semantic Scholar graph API. Free, optional API key raises rate
     limit 10×. Covers 200M+ papers with abstract, authors, venue, year,
@@ -109,11 +113,20 @@ async def search_semantic_scholar(
     consecutive failures (429 or otherwise) so we stop pinging while
     rate-limited.
     """
+    def _note(outcome: str, err: str = "") -> None:
+        """R-F3108 — record WHY this returned nothing; [] alone cannot say."""
+        if _outcome is not None:
+            _outcome["outcome"] = outcome
+            if err:
+                _outcome["error"] = err[:200]
+
     if not query or not _is_enabled():
+        _note(_common.OUTCOME_SKIPPED, "academic search disabled or empty query")
         return []
     from ..circuit_breaker import get_breaker
     cb = get_breaker("semantic_scholar", failure_threshold=3, cooldown_seconds=600)
     if cb.is_open():
+        _note(_common.OUTCOME_UNAVAILABLE, "circuit breaker open")
         return []
     url = "https://api.semanticscholar.org/graph/v1/paper/search"
     headers = {"User-Agent": random_ua()}
@@ -145,10 +158,12 @@ async def search_semantic_scholar(
     except httpx.TimeoutException as e:
         logger.debug("semantic_scholar timeout: %s", e)
         cb.record_failure(reason="timeout")
+        _note(_common.OUTCOME_TIMEOUT, str(e))
         return []
     except Exception as e:
         logger.debug("semantic_scholar fetch failed: %s", e)
         cb.record_failure()
+        _note(_common.OUTCOME_UNAVAILABLE, str(e))
         return []
     out: list[dict] = []
     for p in (data.get("data") or [])[:max_results]:
@@ -187,15 +202,26 @@ async def search_semantic_scholar(
 async def search_openalex(
     query: str,
     max_results: int = _MAX_RESULTS_PER_API,
+    *,
+    _outcome: dict | None = None,
 ) -> list[dict]:
     """OpenAlex — 240M+ scholarly works, open data, polite pool via
     mailto= param. Returns work metadata including DOI, concepts, and
     institutional affiliations."""
+    def _note(outcome: str, err: str = "") -> None:
+        """R-F3108 — record WHY this returned nothing; [] alone cannot say."""
+        if _outcome is not None:
+            _outcome["outcome"] = outcome
+            if err:
+                _outcome["error"] = err[:200]
+
     if not query or not _is_enabled():
+        _note(_common.OUTCOME_SKIPPED, "academic search disabled or empty query")
         return []
     from ..circuit_breaker import get_breaker
     cb = get_breaker("openalex", failure_threshold=3, cooldown_seconds=600)
     if cb.is_open():
+        _note(_common.OUTCOME_UNAVAILABLE, "circuit breaker open")
         return []
     url = "https://api.openalex.org/works"
     params = {
@@ -216,10 +242,12 @@ async def search_openalex(
     except httpx.TimeoutException as e:
         logger.debug("openalex timeout: %s", e)
         cb.record_failure(reason="timeout")
+        _note(_common.OUTCOME_TIMEOUT, str(e))
         return []
     except Exception as e:
         logger.debug("openalex fetch failed: %s", e)
         cb.record_failure()
+        _note(_common.OUTCOME_UNAVAILABLE, str(e))
         return []
     out: list[dict] = []
     for w in (data.get("results") or [])[:max_results]:
@@ -265,14 +293,25 @@ async def search_openalex(
 async def search_crossref(
     query: str,
     max_results: int = _MAX_RESULTS_PER_API,
+    *,
+    _outcome: dict | None = None,
 ) -> list[dict]:
     """CrossRef — primary DOI registry; best for recent journal articles
     and conference papers. No auth, polite pool via mailto=."""
+    def _note(outcome: str, err: str = "") -> None:
+        """R-F3108 — record WHY this returned nothing; [] alone cannot say."""
+        if _outcome is not None:
+            _outcome["outcome"] = outcome
+            if err:
+                _outcome["error"] = err[:200]
+
     if not query or not _is_enabled():
+        _note(_common.OUTCOME_SKIPPED, "academic search disabled or empty query")
         return []
     from ..circuit_breaker import get_breaker
     cb = get_breaker("crossref", failure_threshold=3, cooldown_seconds=600)
     if cb.is_open():
+        _note(_common.OUTCOME_UNAVAILABLE, "circuit breaker open")
         return []
     url = "https://api.crossref.org/works"
     params = {
@@ -296,10 +335,12 @@ async def search_crossref(
     except httpx.TimeoutException as e:
         logger.debug("crossref timeout: %s", e)
         cb.record_failure(reason="timeout")
+        _note(_common.OUTCOME_TIMEOUT, str(e))
         return []
     except Exception as e:
         logger.debug("crossref fetch failed: %s", e)
         cb.record_failure()
+        _note(_common.OUTCOME_UNAVAILABLE, str(e))
         return []
     items = (data.get("message") or {}).get("items") or []
     out: list[dict] = []

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3107,
+  "next_available": 3114,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25161,6 +25161,69 @@
       "commit_sha": "a17ca60c",
       "notes": null,
       "shipped_at": "2026-07-26T12:39:47Z"
+    },
+    {
+      "r_number": "R-F3107",
+      "title": "retrieval guard blind to empty-literal failure returns",
+      "claimed_at": "2026-07-26T12:42:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3108",
+      "title": "leaf retrievals must report their own failure not swallow to empty",
+      "claimed_at": "2026-07-26T12:42:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3109",
+      "title": "single structured LLM gateway schema validated or INVALID_OUTPUT",
+      "claimed_at": "2026-07-26T12:43:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3110",
+      "title": "grounded reasoner LLM path dead since llm_pipeline import never existed",
+      "claimed_at": "2026-07-26T12:43:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3111",
+      "title": "llm eval framework deepseek arm always errored and read wrong field",
+      "claimed_at": "2026-07-26T12:43:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3112",
+      "title": "guard no module may hand-roll LLM acquisition outside the gateway",
+      "claimed_at": "2026-07-26T12:43:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3113",
+      "title": "non-answering source outcomes must reach the brain",
+      "claimed_at": "2026-07-26T12:44:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

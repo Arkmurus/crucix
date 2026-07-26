@@ -119,10 +119,25 @@ async def search_us_courts(
     *,
     limit: int = 10,
     timeout: float = _DEFAULT_TIMEOUT,
+    _outcome: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Free CourtListener REST search. Returns at most `limit` hits."""
+    """Free CourtListener REST search. Returns at most `limit` hits.
+
+    R-F3108 — this function CATCHES ITS OWN EXCEPTIONS and returns []. R-F3102 tried
+    to detect failure in `search_all` via `asyncio.gather(return_exceptions=True)`,
+    but an exception handled HERE never reaches that check, so a network or HTTP
+    failure still arrived as an ordinary empty list and read as "answered, nothing
+    found". Pass `_outcome={}` to learn which it was; the list contract is unchanged.
+    """
+    def _note(outcome: str, err: str = "") -> None:
+        if _outcome is not None:
+            _outcome["outcome"] = outcome
+            if err:
+                _outcome["error"] = err[:200]
+
     name = _norm_entity(entity)
     if not name or len(name) < 3:
+        _note(_common.OUTCOME_SKIPPED, "entity name too short")
         return []
     url = (
         f"{_COURTLISTENER_BASE}/search/"
@@ -136,10 +151,12 @@ async def search_us_courts(
                     "[R-F579] courtlistener returned HTTP %s for %s",
                     r.status_code, name,
                 )
+                _note(_common.OUTCOME_UNAVAILABLE, f"HTTP {r.status_code}")
                 return []
             data = r.json() or {}
     except Exception as e:
         logger.debug("[R-F579] courtlistener fetch failed: %s", e)
+        _note(_common.OUTCOME_UNAVAILABLE, str(e))
         return []
 
     hits: list[dict[str, Any]] = []
@@ -226,6 +243,7 @@ async def search_uk_courts(
     *,
     limit: int = 10,
     timeout: float = _DEFAULT_TIMEOUT,
+    _outcome: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Bailii lookup via the site: Google-News-RSS fallback pattern.
 
@@ -234,7 +252,16 @@ async def search_uk_courts(
     case pages and we read the RSS feed to extract titles + links.
     Returns clean case captions; opinion text snippet not available
     via this path (callers may follow citation_url to fetch full text).
+
+    R-F3108 — catches its own exceptions and returns []; pass `_outcome={}` to
+    distinguish 'BAILII answered, no cases' from 'BAILII did not answer'.
     """
+    def _note(outcome: str, err: str = "") -> None:
+        if _outcome is not None:
+            _outcome["outcome"] = outcome
+            if err:
+                _outcome["error"] = err[:200]
+
     name = _norm_entity(entity)
     if not name or len(name) < 3:
         return []
@@ -247,10 +274,12 @@ async def search_uk_courts(
                     "[R-F579] bailii (via gnews RSS) returned HTTP %s for %s",
                     r.status_code, name,
                 )
+                _note(_common.OUTCOME_UNAVAILABLE, f"HTTP {r.status_code}")
                 return []
             return _parse_bailii_rss(r.text, limit=limit, entity_name=name)
     except Exception as e:
         logger.debug("[R-F579] bailii fetch failed: %s", e)
+        _note(_common.OUTCOME_UNAVAILABLE, str(e))
         return []
 
 
@@ -296,22 +325,37 @@ async def search_all(
             _common.OUTCOME_SKIPPED, detail="no entity supplied")
 
     name = _norm_entity(entity)
-    us_task = asyncio.create_task(search_us_courts(name, limit=limit_per_source, timeout=timeout))
-    uk_task = asyncio.create_task(search_uk_courts(name, limit=limit_per_source, timeout=timeout))
+    # ── R-F3108 — READ THE LEAVES' OUTCOMES, not just propagated exceptions ──
+    #
+    # R-F3102 detected failure solely via `asyncio.gather(return_exceptions=True)`.
+    # But BOTH leaves catch their own exceptions and return [] (court_records.py:157
+    # and :252 before this change), so a network error, a timeout or an HTTP 503 —
+    # the actual production failure modes — never surfaced as an Exception here. The
+    # gather saw two ordinary empty lists and concluded both sources had ANSWERED
+    # with nothing. The R-F3102 disclosure therefore almost never fired live, and its
+    # test passed only because it monkeypatched the leaves to RAISE, which is a
+    # failure mode that cannot occur. The exception branch is KEPT as a backstop for
+    # anything genuinely unhandled; the out-parameters are what work in practice.
+    us_probe: dict[str, Any] = {}
+    uk_probe: dict[str, Any] = {}
+    us_task = asyncio.create_task(
+        search_us_courts(name, limit=limit_per_source, timeout=timeout, _outcome=us_probe))
+    uk_task = asyncio.create_task(
+        search_uk_courts(name, limit=limit_per_source, timeout=timeout, _outcome=uk_probe))
     us_hits, uk_hits = await asyncio.gather(us_task, uk_task, return_exceptions=True)
-    # R-F3102 — name which source failed, and why, instead of erasing it to [].
     failed: list[dict[str, str]] = []
     answered_sources: list[str] = []
-    if isinstance(us_hits, Exception):
-        failed.append({"source": "courtlistener", "error": str(us_hits)[:200]})
-        us_hits = []
-    else:
-        answered_sources.append("courtlistener")
-    if isinstance(uk_hits, Exception):
-        failed.append({"source": "bailii", "error": str(uk_hits)[:200]})
-        uk_hits = []
-    else:
-        answered_sources.append("bailii")
+    for label, hits, probe in (("courtlistener", us_hits, us_probe),
+                               ("bailii", uk_hits, uk_probe)):
+        if isinstance(hits, Exception):          # backstop: genuinely unhandled
+            failed.append({"source": label, "error": str(hits)[:200]})
+        elif probe.get("outcome") in _common.NON_ANSWERING_OUTCOMES:
+            failed.append({"source": label,
+                           "error": str(probe.get("error") or probe.get("outcome"))[:200]})
+        else:
+            answered_sources.append(label)
+    us_hits = [] if isinstance(us_hits, Exception) else (us_hits or [])
+    uk_hits = [] if isinstance(uk_hits, Exception) else (uk_hits or [])
 
     # Dedupe by (jurisdiction, title) so an entity matching the same
     # case under two slightly-different captions doesn't double-count.

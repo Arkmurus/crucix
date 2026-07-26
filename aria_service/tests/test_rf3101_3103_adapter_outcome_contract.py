@@ -85,11 +85,20 @@ def test_rf3101_stamp_is_additive_and_never_clobbers():
 # ── R-F3102 — the live false clean ─────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_rf3102_both_courts_down_is_UNAVAILABLE_not_empty(monkeypatch):
-    """THE LIVE DEFECT: both sources failing used to yield a clean litigation file."""
-    async def _boom(*_a, **_kw):
-        raise RuntimeError("upstream 503")
-    monkeypatch.setattr(court_records, "search_us_courts", _boom)
-    monkeypatch.setattr(court_records, "search_uk_courts", _boom)
+    """THE LIVE DEFECT: both sources failing used to yield a clean litigation file.
+
+    R-F3108 — THIS TEST WAS WRONG. It monkeypatched the leaves to RAISE, and both
+    leaves catch their own exceptions and return [], so a raise is a failure mode
+    that CANNOT occur in production. The test was green while the live path stayed
+    broken — exactly the §23 trap. It now drives the REAL mode: the leaf handles the
+    error itself, returns [], and reports via `_outcome`."""
+    async def _handled_failure(*_a, _outcome=None, **_kw):
+        if _outcome is not None:
+            _outcome["outcome"] = _common.OUTCOME_UNAVAILABLE
+            _outcome["error"] = "HTTP 503"
+        return []                       # exactly what the real leaves do
+    monkeypatch.setattr(court_records, "search_us_courts", _handled_failure)
+    monkeypatch.setattr(court_records, "search_uk_courts", _handled_failure)
 
     res = await court_records.search_all("Acme Ltd")
     assert res["hits"] == []
@@ -103,11 +112,16 @@ async def test_rf3102_both_courts_down_is_UNAVAILABLE_not_empty(monkeypatch):
 @pytest.mark.asyncio
 async def test_rf3102_one_source_down_still_returns_the_other(monkeypatch):
     """The graceful-degradation behaviour was always right — keep it, but disclose."""
-    async def _boom(*_a, **_kw):
-        raise RuntimeError("down")
-    async def _ok(*_a, **_kw):
+    async def _handled_failure(*_a, _outcome=None, **_kw):
+        if _outcome is not None:
+            _outcome["outcome"] = _common.OUTCOME_UNAVAILABLE
+            _outcome["error"] = "down"
+        return []
+    async def _ok(*_a, _outcome=None, **_kw):
+        if _outcome is not None:
+            _outcome["outcome"] = _common.OUTCOME_OK
         return [{"jurisdiction": "UK", "title": "Acme v Beta"}]
-    monkeypatch.setattr(court_records, "search_us_courts", _boom)
+    monkeypatch.setattr(court_records, "search_us_courts", _handled_failure)
     monkeypatch.setattr(court_records, "search_uk_courts", _ok)
 
     res = await court_records.search_all("Acme Ltd")
@@ -119,7 +133,9 @@ async def test_rf3102_one_source_down_still_returns_the_other(monkeypatch):
 @pytest.mark.asyncio
 async def test_rf3102_a_genuine_clean_search_is_still_clean(monkeypatch):
     """The fix must not turn every quiet search into an alarm."""
-    async def _empty(*_a, **_kw):
+    async def _empty(*_a, _outcome=None, **_kw):
+        if _outcome is not None:
+            _outcome["outcome"] = _common.OUTCOME_EMPTY
         return []
     monkeypatch.setattr(court_records, "search_us_courts", _empty)
     monkeypatch.setattr(court_records, "search_uk_courts", _empty)
@@ -227,6 +243,89 @@ def test_rf3103_NO_adapter_may_ship_a_retrieval_without_an_outcome():
         "Give every public retrieval return an `ok`/`outcome` via "
         "_common.stamp_outcome:\n"
         + "\n".join(f"  {v[0]}" for v in offenders.values()))
+
+
+def _silent_failure_returns(path: pathlib.Path) -> list[str]:
+    """R-F3107 — retrieval failure paths that return a BARE EMPTY VALUE.
+
+    THE BLIND SPOT. `_public_dict_returns_without_outcome` inspects `ast.Dict`
+    returns only, so `return []` and `return None` from an `except` handler were
+    invisible to it. An AST sweep found SIX retrievals swallowing failures that way
+    with no outcome recorded — including `search_us_courts` / `search_uk_courts`,
+    which is why the R-F3102 fix barely worked: both leaves catch their own
+    exceptions, so `search_all`'s `isinstance(x, Exception)` check never fired for a
+    network or HTTP failure, and its test passed only because it patched the leaves
+    to RAISE — a mode that cannot occur.
+
+    An empty list/None returned from an except handler is the SAME defect as an
+    outcome-less dict: the caller cannot tell it from a legitimate negative. This
+    flags it unless the function records an outcome somewhere.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    offenders = []
+    for fn in tree.body:
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if fn.name.startswith("_") or not _is_retrieval(fn):
+            continue
+        dumped = ast.dump(fn)
+        if any(k in dumped for k in ("stamp_outcome", "_note", "_outcome", "error_result")):
+            continue          # the function records its outcome somehow
+        for h in [n for n in ast.walk(fn) if isinstance(n, ast.ExceptHandler)]:
+            for r in [n for n in ast.walk(h) if isinstance(n, ast.Return)]:
+                v = r.value
+                empty = (
+                    v is None
+                    or (isinstance(v, ast.Constant) and v.value is None)
+                    or (isinstance(v, ast.List) and not v.elts)
+                    or (isinstance(v, ast.Dict) and not v.keys)
+                )
+                if empty:
+                    offenders.append(f"{path.name}::{fn.name}:{r.lineno}")
+    return offenders
+
+
+def test_rf3107_no_retrieval_may_swallow_a_failure_into_an_empty_value():
+    """THE ENFORCEMENT for the blind spot. `return []` from an except handler is
+    indistinguishable from "we searched and found nothing" — the false clean, in the
+    shape that this guard could not previously see."""
+    offenders = {}
+    for p in sorted(_SOURCES.glob("*.py")):
+        if p.name in ("__init__.py", "_common.py"):
+            continue
+        bad = _silent_failure_returns(p)
+        if bad:
+            offenders[p.name] = bad
+    assert offenders == {}, (
+        "these retrievals swallow a failure into an empty value with no outcome "
+        "recorded, so a caller reads 'the source is down' as 'nothing found'. Add an "
+        "`_outcome` out-parameter and record the reason:\n"
+        + "\n".join(f"  {s}" for v in offenders.values() for s in v))
+
+
+def test_rf3107_the_guard_can_actually_SEE_the_defect_it_guards():
+    """A guard that cannot detect its own target passes forever. Prove it fires on
+    the exact pre-fix shape — this is the check the original R-F3103 guard failed."""
+    import tempfile
+    src = (
+        "import httpx\n"
+        "async def fetch(x):\n"
+        "    try:\n"
+        "        async with httpx.AsyncClient() as c:\n"
+        "            return await c.get(x)\n"
+        "    except Exception:\n"
+        "        return []\n"
+    )
+    with tempfile.TemporaryDirectory() as d:
+        f = pathlib.Path(d) / "fake_adapter.py"
+        f.write_text(src, encoding="utf-8")
+        assert _silent_failure_returns(f), (
+            "R-F3107 REGRESSION: the guard cannot see a bare `return []` failure path")
+        # and it must NOT fire once an outcome is recorded
+        f.write_text(src.replace("        return []",
+                                 "        _outcome['outcome'] = 'unavailable'\n"
+                                 "        return []"), encoding="utf-8")
+        assert _silent_failure_returns(f) == []
 
 
 def test_rf3104_pure_computation_is_exempt_by_RULE_not_by_name():

@@ -16,6 +16,7 @@ import httpx
 
 from ..engine_wiring import wire_success, wire_failure
 from ..circuit_breaker import get_breaker
+from . import _common          # R-F3108 — outcome vocabulary
 
 logger = logging.getLogger("aria.sources.usaspending")
 
@@ -48,12 +49,22 @@ def _recipient_confirms(query_tokens: set, recipient: str) -> bool:
     return len(shared) == 1 and len(next(iter(shared))) >= 5
 
 
-async def lookup(name: str, max_awards: int = 8) -> dict | None:
+async def lookup(name: str, max_awards: int = 8, *,
+                 _outcome: dict | None = None) -> dict | None:
     """Return a US-federal-contract summary for ``name`` (or None if no awards / on failure).
 
     Shape: {recipient, award_count, total_value_usd, top_agencies, awards[], source_url,
     adapter}. Best-effort; never raises.
     """
+    # R-F3108 — `None` meant BOTH "no federal awards" (a real negative) and
+    # "the lookup failed". Pass `_outcome={}` to tell them apart; the
+    # None-or-dict contract is unchanged.
+    def _note(outcome: str, err: str = "") -> None:
+        if _outcome is not None:
+            _outcome["outcome"] = outcome
+            if err:
+                _outcome["error"] = err[:200]
+
     cb = get_breaker("procurement:usaspending", failure_threshold=5, cooldown_seconds=300)
     if cb.is_open():
         return None
@@ -138,6 +149,7 @@ async def lookup(name: str, max_awards: int = 8) -> dict | None:
         return summary
     except Exception as ex:  # noqa: BLE001 — best-effort; never breaks the DD
         cb.record_failure(reason="timeout")
+        _note(_common.OUTCOME_UNAVAILABLE, str(ex))
         logger.warning("[usaspending] lookup failed for %s: %s", q, ex)
         try:
             wire_failure(module="usaspending", detail=f"usaspending lookup failed: {ex}",

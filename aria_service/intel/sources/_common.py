@@ -134,20 +134,63 @@ def answered(result: Any) -> bool:
     return source_outcome(result) not in NON_ANSWERING_OUTCOMES
 
 
-def stamp_outcome(result: dict, outcome: str, *, detail: str = "") -> dict:
+def stamp_outcome(result: dict, outcome: str, *, detail: str = "",
+                  module: str = "") -> dict:
     """R-F3101 — record the outcome on an adapter result, in place.
 
     Additive by construction: it only ever ADDS `outcome` (and `ok`/`error` when
     absent), so an existing caller reading the old keys is unaffected. That property
     is what lets the five non-conforming adapters be brought into the contract
-    without a coordinated change to every reader."""
+    without a coordinated change to every reader.
+
+    ── R-F3113 — AND IT REACHES THE BRAIN ──────────────────────────────────
+    R-F3101-R-F3106 made a dead source legible TO THE CALLER and stopped there. That
+    is only half of §21a, which requires both the success AND the failure branch to
+    reach the brain: a source that stops answering was recorded in a returned dict
+    that nothing outside the request ever saw, so ARIA could not know a source had
+    gone dark, `gap_detector` had nothing to pick up, and the self-heal loop (§21c)
+    could not act. "Wired" is a definition, not a vibe — a local ring buffer is DARK.
+
+    The SUCCESS branch is already wired: every adapter here carries `@wired`. This
+    closes the failure half, at the single choke point, so no adapter can be brought
+    into the contract and still fail darkly.
+
+    `skipped` is deliberately NOT wired. It means "not attempted on purpose" — a
+    missing optional credential, a query too short to send — and it is already
+    surfaced as a DD data_gap. Wiring it would flood the gap ledger with a standing
+    configuration fact and drown the signal this exists to carry.
+    """
     if not isinstance(result, dict):
         return result
     result["outcome"] = outcome
     result.setdefault("ok", outcome in (OUTCOME_OK, OUTCOME_EMPTY))
     if detail and not result.get("error"):
         result["error"] = detail[:300]
+    if outcome in NON_ANSWERING_OUTCOMES and outcome != OUTCOME_SKIPPED:
+        _wire_non_answer(result, outcome, detail=detail, module=module)
     return result
+
+
+def _wire_non_answer(result: dict, outcome: str, *, detail: str = "",
+                     module: str = "") -> None:
+    """R-F3113 — a source that did not answer is a GAP; tell the brain.
+
+    `gap_type="source_failure"` is already registered in `capability_gaps`
+    (VALID_GAP_TYPES), and `wire_failure` de-dupes on a 1h window, so a persistently
+    dark source records once per hour rather than once per DD. Best-effort and
+    silent: an observability wire must never take down the retrieval it observes."""
+    try:
+        from ..engine_wiring import wire_failure
+        src = str(result.get("source") or "unknown")
+        wire_failure(
+            module=module or f"sources.{src}",
+            detail=(f"source did not answer ({outcome})"
+                    + (f": {detail[:160]}" if detail else "")),
+            gap_type="source_failure",
+            source=f"sources.{src}:R-F3113",
+        )
+    except Exception:       # noqa: BLE001 — observability must never break retrieval
+        pass
 
 
 def finalise(result: dict, started_at: float) -> dict:

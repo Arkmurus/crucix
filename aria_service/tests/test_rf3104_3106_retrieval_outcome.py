@@ -244,3 +244,98 @@ def test_rf3104_pure_scorers_are_exempt_by_rule_not_by_allowlist():
     retriever = next(f for f in tree.body
                      if isinstance(f, (ast.AsyncFunctionDef,)) and f.name == "search_certs")
     assert _is_retrieval(retriever) is True
+
+
+# ── R-F3108 — END TO END, through the REAL leaves ──────────────────────────
+@pytest.mark.asyncio
+async def test_rf3108_real_leaves_failing_makes_search_all_unavailable(monkeypatch):
+    """THE TEST THAT WAS MISSING. The R-F3102 test patched the leaves to RAISE, but
+    both leaves catch their own exceptions and return [] — so it exercised a mode
+    that cannot occur while the live path stayed broken (§23). This drives the REAL
+    functions with a failing HTTP client, which is what production does."""
+    from aria_service.intel.sources import court_records as cr
+
+    class _Down:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, *a, **k): raise RuntimeError("network unreachable")
+    monkeypatch.setattr(cr.httpx, "AsyncClient", _Down)
+
+    res = await cr.search_all("Acme Widgets Ltd")
+    assert res["hits"] == []
+    assert _common.answered(res) is False, (
+        "R-F3108 REGRESSION: both court sources unreachable still reads as answered")
+    assert res["outcome"] == _common.OUTCOME_UNAVAILABLE
+    assert {f["source"] for f in res["sources_failed"]} == {"courtlistener", "bailii"}
+
+
+@pytest.mark.asyncio
+async def test_rf3108_real_leaves_answering_empty_is_a_real_negative(monkeypatch):
+    """And the inverse must hold, or every quiet search becomes an alarm."""
+    from aria_service.intel.sources import court_records as cr
+
+    class _Empty:
+        status_code = 200
+        text = "<rss></rss>"
+        def json(self): return {"results": []}
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, *a, **k): return _Empty()
+    monkeypatch.setattr(cr.httpx, "AsyncClient", _Client)
+
+    res = await cr.search_all("Acme Widgets Ltd")
+    assert res["outcome"] == _common.OUTCOME_EMPTY
+    assert _common.answered(res) is True
+    assert res["sources_failed"] == []
+
+
+# ── R-F3113 — the failure must reach the BRAIN, not just the caller ────────
+def test_rf3113_a_non_answering_source_records_a_gap(monkeypatch):
+    """§21a: a path is wired only if BOTH branches reach the brain. R-F3101-R-F3106
+    made a dead source legible to the CALLER and stopped there, so ARIA could not
+    know a source had gone dark and the self-heal loop had nothing to act on."""
+    seen = []
+    import aria_service.intel.engine_wiring as ew
+    monkeypatch.setattr(ew, "wire_failure",
+                        lambda **kw: seen.append(kw))
+
+    _common.stamp_outcome({"source": "crt.sh", "hits": []},
+                          _common.OUTCOME_UNAVAILABLE, detail="HTTP 503")
+    assert seen, "R-F3113 REGRESSION: a dead source no longer reaches the brain"
+    assert seen[0]["gap_type"] == "source_failure", "must be a REGISTERED gap type"
+    assert "crt.sh" in seen[0]["module"]
+    assert "did not answer" in seen[0]["detail"]
+
+
+def test_rf3113_an_answered_source_does_not_record_a_gap(monkeypatch):
+    seen = []
+    import aria_service.intel.engine_wiring as ew
+    monkeypatch.setattr(ew, "wire_failure", lambda **kw: seen.append(kw))
+    _common.stamp_outcome({"source": "crt.sh", "hits": []}, _common.OUTCOME_EMPTY)
+    _common.stamp_outcome({"source": "crt.sh", "hits": [1]}, _common.OUTCOME_OK)
+    assert seen == [], "an answered source is not a gap"
+
+
+def test_rf3113_skipped_is_not_wired(monkeypatch):
+    """A deliberate non-attempt (optional credential absent, query too short) is
+    already a DD data_gap. Wiring it would flood the ledger with a standing config
+    fact and drown the signal this exists to carry."""
+    seen = []
+    import aria_service.intel.engine_wiring as ew
+    monkeypatch.setattr(ew, "wire_failure", lambda **kw: seen.append(kw))
+    _common.stamp_outcome({"source": "acled", "hits": []}, _common.OUTCOME_SKIPPED)
+    assert seen == []
+
+
+def test_rf3113_wiring_never_breaks_the_retrieval(monkeypatch):
+    """An observability wire must never take down the thing it observes."""
+    import aria_service.intel.engine_wiring as ew
+    def _boom(**kw):
+        raise RuntimeError("brain down")
+    monkeypatch.setattr(ew, "wire_failure", _boom)
+    out = _common.stamp_outcome({"source": "x", "hits": []},
+                                _common.OUTCOME_UNAVAILABLE)
+    assert out["outcome"] == _common.OUTCOME_UNAVAILABLE
