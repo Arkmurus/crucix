@@ -25038,9 +25038,9 @@
       "claimed_at": "2026-07-26T11:01:06Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "7a2b822a",
+      "commit_sha": "8c467afb",
       "notes": "[R-F3095 reconciled from git]",
-      "shipped_at": "2026-07-26T12:07:46Z"
+      "shipped_at": "2026-07-26T12:11:52Z"
     },
     {
       "r_number": "R-F3095",
