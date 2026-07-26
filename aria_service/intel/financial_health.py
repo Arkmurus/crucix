@@ -23,7 +23,9 @@ from __future__ import annotations
 import asyncio          # R-F3124 — bounded document read + model call
 import datetime as _dt
 import logging
+import os               # R-F3146 — temp file for the already-fetched issuer document
 import re   # R-F3028 — sentence-split for superseded-summary replacement
+import tempfile         # R-F3146 — ditto; avoids re-downloading a ~300-page report
 from typing import Any
 
 from .sources import sec_edgar as _sec
@@ -587,6 +589,22 @@ async def _search_issuer_domain_documents(name: str, limit: int = 10) -> list:
 
     The gate was right; the SEARCH never looked in the right place. This does not
     relax G1 — it feeds it candidates that can pass.
+
+    CORRECTION (same day, from the live Babcock DD dd_6e11c978dc86) — the claim above
+    that this route could never fire for ANY subject is TOO STRONG, and is withdrawn.
+    In PRODUCTION the footprint search DID return issuer-domain documents:
+    `gates.provenance` came back **true**, and the compliance section listed
+    babcockinternational.com/.../Babcock-Annual-Report-and-Financial-Statements-2025.pdf.
+    The four-aggregator result that motivated this function came from a LOCAL probe
+    whose search backends were rate-limited (duckduckgo breaker OPEN, no Brave scope),
+    so it under-reported what production actually sees. The real cause of "financials
+    unverified" on that report was downstream — see R-F3146 (the document was fetched
+    twice inside one budget, then truncated past its own balance sheet).
+
+    This function still earns its place: it GUARANTEES an issuer-domain document is
+    offered first rather than trusting a generic query's ranking, and it is fail-safe
+    (no issuer document found = prior behaviour exactly). But it did NOT fix Babcock,
+    and must not be cited as having done so.
     """
     from . import web_search
 
@@ -648,6 +666,57 @@ def _arithmetic_reconciles(figures: dict) -> tuple[bool, str]:
     return True, (
         f"reconciles: net assets {na:,.0f} ≈ assets {ta:,.0f} − liabilities "
         f"{tl:,.0f} = {implied:,.0f}")
+
+
+# R-F3146 — anchors that mark the CONSOLIDATED BALANCE SHEET in an annual report.
+_BALANCE_ANCHORS = (
+    "total assets", "total liabilities", "net assets",
+    "statement of financial position", "balance sheet",
+    "total equity", "non-current assets", "current liabilities",
+)
+# Occurrences strong enough to anchor a window on.
+_BALANCE_PRIMARY_ANCHORS = (
+    "total assets", "statement of financial position", "balance sheet",
+)
+
+
+def _financial_excerpt(text: str, limit: int = 0) -> str:
+    """R-F3146 — hand the extractor the BALANCE SHEET, not the first N characters.
+
+    THE DEFECT: the prompt was built from `text[:_ISSUER_FIN_MAX_CHARS]` — the FIRST
+    120k characters. In a FTSE annual report that is the strategic report, governance
+    and remuneration sections; the consolidated balance sheet sits well past halfway.
+    So even a document that parsed perfectly would have had its figures TRUNCATED AWAY
+    before the model ever saw them, and the route would report "figures incomplete" on
+    a report that plainly contains them — a false data gap sourced from our own slicing.
+
+    Picks the window densest in balance-sheet anchors, so the model reads the statement
+    it is being asked about. Falls back to the head only when no anchor is present,
+    which preserves the previous behaviour for short or unusual documents.
+    """
+    limit = limit or _ISSUER_FIN_MAX_CHARS
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    low = text.lower()
+    lead = limit // 4                      # keep some context before the statement
+    best_start, best_score = None, -1
+    for anchor in _BALANCE_PRIMARY_ANCHORS:
+        pos = 0
+        while True:
+            i = low.find(anchor, pos)
+            if i < 0:
+                break
+            start = max(0, i - lead)
+            window = low[start:start + limit]
+            score = sum(window.count(a) for a in _BALANCE_ANCHORS)
+            if score > best_score:
+                best_score, best_start = score, start
+            pos = i + len(anchor)
+    if best_start is None:
+        return text[:limit]
+    return text[best_start:best_start + limit]
 
 
 async def extract_issuer_financials(
@@ -733,15 +802,56 @@ async def extract_issuer_financials(
     out["gates"]["retrievable"] = True
 
     text = ""
+    # ── R-F3146 — parse the bytes we ALREADY HAVE, and name a timeout honestly ──
+    #
+    # THE DEFECT, measured on the live Babcock DD (dd_6e11c978dc86, 2026-07-26):
+    #     issuer_financials: {"ok": false,
+    #       "reason": "retrieved the document but could not parse it: ",
+    #       "gates": {"provenance": true, "retrievable": true, "text_layer": false}}
+    #
+    # G1 and G2 PASSED — production found and fetched Babcock's own annual report. The
+    # reason string ends at the colon because `str(asyncio.TimeoutError())` is the EMPTY
+    # STRING, so the `except Exception` below rendered a timeout as an unexplained parse
+    # failure. The customer was told the document was unreadable; it was not.
+    #
+    # WHY IT TIMED OUT — and this is the root, not the 45s (§1 forbids bumping it):
+    # `read_document(url)` re-resolves the URL through `_resolve_source`, which
+    # DOWNLOADS THE FILE AGAIN (document_reader.py:1152-1170) — even though G2 above
+    # already holds the complete bytes in `_pre_bytes`. A FTSE annual report is
+    # hundreds of pages and tens of MB, so the budget paid for the same transfer twice
+    # before any parsing began. Handing the parser the bytes we already have removes an
+    # entire redundant network fetch of a large file — that is the failure class, and
+    # it also stops us hitting the issuer's CDN twice per DD.
+    _tmp_path = None
     try:
-        # §3b — verified: document_reader.read_document(source, llm=..) -> ExtractionResult
         from . import document_reader as _dr
-        _res = await asyncio.wait_for(_dr.read_document(url), timeout=timeout)
+        # read_document dispatches on EXTENSION, so name the temp file by magic bytes.
+        _suffix = ".pdf" if _pre_bytes[:4] == b"%PDF" else ".html"
+        _fd, _tmp_path = tempfile.mkstemp(suffix=_suffix, prefix="aria_issuer_")
+        with os.fdopen(_fd, "wb") as _fh:
+            _fh.write(_pre_bytes)
+        # §3b — verified: document_reader.read_document(source, llm=..) -> ExtractionResult
+        _res = await asyncio.wait_for(_dr.read_document(_tmp_path), timeout=timeout)
         text = str(getattr(_res, "text", "") or "")
-    except Exception as e:
-        out["reason"] = f"retrieved the document but could not parse it: {str(e)[:120]}"
+    except (asyncio.TimeoutError, TimeoutError):
+        out["reason"] = (
+            f"the issuer's document did not finish parsing within {timeout:.0f}s "
+            f"({len(_pre_bytes):,} bytes). This is a PROCESSING limit on our side — it "
+            "is NOT a statement about the filing, which may be perfectly readable.")
         out["gates"]["text_layer"] = False
         return out
+    except Exception as e:
+        # An exception whose str() is empty must never render as "could not parse it: ".
+        _msg = str(e).strip() or type(e).__name__
+        out["reason"] = f"retrieved the document but could not parse it: {_msg[:120]}"
+        out["gates"]["text_layer"] = False
+        return out
+    finally:
+        if _tmp_path:
+            try:
+                os.unlink(_tmp_path)
+            except OSError:
+                pass
     if len(text.strip()) < 2000:
         out["reason"] = (
             f"document retrieved ({len(_pre_bytes):,} bytes) but carries no usable text "
@@ -764,7 +874,9 @@ async def extract_issuer_financials(
         '{"total_assets": str, "total_liabilities": str, "net_assets": str}}\n\n'
         "Each quote must be a short VERBATIM substring of the document showing "
         "that figure. Report figures in the SAME units you state in `units`.\n\n"
-        f"DOCUMENT:\n{text[:_ISSUER_FIN_MAX_CHARS]}"
+        # R-F3146: the balance-sheet window, NOT the first 120k chars (which in an
+        # annual report is the strategic report, and excludes the figures asked for).
+        f"DOCUMENT:\n{_financial_excerpt(text)}"
     )
     try:
         # §3b — verified: llm.complete(system, prompt, max_tokens=, timeout=) -> .text
