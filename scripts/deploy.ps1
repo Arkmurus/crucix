@@ -34,6 +34,47 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# ---------------------------------------------------------------------------
+# R-F3133: run a NATIVE command without Windows PowerShell 5.1 aborting the script.
+#
+# THE DEFECT (live 2026-07-26, operator's own shell): `.\scripts\deploy.ps1 -Intel`
+# died at deploy.ps1:187 with NativeCommandError on flyctl's FIRST line of output
+# ("==> Verifying app config"). No Fly release was ever created — the app stayed on
+# v2661 — while the operator reasonably read the coloured error as "the build failed".
+#
+# THE MECHANISM: under Windows PowerShell 5.1, `2>&1` on a native command wraps each
+# stderr line in an ErrorRecord. With the script-level $ErrorActionPreference='Stop'
+# above, the FIRST such record is a TERMINATING error. flyctl writes ALL of its
+# progress to stderr, so the redirection that exists to CAPTURE flyctl's output was
+# the very thing killing the script. PowerShell 7 emits plain strings instead, which
+# is why the identical script deploys fine from pwsh: the difference is the shell the
+# operator launched, not the code — so this reproduces only on their path (§23).
+#
+# Every native call is affected, not just flyctl. The `finally` restore at the foot of
+# this script pipes `git stash pop 2>&1`; throwing THERE would leave the operator's
+# shielded WIP stashed while the console showed an unrelated error — the same shape as
+# the R-F3122 false ship-mark.
+#
+# Success is judged by the EXIT CODE ($script:NativeExitCode), never by $? or by
+# whether anything reached stderr. Output is returned as plain strings so the caller
+# pipes it to the HOST deliberately — preserving R-F1369, which found that letting
+# flyctl's output fall into a function's OUTPUT stream made `$result = Deploy-And-Verify`
+# truthy even on a FAILED deploy and printed "ALL DEPLOYS VERIFIED LIVE" over a [FAIL].
+$script:NativeExitCode = 0
+function Invoke-Native {
+    param([Parameter(Mandatory = $true)][scriptblock]$Command)
+
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Command 2>&1 | ForEach-Object { [string]$_ }
+        $script:NativeExitCode = $LASTEXITCODE
+    } finally {
+        # Restore immediately: 'Stop' is correct for the CMDLET logic around these calls.
+        $ErrorActionPreference = $prevEAP
+    }
+}
+
 # Default: --all if no flags given
 if (-not $Intel -and -not $Web -and -not $Wa -and -not $Searxng) {
     $All = $true
@@ -184,8 +225,10 @@ function Deploy-And-Verify {
     # app never incremented $failures, and the script printed
     # "ALL DEPLOYS VERIFIED LIVE" over a [FAIL] (live incident 2026-06-06:
     # aria-web build died on a DNS blip; the final banner still said ALL PASS).
-    flyctl deploy --remote-only --config $Config --app $App --wait-timeout $TimeoutSeconds @buildArgs 2>&1 | ForEach-Object { Write-Host $_ }
-    $rc = $LASTEXITCODE
+    # R-F3133: via Invoke-Native so flyctl's stderr progress cannot terminate the script
+    # under Windows PowerShell 5.1. Still piped to Write-Host, never to the output stream.
+    Invoke-Native { flyctl deploy --remote-only --config $Config --app $App --wait-timeout $TimeoutSeconds @buildArgs } | ForEach-Object { Write-Host $_ }
+    $rc = $script:NativeExitCode
     if ($rc -ne 0) {
         Write-Host "  [WARN] flyctl exited $rc - verifying anyway (it sometimes deploys then errors on wait)"
     }
@@ -266,7 +309,7 @@ if ($CleanHead) {
     $dirty = git status --porcelain
     if ($dirty) {
         Write-Host "  [CleanHead] working tree dirty - stashing so the image is built from committed HEAD ($GIT_SHORT) only"
-        git stash push -u -m "deploy-cleanhead-$GIT_SHORT" 2>&1 | Select-Object -Last 1 | ForEach-Object { Write-Host "    $_" }
+        Invoke-Native { git stash push -u -m "deploy-cleanhead-$GIT_SHORT" } | Select-Object -Last 1 | ForEach-Object { Write-Host "    $_" }
         $stashed = $true
     } else {
         Write-Host "  [CleanHead] working tree already clean - nothing to shield"
@@ -304,8 +347,10 @@ try {
     Write-Host ""
     if ($failures -eq 0) {
         $tagName = "deploy-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-        git tag $tagName $GIT_SHA 2>$null
-        if (-not $?) { Write-Host "  [WARN] git tag failed (non-fatal)" }
+        # R-F3133: `$?` was the wrong test even before the 5.1 abort — it reflects the
+        # last pipeline's success flag, not git's exit code. Judge by the exit code.
+        Invoke-Native { git tag $tagName $GIT_SHA } | Out-Null
+        if ($script:NativeExitCode -ne 0) { Write-Host "  [WARN] git tag failed (non-fatal)" }
         Write-Host "=== [PASS] ALL DEPLOYS VERIFIED LIVE (commit $GIT_SHORT is serving) ==="
 
         # ---- Live health regression suite ----
@@ -326,8 +371,11 @@ try {
         if ($Web)   { $healthApps += 'web' }
         if ($Wa)    { $healthApps += 'wa' }
         if ($healthApps.Count -eq 0) { $healthApps = @('intel') }
-        python "$REPO_ROOT/scripts/live_health_check.py" --app ($healthApps -join ',') --expected-sha $GIT_SHORT
-        if ($LASTEXITCODE -ne 0) {
+        # R-F3133: Python's logging writes to stderr, so an un-wrapped call here would
+        # abort the script under 5.1 AFTER a successful deploy — losing the health
+        # verdict and the CleanHead restore below.
+        Invoke-Native { python "$REPO_ROOT/scripts/live_health_check.py" --app ($healthApps -join ',') --expected-sha $GIT_SHORT } | ForEach-Object { Write-Host $_ }
+        if ($script:NativeExitCode -ne 0) {
             Write-Host "=== [FAIL] Live health regression suite FAILED - deploy succeeded but health checks failed. ==="
             Write-Host "    Check flyctl logs -a (app) for details."
             $exitCode = 1
@@ -345,8 +393,8 @@ finally {
     if ($stashed) {
         Write-Host ""
         Write-Host "  [CleanHead] restoring stashed working-tree changes..."
-        git stash pop 2>&1 | Select-Object -Last 3 | ForEach-Object { Write-Host "    $_" }
-        if ($LASTEXITCODE -ne 0) {
+        Invoke-Native { git stash pop } | Select-Object -Last 3 | ForEach-Object { Write-Host "    $_" }
+        if ($script:NativeExitCode -ne 0) {
             # R-F2594: distinguish a benign untracked-file COLLISION (a parallel
             # agent re-created a stashed untracked file mid-deploy) from a real
             # MERGE conflict. On a pure collision the tracked changes DID apply via
@@ -360,7 +408,7 @@ finally {
                 $mergeConflict | Select-Object -First 5 | ForEach-Object { Write-Host "      $_" }
             } else {
                 Write-Host "  [CleanHead] pop hit untracked-file collision only (no merge conflict); working tree is complete - dropping redundant backup stash"
-                git stash drop 2>&1 | Select-Object -Last 1 | ForEach-Object { Write-Host "    $_" }
+                Invoke-Native { git stash drop } | Select-Object -Last 1 | ForEach-Object { Write-Host "    $_" }
             }
         }
     }
