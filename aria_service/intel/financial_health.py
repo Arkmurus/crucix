@@ -1516,7 +1516,16 @@ def missing_capabilities(profile: dict) -> list:
     rather than crashing or pointlessly re-enriching.
     """
     have = set((profile or {}).get(_CAPABILITY_KEY) or [])
-    return [c for c in FINANCIAL_CAPABILITIES if c not in have]
+    # R-F3161 — a stamp is not proof on its own. Profiles ALREADY IN THE VAULT carry
+    # `issuer_report` next to a stored transient failure (the live Babcock record:
+    # `_capabilities` includes it while `issuer_financials.ok` is false with
+    # "could not parse it: "). Fixing only the WRITE path would leave every such
+    # profile frozen until it aged out, so treat a stamp whose own stored result did
+    # not complete as MISSING. Existing poisoned records then self-heal on next read.
+    return [
+        c for c in FINANCIAL_CAPABILITIES
+        if c not in have or _capability_retry_needed(c, profile)
+    ]
 
 
 def _capability_retry_needed(cap_id: str, profile: dict) -> bool:

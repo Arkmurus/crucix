@@ -171,3 +171,25 @@ def test_rf3161_capability_backfill_stamps_a_real_negative(monkeypatch):
 
     assert "issuer_report" in (profile.get("_capabilities") or []), (
         "a genuine negative must be remembered, not re-paid for (§15)")
+
+
+def test_rf3161_existing_poisoned_vault_record_self_heals():
+    """THE MIGRATION CASE — fixing only the WRITE path would leave every already-
+    poisoned profile frozen until it aged out. This is the live Babcock record."""
+    poisoned = {
+        "_capabilities": ["issuer_report", "registry_accounts", "registry_figures"],
+        "issuer_financials": dict(BABCOCK_TRANSIENT),
+    }
+    assert fh.missing_capabilities(poisoned) == ["issuer_report"], (
+        "a stamp sitting next to its own transient failure must read as MISSING, "
+        "or the vault replays the failure forever")
+
+
+def test_rf3161_healthy_and_negative_records_are_not_re_enriched():
+    """Self-healing must not become re-running everything (§15/§17)."""
+    healthy = {"_capabilities": list(fh.FINANCIAL_CAPABILITIES),
+               "issuer_financials": dict(ANSWERED)}
+    negative = {"_capabilities": list(fh.FINANCIAL_CAPABILITIES),
+                "issuer_financials": dict(NO_DOCUMENT)}
+    assert fh.missing_capabilities(healthy) == []
+    assert fh.missing_capabilities(negative) == []
