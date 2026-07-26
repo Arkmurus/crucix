@@ -25251,9 +25251,10 @@
       "title": "one decision BLUF writer not two forked ones",
       "claimed_at": "2026-07-26T13:00:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0debd1e4",
+      "notes": null,
+      "shipped_at": "2026-07-26T13:17:11Z"
     },
     {
       "r_number": "R-F3117",
@@ -25278,18 +25279,20 @@
       "title": "DD search must be Brave-only not Brave-primary-plus-nine",
       "claimed_at": "2026-07-26T13:06:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0debd1e4",
+      "notes": null,
+      "shipped_at": "2026-07-26T13:17:11Z"
     },
     {
       "r_number": "R-F3120",
       "title": "retire stale R-F1660 no-Brave guard superseded by paid Brave primary",
       "claimed_at": "2026-07-26T13:12:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0debd1e4",
+      "notes": null,
+      "shipped_at": "2026-07-26T13:17:11Z"
     }
   ]
 }
