@@ -668,6 +668,34 @@ class ARKDDReport:
         except Exception:
             pass  # evidence-grade render must never break the report
 
+        # R-F3091 — entity scope, on the THIRD surface. The online view and the PDF
+        # both render it; markdown (the WhatsApp/chat/copy surface) must not be the
+        # one that silently blends a subsidiary's registry facts with its group's
+        # press coverage. Same computed object, same wording.
+        try:
+            _sc = _dd_entity_scope(self.as_dict())
+            if _sc.get("is_subsidiary"):
+                lines.append("*🏛️ Entity scope*")
+                lines.append(
+                    f"  Registry subject: {_sc.get('subject_name') or '(unnamed)'}"
+                    + (f" ({_sc['subject_registration']})" if _sc.get("subject_registration") else "")
+                )
+                _par = _sc.get("immediate_parent") or {}
+                if _par.get("name"):
+                    lines.append(
+                        f"  Controlled by: {_par['name']}"
+                        + (f" ({_par['registration_number']})" if _par.get("registration_number")
+                           else " — no registration number; chain not walked")
+                    )
+                _chain = _sc.get("ownership_chain_traced") or []
+                if len(_chain) > 1:
+                    lines.append("  Chain traced: " + " → ".join(_chain))
+                for _w in (_sc.get("warnings") or []):
+                    lines.append(f"  {_w}")
+                lines.append("")
+        except Exception:
+            pass  # scope is context, never a reason to lose the report
+
         # R-F2786 — put the USP contract next to the BLUF: five questions,
         # five explicit answers. This prevents a reader from mistaking a risk
         # colour for permission to transact when evidence coverage is incomplete.
@@ -1128,6 +1156,137 @@ def _sv_findings(section: dict) -> list[dict]:
     out = [f for f in out if f.get("title")]
     out.sort(key=lambda f: _SEVERITY_RANK.get(f.get("severity", "info"), 5))
     return out
+
+
+# ── R-F3091 — WHICH ENTITY IS THIS REPORT ABOUT? ────────────────────────────
+#
+# THE DEFECT (Mitie, operator report 2026-07-26). The registry layer described
+# MITIE FACILITIES MANAGEMENT LIMITED (02938041) — a subsidiary whose PSC is Mitie
+# Treasury Management Limited. Every other layer described Mitie Group PLC, the
+# listed parent: the press coverage (OCS's £3.1bn recommended acquisition), the
+# financial references (mitie.com annual reports), the USAspending awards, the
+# Deloitte audit fine. The report never said which entity any layer was about, so a
+# reader had one company name at the top and five companies' worth of evidence
+# below it, silently blended.
+#
+# THE PRINCIPLE. A layer resolved by REGISTRATION NUMBER describes one exact legal
+# person. A layer resolved by NAME SEARCH describes a BRAND, and for a subsidiary
+# the brand's coverage is overwhelmingly the group's. Those are different claims
+# and must be labelled as different claims. This never silently re-points the
+# report at the parent — it states the scope and flags the mismatch, because
+# quietly swapping the subject would be its own fabrication.
+#: Layers whose evidence is resolved by registry identifier — one exact legal entity.
+_SCOPE_REGISTRY_LAYERS = {"identity", "network"}
+#: Layers whose evidence is resolved by NAME SEARCH — brand/group scope.
+_SCOPE_SEARCH_LAYERS = {"digital", "commercial", "sweep"}
+
+
+def _dd_entity_scope(r: dict) -> dict:
+    """R-F3091 — the report's entity scope: the registry subject, its corporate
+    parent(s) where the registry anchored them, and what each layer is ABOUT.
+
+    Pure and derived entirely from the persisted blob — it asserts no relationship
+    the registry did not record."""
+    r = r or {}
+    ident = r.get("identity") or {}
+    net = r.get("network") or {}
+
+    subject = str(ident.get("entity_name") or "").strip()
+    is_person = str(ident.get("entity_type") or "").strip().lower() == "person"
+
+    # Corporate controllers, anchored (registry number) first, then disclosed-only.
+    anchored, unanchored = [], []
+    for c in (net.get("controlled_by") or []):
+        if isinstance(c, dict) and c.get("controller_name"):
+            anchored.append({
+                "name": str(c["controller_name"]).strip(),
+                "registration_number": str(c.get("controller_registration_number") or "") or None,
+                "country": str(c.get("controller_country_registered") or "") or None,
+                "anchored": True,
+            })
+    for c in (net.get("controlled_by_unanchored") or []):
+        if isinstance(c, dict) and c.get("controller_name"):
+            unanchored.append({
+                "name": str(c["controller_name"]).strip(),
+                "registration_number": None, "country": None, "anchored": False,
+            })
+    # A corporate PSC on the identity layer is the same signal by another route.
+    for p in (ident.get("shareholders") or []):
+        if not isinstance(p, dict):
+            continue
+        _kind = str(p.get("kind") or p.get("type") or "").lower()
+        _nm = str(p.get("name") or "").strip()
+        if not _nm or "corporate" not in _kind:
+            continue
+        if not any(_nm.lower() == c["name"].lower() for c in anchored + unanchored):
+            (anchored if p.get("registration_number") else unanchored).append({
+                "name": _nm,
+                "registration_number": str(p.get("registration_number") or "") or None,
+                "country": str(p.get("country_registered") or "") or None,
+                "anchored": bool(p.get("registration_number")),
+            })
+
+    controllers = anchored + unanchored
+    is_subsidiary = bool(controllers) and not is_person
+    immediate_parent = controllers[0] if controllers else None
+
+    # The deepest node the walker actually reached. NOT asserted to be the ultimate
+    # parent — only that the walk got there and stopped.
+    chain = [str(u.get("name") or "").strip()
+             for u in (net.get("ubo_chain") or []) if isinstance(u, dict) and u.get("name")]
+    deepest_traced = chain[-1] if chain else None
+
+    warnings: list[str] = []
+    if is_subsidiary:
+        _p = immediate_parent["name"] if immediate_parent else "a corporate controller"
+        warnings.append(
+            f"SCOPE: the registry subject is {subject or 'this entity'}"
+            + (f" ({ident.get('registration_number')})" if ident.get("registration_number") else "")
+            + f", a subsidiary controlled by {_p}. Findings resolved by registration "
+              "number describe THIS legal entity; findings resolved by name search "
+              "(press, adverse media, published financials, procurement awards) "
+              "describe the BRAND and will usually be about the wider group. Do not "
+              "read group-level coverage as a statement about this subsidiary, or "
+              "vice versa."
+        )
+    if is_subsidiary and not any(c["anchored"] for c in controllers):
+        warnings.append(
+            "The corporate controller carries no registration number, so the chain "
+            "above this entity was NOT walked — the ultimate parent is UNKNOWN.")
+
+    layers = []
+    for key, title in (("identity", "Identity"), ("compliance", "Compliance & Sanctions"),
+                       ("network", "Network & Ownership"), ("digital", "Digital & Adverse Media"),
+                       ("commercial", "Commercial Coherence"), ("sweep", "Live Sweep Signals")):
+        if key in _SCOPE_REGISTRY_LAYERS:
+            basis, scope = "registry identifier", subject or "the registry subject"
+        elif key in _SCOPE_SEARCH_LAYERS:
+            basis = "name search"
+            scope = (f"{subject} and/or its group" if is_subsidiary
+                     else subject or "the named entity")
+        else:
+            # Compliance is MIXED: sanctions screens by name+aliases, financials and
+            # procurement by name, country risk by jurisdiction. Say so rather than
+            # picking one and being wrong about the rest.
+            basis = "mixed (screens by name + aliases; financials/awards by name)"
+            scope = (f"{subject} and/or its group" if is_subsidiary
+                     else subject or "the named entity")
+        layers.append({"key": key, "title": title, "basis": basis, "scope": scope,
+                       "group_scope": bool(is_subsidiary and key not in _SCOPE_REGISTRY_LAYERS)})
+
+    return {
+        "subject_name": subject,
+        "subject_registration": ident.get("registration_number"),
+        "subject_jurisdiction": ident.get("jurisdiction"),
+        "entity_type": ident.get("entity_type"),
+        "is_subsidiary": is_subsidiary,
+        "immediate_parent": immediate_parent,
+        "controllers": controllers,
+        "ownership_chain_traced": chain,
+        "deepest_node_traced": deepest_traced,
+        "layers": layers,
+        "warnings": warnings,
+    }
 
 
 def _sanctions_match_metric(screen) -> str | None:
@@ -2498,6 +2657,17 @@ def structured_view(r: dict) -> dict:
     ]
     sections = [s for s in sections if s]
 
+    # R-F3091 — stamp every section with the entity its evidence is actually about,
+    # so a group-scope layer can never be read as a statement about the subsidiary.
+    _entity_scope = _dd_entity_scope(r)
+    _scope_by_key = {l["key"]: l for l in _entity_scope["layers"]}
+    for _s in sections:
+        _l = _scope_by_key.get(_s["key"])
+        if _l:
+            _s["scope_entity"] = _l["scope"]
+            _s["scope_basis"] = _l["basis"]
+            _s["scope_is_group"] = _l["group_scope"]
+
     target = r.get("target") if isinstance(r.get("target"), dict) else {}
     entity_name = (
         ident.get("entity_name")
@@ -2526,6 +2696,7 @@ def structured_view(r: dict) -> dict:
         "run_diagnostics": r.get("run_diagnostics") or {},   # R-F2494
         "canonical_entity_id": r.get("canonical_entity_id"),
         "version_number": r.get("version_number") or 1,
+        "entity_scope": _entity_scope,               # R-F3091
         "quality_assessment": _dd_quality_assessment(r),
         "decision_readiness": _dd_decision_readiness(r),
         "next_actions": [a for a in (r.get("next_actions") or []) if a],

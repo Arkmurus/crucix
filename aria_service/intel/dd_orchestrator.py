@@ -10345,6 +10345,15 @@ def _refresh_persisted_decision_readiness(body: dict) -> dict:
 
     readiness = _dd_decision_readiness(body)
     body["decision_readiness"] = readiness
+    # R-F3091 — PERSIST the entity scope alongside the scorecard, so the online view,
+    # the PDF and the markdown all read ONE computed object instead of three
+    # re-derivations that can disagree (the R-F3055 lesson). Never fatal: a report
+    # without a scope block is worse than one with, but far better than no report.
+    try:
+        from .dd_schema import _dd_entity_scope
+        body["entity_scope"] = _dd_entity_scope(body)
+    except Exception as _sc_e:      # noqa: BLE001 — presentation metadata only
+        logger.debug("[R-F3091] entity scope not computed: %s", _sc_e)
     # R-F2992 — ALWAYS rebuild next_actions from the FRESH blockers, even on a
     # non-GREEN escalation. A blocker a follow-up just resolved (e.g. the dedicated
     # adverse-media screen completing) must not survive in the next-steps list while
@@ -10376,22 +10385,85 @@ def _refresh_persisted_decision_readiness(body: dict) -> dict:
         ]
         return readiness
 
+    # ── R-F3092 — SAY EACH THING ONCE ───────────────────────────────────────
+    #
+    # THE DEFECT (Mitie, operator report 2026-07-26). One 60-word blocker paragraph
+    # ("financial capacity is unknown — Companies House holds accounts made up to
+    # 2025-03-31 … figures would need the issuer's own published annual report")
+    # appeared FOUR times on a single page: pasted into `bottom_line`, again as the
+    # scorecard row's blocker, again under "Recommended next actions" as a verbatim
+    # restatement, and again in the data gaps. The reader has to re-read the same
+    # sentence four times to discover it is the same sentence.
+    #
+    # `bottom_line` now names the unresolved QUESTIONS; their detail lives on the
+    # scorecard row that owns it. `next_actions` become ACTIONS — what to do next —
+    # instead of "Resolve decision-readiness blocker: <the blocker text again>".
     blockers = list(readiness.get("blocking_reasons") or [])
-    blocker_text = "; ".join(blockers[:3]) or "decision-critical coverage incomplete"
+    _questions = readiness.get("questions") if isinstance(readiness.get("questions"), dict) else {}
+    _unanswered = [(k, q) for k, q in _questions.items()
+                   if isinstance(q, dict) and not q.get("answered")]
+    _labels = [str(q.get("label") or k) for k, q in _unanswered]
+    _open_clause = (
+        "; ".join(_labels[:3]) + (f" (+{len(_labels) - 3} more)" if len(_labels) > 3 else "")
+        if _labels else "decision-critical coverage is incomplete"
+    )
     body["bottom_line"] = (
         f"🟡 NOT CLEARED — {name} has no blocking risk in the checks that completed, "
-        f"but {_coverage_clause(readiness)}. "
-        f"{blocker_text}. This is not a clean bill and the standard contracting path "
-        "is NOT available."
+        f"but {_coverage_clause(readiness)}. Unresolved: {_open_clause}. "
+        "Each is explained on the decision-readiness scorecard. This is not a clean "
+        "bill and the standard contracting path is NOT available."
     )
     body["recommendation"] = (
         "Do not rely on this report for counterparty clearance. Resolve every item in the "
         "decision-readiness scorecard, then re-run or obtain independent commercial DD."
     )
-    body["next_actions"] = [
-        f"Resolve decision-readiness blocker: {blocker}" for blocker in blockers
-    ] or ["Complete all five decision-critical DD checks"]
+    _actions = [_DECISION_REMEDIES[k] for k, _q in _unanswered if k in _DECISION_REMEDIES]
+    if not readiness.get("evidence_ready"):
+        _actions.append(
+            "Raise evidence grade to A: obtain corroboration from a second independent "
+            "reputable source for the claims currently carried by one source."
+        )
+    # Anything without a codified remedy still has to be actionable, not silent.
+    _uncodified = [str(q.get("label") or k) for k, q in _unanswered if k not in _DECISION_REMEDIES]
+    if _uncodified:
+        _actions.append("Resolve the remaining scorecard item(s): " + "; ".join(_uncodified))
+    body["next_actions"] = _actions or (
+        ["Complete all five decision-critical DD checks"] if blockers else [])
     return readiness
+
+
+# R-F3092 — what to DO about each unanswered decision-critical question. Keyed by
+# the question keys `_dd_decision_readiness` emits (dd_schema.py). A restatement of
+# the blocker is not an action: the reader already has the blocker on the scorecard
+# row, and repeating it there taught them the section carried nothing new.
+_DECISION_REMEDIES: dict[str, str] = {
+    "identity": (
+        "Confirm legal identity directly with the companies registry: verify the "
+        "registration number, current status, incorporation date and the officer list. "
+        "Where the registry did not answer this run, retry or request a certified extract."
+    ),
+    "sanctions_export_control": (
+        "Complete the sanctions and export-control position: re-run the screen against "
+        "a live list source, and obtain an export-control classification for the goods "
+        "or services actually being contracted."
+    ),
+    "adverse_media": (
+        "Commission an adverse-media search that covers native-language and offline "
+        "sources, and review every cited item on its merits — ARIA searches what is "
+        "indexed and reachable, which is not everything."
+    ),
+    "ownership_control": (
+        "Trace ownership to a natural person: obtain the PSC/UBO filing for each "
+        "corporate controller in the chain, including any controller the registry gives "
+        "no registration number for."
+    ),
+    "financial_capacity": (
+        "Obtain the audited financial statements from the issuer directly (a listed "
+        "group publishes them in its annual report) and assess solvency and liquidity "
+        "from the figures. Registry filing metadata evidences that accounts were filed; "
+        "it is not a solvency assessment."
+    ),
+}
 
 
 _GENERIC_ENTITY_TOKENS = frozenset({
