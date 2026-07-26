@@ -57,7 +57,16 @@ import { createStatusRouter } from './lib/status/routes.mjs';
 // When unset, both routers return 503 from byte 1, so this import is safe
 // to leave permanently — no behaviour change until the operator opts in.
 import { createKeysRouter, createV1Router, publicApiEnabled } from './lib/api_keys/routes.mjs';
-import { initApiKeysStore } from './lib/api_keys/store.mjs';
+import { createMcpRouter } from './lib/mcp/routes.mjs';           // R-F3140
+// R-F3140 — authenticateKey/scopesFor for the MCP auth shim; tierAllows +
+// DEFAULT_TIER for its tier gate. Called only inside _mcpAuthenticate, so a
+// missing import would not fail at boot — it would ReferenceError on the
+// first MCP request, in production, silently. (§3b: verify before calling.)
+import {
+  initApiKeysStore, authenticateKey, scopesFor,
+} from './lib/api_keys/store.mjs';
+import { tierAllows } from './lib/billing/quotas.mjs';
+import { DEFAULT_TIER } from './lib/billing/tiers.mjs';
 import { initIncidentsStore } from './lib/status/store.mjs';
 import { sendVerificationEmail, sendVerificationSuccessEmail, sendPasswordResetEmail, sendPasswordChangedNotification, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail, isConfigured as smtpIsConfigured } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
@@ -6808,11 +6817,81 @@ async function _publicApiChatProxy({ userId, message, sessionId }) {
   data.session_id = sid;
   return data;
 }
+// R-F3139 — vetting pass-through for the public API and MCP.
+//
+// The tenant is ALWAYS `userId` (the key's owner), appended by US. It is never
+// read from the caller's body or query: the Python side derives its tenant
+// from `user_id`, so a client-settable value would collapse the whole
+// boundary that R-F3137 put in the primary key.
+async function _vettingProxy({
+  res = null, method = 'GET', path = '', userId = '',
+  body = null, query = {}, raw = false,
+} = {}) {
+  if (!ARIA_SERVICE_URL) {
+    const payload = { error: 'vetting service unavailable' };
+    if (raw) return { status: 503, payload };
+    return res.status(503).json(payload);
+  }
+  const params = new URLSearchParams({ ...query, user_id: userId });
+  const url = `${ARIA_SERVICE_URL}/api/aria/vetting${path}?${params}`;
+  const opts = {
+    method,
+    headers: _ariaHeaders(),
+    signal: AbortSignal.timeout(45000),
+  };
+  if (body && (method === 'POST' || method === 'PATCH' || method === 'PUT')) {
+    opts.body = JSON.stringify(body);
+  }
+  let status = 502;
+  let payload = { error: 'vetting upstream unreachable' };
+  try {
+    const r = await fetch(url, opts);
+    status = r.status;
+    payload = await r.json().catch(() => ({ error: 'invalid upstream response' }));
+  } catch (err) {
+    payload = { error: 'vetting upstream unreachable', detail: String(err?.message || err).slice(0, 160) };
+  }
+  if (raw) return { status, payload };
+  return res.status(status).json(payload);
+}
+
 app.use('/api/keys', createKeysRouter({ requireAuth, findUserById }));
-app.use('/api/v1', createV1Router({ findUserById, chatProxy: _publicApiChatProxy }));
+app.use('/api/v1', createV1Router({
+  findUserById,
+  chatProxy: _publicApiChatProxy,
+  vettingProxy: _vettingProxy,
+}));
+
+// ── R-F3140 — MCP server at /mcp ─────────────────────────────────────────
+// Same `crx_…` keys, same tier gate, same scopes as /api/v1. See
+// lib/mcp/routes.mjs for why MCP lives here rather than in the Python brain.
+async function _mcpAuthenticate(req) {
+  const m = (req.headers.authorization || '').match(/^Bearer\s+(.+)$/i);
+  if (!m) return null;
+  const keyRecord = authenticateKey(m[1].trim());
+  if (!keyRecord) return null;
+  const user = findUserById(keyRecord.userId);
+  if (!user) return null;
+  if (user.status && user.status !== 'active') {
+    return { error: `account ${user.status} — contact support`, status: 403 };
+  }
+  if (user.role !== 'admin' && !tierAllows(user.tier || DEFAULT_TIER, 'publicApiEnabled')) {
+    return { error: 'MCP access requires the Pro Intelligence tier', status: 403 };
+  }
+  return { keyRecord, user, scopes: scopesFor(keyRecord) };
+}
+
+app.use('/mcp', createMcpRouter({
+  authenticate: _mcpAuthenticate,
+  chatProxy: _publicApiChatProxy,
+  vettingProxy: _vettingProxy,
+  enabled: publicApiEnabled,
+}));
+
 console.log(
   `[PublicAPI] R-F42 routes mounted — ENABLE_PUBLIC_API=${publicApiEnabled() ? 'on' : 'off (503)'}`,
 );
+console.log(`[MCP] R-F3140 server mounted at /mcp`);
 
 // ── Reports Routes (audit-grade PDF export — Lifter #3 from strategic review) ─
 //
