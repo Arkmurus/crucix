@@ -25299,9 +25299,10 @@
       "title": "DD Brave-first with disclosed fallback; correct R-F3119 rationale",
       "claimed_at": "2026-07-26T13:21:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "46ba6336",
+      "notes": null,
+      "shipped_at": "2026-07-26T13:26:54Z"
     }
   ]
 }
