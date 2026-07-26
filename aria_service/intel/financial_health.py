@@ -1519,10 +1519,64 @@ def missing_capabilities(profile: dict) -> list:
     return [c for c in FINANCIAL_CAPABILITIES if c not in have]
 
 
+def _capability_retry_needed(cap_id: str, profile: dict) -> bool:
+    """R-F3161 — did `cap_id`'s last attempt fail for a TRANSIENT reason?
+
+    A capability stamp means "this build's source was CONSULTED and reached a
+    conclusion". Two very different outcomes were being collapsed into it:
+
+      * CONSULTED, FOUND NOTHING — a real negative. Stamp it; re-running wastes
+        money and breaks pay-once-remember-forever (§15).
+      * COULD NOT COMPLETE — timed out, fetch refused, document unparseable, no
+        model available. That is NOT evidence about the entity, and stamping it
+        freezes an UNKNOWN in the vault for the whole freshness window.
+
+    MEASURED (Babcock, dd_440ef012b068): the profile carried
+    `_capabilities: ["issuer_report", ...]` while `issuer_financials` held
+    `{"ok": false, "reason": "retrieved the document but could not parse it: "}`.
+    Because `issuer_report` was stamped, `missing_capabilities()` reported nothing
+    missing, the backfill never re-ran, and the STALE failure blob was served from
+    the vault (`from_vault: true`, `vault_age_days: 0.0`) on every subsequent DD.
+
+    That made R-F3146 — already live in the image — completely unreachable: the code
+    that fixes the parse never executed, and the report reproduced the old reason
+    string byte-for-byte. It is the R-F2834 masking defect recurring, in the very
+    mechanism R-F3128 introduced to prevent it, and it is exactly what R-F3128's
+    docstring already promised ("stamped only on success, so a blocked fetch or a
+    refused gate retries on the next read instead of freezing an UNKNOWN").
+    """
+    if cap_id != "issuer_report":
+        return False
+    iss = (profile or {}).get("issuer_financials")
+    if not isinstance(iss, dict) or not iss:
+        return False                      # never attempted here — nothing to judge
+    if iss.get("ok"):
+        return False                      # answered
+    # G1 said the issuer publishes no such document. We looked; that is a real
+    # negative, not a malfunction — stamp it and stop paying to re-look.
+    gates = iss.get("gates") if isinstance(iss.get("gates"), dict) else {}
+    if gates.get("provenance") is False:
+        return False
+    # Everything else (fetch refused, timeout, unparseable, no LLM, model error)
+    # is an obstacle on OUR side. Leave unstamped so the next read retries.
+    return True
+
+
 def _stamp_capabilities(profile: dict) -> None:
-    """Record the capabilities that produced this profile, preserving unknown ones."""
+    """Record the capabilities that produced this profile, preserving unknown ones.
+
+    R-F3161: a capability whose last attempt failed TRANSIENTLY is deliberately left
+    unstamped so the next read retries it. Stamping everything unconditionally — the
+    prior behaviour — made one bad fetch permanent.
+    """
     have = set((profile or {}).get(_CAPABILITY_KEY) or [])
-    profile[_CAPABILITY_KEY] = sorted(have | set(FINANCIAL_CAPABILITIES))
+    earned = {
+        cap for cap in FINANCIAL_CAPABILITIES
+        if not _capability_retry_needed(cap, profile)
+    }
+    # Never REMOVE a stamp another build earned; only withhold one we did not.
+    have -= {c for c in FINANCIAL_CAPABILITIES if _capability_retry_needed(c, profile)}
+    profile[_CAPABILITY_KEY] = sorted(have | earned)
 
 
 async def backfill_missing_capabilities(
@@ -1555,6 +1609,18 @@ async def backfill_missing_capabilities(
             continue
         # Stamp on a clean run even when it attached nothing: the source was
         # consulted, and "consulted, found nothing" is valid negative evidence.
+        #
+        # R-F3161 — but only when the enricher actually REACHED that conclusion. It
+        # signals a transient obstacle by RETURNING FALSE (not by raising), so the
+        # `except` above never sees it and a timed-out fetch was being stamped as
+        # "consulted". Leave those unstamped so the next read retries.
+        if _capability_retry_needed(cap_id, profile):
+            logger.info(
+                "[R-F3161] capability %r did not complete for %r — left UNSTAMPED so "
+                "it retries (stamping would freeze this UNKNOWN in the vault)",
+                cap_id, name,
+            )
+            continue
         have = set(profile.get(_CAPABILITY_KEY) or [])
         have.add(cap_id)
         profile[_CAPABILITY_KEY] = sorted(have)
