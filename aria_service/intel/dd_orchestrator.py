@@ -1519,6 +1519,55 @@ _OP_T_WEBSITE_MINE  = _env_float("ARIA_DD_OP_T_WEBSITE_MINE_S", 30.0)
 _OP_T_RAG           = _env_float("ARIA_DD_OP_T_RAG_S", 15.0)
 _OP_T_KB            = _env_float("ARIA_DD_OP_T_KB_S", 15.0)
 _OP_T_DEEPRESEARCH  = _env_float("ARIA_DD_OP_T_DEEPRESEARCH_S", 40.0)
+
+# ── R-F3093 — DEEP MODE MUST ACTUALLY BE DEEP ───────────────────────────────
+#
+# THE DEFECT (Mitie, operator report 2026-07-26). The report's own data gap read:
+#     "deep research was bounded at 37s and stopped after article read (no budget
+#      left to analyse articles) — 0 article(s) analysed, 0 fact(s) retained"
+# A DEEP DD read nothing. Adverse media searched 12 of 48 query templates. With no
+# substance to report, the renderer filled the page with process narration — which
+# is the real reason the report reads as noise. Layout was the symptom; an empty
+# evidence set was the cause.
+#
+# WHY 37s. The budget is a three-level nest and every level was sized for the
+# STANDARD run: deep research got `_OP_T_DEEPRESEARCH` 40s (−3s cooperative margin)
+# inside a 180s digital layer inside a 660s total. Raising only the op timeout does
+# nothing — `_bounded_dd_op` clamps to what the LAYER has left (R-F3059), and the
+# digital layer had already spent ~82s on multi-query + search before deep research
+# started. So all three levels are scaled together, for `mode == "deep"` ONLY.
+#
+# STANDARD AND QUICK ARE UNCHANGED. They keep the 660s total that guarantees a
+# WhatsApp async-push delivery inside the 15-min poll window (see the R-F1572 note
+# at the budget site). A deep DD is an explicit, low-volume operator choice served
+# by the fire-and-poll list, and already ran 10-15 min.
+_OP_T_DEEPRESEARCH_DEEP = _env_float("ARIA_DD_OP_T_DEEPRESEARCH_DEEP_S", 300.0)
+#: Digital-layer budget in deep mode. Must cover deep research (300) + the other
+#: bounded ops it shares the layer with (multi-query 45 + search 30 + site mine 30
+#: + RAG 15 + KB 15 + link-tree 90 ≈ 225) with margin.
+_DEEP_DIGITAL_BUDGET_S = _env_float("ARIA_DD_DEEP_DIGITAL_BUDGET_S", 560.0)
+#: Total wall budget in deep mode: identity(90) + [network‖digital](560) +
+#: compliance(90) + extensions(45) + synthesis reserve, with margin.
+_DEEP_TOTAL_BUDGET_S = _env_int("ARIA_DD_DEEP_TOTAL_BUDGET_S", 1140)
+
+
+def _dd_total_budget_default(mode: str) -> float:
+    """R-F3093 — the wall budget for a run of this mode.
+
+    Deep mode buys the research time; every other mode keeps the 660s that the
+    WhatsApp push window depends on.
+
+    PRECEDENCE. An explicitly-set `ARIA_DD_TOTAL_BUDGET_S` wins for EVERY mode. It
+    is the existing global handle (R-F1572) and the one the runbook tells an operator
+    to reach for when a DD overruns; a mode-specific default that silently ignored it
+    would make deep runs unbounded by the very knob documented to bound them."""
+    if os.getenv("ARIA_DD_TOTAL_BUDGET_S"):
+        return float(_env_int("ARIA_DD_TOTAL_BUDGET_S", 660))
+    if str(mode or "").strip().lower() == "deep":
+        return float(_env_int("ARIA_DD_DEEP_TOTAL_BUDGET_S", _DEEP_TOTAL_BUDGET_S))
+    return 660.0
+
+
 #: R-F3066 — seconds reserved at the end of a layer's budget for its own post-op
 #: work, so the LAST bounded op cannot return at the wall and still overrun.
 _LAYER_TAIL_S = _env_float("ARIA_DD_LAYER_TAIL_S", 6.0)
@@ -3517,6 +3566,22 @@ async def _run_identity(
 
         matches = screen.get("matches") or []
         classified = classify_matches(matches, query_name=name)
+        # R-F3090 — PERSIST the classification. `classify_matches` already separates
+        # real hits from name-overlap noise, but only the prose `summary` survived
+        # onto the report; the structured view then rendered a "Sanctions matches"
+        # chip from `len(screen["matches"])` — the RAW pre-filter count. On the Mitie
+        # report that printed "Sanctions matches 2" directly above a finding reading
+        # "no entity-name match … No real hits." Same screen, two numbers, and the
+        # alarming one won the reader's eye. Persist the arithmetic so every surface
+        # renders the filtered truth instead of re-deriving a raw count.
+        _noise = int(classified.get("noise_filtered") or 0)
+        _total = int(classified.get("total_matches") or len(matches))
+        screen["match_classification"] = {
+            "total": _total,
+            "noise_filtered": _noise,
+            "actionable": max(0, _total - _noise),
+            "worst_severity": classified.get("worst_severity"),
+        }
         # The overall severity is the worst single match.
         if classified["worst_severity"] == "hard_stop":
             report.identity.findings.append(Finding(
@@ -5746,7 +5811,12 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
             # "thorough" was firing 24 LLM calls that exhausted provider
             # rate limits before chat synthesis could run (New Akord
             # Security 2026-04-12 — 3 consecutive timeouts).
-            dr_depth = "quick"
+            # R-F3093 — deep mode now HAS the budget to be thorough (the digital
+            # layer is raised to _DEEP_DIGITAL_BUDGET_S alongside this), and DD is
+            # pinned to Claude (R-F2917/R-F3087), not the DeepSeek chain whose rate
+            # limits the 2026-04-12 note above was written against. Standard/quick
+            # stay on "quick" — unchanged cost, unchanged wall-clock.
+            dr_depth = "thorough" if _mode_is_deep else "quick"
             # R-F1812 — base research stays "quick" (cost), but DO run the
             # bounded recursive person drill-down: it's the highest-value DD
             # signal ("who is behind it") and often the ONLY way to name people
@@ -5774,11 +5844,16 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
             # got `{}` while the report claimed a "partial result". Now the engine
             # owns the clock, returns what it gathered, and the outer bound is only
             # a backstop for a genuinely wedged call.
-            _dr_deadline = max(5.0, _OP_T_DEEPRESEARCH - 3.0)
+            # R-F3093 — deep mode gets _OP_T_DEEPRESEARCH_DEEP (300s default) instead
+            # of the 40s that produced "0 article(s) analysed, 0 fact(s) retained" on
+            # a DEEP Mitie run. Still cooperative: the engine owns the clock and
+            # returns what it gathered (R-F3018).
+            _dr_op_budget = _OP_T_DEEPRESEARCH_DEEP if _mode_is_deep else _OP_T_DEEPRESEARCH
+            _dr_deadline = max(5.0, _dr_op_budget - 3.0)
             dr = await _bounded_dd_op(deep_researcher.investigate(
                 llm, name, depth=dr_depth, investigate_people=_dd_people,
                 seed_people=_seed or None, deadline_s=_dr_deadline),
-                _OP_T_DEEPRESEARCH, report.digital, "deep research", default={})
+                _dr_op_budget, report.digital, "deep research", default={})
             if isinstance(dr, dict) and dr.get("partial"):
                 # Honest, specific, and — unlike the old wording — TRUE: name what
                 # was gathered before the cut, not just that a timer expired.
@@ -9798,7 +9873,11 @@ def _adverse_has_adverse_content(f) -> bool:
     True when the title/snippet matches the adverse lexicon, OR the URL is an
     official adverse-by-construction source (court/regulator/insolvency), where a
     neutrally-worded record is still an adverse record. Deliberately inclusive: a
-    missed adverse item is the expensive error, so a borderline word counts."""
+    missed adverse item is the expensive error, so a borderline word counts.
+
+    R-F3089 — the official-domain branch is a shortcut past the LEXICON, never past
+    SUBJECT ATTRIBUTION. `_adverse_media_materiality` applies `_adverse_names_subject`
+    BEFORE calling this, so a court record still has to be about the subject."""
     if not isinstance(f, dict):
         return False
     url = _adverse_item_url(f).lower()
@@ -9806,6 +9885,88 @@ def _adverse_has_adverse_content(f) -> bool:
         return True
     return bool(_ADVERSE_CONTENT_RE.search(
         f"{f.get('title') or ''} {f.get('snippet') or ''}"))
+
+
+# ── R-F3089 — SUBJECT ATTRIBUTION IS NOT OPTIONAL ───────────────────────────
+#
+# THE DEFECT (Mitie, 2026-07-26). The report stated "2 subject-named item(s)
+# survived de-duplication and filtering" and listed:
+#     BAILII - United Kingdom Cases page 286 — bailii.org/indices/uk-cases-0286.html
+#     BAILII - United Kingdom Cases page 264 — bailii.org/indices/uk-cases-0264.html
+# Those are court INDEX pages — a paginated list of every UK case — and neither
+# mentions Mitie. They reached the customer-facing review set because:
+#   1. `_adverse_has_adverse_content` returns True on DOMAIN MATCH ALONE for
+#      `_ADVERSE_OFFICIAL_DOMAINS`, so title/snippet were never read; and
+#   2. NOTHING in `_adverse_media_materiality` ever checked that an item names the
+#      subject — the phrase "subject-named" was asserted by the renderer
+#      (`dd_schema._adverse_media_summary`) and established nowhere.
+# Meanwhile the one genuinely adverse item on that report — "Deloitte hit with £2mn
+# fine after rule breaches over Mitie" — sat in "Cited sources" and never reached the
+# assessment. The filter was inverted: it kept noise and dropped signal.
+#
+# THE PRINCIPLE. Attribution is a PRECONDITION of an adverse finding, not a label
+# applied afterwards. But a gate that cannot identify the subject must FAIL OPEN —
+# dropping every item because we could not resolve a name would manufacture the
+# clean report this system exists to prevent. So: when the subject is unknown, keep
+# the items and mark the set `unverified`, and let the renderer say so.
+_ADVERSE_INDEX_PATH_RE = re.compile(
+    # a listing SEGMENT anywhere in the path …
+    r"/(?:indices|index|browse|listing|archive|sitemap|atoz|a-z|recent|latest|"
+    r"search|results|categor(?:y|ies)|tags?|page)(?:/|\.|$)"
+    # … or a paginated listing FILE ("uk-cases-0286.html"), which is the exact shape
+    # that reached the Mitie report. A real judgment is ".../EWHC/2024/1.html" — the
+    # digits are their own path segment, so it cannot match this.
+    r"|/[a-z0-9-]*(?:index|cases|judgments|decisions)[a-z0-9-]*-\d+\.html?$",
+    re.I,
+)
+
+
+def _adverse_is_index_page(f) -> bool:
+    """R-F3089 — True when the URL is a directory/listing page rather than a record.
+
+    A court or regulator INDEX is not a finding about anyone: it is a table of
+    contents. Applied only to official-domain hits, which are the ones that bypass
+    the adverse-content lexicon and so have no other guard."""
+    if not isinstance(f, dict):
+        return False
+    url = _adverse_item_url(f).lower()
+    if not url or not any(d in url for d in _ADVERSE_OFFICIAL_DOMAINS):
+        return False
+    try:
+        path = url.split("//", 1)[-1].split("/", 1)[1]
+    except IndexError:
+        return True          # bare official domain, no record path — an index by definition
+    return bool(_ADVERSE_INDEX_PATH_RE.search("/" + path))
+
+
+def _adverse_subject_tokens(subject_name: str, aliases=None) -> set[str]:
+    """R-F3089 — the distinctive tokens an item must share to be ABOUT the subject.
+
+    Reuses `_distinctive_tokens` (the R-F2994 name-coincidence guard), so 'Mitie
+    Facilities Management Limited' contributes {mitie, facilities} and the generic
+    corporate words that make every company look alike are excluded."""
+    toks = _distinctive_tokens(subject_name or "")
+    for a in (aliases or []):
+        name = a.get("name") if isinstance(a, dict) else a
+        if isinstance(name, str):
+            toks |= _distinctive_tokens(name)
+    return toks
+
+
+def _adverse_names_subject(f, subject_tokens: set[str]) -> bool:
+    """R-F3089 — does this item actually NAME the subject?
+
+    Any shared distinctive token counts: deliberately inclusive, because a missed
+    adverse item is the expensive error and a false 'clean' is the unacceptable one.
+    Returns True when `subject_tokens` is empty — an unresolvable subject must not
+    silently empty the review set (fail open; the caller records it)."""
+    if not subject_tokens:
+        return True
+    if not isinstance(f, dict):
+        return False
+    blob = (f"{f.get('title') or ''} {f.get('snippet') or ''} "
+            f"{_adverse_item_url(f)}")
+    return bool(subject_tokens & _distinctive_tokens(blob))
 
 
 def _adverse_dedup_key(f) -> str:
@@ -9816,7 +9977,8 @@ def _adverse_dedup_key(f) -> str:
     return f"title::{str((f or {}).get('title') or '').strip().lower()[:120]}"
 
 
-def _adverse_media_materiality(am_result: dict) -> dict:
+def _adverse_media_materiality(am_result: dict, subject_name: str = "",
+                               aliases=None) -> dict:
     """Classify how material the deep adverse-media findings are. Material when
     there is >=1 OFFICIAL-tier (tier 1: regulator/court/gov) finding, OR >=N
     credible findings, where credible = official + institution + quality-press
@@ -9852,9 +10014,22 @@ def _adverse_media_materiality(am_result: dict) -> dict:
     corroborated = [f for f in external if f.get("source_class_corroborated") is not False]
     class_contradicted_dropped = len(external) - len(corroborated)
 
-    # (d) subject-named is not the same as adverse
-    adverse = [f for f in corroborated if _adverse_has_adverse_content(f)]
-    non_adverse_dropped = len(corroborated) - len(adverse)
+    # (d) R-F3089 — a court/regulator INDEX page is a table of contents, not a
+    # record about anyone. Dropped before attribution so it cannot be rescued by a
+    # subject name that merely appears somewhere in a 500-case listing.
+    on_record = [f for f in corroborated if not _adverse_is_index_page(f)]
+    index_pages_dropped = len(corroborated) - len(on_record)
+
+    # (e) R-F3089 — ATTRIBUTION. Until this stage existed, nothing established that
+    # an item was about the subject, yet the renderer called the survivors
+    # "subject-named". Empty tokens ⇒ fail open (see _adverse_names_subject).
+    subject_tokens = _adverse_subject_tokens(subject_name, aliases)
+    named = [f for f in on_record if _adverse_names_subject(f, subject_tokens)]
+    subject_unnamed_dropped = len(on_record) - len(named)
+
+    # (f) naming the subject is not the same as being adverse about it
+    adverse = [f for f in named if _adverse_has_adverse_content(f)]
+    non_adverse_dropped = len(named) - len(adverse)
 
     official = [f for f in adverse if _adverse_finding_tier(f) == 1]
     credible = [f for f in adverse if _adverse_finding_tier(f) in (1, 2, 4)]
@@ -9877,7 +10052,12 @@ def _adverse_media_materiality(am_result: dict) -> dict:
         "duplicates_dropped": duplicates_dropped,
         "self_references_dropped": self_refs_dropped,
         "class_contradicted_dropped": class_contradicted_dropped,
+        "index_pages_dropped": index_pages_dropped,
+        "subject_unnamed_dropped": subject_unnamed_dropped,
         "non_adverse_dropped": non_adverse_dropped,
+        # R-F3089 — whether "subject-named" is a MEASURED claim or an untested one.
+        # The renderer must not use the phrase when this is "unverified".
+        "subject_attribution": "verified" if subject_tokens else "unverified",
     }
 
 
@@ -9938,6 +10118,14 @@ def _append_adverse_screened_note(body: dict, mat: dict) -> None:
     if mat.get("class_contradicted_dropped"):
         bits.append(f"{mat['class_contradicted_dropped']} returned from a domain other than "
                     "the one the query targeted")
+    # R-F3089 — name the two new exclusions, so a reader can see that the sweep
+    # returned court-index pages and unrelated coverage rather than assuming the
+    # search found nothing.
+    if mat.get("index_pages_dropped"):
+        bits.append(f"{mat['index_pages_dropped']} court/regulator index or listing "
+                    "page(s) carrying no record about anyone")
+    if mat.get("subject_unnamed_dropped"):
+        bits.append(f"{mat['subject_unnamed_dropped']} did not name this entity")
     if mat.get("non_adverse_dropped"):
         bits.append(f"{mat['non_adverse_dropped']} named the subject but carried no adverse content")
     kf.append({
@@ -10002,7 +10190,24 @@ def _apply_adverse_media_to_verdict(body: dict, am_result: dict) -> dict:
         return {"escalated": False, "reason": "no-op"}
     if not am_result.get("ok"):
         return {"escalated": False, "reason": "search-not-ok"}
-    mat = _adverse_media_materiality(am_result)
+    # R-F3089 — the materiality gate needs the subject to test attribution. The
+    # report blob carries it on identity; `target` is the fallback for a blob whose
+    # identity layer never resolved. An empty name fails the gate OPEN, so a
+    # missing name can never empty the review set.
+    _ident = body.get("identity") if isinstance(body.get("identity"), dict) else {}
+    _target = body.get("target") if isinstance(body.get("target"), dict) else {}
+    _subject_name = str(
+        _ident.get("entity_name")
+        or body.get("entity_name")
+        or _target.get("name")
+        or _target.get("entity")
+        or ""
+    ).strip()
+    # `previous_names` is the real alias source on the identity layer (Mitie traded as
+    # MITIE FACILITIES SERVICES LIMITED until 2018) — coverage under a former name is
+    # still coverage of this entity.
+    mat = _adverse_media_materiality(
+        am_result, _subject_name, _ident.get("previous_names"))
     # R-F3084 — persist the exact arithmetic the verdict consumed BEFORE the
     # report blob is rendered. Previously this existed only in the transient
     # return value, while the PDF saw 26 raw hits and called them 26
@@ -10295,7 +10500,8 @@ async def _run_adverse_media_followup(
 
     Decoupled from the 660s DD budget so this 30×5×10y search no longer competes with
     synthesis for the final seconds on slow/sparse targets. Gets its OWN bounded budget
-    (ARIA_DD_ADVERSE_FOLLOWUP_S, default 180s). Best-effort + never raises: on failure
+    (ARIA_DD_ADVERSE_FOLLOWUP_S, default 420s — R-F3093; 180s covered only 12 of the
+    48 query templates). Best-effort + never raises: on failure
     the report's adverse_media is left honestly marked (error), never a false clean.
     Merges ONLY the adverse_media field of the stored blob (read-modify-write), so it
     cannot corrupt the verdict or any other section.
@@ -10315,7 +10521,12 @@ async def _run_adverse_media_followup(
             _followup_brave_token = _ws_brave.enable_brave_for_scope(True)
         except Exception:
             pass
-    _budget = float(_env_int("ARIA_DD_ADVERSE_FOLLOWUP_S", 180))
+    # R-F3093 — 180s bought 12 of 48 query templates on the live Mitie run, and the
+    # report then reported a screening that had covered a quarter of its own template
+    # set. This task is DETACHED from the DD budget (it merges after the verdict is
+    # delivered), so the only cost of a longer sweep is Brave calls — which is the
+    # cost of the adverse-media screen actually being an adverse-media screen.
+    _budget = float(_env_int("ARIA_DD_ADVERSE_FOLLOWUP_S", 420))
     try:
         from . import researcher as _res
         # R-F2667 — pass deadline_s so the search SELF-BOUNDS and returns PARTIAL findings
@@ -10668,7 +10879,7 @@ async def orchestrate_dd(
 
     budget = (
         float(total_budget_s) if total_budget_s is not None
-        else float(_env_int("ARIA_DD_TOTAL_BUDGET_S", 660))
+        else _dd_total_budget_default(mode)          # R-F3093
     )
     hard = budget + float(_env_int("ARIA_DD_HARD_MARGIN_S", 150))
     holder: dict = {}
@@ -10977,7 +11188,7 @@ async def _orchestrate_dd_impl(
     # escalation) pass the REMAINING budget so the total still fits.
     _total_budget_s = (
         float(total_budget_s) if total_budget_s is not None
-        else float(_env_int("ARIA_DD_TOTAL_BUDGET_S", 660))
+        else _dd_total_budget_default(mode)          # R-F3093
     )
     _overall_deadline = t_run_start + _total_budget_s
 
@@ -11239,7 +11450,13 @@ async def _orchestrate_dd_impl(
                     target.get("website") or target.get("website_url")
                     or target.get("url") or target.get("domain")
                 )
-                _digital_budget = DEFAULT_LAYER_TIMEOUT_S * (2 if _has_site else 1)
+                # R-F3093 — deep mode gets the budget its deep-research op needs.
+                # `_bounded_dd_op` clamps every op to the LAYER deadline (R-F3059), so
+                # raising the op timeout without raising this does nothing at all.
+                _digital_budget = (
+                    _DEEP_DIGITAL_BUDGET_S if mode == "deep"
+                    else DEFAULT_LAYER_TIMEOUT_S * (2 if _has_site else 1)
+                )
                 # R-F3059 — publish the layer deadline so every _bounded_dd_op inside
                 # clamps to what is actually left. ALWAYS reset it: a deadline left
                 # set would be inherited by the next layer in this context and would

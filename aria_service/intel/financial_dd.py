@@ -267,6 +267,48 @@ def financial_findings(profile: dict) -> list[dict]:
     score = profile.get("shell_risk_score", 0)
     indicators = profile.get("shell_indicators", [])
 
+    # ── R-F3090 — THIS SCREEN IS NOT A FINANCIAL-HEALTH ASSESSMENT ──────────
+    #
+    # THE DEFECT (Mitie, operator report 2026-07-26). The same report said, in three
+    # places:
+    #     "Financial profile — no red flags"        ← this function's else-branch
+    #     "Financial health  UNKNOWN"               ← compliance highlight
+    #     "Financial capacity — UNRESOLVED"         ← decision-readiness scorecard
+    # Three answers to one question. The cause is scope, not arithmetic: everything
+    # above measures SHELL RISK (dormant / micro-entity / overdue / formation-agent
+    # address / no SIC / not-active), which says nothing whatever about solvency. A
+    # £4bn listed group and a healthy corner shop both score 0.
+    #
+    # Worse, the `else` fires on ABSENCE. `get_financial_profile` returns
+    # `shell_risk_score: 0.0, shell_indicators: []` when COMPANIES_HOUSE_API_KEY is
+    # unset (financial_dd.py:82) and when the profile fetch returns nothing — so a
+    # company that was never checked at all was reported as having "no red flags".
+    # That is the false clean this product exists to prevent.
+    #
+    # Fix: name what was measured, and fail to UNKNOWN when nothing was measured.
+    _err = profile.get("error")
+    _assessed = bool(
+        profile.get("accounts_type") not in (None, "", "unknown")
+        or profile.get("filing_history")
+        or indicators
+    )
+    if _err or not _assessed:
+        findings.append({
+            "severity": "info",
+            "title": "Shell-company risk screen — NOT ASSESSED",
+            "detail": (
+                (f"The Companies House shell-risk screen did not run: {_err}. "
+                 if _err else
+                 "The Companies House shell-risk screen returned no filing or accounts "
+                 "data for this company, so no indicator could be evaluated. ")
+                + "This is an ABSENCE OF DATA, not a clean result — and it is a shell-risk "
+                  "screen in any case, which never assesses solvency or financial capacity."
+            ),
+            "source": "financial_dd",
+            "confidence": "UNVERIFIED",
+        })
+        return findings
+
     if score >= 0.6:
         findings.append({
             "severity": "red",
@@ -292,10 +334,19 @@ def financial_findings(profile: dict) -> list[dict]:
             "confidence": "ASSESSED",
         })
     else:
+        # R-F3090 — titled by what it MEASURED. "Financial profile — no red flags"
+        # read as a clean bill of financial health next to "Financial health UNKNOWN".
         findings.append({
             "severity": "info",
-            "title": "Financial profile — no red flags",
-            "detail": profile.get("financial_summary", "No data"),
+            "title": "Shell-company risk screen — no indicators",
+            "detail": (
+                (profile.get("financial_summary") or "").strip()
+                + (" · " if profile.get("financial_summary") else "")
+                + "No dormancy, overdue-filing, formation-agent-address or "
+                  "inactive-status indicator was found. This screen tests for SHELL "
+                  "characteristics only — it does NOT assess solvency, liquidity or "
+                  "financial capacity, which remain unknown from this source."
+            ),
             "source": "financial_dd",
             "confidence": "ASSESSED",
         })

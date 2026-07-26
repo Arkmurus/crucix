@@ -1130,6 +1130,35 @@ def _sv_findings(section: dict) -> list[dict]:
     return out
 
 
+def _sanctions_match_metric(screen) -> str | None:
+    """R-F3090 — the sanctions chip, rendered from the CLASSIFIED result.
+
+    `classify_matches` splits real hits from name-overlap noise (an unrelated entity
+    that shares only a generic token). The structured view used to print
+    `len(screen["matches"])`, so a screen whose every hit was noise rendered
+    "Sanctions matches 2" immediately above its own finding saying "No real hits."
+
+    Returns None when nothing was screened (no chip beats a misleading 0), and states
+    the arithmetic when anything was filtered — a dropped match that is never
+    accounted for is indistinguishable from a match never found."""
+    if not isinstance(screen, dict) or not screen:
+        return None
+    cls = screen.get("match_classification")
+    if not isinstance(cls, dict):
+        # Legacy blob written before the classification was persisted. Do NOT
+        # silently fall back to the raw count that this fix exists to remove —
+        # label it for what it is.
+        raw = len(screen.get("matches") or [])
+        return f"{raw} raw (unclassified)" if raw else None
+    actionable = int(cls.get("actionable") or 0)
+    noise = int(cls.get("noise_filtered") or 0)
+    if not actionable:
+        return (f"none — {noise} name-overlap match(es) filtered" if noise
+                else "none")
+    return (f"{actionable}" + (f" (+{noise} filtered as name-overlap noise)"
+                               if noise else ""))
+
+
 def _sv_section(key, title, icon, section, highlights, *, kind="standard", evidence=None):
     """Assemble one render-ready section. Returns None when a non-core section has no content."""
     section = section or {}
@@ -1708,14 +1737,28 @@ def _render_adverse_media(am, entity_type: str = "") -> list[str]:
     )
     if mat:
         out.append(f"  • Raw search results returned: {len(raw_findings)}")
+        # R-F3089 — the exclusion ledger now includes the two stages that let court
+        # INDEX pages onto the Mitie report as "subject-named" items. Report every
+        # non-zero reason; a dropped item that is never accounted for reads as an
+        # item that was never found.
+        _excl = [
+            f"{mat.get('duplicates_dropped', 0)} duplicate",
+            f"{mat.get('self_references_dropped', 0)} self-referential",
+        ]
+        if mat.get("index_pages_dropped"):
+            _excl.append(f"{mat['index_pages_dropped']} index/listing page")
+        if mat.get("subject_unnamed_dropped"):
+            _excl.append(f"{mat['subject_unnamed_dropped']} not naming this entity")
+        _excl.append(f"{mat.get('non_adverse_dropped', 0)} non-adverse")
         out.append(
             f"  • After de-duplication and filtering: {mat.get('credible_count', 0)} credible "
             f"adverse item(s) from {mat.get('raw_count', 0)} raw hit(s) "
-            f"({mat.get('duplicates_dropped', 0)} duplicate, "
-            f"{mat.get('self_references_dropped', 0)} self-referential, "
-            f"{mat.get('non_adverse_dropped', 0)} non-adverse)")
+            f"({', '.join(_excl)})")
         out.append(
             f"  • {len(review_findings)} item(s) require human review after filtering"
+            + ("" if mat.get("subject_attribution") != "unverified" else
+               " — NOTE: the subject name could not be resolved, so these items have "
+               "NOT been confirmed to reference this entity")
         )
         findings_to_render = review_findings
     else:
@@ -1824,11 +1867,21 @@ def _adverse_media_summary(am, digital=None, entity_type: str = "") -> dict:
         }
     if credible or review_findings:
         n = credible or len(review_findings)
+        # R-F3089 — "subject-named" is now a MEASURED property (the attribution stage
+        # in `_adverse_media_materiality`), not a phrase the renderer asserts. When
+        # the subject could not be resolved the gate failed OPEN, and the wording has
+        # to admit that rather than certify an attribution nobody tested.
+        attributed = mat.get("subject_attribution") != "unverified"
         return {
             "severity": "amber" if credible else "info",
             "headline": f"Adverse media: {n} item(s) require review",
-            "concern": (f"{n} subject-named item(s) survived de-duplication and filtering. "
-                        "They are listed with their sources below."),
+            "concern": (
+                (f"{n} item(s) name this entity and carry adverse content; they survived "
+                 "de-duplication, self-reference and index-page filtering. "
+                 if attributed else
+                 f"{n} item(s) carry adverse content, but the subject name could not be "
+                 "resolved, so it is NOT established that they reference this entity. ")
+                + "They are listed with their sources below."),
             "advice": "Open each cited source and judge it on its merits before relying on "
                       "this file — the count alone is not a finding, and ARIA does not "
                       "decide materiality on your behalf.",
@@ -2294,7 +2347,6 @@ def structured_view(r: dict) -> dict:
 
     is_person = (ident.get("entity_type") or "").lower() == "person"
     sanc = ident.get("sanctions_screen") or {}
-    n_matches = len(sanc.get("matches") or [])
     ghost = ident.get("ghost_score") or {}
     cr = comp.get("country_risk") or {}
     fin = comp.get("financial_health") or {}
@@ -2378,7 +2430,10 @@ def structured_view(r: dict) -> dict:
             ("LEI", (f"{(ident.get('lei_registration') or {}).get('lei')} "
                      f"({(ident.get('lei_registration') or {}).get('registration_status')})"
                      if (ident.get("lei_registration") or {}).get("lei") else None)),
-            ("Sanctions matches", (n_matches if sanc else None)),
+            # R-F3090 — the FILTERED count, and it says which. `n_matches` is the raw
+            # pre-classification hit count; rendering it beside a finding that reads
+            # "no entity-name match … No real hits" made one screen give two answers.
+            ("Sanctions matches", _sanctions_match_metric(sanc)),
             ("Ghost score", (f"{ghost.get('total')}/{ghost.get('max_total', '20')} "
                              f"{ghost.get('classification', '')}".strip() if ghost.get("total") is not None else None)),
         ], kind="core"),
