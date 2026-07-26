@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3122,
+  "next_available": 3123,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25299,10 +25299,21 @@
       "title": "DD Brave-first with disclosed fallback; correct R-F3119 rationale",
       "claimed_at": "2026-07-26T13:21:11Z",
       "claimed_by": "claude",
-      "status": "shipped",
+      "status": "abandoned",
       "commit_sha": "46ba6336",
       "notes": null,
-      "shipped_at": "2026-07-26T13:26:54Z"
+      "shipped_at": "2026-07-26T13:26:54Z",
+      "abandoned_at": "2026-07-26T13:27:45Z",
+      "abandon_reason": "FALSE ship-mark corrected: working-tree changes were discarded by a concurrent operation before commit; re-reserving below"
+    },
+    {
+      "r_number": "R-F3122",
+      "title": "DD fallback to ARIA searxng; correct R-F3119 rationale (re-do after tree loss)",
+      "claimed_at": "2026-07-26T13:27:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

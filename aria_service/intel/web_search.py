@@ -1578,22 +1578,44 @@ async def search(
     # quorum+grace gather (R-F2226). Nine slow or silent backends therefore consume
     # the budget the primary needs.
     #
-    # MEASURED (local end-to-end DD, 2026-07-26): every backend came back
-    # `gather timeout` or `silent` — including Brave — while a DIRECT Brave call
-    # from the same machine returned HTTP 200 with 5 results in 1.2s. The paid,
-    # pinned primary was starved by contention with the free stack it was supposed
-    # to replace, and the DD fell back to RAG memory only (7 press items, adverse
-    # media never completed, evidence grade D).
+    # R-F3122 — RATIONALE CORRECTED. R-F3119 shipped claiming the free stack had
+    # STARVED the primary by contention. That does not survive its own evidence: on
+    # the measured run ALL TEN backends failed, INCLUDING Brave, while a direct Brave
+    # call from the same machine answered in 1.2s. A contended gather would have let
+    # the 1.2s backend win; ten-for-ten failure with a fast primary indicates
+    # event-loop starvation in that cold local process, NOT budget contention. The
+    # observation was real; the causal story was not, and it is withdrawn rather than
+    # left standing as justification. This is a POLICY change (the routing
+    # directive) — it was never a performance fix.
     #
-    # `memory` is kept: it is our own local cache, costs nothing, cannot time out on
-    # a network, and R-F185 treats it as the $0 first answer (§15 pay-once). The
-    # nine external free backends are dropped in DD scope only — the continuous
-    # researcher never sets the Brave flag, so its free stack is untouched.
+    # OPERATOR (2026-07-26): "if brave fails utilise aria searxng". So a policy change
+    # must not quietly cost resilience. Brave runs ALONE first; ARIA's OWN self-hosted
+    # SearXNG (R-F183) runs only if Brave yields nothing. NOT the third-party free
+    # stack — DuckDuckGo/GNews/Google/Bing/academic/defence-event/GDELT are absent
+    # from the DD path in both phases, which is the directive and also §6.
+    #
+    # Index verified, not assumed: `backend_tasks` is
+    #   [0] brave (prepended when _brave_on), [1] searxng, [2] duckduckgo, [3] gnews,
+    #   [4] google_news, [5] bing_news, [6] academic, [7] defence_event, [8] gdelt
+    # so SearXNG is [1]. The other seven coroutines are already CONSTRUCTED by the
+    # list literal above, so they must be closed here — an un-awaited coroutine leaks
+    # and emits a RuntimeWarning on every search.
+    #
+    # `memory` is always kept: our own local cache, $0, cannot time out on a network
+    # (R-F185/§15 pay-once). The continuous researcher never sets the Brave flag, so
+    # its free stack is untouched.
     _brave_exclusive = _brave_on and (
         os.getenv("ARIA_DD_BRAVE_EXCLUSIVE", "1") or "1"
     ).strip().lower() not in ("0", "false", "no")
+    _brave_fallback_tasks: list = []
     if _brave_exclusive:
-        backend_tasks = backend_tasks[:1]      # Brave was prepended above
+        _brave_fallback_tasks = backend_tasks[1:2]      # SearXNG only
+        for _unused in backend_tasks[2:]:
+            try:
+                _unused.close()
+            except Exception:
+                pass
+        backend_tasks = backend_tasks[:1]               # Brave was prepended above
         extra_langs = []
     if extra_langs:
         logger.info(
@@ -1682,6 +1704,42 @@ async def search(
         grace=SEARCH_GATHER_GRACE,
     )
     raw_results = list(raw_results_list)
+
+    # ── R-F3122 — BRAVE FAILED? FALL BACK TO ARIA'S SEARXNG, AND SAY SO. ────
+    #
+    # Brave ran alone above. If it produced nothing — errored, timed out, or genuinely
+    # empty — the DD would otherwise have NO web tier at all, the resilience gap
+    # R-F3119 opened by dropping the free stack outright. ARIA's own SearXNG now runs
+    # as an explicit SECOND phase: it never contends with the primary and exists only
+    # on the failure path.
+    #
+    # §14: cooling is not breaking, but it must be VISIBLE. `brave_fallback_used` is
+    # surfaced on the ecosystem snapshot so a report can state that the pinned primary
+    # did not serve — never a silent substitution.
+    _brave_fallback_used = False
+    if _brave_fallback_tasks:
+        _primary_yield = sum(len(r) for r in raw_results[1:] if isinstance(r, list))
+        if _primary_yield == 0:
+            _brave_fallback_used = True
+            logger.warning(
+                "[R-F3122] Brave (DD primary) returned nothing for %r — falling back "
+                "to ARIA's own SearXNG; results will be marked degraded.", query[:60])
+            _fb_tasks = [asyncio.create_task(_t) for _t in _brave_fallback_tasks]
+            raw_results.extend(await _gather_search_backends(
+                _fb_tasks,
+                budget=SEARCH_GATHER_BUDGET,
+                quorum=1,                # one sovereign backend; quorum 2 is unreachable
+                grace=SEARCH_GATHER_GRACE,
+            ))
+            _backend_names = _backend_names + ["searxng"]
+        else:
+            # Primary served — close the unused coroutine so it cannot leak.
+            for _t in _brave_fallback_tasks:
+                try:
+                    _t.close()
+                except Exception:
+                    pass
+
     _ws_elapsed_ms = int((_t_ws.monotonic() - _ws_t0) * 1000)
 
     # R-F2318 — distillation capture. When Brave participated, record the per-backend
@@ -1740,6 +1798,13 @@ async def search(
         },
         "health_signal": _health,
         "total_duration_ms": _ws_elapsed_ms,
+        # ── R-F3122 — §14 fallback transparency ─────────────────────────────
+        # In DD scope Brave IS the web tier. When it answers, that is the whole
+        # story. When it did not and ARIA's SearXNG served instead, the consumer
+        # must be able to say so — a silent substitution would let a report present
+        # degraded coverage as the pinned primary's output.
+        "brave_primary": bool(_brave_exclusive),
+        "brave_fallback_used": bool(_brave_fallback_used),
     })
 
     # Flatten and deduplicate by URL
