@@ -625,6 +625,10 @@ from .intel import ocr as ocr_module
 from .intel import cost_tracker
 from .intel.researcher import research_and_learn, get_hypotheses, validate_hypothesis
 from .routes.aria import router as aria_router, require_aria_token
+# R-F3138 — vetting surface. Its own router (prefix /api/aria/vetting) rather
+# than more lines in the 28k-line routes/aria.py; it reuses that module's
+# _router_auth_dep object so the two cannot drift apart on auth.
+from .routes.vetting import router as vetting_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -4520,6 +4524,7 @@ async def _limit_body_size(request, call_next):
 
 # Routes
 app.include_router(aria_router)
+app.include_router(vetting_router)   # R-F3138
 
 # R-F2278: fail-loud (non-fatal) audit for duplicate (method, path) registrations.
 # FastAPI serves the first-registered route for a colliding path, so a second

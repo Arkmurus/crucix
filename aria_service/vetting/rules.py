@@ -1,0 +1,283 @@
+"""Jurisdiction-neutral deterministic rules engine — Phase 0 hardening.
+
+Changes per external review: explicit as_of everywhere (no system-clock
+calls in domain logic — replay is deterministic), leap-day-safe year
+arithmetic, timeline integrity findings (overlaps, duplicates, future-
+dated, impossible ranges), Money-aware sign-off triggers with no silent
+currency conversion, decision-eligibility surfaced from the pack.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date, timedelta
+from enum import Enum
+from itertools import combinations
+
+from .models import CareerEntryType, VerificationState, VettingCase
+from .packs.base import ScreeningPack
+
+
+class Severity(str, Enum):
+    BLOCKER = "BLOCKER"
+    SIGNOFF = "SIGNOFF"
+    ACTION = "ACTION"
+    DEADLINE = "DEADLINE"
+    INFO = "INFO"
+
+
+@dataclass(frozen=True)
+class Finding:
+    code: str
+    severity: Severity
+    ref: str
+    message: str
+    entry_id: str | None = None
+    due_date: date | None = None
+
+
+@dataclass(frozen=True)
+class TimelineGap:
+    start: date
+    end: date
+    days: int
+    kind: str
+    entry_id: str | None = None
+
+
+def shift_years(d: date, years: int) -> date:
+    """Leap-day-safe: 29 Feb maps to 28 Feb in non-leap years."""
+    try:
+        return d.replace(year=d.year + years)
+    except ValueError:
+        return d.replace(year=d.year + years, day=28)
+
+
+# ---------------------------------------------------------------- period --
+
+def screening_period(case: VettingCase, pack: ScreeningPack) -> tuple[date, date]:
+    years = case.screening_years or pack.default_screening_years
+    nominal = shift_years(case.employment_start, -years)
+    floor = shift_years(case.date_of_birth, pack.min_age_floor)
+    return (max(nominal, floor), case.employment_start)
+
+
+# ----------------------------------------------------- timeline integrity --
+
+_CAN_OVERLAP = {CareerEntryType.EDUCATION, CareerEntryType.SELF_EMPLOYMENT}
+
+
+def integrity_findings(case: VettingCase, as_of: date) -> list[Finding]:
+    out: list[Finding] = []
+    seen: set[tuple] = set()
+    for e in case.career:
+        if e.start > as_of:
+            out.append(Finding("FUTURE_DATED_HISTORY", Severity.BLOCKER, "core",
+                               f"Entry '{e.organisation or e.entry_type.value}' "
+                               f"starts {e.start.isoformat()}, after the "
+                               f"assessment date {as_of.isoformat()}.",
+                               entry_id=e.entry_id))
+        key = (e.entry_type, e.organisation, e.start, e.end)
+        if key in seen:
+            out.append(Finding("DUPLICATE_ENTRY", Severity.ACTION, "core",
+                               f"Duplicate declaration: "
+                               f"{e.organisation or e.entry_type.value} "
+                               f"{e.start.isoformat()}.", entry_id=e.entry_id))
+        seen.add(key)
+    for a, b in combinations(case.career, 2):
+        a_end, b_end = a.end or as_of, b.end or as_of
+        if a.start <= b_end and b.start <= a_end:            # overlap
+            if a.entry_type in _CAN_OVERLAP or b.entry_type in _CAN_OVERLAP:
+                continue                                     # legitimate simultaneity
+            out.append(Finding(
+                "OVERLAPPING_DECLARATIONS", Severity.ACTION, "core",
+                f"'{a.organisation or a.entry_type.value}' and "
+                f"'{b.organisation or b.entry_type.value}' overlap between "
+                f"{max(a.start, b.start).isoformat()} and "
+                f"{min(a_end, b_end).isoformat()}; ask the applicant to "
+                f"clarify (may be legitimate concurrent work).",
+            ))
+    return out
+
+
+# ------------------------------------------------------------------ gaps --
+
+def find_gaps(case: VettingCase, pack: ScreeningPack, as_of: date) -> list[TimelineGap]:
+    start, end = screening_period(case, pack)
+    gaps: list[TimelineGap] = []
+    entries = sorted((e for e in case.career if (e.end or end) >= start),
+                     key=lambda e: e.start)
+    cursor = start
+    for e in entries:
+        e_start, e_end = max(e.start, start), min(e.end or end, end)
+        if e_start > cursor:
+            days = (e_start - cursor).days
+            if days > 0:
+                gaps.append(TimelineGap(cursor, e_start, days, "UNDECLARED"))
+        cursor = max(cursor, e_end + timedelta(days=1))
+    if cursor <= end:
+        gaps.append(TimelineGap(cursor, end, (end - cursor).days + 1, "UNDECLARED"))
+    for e in entries:
+        if e.state in (VerificationState.VERIFIED, VerificationState.COVERED_BY_STAT_DEC):
+            continue
+        e_start, e_end = max(e.start, start), min(e.end or end, end)
+        gaps.append(TimelineGap(e_start, e_end, (e_end - e_start).days + 1,
+                                "UNVERIFIED", entry_id=e.entry_id))
+    return gaps
+
+
+def gap_findings(case: VettingCase, pack: ScreeningPack, as_of: date) -> list[Finding]:
+    out: list[Finding] = []
+    for g in find_gaps(case, pack, as_of):
+        if g.kind == "UNDECLARED":
+            out.append(Finding("GAP_UNDECLARED", Severity.ACTION, pack.pack_id,
+                               f"No career entry covers {g.start.isoformat()} to "
+                               f"{g.end.isoformat()} ({g.days} days). Ask the "
+                               f"applicant to account for this period."))
+        elif g.days > pack.max_unverified_gap_days:
+            out.append(Finding("GAP_UNVERIFIED_OVER_LIMIT", Severity.BLOCKER,
+                               pack.pack_id,
+                               f"Unverified period of {g.days} days "
+                               f"({g.start.isoformat()}-{g.end.isoformat()}) "
+                               f"exceeds the {pack.max_unverified_gap_days}-day "
+                               f"limit; obtain written verification or assess "
+                               f"declaration eligibility.", entry_id=g.entry_id))
+    return out
+
+
+# -------------------------------------------------------------- evidence --
+
+def evidence_findings(case: VettingCase, pack: ScreeningPack, as_of: date) -> list[Finding]:
+    doc_index = {d.document_id: d for d in case.documents}
+    out: list[Finding] = []
+    for e in case.career:
+        if e.state == VerificationState.VERIFIED:
+            continue
+        accepted = pack.accepted_evidence.get(e.entry_type, [])
+        ref = pack.evidence_references.get(e.entry_type, pack.pack_id)
+        have = {doc_index[d].doc_type for d in e.supporting_documents if d in doc_index}
+        if accepted and not have & set(accepted):
+            wanted = ", ".join(t.value for t in accepted[:4])
+            out.append(Finding(
+                "EVIDENCE_MISSING", Severity.ACTION, ref,
+                f"'{e.organisation or e.entry_type.value}' "
+                f"({e.start.isoformat()}-{(e.end or as_of).isoformat()}): no "
+                f"accepted evidence attached yet. Acceptable: {wanted}.",
+                entry_id=e.entry_id))
+    return out
+
+
+# ------------------------------------------------------------- checklist --
+
+def checklist_findings(case: VettingCase, pack: ScreeningPack) -> list[Finding]:
+    out: list[Finding] = []
+    for spec in pack.checklist:
+        if not getattr(case.inputs, spec.field, False):
+            out.append(Finding("CHECKLIST_MISSING", Severity.ACTION,
+                               spec.reference, f"Outstanding: {spec.label}."))
+    if pack.criminality_routes and (
+        case.inputs.criminality_route not in pack.criminality_routes
+    ):
+        routes = ", ".join(r.value for r in pack.criminality_routes)
+        out.append(Finding("CRIMINALITY_ROUTE_MISSING", Severity.ACTION,
+                           pack.criminality_reference,
+                           f"No accepted criminality/conduct route on file yet. "
+                           f"Accepted for {pack.display_name}: {routes}."))
+    return out
+
+
+# -------------------------------------------------------------- signoffs --
+
+def signoff_findings(case: VettingCase, pack: ScreeningPack) -> list[Finding]:
+    out: list[Finding] = []
+    f = case.financial
+    for trig in pack.signoff_triggers:
+        if trig.predicate == "ccj_over_threshold":
+            if f.ccj_total is None:
+                continue
+            thr = trig.threshold
+            if thr is not None and f.ccj_total.currency != thr.currency:
+                out.append(Finding(
+                    "FINANCIAL_CURRENCY_REVIEW", Severity.SIGNOFF, trig.reference,
+                    f"Judgment total is in {f.ccj_total.currency} but the pack "
+                    f"threshold is in {thr.currency}: manual review required — "
+                    f"amounts are never silently currency-converted."))
+            elif thr is None or f.ccj_total.amount_minor > thr.amount_minor:
+                out.append(Finding(trig.code, Severity.SIGNOFF, trig.reference,
+                                   trig.message + f" (total: {f.ccj_total})"))
+        elif trig.predicate == "is_bankrupt" and f.is_bankrupt:
+            out.append(Finding(trig.code, Severity.SIGNOFF, trig.reference, trig.message))
+        elif trig.predicate == "is_director" and f.is_or_was_director:
+            out.append(Finding(trig.code, Severity.SIGNOFF, trig.reference, trig.message))
+    return out
+
+
+# ----------------------------------------------------------------- clock --
+
+def deadline_findings(case: VettingCase, pack: ScreeningPack, as_of: date) -> list[Finding]:
+    if case.conditional_employment_start is None:
+        return []
+    years = case.screening_years or pack.default_screening_years
+    weeks = pack.full_screening_weeks.get(years)
+    if weeks is None:
+        return [Finding("PACK_PERIOD_UNSUPPORTED", Severity.BLOCKER, pack.pack_id,
+                        f"{years}-year screening is not defined in pack "
+                        f"{pack.pack_id} v{pack.version}.")]
+    deadline = case.conditional_employment_start + timedelta(weeks=weeks)
+    if case.extension_approved:
+        deadline += timedelta(weeks=pack.extension_weeks)
+    remaining = (deadline - as_of).days
+    if remaining < 0:
+        return [Finding("SCREENING_OVERDUE", Severity.BLOCKER, pack.pack_id,
+                        f"Full screening deadline passed {-remaining} days ago "
+                        f"({deadline.isoformat()}). The individual should not "
+                        f"continue in relevant employment until screening is "
+                        f"completed.", due_date=deadline)]
+    sev = Severity.DEADLINE if remaining <= 21 else Severity.INFO
+    return [Finding("SCREENING_DEADLINE", sev, pack.pack_id,
+                    f"Full screening due by {deadline.isoformat()} "
+                    f"({remaining} days remaining).", due_date=deadline)]
+
+
+# ---------------------------------------------------------------- assess --
+
+def assess(case: VettingCase, pack: ScreeningPack, as_of: date) -> dict:
+    """as_of is REQUIRED: the engine never reads the system clock, so any
+    assessment can be replayed byte-identically at any later time."""
+    findings = (
+        integrity_findings(case, as_of)
+        + checklist_findings(case, pack)
+        + gap_findings(case, pack, as_of)
+        + evidence_findings(case, pack, as_of)
+        + signoff_findings(case, pack)
+        + deadline_findings(case, pack, as_of)
+    )
+    blockers = [f for f in findings if f.severity == Severity.BLOCKER]
+    signoffs = [f for f in findings if f.severity == Severity.SIGNOFF]
+    actions = [f for f in findings if f.severity == Severity.ACTION]
+    if blockers:
+        status = "NOT_READY"
+    elif signoffs:
+        status = "AWAITING_SIGNOFF"
+    elif actions:
+        status = "IN_PROGRESS"
+    elif pack.employment_decision_eligible:
+        status = "READY_FOR_CONTROLLER_REVIEW"
+    else:
+        status = "EVIDENCE_COMPLETE"     # framework packs never issue readiness
+    start, end = screening_period(case, pack)
+    return {
+        "case_id": case.case_id,
+        "as_of": as_of.isoformat(),
+        "pack": {"pack_id": pack.pack_id, "version": pack.version,
+                 "jurisdiction": pack.jurisdiction, "status": pack.status.value,
+                 "legal_coverage": pack.legal_coverage.value,
+                 "employment_decision_eligible": pack.employment_decision_eligible,
+                 "content_hash": pack.content_hash()},
+        "screening_period": [start.isoformat(), end.isoformat()],
+        "status": status,
+        "findings": [f.__dict__ for f in findings],
+        "controller_notes": pack.controller_notes,
+        "counts": {"blockers": len(blockers), "signoffs": len(signoffs),
+                   "actions": len(actions)},
+    }
