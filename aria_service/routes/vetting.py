@@ -259,6 +259,135 @@ async def vetting_update_case_ep(
     return {"case_id": case_id, "updated": sorted(updates)}
 
 
+class UploadDocumentRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=256)
+    content_base64: str = Field(min_length=1)
+    # The uploader's declared type is a FALLBACK, kept when extraction is
+    # unavailable or low-confidence. It is never treated as verified.
+    declared_doc_type: str = "OTHER"
+    attach_to_entry_id: str | None = None
+
+
+@router.post("/case/{case_id}/documents")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_upload_document_ep(
+    case_id: str, body: UploadDocumentRequest, user_id: str = "",
+):
+    """R-F3144/R-F3145 — take one document into the evidence file.
+
+    The bytes are hash-verified and retained in the SAME store the DD side
+    uses (R-F3083), under this tenant. Extraction then PROPOSES what the
+    document is; it can never mark it accepted. A document whose extraction
+    failed is still recorded as present, carrying `extraction_unavailable` —
+    a failed read must never resemble a read that found nothing wrong.
+    """
+    import asyncio
+    import base64
+    import binascii
+
+    from ..intel.dd_evidence_store import (
+        EvidencePersistenceError,
+        get_evidence_store,
+    )
+    from ..vetting.documents import (
+        MAX_DOCUMENT_BYTES,
+        apply_extraction,
+        build_evidence_record,
+        decode_text_best_effort,
+        extract_document,
+        needs_human_review,
+        new_document_id,
+        new_evidence_id,
+        sha256_hex,
+    )
+    from ..vetting.models import DocumentType
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    case = await asyncio.to_thread(store.get, tenant, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    try:
+        content = base64.b64decode(body.content_base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_document",
+                    "errors": ["content_base64 is not valid base64"]},
+        ) from exc
+    if not content:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_document", "errors": ["document is empty"]},
+        )
+    if len(content) > MAX_DOCUMENT_BYTES:
+        raise HTTPException(status_code=413,
+                            detail={"code": "document_too_large"})
+
+    try:
+        fallback_type = DocumentType(body.declared_doc_type.strip().upper())
+    except ValueError:
+        fallback_type = DocumentType.OTHER
+
+    content_hash = sha256_hex(content)
+    evidence_id = new_evidence_id()
+    record = build_evidence_record(
+        tenant_id=tenant, case_id=case_id, evidence_id=evidence_id,
+        content_hash=content_hash, filename=body.filename,
+        subject_entity_id=case.applicant_name,
+    )
+    try:
+        evidence_store = await asyncio.to_thread(get_evidence_store)
+        result = await asyncio.to_thread(evidence_store.append, record, content)
+    except EvidencePersistenceError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "evidence_not_persisted",
+                    "errors": list(getattr(exc, "errors", (str(exc),)))},
+        ) from exc
+
+    extraction = await extract_document(
+        text=decode_text_best_effort(content, body.filename),
+        filename=body.filename,
+    )
+    document = apply_extraction(
+        document_id=new_document_id(),
+        evidence_id=result.evidence_id,
+        fallback_doc_type=fallback_type,
+        extraction=extraction,
+    )
+
+    documents = [*case.documents, document]
+    career = case.career
+    if body.attach_to_entry_id:
+        career = [
+            e.model_copy(update={
+                "supporting_documents": [*e.supporting_documents,
+                                         document.document_id]})
+            if e.entry_id == body.attach_to_entry_id else e
+            for e in case.career
+        ]
+    await asyncio.to_thread(
+        store.save,
+        case.model_copy(update={"documents": documents, "career": career}),
+    )
+
+    wire_success(module=_MODULE,
+                 summary=f"vetting document stored ({document.doc_type.value})")
+    return {
+        "document_id": document.document_id,
+        "evidence_id": result.evidence_id,
+        "evidence_status": result.status,
+        "content_hash_verified": result.content_hash_verified,
+        "doc_type": document.doc_type.value,
+        "extraction_confidence": document.extraction_confidence,
+        "authenticity_flags": document.authenticity_flags,
+        # The single field the UI should key its "needs a human" badge on.
+        "needs_human_review": needs_human_review(document),
+    }
+
+
 @router.post("/case/{case_id}/assess")
 @fail_wire(module=_MODULE, gap_type="engine_failure")
 async def vetting_assess_ep(

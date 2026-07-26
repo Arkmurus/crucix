@@ -252,8 +252,15 @@
                 <p class="vt-card-title">${esc(c.applicant_name || '(unnamed)')}</p>
                 <span class="vt-card-meta">${esc(c.case_id)} · ${esc(c.pack_id)} v${esc(c.pack_version)}</span>
               </div>
-              <button class="vt-btn secondary" data-assess="${esc(c.case_id)}">Assess</button>
+              <div style="display:flex;gap:8px;flex-shrink:0;align-items:center">
+                <label class="vt-btn secondary" style="margin:0">
+                  <i class="bi bi-upload"></i> Upload
+                  <input type="file" data-upload="${esc(c.case_id)}" hidden>
+                </label>
+                <button class="vt-btn secondary" data-assess="${esc(c.case_id)}">Assess</button>
+              </div>
             </div>
+            <div class="vt-upload-note" data-status-for="${esc(c.case_id)}"></div>
           </div>`).join('')
         : '<div class="vt-empty">No vetting cases yet.</div>';
     } catch (e) {
@@ -276,6 +283,55 @@
       setUnknown('Assessment could not be completed — the service was unreachable. No conclusion can be drawn from this.');
     }
   }
+
+  // R-F3144/R-F3145 — upload one document into the case's evidence file.
+  // The badge reports the SERVER's needs_human_review verdict verbatim. It is
+  // never computed here: a client that decided for itself when a document
+  // looked fine would be a second, weaker copy of the rule.
+  async function upload(caseId, file) {
+    const note = document.querySelector(`[data-status-for="${CSS.escape(caseId)}"]`);
+    const say = (html) => { if (note) note.innerHTML = html; };
+    say('<span class="vt-card-meta">Uploading…</span>');
+    try {
+      const buf = await file.arrayBuffer();
+      let binary = '';
+      const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/documents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          content_base64: btoa(binary),
+          declared_doc_type: 'OTHER',
+        }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        say(`<span class="vt-error" style="display:block;margin-top:8px">Upload failed (HTTP ${r.status}). The document was NOT added to the file.</span>`);
+        return;
+      }
+      const flags = (body.authenticity_flags || []).map(esc).join(' · ');
+      say(
+        `<div style="margin-top:8px;font-size:12.5px">` +
+        `<strong>${esc(body.doc_type)}</strong> stored · hash ${body.content_hash_verified ? 'verified' : 'UNVERIFIED'}` +
+        (body.needs_human_review
+          ? ` · <span class="vt-pill signoff">needs human review</span>`
+          : ` · <span class="vt-pill info">classified</span>`) +
+        (flags ? `<div class="vt-ref" style="margin-top:4px">${flags}</div>` : '') +
+        `</div>`);
+    } catch (e) {
+      say('<span class="vt-error" style="display:block;margin-top:8px">Upload failed — the service was unreachable. The document was NOT added to the file.</span>');
+    }
+  }
+
+  $('cases').addEventListener('change', (ev) => {
+    const input = ev.target.closest('[data-upload]');
+    if (input && input.files && input.files[0]) {
+      upload(input.getAttribute('data-upload'), input.files[0]);
+      input.value = '';
+    }
+  });
 
   $('cases').addEventListener('click', (ev) => {
     const btn = ev.target.closest('[data-assess]');
