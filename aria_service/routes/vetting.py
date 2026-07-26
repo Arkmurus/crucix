@@ -220,6 +220,10 @@ async def vetting_get_case_ep(case_id: str, user_id: str = ""):
         # 404, never 403 — see store.py. Confirming that a case exists would
         # disclose that a named person is under screening.
         raise HTTPException(status_code=404, detail="case not found")
+    # §21a — the success branch must reach the brain too. Reading a screening
+    # file is exactly the access an audit surface should be able to see; a
+    # read path that emits nothing is dark by the rule's own definition.
+    wire_success(module=_MODULE, summary="vetting case read")
     return case.model_dump(mode="json")
 
 
@@ -421,6 +425,91 @@ async def vetting_assess_ep(
         summary=f"assessed vetting case -> {result.get('status', 'UNKNOWN')}",
     )
     return result
+
+
+@router.get("/retention")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_retention_ep(as_of: str | None = None, user_id: str = ""):
+    """R-F3148 — retention schedule for this tenant's cases.
+
+    Reports a due date only where one can honestly be computed. A file whose
+    clock has not started (screening in progress, or employment ongoing) is
+    reported with `due_date: null` and the REASON — never with a guessed date.
+    """
+    import asyncio
+
+    from ..vetting.retention import retention_due_date
+
+    tenant = _tenant(user_id)
+    resolved_as_of = _parse_as_of(as_of)
+    store = get_case_store()
+    summaries = await asyncio.to_thread(store.list_cases, tenant, 500)
+
+    rows = []
+    for summary in summaries:
+        case = await asyncio.to_thread(store.get, tenant, summary["case_id"])
+        if case is None or case.manifest is None:
+            continue
+        try:
+            pack = registry.get_exact(
+                pack_id=case.manifest.pack_id,
+                version=case.manifest.pack_version,
+                content_hash=case.manifest.pack_hash,
+            )
+        except PackNotUsable:
+            # A case pinned to a pack this process does not carry cannot have
+            # its retention computed here. Say so; do not omit the case, which
+            # would make it silently invisible to a disposal review.
+            rows.append({"case_id": case.case_id, "due_date": None,
+                         "reason": "pinned pack not available in this process",
+                         "overdue": False})
+            continue
+        verdict = retention_due_date(case, pack, resolved_as_of)
+        rows.append({
+            "case_id": case.case_id,
+            "outcome": case.outcome,
+            "due_date": verdict.due_date.isoformat() if verdict.due_date else None,
+            "reason": verdict.reason,
+            "overdue": verdict.overdue,
+        })
+
+    overdue = [r for r in rows if r["overdue"]]
+    wire_success(module=_MODULE,
+                 summary=f"retention reviewed: {len(overdue)} overdue of {len(rows)}")
+    return {"as_of": resolved_as_of.isoformat(), "cases": rows,
+            "overdue_count": len(overdue)}
+
+
+@router.post("/case/{case_id}/dispose")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_dispose_case_ep(case_id: str, user_id: str = ""):
+    """R-F3148 — dispose of a case, reporting exactly what survives.
+
+    Returns `erasure_complete: false` whenever retained evidence artifacts
+    outlive the case record. Reporting a clean erasure while artifacts remain
+    would be the worst outcome available here: an overstated data-protection
+    response is the one nobody goes back and fixes.
+    """
+    import asyncio
+
+    from ..vetting.retention import plan_disposal
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    case = await asyncio.to_thread(store.get, tenant, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    plan = plan_disposal(case)
+    deleted = await asyncio.to_thread(store.delete, tenant, case_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    wire_success(
+        module=_MODULE,
+        summary=f"vetting case disposed (erasure_complete={plan.complete})",
+    )
+    return plan.as_dict()
 
 
 @router.delete("/case/{case_id}")

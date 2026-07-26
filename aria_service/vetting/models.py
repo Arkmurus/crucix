@@ -159,3 +159,13 @@ class VettingCase(BaseModel):
     documents: list[UploadedDocument] = Field(default_factory=list)
     financial: FinancialFlags = Field(default_factory=FinancialFlags)
     stat_dec_days_used: int = 0
+
+    # R-F3148 — retention anchors. A retention period runs from an OUTCOME, so
+    # these are what start the clock; without them `retention_due_date` returns
+    # None with a stated reason rather than inventing a date. `employment_end`
+    # is separate from `outcome_date` on purpose: the post-employment clock
+    # starts when employment ENDS, and anchoring it to anything else would
+    # schedule a live personnel file for deletion years early.
+    outcome: str = "PENDING"
+    outcome_date: date | None = None
+    employment_end: date | None = None

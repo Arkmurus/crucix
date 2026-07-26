@@ -13,6 +13,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
 
 import { createMcpRouter } from '../lib/mcp/routes.mjs';
 import { createV1Router } from '../lib/api_keys/routes.mjs';
@@ -246,6 +247,69 @@ test('R-F3139 /api/v1/vetting works for a scoped key and pins the tenant', async
     assert.equal((await r.json()).tenant_seen_by_upstream, 'u-vet');
     assert.equal(vettingCalls[0].path, '/case/C9');
   });
+});
+
+// ── R-F3150: MCP must pay the same budget as /api/v1 ──────────────────────
+
+test('R-F3150 MCP authentication consumes the per-key budget', async () => {
+  // The regression this locks: MCP authenticated a key and then called tools
+  // without the rate limit or daily quota that the identical /api/v1 call
+  // pays. The surface most likely to hammer a limiter (an LLM in a loop) was
+  // the one exempt from it.
+  const { consumeApiKeyBudget } = await import('../lib/api_keys/routes.mjs');
+  assert.equal(typeof consumeApiKeyBudget, 'function',
+    'the shared budget path must be exported so both protocols use ONE copy');
+
+  const srv = readFileSync(
+    new URL('../server.mjs', import.meta.url).pathname
+      .replace(/^\/([A-Za-z]:)/, '$1'), 'utf8');
+  const fn = srv.slice(srv.indexOf('async function _mcpAuthenticate'));
+  const body = fn.slice(0, fn.indexOf('\napp.use(\'/mcp\''));
+  assert.ok(/consumeApiKeyBudget\(keyRecord,\s*user\)/.test(body),
+    '_mcpAuthenticate must consume the shared API-key budget');
+  assert.ok(/status:\s*429/.test(body),
+    'an exhausted budget must surface as 429 on the MCP path too');
+});
+
+test('R-F3150 an over-budget key is refused before any tool runs', async () => {
+  await withServer(async (base) => {
+    // authenticate() returning an error must stop the request BEFORE dispatch.
+    const r = await rpc(base, 'tok-vet', {
+      jsonrpc: '2.0', id: 99, method: 'tools/call',
+      params: { name: 'vetting_assess_case', arguments: { case_id: 'C1' } },
+    });
+    // With the stub authenticate (no budget) this succeeds; the point of the
+    // assertion is that the refusal path exists and short-circuits dispatch.
+    assert.equal(r.status, 200);
+  });
+  // Now prove the refusal branch: an authenticate() that reports an error must
+  // never reach a tool.
+  const calls = [];
+  const app = express();
+  app.use('/mcp', createMcpRouter({
+    authenticate: async () => ({ error: 'rate limit exceeded', status: 429 }),
+    chatProxy: async () => { calls.push('chat'); return { response: 'x' }; },
+    vettingProxy: async () => { calls.push('vetting'); return { status: 200, payload: {} }; },
+    enabled: () => true,
+  }));
+  const server = createServer(app);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const r = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer tok-vet' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: { name: 'vetting_assess_case', arguments: { case_id: 'C1' } },
+      }),
+    });
+    assert.equal(r.status, 429);
+    assert.deepEqual(calls, [],
+      'a budget refusal must short-circuit before any tool executes');
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
 });
 
 test('R-F3139 a legacy key cannot reach /api/v1/vetting', async () => {

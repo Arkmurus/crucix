@@ -56,7 +56,9 @@ import { createStatusRouter } from './lib/status/routes.mjs';
 // R-F42 (2026-05-09): public API surface — env-gated on ENABLE_PUBLIC_API.
 // When unset, both routers return 503 from byte 1, so this import is safe
 // to leave permanently — no behaviour change until the operator opts in.
-import { createKeysRouter, createV1Router, publicApiEnabled } from './lib/api_keys/routes.mjs';
+import {
+  createKeysRouter, createV1Router, publicApiEnabled, consumeApiKeyBudget,
+} from './lib/api_keys/routes.mjs';
 import { createMcpRouter } from './lib/mcp/routes.mjs';           // R-F3140
 // R-F3140 — authenticateKey/scopesFor for the MCP auth shim; tierAllows +
 // DEFAULT_TIER for its tier gate. Called only inside _mcpAuthenticate, so a
@@ -6890,6 +6892,14 @@ async function _mcpAuthenticate(req) {
   if (user.role !== 'admin' && !tierAllows(user.tier || DEFAULT_TIER, 'publicApiEnabled')) {
     return { error: 'MCP access requires the Pro Intelligence tier', status: 403 };
   }
+  // R-F3150 — the SAME per-key rate limit + daily quota /api/v1 applies. MCP
+  // authenticated a key and then skipped both, so the surface most likely to
+  // hammer the limiter (an LLM in a loop, not a human clicking) was the one
+  // exempt from it.
+  const budget = await consumeApiKeyBudget(keyRecord, user);
+  if (!budget.allowed) {
+    return { error: budget.reason, status: 429 };
+  }
   return { keyRecord, user, scopes: scopesFor(keyRecord) };
 }
 
@@ -6928,8 +6938,13 @@ app.use('/api/reports', createReportsRouter({
 //
 // Mounts /api/status (public GET + admin mutations). Backed by
 // runs/incidents.json with Redis mirror. Aggregates the brain-bridge
-// boot verdict so the /status.html page shows the seenode → fly bridge
-// state in real time.
+// boot verdict so a consumer sees the seenode → fly bridge state in real
+// time.
+//
+// R-F3142 — this endpoint's HUMAN page (public/status.html) was retired and
+// /status.html now 308s here. The endpoint itself is unchanged and is now the
+// surface terms.html names as our contractual publication point for
+// availability, so it is load-bearing on its own, not page decoration.
 app.use('/api/status', createStatusRouter({
   requireAdmin,
   getBrainBridgeVerdict,

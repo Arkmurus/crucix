@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3148,
+  "next_available": 3151,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25427,48 +25427,50 @@
       "title": "vendor aria-vetting engine into aria_service/vetting with phase0 suite",
       "claimed_at": "2026-07-26T17:00:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null,
-      "shipped_at": null
+      "status": "shipped",
+      "commit_sha": "d8cd9161",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T17:44:30Z"
     },
     {
       "r_number": "R-F3137",
       "title": "tenant-scoped persistent case store for vetting",
       "claimed_at": "2026-07-26T17:00:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null,
-      "shipped_at": null
+      "status": "shipped",
+      "commit_sha": "d8cd9161",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T17:44:30Z"
     },
     {
       "r_number": "R-F3138",
       "title": "vetting HTTP surface under /api/aria/vetting",
       "claimed_at": "2026-07-26T17:00:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null,
-      "shipped_at": null
+      "status": "shipped",
+      "commit_sha": "d8cd9161",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T17:44:30Z"
     },
     {
       "r_number": "R-F3139",
       "title": "public API v1 vetting endpoints",
       "claimed_at": "2026-07-26T17:14:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "599c50b7",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T17:44:30Z"
     },
     {
       "r_number": "R-F3140",
       "title": "ARIA MCP server over API-key auth",
       "claimed_at": "2026-07-26T17:14:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "599c50b7",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T17:44:30Z"
     },
     {
       "r_number": "R-F3141",
@@ -25484,36 +25486,40 @@
       "title": "retire status.html; keep /api/status as the availability surface",
       "claimed_at": "2026-07-26T17:30:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "29520e73",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T17:44:30Z"
     },
     {
       "r_number": "R-F3143",
       "title": "vetting web surface public/vetting.html",
       "claimed_at": "2026-07-26T17:30:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "29520e73",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T17:44:30Z"
     },
     {
       "r_number": "R-F3144",
       "title": "vetting document upload into dd_evidence_store",
       "claimed_at": "2026-07-26T17:36:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b9ec9de8",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T17:44:30Z"
     },
     {
       "r_number": "R-F3145",
       "title": "L3 document extraction for vetting, human-review on low confidence",
       "claimed_at": "2026-07-26T17:36:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b9ec9de8",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T17:44:30Z"
     },
     {
       "r_number": "R-F3146",
@@ -25528,6 +25534,34 @@
       "r_number": "R-F3147",
       "title": "align web menu icon spacing",
       "claimed_at": "2026-07-26T17:40:57Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "baf9ce8d",
+      "notes": "[R-F3095 reconciled from git]",
+      "shipped_at": "2026-07-26T17:44:30Z"
+    },
+    {
+      "r_number": "R-F3148",
+      "title": "vetting retention schedule and audited disposal",
+      "claimed_at": "2026-07-26T17:44:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3149",
+      "title": "risk_classification GREEN while decision readiness is NOT_CLEARED",
+      "claimed_at": "2026-07-26T17:47:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3150",
+      "title": "MCP bypassed the per-key rate limit and daily quota",
+      "claimed_at": "2026-07-26T17:48:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
