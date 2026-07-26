@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3190,
+  "next_available": 3193,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25950,9 +25950,10 @@
       "title": "R-number registry: reserve returns a number it never verified persisted",
       "claimed_at": "2026-07-26T22:04:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8b4a63c4",
+      "notes": null,
+      "shipped_at": "2026-07-26T22:19:30Z"
     },
     {
       "r_number": "R-F3188",
@@ -25971,6 +25972,39 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3190",
+      "title": "R-F3187 live concurrency probe 3",
+      "claimed_at": "2026-07-26T22:19:19Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-07-26T22:19:29Z",
+      "abandon_reason": "R-F3187 live concurrency probe — verification only, no work"
+    },
+    {
+      "r_number": "R-F3191",
+      "title": "R-F3187 live concurrency probe 2",
+      "claimed_at": "2026-07-26T22:19:19Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-07-26T22:19:29Z",
+      "abandon_reason": "R-F3187 live concurrency probe — verification only, no work"
+    },
+    {
+      "r_number": "R-F3192",
+      "title": "R-F3187 live concurrency probe 1",
+      "claimed_at": "2026-07-26T22:19:19Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-07-26T22:19:30Z",
+      "abandon_reason": "R-F3187 live concurrency probe — verification only, no work"
     }
   ]
 }
