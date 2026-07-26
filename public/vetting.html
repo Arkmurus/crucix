@@ -242,6 +242,12 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
       match: (c) => c.last_status === 'AWAITING_SIGNOFF' },
     { key: 'IN_PROGRESS', title: 'In progress', hint: 'Outstanding actions on the checklist or timeline',
       match: (c) => c.last_status === 'IN_PROGRESS' },
+    // R-F3172 — the file changed after its last assessment, so the cached
+    // verdict describes a file that no longer exists. Sits ABOVE the clean
+    // sections deliberately: a stale verdict is the one most likely to be
+    // trusted, because it looks settled.
+    { key: 'STALE', title: 'Changed since last assessment', hint: 'Re-assess — the recorded verdict no longer describes this file',
+      match: (c) => c.assessment_stale },
     { key: 'UNKNOWN', title: 'Not yet assessed', hint: 'No assessment has been run — status is unknown, not clear',
       match: (c) => !c.last_status },
     { key: 'DONE', title: 'Ready / complete', hint: 'Evidence complete; the decision is a human\\u2019s',
@@ -267,10 +273,19 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
     // An unassessed case is UNKNOWN, never clean — same rule as the verdict
     // banner. The cached status is always shown WITH the date it was computed
     // for, so a stale reading cannot pass as current.
-    const [badgeCls, badgeText] = STATUS_BADGE[c.last_status] || ['sc-badge-muted', 'Not assessed'];
-    const asOf = c.last_assessed_at
-      ? `assessed ${esc(c.last_assessed_at)}`
-      : 'never assessed';
+    // A stale verdict must never render as its cached state — that is exactly
+    // the false clean this module exists to prevent, and caching reintroduced
+    // it. Proven: a case assessed IN_PROGRESS/0 blockers, then given a
+    // future-dated entry, still showed IN_PROGRESS/0 blockers.
+    const stale = !!c.assessment_stale;
+    const [badgeCls, badgeText] = stale
+      ? ['sc-badge-orange', 'Re-assess']
+      : (STATUS_BADGE[c.last_status] || ['sc-badge-muted', 'Not assessed']);
+    const asOf = !c.last_assessed_at
+      ? 'never assessed'
+      : stale
+        ? `file changed since ${esc(c.last_assessed_at)} assessment`
+        : `assessed ${esc(c.last_assessed_at)}`;
     const blockers = Number(c.last_blockers || 0);
     return `
       <div class="sc-card vt-case" data-case="${esc(c.case_id)}">
@@ -286,7 +301,9 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
             ${esc(c.case_id)} · ${esc(c.pack_id)} v${esc(c.pack_version)} · ${asOf}
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-            ${blockers > 0 ? `<span class="sc-badge sc-badge-red">${blockers} blocker${blockers !== 1 ? 's' : ''}</span>` : ''}
+            ${stale
+              ? `<span class="sc-badge sc-badge-orange">verdict out of date</span>`
+              : (blockers > 0 ? `<span class="sc-badge sc-badge-red">${blockers} blocker${blockers !== 1 ? 's' : ''}</span>` : '')}
             <span class="sc-badge sc-badge-muted">${Number(c.document_count || 0)} document${Number(c.document_count) !== 1 ? 's' : ''}</span>
             ${Number(c.decision_count || 0) > 0
               ? `<span class="sc-badge sc-badge-green">decision recorded</span>`

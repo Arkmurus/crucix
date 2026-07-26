@@ -230,6 +230,13 @@ class VettingCase(BaseModel):
     last_status: str = ""
     last_assessed_at: str = ""
     last_blockers: int = 0
+    # R-F3172 — set whenever the file CHANGES after its last assessment. The
+    # cached verdict then describes a file that no longer exists, so the UI must
+    # render "re-assessment required", never the cached state. Proven defect: a
+    # case assessed IN_PROGRESS/0 blockers, then given a future-dated entry,
+    # still showed IN_PROGRESS/0 blockers with a current-looking date while the
+    # truth was NOT_READY/1 blocker.
+    assessment_stale: bool = False
 
     @model_validator(mode="after")
     def _retention_anchors_coherent(self):

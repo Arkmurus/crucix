@@ -189,3 +189,87 @@ def test_rf3163_extraction_prompt_contains_no_prohibited_practice():
             f"emotion about a worker is an Art. 5 prohibited practice")
     assert "not assessing the person" in lowered, (
         "the prompt must explicitly forbid assessing the person")
+
+
+# ── R-F3171/R-F3172 — defects found reviewing the first real card ─────────
+
+def test_rf3171_create_is_art10_gated(client):
+    """CREATE was NOT gated while PATCH and upload were, so conviction data
+    entered ungated AND the case then became permanently un-editable: every
+    later write hit the gate the create had skipped."""
+    r = client.post("/api/aria/vetting/cases", json={
+        "case_id": "GATE-1", "applicant_name": "T",
+        "date_of_birth": "1990-01-01", "employment_start": "2026-06-01",
+        "pack_id": "uk_bs7858",
+        "inputs": {"convictions_declared": True},
+    }, params={"user_id": TENANT}, headers=AUTH)
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["code"] == "art10_basis_required"
+    # And nothing was created — the message promises that explicitly.
+    assert client.get("/api/aria/vetting/case/GATE-1",
+                      params={"user_id": TENANT}, headers=AUTH).status_code == 404
+
+
+def test_rf3171_ordinary_create_is_unaffected(client):
+    assert _create(client, "GATE-OK").status_code == 200
+
+
+def test_rf3172_editing_a_case_marks_its_verdict_stale(client):
+    """THE false clean caching reintroduced: a case assessed clean, then
+    changed, kept showing the clean verdict with a current-looking date."""
+    assert _create(client, "STALE-1").status_code == 200
+    before = client.post("/api/aria/vetting/case/STALE-1/assess",
+                         params={"user_id": TENANT}, headers=AUTH).json()
+    row = lambda: next(c for c in client.get(
+        "/api/aria/vetting/cases", params={"user_id": TENANT}, headers=AUTH
+    ).json()["cases"] if c["case_id"] == "STALE-1")
+
+    assert row()["assessment_stale"] is False
+    assert row()["last_status"] == before["status"]
+
+    # Add a future-dated entry — a BLOCKER the cached verdict knows nothing of.
+    assert client.patch("/api/aria/vetting/case/STALE-1", json={"career": [
+        {"entry_id": "e1", "entry_type": "EMPLOYMENT", "start": "2027-01-01",
+         "organisation": "Future Co"}]},
+        params={"user_id": TENANT}, headers=AUTH).status_code == 200
+
+    assert row()["assessment_stale"] is True, (
+        "the cached verdict now describes a file that no longer exists and "
+        "must be flagged, or the card shows a clean status for a blocked file")
+
+    # Re-assessing clears it and tells the truth.
+    after = client.post("/api/aria/vetting/case/STALE-1/assess",
+                        params={"user_id": TENANT}, headers=AUTH).json()
+    assert after["status"] == "NOT_READY"
+    assert row()["assessment_stale"] is False
+    assert row()["last_blockers"] >= 1
+
+
+def test_rf3172_uploading_a_document_also_marks_stale(client):
+    import base64
+    from unittest.mock import AsyncMock, patch as _patch
+    assert _create(client, "STALE-2").status_code == 200
+    client.post("/api/aria/vetting/case/STALE-2/assess",
+                params={"user_id": TENANT}, headers=AUTH)
+    with _patch("aria_service.vetting.documents.extract_document",
+                new=AsyncMock(return_value={"available": True, "data": {
+                    "doc_type": "P60", "confidence": 0.95}})):
+        assert client.post("/api/aria/vetting/case/STALE-2/documents",
+                           json={"filename": "p60.txt",
+                                 "content_base64": base64.b64encode(b"x").decode()},
+                           params={"user_id": TENANT},
+                           headers=AUTH).status_code == 200
+    row = next(c for c in client.get("/api/aria/vetting/cases",
+                                     params={"user_id": TENANT}, headers=AUTH
+                                     ).json()["cases"] if c["case_id"] == "STALE-2")
+    assert row["assessment_stale"] is True, (
+        "new evidence invalidates the recorded verdict just as an edit does")
+
+
+def test_rf3172_staleness_defaults_safe_for_an_unknown_writer():
+    """The invalidation lives in store.save() with mark_stale defaulting TRUE,
+    so a future writer that forgets gets the SAFE outcome."""
+    import inspect
+    from aria_service.vetting.store import VettingCaseStore
+    sig = inspect.signature(VettingCaseStore.save)
+    assert sig.parameters["mark_stale"].default is True

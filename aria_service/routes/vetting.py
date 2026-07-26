@@ -150,6 +150,61 @@ async def _require_art10_position(tenant: str, case, as_of: date) -> None:
         ) from exc
 
 
+async def _require_art10_position_for_pack(
+    tenant: str, case, pack_id: str, as_of: date,
+) -> None:
+    """R-F3171 — the create-time variant of the Art. 10 gate.
+
+    At create the case has no manifest yet, so the jurisdiction must come from
+    the pack being REQUESTED. Everything after that is the same check; sharing
+    the tail rather than duplicating it keeps the two paths from drifting,
+    which is how create came to be ungated in the first place.
+    """
+    import asyncio
+
+    from ..vetting.legal_basis import (
+        JurisdictionNotReviewed, LegalBasisError, holds_criminal_offence_data,
+        regime_for, validate_position,
+    )
+
+    if not holds_criminal_offence_data(case):
+        return
+
+    try:
+        pack = registry.latest_usable(pack_id)
+    except PackNotUsable:
+        return          # the create itself will refuse, with a better message
+    try:
+        regime_for(pack.jurisdiction)
+    except JurisdictionNotReviewed as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "jurisdiction_not_reviewed",
+                    "jurisdiction": pack.jurisdiction, "message": str(exc)},
+        ) from exc
+
+    store = get_case_store()
+    position = await asyncio.to_thread(store.get_art10_position, tenant)
+    if position is None:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "art10_basis_required",
+                    "message": (
+                        "This case would hold criminal-conviction or offence "
+                        "data. Record the Schedule 1 condition and its "
+                        "appropriate policy document at "
+                        "POST /api/aria/vetting/legal-basis first — nothing "
+                        "has been created.")},
+        )
+    try:
+        validate_position(position, as_of)
+    except LegalBasisError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "art10_basis_invalid", "message": str(exc)},
+        ) from exc
+
+
 def _service() -> AssessmentService:
     return AssessmentService(get_case_store(), registry)
 
@@ -366,6 +421,14 @@ async def vetting_create_case_ep(body: CreateCaseRequest, user_id: str = ""):
             status_code=422,
             detail={"code": "invalid_case", "errors": [str(exc)]},
         ) from exc
+
+    # R-F3171 — gate CREATE too. PATCH and upload were gated but create was not,
+    # so conviction data entered ungated AND the case then became permanently
+    # un-editable: every subsequent write hit the gate the create had skipped.
+    # The pack is not pinned yet, so check the jurisdiction of the pack being
+    # REQUESTED rather than of a manifest that does not exist.
+    await _require_art10_position_for_pack(
+        tenant, case, body.pack_id, datetime.now(UTC).date())
 
     service = _service()
     try:
@@ -659,11 +722,13 @@ async def vetting_assess_ep(
     try:
         case = await asyncio.to_thread(store.get, tenant, case_id)
         if case is not None:
-            await asyncio.to_thread(store.save, case.model_copy(update={
+            fresh = case.model_copy(update={
                 "last_status": result.get("status", ""),
                 "last_assessed_at": resolved_as_of.isoformat(),
                 "last_blockers": int(result.get("counts", {}).get("blockers", 0)),
-            }))
+                "assessment_stale": False,
+            })
+            await asyncio.to_thread(store.save, fresh, mark_stale=False)
     except Exception as exc:  # noqa: BLE001 — a cache write must never fail the assessment
         _log.debug("vetting: could not cache assessment status: %s", exc)
 

@@ -181,13 +181,24 @@ class VettingCaseStore:
             ) from exc
         return pinned
 
-    def save(self, case: VettingCase) -> VettingCase:
+    def save(self, case: VettingCase, *, mark_stale: bool = True) -> VettingCase:
         """Persist mutations (uploads, career entries) to an existing case.
 
         Scoped by (tenant_id, case_id): an UPDATE naming a case owned by
         another tenant matches zero rows and raises, rather than silently
         writing nothing and reporting success.
+
+        R-F3172 — `mark_stale` DEFAULTS TO TRUE, and that default is the whole
+        point. Any write changes the file, so the cached assessment now
+        describes something that no longer exists. Putting the invalidation
+        here rather than at each call site means a future writer that forgets
+        about it gets the SAFE outcome (verdict marked stale) instead of the
+        unsafe one (a clean verdict surviving the change that invalidated it).
+        Only the assessment cache itself passes mark_stale=False, because it is
+        the one writer that has just recomputed the truth.
         """
+        if mark_stale and not case.assessment_stale:
+            case = case.model_copy(update={"assessment_stale": True})
         with self._connect() as connection:
             cursor = connection.execute(
                 "UPDATE vetting_cases SET case_json = ?, updated_at = ? "
@@ -249,6 +260,10 @@ class VettingCaseStore:
                 "last_status": body.get("last_status", ""),
                 "last_assessed_at": body.get("last_assessed_at", ""),
                 "last_blockers": body.get("last_blockers", 0),
+                # R-F3172 — the file changed after the cached verdict was
+                # computed, so that verdict describes a file that no longer
+                # exists. The UI must render this, not the stale status.
+                "assessment_stale": bool(body.get("assessment_stale", False)),
                 "document_count": len(body.get("documents", []) or []),
                 "decision_count": len(body.get("decisions", []) or []),
                 "outcome": body.get("outcome", "PENDING"),
