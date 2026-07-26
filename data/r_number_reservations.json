@@ -25576,9 +25576,10 @@
       "title": "vetting retention schedule and audited disposal",
       "claimed_at": "2026-07-26T17:44:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dcdaeec3",
+      "notes": null,
+      "shipped_at": "2026-07-26T18:48:54Z"
     },
     {
       "r_number": "R-F3149",
@@ -25596,54 +25597,60 @@
       "title": "MCP bypassed the per-key rate limit and daily quota",
       "claimed_at": "2026-07-26T17:48:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dcdaeec3",
+      "notes": null,
+      "shipped_at": "2026-07-26T18:48:56Z"
     },
     {
       "r_number": "R-F3151",
       "title": "vetting extraction pinned to approved processors, fail-closed on data residency",
       "claimed_at": "2026-07-26T18:00:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "88eacecc",
+      "notes": null,
+      "shipped_at": "2026-07-26T18:48:56Z"
     },
     {
       "r_number": "R-F3152",
       "title": "vetting outcome enum validation and retention clock reachable via API",
       "claimed_at": "2026-07-26T18:00:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "88eacecc",
+      "notes": null,
+      "shipped_at": "2026-07-26T18:48:56Z"
     },
     {
       "r_number": "R-F3153",
       "title": "Art 22 human decision record with four-eyes, no automated employment decision",
       "claimed_at": "2026-07-26T18:00:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "88eacecc",
+      "notes": null,
+      "shipped_at": "2026-07-26T18:48:55Z"
     },
     {
       "r_number": "R-F3154",
       "title": "Art 15/16 subject access export and applicant dispute record",
       "claimed_at": "2026-07-26T18:00:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "88eacecc",
+      "notes": null,
+      "shipped_at": "2026-07-26T18:48:55Z"
     },
     {
       "r_number": "R-F3155",
       "title": "Art 17 effective erasure via per-case crypto-shredding",
       "claimed_at": "2026-07-26T18:00:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "88eacecc",
+      "notes": null,
+      "shipped_at": "2026-07-26T18:48:55Z"
     },
     {
       "r_number": "R-F3156",
@@ -25661,36 +25668,40 @@
       "title": "vetting UI: decision recording, retention and subject access",
       "claimed_at": "2026-07-26T18:10:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0cd54a79",
+      "notes": null,
+      "shipped_at": "2026-07-26T18:48:55Z"
     },
     {
       "r_number": "R-F3158",
       "title": "DPA 2018 Sch1 conditions enforced in code, APD required before criminal-offence processing",
       "claimed_at": "2026-07-26T18:15:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1a5773f1",
+      "notes": null,
+      "shipped_at": "2026-07-26T18:48:54Z"
     },
     {
       "r_number": "R-F3159",
       "title": "vetting DPIA, Appropriate Policy Document and Art 28 processor schedule (drafts)",
       "claimed_at": "2026-07-26T18:15:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1a5773f1",
+      "notes": null,
+      "shipped_at": "2026-07-26T18:48:54Z"
     },
     {
       "r_number": "R-F3160",
       "title": "privacy policy: criminal-offence data, vetting processor role, transfer carve-out, retired status page",
       "claimed_at": "2026-07-26T18:15:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1a5773f1",
+      "notes": null,
+      "shipped_at": "2026-07-26T18:48:57Z"
     },
     {
       "r_number": "R-F3161",
@@ -25706,27 +25717,30 @@
       "title": "jurisdiction-aware Art10 regime; refuse criminal-offence data where the jurisdiction is not legally reviewed",
       "claimed_at": "2026-07-26T18:31:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1ddf3e04",
+      "notes": null,
+      "shipped_at": "2026-07-26T18:48:57Z"
     },
     {
       "r_number": "R-F3163",
       "title": "EU AI Act high-risk assessment and Annex III obligations for the vetting module",
       "claimed_at": "2026-07-26T18:31:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1ddf3e04",
+      "notes": null,
+      "shipped_at": "2026-07-26T18:48:57Z"
     },
     {
       "r_number": "R-F3164",
       "title": "guided legal-basis onboarding so the operator never selects a condition",
       "claimed_at": "2026-07-26T18:31:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1ddf3e04",
+      "notes": null,
+      "shipped_at": "2026-07-26T18:48:57Z"
     }
   ]
 }
