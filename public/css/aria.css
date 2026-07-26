@@ -102,6 +102,7 @@ body.nav-expanded #sidebar-overlay { display: block; }
 .rail-link {
   display: flex; align-items: center;
   height: 46px; width: 100%;
+  flex-shrink: 0;
   border-radius: 10px;
   color: var(--sc-text);
   font-size: 13px; font-weight: 600;   /* R-F2380 — smaller title (per request) + generous rows */
@@ -162,8 +163,11 @@ body:not(.nav-expanded) .rail-toggle { margin: 0; }
 
 /* scrolling nav — R-F2379: balanced rhythm that fits all items; a thin visible
    scrollbar means nothing is ever "missing" when the list overflows a short screen. */
-/* R-F2381 — flat list, no section headers → one uniform even gap everywhere */
-.rail-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 8px; display: flex; flex-direction: column; gap: 12px; }
+/* R-F3147 — the 10px inset shares the exact 30px icon axis used by the
+   top and bottom clusters. Fixed rows prevent short viewports from compressing
+   direct links differently from permission-gated wrapper rows. */
+.rail-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 10px; display: flex; flex-direction: column; gap: 12px; }
+.rail-nav > [data-gated] { flex: 0 0 auto; width: 100%; }
 .rail-nav::-webkit-scrollbar { width: 6px; }
 .rail-nav::-webkit-scrollbar-thumb { background: var(--sc-border-strong); border-radius: 3px; }
 .rail-nav::-webkit-scrollbar-thumb:hover { background: var(--sc-muted); }

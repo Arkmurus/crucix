@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3146,
+  "next_available": 3148,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25510,6 +25510,24 @@
       "r_number": "R-F3145",
       "title": "L3 document extraction for vetting, human-review on low confidence",
       "claimed_at": "2026-07-26T17:36:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3146",
+      "title": "issuer PDF: double download, head-truncation past the balance sheet, unnamed timeout",
+      "claimed_at": "2026-07-26T17:40:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3147",
+      "title": "align web menu icon spacing",
+      "claimed_at": "2026-07-26T17:40:57Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
