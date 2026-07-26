@@ -98,6 +98,8 @@
       </div>
     </div>
 
+    <div id="retention-note" class="vt-pack" style="display:none"></div>
+
     <div id="pack-info" class="vt-pack" style="display:none">
       <i class="bi bi-file-earmark-ruled" aria-hidden="true"></i>
       <div id="pack-text"></div>
@@ -252,12 +254,18 @@
                 <p class="vt-card-title">${esc(c.applicant_name || '(unnamed)')}</p>
                 <span class="vt-card-meta">${esc(c.case_id)} · ${esc(c.pack_id)} v${esc(c.pack_version)}</span>
               </div>
-              <div style="display:flex;gap:8px;flex-shrink:0;align-items:center">
+              <div style="display:flex;gap:8px;flex-shrink:0;align-items:center;flex-wrap:wrap">
                 <label class="vt-btn secondary" style="margin:0">
                   <i class="bi bi-upload"></i> Upload
                   <input type="file" data-upload="${esc(c.case_id)}" hidden>
                 </label>
                 <button class="vt-btn secondary" data-assess="${esc(c.case_id)}">Assess</button>
+                <button class="vt-btn secondary" data-decide="${esc(c.case_id)}"
+                        title="Record the employment decision a named human made">
+                  <i class="bi bi-person-check"></i> Decide</button>
+                <button class="vt-btn secondary" data-sar="${esc(c.case_id)}"
+                        title="Art. 15 subject access export">
+                  <i class="bi bi-file-earmark-person"></i> SAR</button>
               </div>
             </div>
             <div class="vt-upload-note" data-status-for="${esc(c.case_id)}"></div>
@@ -333,9 +341,112 @@
     }
   });
 
+  // R-F3157 — record the employment decision (UK GDPR Art. 22).
+  //
+  // The form asks for the decider's NAME and, on an adverse outcome, a reason
+  // and a second reviewer. Those are not form-design choices: the server
+  // refuses the decision without them, and this UI asks for exactly what the
+  // server requires so the user is never bounced by a rule they couldn't see.
+  // Nothing here pre-fills a decision from the engine verdict — the whole
+  // point is that a human supplies it.
+  async function decide(caseId) {
+    const note = document.querySelector(`[data-status-for="${CSS.escape(caseId)}"]`);
+    const say = (html) => { if (note) note.innerHTML = html; };
+
+    const decision = (prompt(
+      'Decision for ' + caseId + '\n\n'
+      + 'APPROVED / APPROVED_WITH_CONDITIONS / REJECTED / DEFERRED / WITHDRAWN'
+    ) || '').trim().toUpperCase();
+    if (!decision) return;
+    const decidedBy = (prompt('Your full name (the decision is recorded against it):') || '').trim();
+    if (!decidedBy) return;
+
+    const adverse = decision === 'REJECTED';
+    const reason = adverse
+      ? (prompt('Reason for the adverse decision (the applicant is entitled to be told):') || '').trim()
+      : (prompt('Note (optional):') || '').trim();
+    const assessedBy = adverse
+      ? (prompt('Who ran the screening? (an adverse decision needs a second pair of eyes):') || '').trim()
+      : '';
+
+    say('<span class="vt-card-meta">Recording decision…</span>');
+    try {
+      const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          decision, decided_by: decidedBy, reason, assessed_by: assessedBy,
+        }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        say(`<span class="vt-error" style="display:block;margin-top:8px">Decision NOT recorded: ${esc(body?.detail?.message || body?.detail || r.status)}</span>`);
+        return;
+      }
+      say(
+        `<div style="margin-top:8px;font-size:12.5px">`
+        + `<strong>${esc(body.decision)}</strong> recorded by ${esc(body.decided_by)}`
+        + (body.departed_from_engine
+          ? ` · <span class="vt-pill signoff">departed from recommendation</span>`
+          : ` · <span class="vt-pill info">matched recommendation</span>`)
+        + `<div class="vt-ref" style="margin-top:4px">engine at decision time: ${esc(body.engine_status)} · ${body.engine_blockers} blocker(s)</div>`
+        + `</div>`);
+    } catch (e) {
+      say('<span class="vt-error" style="display:block;margin-top:8px">Decision NOT recorded — the service was unreachable.</span>');
+    }
+  }
+
+  // Art. 15 export. Opened as a download rather than rendered inline: it is a
+  // record to be handed to a person, and inlining it would invite screenshots
+  // of criminal-offence data into whatever chat the operator is in.
+  async function subjectAccess(caseId) {
+    const note = document.querySelector(`[data-status-for="${CSS.escape(caseId)}"]`);
+    try {
+      const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/subject-access`);
+      if (!r.ok) {
+        if (note) note.innerHTML = `<span class="vt-error" style="display:block;margin-top:8px">Export failed (HTTP ${r.status}).</span>`;
+        return;
+      }
+      const blob = new Blob([JSON.stringify(await r.json(), null, 2)],
+                            { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `subject-access-${caseId}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      if (note) note.innerHTML = '<span class="vt-card-meta">Subject-access export downloaded.</span>';
+    } catch (e) {
+      if (note) note.innerHTML = '<span class="vt-error" style="display:block;margin-top:8px">Export failed — service unreachable.</span>';
+    }
+  }
+
+  async function loadRetention() {
+    try {
+      const r = await authed('/api/aria/vetting/retention');
+      if (!r.ok) return;
+      const data = await r.json();
+      const overdue = data.overdue_count || 0;
+      const el = $('retention-note');
+      if (!el) return;
+      el.className = overdue ? 'vt-pack vt-pack-warn' : 'vt-pack';
+      el.style.display = '';
+      el.innerHTML =
+        `<i class="bi bi-clock-history" aria-hidden="true"></i><div>`
+        + (overdue
+          ? `<strong>${overdue} case(s) past their retention period</strong> — dispose to satisfy the storage-limitation duty (Art. 5(1)(e)).`
+          : `No case is past its retention period.`)
+        + ` <span class="vt-ref">reviewed as of ${esc(data.as_of)}</span></div>`;
+    } catch (e) { /* retention is advisory here; never block the page */ }
+  }
+
   $('cases').addEventListener('click', (ev) => {
-    const btn = ev.target.closest('[data-assess]');
-    if (btn) assess(btn.getAttribute('data-assess'));
+    const assessBtn = ev.target.closest('[data-assess]');
+    if (assessBtn) { assess(assessBtn.getAttribute('data-assess')); return; }
+    const decideBtn = ev.target.closest('[data-decide]');
+    if (decideBtn) { decide(decideBtn.getAttribute('data-decide')); return; }
+    const sarBtn = ev.target.closest('[data-sar]');
+    if (sarBtn) { subjectAccess(sarBtn.getAttribute('data-sar')); }
   });
   $('new-case-btn').addEventListener('click', () => {
     const f = $('new-case-form');
@@ -373,6 +484,7 @@
 
   await loadPacks();
   await loadCases();
+  await loadRetention();
 })();
 </script>
 </body>

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3157,
+  "next_available": 3158,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25624,6 +25624,15 @@
       "notes": null,
       "abandoned_at": "2026-07-26T18:06:03Z",
       "abandon_reason": "NOT A DEFECT — the completed adverse-media screen IS rendered in the structured view via highlights rows (R-F3055 templates/backends/raw counts + R-F3060 assessment with the absence-of-coverage caveat). My claim that it was invisible came from inspecting section.findings only and never reading section.highlights."
+    },
+    {
+      "r_number": "R-F3157",
+      "title": "vetting UI: decision recording, retention and subject access",
+      "claimed_at": "2026-07-26T18:10:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
