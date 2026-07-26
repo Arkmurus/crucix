@@ -289,6 +289,18 @@
        that does not exist). Width is a CSS problem, so solve it in CSS. */
     .dd-hs-id { max-width: 26ch; overflow: hidden; text-overflow: ellipsis;
                 white-space: nowrap; }
+    /* R-F3098 — context findings: present, sourced, and visibly NOT a finding about
+       the subject. Muted and set apart so a heading-scanner cannot mistake a country
+       statistic for a compliance signal. */
+    .dd-context-block { margin-top: 10px; padding: 8px 10px; border-radius: 6px;
+                        border: 1px dashed var(--sc-border, #334155);
+                        background: rgba(148,163,184,.06); }
+    .dd-context-head { font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase;
+                       color: var(--sc-muted); margin-bottom: 6px; }
+    .dd-context-item { font-size: 12.5px; padding: 4px 0; color: var(--sc-text, #cbd5e1); }
+    .dd-context-item + .dd-context-item { border-top: 1px solid var(--sc-border, #26324a); }
+    .dd-context-detail { font-size: 12px; color: var(--sc-muted); margin-top: 2px;
+                         line-height: 1.5; }
     /* R-F3091 — per-layer entity scope note. */
     .dd-scope-note { font-size: 11.5px; line-height: 1.6; color: #fbbf24;
                      background: rgba(245,158,11,.10); border: 1px solid #b45309;
@@ -1268,6 +1280,23 @@ async function toggleDetail(row, runId) {
       sec = Object.assign({}, sec, { findings: _visible });
       if (sec.findings && sec.findings.length) { for (const f of sec.findings) { h += '<div style="padding:7px 0;border-top:1px solid var(--sc-border,#26324a)"><div style="display:flex;gap:8px;align-items:flex-start">'+sevPill(f.severity)+'<div style="flex:1;min-width:0"><div style="font-weight:600">'+escText(f.title)+'</div>'+(f.detail?'<div style="font-size:12.5px;color:var(--sc-text,#cbd5e1);margin-top:2px;line-height:1.5">'+escText(f.detail)+'</div>':'')+fmtSource(f)+'</div></div></div>'; } }
       else if (!(sec.highlights&&sec.highlights.length) && !(sec.evidence&&sec.evidence.length)) { h += '<div style="color:var(--sc-muted);font-size:12.5px">' + (st==='ok' ? 'No findings recorded.' : 'No findings captured — but this check did not fully run (see status above); this is NOT an all-clear.') + '</div>'; }
+      // R-F3098 — environment-level items, visually SUBORDINATE and clearly labelled.
+      // On the Mitie report "Sovereign macro context: central-govt debt 130.7% of GDP"
+      // (whose own text says "not a finding against this entity") and the USAspending
+      // award total sat inline among the compliance findings, where position asserted
+      // what the wording denied.
+      if (sec.context_findings && sec.context_findings.length) {
+        const kinds = [...new Set(sec.context_findings.map(f => f.context_kind).filter(Boolean))];
+        h += '<div class="dd-context-block"><div class="dd-context-head">'
+          + escText(kinds.join(' · ') || 'Context')
+          + ' — about the environment, not about this entity</div>';
+        for (const f of sec.context_findings) {
+          h += '<div class="dd-context-item"><b>' + escText(f.title) + '</b>'
+            + (f.detail ? '<div class="dd-context-detail">' + escText(f.detail) + '</div>' : '')
+            + fmtSource(f) + '</div>';
+        }
+        h += '</div>';
+      }
       if (sec.evidence && sec.evidence.length) { h += '<div style="margin-top:9px"><div style="font-size:11px;color:var(--sc-muted);margin-bottom:3px">Cited sources</div>'; for (const ev of sec.evidence) h += '<div style="font-size:12px;margin:2px 0"><a href="'+escAttr(safeHref(ev.url))+'" target="_blank" rel="noopener" style="color:#60a5fa;word-break:break-all">'+escText(ev.source||ev.url)+'</a>'+(ev.tier?' <span style="color:var(--sc-muted)">['+escText(ev.tier)+']</span>':'')+'</div>'; h += '</div>'; }
       if (sec.data_gaps && sec.data_gaps.length) { h += '<div style="margin-top:9px;font-size:12px;color:#f59e0b"><i class="bi bi-exclamation-triangle"></i> Gaps: '+sec.data_gaps.map(escText).join('; ')+'</div>'; }
       h += '</div></div>'; return h;

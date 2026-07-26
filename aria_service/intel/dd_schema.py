@@ -183,6 +183,30 @@ class Finding:
     url: Optional[str] = None
     source_tier: str = "UNKNOWN"  # OFFICIAL | INDUSTRY | QUALITY_PRESS | UNVERIFIED
     retrieved_at: Optional[str] = None
+    # ── R-F3098 — CONTEXT IS NOT A FINDING ABOUT THE SUBJECT ────────────────
+    #
+    # THE DEFECT (Mitie, operator report 2026-07-26). Under the heading
+    # "⚖ Compliance & Sanctions" — the section a reader scans to decide whether they
+    # may transact — sat two items that are not compliance findings about anyone:
+    #
+    #   "Sovereign macro context: central-govt debt 130.7% of GDP"
+    #        …whose own detail text ends "not a finding against this entity"
+    #   "US federal contracts: 4 award(s), $3,409,511"
+    #        …a commercial fact, filed under compliance
+    #
+    # Placement is a claim. A jurisdiction-level statistic rendered beside a sanctions
+    # screen reads as an adverse signal about the subject, and a reader who scans
+    # headings rather than bodies will carry that away — the detail line disclaiming
+    # it arrives too late to undo the impression the position created.
+    #
+    # `context_only` marks a finding as ABOUT THE ENVIRONMENT (a country, a market, a
+    # sector) rather than about the subject. It never changes a verdict, never
+    # suppresses anything, and is purely additive — an unflagged finding behaves
+    # exactly as before. Renderers group these under their own heading so the
+    # decision-driving section contains only decision-driving material.
+    context_only: bool = False
+    #: Short label for the grouped block, e.g. "Country & market context".
+    context_kind: str = ""
 
     def has_provenance(self) -> bool:
         """True when this finding can point at WHERE it came from.
@@ -854,8 +878,18 @@ class ARKDDReport:
         # computes nothing (R-F2837).
         for _sc_line in _render_screened_lists(self.identity.sanctions_screen):
             lines.append(_sc_line)
-        for f in self.compliance.findings[:5 if concise else 20]:
+        # R-F3098 — subject findings first; environment-level context after, labelled.
+        # A country debt statistic printed inline among compliance findings reads as a
+        # signal about the counterparty, whatever its detail text says.
+        _comp_subject = [f for f in self.compliance.findings if not getattr(f, "context_only", False)]
+        _comp_context = [f for f in self.compliance.findings if getattr(f, "context_only", False)]
+        for f in _comp_subject[:5 if concise else 20]:
             lines.append(f"  • [{f.severity}] {f.title}")
+        if _comp_context and not concise:
+            _kinds = sorted({(f.context_kind or "Context") for f in _comp_context})
+            lines.append(f"  {' / '.join(_kinds)} — about the environment, not about this entity:")
+            for f in _comp_context[:10]:
+                lines.append(f"    · {f.title}")
         lines.append("")
 
         # 5. Digital
@@ -1148,13 +1182,34 @@ def _sv_finding(f: dict) -> dict:
         "confidence": f.get("confidence") or "",
         "gate_demoted": bool(f.get("gate_demoted")),
         "gate_reason": f.get("gate_reason") or "",
+        # R-F3098 — about the ENVIRONMENT, not about the subject.
+        "context_only": bool(f.get("context_only")),
+        "context_kind": f.get("context_kind") or "",
     }
 
 
 def _sv_findings(section: dict) -> list[dict]:
+    """Findings ABOUT THE SUBJECT, worst first.
+
+    R-F3098 — context findings are split out by `_sv_context_findings` and rendered
+    under their own heading. They are never dropped: a reader loses nothing, and the
+    decision-driving section stops carrying material that is not decision-driving.
+    """
     out = [_sv_finding(f) for f in (section.get("findings") or []) if f]
-    out = [f for f in out if f.get("title")]
+    out = [f for f in out if f.get("title") and not f.get("context_only")]
     out.sort(key=lambda f: _SEVERITY_RANK.get(f.get("severity", "info"), 5))
+    return out
+
+
+def _sv_context_findings(section: dict) -> list[dict]:
+    """R-F3098 — the environment-level items this layer collected.
+
+    Country statistics, market/procurement footprint: true, sourced, worth showing,
+    and NOT a statement about the counterparty. Kept in the same section object so a
+    surface that ignores the split still renders everything it did before."""
+    out = [_sv_finding(f) for f in (section.get("findings") or []) if f]
+    out = [f for f in out if f.get("title") and f.get("context_only")]
+    out.sort(key=lambda f: (f.get("context_kind") or "", f.get("title") or ""))
     return out
 
 
@@ -1323,11 +1378,14 @@ def _sv_section(key, title, icon, section, highlights, *, kind="standard", evide
     section = section or {}
     meta = section.get("meta") or {}
     findings = _sv_findings(section)
+    context = _sv_context_findings(section)          # R-F3098
     gaps = [g for g in (section.get("data_gaps") or []) if g]
     hl = [{"label": l, "value": (str(v) if not isinstance(v, str) else v)}
           for (l, v) in highlights if v not in (None, "", [], {}, 0)]
     ev = evidence or []
-    if not (findings or gaps or hl or ev) and kind != "core":
+    # R-F3098 — a section carrying ONLY context still has something to show, so it
+    # must not be dropped as empty.
+    if not (findings or context or gaps or hl or ev) and kind != "core":
         return None
     return {
         "key": key, "title": title, "icon": icon,
@@ -1336,6 +1394,7 @@ def _sv_section(key, title, icon, section, highlights, *, kind="standard", evide
         "subcalls": meta.get("subcalls") or 0,
         "error": meta.get("error"),
         "highlights": hl, "findings": findings, "data_gaps": gaps, "evidence": ev,
+        "context_findings": context,
     }
 
 

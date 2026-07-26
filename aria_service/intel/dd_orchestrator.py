@@ -4770,6 +4770,12 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                     detail=f"Top awarding agencies: {_ags}. Source: USASpending.gov (federal award records).",
                     source="usaspending",
                     confidence="CONFIRMED",
+                    # R-F3098 — a procurement record is a COMMERCIAL fact. Filed under
+                    # "Compliance & Sanctions" it read as a compliance signal; it is
+                    # neither adverse nor exculpatory, and it is not what that section
+                    # is for.
+                    context_only=True,
+                    context_kind="Commercial footprint",
                 ))
     except Exception as _pe:
         logger.debug("Compliance: usaspending lookup failed: %s", _pe)
@@ -4864,6 +4870,14 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                         ),
                         source=f"worldbank_indicators.country_risk_overlay [from {overlay.get('primary_source_url','')}]",
                         confidence="CONFIRMED",
+                        # R-F3098 — R-F3000 already established this is CONTEXT and cut
+                        # the severity to info, but left it sitting in the compliance
+                        # findings list, where POSITION still asserted what the wording
+                        # denied ("not a finding against this entity"). A reader who
+                        # scans headings carries away the impression the placement
+                        # created. Group it where it belongs.
+                        context_only=True,
+                        context_kind="Country & market context",
                     ))
                 # Military spend > 5% of GDP = elevated militarisation signal
                 _mil = _defence.get("military_spend_pct_gdp")
