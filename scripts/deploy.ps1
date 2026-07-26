@@ -94,6 +94,57 @@ Set-Location $REPO_ROOT
 $GIT_SHA = git rev-parse HEAD
 $GIT_SHORT = git rev-parse --short=8 HEAD
 
+# ---- WORKTREE GUARD (R-F3205) ----
+#
+# A git worktree CANNOT build the aria-intel image, and the failure is silent and
+# expensive: `.dockerignore` (R-F589) un-ignores .git/HEAD, .git/refs and
+# .git/packed-refs so main.py's `_resolve_git_head_from_image` can derive build_rev
+# at runtime when a deploy was invoked WITHOUT --build-arg. In a worktree `.git` is a
+# FILE ("gitdir: .../.git/worktrees/<name>"), so `.git/refs` does not exist and
+# aria_service/Dockerfile:156 `COPY .git/refs` dies at cache-key computation:
+#
+#     failed to compute cache key: "/.git/refs": not found
+#
+# VERIFIED 2026-07-27 on a scratch worktree: .git is a file, .git/refs absent, and
+# the refs actually live in `git rev-parse --git-common-dir`, not the worktree gitdir.
+#
+# Nothing reaches Fly on that failure  - the script then polls up to 36 times for a
+# version that will never change, so the operator sees a five-minute hang and a
+# timeout rather than the one-line cause. Refuse immediately with the fix instead.
+#
+# This is a GUARD, not the cure. The cure is to stop baking git internals into the
+# image (pass build_rev in and remove the .dockerignore exceptions), which is a change
+# to the build path for every app and every CI deploy  - deliberately not attempted
+# here. Until then: work in a worktree, deploy from the primary checkout.
+$_gitPath = Join-Path $REPO_ROOT ".git"
+if (Test-Path $_gitPath -PathType Leaf) {
+    $_mainTree = (git rev-parse --path-format=absolute --git-common-dir 2>$null)
+    if ($_mainTree) { $_mainTree = Split-Path -Parent $_mainTree }
+    Write-Host "=== [FAIL] WORKTREE: this checkout cannot build the image (R-F3205) ===" -ForegroundColor Red
+    Write-Host "  $REPO_ROOT is a git WORKTREE  - .git is a file, so .git/refs does not"
+    Write-Host "  exist and 'COPY .git/refs' (aria_service/Dockerfile) fails at build time."
+    Write-Host "  Nothing would reach Fly; the deploy would hang polling for a version"
+    Write-Host "  that never changes."
+    Write-Host ""
+    Write-Host "  Deploy from the primary checkout instead:"
+    if ($_mainTree) { Write-Host "    cd $_mainTree" }
+    Write-Host "    git fetch origin; git merge --ff-only origin/main"
+    # Rebuild the flag list explicitly. An inline -replace inside an interpolated
+    # string parses under pwsh 7 but NOT under Windows PowerShell 5.1 (the operator's
+    # shell)  - the same 5.1-only class R-F3133 was about.
+    $_flags = @()
+    if ($Intel)   { $_flags += "-Intel" }
+    if ($Web)     { $_flags += "-Web" }
+    if ($Wa)      { $_flags += "-Wa" }
+    if ($Searxng) { $_flags += "-Searxng" }
+    if ($CleanHead) { $_flags += "-CleanHead" }
+    Write-Host ("    .\scripts\deploy.ps1 " + ($_flags -join " "))
+    Write-Host ""
+    Write-Host "  (Worktrees remain the right way to WORK in parallel  - only the deploy"
+    Write-Host "   has to run from the primary checkout.)"
+    exit 1
+}
+
 # ---- PUSH GUARD (R-F1122) ----
 Write-Host "=== ARIA bulletproof deploy (R-F1150, Windows) ==="
 Write-Host "  commit: $GIT_SHA ($GIT_SHORT)"
