@@ -157,23 +157,71 @@ def test_rf3124_does_not_claim_a_ratio_model_it_does_not_have():
 
 # ── §21a — both branches reach the brain ───────────────────────────────────
 def test_rf3124_success_and_failure_are_both_wired():
-    """A route that silently stops working looks identical to one never tried."""
+    """§21a — a route that silently stops working looks identical to one never tried.
+
+    R-F3128 moved the logic out of the inline assess() block into the registered
+    capability; the guarantee is unchanged, so the assertion follows it there."""
     import inspect
-    src = inspect.getsource(fh)
-    i = src.index("R-F3124 — READ THE ISSUER'S OWN REPORT")
-    window = src[i:i + 3000]
-    assert "wire_success(" in window, "the verified path must reach the brain"
-    assert "wire_failure(" in window, "the not-usable path must reach the brain too"
-    assert 'gap_type="knowledge_gap"' in window, "must be a REGISTERED gap type"
+    src = inspect.getsource(fh._enrich_with_issuer_report)
+    assert "wire_success(" in src, "the verified path must reach the brain"
+    assert "wire_failure(" in src, "the not-usable path must reach the brain too"
+    assert 'gap_type="knowledge_gap"' in src, "must be a REGISTERED gap type"
 
 
 def test_rf3124_failure_leaves_the_honest_unknown_intact():
     """The whole design: any gate failure changes nothing about the existing verdict."""
     import inspect
+    src = inspect.getsource(fh._enrich_with_issuer_report)
+    assert src.index('if not iss.get("ok"):') < src.index('result["data_available"] = True'), (
+        "data_available may ONLY be set AFTER the ok check returns False early")
+    assert "return False" in src.split('result["data_available"] = True')[0], (
+        "the not-ok path must return before anything is marked available")
+    assert "still UNKNOWN" in inspect.getsource(fh.assess), (
+        "assess() must still say UNKNOWN when the capability declined")
+
+
+# ── R-F3128 — the vault must not be able to mask a new route ───────────────
+def test_rf3128_issuer_report_is_a_REGISTERED_capability():
+    """THE DEFECT (QinetiQ, dd_a56444e7647e): R-F3124 was wired inline in assess()
+    step 3 only. assess() returns a vault profile VERBATIM when younger than
+    max_age_days, so an entity assessed minutes earlier never reached step 3 and the
+    report still read "figures not yet extracted" — the pre-R-F3124 text.
+
+    That is exactly the masking R-F2834 exists to end, recurring because a new
+    capability was added without REGISTERING it."""
+    assert "issuer_report" in fh.current_capabilities(), (
+        "R-F3128 REGRESSION: a vault-cached profile will mask the issuer-report route "
+        "for the whole freshness window")
+    assert fh.FINANCIAL_CAPABILITIES["issuer_report"] is fh._enrich_with_issuer_report
+
+
+def test_rf3128_there_is_exactly_one_implementation():
+    """The inline copy is what diverged from the registered path. One caller only."""
+    import inspect
     src = inspect.getsource(fh)
-    i = src.index("R-F3124 — READ THE ISSUER'S OWN REPORT")
-    window = src[i:i + 3000]
-    assert 'result["data_available"] = True' in window
-    assert window.index('if _iss.get("ok"):') < window.index('result["data_available"] = True'), (
-        "data_available may ONLY be set inside the ok branch")
-    assert "still UNKNOWN" in window
+    assert src.count("await extract_issuer_financials(") == 1, (
+        "more than one call site means the fresh and backfill paths can drift again")
+    assert "_enrich_with_issuer_report(\n                    result, name" in src, (
+        "assess() must go through the registered capability, not an inline copy")
+
+
+def test_rf3128_capability_only_stamps_on_success():
+    """A blocked fetch or refused gate must retry on the next read, not freeze an
+    UNKNOWN for 30 days — the enricher returns False so the stamp is withheld."""
+    import inspect
+    src = inspect.getsource(fh._enrich_with_issuer_report)
+    assert "if not iss.get(\"ok\"):" in src and "return False" in src
+
+
+def test_rf3128_does_not_override_a_stronger_route():
+    """SEC EDGAR (structured) must win; the issuer report is the fallback."""
+    import inspect
+    src = inspect.getsource(fh._enrich_with_issuer_report)
+    assert 'if result.get("data_available") and result.get("has_financials"):' in src
+
+
+def test_rf3128_backfill_can_resolve_an_llm_without_a_request():
+    """A vault backfill runs outside any HTTP request, so there is no injected
+    provider — mirrors dd_orchestrator._resolve_dd_llm (R-F3087)."""
+    assert callable(fh._dd_llm_for_capability)
+    assert fh._dd_llm_for_capability() is None or True   # must not raise

@@ -517,6 +517,12 @@ async def _search_financial_footprint(name: str, jurisdiction_iso2: str = "") ->
 #                  invents figures will not produce a balance sheet that balances.
 _ISSUER_FIN_TOLERANCE = 0.02          # 2% — rounding/presentation differences only
 _ISSUER_FIN_MAX_CHARS = 120_000       # cap what we hand the model
+#: R-F3125 — a browser-shaped UA. Issuer sites commonly refuse a bare client; that is
+#: an ACCESS obstacle to report honestly, never evidence about the filing itself.
+_ISSUER_FETCH_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
 
 
 def _issuer_domain_matches(url: str, name: str) -> bool:
@@ -605,8 +611,52 @@ async def extract_issuer_financials(
     out["gates"]["provenance"] = True
     url = str(cand.get("url"))
 
-    # G2 — a real text layer. Route 2 (R-F3017) died on a TIFF scan; we do not OCR a
-    # balance sheet and then call the result a solvency assessment.
+    # ── G2 — RETRIEVABLE, *THEN* a real text layer ──────────────────────────
+    #
+    # R-F3125 — G2 CONFLATED TWO DIFFERENT OBSTACLES AND NAMED THE WRONG ONE.
+    # Measured on the real Mitie annual report (2026-07-26): the shipped G2 reported
+    # "document has no usable text layer (0 chars) — a scanned filing cannot support
+    # a solvency assessment". The document is NOT a scan. The URL returns
+    # **HTTP 403 with a Cloudflare 'Just a moment…' challenge page** — the fetch was
+    # BLOCKED. Both end in zero text, so the code inferred the wrong cause and told
+    # the customer something false about the issuer's filing.
+    #
+    # That matters because the remedies are opposite: a scan is a dead end (OCR is
+    # not a basis for a solvency verdict — R-F3017 route 2), while a bot challenge is
+    # a FETCH-CAPABILITY problem that a headless browser can solve. A DD that
+    # misnames its own obstacle sends the reader to fix the wrong thing — the same
+    # defect class as R-F3054 naming the wrong failing condition.
+    #
+    # So: retrieve explicitly first and report the HTTP reality, then judge the text.
+    _pre_status = None
+    _pre_bytes = b""
+    try:
+        import httpx as _hx
+        async with _hx.AsyncClient(timeout=min(timeout, 60.0), follow_redirects=True) as _c:
+            _r = await _c.get(url, headers={"User-Agent": _ISSUER_FETCH_UA})
+            _pre_status = _r.status_code
+            _pre_bytes = _r.content or b""
+    except Exception as e:
+        out["reason"] = f"could not reach the document: {type(e).__name__}: {str(e)[:100]}"
+        out["gates"]["retrievable"] = False
+        return out
+
+    if _pre_status != 200:
+        out["reason"] = (
+            f"the issuer's document could not be retrieved (HTTP {_pre_status}) — the "
+            "site refused the request. This is an ACCESS obstacle, not a statement "
+            "about the filing: the figures may well be published and readable.")
+        out["gates"]["retrievable"] = False
+        return out
+    if not _pre_bytes[:4] == b"%PDF" and b"<html" in _pre_bytes[:400].lower():
+        out["reason"] = (
+            "the issuer's URL returned an HTML page rather than the document — "
+            "typically a bot/consent interstitial. ACCESS obstacle, not a scanned "
+            "filing.")
+        out["gates"]["retrievable"] = False
+        return out
+    out["gates"]["retrievable"] = True
+
     text = ""
     try:
         # §3b — verified: document_reader.read_document(source, llm=..) -> ExtractionResult
@@ -614,13 +664,14 @@ async def extract_issuer_financials(
         _res = await asyncio.wait_for(_dr.read_document(url), timeout=timeout)
         text = str(getattr(_res, "text", "") or "")
     except Exception as e:
-        out["reason"] = f"could not fetch or read the document: {str(e)[:120]}"
+        out["reason"] = f"retrieved the document but could not parse it: {str(e)[:120]}"
         out["gates"]["text_layer"] = False
         return out
     if len(text.strip()) < 2000:
         out["reason"] = (
-            f"document has no usable text layer ({len(text.strip())} chars) — a scanned "
-            "filing cannot support a solvency assessment (see R-F3017 route 2)")
+            f"document retrieved ({len(_pre_bytes):,} bytes) but carries no usable text "
+            f"layer ({len(text.strip())} chars) — a scanned filing cannot support a "
+            "solvency assessment (see R-F3017 route 2)")
         out["gates"]["text_layer"] = False
         return out
     out["gates"]["text_layer"] = True
@@ -1142,11 +1193,102 @@ async def _enrich_with_registry_figures(
 # is missing, re-stamps, and re-persists (pay-once, §15). A capability whose
 # enricher FAILS is deliberately NOT stamped, so it retries on the next read rather
 # than recording evidence that was never gathered.
+async def _enrich_with_issuer_report(
+    result: dict,
+    name: str,
+    jurisdiction_iso2: str,
+    registration_number: str = "",
+) -> bool:
+    """R-F3128 — the R-F3124 issuer-report route, as a REGISTERED capability.
+
+    THE DEFECT (QinetiQ, dd_a56444e7647e, 2026-07-26). R-F3124 was wired inline in
+    `assess()` step 3 only. `assess()` returns a vault profile VERBATIM when it is
+    younger than `max_age_days`, so an entity assessed even minutes earlier never
+    reached step 3 and the report still read "figures not yet extracted" — the
+    pre-R-F3124 text. That is precisely the masking R-F2834 was built to end
+    ("a profile written before a new evidence source existed would keep suppressing
+    it for the whole freshness window"), recurring because a new capability was added
+    without REGISTERING it.
+
+    As a capability it runs on BOTH paths: fresh assessment and vault backfill. The
+    capability is stamped only on success (see backfill_missing_capabilities), so a
+    blocked fetch or a refused gate retries on the next read instead of freezing an
+    UNKNOWN for 30 days.
+
+    Returns True only when the four gates passed and the profile now ANSWERS
+    financial capacity.
+    """
+    if result.get("data_available") and result.get("has_financials"):
+        return False                      # already answered by a stronger route
+    fp = result.get("search_footprint") or {}
+    sources = fp.get("sources") or []
+    if not sources:
+        try:
+            fp = await _search_financial_footprint(name, jurisdiction_iso2)
+            if fp and fp.get("found"):
+                result["search_footprint"] = fp
+                sources = fp.get("sources") or []
+        except Exception as e:
+            logger.debug("[R-F3128] footprint search failed: %s", e)
+    if not sources:
+        return False
+    llm = _dd_llm_for_capability()
+    iss = await extract_issuer_financials(sources, name, llm)
+    result["issuer_financials"] = iss
+    if not iss.get("ok"):
+        try:
+            wire_failure(
+                module="financial_health",
+                detail=f"R-F3128 issuer-report not usable for {name[:60]}: "
+                       f"{str(iss.get('reason'))[:160]}",
+                gap_type="knowledge_gap", source="financial_health:R-F3128")
+        except Exception:
+            pass
+        return False
+    result["data_available"] = True
+    result["has_financials"] = True
+    result["issuer_report_verified"] = True
+    result["health_verdict"] = _verdict_from_issuer_report(iss)
+    result["summary"] = (
+        f"Financial position read from the issuer's own published report "
+        f"({iss.get('source_title') or iss.get('source_url')}): net assets "
+        f"{iss.get('net_assets'):,} {iss.get('currency') or ''} "
+        f"({iss.get('units') or 'absolute'}) at "
+        f"{iss.get('period_end') or 'the stated period end'}. "
+        f"Balance sheet {iss.get('reason')}. Figures are quoted verbatim from the "
+        f"document and arithmetically reconciled — not inferred."
+    ).strip()
+    try:
+        wire_success(
+            module="financial_health",
+            summary=f"R-F3128 issuer-report financials verified for {name[:60]}",
+            source_id="financial_health:R-F3128")
+    except Exception:
+        pass
+    return True
+
+
+def _dd_llm_for_capability():
+    """R-F3128 — resolve the live provider for a capability that has no caller LLM.
+
+    Mirrors dd_orchestrator._resolve_dd_llm (R-F3087): a backfill runs outside any
+    HTTP request, so there is no injected provider. Returns None when unavailable —
+    the gate chain then refuses honestly rather than guessing."""
+    try:
+        from ..main import app as _app
+        return getattr(getattr(_app, "state", None), "llm_provider", None)
+    except Exception:
+        return None
+
+
 FINANCIAL_CAPABILITIES: dict = {
     # R-F2782/R-F2817 — GB statutory filings from Companies House (metadata only).
     "registry_accounts": _enrich_with_registry_accounts,
     # R-F3016 — GB iXBRL balance-sheet FIGURES → solvency verdict (answers capacity).
     "registry_figures": _enrich_with_registry_figures,
+    # R-F3124/R-F3128 — the issuer's OWN published annual report, behind four
+    # gates. REGISTERED so a vault-cached profile cannot mask it (R-F2834).
+    "issuer_report": _enrich_with_issuer_report,
 }
 
 _CAPABILITY_KEY = "_capabilities"
@@ -1325,54 +1467,21 @@ async def assess(
             fp = await _search_financial_footprint(name, jurisdiction_iso2)
             if fp and fp.get("found"):
                 result["search_footprint"] = fp
-                # ── R-F3124 — READ THE ISSUER'S OWN REPORT ───────────────────
-                # Until now this stopped at "figures not yet extracted", which is
-                # honest but hands the work back to the customer — the gap between
-                # a truthful report and a useful one. Route 6 of the playbook:
-                # Brave found the document, Claude reads it, and FOUR gates must
-                # pass before a figure may answer financial capacity. Any failure
-                # leaves the UNKNOWN below exactly as it was.
-                _iss = await extract_issuer_financials(fp.get("sources") or [], name, llm)
-                result["issuer_financials"] = _iss
-                if _iss.get("ok"):
-                    result["data_available"] = True
-                    result["has_financials"] = True
-                    result["issuer_report_verified"] = True
-                    result["health_verdict"] = _verdict_from_issuer_report(_iss)
-                    result["summary"] = (
-                        f"Financial position read from the issuer's own published report "
-                        f"({_iss.get('source_title') or _iss.get('source_url')}): "
-                        f"net assets {_iss.get('net_assets'):,} {_iss.get('currency') or ''} "
-                        f"({_iss.get('units') or 'absolute'}) at {_iss.get('period_end') or 'the stated period end'}. "
-                        f"Balance sheet {_iss.get('reason')}. Figures are quoted verbatim from "
-                        f"the document and arithmetically reconciled — not inferred."
-                    ).strip()
-                    try:
-                        wire_success(
-                            module="financial_health",
-                            summary=(f"R-F3124 issuer-report financials verified for {name[:60]} "
-                                     f"via {_iss.get('source_url','')[:80]}"),
-                            source_id="financial_health:R-F3124")
-                    except Exception:
-                        pass
-                else:
-                    # §21a — the failure branch must reach the brain too, or a route
-                    # that silently stops working looks identical to one never tried.
+                # R-F3128 — ONE implementation. This was an inline copy, which is
+                # how the vault path (assess() returns a cached profile verbatim)
+                # skipped it entirely on QinetiQ. It is now the registered
+                # `issuer_report` capability, so fresh and backfill share it.
+                await _enrich_with_issuer_report(
+                    result, name, jurisdiction_iso2, registration_number)
+                if not result.get("data_available"):
+                    _iss = result.get("issuer_financials") or {}
                     result["summary"] = (
                         (result.get("summary", "") + " ").strip()
-                        + f" Search surfaced {len(fp['sources'])} public financial reference(s) "
-                          "(links available). The issuer's own report was NOT usable for a "
-                          f"solvency read: {_iss.get('reason')} (never-false-clean: still UNKNOWN)."
+                        + f" Search surfaced {len(fp['sources'])} public financial "
+                          "reference(s) (links available). The issuer's own report was "
+                          f"NOT usable for a solvency read: {_iss.get('reason', 'not attempted')} "
+                          "(never-false-clean: still UNKNOWN)."
                     ).strip()
-                    try:
-                        wire_failure(
-                            module="financial_health",
-                            detail=f"R-F3124 issuer-report extraction not usable for "
-                                   f"{name[:60]}: {str(_iss.get('reason'))[:160]}",
-                            gap_type="knowledge_gap",
-                            source="financial_health:R-F3124")
-                    except Exception:
-                        pass
         except Exception as e:
             logger.debug("financial search footprint failed: %s", e)
 

@@ -2360,6 +2360,31 @@ def _emit_cert_transparency_findings(ct_block: Any) -> list[Finding]:
     severity_label = (ct_block.get("severity") or "NONE").upper()
     if severity_label == "NONE":
         return []
+    # ── R-F3127 — DO NOT COERCE AN UNKNOWN SCORE BACK INTO A CLEAN ZERO ─────
+    #
+    # R-F3106 made `run_cert_transparency_check` refuse to score an unreachable
+    # crt.sh: severity "UNKNOWN", shell_score None. This RENDERER then undid it —
+    # `int(ct_block.get("shell_score") or 0)` turns None into 0, and "UNKNOWN" is not
+    # "NONE" so the early return never fired. Live on the QinetiQ DD (2026-07-26) the
+    # report therefore carried BOTH:
+    #     "Cyber footprint [qinetiq.com]: 0 cert(s) … shell-score 0/100"   (PROBABLE)
+    #     "CT signal: source_unavailable"
+    # — a measured clean and an admission that nothing was measured, side by side.
+    # Same two-writer shape as R-F3116: the producer was fixed, the renderer was not.
+    if severity_label == "UNKNOWN" or ct_block.get("shell_score") is None:
+        return [Finding(
+            severity="info",
+            title="Certificate-transparency check did NOT complete — no shell score",
+            detail=(
+                f"The CT lookup for '{ct_block.get('query') or '(unknown)'}' did not "
+                f"return usable data ({ct_block.get('outcome') or 'source unavailable'}). "
+                "NO shell-broker score was computed — this is UNCHECKED, not a clean "
+                "0/100. Absence of a certificate footprint here is an absence of "
+                "COVERAGE, not evidence of good standing."
+            ),
+            source="cert_transparency.detect_shell_pattern:R-F3127",
+            confidence="UNVERIFIED",
+        )]
     signals_raw = ct_block.get("signals") or []
     if not isinstance(signals_raw, list):
         signals_raw = []
@@ -6420,6 +6445,15 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                         # Also skip if it matches the entity name itself
                         if name and _vn == (name or "").lower():
                             continue
+                        # R-F3126 (D1) — a scraped job-title fragment is not a
+                        # person. 'Senior Vice' reached a sanctions screen and a RED
+                        # finding on the live QinetiQ DD; require two distinctive,
+                        # non-role tokens before anyone can be accused.
+                        if not _is_screenable_person_name(_v):
+                            logger.debug(
+                                "[R-F3126] not a screenable person name, skipped: %r",
+                                _v[:60])
+                            continue
                         _names_seen.add(_vn)
                         _candidate_persons.append(_v)
                         if len(_candidate_persons) >= 8:
@@ -6455,6 +6489,25 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                 _note_dd_screen_gap(report, _person, _spe)
                                 continue
                             _matches = (_scr or {}).get("matches") or []
+                            # R-F3126 (D2) — DROP name-coincidence matches before
+                            # they can be classified. The same guard R-F2994 applies
+                            # to company matches and R-F3089 to adverse media; person
+                            # screening was the one path without it, which is how a
+                            # California medical-exclusions entry became a RED on a
+                            # UK defence group. Counted, never silently discarded.
+                            _coincident = [
+                                _m for _m in _matches
+                                if _person_match_is_coincidence(
+                                    _person, str((_m or {}).get("name") or ""))
+                            ]
+                            if _coincident:
+                                _drop_ids = {id(_m) for _m in _coincident}
+                                _matches = [_m for _m in _matches
+                                            if id(_m) not in _drop_ids]
+                                logger.info(
+                                    "[R-F3126] dropped %d name-coincidence match(es) "
+                                    "for site-extracted person %r",
+                                    len(_coincident), _person[:40])
                             if not _matches:
                                 _extracted_persons_screened.append({
                                     "person": _person,
@@ -10616,6 +10669,99 @@ _DECISION_REMEDIES: dict[str, str] = {
         "it is not a solvency assessment."
     ),
 }
+
+
+# ── R-F3126 — A JOB TITLE IS NOT A PERSON ───────────────────────────────────
+#
+# THE DEFECT, live on the QinetiQ DD (dd_a56444e7647e, 2026-07-26). The report
+# carried a **RED** finding:
+#
+#     Site-extracted person Senior Vice → sanctions red
+#     Name 'Senior Vice' was extracted from QinetiQ Group plc's own site …
+#     Senior Vice President of Physician Services (score 0.77,
+#     topics: debarment, lists: us_ca_med_exclusions)
+#
+# "Senior Vice" is not a person. It is a fragment of "Senior Vice President",
+# scraped off the leadership page and mislabelled `person_name`, then screened and
+# matched against a CALIFORNIA MEDICAL EXCLUSIONS entry on the shared generic words
+# {senior, vice, president}. A FTSE-250 defence group was accused of a sanctions-
+# adjacent RED on a job title. On a compliance product ONE false positive destroys
+# the guarantee, and this one reached the verdict.
+#
+# TWO independent failures, both fixed, because either alone would have stopped it:
+#   D1 the candidate list took ANY `person_name` fact with no quality test
+#   D2 the MATCH was never checked for distinctive-token overlap — the exact guard
+#      R-F2994 already applies to COMPANY name coincidences (see :3565) and R-F3089
+#      applies to adverse media. Person screening was the one path without it.
+#
+# Role words carry no identifying signal, so they are excluded before the test —
+# "Senior Vice" then has NO distinctive token at all and can never be screened.
+_PERSON_ROLE_TOKENS = frozenset({
+    "senior", "junior", "vice", "president", "vp", "svp", "evp", "chief", "officer",
+    "head", "director", "manager", "lead", "principal", "associate", "assistant",
+    "deputy", "executive", "chairman", "chairwoman", "chair", "secretary",
+    "treasurer", "partner", "founder", "cofounder", "owner", "board", "member",
+    "general", "global", "regional", "group", "team", "staff", "employee",
+    "consultant", "advisor", "adviser", "specialist", "engineer", "analyst",
+    "coordinator", "supervisor", "administrator", "operations", "sales",
+    "marketing", "finance", "legal", "counsel", "technology", "technical",
+    "commercial", "corporate", "business", "development", "services", "service",
+    "solutions", "strategy", "product", "programme", "program", "project",
+    "the", "and", "for", "of", "at", "our", "team",
+    # honorifics
+    "mr", "mrs", "ms", "miss", "dr", "prof", "professor", "sir", "dame", "lord",
+    "lady", "hon", "rt",
+})
+
+
+def _person_distinctive_tokens(name: str) -> set[str]:
+    """R-F3126 — the tokens of a PERSON name that actually identify someone.
+
+    Role words and honorifics are stripped, so 'Senior Vice' yields the empty set
+    while 'Shonaid Jemmett-Page' keeps both of its real name tokens."""
+    import re as _re
+    return {
+        t for t in _re.findall(r"[a-z]+", (name or "").lower())
+        if len(t) > 2 and t not in _PERSON_ROLE_TOKENS
+    }
+
+
+def _is_screenable_person_name(value: str) -> bool:
+    """R-F3126 (D1) — could this string plausibly BE a person, before we accuse them?
+
+    Requires at least two distinctive, non-role tokens: a real person named on a
+    corporate site is given as forename+surname. A single distinctive token
+    ('Cooper') is too weak to screen — it would match half a sanctions list — and
+    zero ('Senior Vice') is not a name at all."""
+    v = (value or "").strip()
+    if not (4 <= len(v) <= 80):
+        return False
+    if any(ch.isdigit() for ch in v):
+        return False
+    return len(_person_distinctive_tokens(v)) >= 2
+
+
+def _person_match_is_coincidence(person: str, matched_name: str) -> bool:
+    """R-F3126 (D2) — do the queried person and the matched list entry share NO
+    distinctive token?
+
+    The same rule R-F2994 applies to company coincidences and R-F3089 to adverse
+    media. 'Senior Vice' vs 'Senior Vice President of Physician Services' overlap
+    only on role words ⇒ disjoint distinctive sets ⇒ coincidence, never a finding.
+
+    ASYMMETRIC by design, and the first cut got this wrong. If the QUERY carries no
+    distinctive token it is not a name at all, so nothing can be attributed to it ⇒
+    coincidence. (A first version failed open here and returned False for exactly the
+    'Senior Vice' case this exists to catch; D1 masked it, which is precisely why a
+    second guard must be correct on its own.) If only the MATCHED entry is
+    token-less, we genuinely cannot judge it ⇒ fail OPEN, keep the match."""
+    a = _person_distinctive_tokens(person)
+    if not a:
+        return True          # the query is not a name — nothing is attributable
+    b = _person_distinctive_tokens(matched_name)
+    if not b:
+        return False         # cannot judge the list entry — keep it
+    return not (a & b)
 
 
 _GENERIC_ENTITY_TOKENS = frozenset({
