@@ -4217,25 +4217,13 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("[R-F2073] Autonomous Scheduler SKIPPED (ARIA_ROLE=%s)", _aria_role())
 
-    # R-F2066 — start Portal Registration Scheduler (background loop)
+    # R-F3202 — Portal Registration Scheduler REMOVED. R-F3198 retired the
+    # behaviour; this deletes the dead launch block, which still imported
+    # portal_scheduler — a module that no longer exists. Unreachable (the
+    # gate returns False) but a reference to a deleted module is a trap for
+    # whoever re-enables the gate next. The name stays bound: shutdown
+    # still checks it.
     _portal_scheduler_task = None
-    if not _runs_singletons():  # R-F2073 singleton (registers on external portals)
-        logger.info("[R-F2073] Portal registration scheduler SKIPPED (ARIA_ROLE=%s)", _aria_role())
-    elif not _portal_registration_enabled():
-        logger.info(
-            "[R-F2389] Portal registration scheduler DISABLED "
-            "via ARIA_PORTAL_REGISTRATION_ENABLED=0; vault/source ingestion remains active"
-        )
-    else:
-        try:
-            from .intel.portal_scheduler import autonomous_registration_loop as _portal_loop
-            _portal_scheduler_task = _bg_task(
-                asyncio.create_task(_portal_loop(), name="portal_registration"),
-                factory=_portal_loop,
-            )
-            logger.info("[R-F2066] Portal registration scheduler started (every 1h)")
-        except Exception as _ps_err:
-            logger.warning("[R-F2066] Portal registration scheduler start failed (non-fatal): %s", _ps_err)
 
     # R-F1610 — start the self-healing actuator: re-spawns any registered bg
     # loop that dies, instead of only logging it. This is what makes ARIA

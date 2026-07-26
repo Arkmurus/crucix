@@ -134,7 +134,7 @@ _ORGANS: list[tuple[str, str, str, tuple[str, ...]]] = [
     ("delivery", "Delivery & Surfaces", "aria-intel",
      ("outcome", "whatsapp", "telegram", "email", "proprioception", "deliver",
       "notify", "briefing", "dead_letter", "zoom", "surface",
-      "wa_formatter", "tickets", "portal_agent", "portal_scheduler")),  # R-F2986
+      "wa_formatter", "tickets")),  # R-F2986; portal_* deleted R-F3202
     ("search", "Search & Crawl", "aria-intel",
      ("web_search", "searxng", "explorer", "crawl", "source_uptime", "fetcher",
       "spider", "trafilatura", "probe", "web_explor", "news", "rss", "brave",

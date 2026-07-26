@@ -115,6 +115,29 @@ CREATE TABLE IF NOT EXISTS vetting_invites (
 );
 CREATE INDEX IF NOT EXISTS idx_vetting_invites_case
     ON vetting_invites(tenant_id, case_id, created_at DESC);
+
+-- R-F3203 — the verification request ledger: the progress sheet's
+-- Code / Request sent / Reply rec. columns. `overdue` is deliberately NOT a
+-- column. It is a function of (sent_at, as_of, policy) and is derived on read,
+-- so it cannot drift out of date behind a changing file the way the cached
+-- assessment verdict did (R-F3172).
+CREATE TABLE IF NOT EXISTS vetting_requests (
+    request_id  TEXT PRIMARY KEY,
+    tenant_id   TEXT NOT NULL,
+    case_id     TEXT NOT NULL,
+    code        TEXT NOT NULL,
+    sent_to     TEXT NOT NULL,
+    sent_at     TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    entry_id    TEXT NOT NULL DEFAULT '',
+    channel     TEXT NOT NULL DEFAULT '',
+    invite_id   TEXT NOT NULL DEFAULT '',
+    replied_at  TEXT NOT NULL DEFAULT '',
+    chases      TEXT NOT NULL DEFAULT '',
+    note        TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_vetting_requests_case
+    ON vetting_requests(tenant_id, case_id, sent_at DESC);
 """
 _SCHEMA_LOCK = threading.Lock()
 
@@ -481,6 +504,55 @@ class VettingCaseStore:
                 "WHERE token_hash = ?", (token_hash_value,),
             )
             connection.commit()
+
+    # ── R-F3203: verification requests ────────────────────────────────────
+    def save_request(self, tenant_id: str, request) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO vetting_requests (request_id, tenant_id, "
+                "case_id, code, sent_to, sent_at, status, entry_id, channel, "
+                "invite_id, replied_at, chases, note) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (request.request_id, tenant_id, request.case_id,
+                 request.code.value, request.sent_to, request.sent_at,
+                 request.status.value, request.entry_id, request.channel,
+                 request.invite_id, request.replied_at, request.chases,
+                 request.note),
+            )
+            connection.commit()
+
+    def list_requests(self, tenant_id: str, case_id: str) -> list:
+        from .requests import RequestCode, RequestStatus, VerificationRequest
+
+        if not tenant_id:
+            return []
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM vetting_requests WHERE tenant_id = ? AND case_id = ? "
+                "ORDER BY sent_at DESC", (tenant_id, case_id),
+            ).fetchall()
+        return [
+            VerificationRequest(
+                request_id=r["request_id"], case_id=r["case_id"],
+                code=RequestCode(r["code"]), sent_to=r["sent_to"],
+                sent_at=r["sent_at"], status=RequestStatus(r["status"]),
+                entry_id=r["entry_id"] or "", channel=r["channel"] or "",
+                invite_id=r["invite_id"] or "", replied_at=r["replied_at"] or "",
+                chases=r["chases"] or "", note=r["note"] or "",
+            ) for r in rows
+        ]
+
+    def update_request_status(
+        self, tenant_id: str, request_id: str, status: str, replied_at: str,
+    ) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE vetting_requests SET status = ?, replied_at = ? "
+                "WHERE tenant_id = ? AND request_id = ?",
+                (status, replied_at, tenant_id, request_id),
+            )
+            connection.commit()
+        return cursor.rowcount > 0
 
     def destroy_case_key(self, tenant_id: str, case_id: str) -> bool:
         """Crypto-shred: make this case's stored documents irrecoverable."""

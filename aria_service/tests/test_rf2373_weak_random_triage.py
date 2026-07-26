@@ -12,8 +12,6 @@ _TOUCHED_RANDOM_FILES = [
     "aria_service/intel/critique_collector.py",
     "aria_service/intel/deep_researcher.py",
     "aria_service/intel/llm_eval_framework.py",
-    "aria_service/intel/portal_agent.py",
-    "aria_service/intel/portal_scheduler.py",
     "aria_service/intel/rlaif.py",
     "aria_service/intel/self_improve.py",
     "aria_service/intel/student.py",

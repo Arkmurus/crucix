@@ -1012,6 +1012,30 @@ async def vetting_create_invite_ep(
         ) from exc
 
     await asyncio.to_thread(store.save_invite, invite)
+
+    # R-F3203 — the invite IS the request. Recording it here rather than asking
+    # the officer to log it separately is the whole point: a ledger you must
+    # remember to update is what the paper progress sheet already was.
+    from ..vetting.requests import code_for_invite, record as record_request
+
+    entry_type = ""
+    if body.entry_id:
+        entry = next((e for e in case.career if e.entry_id == body.entry_id), None)
+        if entry is not None:
+            entry_type = entry.entry_type.value
+    try:
+        request = record_request(
+            case_id=case_id,
+            code=code_for_invite(kind.value, entry_type),
+            sent_to=(body.referee_email or body.referee_name
+                     or case.applicant_name or "recipient"),
+            sent_at=datetime.now(UTC).date(),
+            entry_id=body.entry_id, channel="link", invite_id=invite.invite_id,
+        )
+        await asyncio.to_thread(store.save_request, tenant, request)
+    except Exception as exc:  # noqa: BLE001 — never fail the invite over its ledger row
+        _log.warning("vetting: invite minted but request not logged: %s", exc)
+
     wire_success(module=_MODULE, summary=f"vetting invite minted ({kind.value})")
     return {**invite.as_dict(), "token": token}
 
@@ -1044,6 +1068,178 @@ async def vetting_revoke_invite_ep(
         raise HTTPException(status_code=404, detail="invite not found")
     wire_success(module=_MODULE, summary="vetting invite revoked")
     return {"invite_id": invite_id, "revoked": True}
+
+
+class RecordRequestRequest(BaseModel):
+    code: str
+    sent_to: str = Field(min_length=1, max_length=200)
+    entry_id: str = ""
+    channel: str = ""
+    chases: str = ""
+    note: str = ""
+
+
+class RequestStatusUpdate(BaseModel):
+    status: str
+
+
+@router.get("/case/{case_id}/requests")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_list_requests_ep(
+    case_id: str, as_of: str | None = None, user_id: str = "",
+):
+    """R-F3203 — the verification request ledger for one case.
+
+    `overdue` and `days_outstanding` are DERIVED here, never stored: they are a
+    function of (sent_at, as_of, policy), and a persisted flag would go stale
+    behind a changing file exactly as the cached assessment verdict did.
+    """
+    import asyncio
+
+    from ..vetting.requests import CODE_LABELS, RequestCode, summarise
+
+    tenant = _tenant(user_id)
+    resolved = _parse_as_of(as_of)
+    store = get_case_store()
+    requests = await asyncio.to_thread(store.list_requests, tenant, case_id)
+    summary = summarise(requests, resolved)
+    wire_success(module=_MODULE,
+                 summary=f"listed {len(requests)} verification requests")
+    return {
+        "as_of": resolved.isoformat(),
+        "requests": [r.as_dict(resolved) for r in requests],
+        "summary": summary.as_dict(),
+        "codes": [{"code": c.value, "label": CODE_LABELS[c]} for c in RequestCode],
+    }
+
+
+@router.post("/case/{case_id}/requests")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_record_request_ep(
+    case_id: str, body: RecordRequestRequest, user_id: str = "",
+):
+    """Record a request sent outside the link flow — post, phone, or a chaser."""
+    import asyncio
+
+    from ..vetting.requests import RequestCode, RequestError, record as record_request
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    if await asyncio.to_thread(store.get, tenant, case_id) is None:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    try:
+        code = RequestCode(body.code.strip().upper())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "unknown_request_code",
+                    "accepted": [c.value for c in RequestCode]},
+        ) from exc
+    try:
+        request = record_request(
+            case_id=case_id, code=code, sent_to=body.sent_to,
+            sent_at=datetime.now(UTC).date(), entry_id=body.entry_id,
+            channel=body.channel, chases=body.chases, note=body.note,
+        )
+    except RequestError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_request", "message": str(exc)},
+        ) from exc
+
+    await asyncio.to_thread(store.save_request, tenant, request)
+    wire_success(module=_MODULE, summary=f"verification request recorded ({code.value})")
+    return request.as_dict(datetime.now(UTC).date())
+
+
+@router.patch("/case/{case_id}/requests/{request_id}")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_update_request_ep(
+    case_id: str, request_id: str, body: RequestStatusUpdate, user_id: str = "",
+):
+    """Close a request — a reply arrived, was refused, or bounced."""
+    import asyncio
+
+    from ..vetting.requests import RequestStatus
+
+    tenant = _tenant(user_id)
+    try:
+        status = RequestStatus(body.status.strip().upper())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "unknown_status",
+                    "accepted": [s.value for s in RequestStatus]},
+        ) from exc
+
+    store = get_case_store()
+    replied = (datetime.now(UTC).date().isoformat()
+               if status is RequestStatus.REPLY_RECEIVED else "")
+    ok = await asyncio.to_thread(
+        store.update_request_status, tenant, request_id, status.value, replied)
+    if not ok:
+        raise HTTPException(status_code=404, detail="request not found")
+    wire_success(module=_MODULE, summary=f"verification request -> {status.value}")
+    return {"request_id": request_id, "status": status.value}
+
+
+class DocumentSightingUpdate(BaseModel):
+    """R-F3204 — BS 7858 7.4 c): was the ORIGINAL seen, and by whom."""
+    sighting: str
+    examined_by: str = ""
+
+
+@router.patch("/case/{case_id}/documents/{document_id}/sighting")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_document_sighting_ep(
+    case_id: str, document_id: str, body: DocumentSightingUpdate,
+    user_id: str = "",
+):
+    """Record COPY / ORIGINAL / N-A against one document.
+
+    ORIGINAL_SEEN requires a named examiner: the standard asks for a record of
+    WHO inspected and copied the original, and an unattributed sighting cannot
+    be evidenced to an auditor. Refusing here is better than accepting a
+    sighting that will not stand up.
+    """
+    import asyncio
+
+    tenant = _tenant(user_id)
+    accepted = {"ORIGINAL_SEEN", "COPY_ONLY", "NOT_APPLICABLE", "NOT_RECORDED"}
+    sighting = body.sighting.strip().upper()
+    if sighting not in accepted:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "unknown_sighting", "accepted": sorted(accepted)},
+        )
+    if sighting == "ORIGINAL_SEEN" and not body.examined_by.strip():
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "examiner_required",
+                    "message": "Recording that an original was sighted requires "
+                               "the name of the person who examined it "
+                               "(BS 7858 7.4 c))."},
+        )
+
+    store = get_case_store()
+    case = await asyncio.to_thread(store.get, tenant, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    if not any(d.document_id == document_id for d in case.documents):
+        raise HTTPException(status_code=404, detail="document not found")
+
+    documents = [
+        d.model_copy(update={
+            "sighting": sighting,
+            "examined_by": body.examined_by.strip(),
+            "examined_at": datetime.now(UTC).date() if sighting == "ORIGINAL_SEEN" else d.examined_at,
+        }) if d.document_id == document_id else d
+        for d in case.documents
+    ]
+    await asyncio.to_thread(store.save, case.model_copy(update={"documents": documents}))
+    wire_success(module=_MODULE, summary=f"document sighting recorded ({sighting})")
+    return {"document_id": document_id, "sighting": sighting}
 
 
 @router.get("/retention")

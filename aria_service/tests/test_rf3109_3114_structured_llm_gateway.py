@@ -300,7 +300,6 @@ def test_all_unmeasured_reports_zero_attempted_not_a_zero_score():
 # entries_are_still_genuinely_dead` fails if one is repaired without being removed
 # here, so the exemption cannot outlive the defect (R-F3103's pattern).
 _KNOWN_DEAD_IMPORTS = {
-    "aria_service/intel/portal_agent.py::aria_service.intel.portal_registry.mark_registered",
     "aria_service/intel/portal_coverage_audit.py::aria_service.intel.web_search.search_web",
     "aria_service/intel/report_builder.py::aria_service.intel.researcher.investigate",
     "aria_service/intel/truth_verifier.py::aria_service.intel.git_utils",
