@@ -3893,6 +3893,51 @@ async def _run_identity(
                     # summary dict to `directors` and read the wrong address key, so even a
                     # SUCCESSFUL GB lookup mis-shaped the data (and psc_list[:10] TypeError'd).
                     _ch_unavail = companies_house.consume_unavailable()
+                    # ── R-F3123 — AN INFERRED SUBJECT MUST BE DECLARED ──────────
+                    #
+                    # MEASURED on two runs of the SAME query (Mitie, 2026-07-26):
+                    # "MITIE FACILITIES MANAGEMENT LIMITED" matches SIX Companies
+                    # House records. One run resolved 07281729 (exact name,
+                    # DISSOLVED); an earlier report resolved 02938041 (matched on a
+                    # FORMER name — actually MITIE LIMITED, ACTIVE). Two different
+                    # legal entities from one query, and NEITHER report said the name
+                    # was ambiguous. Identity is the field every other layer hangs
+                    # off; asserting one that was merely inferred fabricates the
+                    # subject. Disclose it as a finding AND a data gap so it reaches
+                    # the scorecard, not just the prose.
+                    _res = ch_result.get("resolution") or {}
+                    if _res.get("ambiguous"):
+                        _alts = "; ".join(
+                            f"{c['company_number']} {c['title']} ({c['status']})"
+                            for c in (_res.get("candidates") or [])[:4]
+                            if c.get("company_number") != _res.get("resolved")
+                        )
+                        report.identity.findings.append(Finding(
+                            severity="amber",
+                            title=("Company name is AMBIGUOUS — subject was inferred, "
+                                   "not confirmed"),
+                            detail=(
+                                f"'{_res.get('query')}' matches "
+                                f"{_res.get('candidate_count')} Companies House "
+                                f"records. This report resolved "
+                                f"{_res.get('resolved')} ({_res.get('resolved_title')}, "
+                                f"{_res.get('resolved_status')}). "
+                                + " ".join(_res.get("reasons") or [])
+                                + (f" Other candidates: {_alts}." if _alts else "")
+                                + " CONFIRM the registration number before relying on "
+                                  "this file — every other section describes the "
+                                  "entity named here."
+                            ),
+                            source="companies_house.resolve:R-F3123",
+                            confidence="UNVERIFIED",
+                        ))
+                        report.identity.data_gaps.append(
+                            f"Subject identity INFERRED from an ambiguous name: "
+                            f"{_res.get('candidate_count')} Companies House records "
+                            f"match '{_res.get('query')}'. Resolved "
+                            f"{_res.get('resolved')} ({_res.get('resolved_status')}). "
+                            "Confirm the registration number."
+                        )
                     profile = ch_result.get("profile") or ch_result.get("company") or {}
                     # R-F3015 — Companies House answered LIVE this run when it returned a
                     # real profile with a company number and was NOT flagged unavailable

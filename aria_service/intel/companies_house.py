@@ -232,13 +232,45 @@ def _is_overseas_entity(row: dict) -> bool:
     return num.startswith("OE") or "overseas" in ctype
 
 
-def _pick_best_company(query: str, results: list[dict]) -> dict:
+def _pick_best_company(query: str, results: list[dict],
+                       _decision: dict | None = None) -> dict:
     """R-F3014 — choose the best CH search hit instead of blindly results[0].
     Rank: distinctive-name match, then a NON-overseas trading company, then an
     active status, then the original search rank. Prevents a same-named Overseas
     Entity (e.g. OE003509 'COHORT PLC', Jersey) from being resolved for a DD whose
-    real subject is the trading company (05684823)."""
+    real subject is the trading company (05684823).
+
+    ── R-F3123 — THE PICK MUST BE DISCLOSED, NOT SILENT ────────────────────
+    THE DEFECT, measured on two real runs of the SAME query (Mitie, 2026-07-26):
+
+        query "MITIE FACILITIES MANAGEMENT LIMITED" -> 6 Companies House records
+          07281729  dissolved  2010-06-11  MITIE FACILITIES MANAGEMENT LIMITED
+          02938041  active     1994-06-13  MITIE LIMITED
+          00906936  active     1967-05-24  MITIE TECHNICAL FACILITIES MANAGEMENT LTD
+          + 3 more
+
+    One run resolved 07281729 (exact name, DISSOLVED); an earlier report resolved
+    02938041 (matched on a FORMER name, ACTIVE — a different legal entity). Both are
+    defensible readings of an ambiguous name, and NEITHER report said the name was
+    ambiguous. The customer received a confident file on an entity they may not have
+    meant, with no way to tell.
+
+    The RANKING is not the bug — an exact name match SHOULD win. The bug is silence.
+    A DD that states an identity it merely inferred is fabricating the one field
+    everything else hangs off. So the selection now records what it saw and why it
+    chose, and flags the cases a human must adjudicate:
+
+      * more than one candidate at the top name score  -> tie
+      * winner dissolved while an ACTIVE alternative exists -> dissolved_over_active
+      * winner is not an exact distinctive-name match  -> inexact
+
+    `_decision` is an optional out-parameter (the same additive pattern as R-F3105/
+    R-F3108), so every existing caller is untouched.
+    """
     if not results:
+        if _decision is not None:
+            _decision.update({"resolved": None, "candidates": [], "ambiguous": False,
+                              "reasons": ["no candidates returned"]})
         return {}
 
     def _rank(item):
@@ -250,7 +282,52 @@ def _pick_best_company(query: str, results: list[dict]) -> dict:
             -idx,
         )
 
-    return max(enumerate(results), key=_rank)[1]
+    winner = max(enumerate(results), key=_rank)[1]
+
+    if _decision is not None:
+        scored = [
+            {
+                "company_number": str(r.get("company_number") or ""),
+                "title": str(r.get("title") or ""),
+                "status": str(r.get("company_status") or ""),
+                "incorporated": str(r.get("date_of_creation") or ""),
+                "name_match": round(_company_name_match(query, str(r.get("title") or "")), 3),
+            }
+            for r in results
+        ]
+        top = max((c["name_match"] for c in scored), default=0.0)
+        tied = [c for c in scored if c["name_match"] >= top - 1e-9]
+        win_num = str(winner.get("company_number") or "")
+        win_status = str(winner.get("company_status") or "").lower()
+        win_dissolved = "active" not in win_status
+        active_alts = [c for c in scored
+                       if c["company_number"] != win_num and "active" in c["status"].lower()]
+        reasons: list[str] = []
+        if len(tied) > 1:
+            reasons.append(
+                f"{len(tied)} candidates share the top name match ({top:.2f}) — the "
+                "choice between them rests on status and search rank, not on the name")
+        if win_dissolved and active_alts:
+            reasons.append(
+                f"the selected company is {win_status or 'not active'} while "
+                f"{len(active_alts)} ACTIVE company/companies match this name "
+                f"(e.g. {active_alts[0]['company_number']} {active_alts[0]['title']}) — "
+                "confirm which legal entity is the intended counterparty")
+        if top < 1.0:
+            reasons.append(
+                f"no candidate is an exact distinctive-name match (best {top:.2f}) — "
+                "the subject was inferred from a partial name match")
+        _decision.update({
+            "query": query,
+            "resolved": win_num,
+            "resolved_title": str(winner.get("title") or ""),
+            "resolved_status": str(winner.get("company_status") or ""),
+            "candidate_count": len(scored),
+            "candidates": scored[:8],
+            "ambiguous": bool(reasons),
+            "reasons": reasons,
+        })
+    return winner
 
 
 @fail_wire(module="companies_house", gap_type="api_missing")
@@ -1012,6 +1089,7 @@ async def investigate_uk_entity(
         return {"error": "Companies House integration disabled"}
 
     # Resolve company number from name if needed
+    _resolution: dict = {}
     if not company_number and company_name:
         results = await search_companies(company_name, limit=3)
         if not results:
@@ -1026,7 +1104,11 @@ async def investigate_uk_entity(
         # DD resolved OE003509 (Jersey) instead of the real 05684823 defence group and
         # reported empty ownership. Prefer the best name match on a non-overseas active
         # company; fall back to overseas only when it is genuinely the best hit.
-        company_number = (_pick_best_company(company_name, results) or {}).get("company_number")
+        # R-F3123 — capture WHY this company was chosen, so the DD can disclose an
+        # ambiguous name instead of asserting an identity it merely inferred.
+        company_number = (
+            _pick_best_company(company_name, results, _resolution) or {}
+        ).get("company_number")
 
     if not company_number:
         return {"error": "No company number or name provided"}
@@ -1173,6 +1255,9 @@ async def investigate_uk_entity(
     investigation = {
         "found": True,
         "company_number": company_number,
+        # R-F3123 — how this company_number was arrived at. Empty when the caller
+        # supplied the number directly (nothing was inferred, nothing to disclose).
+        "resolution": _resolution,
         "profile": profile,
         "officers": {
             "current": current_officers,
