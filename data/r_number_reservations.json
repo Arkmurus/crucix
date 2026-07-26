@@ -25347,36 +25347,40 @@
       "title": "G2 must name the real obstacle: blocked fetch is not a scanned document",
       "claimed_at": "2026-07-26T14:19:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3ca9693c",
+      "notes": null,
+      "shipped_at": "2026-07-26T14:38:57Z"
     },
     {
       "r_number": "R-F3126",
       "title": "site-extracted job-title fragment screened as a person then promoted to RED",
       "claimed_at": "2026-07-26T14:32:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3ca9693c",
+      "notes": null,
+      "shipped_at": "2026-07-26T14:38:58Z"
     },
     {
       "r_number": "R-F3127",
       "title": "cert transparency renderer coerces UNKNOWN shell score back to a clean 0",
       "claimed_at": "2026-07-26T14:35:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3ca9693c",
+      "notes": null,
+      "shipped_at": "2026-07-26T14:38:58Z"
     },
     {
       "r_number": "R-F3128",
       "title": "register issuer-report extraction as a financial capability so the vault cannot mask it",
       "claimed_at": "2026-07-26T14:36:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3ca9693c",
+      "notes": null,
+      "shipped_at": "2026-07-26T14:39:00Z"
     }
   ]
 }
