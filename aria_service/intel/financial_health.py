@@ -20,6 +20,7 @@ peer benchmarking.
 """
 from __future__ import annotations
 
+import asyncio          # R-F3124 — bounded document read + model call
 import datetime as _dt
 import logging
 import re   # R-F3028 — sentence-split for superseded-summary replacement
@@ -479,6 +480,253 @@ async def _search_financial_footprint(name: str, jurisdiction_iso2: str = "") ->
         "summary": (f"{len(sources)} public financial reference(s) found via search"
                     if sources else "no entity-relevant public financial references found via search"),
     }
+
+
+# ── R-F3124 — THE ONE REMAINING ROUTE TO A LISTED GROUP'S FINANCIALS ────────
+#
+# R-F3017 established, by live probe, that four routes are DEAD for a large PLC:
+#   1. CH iXBRL           — large groups file none at all
+#   2. CH accounts PDF    — a 129-page TIFF SCAN (pypdf extracts 0 chars)
+#   3. FCA NSM API        — open and free, but IGNORES the query (match_all, uniform
+#                           score 1.0; only from/size honoured) so an issuer cannot
+#                           be targeted
+#   4. Subsidiary walk    — a FABRICATION TRAP: walking Cohort's directors surfaced
+#                           THALES entities via a shared non-exec, and a naive
+#                           "group member" heuristic would have billed Thales UK's
+#                           finances as Cohort's
+# and concluded: "the only remaining route is the issuer's own published annual
+# report — search-located, non-deterministic, needs an arithmetic self-check".
+#
+# That route is buildable now because it needs exactly the two surfaces the DD is
+# pinned to: BRAVE finds the issuer's report, CLAUDE reads it. `financial_capacity`
+# is the question the Mitie report left UNRESOLVED, and it is the one a counterparty
+# decision most often turns on.
+#
+# NON-DETERMINISTIC MEANS GUARDED, NOT TRUSTED. An LLM reading a PDF can hallucinate
+# a number, and a fabricated solvency figure is the single worst output this product
+# could emit. Four gates, ALL of which must pass before a figure is allowed to answer
+# the question — any failure leaves the existing honest UNKNOWN exactly as it was:
+#
+#   G1 PROVENANCE  the document must be on the issuer's OWN domain (an annual report
+#                  hosted anywhere else is not the issuer speaking)
+#   G2 TEXT LAYER  a scanned PDF yields no text; we do NOT OCR a balance sheet and
+#                  then call it a solvency assessment (route 2's lesson)
+#   G3 GROUNDING   every figure must arrive with a verbatim quote from the document
+#   G4 ARITHMETIC  net_assets must equal total_assets − total_liabilities within
+#                  tolerance. This is the check R-F3017 prescribed: a model that
+#                  invents figures will not produce a balance sheet that balances.
+_ISSUER_FIN_TOLERANCE = 0.02          # 2% — rounding/presentation differences only
+_ISSUER_FIN_MAX_CHARS = 120_000       # cap what we hand the model
+
+
+def _issuer_domain_matches(url: str, name: str) -> bool:
+    """R-F3124 G1 — is this document on the issuer's OWN website?
+
+    A third party's summary of a company's accounts is not the company's accounts.
+    Matches a distinctive name token against the registrable domain, so
+    `mitie.com/.../Mitie-Annual-Report-2026.pdf` passes for "Mitie Group PLC" while
+    `investing.com/equities/mitie-group` does not."""
+    from ._sanctions_classify import _tokenize_entity_name
+    try:
+        host = (url or "").split("//", 1)[-1].split("/", 1)[0].lower()
+    except Exception:
+        return False
+    host = host.split(":")[0]
+    if not host:
+        return False
+    # Match against the WHOLE host, flattened. Taking a single "registrable label"
+    # is wrong in both directions: `www.mitie.com` yields "www", and `mitie.co.uk`
+    # yields "co". Flattening also keeps the test on the HOST only, so a third-party
+    # page that merely mentions the issuer in its PATH (uk.investing.com/equities/
+    # mitie-group) is correctly rejected — that page is not the issuer speaking.
+    flat = host.replace("-", "").replace(".", "")
+    toks = {t for t in _tokenize_entity_name(name) if len(t) >= 4}
+    return any(t in flat for t in toks)
+
+
+def _arithmetic_reconciles(figures: dict) -> tuple[bool, str]:
+    """R-F3124 G4 — does the balance sheet balance?
+
+    THE anti-fabrication gate. A model inventing plausible-looking figures will not
+    satisfy net_assets == total_assets − total_liabilities; a model reading a real
+    balance sheet will. Returns (ok, explanation) and REFUSES on anything missing —
+    an unverifiable figure must never answer a solvency question."""
+    try:
+        ta = float(figures.get("total_assets"))
+        tl = float(figures.get("total_liabilities"))
+        na = float(figures.get("net_assets"))
+    except (TypeError, ValueError):
+        return False, "figures incomplete or non-numeric — cannot reconcile"
+    if ta <= 0:
+        return False, "total assets non-positive — not a usable balance sheet"
+    implied = ta - tl
+    if abs(implied - na) > abs(ta) * _ISSUER_FIN_TOLERANCE:
+        return False, (
+            f"balance sheet does NOT reconcile: net assets {na:,.0f} vs "
+            f"assets {ta:,.0f} − liabilities {tl:,.0f} = {implied:,.0f}")
+    return True, (
+        f"reconciles: net assets {na:,.0f} ≈ assets {ta:,.0f} − liabilities "
+        f"{tl:,.0f} = {implied:,.0f}")
+
+
+async def extract_issuer_financials(
+    sources: list[dict], name: str, llm: Any = None, *, timeout: float = 45.0,
+) -> dict:
+    """R-F3124 — read the issuer's OWN annual report and, only if every gate passes,
+    answer financial capacity.
+
+    Returns {"ok": bool, "reason": str, ...figures} and NEVER raises. `ok=False`
+    leaves the caller's existing honest UNKNOWN untouched — that is the default, and
+    the bar to move off it is deliberately high.
+    """
+    out: dict = {"ok": False, "reason": "not attempted", "gates": {}}
+    if not llm:
+        out["reason"] = "no LLM available to read the document"
+        return out
+
+    # G1 — the issuer's own domain, and a document that looks like a report.
+    cand = None
+    for s_ in (sources or []):
+        u = str((s_ or {}).get("url") or "")
+        if not u.lower().startswith("http"):
+            continue
+        if not _issuer_domain_matches(u, name):
+            continue
+        blob = f"{(s_ or {}).get('title','')} {u}".lower()
+        if any(k in blob for k in ("annual report", "annual-report", "financial statement",
+                                   "results", "accounts", ".pdf")):
+            cand = s_
+            break
+    if not cand:
+        out["reason"] = ("no annual report found on the issuer's own domain — a third "
+                         "party's summary is not the issuer's accounts")
+        out["gates"]["provenance"] = False
+        return out
+    out["gates"]["provenance"] = True
+    url = str(cand.get("url"))
+
+    # G2 — a real text layer. Route 2 (R-F3017) died on a TIFF scan; we do not OCR a
+    # balance sheet and then call the result a solvency assessment.
+    text = ""
+    try:
+        # §3b — verified: document_reader.read_document(source, llm=..) -> ExtractionResult
+        from . import document_reader as _dr
+        _res = await asyncio.wait_for(_dr.read_document(url), timeout=timeout)
+        text = str(getattr(_res, "text", "") or "")
+    except Exception as e:
+        out["reason"] = f"could not fetch or read the document: {str(e)[:120]}"
+        out["gates"]["text_layer"] = False
+        return out
+    if len(text.strip()) < 2000:
+        out["reason"] = (
+            f"document has no usable text layer ({len(text.strip())} chars) — a scanned "
+            "filing cannot support a solvency assessment (see R-F3017 route 2)")
+        out["gates"]["text_layer"] = False
+        return out
+    out["gates"]["text_layer"] = True
+
+    # G3 — grounded extraction. Every figure must arrive with a verbatim quote.
+    prompt = (
+        "You are reading a company's published annual report. Extract ONLY figures "
+        "that appear VERBATIM in the text. Do NOT infer, estimate, convert or "
+        "calculate any value. If a figure is not clearly stated, use null.\n\n"
+        "Return STRICT JSON with exactly these keys:\n"
+        '{"currency": str|null, "period_end": str|null, "units": "absolute"'
+        '|"thousands"|"millions"|null, "total_assets": number|null, '
+        '"total_liabilities": number|null, "net_assets": number|null, '
+        '"revenue": number|null, "cash": number|null, "quotes": '
+        '{"total_assets": str, "total_liabilities": str, "net_assets": str}}\n\n'
+        "Each quote must be a short VERBATIM substring of the document showing "
+        "that figure. Report figures in the SAME units you state in `units`.\n\n"
+        f"DOCUMENT:\n{text[:_ISSUER_FIN_MAX_CHARS]}"
+    )
+    try:
+        # §3b — verified: llm.complete(system, prompt, max_tokens=, timeout=) -> .text
+        _r = await llm.complete(
+            "ARIA — annual-report figure extractor. Verbatim only; never infer.",
+            prompt, max_tokens=900, timeout=timeout,
+        )
+        raw = str(getattr(_r, "text", "") or "")
+    except Exception as e:
+        out["reason"] = f"model call failed: {str(e)[:120]}"
+        return out
+    from .llm_json import parse_llm_json
+    figures = parse_llm_json(raw, default={}, source="financial_health:R-F3124")
+    if not isinstance(figures, dict) or not figures:
+        out["reason"] = "model did not return parseable JSON"
+        return out
+
+    _q = figures.get("quotes") if isinstance(figures.get("quotes"), dict) else {}
+    _hay = text.lower()
+    _ungrounded = [
+        k for k in ("total_assets", "total_liabilities", "net_assets")
+        if figures.get(k) is not None
+        and not (str(_q.get(k) or "").strip()[:40].lower() in _hay
+                 and len(str(_q.get(k) or "").strip()) >= 8)
+    ]
+    if _ungrounded:
+        out["reason"] = (
+            "figure(s) not grounded in a verbatim quote from the document: "
+            + ", ".join(_ungrounded))
+        out["gates"]["grounding"] = False
+        return out
+    out["gates"]["grounding"] = True
+
+    # G4 — THE anti-fabrication gate. A balance sheet that does not balance is not
+    # evidence; it is a model's guess wearing a number.
+    ok, why = _arithmetic_reconciles(figures)
+    out["gates"]["arithmetic"] = ok
+    if not ok:
+        out["reason"] = why
+        return out
+
+    out.update({
+        "ok": True,
+        "reason": why,
+        "source_url": url,
+        "source_title": str(cand.get("title") or "")[:160],
+        "currency": figures.get("currency"),
+        "period_end": figures.get("period_end"),
+        "units": figures.get("units"),
+        "total_assets": figures.get("total_assets"),
+        "total_liabilities": figures.get("total_liabilities"),
+        "net_assets": figures.get("net_assets"),
+        "revenue": figures.get("revenue"),
+        "cash": figures.get("cash"),
+        "quotes": _q,
+    })
+    return out
+
+
+def _verdict_from_issuer_report(iss: dict) -> str:
+    """R-F3124 — a health verdict from the issuer's stated balance sheet.
+
+    Deliberately CONSERVATIVE and structural. This is a solvency read from a
+    reconciled balance sheet, not a ratio model — SEC EDGAR (route 1) remains the
+    only path to an Altman Z''. Claiming more than the document supports would be
+    the same overreach the gate chain exists to prevent.
+    """
+    try:
+        ta = float(iss.get("total_assets"))
+        tl = float(iss.get("total_liabilities"))
+        na = float(iss.get("net_assets"))
+    except (TypeError, ValueError):
+        return "UNKNOWN"
+    # ORDER MATTERS. `total_assets <= 0` is tested FIRST because it means "no usable
+    # balance sheet", and an all-zero extraction would otherwise fall into the
+    # net_assets<=0 branch and be reported as DISTRESSED — a false ACCUSATION of
+    # insolvency built from missing data, which is the mirror image of a false clean
+    # and just as damaging to a counterparty.
+    if ta <= 0:
+        return "UNKNOWN"
+    if na <= 0:
+        return "DISTRESSED"          # liabilities exceed assets — balance-sheet insolvent
+    equity_ratio = na / ta
+    if equity_ratio >= 0.30:
+        return "STRONG"
+    if equity_ratio >= 0.10:
+        return "STABLE"
+    return "WEAK"
 
 
 def _is_gb(jurisdiction_iso2: str) -> bool:
@@ -1077,11 +1325,54 @@ async def assess(
             fp = await _search_financial_footprint(name, jurisdiction_iso2)
             if fp and fp.get("found"):
                 result["search_footprint"] = fp
-                result["summary"] = (
-                    (result.get("summary", "") + " ").strip()
-                    + f" Search surfaced {len(fp['sources'])} public financial reference(s) "
-                      "(links available) — figures not yet extracted (never-false-clean: still UNKNOWN)."
-                ).strip()
+                # ── R-F3124 — READ THE ISSUER'S OWN REPORT ───────────────────
+                # Until now this stopped at "figures not yet extracted", which is
+                # honest but hands the work back to the customer — the gap between
+                # a truthful report and a useful one. Route 6 of the playbook:
+                # Brave found the document, Claude reads it, and FOUR gates must
+                # pass before a figure may answer financial capacity. Any failure
+                # leaves the UNKNOWN below exactly as it was.
+                _iss = await extract_issuer_financials(fp.get("sources") or [], name, llm)
+                result["issuer_financials"] = _iss
+                if _iss.get("ok"):
+                    result["data_available"] = True
+                    result["has_financials"] = True
+                    result["issuer_report_verified"] = True
+                    result["health_verdict"] = _verdict_from_issuer_report(_iss)
+                    result["summary"] = (
+                        f"Financial position read from the issuer's own published report "
+                        f"({_iss.get('source_title') or _iss.get('source_url')}): "
+                        f"net assets {_iss.get('net_assets'):,} {_iss.get('currency') or ''} "
+                        f"({_iss.get('units') or 'absolute'}) at {_iss.get('period_end') or 'the stated period end'}. "
+                        f"Balance sheet {_iss.get('reason')}. Figures are quoted verbatim from "
+                        f"the document and arithmetically reconciled — not inferred."
+                    ).strip()
+                    try:
+                        wire_success(
+                            module="financial_health",
+                            summary=(f"R-F3124 issuer-report financials verified for {name[:60]} "
+                                     f"via {_iss.get('source_url','')[:80]}"),
+                            source_id="financial_health:R-F3124")
+                    except Exception:
+                        pass
+                else:
+                    # §21a — the failure branch must reach the brain too, or a route
+                    # that silently stops working looks identical to one never tried.
+                    result["summary"] = (
+                        (result.get("summary", "") + " ").strip()
+                        + f" Search surfaced {len(fp['sources'])} public financial reference(s) "
+                          "(links available). The issuer's own report was NOT usable for a "
+                          f"solvency read: {_iss.get('reason')} (never-false-clean: still UNKNOWN)."
+                    ).strip()
+                    try:
+                        wire_failure(
+                            module="financial_health",
+                            detail=f"R-F3124 issuer-report extraction not usable for "
+                                   f"{name[:60]}: {str(_iss.get('reason'))[:160]}",
+                            gap_type="knowledge_gap",
+                            source="financial_health:R-F3124")
+                    except Exception:
+                        pass
         except Exception as e:
             logger.debug("financial search footprint failed: %s", e)
 
