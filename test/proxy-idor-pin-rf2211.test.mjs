@@ -67,5 +67,30 @@ check('catch-all pins body.user_id for non-admin POST/PUT/PATCH',
 check('catch-all no longer forwards the raw req.originalUrl verbatim',
   !/const fullPath = req\.originalUrl;/.test(catchAllBody));
 
+// ── R-F3167: vetting is pinned for EVERYONE, admin included ──────────────
+//
+// Live symptom: /vetting.html showed "Could not load cases (HTTP 400)" for an
+// admin. pinNonAdminUserId returns the URL unchanged for privileged users —
+// correct for DD, where an operator legitimately reviews every report — so the
+// request carried NO user_id and the brain's strict tenant check refused it.
+//
+// Vetting has no admin see-all BY DESIGN: a case holds criminal-conviction data
+// about a named individual. Admin is still an identity, so pinning gives them
+// their own tenant. That is the correct answer, not a lesser one.
+const ADMIN = { role: 'admin', userId: 'admin-1' };
+const VIEWER = { role: 'viewer', userId: 'u-9' };
+const forged = pinNonAdminUserId('/api/aria/vetting/cases?user_id=someone-else', ADMIN);
+
+check('R-F3167 admin IS pinned on /api/aria/vetting',
+  /user_id=admin-1/.test(pinNonAdminUserId('/api/aria/vetting/cases', ADMIN)));
+check('R-F3167 admin cannot forge user_id on vetting',
+  forged.includes('user_id=admin-1') && !forged.includes('someone-else'));
+check('R-F3167 DD see-all for admins is UNCHANGED (no collateral damage)',
+  pinNonAdminUserId('/api/aria/dd/reports', ADMIN) === '/api/aria/dd/reports');
+check('R-F3167 a prefix lookalike is not a vetting path',
+  pinNonAdminUserId('/api/aria/vettingsomething', ADMIN) === '/api/aria/vettingsomething');
+check('R-F3167 non-admins are still pinned on vetting',
+  /user_id=u-9/.test(pinNonAdminUserId('/api/aria/vetting/cases?user_id=victim', VIEWER)));
+
 console.log(failures === 0 ? '\nR-F2211 tests: PASS' : `\nR-F2211 tests: ${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

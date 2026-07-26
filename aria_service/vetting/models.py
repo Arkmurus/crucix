@@ -222,6 +222,15 @@ class VettingCase(BaseModel):
     lawful_basis: LawfulBasisLiteral = "LEGITIMATE_INTERESTS"
     criminal_data_condition: str = ""
 
+    # R-F3168 — last assessment result, cached so a case LIST can show status
+    # without re-running an assessment per row. It is a CACHE, never a source of
+    # truth: `last_assessed_at` is stored with it so the UI can say "as of" and
+    # an unassessed case reads UNKNOWN rather than clean. The authoritative
+    # answer always comes from POST /assess, which recomputes from scratch.
+    last_status: str = ""
+    last_assessed_at: str = ""
+    last_blockers: int = 0
+
     @model_validator(mode="after")
     def _retention_anchors_coherent(self):
         # A dated outcome that precedes the employment it concluded is not a

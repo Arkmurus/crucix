@@ -113,6 +113,8 @@ function makeDom() {
     document: {
       getElementById: (id) => nodes[id] || mkNode(id),
       querySelectorAll: () => [],
+      querySelector: () => null,
+      createElement: () => ({ click() {}, style: {} }),
     },
     nodes,
   };
@@ -121,7 +123,13 @@ function makeDom() {
 async function runLoader({ fetchImpl }) {
   const dom = makeDom();
   const src = extractLoaderScript();
-  const fn = new Function('document', 'fetch', 'console', 'window', 'authed', 'API', 'alert',
+  // R-F3168 — the loader now calls Sidebar.init, so the harness must supply it.
+  // Stubbed rather than skipped: the point of this harness is that it runs the
+  // REAL shipped script, and a stub that omitted Sidebar would just be testing
+  // a different script.
+  const fn = new Function(
+    'document', 'fetch', 'console', 'window', 'authed', 'API', 'alert',
+    'Sidebar', 'CSS', 'localStorage',
     `return (async () => { ${src} })();`);
   await fn(
     dom.document, fetchImpl,
@@ -129,6 +137,9 @@ async function runLoader({ fetchImpl }) {
     (p, o) => fetchImpl(p, o),
     { BASE: '', headers: () => ({}) },
     () => {},
+    { init() {} },
+    { escape: (v) => String(v) },
+    { getItem: () => null, setItem() {} },
   );
   await new Promise((r) => setTimeout(r, 5));
   return dom.nodes;
@@ -171,4 +182,50 @@ test('R-F3143 CAPABILITY — an unrecognised status is UNKNOWN, not clean', asyn
   });
   assert.ok(nodes.verdict.className.includes('unknown'),
     'an unrecognised status must render UNKNOWN');
+});
+
+// ── R-F3168: the page shell and card view ────────────────────────────────
+
+test('R-F3168 the page initialises the shared nav', () => {
+  // The live symptom: vetting.html rendered with NO menu at all, because it
+  // never called Sidebar.init. Every other app page does; nothing checked it.
+  assert.match(HTML, /Sidebar\.init\(\s*['"]vetting['"]\s*\)/,
+    'vetting.html must call Sidebar.init or the rail never renders');
+  assert.match(HTML, /id="sidebar-placeholder"/,
+    'the rail needs its placeholder element');
+});
+
+test('R-F3168 every badge class used actually exists in the shared stylesheet', () => {
+  // A class that does not exist renders as unstyled text, which reads as a
+  // missing feature rather than a typo.
+  const css = readFileSync(path.join(ROOT, 'public', 'css', 'aria.css'), 'utf8');
+  const used = [...HTML.matchAll(/sc-badge-([a-z]+)/g)].map((m) => m[0]);
+  assert.ok(used.length, 'the card view should use the shared badge classes');
+  for (const cls of new Set(used)) {
+    assert.ok(css.includes(`.${cls}`), `${cls} is used but not defined in aria.css`);
+  }
+});
+
+test('R-F3168 an unassessed case is grouped as unknown, never as clear', () => {
+  // Same rule as the verdict banner: absence of an assessment is not a pass.
+  assert.match(HTML, /Not yet assessed/,
+    'there must be a section for cases with no assessment');
+  assert.match(HTML, /status is unknown, not clear/,
+    'the unassessed section must say what its absence means');
+  assert.ok(!/last_status\s*\|\|\s*['"]READY/.test(HTML),
+    'a missing cached status must never default to a ready state');
+});
+
+test('R-F3168 no case can silently vanish from the queue', () => {
+  assert.match(HTML, /orphans/,
+    'cases matching no section must still be rendered — a case that '
+    + 'disappears from a screening queue is the worst possible bug here');
+});
+
+test('R-F3168 applicant photographs are deliberately not rendered', () => {
+  // Extracting a face from a held passport would be biometric processing
+  // (Art. 9) and would contradict our own AI Act assessment.
+  assert.ok(!/avatarUrl|photo_url|applicant_photo|<img/i.test(HTML),
+    'the card view must not render applicant photographs');
+  assert.match(HTML, /vt-avatar/, 'initials avatars provide the affordance instead');
 });

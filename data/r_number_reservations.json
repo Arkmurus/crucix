@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3165,
+  "next_available": 3169,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25708,9 +25708,10 @@
       "title": "capability stamped on transient failure freezes financial UNKNOWN in the vault",
       "claimed_at": "2026-07-26T18:28:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3b3357e9",
+      "notes": null,
+      "shipped_at": "2026-07-26T19:16:48Z"
     },
     {
       "r_number": "R-F3162",
@@ -25741,6 +25742,43 @@
       "commit_sha": "1ddf3e04",
       "notes": null,
       "shipped_at": "2026-07-26T18:48:57Z"
+    },
+    {
+      "r_number": "R-F3165",
+      "title": "issuer PDF: extract the text layer directly off-loop instead of the OCR fallback pipeline",
+      "claimed_at": "2026-07-26T18:55:45Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3b3357e9",
+      "notes": null,
+      "shipped_at": "2026-07-26T19:16:48Z"
+    },
+    {
+      "r_number": "R-F3166",
+      "title": "sanctions screen refuses any company name ending in a lowercase legal form (plc/ltd/bv/gmbh)",
+      "claimed_at": "2026-07-26T20:18:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3167",
+      "title": "vetting: pin user_id for admins too — vetting has no see-all so admin needs its own tenant",
+      "claimed_at": "2026-07-26T20:22:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3168",
+      "title": "vetting page: missing Sidebar.init and card-based case UX",
+      "claimed_at": "2026-07-26T20:22:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

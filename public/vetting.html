@@ -70,6 +70,26 @@
     .vt-field input, .vt-field select { width: 100%; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--sc-border-strong); font-family: inherit; font-size: 13px; }
 
     .vt-note { font-size: 12px; color: var(--sc-muted); font-style: italic; margin-top: 10px; }
+
+    /* R-F3168 — card grid + status sections */
+    .vt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+    .vt-section { margin-bottom: 28px; }
+    .vt-section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+    .vt-section-name { font-size: 13px; font-weight: 800; color: var(--sc-heading); text-transform: uppercase; letter-spacing: 1.2px; }
+    .vt-section-count {
+      font-size: 11px; font-weight: 700; color: var(--sc-muted);
+      background: #ece9e2; border-radius: 20px; padding: 2px 9px;
+    }
+    .vt-section-hint { font-size: 12px; color: var(--sc-muted); }
+    .vt-case .sc-card-body { padding: 16px 18px; }
+    /* Initials, not photographs — see the note on the SECTIONS constant. */
+    .vt-avatar {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+      background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff;
+      font-size: 12px; font-weight: 800; letter-spacing: .5px;
+    }
+    .vt-upload-note:empty { display: none; }
   </style>
 </head>
 <body>
@@ -151,6 +171,8 @@
 <script src="js/app.js?v=8"></script>
 <script src="js/sidebar.js?v=13"></script>
 <script>
+Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
+
 // R-F3143 — vetting surface loader.
 //
 // Honesty contract (inherited from R-F2819, which was written for status.html
@@ -225,6 +247,120 @@
     $('findings-wrap').style.display = '';
   }
 
+  // ── R-F3168: case cards, grouped so the eye lands on what needs a human ──
+  //
+  // Sections are ordered by what demands attention, not alphabetically or by
+  // date. A screening queue's only real question is "what is stuck?", so
+  // blocked files sort first and completed ones sink.
+  //
+  // NOTE ON PHOTOS: applicant photographs are deliberately NOT shown. We hold
+  // passports, so a face is technically available — but extracting one would be
+  // biometric processing (Art. 9 GDPR) and would move the product toward
+  // biometric categorisation under the EU AI Act, which our own assessment
+  // records that we do NOT do. Initials give the same at-a-glance recognition
+  // with none of that, so the visual affordance costs no legal ground.
+  const SECTIONS = [
+    { key: 'NOT_READY', title: 'Blocked', hint: 'Blocking findings must clear before review',
+      match: (c) => c.last_status === 'NOT_READY' },
+    { key: 'AWAITING_SIGNOFF', title: 'Awaiting sign-off', hint: 'Needs a documented management decision',
+      match: (c) => c.last_status === 'AWAITING_SIGNOFF' },
+    { key: 'IN_PROGRESS', title: 'In progress', hint: 'Outstanding actions on the checklist or timeline',
+      match: (c) => c.last_status === 'IN_PROGRESS' },
+    { key: 'UNKNOWN', title: 'Not yet assessed', hint: 'No assessment has been run — status is unknown, not clear',
+      match: (c) => !c.last_status },
+    { key: 'DONE', title: 'Ready / complete', hint: 'Evidence complete; the decision is a human\\u2019s',
+      match: (c) => c.last_status === 'READY_FOR_CONTROLLER_REVIEW'
+                 || c.last_status === 'EVIDENCE_COMPLETE' },
+  ];
+
+  const STATUS_BADGE = {
+    NOT_READY: ['sc-badge-red', 'Blocked'],
+    AWAITING_SIGNOFF: ['sc-badge-orange', 'Sign-off'],
+    IN_PROGRESS: ['sc-badge-blue', 'In progress'],
+    READY_FOR_CONTROLLER_REVIEW: ['sc-badge-green', 'Ready for review'],
+    EVIDENCE_COMPLETE: ['sc-badge-green', 'Evidence complete'],
+  };
+
+  function initials(name) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+  }
+
+  function caseCard(c) {
+    // An unassessed case is UNKNOWN, never clean — same rule as the verdict
+    // banner. The cached status is always shown WITH the date it was computed
+    // for, so a stale reading cannot pass as current.
+    const [badgeCls, badgeText] = STATUS_BADGE[c.last_status] || ['sc-badge-muted', 'Not assessed'];
+    const asOf = c.last_assessed_at
+      ? `assessed ${esc(c.last_assessed_at)}`
+      : 'never assessed';
+    const blockers = Number(c.last_blockers || 0);
+    return `
+      <div class="sc-card vt-case" data-case="${esc(c.case_id)}">
+        <div class="sc-card-header">
+          <div class="sc-card-title" style="font-size:15px;display:flex;align-items:center;gap:10px">
+            <span class="vt-avatar">${esc(initials(c.applicant_name))}</span>
+            <span>${esc(c.applicant_name || '(unnamed)')}</span>
+          </div>
+          <span class="sc-badge ${badgeCls}">${esc(badgeText)}</span>
+        </div>
+        <div class="sc-card-body">
+          <div class="vt-ref" style="margin-bottom:10px">
+            ${esc(c.case_id)} · ${esc(c.pack_id)} v${esc(c.pack_version)} · ${asOf}
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+            ${blockers > 0 ? `<span class="sc-badge sc-badge-red">${blockers} blocker${blockers !== 1 ? 's' : ''}</span>` : ''}
+            <span class="sc-badge sc-badge-muted">${Number(c.document_count || 0)} document${Number(c.document_count) !== 1 ? 's' : ''}</span>
+            ${Number(c.decision_count || 0) > 0
+              ? `<span class="sc-badge sc-badge-green">decision recorded</span>`
+              : `<span class="sc-badge sc-badge-muted">no decision yet</span>`}
+            ${c.outcome && c.outcome !== 'PENDING'
+              ? `<span class="sc-badge sc-badge-blue">${esc(c.outcome)}</span>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <label class="vt-btn secondary" style="margin:0">
+              <i class="bi bi-upload"></i> Upload
+              <input type="file" data-upload="${esc(c.case_id)}" hidden>
+            </label>
+            <button class="vt-btn secondary" data-assess="${esc(c.case_id)}"><i class="bi bi-clipboard-check"></i> Assess</button>
+            <button class="vt-btn secondary" data-decide="${esc(c.case_id)}"><i class="bi bi-person-check"></i> Decide</button>
+            <button class="vt-btn secondary" data-sar="${esc(c.case_id)}"><i class="bi bi-file-earmark-person"></i> SAR</button>
+          </div>
+          <div class="vt-upload-note" data-status-for="${esc(c.case_id)}"></div>
+        </div>
+      </div>`;
+  }
+
+  function renderSections(cases) {
+    const used = new Set();
+    let html = '';
+    for (const section of SECTIONS) {
+      const rows = cases.filter((c) => !used.has(c.case_id) && section.match(c));
+      rows.forEach((c) => used.add(c.case_id));
+      if (!rows.length) continue;
+      html += `
+        <div class="vt-section">
+          <div class="vt-section-head">
+            <span class="vt-section-name">${esc(section.title)}</span>
+            <span class="vt-section-count">${rows.length}</span>
+            <span class="vt-section-hint">${esc(section.hint)}</span>
+          </div>
+          <div class="vt-grid">${rows.map(caseCard).join('')}</div>
+        </div>`;
+    }
+    // Anything the sections did not claim still has to appear — a case that
+    // silently vanishes from a screening queue is the worst possible bug here.
+    const orphans = cases.filter((c) => !used.has(c.case_id));
+    if (orphans.length) {
+      html += `<div class="vt-section">
+        <div class="vt-section-head"><span class="vt-section-name">Other</span>
+        <span class="vt-section-count">${orphans.length}</span></div>
+        <div class="vt-grid">${orphans.map(caseCard).join('')}</div></div>`;
+    }
+    return html;
+  }
+
   async function loadPacks() {
     try {
       const r = await authed('/api/aria/vetting/packs');
@@ -247,30 +383,8 @@
       const data = await r.json();
       const cases = data.cases || [];
       $('cases').innerHTML = cases.length
-        ? cases.map((c) => `
-          <div class="vt-card">
-            <div class="vt-card-head">
-              <div>
-                <p class="vt-card-title">${esc(c.applicant_name || '(unnamed)')}</p>
-                <span class="vt-card-meta">${esc(c.case_id)} · ${esc(c.pack_id)} v${esc(c.pack_version)}</span>
-              </div>
-              <div style="display:flex;gap:8px;flex-shrink:0;align-items:center;flex-wrap:wrap">
-                <label class="vt-btn secondary" style="margin:0">
-                  <i class="bi bi-upload"></i> Upload
-                  <input type="file" data-upload="${esc(c.case_id)}" hidden>
-                </label>
-                <button class="vt-btn secondary" data-assess="${esc(c.case_id)}">Assess</button>
-                <button class="vt-btn secondary" data-decide="${esc(c.case_id)}"
-                        title="Record the employment decision a named human made">
-                  <i class="bi bi-person-check"></i> Decide</button>
-                <button class="vt-btn secondary" data-sar="${esc(c.case_id)}"
-                        title="Art. 15 subject access export">
-                  <i class="bi bi-file-earmark-person"></i> SAR</button>
-              </div>
-            </div>
-            <div class="vt-upload-note" data-status-for="${esc(c.case_id)}"></div>
-          </div>`).join('')
-        : '<div class="vt-empty">No vetting cases yet.</div>';
+        ? renderSections(cases)
+        : '<div class="vt-empty">No vetting cases yet. Create one to begin.</div>';
     } catch (e) {
       $('cases').innerHTML = '<div class="vt-error">Could not reach the vetting service.</div>';
     }

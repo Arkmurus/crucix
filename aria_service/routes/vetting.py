@@ -639,6 +639,7 @@ async def vetting_assess_ep(
 
     tenant = _tenant(user_id)
     resolved_as_of = _parse_as_of(as_of)
+    store = get_case_store()
     service = _service()
     try:
         result = await asyncio.to_thread(
@@ -650,6 +651,21 @@ async def vetting_assess_ep(
             status_code=409,
             detail={"code": "pack_not_usable", "message": str(exc)},
         ) from exc
+
+    # R-F3168 — cache the verdict on the case so the list view can show status
+    # without re-assessing every row. Written AFTER the authoritative result is
+    # computed, and stamped with the date it was computed for, so the UI can
+    # say "as of" rather than implying it is current.
+    try:
+        case = await asyncio.to_thread(store.get, tenant, case_id)
+        if case is not None:
+            await asyncio.to_thread(store.save, case.model_copy(update={
+                "last_status": result.get("status", ""),
+                "last_assessed_at": resolved_as_of.isoformat(),
+                "last_blockers": int(result.get("counts", {}).get("blockers", 0)),
+            }))
+    except Exception as exc:  # noqa: BLE001 — a cache write must never fail the assessment
+        _log.debug("vetting: could not cache assessment status: %s", exc)
 
     wire_success(
         module=_MODULE,

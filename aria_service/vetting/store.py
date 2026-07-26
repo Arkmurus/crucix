@@ -243,6 +243,15 @@ class VettingCaseStore:
                 "pack_version": row["pack_version"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
+                # R-F3168 — enough for a card view without re-assessing.
+                # last_status is a CACHE: "" means never assessed, which the UI
+                # must render as UNKNOWN, not as clean.
+                "last_status": body.get("last_status", ""),
+                "last_assessed_at": body.get("last_assessed_at", ""),
+                "last_blockers": body.get("last_blockers", 0),
+                "document_count": len(body.get("documents", []) or []),
+                "decision_count": len(body.get("decisions", []) or []),
+                "outcome": body.get("outcome", "PENDING"),
             })
         return out
 
