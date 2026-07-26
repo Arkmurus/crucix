@@ -224,6 +224,57 @@ def mark_abandoned(r_number: str, reason: str, *, path: Path | None = None) -> N
 # "R-F1234" IS the ship record; this reconciles the registry against it.
 _R_IN_TEXT_RE = re.compile(r"\bR-F(\d{1,6})\b")
 
+# ── R-F3100 — THE SCANNER COULD NOT READ HALF THE SHIP RECORDS ──────────────
+#
+# THE DEFECT. R-F3095 held 39 reservations back as "mentioned only in a commit
+# BODY", for a human to judge. Reading them showed the premise was wrong for most:
+# they were named in the SUBJECT, in a shorthand `\bR-F(\d+)\b` cannot see —
+#
+#   R-F1559/61/62/63/66/67/68/71: aria-intel brain hardening batch
+#   R-F2912/2913/2914/2916/2917 — stop the Claude overspend
+#   feat: R-F1099-R-F1107 — Phase 1 reading + Phase 2 registration
+#
+# The plain pattern matched only the FIRST number in each, so seven of eight
+# subject-line ship records in one commit were misfiled as body references. 46
+# commits use the slash form and 4 use a range — i.e. the "needs human judgement"
+# pile was mostly a parsing gap, and hand-marking those rows would have left the
+# gap in place for the next sweep.
+#
+# SUFFIX SEMANTICS. A suffix replaces the LAST k digits of the base, so
+# `R-F1559/61` is R-F1561 (not R-F61), and every suffix is relative to the ORIGINAL
+# base, not the previous expansion. A same-length suffix (`R-F2912/2913`) simply
+# replaces the whole number.
+_R_SLASH_ABBREV_RE = re.compile(r"\bR-F(\d{1,6})((?:/\d{1,6})+)")
+_R_RANGE_RE = re.compile(r"\bR-F(\d{1,6})\s*-\s*R-F(\d{1,6})\b")
+#: A range wider than this is not a batch, it is a typo or a plan document.
+_R_RANGE_MAX = 30
+
+
+def expand_r_numbers(text: str) -> set[str]:
+    """R-F3100 — every R-number a piece of text names, including the shorthand.
+
+    Handles the plain form, the slash abbreviation and the inclusive range. Pure and
+    module-level so the expansion rules are directly testable — this decides what
+    counts as a ship record, so it must not be buried in a git-reading function."""
+    out: set[str] = set()
+    text = text or ""
+    for m in _R_IN_TEXT_RE.finditer(text):
+        out.add(f"R-F{int(m.group(1))}")
+    for m in _R_SLASH_ABBREV_RE.finditer(text):
+        base = m.group(1)
+        out.add(f"R-F{int(base)}")
+        for suffix in m.group(2).lstrip("/").split("/"):
+            if not suffix or len(suffix) > len(base):
+                continue
+            expanded = base[: len(base) - len(suffix)] + suffix
+            out.add(f"R-F{int(expanded)}")
+    for m in _R_RANGE_RE.finditer(text):
+        lo, hi = int(m.group(1)), int(m.group(2))
+        if lo <= hi and (hi - lo) < _R_RANGE_MAX:
+            for n in range(lo, hi + 1):
+                out.add(f"R-F{n}")
+    return out
+
 
 def scan_shipped_r_numbers(
     ref: str = "HEAD", *, repo_root: Path | None = None,
@@ -275,10 +326,12 @@ def scan_shipped_r_numbers(
         body = parts[2] if len(parts) > 2 else ""
         if not sha:
             continue
-        for m in _R_IN_TEXT_RE.finditer(subject):
-            by_subject[f"R-F{int(m.group(1))}"] = sha
-        for m in _R_IN_TEXT_RE.finditer(body):
-            by_body[f"R-F{int(m.group(1))}"] = sha
+        # R-F3100 — read the shorthand too, or a batch commit's subject line looks
+        # like a single ship record with N-1 stray body references.
+        for num in expand_r_numbers(subject):
+            by_subject[num] = sha
+        for num in expand_r_numbers(body):
+            by_body[num] = sha
     # A subject match always wins; drop it from the review pile.
     by_body = {k: v for k, v in by_body.items() if k not in by_subject}
     return by_subject, by_body
