@@ -62,7 +62,7 @@ _FEED_STATE_KEY = "crucix:news_monitor:feed_state"
 _ARTICLES_KEY = "crucix:news_monitor:articles"
 _INTEL_SIGNALS_KEY = "crucix:news_monitor:intel_signals"
 _CLASSIFIER_REPLAY_KEY = "crucix:news_monitor:classifier_replay"
-_CLASSIFIER_REPLAY_VERSION = "rf3201.v1"
+_CLASSIFIER_REPLAY_VERSION = "rf3201.v2"
 _POLL_STATE_KEY = "crucix:news_monitor:poll_state"
 _MAX_ARTICLES = 1000
 _MAX_INTEL_SIGNALS = 500
@@ -691,9 +691,38 @@ def _age_seconds(value: Any, *, now: float | None = None) -> int | None:
 def _extract_article_entities(text: str) -> dict:
     try:
         from . import intel_ledger as _il
-        return _il._extract_entities(text)  # noqa: SLF001 - shared ledger rules.
+        entities = _il._extract_entities(text)  # noqa: SLF001 - shared ledger rules.
     except Exception:
-        return {"countries": [], "products": [], "oems": []}
+        entities = {"countries": [], "products": [], "oems": []}
+
+    # R-F3201 — augment the defence-centric shared lexicon with narrowly
+    # anchored entities present in official cyber and hazard evidence.
+    products = list(entities.get("products") or [])
+    events = list(entities.get("events") or [])
+    for match in re.finditer(
+        r"\b(?:critical|high|multiple)?\s*vulnerabilit(?:y|ies)\s+in\s+"
+        r"([A-Z][A-Za-z0-9 ._/-]{1,70}?)"
+        r"(?=$|[,:;(]|\.\s+(?:On|The|A)\b|\s+On\s+\d)",
+        text,
+        re.I,
+    ):
+        products.append(match.group(1).strip())
+    for match in re.finditer(
+        r"\b(?:Hurricane|Typhoon|Tropical (?:Cyclone|Storm))\s+"
+        r"([A-Z][A-Za-z-]+)\b",
+        text,
+    ):
+        if match.group(1).lower() not in {"center", "centre", "season", "force"}:
+            events.append(match.group(0).strip())
+    for match in re.finditer(
+        r"\bM\s*\d(?:\.\d+)?\s*-\s*(.{3,100}?)"
+        r"(?=$|\s*<|\s+PAGER\b|\s+ShakeMap\b)",
+        text,
+    ):
+        events.append(f"Earthquake near {match.group(1).strip()}")
+    entities["products"] = list(dict.fromkeys(products))
+    entities["events"] = list(dict.fromkeys(events))
+    return entities
 
 
 # ── R-F2891: topical relevance gate ──────────────────────────────────────────
@@ -999,7 +1028,12 @@ def _compute_intel_grade(
     stype = (signal_type or "").strip().lower()
     has_url = str(url or "").lower().startswith("http")
     ents = entities or {}
-    has_entity = bool(ents.get("countries") or ents.get("oems") or ents.get("products"))
+    has_entity = bool(
+        ents.get("countries")
+        or ents.get("oems")
+        or ents.get("products")
+        or ents.get("events")
+    )
     actionable = stype not in ("situational_awareness", "market_watch", "context", "")
     corroborated = int(evidence_count or 1) >= 2
     official = tier in ("tier_1a", "tier_1b")
@@ -1041,7 +1075,12 @@ def _confidence_rationale(
         parts.append("unverified source tier")
     if signal_type not in {"situational_awareness", "market_watch"}:
         parts.append(f"actionable {signal_type.replace('_', ' ')} pattern")
-    if entities.get("countries") or entities.get("oems") or entities.get("products"):
+    if (
+        entities.get("countries")
+        or entities.get("oems")
+        or entities.get("products")
+        or entities.get("events")
+    ):
         parts.append("named entity extracted")
     parts.append("corroborated" if evidence_count >= 2 else "single-source")
     return "; ".join(parts)
@@ -1061,6 +1100,7 @@ def _build_intel_signal(article: dict) -> dict:
         len(entities.get("countries") or [])
         + len(entities.get("products") or [])
         + len(entities.get("oems") or [])
+        + len(entities.get("events") or [])
     )
     tier_score = _SOURCE_TIER_POINTS.get(tier, 12)
     action_score = 28 if signal_type not in ("situational_awareness", "market_watch") else 12
@@ -1073,6 +1113,8 @@ def _build_intel_signal(article: dict) -> dict:
     target = (
         (entities.get("oems") or [None])[0]
         or (entities.get("countries") or [None])[0]
+        or (entities.get("products") or [None])[0]
+        or (entities.get("events") or [None])[0]
         or source
     )
     action_horizon = _action_horizon(signal_type, priority)

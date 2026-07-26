@@ -112,6 +112,50 @@ def test_rf3201_hurricane_agency_name_does_not_invent_an_active_storm() -> None:
     assert signal["signal_type"] == "situational_awareness"
 
 
+@pytest.mark.parametrize(
+    ("title", "summary", "expected_entity"),
+    [
+        (
+            "2026-009: Critical Vulnerabilities in Microsoft SharePoint",
+            "",
+            "Microsoft SharePoint",
+        ),
+        (
+            "Hurricane Genevieve Public Advisory Number 10",
+            "The hurricane is southwest of Mexico.",
+            "Hurricane Genevieve",
+        ),
+        (
+            "M 5.0 - 38 km SSE of Spearman, Texas",
+            "PAGER - GREEN; ShakeMap - VI",
+            "Earthquake near 38 km SSE of Spearman, Texas",
+        ),
+    ],
+)
+def test_rf3201_official_sector_entities_earn_customer_grade(
+    title: str,
+    summary: str,
+    expected_entity: str,
+) -> None:
+    """Real affected assets/events must satisfy the Grade A entity evidence gate."""
+    signal = nm._build_intel_signal({
+        "title": title,
+        "summary": summary,
+        "source": "official source",
+        "url": "https://example.gov/evidence",
+        "category": "crisis_early_warning",
+        "tier": "tier_1a",
+        "topics": ["official", "primary", "early_warning"],
+    })
+
+    entities = (signal["entities"].get("products") or []) + (
+        signal["entities"].get("events") or []
+    )
+    assert expected_entity in entities
+    assert signal["intel_grade"] == "A"
+    assert signal["target"] in {expected_entity, "Mexico"}
+
+
 def test_rf3201_ncsc_reports_are_not_mislabeled_as_live_early_warning() -> None:
     """NCSC's report archive is authoritative strategy, not a current-alert feed."""
     source = next(source for source in nm.NEWS_SOURCES if source[0] == "UK NCSC Reports")
