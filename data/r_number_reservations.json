@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3177,
+  "next_available": 3178,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25849,6 +25849,15 @@
       "r_number": "R-F3176",
       "title": "vetting: outstanding-items surface replacing the manual Verification Progress Sheet",
       "claimed_at": "2026-07-26T21:11:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3177",
+      "title": "screening-period month coverage map replacing the manual grid on the Verification Progress Sheet",
+      "claimed_at": "2026-07-26T21:21:35Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

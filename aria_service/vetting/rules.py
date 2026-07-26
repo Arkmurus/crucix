@@ -258,6 +258,85 @@ def deadline_findings(case: VettingCase, pack: ScreeningPack, as_of: date) -> li
                     f"({remaining} days remaining).", due_date=deadline)]
 
 
+# ------------------------------------------------------- coverage map ----
+
+@dataclass(frozen=True)
+class CoverageMonth:
+    """One cell of the screening-period grid."""
+
+    year: int
+    month: int
+    state: str                      # VERIFIED | UNVERIFIED | UNDECLARED
+    entry_ids: tuple[str, ...] = ()
+
+
+def coverage_map(
+    case: VettingCase, pack: ScreeningPack, as_of: date,
+) -> list[CoverageMonth]:
+    """R-F3177 — month-by-month coverage across the screening period.
+
+    This replaces the grid at the centre of the manual Verification Progress
+    Sheet, where an officer colours in JAN..DEC for each year of the screening
+    period. It is the artefact the whole sheet is organised around: it answers
+    "what is still uncovered?" at a glance, which a findings LIST does not —
+    a list tells you a gap exists, a grid shows you where it sits and how big.
+
+    Three states, deliberately distinguished (the sheet conflates the last two
+    by leaving a cell blank):
+      VERIFIED   — covered by an entry that has been verified, or covered by an
+                   accepted statutory declaration
+      UNVERIFIED — declared by the applicant but not yet verified. Present on
+                   the file, NOT yet evidence.
+      UNDECLARED — nothing on the file covers this month at all.
+
+    A month counts as covered if ANY day in it is covered, and the strongest
+    state wins. That is deliberately generous at the month boundary and is why
+    the grid is a navigation aid, not the compliance test — `gap_findings`
+    remains the authority, because it works in days and the 31-day rule is a
+    day rule. Presenting the grid as the test would round a 31-day breach down
+    to "two covered months".
+    """
+    start, end = screening_period(case, pack)
+
+    # Rank so the strongest state for a month wins.
+    rank = {"UNDECLARED": 0, "UNVERIFIED": 1, "VERIFIED": 2}
+    cells: dict[tuple[int, int], tuple[str, list[str]]] = {}
+
+    year, month = start.year, start.month
+    while (year, month) <= (end.year, end.month):
+        cells[(year, month)] = ("UNDECLARED", [])
+        month += 1
+        if month > 12:
+            year, month = year + 1, 1
+
+    verified_states = {VerificationState.VERIFIED,
+                       VerificationState.COVERED_BY_STAT_DEC}
+    for entry in case.career:
+        entry_end = min(entry.end or end, end)
+        entry_start = max(entry.start, start)
+        if entry_end < entry_start:
+            continue
+        state = ("VERIFIED" if entry.state in verified_states else "UNVERIFIED")
+        y, m = entry_start.year, entry_start.month
+        while (y, m) <= (entry_end.year, entry_end.month):
+            key = (y, m)
+            if key in cells:
+                current, ids = cells[key]
+                if rank[state] > rank[current]:
+                    current = state
+                if entry.entry_id not in ids:
+                    ids = [*ids, entry.entry_id]
+                cells[key] = (current, ids)
+            m += 1
+            if m > 12:
+                y, m = y + 1, 1
+
+    return [
+        CoverageMonth(year=y, month=m, state=st, entry_ids=tuple(ids))
+        for (y, m), (st, ids) in sorted(cells.items())
+    ]
+
+
 # ---------------------------------------------------------------- assess --
 
 def assess(case: VettingCase, pack: ScreeningPack, as_of: date) -> dict:
@@ -285,6 +364,7 @@ def assess(case: VettingCase, pack: ScreeningPack, as_of: date) -> dict:
     else:
         status = "EVIDENCE_COMPLETE"     # framework packs never issue readiness
     start, end = screening_period(case, pack)
+    months = coverage_map(case, pack, as_of)
     return {
         "case_id": case.case_id,
         "as_of": as_of.isoformat(),
@@ -299,4 +379,17 @@ def assess(case: VettingCase, pack: ScreeningPack, as_of: date) -> dict:
         "controller_notes": pack.controller_notes,
         "counts": {"blockers": len(blockers), "signoffs": len(signoffs),
                    "actions": len(actions)},
+        # R-F3177 — the month grid from the manual progress sheet. A navigation
+        # aid, NOT the compliance test: it works in months, the 31-day rule
+        # works in days, and `findings` remains the authority.
+        "coverage": [
+            {"year": c.year, "month": c.month, "state": c.state,
+             "entry_ids": list(c.entry_ids)} for c in months
+        ],
+        "coverage_summary": {
+            "months_total": len(months),
+            "verified": sum(1 for c in months if c.state == "VERIFIED"),
+            "unverified": sum(1 for c in months if c.state == "UNVERIFIED"),
+            "undeclared": sum(1 for c in months if c.state == "UNDECLARED"),
+        },
     }

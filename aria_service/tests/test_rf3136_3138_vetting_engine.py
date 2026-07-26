@@ -512,3 +512,99 @@ def test_rf3174_a_direct_reference_stands_alone():
                                     doc_type=DocumentType.EMPLOYER_REFERENCE)])
     assert "EVIDENCE_INSUFFICIENT" not in {
         f.code for f in evidence_findings(case, pack, AS_OF)}
+
+
+# ── R-F3177 — the month grid from the manual Verification Progress Sheet ──
+
+def _coverage_row(case, pack, as_of=AS_OF):
+    from aria_service.vetting.rules import coverage_map
+    return "".join({"VERIFIED": "V", "UNVERIFIED": "u", "UNDECLARED": "."}[c.state]
+                   for c in coverage_map(case, pack, as_of))
+
+
+def _cov_case(career):
+    return VettingCase(
+        tenant_id=TENANT, case_id="COV", applicant_name="T",
+        date_of_birth=date(1990, 1, 1), employment_start=date(2026, 6, 1),
+        career=career)
+
+
+def test_rf3177_grid_spans_the_whole_screening_period():
+    pack = registry.latest_usable("uk_bs7858")
+    row = _coverage_row(_cov_case([]), pack)
+    # 5 years inclusive of both endpoint months: 2021-06 .. 2026-06.
+    assert len(row) == 61
+    assert set(row) == {"."}, "an empty file is entirely undeclared"
+
+
+def test_rf3177_verified_unverified_and_undeclared_are_distinguished():
+    """The paper sheet leaves both 'not declared' and 'declared but not
+    verified' as a blank cell. They demand different actions — chase the
+    applicant vs chase the referee — so the grid separates them."""
+    pack = registry.latest_usable("uk_bs7858")
+    row = _coverage_row(_cov_case([
+        CareerEntry(entry_id="a", entry_type=CareerEntryType.EMPLOYMENT,
+                    start=date(2021, 6, 1), end=date(2023, 12, 31),
+                    organisation="Alpha", state=VerificationState.VERIFIED),
+        CareerEntry(entry_id="b", entry_type=CareerEntryType.EMPLOYMENT,
+                    start=date(2024, 6, 1), end=None, organisation="Beta"),
+    ]), pack)
+    assert "V" in row and "u" in row and "." in row
+    assert row.startswith("V")
+    assert row.count(".") == 5          # Jan-May 2024 uncovered
+
+
+def test_rf3177_a_statutory_declaration_counts_as_covered():
+    pack = registry.latest_usable("uk_bs7858")
+    row = _coverage_row(_cov_case([
+        CareerEntry(entry_id="a", entry_type=CareerEntryType.EMPLOYMENT,
+                    start=date(2021, 6, 1), end=None, organisation="Alpha",
+                    state=VerificationState.COVERED_BY_STAT_DEC),
+    ]), pack)
+    assert set(row) == {"V"}
+
+
+def test_rf3177_strongest_state_wins_for_overlapping_months():
+    """An unverified entry must not downgrade a month already verified."""
+    pack = registry.latest_usable("uk_bs7858")
+    row = _coverage_row(_cov_case([
+        CareerEntry(entry_id="a", entry_type=CareerEntryType.EMPLOYMENT,
+                    start=date(2021, 6, 1), end=None, organisation="Alpha",
+                    state=VerificationState.VERIFIED),
+        CareerEntry(entry_id="b", entry_type=CareerEntryType.SELF_EMPLOYMENT,
+                    start=date(2022, 1, 1), end=date(2022, 6, 30),
+                    organisation="Side work"),
+    ]), pack)
+    assert set(row) == {"V"}
+
+
+def test_rf3177_grid_is_a_navigation_aid_not_the_compliance_test():
+    """The grid works in MONTHS; the 31-day rule works in DAYS. A 31-day
+    unverified span touches two months, so a month grid would round it to
+    'two covered months' and hide it. `findings` stays the authority."""
+    from aria_service.vetting.rules import assess
+    pack = registry.latest_usable("uk_bs7858")
+    result = assess(_cov_case([
+        CareerEntry(entry_id="a", entry_type=CareerEntryType.EMPLOYMENT,
+                    start=date(2021, 6, 1), end=None, organisation="Alpha",
+                    state=VerificationState.VERIFIED)]), pack, as_of=AS_OF)
+    assert "coverage" in result and "findings" in result
+    assert result["coverage_summary"]["months_total"] == len(result["coverage"])
+    # Coverage is reported ALONGSIDE findings, never instead of them.
+    assert isinstance(result["findings"], list)
+
+
+def test_rf3177_coverage_summary_counts_match_the_cells():
+    from aria_service.vetting.rules import assess
+    pack = registry.latest_usable("uk_bs7858")
+    result = assess(_cov_case([
+        CareerEntry(entry_id="a", entry_type=CareerEntryType.EMPLOYMENT,
+                    start=date(2022, 1, 1), end=date(2023, 1, 1),
+                    organisation="Alpha", state=VerificationState.VERIFIED)]),
+        pack, as_of=AS_OF)
+    s = result["coverage_summary"]
+    cells = result["coverage"]
+    assert s["verified"] == sum(1 for c in cells if c["state"] == "VERIFIED")
+    assert s["unverified"] == sum(1 for c in cells if c["state"] == "UNVERIFIED")
+    assert s["undeclared"] == sum(1 for c in cells if c["state"] == "UNDECLARED")
+    assert s["verified"] + s["unverified"] + s["undeclared"] == s["months_total"]
