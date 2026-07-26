@@ -25321,9 +25321,10 @@
       "title": "disclose company-name ambiguity instead of silently picking",
       "claimed_at": "2026-07-26T13:32:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "740085d0",
+      "notes": null,
+      "shipped_at": "2026-07-26T13:35:35Z"
     }
   ]
 }
