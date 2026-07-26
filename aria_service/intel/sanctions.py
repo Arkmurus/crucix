@@ -976,6 +976,51 @@ async def screen_with_relationships(name: str, *, threshold: float = 0.78,
                                            target_threshold=threshold)
 
 
+# R-F3166 — legal-form suffixes, which are conventionally written LOWERCASE.
+#
+# THE DEFECT (live, Babcock dd_ea78770813cc): `_looks_like_entity_name` requires every
+# non-stopword token to start uppercase (the F39 sentence-fragment guard). "plc" is
+# lowercase and is not a stopword, so:
+#
+#   _looks_like_entity_name("Babcock International Group plc")  -> False
+#   _looks_like_entity_name("Babcock International Group PLC")  -> True
+#
+# `screen_with_aliases` returns `{"error": "not_entity_shaped"}` on that, so THE ENTIRE
+# SANCTIONS SCREEN WAS SKIPPED and all ten primary sources recorded
+# `status=UNAVAILABLE, via=screen_failed`. The readiness scorecard then held
+# "Sanctions and export-control exposure" UNRESOLVED — correctly, but for a reason no
+# reader could guess, and on every UK public company written the way it writes itself
+# ("Babcock International Group plc" is the title of its own annual report). QinetiQ
+# Group plc and Mitie Group plc were rejected identically.
+#
+# A compliance product silently declining to screen a whole class of counterparties is
+# the most serious failure mode available to it. The fragment guard stays — it is
+# doing real work — but a legal form is not a lowercase common noun.
+#
+# Terminal-position only (last two tokens), so the guard keeps its strength mid-string:
+# suffixes are terminal by convention ("… Pte Ltd", "… Sdn Bhd", "… GmbH & Co KG"), and
+# exempting short word-like forms ("as", "co", "dd") anywhere would let real fragments
+# through.
+_ENTITY_LEGAL_FORMS = frozenset({
+    # UK / IE
+    "plc", "ltd", "limited", "llp", "lp", "cic", "ug",
+    # US / CA
+    "inc", "corp", "corporation", "llc", "co", "lllp", "pc",
+    # DE / AT / CH
+    "gmbh", "ag", "kg", "ohg", "kgaa", "eg", "se",
+    # NL / BE
+    "bv", "nv", "cv", "vof", "bvba",
+    # FR / ES / IT / PT / LATAM
+    "sa", "sas", "sarl", "sca", "srl", "spa", "sl", "slu", "sapi", "lda", "eirl",
+    # Nordics
+    "oy", "oyj", "ab", "asa", "aps", "hf", "ehf",
+    # CEE / CIS
+    "zrt", "kft", "doo", "dd", "ad", "ood", "eood", "sro", "sp", "zoo",
+    "ooo", "oao", "zao", "pao", "jsc", "ojsc", "cjsc", "pjsc", "tov",
+    # Asia / MENA
+    "pte", "pty", "sdn", "bhd", "kk", "kabushiki", "fzco", "fze", "llc-fz", "wll", "qsc",
+})
+
 _ENTITY_STOPWORDS = frozenset({
     "the", "of", "and", "or", "in", "on", "at", "to", "for", "with",
     "by", "from", "as", "is", "was", "are", "were", "be", "been", "being",
@@ -1080,8 +1125,15 @@ def _looks_like_entity_name(s: str) -> bool:
     # (Iran NEXUS before ENGAGEMENT — nexus / engagement are lowercase
     # common nouns; Bank OF America CORP — of stopword, others all upper).
     if len(words) > 1:
-        for w in words:
+        for _i, w in enumerate(words):
             if w.lower() in _ENTITY_STOPWORDS:
+                continue
+            # R-F3166 — a TERMINAL legal-form suffix is not a lowercase common noun.
+            # Stripping punctuation catches "S.A.", "Co.", "plc." as written in the
+            # wild. Terminal-only (last two tokens) keeps the fragment guard intact
+            # mid-string, since suffixes are terminal by convention.
+            if (_i >= len(words) - 2
+                    and w.lower().strip(".,()") in _ENTITY_LEGAL_FORMS):
                 continue
             if not w[0].isupper() and not w[0].isdigit():
                 return False
