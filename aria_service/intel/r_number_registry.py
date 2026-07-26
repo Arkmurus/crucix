@@ -280,6 +280,88 @@ def reserve(
     return r_num
 
 
+def _status_is_recorded(
+    r_number: str, status: str, path: Path | None = None, **fields: Any
+) -> bool:
+    """R-F3200 — did the status change actually survive to disk?
+
+    Checks the extra fields too (commit_sha for a ship), so a stamp that landed with
+    the wrong SHA — or an entry a concurrent writer replaced wholesale — reads as NOT
+    recorded rather than passing on the status word alone.
+    """
+    try:
+        data = _load(path)
+    except Exception as exc:
+        logger.warning("[R-F3200] could not re-read the registry to verify: %s", exc)
+        return False
+    for r in data.get("reservations", []):
+        if not isinstance(r, dict) or r.get("r_number") != r_number:
+            continue
+        if r.get("status") != status:
+            return False
+        return all(r.get(k) == v for k, v in fields.items())
+    return False
+
+
+def _mark_status(
+    r_number: str,
+    status: str,
+    updates: dict[str, Any],
+    *,
+    verify: dict[str, Any],
+    path: Path | None = None,
+) -> None:
+    """R-F3200 — apply a status change and PROVE it landed.
+
+    THE GAP THIS CLOSES. R-F3187 made `reserve()` verify its write, but
+    `mark_shipped` and `mark_abandoned` were left on the identical unverified path:
+    save, return, never look again. Same `_file_lock`, same fail-open behaviour
+    (proceeds unlocked on timeout, on any OSError, and steals a 30s "stale" lock),
+    so a concurrent writer silently drops the status change.
+
+    This is not hypothetical. It has a MEASURED symptom in this repo: R-F3095 exists
+    because 372 reservations sat `in_progress` with `commit_sha: null` while their
+    code was committed and live. An unverified ship-mark that gets clobbered leaves
+    exactly that residue — the registry drift someone then has to reconcile against
+    git by hand.
+
+    And a false ship-mark is worse than a missing one: it attributes work to a commit
+    that does not contain it. That happened live on 2026-07-26, when a `ship R-F3183`
+    stamped a colliding reservation with an unrelated commit's SHA.
+    """
+    last_err: Exception | None = None
+    for attempt in range(_CLAIM_ATTEMPTS):
+        with _LOCK, _file_lock(path):
+            data = _load(path)
+            entry = next(
+                (r for r in data.get("reservations", [])
+                 if isinstance(r, dict) and r.get("r_number") == r_number),
+                None,
+            )
+            if entry is None:
+                # Not a write failure — the number was never reserved. Surface it
+                # unchanged so callers keep the existing KeyError contract.
+                raise KeyError(f"r_number not reserved: {r_number}")
+            entry["status"] = status
+            entry.update(updates)
+            try:
+                _save_atomic(data, path)
+            except RegistryWriteError as exc:
+                last_err = exc                     # retry: contention is transient
+                continue
+        if _status_is_recorded(r_number, status, path, **verify):
+            return
+        logger.warning(
+            "[R-F3200] %s -> %s did not survive a concurrent write (attempt %d/%d) — "
+            "retrying", r_number, status, attempt + 1, _CLAIM_ATTEMPTS,
+        )
+    raise RegistryWriteError(
+        f"could not record {r_number} as {status} after {_CLAIM_ATTEMPTS} attempts"
+        + (f": {last_err}" if last_err else "")
+        + " — the status change was NOT saved; do not treat it as recorded."
+    )
+
+
 def mark_shipped(
     r_number: str,
     commit_sha: str,
@@ -289,34 +371,26 @@ def mark_shipped(
     """Stamp an R-number as shipped with the commit SHA. Idempotent."""
     if not _R_NUMBER_RE.match(r_number):
         raise ValueError(f"invalid r_number: {r_number}")
-    with _LOCK, _file_lock(path):
-        data = _load(path)
-        for r in data.get("reservations", []):
-            if r["r_number"] == r_number:
-                r["status"] = "shipped"
-                r["commit_sha"] = commit_sha
-                r["shipped_at"] = _utcnow_iso()
-                _save_atomic(data, path)
-                logger.info("r_number_shipped: %s sha=%s", r_number, commit_sha)
-                return
-        raise KeyError(f"r_number not reserved: {r_number}")
+    _mark_status(
+        r_number, "shipped",
+        {"commit_sha": commit_sha, "shipped_at": _utcnow_iso()},
+        verify={"commit_sha": commit_sha},   # a ship stamped with the WRONG sha is a lie
+        path=path,
+    )
+    logger.info("r_number_shipped: %s sha=%s", r_number, commit_sha)
 
 
 def mark_abandoned(r_number: str, reason: str, *, path: Path | None = None) -> None:
     """Stamp an R-number as abandoned (work cancelled before ship)."""
     if not _R_NUMBER_RE.match(r_number):
         raise ValueError(f"invalid r_number: {r_number}")
-    with _LOCK, _file_lock(path):
-        data = _load(path)
-        for r in data.get("reservations", []):
-            if r["r_number"] == r_number:
-                r["status"] = "abandoned"
-                r["abandoned_at"] = _utcnow_iso()
-                r["abandon_reason"] = reason
-                _save_atomic(data, path)
-                logger.info("r_number_abandoned: %s reason=%s", r_number, reason)
-                return
-        raise KeyError(f"r_number not reserved: {r_number}")
+    _mark_status(
+        r_number, "abandoned",
+        {"abandoned_at": _utcnow_iso(), "abandon_reason": reason},
+        verify={"abandon_reason": reason},
+        path=path,
+    )
+    logger.info("r_number_abandoned: %s reason=%s", r_number, reason)
 
 
 # ── R-F3095 — THE REGISTRY DRIFTS BECAUSE NOTHING RECONCILES IT ─────────────
