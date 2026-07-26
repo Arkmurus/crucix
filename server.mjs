@@ -1593,6 +1593,83 @@ app.use((req, res, next) => {
 // page. 308 (not 301) so a monitor issuing HEAD/GET keeps its method.
 app.get('/status.html', (_req, res) => res.redirect(308, '/api/status'));
 
+// ── R-F3180/R-F3181: the vetting portal (UNAUTHENTICATED) ───────────────────
+//
+// An applicant or a nominated referee reaches this with a link — they have no
+// account, so requireAuth would make the feature impossible. Mounted HERE,
+// before the authenticated /api/aria catch-all, and pointed at the brain's
+// separate unauthenticated router (routes/vetting_portal.py). Its own tighter
+// rate-limit tier is applied in middleware/rateLimiter.mjs.
+//
+// The token travels in the PATH, never in a query string: query strings land in
+// access logs, Referer headers and analytics far more readily, and this token
+// is a bearer credential for a screening file.
+// The pretty URL an applicant actually receives. express.static cannot serve a
+// path segment as a token, so the page is served for any /vetting-portal/<token>
+// and reads the token from its own path.
+app.get(/^\/vetting-portal\/[^/]+$/, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  res.sendFile(join(PUBLIC_DIR, 'vetting-portal.html'));
+});
+
+app.use('/api/vetting-portal', express.json({ limit: '24mb' }));
+app.all(/^\/api\/vetting-portal\/(.+)$/, async (req, res) => {
+  if (!ARIA_SERVICE_URL) {
+    return res.status(503).json({ error: 'Service temporarily unavailable' });
+  }
+  const suffix = req.params[0];
+  try {
+    const r = await fetch(`${ARIA_SERVICE_URL}/api/vetting-portal/${suffix}`, {
+      method: req.method,
+      headers: _ariaHeaders(),
+      body: (req.method === 'POST' || req.method === 'PUT')
+        ? JSON.stringify(req.body || {}) : undefined,
+      signal: AbortSignal.timeout(60000),
+    });
+    const body = await r.json().catch(() => ({ error: 'invalid upstream response' }));
+    return res.status(r.status).json(body);
+  } catch (err) {
+    console.error('[vetting-portal] proxy error:', err?.message || err);
+    return res.status(502).json({ error: 'Service temporarily unavailable' });
+  }
+});
+
+// R-F3181 — QR for a case invite link. Rendered SERVER-SIDE as an SVG so the
+// token never has to be handed to a third-party QR service or a CDN script,
+// which for a link into a screening file would be an avoidable disclosure.
+// JWT-gated: only the screening officer mints and prints these.
+app.get('/api/vetting/qr', requireAuth, async (req, res) => {
+  const target = String(req.query.url || '').trim();
+  // Only ever encode a link to OUR portal. Without this the endpoint is an
+  // open QR generator that renders whatever a caller supplies, over our
+  // domain's trust.
+  const expected = `${_portalBase(req)}/vetting-portal/`;
+  if (!target.startsWith(expected)) {
+    return res.status(400).json({ error: 'refusing to encode a non-portal URL' });
+  }
+  try {
+    const QRCode = (await import('qrcode')).default;
+    const svg = await QRCode.toString(target, {
+      type: 'svg', errorCorrectionLevel: 'M', margin: 1, width: 240,
+    });
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'no-store');   // it encodes a credential
+    return res.send(svg);
+  } catch (err) {
+    console.error('[vetting-qr] render failed:', err?.message || err);
+    return res.status(500).json({ error: 'could not render QR code' });
+  }
+});
+
+function _portalBase(req) {
+  const configured = (process.env.PUBLIC_BASE_URL || '').trim().replace(/\/$/, '');
+  if (configured) return configured;
+  // X-Forwarded-Proto is set by fly's proxy; fall back to the request host.
+  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'https');
+  return `${proto}://${req.headers.host}`;
+}
+
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {

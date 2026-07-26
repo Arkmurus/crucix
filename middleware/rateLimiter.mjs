@@ -123,6 +123,19 @@ const TIERS = {
   },
 
   // Auth endpoints — strict to prevent brute force
+  // R-F3180 — the vetting portal is UNAUTHENTICATED and token-guessable in
+  // principle, so it gets its own tier rather than sitting on the anonymous
+  // 150/15min. Tokens are 32 random bytes (guessing is infeasible), but a
+  // tight cap turns any attempt into an obvious signal instead of background
+  // noise. Deliberately NO custom keyGenerator: under express-rate-limit v8 a
+  // hand-rolled one returned the Request object as the key and let every
+  // request through (R-F3070). The default IP key is correct here.
+  vettingPortal: {
+    windowMs:  15 * 60 * 1000,
+    max:       30,
+    message:   { error: 'Too many attempts. Please wait and try again.' },
+  },
+
   auth: {
     windowMs:  15 * 60 * 1000,
     max:       10,
@@ -204,6 +217,9 @@ export function applyRateLimiting(app) {
   app.use('/api/', speedLimiter);
 
   // Auth routes
+  // R-F3180 — before the generic tiers so the tighter cap wins.
+  app.use('/api/vetting-portal',            rateLimit(TIERS.vettingPortal));
+
   app.use('/api/auth/login',                rateLimit(TIERS.auth));
   app.use('/api/auth/register',             rateLimit(TIERS.auth));
   app.use('/api/auth/verify-2fa',           rateLimit(TIERS.auth));

@@ -629,6 +629,10 @@ from .routes.aria import router as aria_router, require_aria_token
 # than more lines in the 28k-line routes/aria.py; it reuses that module's
 # _router_auth_dep object so the two cannot drift apart on auth.
 from .routes.vetting import router as vetting_router
+# R-F3180 — the portal router is UNAUTHENTICATED by design (applicant/referee
+# links). Kept a separate module so "is this endpoint authenticated?" is
+# answered by which file it lives in, not by reading a decorator list.
+from .routes.vetting_portal import router as vetting_portal_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -4525,6 +4529,7 @@ async def _limit_body_size(request, call_next):
 # Routes
 app.include_router(aria_router)
 app.include_router(vetting_router)   # R-F3138
+app.include_router(vetting_portal_router)   # R-F3180 (unauthenticated)
 
 # R-F2278: fail-loud (non-fatal) audit for duplicate (method, path) registrations.
 # FastAPI serves the first-registered route for a colliding path, so a second

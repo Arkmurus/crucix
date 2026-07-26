@@ -950,6 +950,102 @@ async def vetting_subject_access_ep(case_id: str, user_id: str = ""):
     }
 
 
+class InviteRequest(BaseModel):
+    kind: str = "APPLICANT"
+    entry_id: str = ""
+    referee_name: str = ""
+    referee_email: str = ""
+    ttl_days: int = 14
+
+
+@router.post("/case/{case_id}/invites")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_create_invite_ep(
+    case_id: str, body: InviteRequest, user_id: str = "",
+):
+    """R-F3178 — mint a scoped upload link for an applicant or a referee.
+
+    The plaintext token is returned ONCE, here, and is never stored or
+    re-displayable. That is what makes a database leak not also a link leak —
+    so the caller must send it now; there is no "show me that link again".
+    """
+    import asyncio
+
+    from ..vetting.invites import InviteError, InviteKind, mint
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    case = await asyncio.to_thread(store.get, tenant, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    try:
+        kind = InviteKind(body.kind.strip().upper())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_kind",
+                    "accepted": [k.value for k in InviteKind]},
+        ) from exc
+
+    if kind is InviteKind.REFEREE and not any(
+        e.entry_id == body.entry_id for e in case.career
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "unknown_entry",
+                    "message": "A referee link must name a career entry that "
+                               "exists on this case."},
+        )
+
+    try:
+        invite, token = mint(
+            tenant_id=tenant, case_id=case_id, kind=kind,
+            now=datetime.now(UTC), ttl_days=body.ttl_days,
+            entry_id=body.entry_id, referee_name=body.referee_name,
+            referee_email=body.referee_email,
+        )
+    except InviteError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_invite", "message": str(exc)},
+        ) from exc
+
+    await asyncio.to_thread(store.save_invite, invite)
+    wire_success(module=_MODULE, summary=f"vetting invite minted ({kind.value})")
+    return {**invite.as_dict(), "token": token}
+
+
+@router.get("/case/{case_id}/invites")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_list_invites_ep(case_id: str, user_id: str = ""):
+    """Existing links for this case. Never includes a token."""
+    import asyncio
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    invites = await asyncio.to_thread(store.list_invites, tenant, case_id)
+    wire_success(module=_MODULE, summary=f"listed {len(invites)} vetting invites")
+    return {"invites": [i.as_dict() for i in invites], "count": len(invites)}
+
+
+@router.delete("/case/{case_id}/invites/{invite_id}")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_revoke_invite_ep(
+    case_id: str, invite_id: str, user_id: str = "",
+):
+    import asyncio
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    revoked = await asyncio.to_thread(
+        store.revoke_invite, tenant, invite_id, datetime.now(UTC).isoformat())
+    if not revoked:
+        raise HTTPException(status_code=404, detail="invite not found")
+    wire_success(module=_MODULE, summary="vetting invite revoked")
+    return {"invite_id": invite_id, "revoked": True}
+
+
 @router.get("/retention")
 @fail_wire(module=_MODULE, gap_type="engine_failure")
 async def vetting_retention_ep(as_of: str | None = None, user_id: str = ""):

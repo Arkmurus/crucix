@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Secure document upload</title>
+  <!-- R-F3180 — this page is reached from a link or a scanned QR code by
+       someone with no account, usually on a phone. It carries no navigation,
+       no account menu and no product marketing: it has exactly one job. -->
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/aria.css?v=15">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      background: var(--sc-bg); margin: 0; color: var(--sc-text);
+      font-family: 'gorditaregular', 'Segoe UI', system-ui, -apple-system, sans-serif;
+      line-height: 1.65;
+    }
+    .pt-shell { max-width: 560px; margin: 0 auto; padding: 32px 20px 64px; }
+    .pt-brand { font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
+                color: var(--sc-prime); font-weight: 700; margin-bottom: 18px; }
+    .pt-card { background: #fff; border: 1px solid var(--sc-border);
+               border-radius: 14px; padding: 24px; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
+    .pt-title { font-size: 22px; font-weight: 800; color: var(--sc-heading);
+                margin: 0 0 6px; letter-spacing: -.02em; }
+    .pt-sub { font-size: 14px; color: var(--sc-muted); margin: 0 0 20px; }
+    .pt-facts { display: grid; gap: 12px; margin: 0 0 22px; padding: 14px 16px;
+                background: #f5f4ef; border: 1px solid var(--sc-border); border-radius: 10px; }
+    .pt-facts div { display: flex; justify-content: space-between; gap: 14px; font-size: 13.5px; }
+    .pt-facts dt { color: var(--sc-muted); font-weight: 600; }
+    .pt-facts dd { margin: 0; color: var(--sc-heading); font-weight: 700; text-align: right; }
+
+    /* Big, obviously-tappable target — most people arrive here on a phone. */
+    .pt-drop {
+      border: 2px dashed var(--sc-border-strong); border-radius: 12px;
+      padding: 30px 20px; text-align: center; cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+    .pt-drop:hover, .pt-drop.over { border-color: var(--sc-prime); background: var(--sc-prime-soft); }
+    .pt-drop i { font-size: 30px; color: var(--sc-prime); }
+    .pt-drop p { margin: 8px 0 0; font-size: 14px; font-weight: 600; color: var(--sc-heading); }
+    .pt-drop span { font-size: 12.5px; color: var(--sc-muted); }
+
+    .pt-list { margin: 18px 0 0; padding: 0; list-style: none; }
+    .pt-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+               border: 1px solid var(--sc-border); border-radius: 9px; margin-bottom: 8px;
+               font-size: 13px; }
+    .pt-item i { flex-shrink: 0; }
+    .pt-ok i { color: #16a34a; }
+    .pt-bad { border-color: rgba(220,38,38,.35); background: rgba(220,38,38,.05); color: #b91c1c; }
+    .pt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .pt-note { font-size: 12px; color: var(--sc-muted); margin-top: 22px; line-height: 1.6; }
+    .pt-state { padding: 22px; text-align: center; color: var(--sc-muted); font-size: 14px; }
+    .pt-dead { background: rgba(120,113,108,.08); border: 1px solid rgba(120,113,108,.3);
+               border-radius: 12px; padding: 24px; text-align: center; }
+    .pt-dead i { font-size: 32px; color: #78716c; }
+    .pt-dead h2 { font-size: 17px; color: var(--sc-heading); margin: 10px 0 6px; }
+    .pt-dead p { font-size: 13.5px; color: var(--sc-muted); margin: 0; }
+  </style>
+</head>
+<body>
+<main class="pt-shell">
+  <div class="pt-brand">ARIA · Secure upload</div>
+  <div id="root" class="pt-card">
+    <div class="pt-state">Checking your link…</div>
+  </div>
+  <p class="pt-note">
+    This link is private to you. Please do not forward it. Documents you upload
+    are encrypted and shared only with the organisation carrying out this
+    screening.
+  </p>
+</main>
+
+<script>
+// R-F3180 — the portal loader.
+//
+// Deliberately standalone: no app.js, no sidebar, no auth. Pulling the app
+// bundle onto an unauthenticated page would ship the whole product surface —
+// and its API client — to anyone holding a link.
+//
+// The token is read from the PATH (/vetting-portal/<token>), not a query
+// string: query strings leak into access logs, Referer headers and analytics,
+// and this token is a bearer credential for a screening file.
+(() => {
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const root = document.getElementById('root');
+  const token = (location.pathname.split('/vetting-portal/')[1] || '').split(/[?#]/)[0];
+
+  // Every failure renders the SAME message. The server already refuses to say
+  // whether a link expired, was withdrawn, or never existed — telling the
+  // holder more here would undo that: "withdrawn" confirms it was once real,
+  // which confirms a named person is being screened.
+  const dead = () => {
+    root.innerHTML =
+      '<div class="pt-dead"><i class="bi bi-link-45deg"></i>'
+      + '<h2>This link is not valid</h2>'
+      + '<p>It may have expired or been withdrawn. '
+      + 'Please ask your contact for a new one.</p></div>';
+  };
+
+  const upload = async (file, listEl) => {
+    const row = document.createElement('li');
+    row.className = 'pt-item';
+    row.innerHTML = '<i class="bi bi-arrow-repeat"></i>'
+      + '<span class="pt-name">' + esc(file.name) + '</span>'
+      + '<span class="pt-status">Uploading…</span>';
+    listEl.appendChild(row);
+    try {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+      const r = await fetch(`/api/vetting-portal/${encodeURIComponent(token)}/documents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, content_base64: btoa(bin) }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        row.className = 'pt-item pt-bad';
+        row.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i>'
+          + '<span class="pt-name">' + esc(file.name) + '</span>'
+          + '<span>' + esc(body?.detail?.message || 'Not uploaded') + '</span>';
+        return;
+      }
+      // Confirms ARRIVAL only. What the system made of the document is the
+      // screening organisation's, not the uploader's.
+      row.className = 'pt-item pt-ok';
+      row.innerHTML = '<i class="bi bi-check-circle-fill"></i>'
+        + '<span class="pt-name">' + esc(file.name) + '</span>'
+        + '<span>Received</span>';
+    } catch (e) {
+      row.className = 'pt-item pt-bad';
+      row.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i>'
+        + '<span class="pt-name">' + esc(file.name) + '</span>'
+        + '<span>Upload failed</span>';
+    }
+  };
+
+  const render = (data) => {
+    const c = data.context || {};
+    const isReferee = data.kind === 'REFEREE';
+    const facts = isReferee
+      ? [['Person', c.applicant_name], ['Organisation', c.organisation],
+         ['Period', `${esc(c.period_from)} → ${esc(c.period_to)}`]]
+      : [['Name', c.applicant_name], ['Reference', c.case_reference]];
+
+    root.innerHTML =
+      '<h1 class="pt-title">' + (isReferee ? 'Confirm an engagement' : 'Upload your documents') + '</h1>'
+      + '<p class="pt-sub">' + esc(isReferee ? c.asked_to_confirm : c.what_to_upload) + '</p>'
+      + '<dl class="pt-facts">'
+      + facts.map(([k, v]) => '<div><dt>' + esc(k) + '</dt><dd>' + esc(v) + '</dd></div>').join('')
+      + '</dl>'
+      + (isReferee && c.note ? '<p class="pt-sub">' + esc(c.note) + '</p>' : '')
+      + '<div class="pt-drop" id="drop" tabindex="0" role="button"'
+      + ' aria-label="Choose files to upload">'
+      + '<i class="bi bi-cloud-arrow-up"></i>'
+      + '<p>Tap to choose files, or drag them here</p>'
+      + '<span>PDF, photos or documents · up to 16MB each</span>'
+      + '<input type="file" id="picker" multiple hidden></div>'
+      + '<ul class="pt-list" id="list"></ul>';
+
+    const drop = document.getElementById('drop');
+    const picker = document.getElementById('picker');
+    const list = document.getElementById('list');
+    const take = (files) => [...files].forEach((f) => upload(f, list));
+
+    drop.addEventListener('click', () => picker.click());
+    drop.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); picker.click(); }
+    });
+    picker.addEventListener('change', () => { take(picker.files); picker.value = ''; });
+    ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => {
+      e.preventDefault(); drop.classList.add('over');
+    }));
+    ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => {
+      e.preventDefault(); drop.classList.remove('over');
+    }));
+    drop.addEventListener('drop', (e) => take(e.dataTransfer.files));
+  };
+
+  if (!token) { dead(); return; }
+  fetch(`/api/vetting-portal/${encodeURIComponent(token)}`)
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error('invalid'))))
+    .then(render)
+    .catch(dead);
+})();
+</script>
+</body>
+</html>
