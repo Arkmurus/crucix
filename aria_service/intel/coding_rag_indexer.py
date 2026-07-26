@@ -94,6 +94,8 @@ _failures_collection = None
 _structure_collection = None
 _constitutional_collection = None
 _CONST_SYNCED_VERSION = None  # R-F2130 — last constitutional-rules version synced this process
+_CONST_LAZY_SYNC_TRIED = False  # R-F3099 — one lazy populate attempt per process (see below)
+_CONST_SYNC_LOCK = threading.Lock()  # R-F3099 — clear+re-index must be atomic across callers
 _init_lock = threading.Lock()
 _init_done = False
 
@@ -501,6 +503,14 @@ def sync_constitutional_rules() -> dict:
     rule's text changes — content-hashed ids would otherwise linger). Idempotent
     within a process via a version guard. BLOCKING (chromadb + encode) — callers
     in async contexts MUST wrap this in asyncio.to_thread(). Never raises.
+
+    R-F3099 — SERIALISED. This clears the collection and then re-indexes it, which
+    is only safe as an atomic pair. Two concurrent callers could both pass the
+    version guard and interleave delete/add, leaving the collection short of rules
+    or empty — the exact state R-F2130 existed to prevent. Boot (`main.py:1423`)
+    and the on-demand populate in `query_constitutional_constraints` are genuinely
+    concurrent on the server, so the lock lives HERE, in the function that mutates,
+    rather than in one careful caller. Same lesson as R-F3085.
     """
     global _CONST_SYNCED_VERSION
     if not _ensure():
@@ -513,31 +523,38 @@ def sync_constitutional_rules() -> dict:
         logger.warning("[CodingRAG] R-F2130 rules import failed: %s", e)
         return {"ok": False, "reason": f"rules import failed: {e}"}
 
-    try:
-        existing_count = _constitutional_collection.count()
-    except Exception:  # noqa: BLE001
-        existing_count = 0
-    if _CONST_SYNCED_VERSION == version and existing_count > 0:
-        return {"ok": True, "skipped": True, "version": version, "count": existing_count}
+    with _CONST_SYNC_LOCK:
+        # Re-read under the lock: a racing caller may have completed the sync
+        # while this one waited, in which case there is nothing left to do.
+        try:
+            existing_count = _constitutional_collection.count()
+        except Exception:  # noqa: BLE001
+            existing_count = 0
+        if _CONST_SYNCED_VERSION == version and existing_count > 0:
+            return {"ok": True, "skipped": True, "version": version, "count": existing_count}
 
-    # Clear stale docs first so an edited rule can't leave an orphaned old version.
-    try:
-        existing = _constitutional_collection.get()
-        ids = (existing or {}).get("ids", []) or []
-        if ids:
-            _constitutional_collection.delete(ids=ids)
-    except Exception as e:  # noqa: BLE001
-        logger.debug("[CodingRAG] R-F2130 clear failed (continuing): %s", e)
+        # Clear stale docs first so an edited rule can't leave an orphaned old version.
+        try:
+            existing = _constitutional_collection.get()
+            ids = (existing or {}).get("ids", []) or []
+            if ids:
+                _constitutional_collection.delete(ids=ids)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[CodingRAG] R-F2130 clear failed (continuing): %s", e)
 
-    try:
-        n = index_constitutional_rules(rules)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("[CodingRAG] R-F2130 index failed: %s", e)
-        return {"ok": False, "reason": f"index failed: {e}"}
+        try:
+            n = index_constitutional_rules(rules)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[CodingRAG] R-F2130 index failed: %s", e)
+            return {"ok": False, "reason": f"index failed: {e}"}
 
-    _CONST_SYNCED_VERSION = version
-    logger.info("[CodingRAG] R-F2130 synced %d constitutional rules (version %s)", n, version)
-    return {"ok": True, "indexed": n, "version": version}
+        _CONST_SYNCED_VERSION = version
+        # Report INSIDE the lock. `n` is bound only on the success path here, and
+        # §9's F28 outage was exactly this shape — a local read on a path where it
+        # was never assigned. Keeping the read adjacent to the write means a future
+        # edit cannot silently turn this into an UnboundLocalError on the boot path.
+        logger.info("[CodingRAG] R-F2130 synced %d constitutional rules (version %s)", n, version)
+        return {"ok": True, "indexed": n, "version": version}
 
 
 # ── Public API: Querying ──────────────────────────────────────────────────────
@@ -682,9 +699,37 @@ def query_constitutional_constraints(query: str, top_k: int = 3, min_similarity:
 
     NOTE: chromadb.query() is blocking. Callers in async contexts MUST
     wrap this in asyncio.to_thread().
+
+    R-F3099 — this must POPULATE, not just read. R-F2130 correctly identified that
+    `coding_constitutional` was built but never filled, and wired the fix into the
+    FastAPI lifespan (`main.py:1423`). But the collection's other first-class
+    consumer is CLAUDE.md §20's binding pre-code priming step, which runs from the
+    CLI — where the server lifespan never executes. So the local collection stayed
+    at 0 rules, `_ensure()` returned True because the collection EXISTS, and the
+    binding step returned `[]` on every session without ever erroring. That is the
+    R-F2623 failure class exactly: a mandatory step certified by an absence.
+
+    The root fix is not "ask the caller to sync first" — that is the band-aid §1
+    forbids, and it would leave every future consumer to rediscover the same trap.
+    Populate on demand instead, so being grounded is a property of the QUERY rather
+    than of who booted. Guarded three ways: only when the collection is genuinely
+    empty, at most once per process, and never raising — a sync failure degrades to
+    the previous behaviour (empty list) rather than breaking the caller.
     """
+    global _CONST_LAZY_SYNC_TRIED
+
     if not _ensure():
         return []
+
+    if not _CONST_LAZY_SYNC_TRIED:
+        try:
+            if _constitutional_collection.count() == 0:
+                _CONST_LAZY_SYNC_TRIED = True
+                res = sync_constitutional_rules()
+                logger.info("[R-F3099] lazy constitutional sync on empty collection: %s", res)
+        except Exception as e:  # noqa: BLE001
+            _CONST_LAZY_SYNC_TRIED = True
+            logger.warning("[R-F3099] lazy constitutional sync failed (non-fatal): %s", e)
 
     try:
         results = _constitutional_collection.query(
