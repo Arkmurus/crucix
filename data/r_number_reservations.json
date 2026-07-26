@@ -25387,9 +25387,10 @@
       "title": "sanctions CLEAN names five authorities it cannot evidence and claims clearance",
       "claimed_at": "2026-07-26T14:48:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9353311e",
+      "notes": null,
+      "shipped_at": "2026-07-26T14:52:11Z"
     }
   ]
 }
