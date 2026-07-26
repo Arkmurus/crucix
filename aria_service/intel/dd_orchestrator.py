@@ -10831,6 +10831,52 @@ def compose_decision_bluf(readiness: dict, name: str) -> dict:
             ],
         }
 
+    # ── R-F3173: ALL FIVE ANSWERED, but the reliance bar is not met ──────────
+    #
+    # First reached live on Babcock (dd_3352a8116187) once R-F3166 let the sanctions
+    # screen run: answered 5/5, completion_pct 100, blockers null, evidence_grade "B",
+    # clearance_ready false. The generic branch below then produced:
+    #
+    #   "🟡 NOT CLEARED — ... has no blocking risk in the checks that completed, BUT
+    #    all 5/5 decision-critical questions are answered, BUT the evidence behind
+    #    them does not yet meet the reliance bar. Unresolved: decision-critical
+    #    coverage is incomplete."
+    #
+    # Two defects in one sentence. It is ungrammatical (`_coverage_clause` already
+    # carries its own "but"), and — far worse — it tells the customer COVERAGE is
+    # incomplete when coverage is 100%: `labels` is empty, so `open_clause` fell
+    # through to its placeholder. The real gap is evidence STRENGTH (grade B, single
+    # -source corroboration), which has a completely different remedy from a missing
+    # check. Naming the wrong obstacle sends the reader to fix the wrong thing —
+    # the R-F3125 defect class.
+    #
+    # This is the branch nothing had reached before, because no DD had ever answered
+    # all five questions.
+    if not unanswered:
+        _grade = str(readiness.get("evidence_grade") or "?").strip() or "?"
+        return {
+            "bottom_line": (
+                f"🟡 NOT CLEARED — {name} has no blocking risk in the checks that "
+                f"completed, and ALL {readiness.get('required', 5)} decision-critical "
+                f"questions are ANSWERED. Coverage is complete; what falls short is "
+                f"evidence STRENGTH — corroboration grade {_grade}, below the A "
+                f"required to rely on this report for counterparty clearance. Several "
+                f"claims rest on a single source. This is a corroboration gap, NOT a "
+                f"missing check."
+            ),
+            "recommendation": (
+                "Do not rely on this report for clearance on its own. Obtain a second "
+                "independent reputable source for the single-sourced claims, then "
+                "re-run — every decision-critical question is otherwise answered."
+            ),
+            "next_actions": [
+                "Corroborate single-sourced claims with a second independent "
+                "reputable source to raise the evidence grade to A",
+                "Re-run the DD once corroboration is attached",
+                "Apply regular sanctions-list re-screen on contract renewal",
+            ],
+        }
+
     open_clause = (
         "; ".join(labels[:3]) + (f" (+{len(labels) - 3} more)" if len(labels) > 3 else "")
         if labels else "decision-critical coverage is incomplete"
