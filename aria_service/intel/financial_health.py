@@ -550,6 +550,81 @@ def _issuer_domain_matches(url: str, name: str) -> bool:
     return any(t in flat for t in toks)
 
 
+# R-F3135: queries that surface the ISSUER'S OWN publication.
+#
+# Deliberately NO `(a OR b OR c)` block. The generic footprint query
+# (`_search_financial_footprint`) uses one, and per R-F3051..R-F3056 Brave returns
+# HTTP 200 while SILENTLY DROPPING the quoted phrase when an OR-block is present —
+# so the single search feeding this route was both untargeted AND degraded.
+#
+# Ordered most-specific first; the first query that yields an issuer-domain document
+# wins, so the common case costs one search.
+_ISSUER_DOC_QUERIES = (
+    '"{name}" annual report and accounts filetype:pdf',
+    '"{name}" annual report filetype:pdf',
+    '"{name}" investor relations annual report',
+)
+
+
+async def _search_issuer_domain_documents(name: str, limit: int = 10) -> list:
+    """R-F3135 — find the issuer's OWN report. Returns only issuer-domain hits.
+
+    THE DEFECT, proven by live probe against Babcock International Group plc
+    (2026-07-26). `_search_financial_footprint` returned four sources and NOT ONE was
+    the issuer's own site:
+
+        wsj.com/market-data/quotes/UK/XLON/BAB/financials      G1: False
+        companycheck.co.uk/company/02342138/...                G1: False
+        financialfilings.com/companies/babcock-...             G1: False
+        uk.advfn.com/stock-market/london/babcock-BAB/financials G1: False
+
+    G1 (`_issuer_domain_matches`) then correctly rejected all four — a third party's
+    summary of a company's accounts is not the company's accounts. So a route NAMED
+    "issuer report" could never fire for ANY subject, and every listed group read
+    "financials unverified" regardless of budget. R-F3131 gave this op 150s; time was
+    never the constraint. Babcock's actual accounts sit on babcockinternational.com
+    and were never searched for.
+
+    The gate was right; the SEARCH never looked in the right place. This does not
+    relax G1 — it feeds it candidates that can pass.
+    """
+    from . import web_search
+
+    out: list = []
+    seen: set = set()
+    for tmpl in _ISSUER_DOC_QUERIES:
+        try:
+            hits = await web_search.search(tmpl.format(name=name), max_results=limit)
+        except Exception as e:                     # never let search kill the route
+            logger.debug("[R-F3135] issuer-doc search failed (%s): %s", tmpl, e)
+            continue
+        for h in hits or []:
+            # web_search.search returns SearchResult DATACLASSES, not dicts — an
+            # `isinstance(h, dict)` filter here silently drops every hit and the route
+            # reports "no issuer document" with a perfectly healthy search behind it.
+            # Caught by live probe before shipping; downstream
+            # (`extract_issuer_financials`) calls .get(), so normalise to dicts.
+            if hasattr(h, "to_dict"):
+                try:
+                    h = h.to_dict()
+                except Exception:
+                    h = {"url": getattr(h, "url", ""), "title": getattr(h, "title", ""),
+                         "snippet": getattr(h, "snippet", "")}
+            elif not isinstance(h, dict):
+                h = {"url": getattr(h, "url", ""), "title": getattr(h, "title", ""),
+                     "snippet": getattr(h, "snippet", "")}
+            url = str(h.get("url") or h.get("link") or "").strip()
+            # memory:// hits are ARIA's own RAG, not the issuer publishing (R-F2346).
+            if not url or url.startswith("memory://") or url in seen:
+                continue
+            seen.add(url)
+            if _issuer_domain_matches(url, name):
+                out.append(h)
+        if out:
+            break
+    return out
+
+
 def _arithmetic_reconciles(figures: dict) -> tuple[bool, str]:
     """R-F3124 G4 — does the balance sheet balance?
 
@@ -1230,6 +1305,24 @@ async def _enrich_with_issuer_report(
                 sources = fp.get("sources") or []
         except Exception as e:
             logger.debug("[R-F3128] footprint search failed: %s", e)
+    # R-F3135 — the footprint search returns AGGREGATORS (wsj, advfn, companycheck),
+    # every one of which G1 correctly rejects, so this route could never fire. Search
+    # the issuer's own domain explicitly and put those documents first; G1 is unchanged.
+    try:
+        _issuer_srcs = await _search_issuer_domain_documents(name)
+    except Exception as e:
+        logger.debug("[R-F3135] issuer-domain search failed: %s", e)
+        _issuer_srcs = []
+    if _issuer_srcs:
+        _seen_urls = {str((s or {}).get("url") or "") for s in _issuer_srcs}
+        sources = _issuer_srcs + [
+            s for s in sources if str((s or {}).get("url") or "") not in _seen_urls
+        ]
+        result["issuer_document_search"] = {
+            "found": len(_issuer_srcs),
+            "top": str((_issuer_srcs[0] or {}).get("url") or "")[:300],
+        }
+
     if not sources:
         return False
     llm = _dd_llm_for_capability()
