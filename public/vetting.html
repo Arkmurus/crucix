@@ -639,14 +639,59 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
       if (r.ok) caseData = await r.json();
     } catch (e) { /* the dialog still works without the period list */ }
 
+    // R-F3206 - the applicant already nominated a referee on the application
+    // form; the officer should not re-key it. Carry the nomination alongside
+    // each period so selecting one fills the recipient.
+    const refByEntry = {};
     const entries = ((caseData && caseData.career) || []).map(function (e) {
-      return {
-        value: e.entry_id,
-        label: (e.organisation || e.entry_type) + ' (' + e.start + ' \u2192 ' + (e.end || 'present') + ')',
-      };
+      const nomName = (e.referee_name || '').trim();
+      const nomTo = (e.referee_email || '').trim() || (e.referee_phone || '').trim();
+      refByEntry[e.entry_id] = { name: nomName, to: nomTo, title: (e.referee_title || '').trim() };
+      const base = (e.organisation || e.entry_type) + ' (' + e.start + ' \u2192 ' + (e.end || 'present') + ')';
+      // Say which periods have nobody nominated, so the officer sees it BEFORE
+      // choosing rather than after, when the recipient box is blank.
+      const tag = nomName
+        ? ' \u2014 ' + nomName + (nomTo ? '' : ' (no contact on file)')
+        : ' \u2014 no referee nominated';
+      return { value: e.entry_id, label: base + tag };
     });
 
-    const values = await Modal.form({
+    // R-F3206 - auto-fill the recipient from the nominated referee.
+    //
+    // Scoped to THIS page on purpose. Modal.form (public/js/app.js) has no
+    // change hook, and adding one would touch a component every page's dialogs
+    // use, on a tier with no CI. The rendered fields carry stable `name`
+    // attributes, so the wiring can attach to them from here and the shared
+    // component is untouched.
+    //
+    // NEVER clobbers typing: it writes only when the box is empty or still holds
+    // the value this wiring last put there. An officer who overtypes for a gap
+    // referee keeps what they typed even if they change period afterwards.
+    const _wireRefereeAutofill = function () {
+      const sel = document.querySelector('select[name="entry_id"]');
+      const nameEl = document.querySelector('input[name="referee_name"]');
+      const toEl = document.querySelector('input[name="to"]');
+      const kindEl = document.querySelector('select[name="kind"]');
+      if (!sel || !nameEl || !toEl) return false;
+      let auto = { name: '', to: '' };
+      const apply = function () {
+        if (kindEl && kindEl.value !== 'REFEREE') return;
+        const nom = refByEntry[sel.value];
+        if (!nom) return;
+        if (!nameEl.value || nameEl.value === auto.name) {
+          nameEl.value = nom.name; auto.name = nom.name;
+        }
+        if (!toEl.value || toEl.value === auto.to) {
+          toEl.value = nom.to; auto.to = nom.to;
+        }
+      };
+      sel.addEventListener('change', apply);
+      if (kindEl) kindEl.addEventListener('change', apply);
+      apply();
+      return true;
+    };
+
+    const _formPromise = Modal.form({
       title: 'Share a secure upload link',
       message: 'Case ' + caseId + '. The link is shown once \u2014 copy or send it now.',
       icon: 'bi-qr-code',
@@ -661,7 +706,8 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
         { name: 'entry_id', label: 'Which period? (referee links only)', type: 'select',
           options: [{ value: '', label: '\u2014' }].concat(entries),
           help: 'Required for a referee link. Nothing else on the file is shared with them.' },
-        { name: 'referee_name', label: 'Recipient name', type: 'text' },
+        { name: 'referee_name', label: 'Recipient name', type: 'text',
+          help: 'Auto-filled from the referee the applicant nominated for the selected period. Overtype it for a gap referee, or where none was nominated.' },
         { name: 'channel', label: 'How to send', type: 'select', required: true,
           options: [
             { value: 'link', label: 'Just give me the link and QR code' },
@@ -688,6 +734,12 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
         return errs;
       },
     });
+    // Attach once the dialog's DOM exists. Modal.form renders synchronously
+    // before it awaits, so the first attempt normally succeeds; the timeout is
+    // the fallback if that ever changes. Failure is silent and harmless — the
+    // officer simply types the recipient as they did before.
+    if (!_wireRefereeAutofill()) setTimeout(_wireRefereeAutofill, 0);
+    const values = await _formPromise;
     if (!values) return;
 
     let body;

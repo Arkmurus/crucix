@@ -186,6 +186,52 @@ def evidence_findings(case: VettingCase, pack: ScreeningPack, as_of: date) -> li
     return out
 
 
+def referee_findings(case: VettingCase, pack: ScreeningPack, as_of: date) -> list[Finding]:
+    """R-F3206 — a period that needs a reference but names no referee.
+
+    The applicant nominates referees on the application form. Where that
+    nomination is missing, the vetting officer has to source one, and nothing
+    told them which periods were short — they discovered it when they opened the
+    share dialog and had nobody to type in. That is a silent, per-period gap, so
+    it is reported per period, like every other evidence gap.
+
+    Which periods need one is taken from the PACK, not hardcoded: a period needs
+    a referee when the evidence its type accepts includes a document the pack
+    treats as a direct reference. So a jurisdiction pack that does not use
+    references produces no findings here, and unemployment or travel periods —
+    which no referee confirms — are never flagged.
+
+    ACTION, never BLOCKER: the officer can always name a referee by hand. A
+    missing nomination is work to do, not a reason the file cannot proceed.
+    """
+    direct = set(pack.direct_reference_documents)
+    if not direct:
+        return []
+    out: list[Finding] = []
+    for e in case.career:
+        if e.state == VerificationState.VERIFIED:
+            continue                      # already confirmed; no referee needed
+        accepted = set(pack.accepted_evidence.get(e.entry_type, []))
+        if not (accepted & direct):
+            continue                      # this kind of period is not referee-confirmed
+        if e.has_nominated_referee():
+            continue
+        ref = pack.evidence_references.get(e.entry_type, pack.pack_id)
+        _partial = (e.referee_name or "").strip()
+        out.append(Finding(
+            "REFEREE_NOT_NOMINATED", Severity.ACTION, ref,
+            f"'{e.organisation or e.entry_type.value}' "
+            f"({e.start.isoformat()}-{(e.end or as_of).isoformat()}): "
+            + (f"referee '{_partial}' has no email or phone on file, so no link "
+               f"can be sent to them."
+               if _partial else
+               "no referee was nominated on the application form.")
+            + " Add the nominated contact to this period, or name one manually "
+              "when sharing.",
+            entry_id=e.entry_id))
+    return out
+
+
 # ------------------------------------------------------------- checklist --
 
 def checklist_findings(case: VettingCase, pack: ScreeningPack) -> list[Finding]:
@@ -392,6 +438,7 @@ def assess(case: VettingCase, pack: ScreeningPack, as_of: date) -> dict:
         + checklist_findings(case, pack)
         + gap_findings(case, pack, as_of)
         + evidence_findings(case, pack, as_of)
+        + referee_findings(case, pack, as_of)   # R-F3206
         + sighting_findings(case, pack)
         + signoff_findings(case, pack)
         + deadline_findings(case, pack, as_of)

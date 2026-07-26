@@ -142,6 +142,38 @@ class CareerEntry(BaseModel):
     supporting_documents: list[str] = Field(default_factory=list)
     notes: str = ""
 
+    # ── R-F3206 — the referee the APPLICANT nominated for this period ────────
+    #
+    # The share dialog made the vetting officer TYPE the referee's name and
+    # address, when the applicant had already nominated them on the application
+    # form. Re-keying data the file already holds is how transcription errors and
+    # mis-sent referee links happen — a referee link exposes one engagement, so
+    # sending it to a mistyped address is a disclosure, not a typo.
+    #
+    # Nominated details belong on the PERIOD, not on the share request: a period
+    # is what a referee confirms, one referee can cover several periods, and the
+    # nomination has to survive the dialog being cancelled and reopened.
+    #
+    # All optional. A gap period (unemployment, travel) legitimately has no
+    # nominated referee — the officer names one by hand, and
+    # `periods_without_nominated_referee` surfaces those as their own action
+    # instead of leaving them to be noticed.
+    referee_name: str | None = None
+    referee_email: str | None = None
+    referee_phone: str | None = None
+    referee_title: str | None = None
+
+    def has_nominated_referee(self) -> bool:
+        """True when the applicant named someone AND left a way to reach them.
+
+        A name with no address cannot be sent a link, so it is not a usable
+        nomination — reporting it as one would recreate the manual re-keying this
+        exists to remove.
+        """
+        if not (self.referee_name or "").strip():
+            return False
+        return bool((self.referee_email or "").strip() or (self.referee_phone or "").strip())
+
     @model_validator(mode="after")
     def _dates_sane(self):
         if self.end is not None and self.end < self.start:
