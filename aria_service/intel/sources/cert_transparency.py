@@ -64,6 +64,7 @@ from urllib.parse import quote_plus
 import httpx
 
 from ..engine_wiring import wired
+from . import _common          # R-F3105 — outcome vocabulary
 
 logger = logging.getLogger("aria.intel.sources.cert_transparency")
 
@@ -147,6 +148,7 @@ async def search_certs(
     limit: int = _MAX_RESULTS,
     timeout: float = _DEFAULT_TIMEOUT,
     use_cache: bool = True,
+    _outcome: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Return certificate-transparency records matching `term` as a
     LIKE substring on the cert common-name / SAN fields.
@@ -156,15 +158,28 @@ async def search_certs(
       - search_certs("acme.io") → certs covering acme.io + subdomains
 
     Never raises. Failures degrade to empty list with a debug log.
+
+    R-F3105 — that degradation is a FALSE CLEAN downstream, so the reason is now
+    recorded. Pass `_outcome={}` and it is filled with `{outcome, error}`; the list
+    contract and every existing call site are untouched. `search_certs_result()` is
+    the supported way to read it.
     """
+    def _note(outcome: str, err: str = "") -> None:
+        if _outcome is not None:
+            _outcome["outcome"] = outcome
+            if err:
+                _outcome["error"] = err[:200]
+
     q = _normalise_query(term)
     if not q or len(q) < 3:
+        _note(_common.OUTCOME_SKIPPED, "query too short")
         return []
 
     cache_key = f"{q}:{limit}"
     if use_cache:
         cached = _cache_get(cache_key)
         if cached is not None:
+            _note(_common.OUTCOME_OK if cached else _common.OUTCOME_EMPTY)
             return cached[:limit]
 
     # crt.sh's LIKE syntax: %term% means "anywhere in the name". We
@@ -180,19 +195,25 @@ async def search_certs(
                     "[R-F580] crt.sh returned HTTP %s for %s",
                     r.status_code, q,
                 )
+                _note(_common.OUTCOME_UNAVAILABLE, f"HTTP {r.status_code}")
                 return []
             try:
                 rows = r.json()
             except json.JSONDecodeError:
                 # crt.sh sometimes returns HTML instead of JSON when
-                # under heavy load. Honest fall-through to [].
+                # under heavy load. R-F3105 — "honest fall-through to []" was the
+                # wording here; an empty list a caller reads as "no certificates
+                # exist" is not honest when the source simply did not answer.
                 logger.debug("[R-F580] crt.sh returned non-JSON for %s", q)
+                _note(_common.OUTCOME_UNAVAILABLE, "non-JSON response")
                 return []
     except Exception as e:
         logger.debug("[R-F580] crt.sh fetch failed: %s", e)
+        _note(_common.OUTCOME_UNAVAILABLE, str(e))
         return []
 
     if not isinstance(rows, list):
+        _note(_common.OUTCOME_UNAVAILABLE, "unexpected response shape")
         return []
 
     hits: list[dict[str, Any]] = []
@@ -214,6 +235,39 @@ async def search_certs(
     if use_cache:
         _cache_set(cache_key, hits)
     return hits
+
+
+async def search_certs_result(
+    term: str,
+    *,
+    limit: int = _MAX_RESULTS,
+    timeout: float = _DEFAULT_TIMEOUT,
+    use_cache: bool = True,
+) -> dict[str, Any]:
+    """R-F3105 — `search_certs` with the retrieval OUTCOME attached.
+
+    THE DEFECT. `search_certs` returns `[]` for an HTTP error, a non-JSON body and
+    any exception — all three logged and dropped ("honest fall-through to []"). The
+    only consumer, `dd_layer_extensions.py:173-174`, feeds that straight into
+    `detect_shell_pattern`, which answers `{"score": 0, "signals": ["no_certs_found"]}`.
+    So crt.sh being DOWN scores the subject as having no suspicious certificate
+    footprint — a dead source read as evidence of legitimacy, inside the ghost/shell
+    detector whose entire job is to catch entities with no real substance.
+
+    `search_certs` keeps its `list` contract exactly, so no existing caller changes.
+    This wrapper is the one that can be trusted to distinguish "crt.sh answered and
+    this domain has no certificates" (a genuine, meaningful negative for a shell) from
+    "crt.sh did not answer" (nothing learned at all).
+    """
+    probe: dict[str, Any] = {}
+    hits = await search_certs(term, limit=limit, timeout=timeout,
+                              use_cache=use_cache, _outcome=probe)
+    outcome = probe.get("outcome") or (
+        _common.OUTCOME_OK if hits else _common.OUTCOME_EMPTY)
+    return _common.stamp_outcome(
+        {"source": "crt.sh", "query": {"term": term}, "hits": hits,
+         "hit_count": len(hits), "citation_url": f"https://crt.sh/?q={term}"},
+        outcome, detail=str(probe.get("error") or ""))
 
 
 def detect_shell_pattern(hits: list[dict[str, Any]]) -> dict[str, Any]:

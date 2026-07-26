@@ -151,15 +151,37 @@ def test_rf3102_a_genuinely_empty_search_still_emits_nothing():
 
 
 # ── R-F3103 — the guard that makes it permanent ────────────────────────────
+#: R-F3104 — markers of a function that actually RETRIEVES something. A retrieval can
+#: fail, so it owes the caller an outcome; a pure computation cannot, and does not.
+_IO_MARKERS = ("httpx", "http_get_json", "http_get_text", "read_text", "requests",
+               "aiohttp", "urlopen")
+
+
+def _is_retrieval(fn) -> bool:
+    """R-F3104 — does this function perform I/O?
+
+    The R-F3103 guard flagged ANY public dict-returning function, which swept in pure
+    scorers — `detect_shell_pattern(hits)`, `detect_gaps(positions)`,
+    `build_profile(attrs, lei)`. Those never retrieve anything, so they have no
+    retrieval outcome, and stamping `ok: True` on them would be cargo-cult that
+    devalues the field wherever it does carry meaning. The outcome belongs to the
+    RETRIEVAL; the scorers' real defect was being handed `[]` by a failed retrieval
+    and being unable to tell (fixed at the source in R-F3105/R-F3106)."""
+    if isinstance(fn, ast.AsyncFunctionDef):
+        return True
+    dumped = ast.dump(fn)
+    return any(m in dumped for m in _IO_MARKERS)
+
+
 def _public_dict_returns_without_outcome(path: pathlib.Path) -> list[str]:
-    """Public entry points returning a dict literal that carries no outcome key."""
+    """RETRIEVAL entry points returning a dict literal that carries no outcome key."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     offenders = []
     outcome_keys = {"ok", "outcome", "error"}
     for fn in tree.body:
         if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        if fn.name.startswith("_"):
+        if fn.name.startswith("_") or not _is_retrieval(fn):
             continue
         for node in ast.walk(fn):
             if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
@@ -181,35 +203,37 @@ def test_rf3103_every_common_based_adapter_conforms():
         assert _public_dict_returns_without_outcome(_SOURCES / f"{name}.py") == [], name
 
 
-def test_rf3103_no_NEW_adapter_may_ship_without_an_outcome():
-    """THE ENFORCEMENT. Four adapters are known-outstanding and named here with the
-    R-number that will fix them — a shrinking allowlist, not a silent exemption. A
-    NEW offender, or a new offending entry point in an existing file, fails the build.
+def test_rf3103_NO_adapter_may_ship_a_retrieval_without_an_outcome():
+    """THE ENFORCEMENT, and there is NO allowlist any more.
 
-    This is what turns _common into a real choke point: today only 7 of 15 adapters
-    route through it, so nothing structural forced conformance."""
-    known = {"ais_gap_detector.py", "cert_transparency.py", "eccn_lookup.py", "gleif.py"}
+    R-F3103 shipped with four names exempted. R-F3104 narrowed the rule to RETRIEVAL
+    functions and R-F3105 fixed the three genuine offenders behind those names, so
+    the exemption list is now EMPTY — which is the only state in which a guard like
+    this is worth having. A new adapter, or a new retrieval entry point in an
+    existing one, fails the build.
+
+    This is what turns _common into a real choke point: only 7 of 15 adapters route
+    through it, so nothing structural forced conformance before now."""
     offenders = {}
     for p in sorted(_SOURCES.glob("*.py")):
-        if p.name in ("__init__.py", "_common.py") or p.name in known:
+        if p.name in ("__init__.py", "_common.py"):
             continue
         bad = _public_dict_returns_without_outcome(p)
         if bad:
             offenders[p.name] = bad
     assert offenders == {}, (
-        "these adapters return a result a caller cannot judge — a failed fetch will "
+        "these retrievals return a result a caller cannot judge — a failed fetch will "
         "be read as an empty screen (the false clean this system exists to prevent). "
-        "Give every public return an `ok`/`outcome` via _common.stamp_outcome:\n"
+        "Give every public retrieval return an `ok`/`outcome` via "
+        "_common.stamp_outcome:\n"
         + "\n".join(f"  {v[0]}" for v in offenders.values()))
 
 
-def test_rf3103_the_allowlist_shrinks_and_cannot_silently_grow():
-    """A guard with a stale allowlist is a guard that passes forever. Each name here
-    must still BE an offender; once fixed it must be removed, which forces the list
-    toward empty instead of quietly outliving its purpose."""
-    known = {"ais_gap_detector.py", "cert_transparency.py", "eccn_lookup.py", "gleif.py"}
-    still_offending = {n for n in known
-                       if _public_dict_returns_without_outcome(_SOURCES / n)}
-    assert still_offending == known, (
-        "these were fixed but are still allowlisted — remove them from `known` in "
-        f"both guards so the exemption cannot outlive the defect: {known - still_offending}")
+def test_rf3104_pure_computation_is_exempt_by_RULE_not_by_name():
+    """The exemption must be structural, so it cannot rot. A scorer is exempt because
+    it performs no I/O — not because someone listed it."""
+    tree = ast.parse((_SOURCES / "cert_transparency.py").read_text(encoding="utf-8"))
+    by_name = {f.name: f for f in tree.body
+               if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    assert _is_retrieval(by_name["detect_shell_pattern"]) is False
+    assert _is_retrieval(by_name["search_certs"]) is True

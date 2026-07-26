@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3104,
+  "next_available": 3107,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25131,6 +25131,33 @@
       "commit_sha": "167be95a",
       "notes": null,
       "shipped_at": "2026-07-26T12:25:21Z"
+    },
+    {
+      "r_number": "R-F3104",
+      "title": "narrow adapter outcome guard to retrieval functions",
+      "claimed_at": "2026-07-26T12:33:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3105",
+      "title": "retrieval adapters must express failure gleif eccn cert",
+      "claimed_at": "2026-07-26T12:33:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3106",
+      "title": "unavailable source must not score as clean ghost and export control",
+      "claimed_at": "2026-07-26T12:33:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

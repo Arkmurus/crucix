@@ -64,11 +64,34 @@ def _load_data() -> dict[str, Any]:
     parse per process. Falls back to an empty dataset on read error
     so the rest of the system keeps running."""
     try:
-        with _DATA_PATH.open("r", encoding="utf-8") as f:
-            return json.load(f)
+        data = json.loads(_DATA_PATH.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            data.setdefault("_load_failed", False)
+        return data
     except Exception as e:
         logger.warning("[R-F581] could not load eccn_lookup.json: %s", e)
-        return {"version": "unknown", "categories": {}}
+        # ── R-F3105 — AN UNLOADED DATASET IS NOT AN EMPTY CONTROL LIST ──────
+        #
+        # This returned `{"version": "unknown", "categories": {}}` so "the rest of
+        # the system keeps running". The rest of the system then asks
+        # `lookup_by_eccn("9A010")`, gets None from an EMPTY categories map, and
+        # concludes the item is not export-controlled. A dataset that failed to load
+        # therefore reads as a clean export-control screen on every item — the same
+        # graceful-degradation framing that made court_records (R-F3102) silent.
+        # The fallback stays (a boot must not fail on it) but it is now LABELLED,
+        # and `dataset_available()` lets the export-control path report UNKNOWN.
+        return {"version": "unavailable", "categories": {}, "_load_failed": True}
+
+
+def dataset_available() -> bool:
+    """R-F3105 — True when the ECCN seed dataset actually loaded.
+
+    Callers MUST consult this before reading a miss as "not controlled": with the
+    dataset absent, every lookup misses, and an export-control clearance derived
+    from that is fabricated."""
+    data = _load_data()
+    return isinstance(data, dict) and not data.get("_load_failed") and bool(
+        data.get("categories"))
 
 
 def lookup_by_keyword(

@@ -17,6 +17,7 @@ import httpx
 
 from ..engine_wiring import wire_success, wire_failure
 from ..circuit_breaker import get_breaker
+from . import _common          # R-F3105 — outcome vocabulary
 
 logger = logging.getLogger("aria.sources.gleif")
 
@@ -125,16 +126,38 @@ def build_profile(attrs: dict, lei: str) -> dict:
     }
 
 
-async def lookup(name: str, jurisdiction_iso2: str = "", reg_number: str | None = None) -> dict | None:
+async def lookup(name: str, jurisdiction_iso2: str = "", reg_number: str | None = None,
+                 *, _outcome: dict | None = None) -> dict | None:
     """Return {profile, officers, psc, source_url, adapter} for the best GLEIF match, or None.
 
     Matches registry_adapters.lookup_entity's contract so it drops in as a fallback.
     """
+    # ── R-F3105 — `None` MEANT SEVEN DIFFERENT THINGS ───────────────────────
+    #
+    # This function returns None when: the breaker is open, the query is too short,
+    # the HTTP status is not 200, no records came back, the best record's name does
+    # not confirm the query, or anything raised. Three of those are "GLEIF could not
+    # answer" and three are "GLEIF answered: no such entity". A caller receiving None
+    # cannot tell them apart, so a DOWN GLEIF renders as "this entity has no LEI" —
+    # a statement about the subject derived from a dead source.
+    #
+    # The None-or-dict contract is UNCHANGED (it matches
+    # registry_adapters.lookup_entity so it drops in as a fallback, and every caller
+    # depends on that). `_outcome` is an optional out-parameter; `lookup_with_outcome`
+    # is the supported way to read it.
+    def _note(outcome: str, err: str = "") -> None:
+        if _outcome is not None:
+            _outcome["outcome"] = outcome
+            if err:
+                _outcome["error"] = err[:200]
+
     cb = get_breaker("registry:gleif", failure_threshold=5, cooldown_seconds=300)
     if cb.is_open():
+        _note(_common.OUTCOME_UNAVAILABLE, "circuit breaker open")
         return None
     q = (name or "").strip()
     if len(q) < 3:
+        _note(_common.OUTCOME_SKIPPED, "query too short")
         return None
     try:
         params: dict = {"filter[fulltext]": q, "page[size]": 5}
@@ -145,10 +168,12 @@ async def lookup(name: str, jurisdiction_iso2: str = "", reg_number: str | None 
                                   headers={"Accept": "application/vnd.api+json"})
         if r.status_code != 200:
             cb.record_failure(reason=f"http_{r.status_code}")
+            _note(_common.OUTCOME_UNAVAILABLE, f"HTTP {r.status_code}")
             return None
         recs = ((r.json() or {}).get("data") or [])
         if not recs:
             cb.record_success()
+            _note(_common.OUTCOME_EMPTY, "no LEI record matched")   # GLEIF ANSWERED
             return None
         best = _best_match(recs, q)
         a = best.get("attributes", {}) or {}
@@ -161,6 +186,7 @@ async def lookup(name: str, jurisdiction_iso2: str = "", reg_number: str | None 
         if not _name_confirms(q, nm):
             logger.debug("GLEIF: best record %r does not confirm query %r — not attaching", nm, q)
             cb.record_success()  # the search worked; there was just no matching entity
+            _note(_common.OUTCOME_EMPTY, "best record did not confirm the query")
             return None
         # R-F2839 — profile construction lives in build_profile() so the field mapping
         # is directly testable. It was not, and a wrong date shipped for months.
@@ -172,15 +198,20 @@ async def lookup(name: str, jurisdiction_iso2: str = "", reg_number: str | None 
                          source_id="gleif:lookup")
         except Exception:
             pass
+        _note(_common.OUTCOME_OK)
         return {
             "profile": profile,
             "officers": [],   # GLEIF carries no director/officer data
             "psc": [],
             "source_url": f"https://search.gleif.org/#/record/{lei}" if lei else "https://www.gleif.org/",
             "adapter": "gleif",
+            # R-F3105 — additive; the None-or-dict contract is otherwise unchanged.
+            "outcome": _common.OUTCOME_OK,
+            "ok": True,
         }
     except Exception as ex:  # noqa: BLE001 — best-effort fallback, never raises
         cb.record_failure(reason="timeout")
+        _note(_common.OUTCOME_UNAVAILABLE, str(ex))
         logger.warning("[gleif] lookup failed for %s: %s", q, ex)
         try:
             wire_failure(module="gleif", detail=f"gleif lookup failed: {ex}",
@@ -188,3 +219,28 @@ async def lookup(name: str, jurisdiction_iso2: str = "", reg_number: str | None 
         except Exception:
             pass
         return None
+
+
+async def lookup_with_outcome(
+    name: str, jurisdiction_iso2: str = "", reg_number: str | None = None,
+) -> dict:
+    """R-F3105 — `lookup` with the retrieval outcome made legible.
+
+    Returns the canonical adapter shape: `{ok, outcome, hits, error, ...}`. Use this
+    wherever the ANSWER matters — a caller that treats `lookup() is None` as "this
+    entity has no LEI" is stating a fact about the subject that a circuit-breaker
+    trip, an HTTP error or a timeout can equally produce.
+
+    `empty` here is a genuine negative (GLEIF answered; no confirmed record) and is
+    materially different from `unavailable` (GLEIF never answered).
+    """
+    probe: dict = {}
+    res = await lookup(name, jurisdiction_iso2, reg_number, _outcome=probe)
+    outcome = probe.get("outcome") or (
+        _common.OUTCOME_OK if res else _common.OUTCOME_EMPTY)
+    return _common.stamp_outcome(
+        {"source": "gleif", "query": {"name": name, "jurisdiction": jurisdiction_iso2},
+         "hits": [res] if res else [], "hit_count": 1 if res else 0,
+         "record": res,
+         "citation_url": (res or {}).get("source_url") or "https://www.gleif.org/"},
+        outcome, detail=str(probe.get("error") or ""))

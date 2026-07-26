@@ -170,7 +170,36 @@ async def run_cert_transparency_check(
             return None
 
         from .sources import cert_transparency as _ct
-        hits = await _ct.search_certs(domain_or_name, limit=50, timeout=timeout)
+        from .sources import _common as _sc
+        # ── R-F3106 — A DEAD SOURCE IS NOT A CLEAN SHELL SCORE ──────────────
+        #
+        # `search_certs` returned [] for an HTTP error, a non-JSON body or any
+        # exception, and `detect_shell_pattern([])` answers
+        # `{"score": 0, "signals": ["no_certs_found"]}`. So crt.sh being DOWN scored
+        # the subject 0/100 with severity NONE — a source that never answered read as
+        # evidence of legitimacy, inside the shell detector whose whole job is to
+        # catch entities with no real substance. R-F3105 makes the outcome legible;
+        # this reads it and refuses to score an unanswered source.
+        _res = await _ct.search_certs_result(domain_or_name, limit=50, timeout=timeout)
+        hits = _res.get("hits") or []
+        if not _sc.answered(_res):
+            return {
+                "module":     "cert_transparency",
+                "r_number":   "R-F585",
+                "query":      domain_or_name,
+                "cert_count": 0,
+                "shell_score": None,          # NOT 0 — 0 is a measured clean result
+                "signals":    ["source_unavailable"],
+                "severity":   "UNKNOWN",
+                "outcome":    _res.get("outcome"),
+                "summary": (
+                    "Certificate-transparency lookup did NOT complete "
+                    f"({_res.get('outcome')}"
+                    + (f": {_res.get('error')}" if _res.get("error") else "")
+                    + "). No shell-pattern score was computed — this is UNCHECKED, "
+                      "not a clean result."
+                ),
+            }
         pattern = _ct.detect_shell_pattern(hits)
 
         severity = "NONE"
