@@ -44,6 +44,23 @@ _LOCK = threading.Lock()
 _R_NUMBER_RE = re.compile(r"^R-F(\d+)$")
 
 
+class RegistryWriteError(RuntimeError):
+    """R-F3187 — a registry write could not be proven to have landed.
+
+    Raised instead of returning an R-number that was never recorded. §2 makes this
+    file the claim of record; a claim nobody can read back is not a claim.
+    """
+
+
+# R-F3187 — write-retry budget. Contention here is milliseconds (another agent's
+# save, an editor, a virus scanner), so a short bounded retry converts the common
+# Windows PermissionError from a lost claim into a successful one.
+_SAVE_RETRIES = int(os.getenv("ARIA_RNUM_SAVE_RETRIES", "5"))
+_SAVE_RETRY_SLEEP_S = float(os.getenv("ARIA_RNUM_SAVE_RETRY_SLEEP", "0.08"))
+# How many times to re-allocate when a concurrent writer clobbered our entry.
+_CLAIM_ATTEMPTS = int(os.getenv("ARIA_RNUM_CLAIM_ATTEMPTS", "4"))
+
+
 def _load(path: Path | None = None) -> dict[str, Any]:
     p = path or _RESERVATIONS_PATH
     if not p.exists():
@@ -55,11 +72,39 @@ def _load(path: Path | None = None) -> dict[str, Any]:
 def _save_atomic(data: dict[str, Any], path: Path | None = None) -> None:
     p = path or _RESERVATIONS_PATH
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".json.tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
-    os.replace(tmp, p)
+    # R-F3187 — the temp file must be UNIQUE PER PROCESS. `.json.tmp` was a single
+    # shared name, so two agents saving at once wrote the SAME scratch file and each
+    # replaced the registry with the other's half-serialised bytes.
+    tmp = p.with_suffix(f".json.{os.getpid()}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        # R-F3187 — os.replace raises PermissionError (WinError 5) on Windows when
+        # another process holds the destination open, which is routine here: two
+        # agents, an editor, and a virus scanner all touch this file. OBSERVED LIVE
+        # 2026-07-26: `reserve` died with
+        #   PermissionError: [WinError 5] Access is denied:
+        #   'data\\r_number_reservations.json.tmp' -> 'data\\r_number_reservations.json'
+        # The claim was simply lost. Retry briefly — the contention is measured in
+        # milliseconds — then surface it rather than pretending the write happened.
+        _last: Exception | None = None
+        for _attempt in range(_SAVE_RETRIES):
+            try:
+                os.replace(tmp, p)
+                return
+            except PermissionError as exc:      # Windows: destination briefly locked
+                _last = exc
+                time.sleep(_SAVE_RETRY_SLEEP_S * (_attempt + 1))
+        raise RegistryWriteError(
+            f"could not replace {p.name} after {_SAVE_RETRIES} attempts: {_last}"
+        ) from _last
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
 
 def _utcnow_iso() -> str:
@@ -118,6 +163,28 @@ def _file_lock(path: Path | None = None):
                 pass
 
 
+def _claim_is_recorded(
+    r_number: str, claimed_at: str, path: Path | None = None
+) -> bool:
+    """R-F3187 — is OUR entry actually in the file on disk?
+
+    Matches on `claimed_at` as well as the number: if a concurrent writer took the
+    same R-number for different work (the live R-F3183 collision), the number alone
+    would read back as present and the check would pass while our claim was gone.
+    """
+    try:
+        data = _load(path)
+    except Exception as exc:                      # unreadable == unverified
+        logger.warning("[R-F3187] could not re-read the registry to verify: %s", exc)
+        return False
+    for r in data.get("reservations", []):
+        if not isinstance(r, dict):
+            continue
+        if r.get("r_number") == r_number and r.get("claimed_at") == claimed_at:
+            return True
+    return False
+
+
 def reserve(
     title: str,
     agent: str = "claude",
@@ -131,30 +198,77 @@ def reserve(
     """
     if not title or not title.strip():
         raise ValueError("title required")
-    with _LOCK, _file_lock(path):
-        data = _load(path)
-        n = int(data.get("next_available", 555))
-        # Defend against a partial write that left next_available trailing existing entries
-        existing_nums = {
-            int(_R_NUMBER_RE.match(r["r_number"]).group(1))
-            for r in data.get("reservations", [])
-            if _R_NUMBER_RE.match(r.get("r_number", ""))
-        }
-        while n in existing_nums:
-            n += 1
-        r_num = f"R-F{n}"
-        data.setdefault("reservations", []).append({
-            "r_number": r_num,
-            "title": title.strip(),
-            "claimed_at": _utcnow_iso(),
-            "claimed_by": agent,
-            "status": "in_progress",
-            "commit_sha": None,
-            "notes": notes.strip() or None,
-        })
-        data["next_available"] = n + 1
-        _save_atomic(data, path)
-        logger.info("r_number_reserved: %s by=%s title=%s", r_num, agent, title)
+
+    # ── R-F3187 — A CLAIM IS NOT A CLAIM UNTIL IT READS BACK ────────────────
+    #
+    # This function used to return `r_num` the moment `_save_atomic` returned,
+    # never checking that the entry survived. Every fail-open path in `_file_lock`
+    # therefore lost claims SILENTLY, and the caller went on to write that number
+    # into code and commit messages.
+    #
+    # THREE CASUALTIES IN ONE DAY (2026-07-26), all from this:
+    #   * R-F3133 / R-F3134 / R-F3135 — reserved, used, shipped, and ABSENT from
+    #     the registry afterwards; recovered only because a peer agent's unrelated
+    #     message prompted a look.
+    #   * R-F3183 — issued TWICE, 8 minutes apart, to two agents. The later write
+    #     clobbered the earlier entry, and a subsequent ship-mark then stamped the
+    #     wrong work with the wrong SHA.
+    #   * a CleanHead stash pop conflicted on this file mid-deploy.
+    #
+    # `_file_lock` (R-F1026) is deliberately FAIL-OPEN — it proceeds without the
+    # lock on timeout (10s), on ANY OSError, and it steals a "stale" lock after 30s
+    # from a holder that may still be alive. That is a defensible choice: this must
+    # never hang a deploy. But fail-open writing with no verification is what turns
+    # a rare race into silent data loss.
+    #
+    # So: keep the lock non-blocking, and VERIFY. Re-read the file after saving and
+    # confirm our own entry is there. If a concurrent writer clobbered it, allocate
+    # again from the file as it now stands (which also picks up their number, so we
+    # cannot collide with it). Raise rather than hand back a number that is not
+    # recorded — a loud failure the caller can retry beats a number that quietly
+    # belongs to someone else.
+    claimed_at = _utcnow_iso()
+    r_num = ""
+    for _attempt in range(_CLAIM_ATTEMPTS):
+        with _LOCK, _file_lock(path):
+            data = _load(path)
+            n = int(data.get("next_available", 555))
+            # Defend against a partial write that left next_available trailing existing entries
+            existing_nums = {
+                int(_R_NUMBER_RE.match(r["r_number"]).group(1))
+                for r in data.get("reservations", [])
+                if _R_NUMBER_RE.match(r.get("r_number", ""))
+            }
+            while n in existing_nums:
+                n += 1
+            r_num = f"R-F{n}"
+            claimed_at = _utcnow_iso()
+            data.setdefault("reservations", []).append({
+                "r_number": r_num,
+                "title": title.strip(),
+                "claimed_at": claimed_at,
+                "claimed_by": agent,
+                "status": "in_progress",
+                "commit_sha": None,
+                "notes": notes.strip() or None,
+            })
+            data["next_available"] = n + 1
+            _save_atomic(data, path)
+
+        # Verify OUTSIDE the lock: we want to see what any concurrent writer left.
+        if _claim_is_recorded(r_num, claimed_at, path):
+            logger.info("r_number_reserved: %s by=%s title=%s", r_num, agent, title)
+            break
+        logger.warning(
+            "[R-F3187] claim %s did not survive a concurrent write (attempt %d/%d) — "
+            "re-allocating", r_num, _attempt + 1, _CLAIM_ATTEMPTS,
+        )
+    else:
+        raise RegistryWriteError(
+            f"could not record a reservation for {title.strip()[:60]!r} after "
+            f"{_CLAIM_ATTEMPTS} attempts — a concurrent writer keeps clobbering the "
+            f"log. NOTHING was claimed; do not use the last number returned."
+        )
     # R-F1001 - wire to brain
     from .engine_wiring import wire_success, wire_failure
     wire_success(
