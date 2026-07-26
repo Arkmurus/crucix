@@ -91,7 +91,7 @@
   </div>
 
   <p style="margin:-4px 0 18px;color:#6b6862;font-size:12px;line-height:1.5">
-    <i class="bi bi-info-circle"></i> Live news feed from <strong id="source-count">80+</strong> defence, geopolitical, financial, and regional sources. Polled hourly. <a href="/sources.html" style="color:#913BFF">Source Health</a>
+    <i class="bi bi-info-circle"></i> Live intelligence from <strong id="source-count">—</strong> curated defence, geopolitical, cyber, security, maritime-risk, and crisis early-warning sources. Polled hourly. <a href="/sources.html" style="color:#913BFF">Source Health</a>
   </p>
 
   <!-- KPI Tiles -->
@@ -258,7 +258,7 @@
     document.getElementById('kpi-sources').textContent = stats ? stats.total_sources : '-';
     document.getElementById('kpi-categories').textContent = stats && stats.categories ? stats.categories.length : '-';
     document.getElementById('kpi-last-poll').textContent = articles && articles.length ? 'Active' : 'Waiting…';
-    document.getElementById('source-count').textContent = stats ? stats.total_sources : '80+';
+    document.getElementById('source-count').textContent = stats ? stats.total_sources : '—';
   }
 
   async function loadData() {

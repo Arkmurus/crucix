@@ -23,6 +23,10 @@ Categories:
   - geopolitics        — Geopolitical analysis & think tanks
   - finance            — Financial news & markets
   - technology         — Defence technology & cyber
+  - cyber_security     — Official cyber threat reports and advisories
+  - security           — Official law-enforcement and security reporting
+  - maritime_risk      — Official hazards affecting shipping and ports
+  - crisis_early_warning — Official disaster and systemic-risk alerts
   - press_releases     — Official press releases
   - regional_news      — Regional general news (Lusophone, Arabic, Turkish)
 """
@@ -150,6 +154,37 @@ _SIGNAL_RULES: list[tuple[str, "re.Pattern[str]", str, str]] = [
             r"ceasefire|hostilities)\b", re.I),
         "Security conditions may affect delivery risk, end-use risk, or market timing.",
         "Assess country risk",
+    ),
+    (
+        "cyber_threat",
+        re.compile(
+            r"\b(actively exploited vulnerabilit(?:y|ies)|critical vulnerabilit(?:y|ies)|"
+            r"zero[- ]day|ransomware|malware campaign|cyber ?attack|data breach|"
+            r"supply[- ]chain compromise|remote code execution|credential theft|"
+            r"advanced persistent threat|threat actor(?:s)?|botnet)\b", re.I),
+        "A cyber threat may create immediate operational, supplier, or infrastructure exposure.",
+        "Assess exposure and mitigations",
+    ),
+    (
+        "maritime_security",
+        re.compile(
+            r"\b(piracy|pirate attack|armed robbery at sea|attempted boarding|"
+            r"vessel hijack(?:ed|ing)?|ship hijack(?:ed|ing)?|attack(?:ed)? (?:on|against) "
+            r"(?:a |the )?(?:merchant )?(?:ship|vessel|tanker)|"
+            r"maritime security incident|gnss (?:interference|spoofing|jamming)|"
+            r"navigation(?:al)? warning)\b", re.I),
+        "A maritime security event may disrupt routes, ports, crews, or supply chains.",
+        "Assess route and supply-chain exposure",
+    ),
+    (
+        "natural_hazard",
+        re.compile(
+            r"\b(earthquake|tsunami (?:warning|advisory|threat)|"
+            r"(?:hurricane|typhoon|tropical cyclone|tropical storm) "
+            r"(?:warning|watch|advisory|forecast|expected|intensif(?:y|ies|ied|ication))|"
+            r"volcanic eruption|major flood(?:ing)?|storm surge warning)\b", re.I),
+        "A natural hazard may disrupt people, infrastructure, ports, logistics, or operations.",
+        "Assess geographic and continuity exposure",
     ),
     (
         "budget_movement",
@@ -441,6 +476,32 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
      "geopolitics", "en", "tier_1b", ["osint", "investigation", "conflict"]),
     ("Crisis Group", "https://www.crisisgroup.org/rss.xml",
      "geopolitics", "en", "tier_1b", ["geopolitics", "conflict", "analysis"]),
+
+    # R-F3182 — each first-party endpoint below returned real items through
+    # `_fetch_feed` plus the production RSS/Atom parser on 2026-07-26. Blocked,
+    # stale, HTML, and guessed endpoints were rejected rather than registered.
+    ("UK NCSC Reports", "https://www.ncsc.gov.uk/api/1/services/v1/report-rss-feed.xml",
+     "cyber_security", "en", "tier_1a",
+     ["cyber", "official", "primary", "early_warning"]),
+    ("CERT-EU Security Advisories", "https://cert.europa.eu/publications/security-advisories-rss",
+     "cyber_security", "en", "tier_1a",
+     ["cyber", "eu", "official", "primary", "early_warning"]),
+    ("Europol News", "https://www.europol.europa.eu/rss.xml",
+     "security", "en", "tier_1a",
+     ["security", "organised_crime", "terrorism", "official", "primary"]),
+    ("GDACS Disaster Alerts", "https://www.gdacs.org/xml/rss.xml",
+     "crisis_early_warning", "en", "tier_1a",
+     ["disaster", "humanitarian", "official", "primary", "early_warning"]),
+    ("USGS Significant Earthquakes",
+     "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_week.atom",
+     "crisis_early_warning", "en", "tier_1a",
+     ["earthquake", "infrastructure", "official", "primary", "early_warning"]),
+    ("NOAA NHC Atlantic", "https://www.nhc.noaa.gov/index-at.xml",
+     "maritime_risk", "en", "tier_1a",
+     ["maritime", "hurricane", "ports", "official", "primary", "early_warning"]),
+    ("NOAA NHC Eastern Pacific", "https://www.nhc.noaa.gov/index-ep.xml",
+     "maritime_risk", "en", "tier_1a",
+     ["maritime", "hurricane", "ports", "official", "primary", "early_warning"]),
 ]
 
 # ── Feed parsing ──────────────────────────────────────────────────────────────
@@ -646,7 +707,13 @@ _REL_STRONG = re.compile(
     r"(?<!heart )(?<!panic )(?<!anxiety )attacks?|"
     r"(?:air|missile|drone|rocket|retaliatory|military|naval) strikes?|"
     r"strikes? (?:on|against|targeting)|"
-    r"money laundering|corruption probe|bribery|debarment|debarred"
+    r"money laundering|corruption probe|bribery|debarment|debarred|"
+    r"critical vulnerabilities?|actively exploited|zero[- ]day|ransomware|malware|"
+    r"cyber ?attack|data breach|remote code execution|threat actors?|"
+    r"piracy|pirate|armed robbery at sea|vessel hijack|ship hijack|attempted boarding|"
+    r"gnss (?:interference|spoofing|jamming)|"
+    r"earthquake|tsunami|hurricane|typhoon|tropical cyclone|tropical storm|"
+    r"volcanic eruption|storm surge"
     r")\b", re.I)
 _REL_SUPPORT = re.compile(
     r"\b("
@@ -669,6 +736,7 @@ _SIGNAL_RELEVANCE_FLOOR = 0.34
 _ACTIONABLE_TYPES = frozenset({
     "active_tender", "contract_award", "sanctions_change", "conflict_escalation",
     "budget_movement", "political_transition", "competitor_activity", "programme_signal",
+    "cyber_threat", "maritime_security", "natural_hazard",
 })
 
 
@@ -832,7 +900,13 @@ def _confidence(score: int) -> str:
 
 
 def _action_horizon(signal_type: str, priority: str) -> str:
-    if signal_type in {"sanctions_change", "conflict_escalation"} or priority == "HIGH":
+    if signal_type in {
+        "sanctions_change",
+        "conflict_escalation",
+        "cyber_threat",
+        "maritime_security",
+        "natural_hazard",
+    } or priority == "HIGH":
         return "0-72h"
     if signal_type in {"active_tender", "contract_award", "budget_movement"}:
         return "3-14d"
