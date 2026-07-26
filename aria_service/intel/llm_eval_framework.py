@@ -87,6 +87,10 @@ class ModelResult:
     avg_latency_ms: float
     avg_token_count: float
     overall_score: float
+    #: R-F3114 — questions the model was never actually asked (dead arm, unwired
+    #: endpoint, provider unresolvable). Excluded from every average above, and
+    #: reported so a score of 0.0 over 0 measured questions cannot read as skill.
+    questions_unmeasured: int = 0
     per_question: list[PerQuestionScore] = field(default_factory=list)
     regressions: list[dict] = field(default_factory=list)
 
@@ -179,6 +183,15 @@ class LLMEvalFramework:
                     question_id=q.id, model=model, answer=answer,
                     latency_ms=latency, token_count=metadata.get("token_count", 0),
                 )
+                # R-F3114 — a question the model was never actually asked is
+                # UNMEASURED, not wrong. Recording it in `error` (which already
+                # meant exactly this for the exception path below) keeps one
+                # concept, and _aggregate excludes it from every average.
+                _unmeasured = metadata.get("unmeasured")
+                if _unmeasured:
+                    score.error = str(_unmeasured)
+                    scores.append(score)
+                    continue
                 score.correctness = await self._score_correctness(answer, q.expected_answer)
                 if q.requires_grounding:
                     score.grounded_rate = await self._score_grounded_rate(answer)
@@ -204,29 +217,63 @@ class LLMEvalFramework:
     ) -> tuple[str, dict]:
         metadata: dict = {"token_count": 0, "model": model}
 
+        # R-F3111 — BOTH of these arms were dead, and reported their death as the
+        # model's ANSWER. `deepseek` built llm_pipeline.LLMPipeline and `aria-llm`
+        # imported .aria_llm_provider.AriaLLMProvider; neither the class nor the
+        # intel-side module has ever existed (the real one is llm/aria_llm_provider,
+        # which exposes module-level is_configured()/complete(), no class). Both
+        # imports raised into the except and set answer="[ERROR: ...]", which
+        # _score_correctness then scored as a wrong answer. eval_runner.py:494 calls
+        # this with model_a="deepseek", so the 500-Q framework pass was scoring an
+        # exception string for every question and reporting the result as DeepSeek's.
+        #
+        # `metadata["unmeasured"]` is the honest signal: NOT ASKED is not WRONG.
+        # Same tri-state R-F2639 forced on the phase gates — "could not measure" is
+        # never "measured and failed". Aggregation honours it (R-F3114).
         if model == "deepseek":
-            try:
-                from .llm_pipeline import LLMPipeline
-                pipeline = LLMPipeline()
-                resp = await pipeline.complete(question.question, max_tokens=1000)
-                if resp:
-                    answer = resp.content if hasattr(resp, "content") else str(resp)
-                    metadata["token_count"] = getattr(resp, "token_count", 0)
-                else:
+            from ..llm.structured import resolve_provider
+            provider = resolve_provider()
+            if provider is None:
+                metadata["unmeasured"] = "no provider chain resolvable"
+                answer = ""
+            else:
+                try:
+                    resp = await provider.complete(
+                        "Answer the question directly and factually.",
+                        question.question, max_tokens=1000,
+                    )
+                    answer = str(getattr(resp, "text", "") or "")
+                    metadata["token_count"] = (
+                        int(getattr(resp, "input_tokens", 0) or 0)
+                        + int(getattr(resp, "output_tokens", 0) or 0)
+                    )
+                    metadata["model"] = str(getattr(resp, "model", "") or model)
+                    if not answer.strip():
+                        metadata["unmeasured"] = "provider returned an empty body"
+                except Exception as exc:
+                    logger.warning("[llm_eval] DeepSeek call failed: %s", exc)
+                    metadata["unmeasured"] = f"provider call failed: {exc}"
                     answer = ""
-            except Exception as exc:
-                logger.warning("[llm_eval] DeepSeek call failed: %s", exc)
-                answer = f"[ERROR: {exc}]"
         elif model == "aria-llm":
-            try:
-                from .aria_llm_provider import AriaLLMProvider
-                provider = AriaLLMProvider()
-                resp = await provider.complete(question.question, max_tokens=1000)
-                answer = resp.content if hasattr(resp, "content") else str(resp)
-                metadata["token_count"] = getattr(resp, "token_count", 0)
-            except Exception as exc:
-                logger.warning("[llm_eval] ARIA-LLM call failed: %s", exc)
-                answer = f"[ERROR: {exc}]"
+            from ..llm import aria_llm_provider as _aria_llm
+            if not _aria_llm.is_configured():
+                # ARIA_LLM_URL unset is the DECLARED state per CLAUDE.md §16
+                # (weights trained, not wired). That is a coverage gap, not a
+                # failing model — it must never depress an eval score.
+                metadata["unmeasured"] = "ARIA_LLM_URL not set — sovereign endpoint not wired"
+                answer = ""
+            else:
+                try:
+                    resp = await _aria_llm.complete(question.question, max_tokens=1000)
+                    answer = str((resp or {}).get("text", "") or "")
+                    if not (resp or {}).get("ok"):
+                        metadata["unmeasured"] = str(
+                            (resp or {}).get("error", "aria-llm did not answer"))
+                        answer = ""
+                except Exception as exc:
+                    logger.warning("[llm_eval] ARIA-LLM call failed: %s", exc)
+                    metadata["unmeasured"] = f"aria-llm call failed: {exc}"
+                    answer = ""
         elif model == "grounded_reasoner":
             try:
                 from .grounded_reasoner import reason
@@ -337,19 +384,37 @@ class LLMEvalFramework:
                 avg_refusal_accuracy=0.0, avg_latency_ms=0.0,
                 avg_token_count=0.0, overall_score=0.0,
             )
-        passed = sum(1 for s in scores if s.overall >= 0.6)
-        avg_correctness = sum(s.correctness for s in scores) / attempted
-        avg_grounded = sum(s.grounded_rate for s in scores) / attempted
-        avg_refusal = sum(s.refusal_accuracy for s in scores) / attempted
-        avg_latency = sum(s.latency_ms for s in scores) / attempted
-        avg_tokens = sum(s.token_count for s in scores) / attempted
-        overall = sum(s.overall for s in scores) / attempted
+        # R-F3114 — average over MEASURED questions only. Before this, a question
+        # the model was never asked (a dead arm, an unwired endpoint) contributed
+        # correctness=0.0 to the mean, so an eval that measured NOTHING reported
+        # overall_score≈0.0 as a finding about the model. That is the same lie the
+        # phase gates were built to stop: "could not measure" rendered as "measured
+        # and failed". The count is surfaced, never silently dropped — an eval whose
+        # questions were all unmeasured now reports 0 attempted, not a 0.0 score.
+        measured = [s for s in scores if not s.error]
+        unmeasured = attempted - len(measured)
+        if not measured:
+            return ModelResult(
+                model=model, questions_attempted=0, questions_passed=0,
+                avg_correctness=0.0, avg_grounded_rate=0.0,
+                avg_refusal_accuracy=0.0, avg_latency_ms=0.0,
+                avg_token_count=0.0, overall_score=0.0,
+                questions_unmeasured=unmeasured, per_question=scores,
+            )
+        n = len(measured)
+        passed = sum(1 for s in measured if s.overall >= 0.6)
+        avg_correctness = sum(s.correctness for s in measured) / n
+        avg_grounded = sum(s.grounded_rate for s in measured) / n
+        avg_refusal = sum(s.refusal_accuracy for s in measured) / n
+        avg_latency = sum(s.latency_ms for s in measured) / n
+        avg_tokens = sum(s.token_count for s in measured) / n
+        overall = sum(s.overall for s in measured) / n
         return ModelResult(
-            model=model, questions_attempted=attempted, questions_passed=passed,
+            model=model, questions_attempted=n, questions_passed=passed,
             avg_correctness=avg_correctness, avg_grounded_rate=avg_grounded,
             avg_refusal_accuracy=avg_refusal, avg_latency_ms=avg_latency,
             avg_token_count=avg_tokens, overall_score=overall,
-            per_question=scores,
+            questions_unmeasured=unmeasured, per_question=scores,
         )
 
     async def _detect_regressions(self, result: EvalRunResult) -> None:

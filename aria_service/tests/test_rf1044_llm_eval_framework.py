@@ -375,6 +375,21 @@ class TestCapability:
         assert isinstance(result, EvalRunResult)
         assert result.model_a is not None
         assert result.model_b is not None
-        # Both models should have attempted the question
-        assert result.model_a.questions_attempted == 1
-        assert result.model_b.questions_attempted == 1
+        # R-F3114 — this used to assert questions_attempted == 1 for BOTH arms, and
+        # passed for the wrong reason: both arms were DEAD (R-F3111 — they built
+        # llm_pipeline.LLMPipeline / AriaLLMProvider, neither of which exists), so
+        # each returned "[ERROR: ...]" as the model's answer and that error string
+        # was counted as an attempt and scored as a wrong answer.
+        #
+        # A question the model was never actually asked is UNMEASURED, not failed —
+        # the same tri-state R-F2639 forced on the phase gates. In this environment
+        # there is no provider chain and ARIA_LLM_URL is unset, so the honest count
+        # is 0 measured / 1 unmeasured per arm. Do NOT "fix" a 0 here by counting
+        # unasked questions again; that restores the trophy.
+        for arm in (result.model_a, result.model_b):
+            assert arm.questions_attempted + arm.questions_unmeasured == 1, (
+                "every question must be accounted for as measured or unmeasured")
+            assert arm.questions_unmeasured == 1, (
+                "no provider is configured in tests, so nothing could be measured")
+            assert arm.per_question and arm.per_question[0].error, (
+                "the reason a question went unmeasured must be recorded, not dropped")

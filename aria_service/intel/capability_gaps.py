@@ -315,6 +315,15 @@ VALID_GAP_TYPES = frozenset({
     # branches on it) but it is what makes a contract REJECTION a first-class
     # signal the gap_detector/self_coder loop can route (§21e) rather than noise.
     "evidence_contract_violation",       # dd_evidence_standard.py:358
+    # ── R-F3109 (2026-07-26) — the structured-output gateway's rejection signal ─
+    # Emitted by llm/structured.py when a model ANSWERED but the reply could not
+    # be parsed or did not match the requested shape. Deliberately distinct from
+    # the existing llm_* types, which all mean the provider never gave us a reply:
+    # "spoke and was rejected" and "never spoke" are different failures, and only
+    # the second is a coverage gap. Same distinction R-F3101 drew between an
+    # adapter's `empty` and `unavailable`. Registered WITH the code that emits it,
+    # rather than after a drift test goes red (the R-F3096 lesson).
+    "llm_invalid_output",                # llm/structured.py
 })
 
 

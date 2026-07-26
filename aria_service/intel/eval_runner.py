@@ -480,17 +480,37 @@ async def run_eval(
         from .llm_eval_framework import evaluate as _framework_evaluate
         from .llm_eval_framework import EvalQuestion
         # Convert items to EvalQuestion objects if we have them
+        # R-F3115 — this dropped EVERY question. EvalQuestion requires `id`
+        # (llm_eval_framework.py:53) and it was never passed, so construction raised
+        # TypeError for each item and the bare `except: continue` swallowed all of
+        # them. `_fw_questions` was therefore ALWAYS empty, evaluate() ran over zero
+        # questions, and eval_runner still logged "Framework eval: score_a=0.000"
+        # as though it had measured something. Golden entries already carry a stable
+        # id (eval_runner.py:111 "gold_..."), so the value was there the whole time.
+        # Drops are now counted and reported — a silent `continue` is what let this
+        # survive, so the fix is not only the id.
         _fw_questions = []
-        for item in (items or []):
+        _fw_dropped = 0
+        for _idx, item in enumerate(items or []):
             try:
                 _fw_questions.append(EvalQuestion(
+                    id=str(item.get("id") or f"golden_{_idx}"),
                     question=item.get("question", ""),
                     expected_answer=item.get("expected_answer", ""),
                     category=item.get("category", "general"),
                     requires_refusal=False,
                 ))
-            except Exception:
-                continue
+            except Exception as _qe:  # noqa: BLE001
+                _fw_dropped += 1
+                if _fw_dropped == 1:
+                    logger.warning(
+                        "[eval_runner] R-F3115 golden entry could not be converted "
+                        "to EvalQuestion (%s) — further drops counted only", _qe)
+        if _fw_dropped:
+            logger.warning(
+                "[eval_runner] R-F3115 %d/%d golden entries dropped before the "
+                "framework eval — the score below covers only the remainder",
+                _fw_dropped, len(items or []))
         _fw_result = await _framework_evaluate(
             model_a="deepseek",
             questions=_fw_questions if _fw_questions else [],

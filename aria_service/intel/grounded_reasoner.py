@@ -266,13 +266,21 @@ class GroundedReasoner:
                     "strings. If no factual premises, return [].\n\n"
                     f"Message: {message}"
                 )
-                resp = await llm.complete(prompt, max_tokens=500)
-                if resp and resp.content:
-                    extracted = json.loads(resp.content)
-                    if isinstance(extracted, list):
-                        for p in extracted:
-                            if isinstance(p, str) and p not in premises:
-                                premises.append(p)
+                from ..llm.structured import call_structured
+                result = await call_structured(
+                    "Extract factual premises. Return ONLY a JSON list of strings.",
+                    prompt,
+                    schema={"type": "list", "items": "str"},
+                    llm=llm, caller="grounded_reasoner._extract_premises",
+                    max_tokens=500,
+                )
+                # R-F3110 — `ok` is the ONLY branch that yields data; a rejected or
+                # unavailable reply leaves `premises` as the deterministic set, and
+                # the gateway has already reported it. It is never read as "none found".
+                if result.ok:
+                    for p in result.data:
+                        if isinstance(p, str) and p not in premises:
+                            premises.append(p)
             except Exception as exc:
                 logger.debug("[grounded_reasoner] LLM premise extraction failed: %s", exc)
 
@@ -297,13 +305,18 @@ class GroundedReasoner:
                     f"Question: {message}\n"
                     f"Premises: {json.dumps(premises)}"
                 )
-                resp = await llm.complete(prompt, max_tokens=500)
-                if resp and resp.content:
-                    extracted = json.loads(resp.content)
-                    if isinstance(extracted, list):
-                        for sq in extracted:
-                            if isinstance(sq, str) and sq not in sub_questions:
-                                sub_questions.append(sq)
+                from ..llm.structured import call_structured
+                result = await call_structured(
+                    "Decompose questions. Return ONLY a JSON list of strings.",
+                    prompt,
+                    schema={"type": "list", "items": "str"},
+                    llm=llm, caller="grounded_reasoner._decompose",
+                    max_tokens=500,
+                )
+                if result.ok:
+                    for sq in result.data:
+                        if isinstance(sq, str) and sq not in sub_questions:
+                            sub_questions.append(sq)
             except Exception as exc:
                 logger.debug("[grounded_reasoner] decomposition failed: %s", exc)
 
@@ -557,31 +570,45 @@ class GroundedReasoner:
                     f"Question: {message}\n\n"
                     f"Evidence:\n{evidence_text}"
                 )
-                resp = await asyncio.wait_for(
-                    llm.complete(prompt, max_tokens=1000),
-                    timeout=_LLM_SYNTHESIS_TIMEOUT,
+                from ..llm.structured import OUTCOME_INVALID_OUTPUT, call_structured
+                result = await call_structured(
+                    "Answer ONLY from the supplied evidence. Return ONLY a JSON "
+                    "object with a 'claims' list of {text, confidence}.",
+                    prompt,
+                    schema={"type": "dict", "required": ["claims"]},
+                    llm=llm, caller="grounded_reasoner._reason_over_evidence",
+                    max_tokens=1000, timeout=_LLM_SYNTHESIS_TIMEOUT,
                 )
-                if resp and resp.content:
-                    try:
-                        data = json.loads(resp.content)
-                        llm_claims = data.get("claims", [])
-                        for lc in llm_claims:
-                            if isinstance(lc, dict):
-                                claims.append(Claim(
-                                    text=lc.get("text", ""),
-                                    grounded=True,
-                                    confidence=lc.get("confidence", 0.5),
-                                ))
-                    except (json.JSONDecodeError, TypeError):
-                        # Non-JSON response — use as a single claim
-                        # R-F1057 — strip meta-preamble from LLM output
-                        _clean = self._strip_meta_preamble(resp.content[:500])
-                        if _clean:
+                # R-F3110 — `grounded` is EARNED FROM EVIDENCE, never asserted at
+                # construction. These claims are model prose and carry no
+                # EvidenceItem, so _verify_claims_inline (phase 5, :601) forces them
+                # to grounded=False/confidence=0.0 anyway — constructing them as
+                # True was a statement that only survived because something
+                # downstream corrected it. That is the shape §21/the blueprint call
+                # "true by construction vs true by luck": if the honesty judge were
+                # ever unavailable, `_verify_claims_inline` returns claims UNTOUCHED
+                # (:596) and the lie would ship. Observably identical today,
+                # fail-safe if phase 5 ever goes quiet.
+                if result.ok:
+                    for lc in (result.data.get("claims") or []):
+                        if isinstance(lc, dict):
                             claims.append(Claim(
-                                text=_clean,
-                                grounded=True,
-                                confidence=0.7,
+                                text=lc.get("text", ""),
+                                grounded=False,
+                                confidence=float(lc.get("confidence", 0.5) or 0.0),
                             ))
+                elif result.outcome == OUTCOME_INVALID_OUTPUT and result.raw_text:
+                    # The model answered in prose rather than JSON. Keep it as an
+                    # explicitly UNGROUNDED claim so the evidence trail shows what
+                    # was said; it cannot become the answer without phase 6.
+                    # R-F1057 — strip meta-preamble from LLM output.
+                    _clean = self._strip_meta_preamble(result.raw_text[:500])
+                    if _clean:
+                        claims.append(Claim(
+                            text=_clean,
+                            grounded=False,
+                            confidence=0.0,
+                        ))
             except asyncio.TimeoutError:
                 logger.debug("[grounded_reasoner] LLM synthesis timed out after %ss",
                              _LLM_SYNTHESIS_TIMEOUT)
@@ -736,12 +763,27 @@ class GroundedReasoner:
     # ── Lazy loader helpers ─────────────────────────────────────────────────
 
     async def _get_llm(self) -> Any:
+        """Resolve the live application provider chain.
+
+        R-F3110 — this returned None on EVERY call. It constructed
+        `llm_pipeline.LLMPipeline`, a class that has never existed in this tree
+        (llm_pipeline.py defines `LLMTrainingPipeline`), so the import raised
+        ImportError straight into the `except` below and logged at DEBUG. Measured
+        before the fix: `_get_llm()` -> None, `_extract_premises()` -> [] on a
+        message with obvious premises, `_decompose()` -> a single stub question.
+        Every LLM branch of this reasoner — a LIVE stage, called by
+        reasoning_router.py:383 — was unreachable, and nothing said so.
+
+        company_investigator.py hit the identical import and R-F2535 fixed it
+        THERE, recording "never existed" in a comment. Two other sites kept the
+        bug. Resolution now goes through the one gateway (R-F3109) so there is no
+        third private way to obtain a provider.
+        """
         if self._llm is None:
-            try:
-                from .llm_pipeline import LLMPipeline
-                self._llm = LLMPipeline()
-            except Exception as exc:
-                logger.debug("[grounded_reasoner] LLM not available: %s", exc)
+            from ..llm.structured import resolve_provider
+            self._llm = resolve_provider()
+            if self._llm is None:
+                logger.debug("[grounded_reasoner] no LLM provider resolvable")
         return self._llm
 
     async def _get_rag(self) -> Any:
