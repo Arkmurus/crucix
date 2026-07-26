@@ -121,6 +121,22 @@ def test_rf3201_hurricane_agency_name_does_not_invent_an_active_storm() -> None:
             "Microsoft SharePoint",
         ),
         (
+            "2026-004: Critical Vulnerability in SharePoint Exploited",
+            "",
+            "SharePoint",
+        ),
+        (
+            "Critical Vulnerability in Cisco Secure Email and Web Manager "
+            "On December 17",
+            "",
+            "Cisco Secure Email and Web Manager",
+        ),
+        (
+            "Critical Vulnerability in Windows Netlogon On 12 May 2026",
+            "",
+            "Windows Netlogon",
+        ),
+        (
             "Hurricane Genevieve Public Advisory Number 10",
             "The hurricane is southwest of Mexico.",
             "Hurricane Genevieve",

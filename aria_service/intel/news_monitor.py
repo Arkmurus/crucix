@@ -62,7 +62,7 @@ _FEED_STATE_KEY = "crucix:news_monitor:feed_state"
 _ARTICLES_KEY = "crucix:news_monitor:articles"
 _INTEL_SIGNALS_KEY = "crucix:news_monitor:intel_signals"
 _CLASSIFIER_REPLAY_KEY = "crucix:news_monitor:classifier_replay"
-_CLASSIFIER_REPLAY_VERSION = "rf3201.v2"
+_CLASSIFIER_REPLAY_VERSION = "rf3201.v3"
 _POLL_STATE_KEY = "crucix:news_monitor:poll_state"
 _MAX_ARTICLES = 1000
 _MAX_INTEL_SIGNALS = 500
@@ -702,7 +702,9 @@ def _extract_article_entities(text: str) -> dict:
     for match in re.finditer(
         r"\b(?:critical|high|multiple)?\s*vulnerabilit(?:y|ies)\s+in\s+"
         r"([A-Z][A-Za-z0-9 ._/-]{1,70}?)"
-        r"(?=$|[,:;(]|\.\s+(?:On|The|A)\b|\s+On\s+\d)",
+        r"(?=$|[,:;(]|\s+(?:Exploited|Actively exploited)\b|"
+        r"\.\s+(?:On|The|A)\b|\s+On\s+(?:\d{1,2}|January|February|March|April|May|"
+        r"June|July|August|September|October|November|December)\b)",
         text,
         re.I,
     ):
