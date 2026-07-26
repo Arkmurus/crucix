@@ -88,8 +88,85 @@ CONDITION_NOTES: dict[Sch1Condition, str] = {
 }
 
 
+# ── R-F3164: the recommended condition, so nobody has to research one ─────
+#
+# WHO PICKS THIS MATTERS. Under Art. 28 the controller — the employer being
+# screened for — determines the purpose and means, so the Schedule 1 condition
+# is theirs to select. Arkmurus, as processor, does not and should not pick a
+# condition on a customer's behalf: doing so would be determining the means of
+# processing, which would make us a joint controller and put the customer's
+# liability on our balance sheet.
+#
+# What we CAN do is remove the research. For ordinary UK pre-employment
+# screening, Sch. 1 Pt 1 para 1 (employment) is the standard condition, and
+# the APD template is already written. So onboarding is a confirmation of a
+# pre-filled position by a named person at the customer, not a legal project.
+RECOMMENDED_CONDITION: dict[str, "Sch1Condition"] = {}   # populated below
+
+RECOMMENDATION_RATIONALE: dict[str, str] = {
+    "GB": (
+        "Sch. 1 Pt 1 para 1 (employment, social security and social "
+        "protection) is the standard condition for ordinary UK pre-employment "
+        "screening: the processing is necessary for obligations imposed on the "
+        "employer in connection with employment. Choose a Part 2 condition "
+        "instead if your screening exists to meet a regulatory obligation "
+        "(para 12) or a safeguarding duty (para 18) rather than a general "
+        "employment one. This is a recommendation from the common case, not "
+        "advice about yours — your DPO or counsel confirms it."
+    ),
+}
+
+
 class LegalBasisError(ValueError):
     """The Art. 10 position is not evidenced; processing must not proceed."""
+
+
+# ── R-F3162: which legal regime authorises this case ──────────────────────
+#
+# The conditions above are UK statute (DPA 2018). They have NO force anywhere
+# else, and the gate was applying them to every case regardless of the pack's
+# jurisdiction — so a Portuguese or INTL case could be "authorised" by a UK
+# Schedule 1 condition, which authorises nothing there.
+#
+# EU GDPR Art. 10 has the same shape as the UK article but delegates to
+# "Union or Member State law", and member states diverge sharply: several
+# restrict or prohibit private employers from processing conviction data
+# outside specific regulated sectors. There is no pan-EU condition list to
+# hardcode, and inventing one would be worse than refusing.
+#
+# So: GB is reviewed and usable. Everything else refuses until a jurisdiction
+# pack has been through legal review — the same enforced-by-construction rule
+# that stops a DRAFT screening pack being used on a live case.
+REVIEWED_JURISDICTIONS: dict[str, str] = {
+    "GB": "DPA 2018 s.10(5) + Schedule 1 (UK GDPR Art. 10)",
+}
+
+
+class JurisdictionNotReviewed(LegalBasisError):
+    """No reviewed Art. 10 regime exists for this case's jurisdiction."""
+
+
+def regime_for(jurisdiction: str) -> str:
+    """The statutory regime for a jurisdiction, or raise.
+
+    Refusing is the correct answer for an unreviewed jurisdiction. The
+    alternative — letting a UK condition stand in — would produce a case file
+    that LOOKS authorised and is not, which is worse than one that never
+    opened.
+    """
+    code = (jurisdiction or "").strip().upper()
+    regime = REVIEWED_JURISDICTIONS.get(code)
+    if regime is None:
+        raise JurisdictionNotReviewed(
+            f"criminal-offence data cannot be held for jurisdiction "
+            f"'{code or 'UNKNOWN'}': no legally reviewed Art. 10 regime is "
+            f"configured. UK GDPR Art. 10 and EU GDPR Art. 10 both require "
+            f"authorisation by domestic law, and EU member states diverge on "
+            f"whether a private employer may process conviction data at all. "
+            f"This jurisdiction needs local legal review before such data may "
+            f"be stored."
+        )
+    return regime
 
 
 @dataclass(frozen=True)
@@ -192,3 +269,27 @@ def holds_criminal_offence_data(case) -> bool:
         if doc_type in criminality_docs or doc_type in criminality_values:
             return True
     return False
+
+# Populated here (after Sch1Condition is defined) rather than inline above, so
+# the rationale text and the code it recommends stay adjacent.
+RECOMMENDED_CONDITION["GB"] = Sch1Condition.EMPLOYMENT_SOCIAL_SECURITY
+
+
+def recommendation_for(jurisdiction: str) -> dict:
+    """A pre-filled position for the customer to CONFIRM, or nothing.
+
+    Returns {} for a jurisdiction with no reviewed regime — offering a
+    recommendation there would imply the processing is available when it is
+    not.
+    """
+    code = (jurisdiction or "").strip().upper()
+    condition = RECOMMENDED_CONDITION.get(code)
+    if condition is None:
+        return {}
+    return {
+        "condition": condition.value,
+        "apd_required": condition in _APD_REQUIRED,
+        "apd_template": "docs/vetting/appropriate_policy_document.md",
+        "rationale": RECOMMENDATION_RATIONALE.get(code, ""),
+        "confirmed_by_controller_required": True,
+    }

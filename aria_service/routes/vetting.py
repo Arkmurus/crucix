@@ -92,11 +92,39 @@ async def _require_art10_position(tenant: str, case, as_of: date) -> None:
     import asyncio
 
     from ..vetting.legal_basis import (
-        LegalBasisError, holds_criminal_offence_data, validate_position,
+        JurisdictionNotReviewed, LegalBasisError, holds_criminal_offence_data,
+        regime_for, validate_position,
     )
 
     if not holds_criminal_offence_data(case):
         return
+
+    # R-F3162 — the Art. 10 regime follows the CASE's jurisdiction, taken from
+    # its pinned pack. The UK conditions are UK statute and authorise nothing
+    # elsewhere; a case pinned to an EU or INTL pack must not be waved through
+    # on a DPA 2018 condition.
+    if case.manifest is not None:
+        try:
+            pack = registry.get_exact(
+                pack_id=case.manifest.pack_id,
+                version=case.manifest.pack_version,
+                content_hash=case.manifest.pack_hash,
+            )
+        except PackNotUsable as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "pack_unavailable", "message": str(exc)},
+            ) from exc
+        try:
+            regime_for(pack.jurisdiction)
+        except JurisdictionNotReviewed as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "jurisdiction_not_reviewed",
+                        "jurisdiction": pack.jurisdiction,
+                        "message": str(exc)},
+            ) from exc
+
     store = get_case_store()
     position = await asyncio.to_thread(store.get_art10_position, tenant)
     if position is None:
@@ -204,8 +232,8 @@ async def vetting_legal_basis_get_ep(user_id: str = ""):
     import asyncio
 
     from ..vetting.legal_basis import (
-        CONDITION_NOTES, LegalBasisError, Sch1Condition, requires_apd,
-        validate_position,
+        CONDITION_NOTES, REVIEWED_JURISDICTIONS, LegalBasisError, Sch1Condition,
+        recommendation_for, requires_apd, validate_position,
     )
 
     tenant = _tenant(user_id)
@@ -238,6 +266,14 @@ async def vetting_legal_basis_get_ep(user_id: str = ""):
              "apd_required": requires_apd(c)}
             for c in Sch1Condition
         ],
+        # R-F3164 — a pre-filled position for the CONTROLLER to confirm. We do
+        # not select it for them: under Art. 28 the controller determines the
+        # means, and choosing on their behalf would make us a joint controller.
+        # Removing the research is help; making the choice is liability.
+        "recommended": recommendation_for("GB"),
+        # R-F3162 — which jurisdictions this build can lawfully hold
+        # criminal-offence data for at all.
+        "reviewed_jurisdictions": REVIEWED_JURISDICTIONS,
     }
 
 
