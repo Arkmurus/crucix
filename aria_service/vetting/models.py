@@ -20,6 +20,20 @@ from pydantic import BaseModel, Field, model_validator
 # so the two cannot drift.
 CaseOutcomeLiteral = Literal["PENDING", "UNSUCCESSFUL", "EMPLOYED", "WITHDRAWN"]
 
+# R-F3189 — the progress sheet's COPY / ORG / N-A columns.
+#
+# NOT_RECORDED is the DEFAULT and is deliberately distinct from COPY_ONLY:
+# "nobody has said" and "we hold only a copy" are different states, and
+# defaulting an unanswered question to the weaker answer would quietly assert
+# something no one checked. Same discipline as the assessment verdict — absence
+# is never a finding.
+SightingLiteral = Literal[
+    "ORIGINAL_SEEN",    # original inspected in person, copy retained (7.4 c))
+    "COPY_ONLY",        # a copy or scan only — original never sighted
+    "NOT_APPLICABLE",   # e.g. an electronic right-to-work share code
+    "NOT_RECORDED",     # nobody has answered yet
+]
+
 # R-F3153 — the lawful bases available for employment screening.
 #
 # CONSENT is ABSENT ON PURPOSE and must stay absent. An applicant cannot freely
@@ -106,6 +120,16 @@ class UploadedDocument(BaseModel):
     # must not pretend otherwise.
     plaintext_sha256: str = ""
     encrypted: bool = False
+    # R-F3189 — BS 7858 7.4 c)/d): "visual inspection of ORIGINAL documents and
+    # retention of a copy", with a record of who examined and copied them. The
+    # manual progress sheet tracks this as three columns — COPY / ORG / N-A —
+    # and the module recorded none of it. Holding a scan is NOT the same as
+    # having sighted the original, and for identity documents that difference
+    # is the whole control: a forged PDF passes a copy check and fails an
+    # in-person one.
+    sighting: SightingLiteral = "NOT_RECORDED"
+    examined_by: str = ""
+    examined_at: date | None = None
 
 
 class CareerEntry(BaseModel):

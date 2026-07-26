@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3188,
+  "next_available": 3190,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25949,6 +25949,24 @@
       "r_number": "R-F3187",
       "title": "R-number registry: reserve returns a number it never verified persisted",
       "claimed_at": "2026-07-26T22:04:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3188",
+      "title": "vetting verification request ledger with BS7858 request codes and chaser tracking",
+      "claimed_at": "2026-07-26T22:13:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3189",
+      "title": "vetting: record ORIGINAL seen vs COPY held per document per BS7858 7.4c",
+      "claimed_at": "2026-07-26T22:13:25Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

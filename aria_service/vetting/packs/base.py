@@ -84,6 +84,12 @@ class ScreeningPack(BaseModel):
     # Evidence that IS a direct reference, and therefore stands alone.
     direct_reference_documents: list[DocumentType] = Field(default_factory=list)
 
+    # R-F3189 — documents BS 7858 7.4 c)/d) expects to be sighted in the
+    # ORIGINAL, not accepted as a copy. Pack data rather than a hardcoded list,
+    # because which documents demand an original is a rule of the framework and
+    # will differ in the next jurisdiction.
+    originals_required: list[DocumentType] = Field(default_factory=list)
+
     criminality_routes: list[DocumentType] = Field(default_factory=list)
     criminality_reference: str = ""
     signoff_triggers: list[SignoffTrigger] = Field(default_factory=list)

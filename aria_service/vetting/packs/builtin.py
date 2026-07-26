@@ -183,6 +183,13 @@ UK_BS7858_V120 = UK_BS7858.model_copy(update={
         ChecklistSpec(field="bankruptcy_orders_searched", label="Bankruptcy orders searched", reference="7.4 f)5)"),
         ChecklistSpec(field="aliases_searched", label="Aliases searched", reference="7.4 f)6)"),
     ],
+    # 7.4 c)/d) — documents that must be sighted in the ORIGINAL. Identity and
+    # entitlement documents: a forged PDF passes a copy check and fails an
+    # in-person one, which is the entire point of the clause.
+    "originals_required": [
+        D.PASSPORT, D.DRIVING_LICENCE, D.BIRTH_CERTIFICATE, D.RESIDENCE_PERMIT,
+        D.SIA_LICENCE, D.DISCLOSURE_CERTIFICATE, D.PROOF_OF_ADDRESS,
+    ],
     # 7.7 b) — two or more different items where no direct reference exists.
     "min_documentary_items_without_reference": 2,
     "direct_reference_documents": [

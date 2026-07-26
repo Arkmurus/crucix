@@ -258,6 +258,51 @@ def deadline_findings(case: VettingCase, pack: ScreeningPack, as_of: date) -> li
                     f"({remaining} days remaining).", due_date=deadline)]
 
 
+# ------------------------------------------------------ document sighting --
+
+def sighting_findings(case: VettingCase, pack: ScreeningPack) -> list[Finding]:
+    """R-F3189 — BS 7858 7.4 c)/d): originals sighted, and by whom.
+
+    Two distinct findings, because they need different actions:
+      COPY_ONLY      → someone must see the original. An ACTION.
+      NOT_RECORDED   → nobody has answered the question. Also an ACTION, but a
+                       different one: it is unknown, NOT a failure. Collapsing
+                       the two would either invent a breach that has not
+                       happened, or hide one that has.
+
+    A missing examiner name is separate again: the standard requires a record
+    of WHO examined the original, and "an original was seen" with nobody
+    attached to it cannot be evidenced to an auditor.
+    """
+    out: list[Finding] = []
+    required = set(pack.originals_required)
+    if not required:
+        return out
+    for doc in case.documents:
+        if doc.doc_type not in required:
+            continue
+        name = doc.doc_type.value
+        if doc.sighting == "COPY_ONLY":
+            out.append(Finding(
+                "ORIGINAL_NOT_SIGHTED", Severity.ACTION, "7.4 c)",
+                f"{name}: only a copy is held. The original must be visually "
+                f"inspected and a copy retained.",
+            ))
+        elif doc.sighting == "NOT_RECORDED":
+            out.append(Finding(
+                "SIGHTING_NOT_RECORDED", Severity.ACTION, "7.4 c)",
+                f"{name}: it is not recorded whether the original was sighted "
+                f"or only a copy held.",
+            ))
+        elif doc.sighting == "ORIGINAL_SEEN" and not doc.examined_by.strip():
+            out.append(Finding(
+                "EXAMINER_NOT_RECORDED", Severity.ACTION, "7.4 c)",
+                f"{name}: the original was sighted but no examiner is named. "
+                f"The standard requires a record of who examined and copied it.",
+            ))
+    return out
+
+
 # ------------------------------------------------------- coverage map ----
 
 @dataclass(frozen=True)
@@ -347,6 +392,7 @@ def assess(case: VettingCase, pack: ScreeningPack, as_of: date) -> dict:
         + checklist_findings(case, pack)
         + gap_findings(case, pack, as_of)
         + evidence_findings(case, pack, as_of)
+        + sighting_findings(case, pack)
         + signoff_findings(case, pack)
         + deadline_findings(case, pack, as_of)
     )
