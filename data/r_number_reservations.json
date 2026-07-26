@@ -25397,9 +25397,10 @@
       "title": "site-extracted person homonym must not drive the entity verdict",
       "claimed_at": "2026-07-26T15:06:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "98fd4909",
+      "notes": null,
+      "shipped_at": "2026-07-26T15:08:32Z"
     }
   ]
 }
