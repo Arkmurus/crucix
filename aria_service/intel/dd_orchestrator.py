@@ -2663,6 +2663,69 @@ async def _check_domain_ownership(target: dict, report: ARKDDReport) -> None:
         logger.debug("domain_ownership_verifier failed (non-fatal): %s", e)
 
 
+# ── R-F3134: SEC form categories — not every EDGAR filing carries financials ──
+#
+# THE DEFECT, live on the Babcock DD (dd_8c7242c2b45b), two CONFIRMED findings in one
+# report:
+#     Identity   "SEC filings found: 5 recent (Babcock International Group PLC/ADR)
+#                 Most recent: F-6EF filed 2025-03-19.
+#                 FULL FILINGS AVAILABLE FOR FINANCIAL DD REVIEW."
+#     Compliance "Financial health — no US-listed (SEC EDGAR) filings
+#                 No SEC/EDGAR financials available — UNKNOWN, not a clean bill."
+#
+# A reader cannot reconcile those, and reasonably concludes one section is broken. The
+# COMPLIANCE layer was right. An F-6EF is a registration statement filed by a DEPOSITARY
+# BANK to register American Depositary Receipts — the "/ADR" on the entity name is the
+# tell. It contains NO financial statements whatever. Babcock is UK-listed and is not a
+# US reporting issuer; its accounts live at Companies House.
+#
+# So the identity prose promised financial-DD material that the form category CANNOT
+# contain — the same shape as R-F3129's sanctions clearance offered on coverage nothing
+# evidenced. The filings ARE real (do not go silent; that is R-F1696 in reverse), but
+# what they are must be stated, and the financial-review promise withheld unless a form
+# that actually carries statements is present.
+_SEC_FINANCIAL_STATEMENT_FORMS = frozenset({
+    "10-K", "10-K/A", "10-KSB", "10-Q", "10-Q/A",      # US domestic reporting issuers
+    "20-F", "20-F/A", "40-F", "40-F/A",                # foreign private issuers
+})
+
+# What the common NON-financial forms actually are, so the report says something a
+# reader can act on instead of a bare form code.
+_SEC_FORM_MEANING = {
+    "F-6": "ADR depositary registration (no financial statements)",
+    "F-6EF": "ADR depositary registration, immediately effective (no financial statements)",
+    "F-6 POS": "post-effective amendment to an ADR registration (no financial statements)",
+    "SC 13D": "beneficial-ownership disclosure filed by a third party",
+    "SC 13G": "passive beneficial-ownership disclosure filed by a third party",
+    "13F-HR": "institutional holdings report filed by an investment manager",
+    "4": "insider transaction report",
+    "3": "initial insider holdings report",
+    "5": "annual insider transaction report",
+    "S-8": "employee benefit-plan share registration",
+    "6-K": "foreign private issuer interim report (may or may not contain financials)",
+    "8-K": "material-event report",
+}
+
+
+def _sec_form_summary(hits: list) -> tuple:
+    """Return (forms_present, has_financial_statements, description).
+
+    `hits` are sec_edgar filing dicts. Returns the DISTINCT forms in filing order, a
+    flag for whether any of them is a form that carries financial statements, and a
+    human description of the non-financial ones.
+    """
+    forms = []
+    for h in hits:
+        f = str((h or {}).get("form") or "").strip()
+        if f and f not in forms:
+            forms.append(f)
+    has_fin = any(f in _SEC_FINANCIAL_STATEMENT_FORMS for f in forms)
+    described = [
+        f"{f} — {_SEC_FORM_MEANING[f]}" for f in forms if f in _SEC_FORM_MEANING
+    ]
+    return forms, has_fin, "; ".join(described)
+
+
 async def _identity_primary_source_screen(
     name: str, jurisdiction: "str | None", report: ARKDDReport,
 ) -> bool:
@@ -2977,14 +3040,42 @@ async def _identity_primary_source_screen(
                 # INFO summary fires only when no red/amber present —
                 # don't clutter when there's already a substantive finding.
                 if _info_hits and not (_red_hits or _amber_hits):
-                    report.identity.findings.append(Finding(
-                        severity="info",
-                        title=f"SEC filings found: {len(_info_hits)} recent ({_info_hits[0].get('company_name','?')})",
-                        detail=(
+                    # R-F3134: say what the filings ARE. Promising "financial DD review"
+                    # off an ADR registration contradicted the financial layer in the
+                    # same report and overstated what EDGAR actually held.
+                    _forms, _has_fin, _desc = _sec_form_summary(_info_hits)
+                    _forms_txt = ", ".join(_forms[:6]) or "?"
+                    if _has_fin:
+                        _title = (
+                            f"SEC filings found: {len(_info_hits)} recent "
+                            f"({_info_hits[0].get('company_name','?')})"
+                        )
+                        _detail = (
                             f"Most recent: {_info_hits[0].get('form','?')} filed "
                             f"{_info_hits[0].get('filing_date','?')}. "
-                            f"Full filings available for financial DD review."
-                        ),
+                            f"Forms present: {_forms_txt}. "
+                            f"Includes filings that carry financial statements — "
+                            f"available for financial DD review."
+                        )
+                    else:
+                        _title = (
+                            f"SEC filings found: {len(_info_hits)} recent, none carrying "
+                            f"financial statements ({_info_hits[0].get('company_name','?')})"
+                        )
+                        _detail = (
+                            f"Most recent: {_info_hits[0].get('form','?')} filed "
+                            f"{_info_hits[0].get('filing_date','?')}. "
+                            f"Forms present: {_forms_txt}. "
+                            + (f"These are: {_desc}. " if _desc else "")
+                            + "None of these form types contain financial statements, so "
+                            "EDGAR does not evidence this entity's financials — the "
+                            "subject is not shown to be a US reporting issuer. Financials "
+                            "must come from the home-jurisdiction registry."
+                        )
+                    report.identity.findings.append(Finding(
+                        severity="info",
+                        title=_title,
+                        detail=_detail,
                         source="sources.sec_edgar",
                         confidence="CONFIRMED",
                     ))
