@@ -680,6 +680,30 @@ _BALANCE_PRIMARY_ANCHORS = (
 )
 
 
+def _pdf_text_layer(data: bytes, max_pages: int = 800) -> str:
+    """R-F3165 — pull a PDF's text layer with PyMuPDF. No OCR, no table extraction.
+
+    Synchronous and CPU-bound on purpose: the caller runs it via asyncio.to_thread so
+    a 300-page report cannot block the event loop (a DD runs ~15-25 concurrent LLM
+    calls alongside this).
+
+    Returns "" when there is no text layer, which is the caller's signal to fall back
+    to the full document_reader pipeline — a genuine scan is the only case that needs
+    OCR, and a scan cannot support a solvency verdict anyway (R-F3017 route 2).
+    """
+    import fitz  # PyMuPDF — already a dependency of document_reader's OCR strategy
+    doc = fitz.open(stream=data, filetype="pdf")
+    try:
+        return "".join(
+            doc[i].get_text() for i in range(min(doc.page_count, max_pages))
+        )
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+
 def _financial_excerpt(text: str, limit: int = 0) -> str:
     """R-F3146 — hand the extractor the BALANCE SHEET, not the first N characters.
 
@@ -825,14 +849,44 @@ async def extract_issuer_financials(
     _tmp_path = None
     try:
         from . import document_reader as _dr
-        # read_document dispatches on EXTENSION, so name the temp file by magic bytes.
-        _suffix = ".pdf" if _pre_bytes[:4] == b"%PDF" else ".html"
-        _fd, _tmp_path = tempfile.mkstemp(suffix=_suffix, prefix="aria_issuer_")
-        with os.fdopen(_fd, "wb") as _fh:
-            _fh.write(_pre_bytes)
-        # §3b — verified: document_reader.read_document(source, llm=..) -> ExtractionResult
-        _res = await asyncio.wait_for(_dr.read_document(_tmp_path), timeout=timeout)
-        text = str(getattr(_res, "text", "") or "")
+        # ── R-F3165: read the TEXT LAYER directly; do not buy the OCR pipeline ──
+        #
+        # MEASURED (Babcock, dd_52cc50527dd0): "did not finish parsing within 45s
+        # (9,339,633 bytes)". R-F3146 removed the double download and named the
+        # timeout honestly, which exposed the next real constraint rather than
+        # hiding it — the PARSE itself does not fit.
+        #
+        # `read_document` is a 4-strategy pipeline built for unknown documents:
+        # pdfplumber text (document_reader.py:196) → pdfplumber TABLE extraction
+        # (:208) → Tesseract OCR (:220) → LLM vision. pdfplumber is an order of
+        # magnitude slower than PyMuPDF on a ~300-page annual report, and table
+        # extraction and OCR are pure cost here: a balance sheet's figures live in
+        # the TEXT LAYER, and a filing with no text layer cannot support a solvency
+        # verdict anyway (R-F3017 route 2).
+        #
+        # So take the cheap, correct path first and keep the full pipeline as the
+        # fallback for genuine scans. §1: this removes the work, it does not raise
+        # the timeout.
+        if _pre_bytes[:4] == b"%PDF":
+            try:
+                text = await asyncio.wait_for(
+                    asyncio.to_thread(_pdf_text_layer, _pre_bytes), timeout=timeout)
+            except (asyncio.TimeoutError, TimeoutError):
+                raise
+            except Exception as e:                    # damaged PDF → try the pipeline
+                logger.debug("[R-F3165] text-layer read failed (%s) — falling back "
+                             "to the full reader", type(e).__name__)
+                text = ""
+        if len(text.strip()) < 2000:
+            # Either not a PDF, or no usable text layer — this is what the heavy
+            # pipeline (OCR/vision) exists for.
+            _suffix = ".pdf" if _pre_bytes[:4] == b"%PDF" else ".html"
+            _fd, _tmp_path = tempfile.mkstemp(suffix=_suffix, prefix="aria_issuer_")
+            with os.fdopen(_fd, "wb") as _fh:
+                _fh.write(_pre_bytes)
+            # §3b — verified: document_reader.read_document(source, llm=..) -> ExtractionResult
+            _res = await asyncio.wait_for(_dr.read_document(_tmp_path), timeout=timeout)
+            text = str(getattr(_res, "text", "") or "")
     except (asyncio.TimeoutError, TimeoutError):
         out["reason"] = (
             f"the issuer's document did not finish parsing within {timeout:.0f}s "
