@@ -25062,9 +25062,10 @@
       "title": "DD context findings separated from compliance decision drivers",
       "claimed_at": "2026-07-26T11:30:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "92c6114e",
+      "notes": null,
+      "shipped_at": "2026-07-26T11:39:37Z"
     }
   ]
 }
