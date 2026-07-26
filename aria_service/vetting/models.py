@@ -10,8 +10,29 @@ from __future__ import annotations
 
 from datetime import date
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
+
+# R-F3152 — the accepted retention outcomes, as a validated type rather than a
+# free string. Kept here (not imported from retention.py) so models.py stays
+# dependency-free; retention.CaseOutcome mirrors it and a test pins them equal,
+# so the two cannot drift.
+CaseOutcomeLiteral = Literal["PENDING", "UNSUCCESSFUL", "EMPLOYED", "WITHDRAWN"]
+
+# R-F3153 — the lawful bases available for employment screening.
+#
+# CONSENT is ABSENT ON PURPOSE and must stay absent. An applicant cannot freely
+# refuse their prospective employer's screening, so consent is not "freely
+# given" within Art. 4(11) and collapses under Art. 7(4). Offering it as an
+# option would let a customer select the one basis a regulator reliably rejects
+# — and they would, because it is the one that feels most reassuring.
+LawfulBasisLiteral = Literal[
+    "LEGITIMATE_INTERESTS",   # Art. 6(1)(f) — the usual basis, needs an LIA
+    "CONTRACT",               # Art. 6(1)(b) — steps prior to entering a contract
+    "LEGAL_OBLIGATION",       # Art. 6(1)(c) — e.g. statutory sector vetting
+    "PUBLIC_TASK",            # Art. 6(1)(e)
+]
 
 
 class Money(BaseModel):
@@ -77,6 +98,14 @@ class UploadedDocument(BaseModel):
     issuer: str | None = None
     extraction_confidence: float = 0.0
     authenticity_flags: list[str] = Field(default_factory=list)
+    # R-F3155 — integrity digest of the PLAINTEXT examined. The evidence store
+    # hashes what it actually holds (the ciphertext), so this is what proves
+    # which document a human looked at. `encrypted` records whether this
+    # artifact is crypto-shreddable: a document stored before encryption was
+    # enabled cannot be erased by destroying the key, and an erasure report
+    # must not pretend otherwise.
+    plaintext_sha256: str = ""
+    encrypted: bool = False
 
 
 class CareerEntry(BaseModel):
@@ -166,6 +195,44 @@ class VettingCase(BaseModel):
     # is separate from `outcome_date` on purpose: the post-employment clock
     # starts when employment ENDS, and anchoring it to anything else would
     # schedule a live personnel file for deletion years early.
-    outcome: str = "PENDING"
+    # R-F3152 — a plain `str` here was a live 500: retention.py does
+    # `CaseOutcome(case.outcome)`, so any value outside the enum raised
+    # ValueError inside the route. An unvalidated field that a downstream enum
+    # constructor trusts is a crash waiting for its first typo.
+    outcome: CaseOutcomeLiteral = "PENDING"
     outcome_date: date | None = None
     employment_end: date | None = None
+
+    # R-F3153 — Art. 22 / Art. 5(2). Decisions are RECORDED, never derived.
+    # Art. 22(3) also gives the applicant the right to contest, so disputes
+    # live on the same file as the decision they contest.
+    decisions: list[dict] = Field(default_factory=list)
+    disputes: list[dict] = Field(default_factory=list)
+
+    # R-F3153 — Art. 6 / Art. 10 lawful basis, recorded per case.
+    #
+    # Deliberately defaults to LEGITIMATE_INTERESTS, and CONSENT is not an
+    # accepted value at all (see LawfulBasisLiteral). In an employment context
+    # consent is not freely given — the imbalance of power between employer and
+    # applicant makes it invalid (EDPB Opinion 2/2017; ICO employment guidance).
+    # BS 7858 requires a signed screening authorisation, and that signature is
+    # evidence the screening was AUTHORISED; it is not the GDPR lawful basis.
+    # Conflating the two is the most common compliance error in this market, so
+    # the type system refuses it here.
+    lawful_basis: LawfulBasisLiteral = "LEGITIMATE_INTERESTS"
+    criminal_data_condition: str = ""
+
+    @model_validator(mode="after")
+    def _retention_anchors_coherent(self):
+        # A dated outcome that precedes the employment it concluded is not a
+        # date we may quietly accept: it would compute a disposal deadline in
+        # the past and mark a live file overdue for deletion.
+        if self.outcome_date is not None and self.outcome_date < self.employment_start:
+            # Only meaningful once employment actually started; a screening
+            # abandoned before the start date legitimately predates it.
+            if self.outcome == "EMPLOYED":
+                raise ValueError(
+                    "outcome_date precedes employment_start for an EMPLOYED case")
+        if self.employment_end is not None and self.employment_end < self.employment_start:
+            raise ValueError("employment_end precedes employment_start")
+        return self

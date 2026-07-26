@@ -11,6 +11,12 @@ httpx>=0.28.0
 redis>=5.0.0
 tenacity>=9.0.0
 pydantic>=2.10.0
+# R-F3155 — already present transitively (verifiable_ledger.py imports it at
+# module scope), now DECLARED because vetting crypto-shredding depends on it
+# for Art. 17 erasure. An erasure mechanism must not rest on a package nobody
+# declared: a transitive dep can vanish in a routine upgrade, and this one
+# failing would either stop uploads or store plaintext.
+cryptography>=42.0.0
 pydantic-settings>=2.7.0
 python-dotenv>=1.0.0
 sentence-transformers>=3.0.0

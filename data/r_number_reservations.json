@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3151,
+  "next_available": 3157,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -25554,9 +25554,11 @@
       "title": "risk_classification GREEN while decision readiness is NOT_CLEARED",
       "claimed_at": "2026-07-26T17:47:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
+      "status": "abandoned",
       "commit_sha": null,
-      "notes": null
+      "notes": null,
+      "abandoned_at": "2026-07-26T17:55:47Z",
+      "abandon_reason": "reverted: risk_classification (what we found) vs decision_readiness (can you rely) is a deliberate R-F2786/R-F2792 split; the UI already renders readiness adjacent to the badge"
     },
     {
       "r_number": "R-F3150",
@@ -25566,6 +25568,62 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3151",
+      "title": "vetting extraction pinned to approved processors, fail-closed on data residency",
+      "claimed_at": "2026-07-26T18:00:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3152",
+      "title": "vetting outcome enum validation and retention clock reachable via API",
+      "claimed_at": "2026-07-26T18:00:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3153",
+      "title": "Art 22 human decision record with four-eyes, no automated employment decision",
+      "claimed_at": "2026-07-26T18:00:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3154",
+      "title": "Art 15/16 subject access export and applicant dispute record",
+      "claimed_at": "2026-07-26T18:00:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3155",
+      "title": "Art 17 effective erasure via per-case crypto-shredding",
+      "claimed_at": "2026-07-26T18:00:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3156",
+      "title": "completed adverse-media screen is invisible in the structured view",
+      "claimed_at": "2026-07-26T18:05:18Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-07-26T18:06:03Z",
+      "abandon_reason": "NOT A DEFECT — the completed adverse-media screen IS rendered in the structured view via highlights rows (R-F3055 templates/backends/raw counts + R-F3060 assessment with the absence-of-coverage caveat). My claim that it was invisible came from inspecting section.findings only and never reading section.highlights."
     }
   ]
 }

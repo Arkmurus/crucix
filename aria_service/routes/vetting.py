@@ -36,6 +36,7 @@ from ..intel.engine_wiring import wire_success
 from ..intel.wire import fail_wire
 from ..vetting.models import (
     CareerEntry,
+    CaseOutcomeLiteral,
     FinancialFlags,
     ScreeningInputs,
     UploadedDocument,
@@ -127,6 +128,14 @@ class UpdateCaseRequest(BaseModel):
     financial: FinancialFlags | None = None
     conditional_employment_start: date | None = None
     extension_approved: bool | None = None
+    # R-F3152 — WITHOUT these the retention fields were unreachable: the model
+    # carried outcome/outcome_date/employment_end, retention.py computed from
+    # them, and no API path could ever set them. So every case stayed PENDING
+    # and the storage-limitation duty (Art. 5(1)(e)) could never be discharged
+    # — a retention feature that could not retain anything.
+    outcome: CaseOutcomeLiteral | None = None
+    outcome_date: date | None = None
+    employment_end: date | None = None
 
 
 # ── packs ─────────────────────────────────────────────────────────────────
@@ -304,6 +313,7 @@ async def vetting_upload_document_ep(
         new_evidence_id,
         sha256_hex,
     )
+    from ..vetting.crypto import encrypt, encryption_enabled
     from ..vetting.models import DocumentType
 
     tenant = _tenant(user_id)
@@ -334,7 +344,25 @@ async def vetting_upload_document_ep(
     except ValueError:
         fallback_type = DocumentType.OTHER
 
-    content_hash = sha256_hex(content)
+    # R-F3155 — encrypt BEFORE the evidence store sees the bytes. Only
+    # ciphertext is ever persisted there, so destroying the case key at
+    # disposal makes the retained artifact irrecoverable (Art. 17), while the
+    # append-only spine keeps its tamper-evidence intact.
+    #
+    # The plaintext digest stays on the CASE record (integrity proof of what
+    # was examined); the evidence store hashes what it actually holds, which
+    # is the ciphertext. Hashing plaintext there would both mismatch the stored
+    # bytes and leave a durable oracle for the very content we are erasing.
+    plaintext_sha256 = sha256_hex(content)
+    stored_bytes = content
+    encrypted = False
+    if encryption_enabled():
+        case_key = await asyncio.to_thread(
+            store.get_or_create_case_key, tenant, case_id)
+        stored_bytes = encrypt(content, case_key)
+        encrypted = True
+
+    content_hash = sha256_hex(stored_bytes)
     evidence_id = new_evidence_id()
     record = build_evidence_record(
         tenant_id=tenant, case_id=case_id, evidence_id=evidence_id,
@@ -343,7 +371,7 @@ async def vetting_upload_document_ep(
     )
     try:
         evidence_store = await asyncio.to_thread(get_evidence_store)
-        result = await asyncio.to_thread(evidence_store.append, record, content)
+        result = await asyncio.to_thread(evidence_store.append, record, stored_bytes)
     except EvidencePersistenceError as exc:
         raise HTTPException(
             status_code=422,
@@ -360,7 +388,8 @@ async def vetting_upload_document_ep(
         evidence_id=result.evidence_id,
         fallback_doc_type=fallback_type,
         extraction=extraction,
-    )
+    ).model_copy(update={"plaintext_sha256": plaintext_sha256,
+                         "encrypted": encrypted})
 
     documents = [*case.documents, document]
     career = case.career
@@ -425,6 +454,217 @@ async def vetting_assess_ep(
         summary=f"assessed vetting case -> {result.get('status', 'UNKNOWN')}",
     )
     return result
+
+
+class DecisionRequest(BaseModel):
+    decision: str
+    decided_by: str = Field(min_length=1, max_length=200)
+    reason: str = ""
+    assessed_by: str = ""
+    blocker_override_reason: str = ""
+    conditions: list[str] = Field(default_factory=list)
+
+
+class DisputeRequest(BaseModel):
+    """Art. 22(3) — the applicant's right to contest, and Art. 16 rectification."""
+    raised_by: str = Field(min_length=1, max_length=200)
+    disputed_finding: str = ""
+    statement: str = Field(min_length=1, max_length=4000)
+
+
+@router.post("/case/{case_id}/decision")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_decision_ep(
+    case_id: str, body: DecisionRequest, user_id: str = "",
+):
+    """R-F3153 — record the employment decision a NAMED HUMAN made.
+
+    The engine's status at the moment of decision is captured alongside it, so
+    departures from the recommendation are visible rather than inferred — and
+    so it is answerable whether any human ever departs from it at all. That is
+    the difference between meaningful human involvement and a rubber stamp,
+    which is the question Art. 22 actually asks.
+
+    This endpoint records; it never derives. There is no path here that turns
+    an assessment into a decision.
+    """
+    import asyncio
+
+    from ..vetting.decisions import (
+        DecisionError, DecisionOutcome, record_decision,
+    )
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    case = await asyncio.to_thread(store.get, tenant, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    try:
+        outcome = DecisionOutcome(body.decision.strip().upper())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_decision",
+                    "accepted": [d.value for d in DecisionOutcome]},
+        ) from exc
+
+    # The engine state AT DECISION TIME — recomputed here rather than trusted
+    # from the client, so the record cannot claim a cleaner file than existed.
+    assessment = await asyncio.to_thread(
+        _service().assess, tenant, case_id, datetime.now(UTC).date())
+
+    try:
+        record = record_decision(
+            case_id=case_id, tenant_id=tenant, decision=outcome,
+            decided_by=body.decided_by, reason=body.reason,
+            assessed_by=body.assessed_by,
+            blocker_override_reason=body.blocker_override_reason,
+            conditions=tuple(body.conditions),
+            engine_status=assessment.get("status", "UNKNOWN"),
+            engine_blockers=int(assessment.get("counts", {}).get("blockers", 0)),
+        )
+    except DecisionError as exc:
+        # 422, not 403: the decision is refused because it is not RECORDABLE as
+        # offered, and the message says exactly what is missing.
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "decision_refused", "message": str(exc)},
+        ) from exc
+
+    await asyncio.to_thread(
+        store.save,
+        case.model_copy(update={"decisions": [*case.decisions, record.as_dict()]}),
+    )
+    wire_success(module=_MODULE,
+                 summary=f"vetting decision recorded: {outcome.value}")
+    return record.as_dict()
+
+
+@router.post("/case/{case_id}/dispute")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_dispute_ep(
+    case_id: str, body: DisputeRequest, user_id: str = "",
+):
+    """R-F3154 — record the applicant's challenge (Art. 16, Art. 22(3)).
+
+    A dispute is APPENDED, never applied: the applicant's account and the
+    employer's evidence both stay on the file. Silently overwriting a finding
+    with the applicant's version would destroy the evidence trail; ignoring the
+    challenge would defeat the right. Both accounts, side by side, is the only
+    honest resolution.
+    """
+    import asyncio
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    case = await asyncio.to_thread(store.get, tenant, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    entry = {
+        "dispute_id": f"vdis_{len(case.disputes) + 1}",
+        "raised_by": body.raised_by.strip(),
+        "raised_at": datetime.now(UTC).isoformat(),
+        "disputed_finding": body.disputed_finding.strip(),
+        "statement": body.statement.strip(),
+        "status": "OPEN",
+    }
+    await asyncio.to_thread(
+        store.save,
+        case.model_copy(update={"disputes": [*case.disputes, entry]}),
+    )
+    wire_success(module=_MODULE, summary="vetting dispute recorded")
+    return entry
+
+
+@router.get("/case/{case_id}/subject-access")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_subject_access_ep(case_id: str, user_id: str = ""):
+    """R-F3154 — the Art. 15 subject-access export for one case.
+
+    Everything held about the applicant, in one response, plus the Art. 15(1)
+    context a bare data dump omits: the lawful basis, the retention period and
+    its reasoning, who decided what, and an explicit statement that no solely
+    automated decision was made.
+
+    Document CONTENT is referenced by digest rather than inlined: this endpoint
+    is reached with the employer's credentials, and the applicant's own copy of
+    their documents is not the employer's to re-issue casually. The digests
+    prove which documents are held without redistributing them.
+    """
+    import asyncio
+
+    from ..vetting.retention import retention_due_date
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    case = await asyncio.to_thread(store.get, tenant, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    retention_note = {"due_date": None, "reason": "pack unavailable"}
+    if case.manifest is not None:
+        try:
+            pack = registry.get_exact(
+                pack_id=case.manifest.pack_id,
+                version=case.manifest.pack_version,
+                content_hash=case.manifest.pack_hash,
+            )
+            verdict = retention_due_date(
+                case, pack, datetime.now(UTC).date())
+            retention_note = {
+                "due_date": verdict.due_date.isoformat() if verdict.due_date else None,
+                "reason": verdict.reason,
+            }
+        except PackNotUsable:
+            pass
+
+    wire_success(module=_MODULE, summary="subject access export produced")
+    return {
+        "case_id": case.case_id,
+        "applicant_name": case.applicant_name,
+        "date_of_birth": case.date_of_birth.isoformat(),
+        "personal_data_held": {
+            "career_history": [e.model_dump(mode="json") for e in case.career],
+            "declared_information": case.inputs.model_dump(mode="json"),
+            "financial_flags": case.financial.model_dump(mode="json"),
+            "documents": [
+                {"document_id": d.document_id, "doc_type": d.doc_type.value,
+                 "issuer": d.issuer,
+                 "covers_from": d.covers_from.isoformat() if d.covers_from else None,
+                 "covers_to": d.covers_to.isoformat() if d.covers_to else None,
+                 "plaintext_sha256": d.plaintext_sha256,
+                 "flags": d.authenticity_flags}
+                for d in case.documents
+            ],
+        },
+        "processing": {
+            "purpose": "pre-employment screening",
+            "lawful_basis": case.lawful_basis,
+            "criminal_data_condition": case.criminal_data_condition,
+            "controller": tenant,
+            "processor": "ARIA (Arkmurus)",
+            "rules_applied": case.manifest.model_dump() if case.manifest else None,
+        },
+        "decisions": case.decisions,
+        "disputes": case.disputes,
+        "retention": retention_note,
+        # Art. 22 / Art. 15(1)(h): stated as a fact of the design, not a claim
+        # about intent. Nothing in this module can produce a decision.
+        "automated_decision_making": False,
+        "automated_decision_note": (
+            "Screening findings are produced by a deterministic rule engine. "
+            "Every employment decision on this file was recorded against a "
+            "named human; see `decisions`."
+        ),
+        "your_rights": [
+            "rectification (Art. 16) — raise a dispute on this case",
+            "erasure (Art. 17) — subject to the retention period shown above",
+            "restriction (Art. 18)", "objection (Art. 21)",
+            "complaint to the ICO or your local supervisory authority",
+        ],
+    }
 
 
 @router.get("/retention")

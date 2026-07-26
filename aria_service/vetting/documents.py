@@ -170,9 +170,22 @@ async def extract_document(
     and unremarkable".
     """
     from ..llm.structured import call_structured
+    from .processors import assert_served_by_approved, resolve_vetting_processor
 
     if not text.strip():
         return {"available": False, "reason": "no extractable text in document"}
+
+    # R-F3151 — NEVER the application chain. Passing llm=None here would let
+    # call_structured resolve app.state.llm_provider, whose documented default
+    # is "everything else on DeepSeek" — an unapproved processor with no
+    # adequacy decision, carrying identity and criminal-offence data. Refusing
+    # to process is always available; un-disclosing is not.
+    if llm is None:
+        resolution = resolve_vetting_processor()
+        if not resolution.usable:
+            return {"available": False,
+                    "reason": f"no approved processor: {resolution.reason}"}
+        llm = resolution.provider
 
     result = await call_structured(
         _EXTRACTION_SYSTEM_PROMPT,
@@ -183,6 +196,21 @@ async def extract_document(
         timeout=45.0,
         llm=llm,
     )
+    # Detector, not a control (see processors.py): if something reintroduces a
+    # chain, the transfer already happened — but it must be LOUD, and the
+    # output of an unapproved processor must not be relied on.
+    if not assert_served_by_approved(getattr(result, "provider", "")):
+        from ..intel.engine_wiring import wire_failure
+        wire_failure(
+            module="vetting",
+            detail=(f"vetting extraction was served by unapproved processor "
+                    f"{result.provider!r} — personal data may have left an "
+                    f"approved processor boundary"),
+            gap_type="data_protection_violation",
+            source="vetting.extract_document",
+        )
+        return {"available": False,
+                "reason": f"served by unapproved processor {result.provider!r}"}
     if not result.ok or not isinstance(result.data, dict):
         # call_structured already wired the failure to the brain (§21a).
         return {

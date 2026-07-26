@@ -151,23 +151,33 @@ class DisposalPlan:
         }
 
 
-_APPEND_ONLY_NOTE = (
-    "The evidence store (dd_evidence_store, R-F3083) is append-only by "
-    "construction and exposes no delete, so retained document artifacts "
-    "survive this disposal. Completing erasure requires an operator decision: "
-    "a tenant-scoped purge on the shared evidence store, or per-case "
-    "encryption with key destruction."
+# R-F3155 resolved the general case; this is what remains when a document
+# predates encryption being enabled.
+_PLAINTEXT_RESIDUE_NOTE = (
+    "One or more documents were stored BEFORE per-case encryption was enabled "
+    "(ARIA_VETTING_ENCRYPT_DOCUMENTS). Those artifacts are plaintext in an "
+    "append-only store and destroying the case key does not erase them; they "
+    "need an explicit purge before this erasure can be reported as complete."
 )
 
 
 def plan_disposal(case: VettingCase) -> DisposalPlan:
-    """Describe honestly what disposing of this case would achieve."""
-    evidence_ids = tuple(
-        d.evidence_id for d in case.documents if d.evidence_id
+    """Describe honestly what disposing of this case achieves.
+
+    R-F3155 — with per-case encryption, destroying the key renders the retained
+    ciphertext irrecoverable, so erasure IS effective even though the evidence
+    store never deletes. Documents stored before encryption was enabled are the
+    exception, and are reported as residue rather than absorbed into a clean
+    result: an erasure report that averages over its own exceptions is the kind
+    that gets believed and then found wanting.
+    """
+    unshreddable = tuple(
+        d.evidence_id for d in case.documents
+        if d.evidence_id and not d.encrypted
     )
     return DisposalPlan(
         case_id=case.case_id,
         removable_case_record=True,
-        retained_evidence_ids=evidence_ids,
-        residual_reason=_APPEND_ONLY_NOTE if evidence_ids else "",
+        retained_evidence_ids=unshreddable,
+        residual_reason=_PLAINTEXT_RESIDUE_NOTE if unshreddable else "",
     )

@@ -106,11 +106,14 @@ def test_unsuccessful_file_is_overdue_once_the_period_has_passed():
 
 
 def test_post_employment_file_uses_the_7_year_period():
+    # NOTE: employment_end must follow employment_start (2026-06-01). The
+    # original fixture here used 2026-03-31 — an employment ending before it
+    # began — and the R-F3152 model validator correctly rejected it.
     v = retention_due_date(
         _case(outcome=CaseOutcome.EMPLOYED.value,
-              employment_end=date(2026, 3, 31)),
+              employment_end=date(2027, 3, 31)),
         UK_PACK, AS_OF)
-    assert v.due_date == date(2033, 3, 31)
+    assert v.due_date == date(2034, 3, 31)
     assert v.overdue is False
 
 

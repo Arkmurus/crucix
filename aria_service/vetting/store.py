@@ -65,6 +65,20 @@ CREATE TABLE IF NOT EXISTS vetting_cases (
 );
 CREATE INDEX IF NOT EXISTS idx_vetting_cases_tenant
     ON vetting_cases(tenant_id, updated_at DESC);
+
+-- R-F3155 — the deletable half of crypto-shredding (Art. 17). Document bytes
+-- are encrypted with this key before they reach the append-only evidence
+-- store; destroying the row makes that ciphertext irrecoverable, which is what
+-- turns "we cannot delete from an append-only store" into an effective
+-- erasure. Deliberately a SEPARATE table from vetting_cases: the key must be
+-- destroyable independently, and must survive nothing.
+CREATE TABLE IF NOT EXISTS vetting_case_keys (
+    tenant_id   TEXT NOT NULL,
+    case_id     TEXT NOT NULL,
+    case_key    BLOB NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, case_id)
+);
 """
 _SCHEMA_LOCK = threading.Lock()
 
@@ -219,11 +233,72 @@ class VettingCaseStore:
         return out
 
     def delete(self, tenant_id: str, case_id: str) -> bool:
+        """Delete the case AND destroy its encryption key (R-F3155).
+
+        Both in one transaction: a case row removed while its key survived
+        would leave recoverable personal data with nothing pointing at it —
+        the worst of both, undiscoverable and un-erased.
+        """
+        if not tenant_id:
+            return False
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                "DELETE FROM vetting_cases WHERE tenant_id = ? AND case_id = ?",
+                (tenant_id, case_id),
+            )
+            connection.execute(
+                "DELETE FROM vetting_case_keys WHERE tenant_id = ? AND case_id = ?",
+                (tenant_id, case_id),
+            )
+            connection.commit()
+        return cursor.rowcount > 0
+
+    # ── R-F3155: per-case encryption keys ─────────────────────────────────
+    def get_or_create_case_key(self, tenant_id: str, case_id: str) -> bytes:
+        """The case's data key, minted on first document upload."""
+        from .crypto import new_case_key
+
+        if not tenant_id:
+            raise CaseNotFound("tenant required")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT case_key FROM vetting_case_keys "
+                "WHERE tenant_id = ? AND case_id = ?",
+                (tenant_id, case_id),
+            ).fetchone()
+            if row is not None:
+                connection.commit()
+                return bytes(row["case_key"])
+            key = new_case_key()
+            connection.execute(
+                "INSERT INTO vetting_case_keys (tenant_id, case_id, case_key, "
+                "created_at) VALUES (?, ?, ?, ?)",
+                (tenant_id, case_id, key, _now_iso()),
+            )
+            connection.commit()
+        return key
+
+    def get_case_key(self, tenant_id: str, case_id: str) -> bytes | None:
+        """The key, or None when it has been destroyed (i.e. content erased)."""
+        if not tenant_id:
+            return None
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT case_key FROM vetting_case_keys "
+                "WHERE tenant_id = ? AND case_id = ?",
+                (tenant_id, case_id),
+            ).fetchone()
+        return bytes(row["case_key"]) if row is not None else None
+
+    def destroy_case_key(self, tenant_id: str, case_id: str) -> bool:
+        """Crypto-shred: make this case's stored documents irrecoverable."""
         if not tenant_id:
             return False
         with self._connect() as connection:
             cursor = connection.execute(
-                "DELETE FROM vetting_cases WHERE tenant_id = ? AND case_id = ?",
+                "DELETE FROM vetting_case_keys WHERE tenant_id = ? AND case_id = ?",
                 (tenant_id, case_id),
             )
             connection.commit()
