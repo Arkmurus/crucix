@@ -26317,9 +26317,10 @@
       "title": "remove irrelevant copy and add alert deletion",
       "claimed_at": "2026-07-27T08:12:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4598730c394e67e7c41e0a65258eb6c28299c4a2",
+      "notes": null,
+      "shipped_at": "2026-07-27T08:39:17Z"
     },
     {
       "r_number": "R-F3226",
