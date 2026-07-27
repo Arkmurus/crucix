@@ -262,3 +262,54 @@ def test_cases_opened_during_the_broken_deploy_also_resolve():
             f"{pack_id} v{version}: no manifest issued during the deployed era "
             f"({prefix}…) can be resolved")
         assert registry.get_exact(pack_id, version, full).version == version
+
+
+# ── R-F3249: EVERY schema era, not just the two I remembered ─────────────
+
+ALL_ERAS = {
+    ("uk_bs7858", "1.1.0"): ["da51b560836bed53", "775b431918d9af56",
+                             "90178f66f31a741e", "a4e86844b6625b58"],
+    ("uk_bs7858", "1.2.0"): ["9872c4a960bf4a20", "d9f648cdcb151baa",
+                             "04660ce4941ebd23"],
+    ("uk_bs7858", "1.3.0"): ["f92eb027143e7768"],
+    ("intl_baseline", "1.1.0"): ["2e3b917832967fd2", "3052ace45221ae5b",
+                                 "b18d0ebf3194af09", "26371f10019dba2d"],
+    ("intl_baseline", "1.2.0"): ["9ca08d2423770f44"],
+    ("pt_generic", "0.2.0"): ["665e9d6c8948c1c7", "d892207800a4fe54",
+                              "6f3e3d0d3daa3a73", "3cdff2e36e6bc833"],
+}
+
+
+def test_every_schema_era_resolves_not_just_the_remembered_ones():
+    """R-F3249 — the first cut of the compatibility table recorded only the
+    last two eras, and a LIVE case pinned under an earlier one was still
+    refused in production:
+
+        409 pack_not_usable: "uk_bs7858 v1.1.0: stored hash does not match
+                              manifest hash"
+
+    It was visible at all only because R-F3242 had turned that from a 500 into
+    an explained 409. One era per commit that changed the ScreeningPack field
+    set — d8cd9161, 8f315976, 8c747c80, a75a20e7 — is what closes the set.
+    """
+    from aria_service.vetting.packs.base import legacy_hashes_for
+
+    for (pack_id, version), prefixes in ALL_ERAS.items():
+        recorded = legacy_hashes_for(pack_id, version)
+        for prefix in prefixes:
+            full = next((h for h in recorded if h.startswith(prefix)), None)
+            assert full, (
+                f"{pack_id} v{version}: era {prefix}… is unrecorded — every "
+                f"case pinned under it is unassessable in production")
+            assert registry.get_exact(pack_id, version, full).version == version
+
+
+def test_the_era_count_matches_the_schema_commit_count():
+    """A guard against the next additive change quietly adding a fifth era
+    without a table entry: uk_bs7858 v1.1.0 has existed since the module was
+    created, so it must carry one hash per pre-R-F3240 schema commit."""
+    from aria_service.vetting.packs.base import legacy_hashes_for
+
+    assert len(legacy_hashes_for("uk_bs7858", "1.1.0")) == 4, (
+        "uk_bs7858 v1.1.0 predates every schema change, so it must record all "
+        "four pre-R-F3240 eras")

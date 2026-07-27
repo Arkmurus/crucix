@@ -154,35 +154,59 @@ class ScreeningPack(BaseModel):
 # hashes, which every live case already fails to match, and the table would
 # then resolve nothing while looking correct. A test asserts the recorded
 # prefixes, so a regeneration fails loudly.
-# TWO eras are recorded, because two different hashes were issued to real cases:
-#   [A] pre-R-F3207 (tree at a75a20e7^) — the estate that existed before the
-#       `required_documents` field was added. These are the manifests that broke.
-#   [B] R-F3207-era (tree at 4598730c, the deployed SHA) — cases opened AFTER
-#       that deploy and BEFORE R-F3240 pinned the full-dump hash of the widened
-#       model. Omitting these would fix the old estate and break everything
-#       created in between, which is the same outage with a different cohort.
+# FOUR eras are recorded — one per commit that changed the ScreeningPack FIELD
+# SET. Every such commit rewrote the hash of every already-published version, so
+# each one issued a distinct manifest to whatever cases existed at the time:
+#
+#   [E0] d8cd9161  R-F3136  module created
+#   [E1] 8f315976  R-F3174  clause-by-clause pack (+v1.2.0)
+#   [E2] 8c747c80  R-F3189  + originals_required
+#   [E3] a75a20e7  R-F3207  + required_documents (+v1.3.0)
+#   [E4] 2afac65b  R-F3240  exclude_defaults — the current, stable scheme
+#
+# R-F3249: the first cut of this table recorded only E2 and E3, and a LIVE case
+# (uk_bs7858 v1.1.0) was still refused in production with
+# "stored hash does not match manifest hash" — visible only because R-F3242 had
+# turned that failure into an explained 409 instead of a 500. Two eras were
+# missing, so the estate created before 2026-07-26 stayed broken while the fix
+# looked complete. Recording an era per SCHEMA COMMIT rather than per remembered
+# incident is what makes the set closed.
+#
+# HOW TO REGENERATE, if a future schema change adds an era: for each commit
+# listed by `git log --oneline -- aria_service/vetting/packs/base.py`, export
+# that tree and print `content_hash()` for every registered pack. Do NOT compute
+# these from the current code — that records today's hash, which every live case
+# already fails to match, and the table would resolve nothing while looking
+# right. A test pins all four eras, so a regeneration fails loudly.
 _LEGACY_CONTENT_HASHES: dict[PackKey, tuple[str, ...]] = {
     ("uk_bs7858", "1.1.0"): (
-        "90178f66f31a741e83966bd2799d5a07dfe071e2c7ef29c683d276a82f16737e",  # [A]
-        "a4e86844b6625b58603cb72a2c08dbba3cea3c3fa53ff57b39bd0636370aa607",  # [B]
+        "da51b560836bed534d7f606721250f16b0bad645dacd1072975cd1a0387ad559",  # E0
+        "775b431918d9af567a1a01df6d21f5d3a03dfcffa0302bcd18763295a22b45b9",  # E1
+        "90178f66f31a741e83966bd2799d5a07dfe071e2c7ef29c683d276a82f16737e",  # E2
+        "a4e86844b6625b58603cb72a2c08dbba3cea3c3fa53ff57b39bd0636370aa607",  # E3
     ),
     ("uk_bs7858", "1.2.0"): (
-        "d9f648cdcb151baab84304962426fa9351dc946adac6cc55b93d92f4dacb8e6b",  # [A]
-        "04660ce4941ebd238f67189e143024be42d58ede377a7d84579bfb315248f4e2",  # [B]
+        "9872c4a960bf4a201753b27595b73d3127d5547319202fb0248cacf12ffdbcad",  # E1
+        "d9f648cdcb151baab84304962426fa9351dc946adac6cc55b93d92f4dacb8e6b",  # E2
+        "04660ce4941ebd238f67189e143024be42d58ede377a7d84579bfb315248f4e2",  # E3
     ),
     ("uk_bs7858", "1.3.0"): (
-        "f92eb027143e77687c870fb4885a3e872a1be999912bb7fdce87fa8250b47244",  # [B]
+        "f92eb027143e77687c870fb4885a3e872a1be999912bb7fdce87fa8250b47244",  # E3
     ),
     ("intl_baseline", "1.1.0"): (
-        "b18d0ebf3194af09ab323c9ba8ff604c6cf53f1adc1a8f4e4d076f83a5094c12",  # [A]
-        "26371f10019dba2d6d4eb78516911a7f9a609d6a3714adc23babfba2aa614e17",  # [B]
+        "2e3b917832967fd28acd55b53537416eaf3aa1d9627a356beac0db84128217a2",  # E0
+        "3052ace45221ae5be419185c1b22505b8c0bfb2d7edcddac6896551561ff16f1",  # E1
+        "b18d0ebf3194af09ab323c9ba8ff604c6cf53f1adc1a8f4e4d076f83a5094c12",  # E2
+        "26371f10019dba2d6d4eb78516911a7f9a609d6a3714adc23babfba2aa614e17",  # E3
     ),
     ("intl_baseline", "1.2.0"): (
-        "9ca08d2423770f44132584a89ee3c2baadd0997f95048a3052860e64fa7b8d80",  # [B]
+        "9ca08d2423770f44132584a89ee3c2baadd0997f95048a3052860e64fa7b8d80",  # E3
     ),
     ("pt_generic", "0.2.0"): (
-        "6f3e3d0d3daa3a73e9c23a48501a06c12b305f9ccdf54cc399097675ebdf0014",  # [A]
-        "3cdff2e36e6bc83396d1822bb95d32229e14fa0c87754eb81977eb7b5ca928ac",  # [B]
+        "665e9d6c8948c1c7afffdea914a7fdb670d9fea21ed43f6d56dc148e9bc3cb10",  # E0
+        "d892207800a4fe54397b0f7c4d312761d8d28f12e79fc4fae66a635b2d289bd0",  # E1
+        "6f3e3d0d3daa3a73e9c23a48501a06c12b305f9ccdf54cc399097675ebdf0014",  # E2
+        "3cdff2e36e6bc83396d1822bb95d32229e14fa0c87754eb81977eb7b5ca928ac",  # E3
     ),
 }
 
