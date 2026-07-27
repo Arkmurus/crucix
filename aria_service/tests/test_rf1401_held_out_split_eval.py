@@ -21,31 +21,15 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-@pytest.fixture(autouse=True)
-def _no_framework_eval():
-    """R-F3307 — stub the R-F1068 deep-analysis pass.
-
-    The three run_eval tests below feed a 100-item synthetic golden set and patch
-    get_golden_set, _aria_chat_session, _save_run, wire_success and judge_enabled.
-    They did NOT patch the framework evaluator, which run_eval invokes over every
-    item and which loads a local scoring model. The result was a test that blew a
-    120s per-test timeout, and it is the second blocker of this kind found in the
-    Python suite (see R-F3298, and R-F2812 before it): a unit test doing real work
-    it never meant to.
-
-    These tests assert split FILTERING only, the item count and eval_split, so the
-    framework's output is not part of any assertion here.
-
-    Patched at the SOURCE module, not on eval_runner. run_eval does
-    `from .llm_eval_framework import evaluate as _framework_evaluate` INSIDE the
-    function body, so the name is looked up on llm_eval_framework at call time and
-    patching eval_runner._framework_evaluate would bind nothing and silently leave
-    the real evaluator running.
-    """
-    with patch("aria_service.intel.llm_eval_framework.evaluate",
-               new=AsyncMock(return_value=None)):
-        yield
-
+# R-F3314 — R-F3307 lived here and has been REVERTED. It stubbed
+# llm_eval_framework.evaluate on the premise that the evaluator was why this file
+# blew a 120s timeout in the full suite. That premise is false: with the stub
+# removed this file passes ALONE in 14.62s. The real cause was
+# test_rf2423_diagnostic_no_inline_run leaving a fake redis_store in sys.modules
+# whose get_json sleeps 30 seconds; the stub merely removed this file's store
+# reads and so bypassed the poison instead of curing it. It also bought nothing
+# measurable (46.39s with, 14.62s without), and it deleted real coverage of the
+# evaluator, so it is gone rather than kept "just in case".
 
 # ════════════════════════════════════════════════════════════════════════════
 # _split_held_out

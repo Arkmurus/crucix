@@ -18,6 +18,56 @@ import time
 import types
 
 
+# ── R-F3314: these fakes MUST be uninstalled. ────────────────────────────────
+# This file replaces two CORE modules in sys.modules and, before this fix, never
+# put them back. The last fake installed below is a get_json that sleeps 30
+# SECONDS (the section-4 "wedged read" case), so every later test in the session
+# that read the store slept 30s per call until pytest-timeout killed the whole
+# process. That is why the full Python suite could never reach a summary: it is
+# not slowness, it is a poisoned sys.modules entry.
+#
+# Proven by bisection over the 1461-file suite: this file plus
+# test_rf2469_durable_dd_ownership.py wedges; either alone passes (rf2469 in
+# 0.83s). The pairing is deterministic, not flaky.
+#
+# Same class as R-F2801, documented in test_rf1498's own header: a process-global
+# mutation no monkeypatch undoes, which leaks into every later test in the run.
+# The other seven tests that touch sys.modules only INJECT standalone scripts
+# (eval_aria_llm, sast_scan, cre_eval, reachability_sweep); they add entries
+# rather than replacing production modules, so they are not this defect.
+_MISSING = object()
+
+_PATCHED = (
+    ("aria_service.intel.redis_store", "redis_store"),
+    ("aria_service.intel.self_diagnostic", "self_diagnostic"),
+)
+
+
+def _snapshot_real_modules():
+    """Capture the REAL modules before any fake is installed."""
+    import aria_service.intel as intel_pkg
+    return {
+        mod: (sys.modules.get(mod, _MISSING), getattr(intel_pkg, attr, _MISSING))
+        for mod, attr in _PATCHED
+    }
+
+
+def _restore_real_modules(snap) -> None:
+    """Put them back, including the case where they were never imported."""
+    import aria_service.intel as intel_pkg
+    for mod, attr in _PATCHED:
+        in_sys, on_pkg = snap[mod]
+        if in_sys is _MISSING:
+            sys.modules.pop(mod, None)
+        else:
+            sys.modules[mod] = in_sys
+        if on_pkg is _MISSING:
+            if hasattr(intel_pkg, attr):
+                delattr(intel_pkg, attr)
+        else:
+            setattr(intel_pkg, attr, on_pkg)
+
+
 def _install_fakes(cache_value, run_diag_coro):
     import aria_service.intel as intel_pkg
 
@@ -40,6 +90,25 @@ async def _cancel_bg():
 
 
 async def _run_all():
+    """R-F3314 wrapper: guarantee the real modules go back, on ANY exit path.
+
+    Wrapping rather than re-indenting the body keeps the assertions byte-identical,
+    and covers BOTH entry points (pytest and `python <this file>`), so the fix
+    cannot be bypassed by running it standalone.
+    """
+    # Import the real modules first, so the snapshot captures them rather than an
+    # absence. Without this, a session where nothing had imported the store yet
+    # would snapshot _MISSING and the restore would leave it unimported.
+    import aria_service.intel.redis_store      # noqa: F401
+    import aria_service.intel.self_diagnostic  # noqa: F401
+    _snap = _snapshot_real_modules()
+    try:
+        await _run_all_inner()
+    finally:
+        _restore_real_modules(_snap)
+
+
+async def _run_all_inner():
     import aria_service.routes.aria as a
 
     # ── 1. NO cache + a run_diagnostic that would block 30s → must return <2s ──
@@ -106,6 +175,44 @@ async def _run_all():
 
 def test_diagnostic_details_never_runs_inline():
     asyncio.run(_run_all())
+
+
+def test_rf3314_the_real_modules_do_not_stay_faked():
+    """R-F3314 CAPABILITY TEST: the fakes must not outlive this file.
+
+    This asserts the state every LATER test inherits, which is the thing that was
+    actually broken. Runs after the test above (file order), so it observes what
+    that test left behind.
+
+    Pre-fix this fails: sys.modules still holds the section-4 SimpleNamespace whose
+    get_json sleeps 30 seconds, so the next test in the session to read the store
+    stalls until pytest-timeout kills the process. Bisection over the 1461-file
+    suite pinned this file as the poisoner and rf2469 as the first victim.
+    """
+    import aria_service.intel as intel_pkg
+
+    rs = sys.modules.get("aria_service.intel.redis_store")
+    assert rs is not None, "redis_store was removed from sys.modules and not restored"
+    assert not isinstance(rs, types.SimpleNamespace), (
+        "a FAKE redis_store escaped this file. Every later test that reads the "
+        "store inherits it, and the section-4 fake sleeps 30s per get_json."
+    )
+    # The fake carried only get_json; the real module has the full surface.
+    for attr in ("get_json", "set_json", "scan_keys"):
+        assert hasattr(rs, attr), f"restored redis_store has no {attr!r} - not the real module"
+
+    sd = sys.modules.get("aria_service.intel.self_diagnostic")
+    assert sd is None or not isinstance(sd, types.SimpleNamespace), (
+        "a fake self_diagnostic escaped this file"
+    )
+
+    # The package attribute is a second, independent handle: code doing
+    # `from aria_service.intel import redis_store` reads THIS, not sys.modules,
+    # so restoring only one of the two would leave the poison half-installed.
+    assert getattr(intel_pkg, "redis_store", rs) is rs, (
+        "sys.modules was restored but aria_service.intel.redis_store still points "
+        "at the fake"
+    )
 
 
 if __name__ == "__main__":
