@@ -914,15 +914,49 @@ async def coverage_report() -> str:
 # REGISTRY HEALTH REPORT
 # ══════════════════════════════════════════════════════════════════════════
 
+async def _measured_reliability(fam: str, topics: list) -> tuple[float | None, int]:
+    """R-F3254 — ``(overall, sample_count)``; `overall` is None when NOTHING was measured.
+
+    This used to read `sum(scores) / len(scores) if scores else 0.5`, inline and
+    duplicated in both callers. The 0.5 is the web_atlas PRIOR, not an observation,
+    and returning it made "never measured" indistinguishable from "measured, and
+    mediocre" — which is how a source nobody has ever sampled ended up reported as
+    FAILING (0.40 <= 0.5 < 0.60) and, at a caller-supplied threshold of 0.6,
+    auto-SUSPENDED with the fabricated reason "Overall reliability 0.50 below 0.60".
+
+    Same reading error as `INITIAL_MASTERY = 0.5` on the Phase A gate-#2 heatmap:
+    a starved cell is not a weak cell. Absent is not false — so say None.
+    """
+    scores: list[float] = []
+    for t in topics[:10]:
+        rel = await rs.get_json(f"aria:atlas:reliability:{fam}:{t}")
+        if rel:
+            scores.append(float(rel.get("score", 0.5)))
+    if not scores:
+        return None, 0
+    return sum(scores) / len(scores), len(scores)
+
+
 async def registry_health_report() -> dict:
     """Weekly registry health summary — top performers, degraded,
     suspended — fed into the 05:45 team briefing and WEEKLY-CORE-META.
-    Uses web_atlas reliability scores (EMA) to compute health_tier."""
+    Uses web_atlas reliability scores (EMA) to compute health_tier.
+
+    R-F3254 — reports a fifth bucket, `unmeasured`: sources with zero reliability
+    samples. They are NOT healthy and NOT failing, and they carry
+    `overall_health: None` rather than a score nobody measured.
+
+    The five buckets partition every family that HAS a record, so the five
+    `*_count` values sum to `total_sources` minus any family listed in the index
+    whose `aria:atlas:source:*` record is missing from the store (those are
+    skipped below, as they were before this change).
+    """
     families_idx = await rs.get_json("aria:atlas:index:families") or []
     healthy: list[dict] = []
     degraded: list[dict] = []
     failing: list[dict] = []
     dead: list[dict] = []
+    unmeasured: list[dict] = []
 
     for fam in families_idx:
         rec = await rs.get_json(f"aria:atlas:source:{fam}")
@@ -930,20 +964,18 @@ async def registry_health_report() -> dict:
             continue
         # Average reliability across topics as a health proxy
         topics = rec.get("topics") or []
-        scores: list[float] = []
-        for t in topics[:10]:
-            rel = await rs.get_json(f"aria:atlas:reliability:{fam}:{t}")
-            if rel:
-                scores.append(float(rel.get("score", 0.5)))
-        overall = sum(scores) / len(scores) if scores else 0.5
+        overall, samples = await _measured_reliability(fam, topics)
         bucket_rec = {
             "family": fam,
             "tier": rec.get("tier"),
-            "overall_health": round(overall, 3),
+            "overall_health": round(overall, 3) if overall is not None else None,
+            "samples": samples,
             "topics": len(topics),
             "last_ok": rec.get("last_ok"),
         }
-        if overall >= 0.80:
+        if overall is None:
+            unmeasured.append(bucket_rec)
+        elif overall >= 0.80:
             healthy.append(bucket_rec)
         elif overall >= 0.60:
             degraded.append(bucket_rec)
@@ -956,6 +988,7 @@ async def registry_health_report() -> dict:
     degraded.sort(key=lambda r: r["overall_health"])
     failing.sort(key=lambda r: r["overall_health"])
     dead.sort(key=lambda r: r["overall_health"])
+    unmeasured.sort(key=lambda r: r["family"])      # no score to sort on
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "total_sources": len(families_idx),
@@ -963,10 +996,12 @@ async def registry_health_report() -> dict:
         "degraded_count": len(degraded),
         "failing_count": len(failing),
         "dead_count": len(dead),
+        "unmeasured_count": len(unmeasured),
         "top_performers": healthy[:10],
         "degraded": degraded[:10],
         "failing": failing[:10],
         "dead": dead[:10],
+        "unmeasured": unmeasured[:10],
     }
 
 
@@ -982,12 +1017,16 @@ async def suspend_failing_sources(threshold: float = 0.40) -> dict:
         if not rec:
             continue
         topics = rec.get("topics") or []
-        scores: list[float] = []
-        for t in topics[:10]:
-            rel = await rs.get_json(f"aria:atlas:reliability:{fam}:{t}")
-            if rel:
-                scores.append(float(rel.get("score", 0.5)))
-        overall = sum(scores) / len(scores) if scores else 0.5
+        overall, _samples = await _measured_reliability(fam, topics)
+        if overall is None:
+            # R-F3254 — YOU CANNOT DEMOTE WHAT YOU NEVER MEASURED. This branch
+            # used to receive the 0.5 prior, which survives the default 0.40
+            # threshold but NOT a caller-supplied one: `POST /api/aria/
+            # source_validator/suspend_failing` takes any threshold, so 0.6
+            # suspended every never-sampled family and wrote the fabricated
+            # reason "Overall reliability 0.50 below 0.60 threshold" into the
+            # record, plus a mistake-ledger entry blaming the source.
+            continue
         if overall < threshold and rec.get("status") != "SUSPENDED":
             rec["status"] = "SUSPENDED"
             rec["degradation_reason"] = (

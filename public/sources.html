@@ -190,6 +190,40 @@
       Persistent registry of defence-DD sources seeded into <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">web_atlas</code> at startup.
       <strong>Reference registry only; measured observations where available</strong> — a DD finalizer records a source observation only when a gate-cleared finding has an attributable URL. This panel does not claim every catalogue URL was fetched; sources with no observation remain unmeasured, not healthy. Use Operational feed health above for sweep reliability. (R-F2735 / R-F3237.)
       View raw via <a href="/api/aria/sources/seed/catalogue" style="color:#7c3aed">/api/aria/sources/seed/catalogue</a>.
+      Measured counts are in <strong>Registry reliability</strong> below.
+    </div>
+  </div>
+
+  <!-- R-F3255 — THE REGISTRY RELIABILITY EMA HAD NO CONSUMER.
+       /api/aria/source_validator/health has been accumulating a per-family EMA
+       (fed by the R-F2735 DD-finalizer wire) that NO page has ever rendered —
+       producer with no consumer, the same class as R-F2693 registry_status and
+       the R-F3177 coverage grid. Surfaced here.
+       UNMEASURED IS ITS OWN BUCKET: never folded into "healthy" (a source nobody
+       sampled is not a healthy source) and, after R-F3254, no longer mis-reported
+       as "failing" via the 0.5 prior either. -->
+  <div class="sc-card mt-24">
+    <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
+      <div class="sc-card-title"><i class="bi bi-graph-up-arrow"></i> Registry reliability (measured observations)</div>
+      <span id="reghealth-total" class="sc-pill sc-pill-info" style="font-size:12px">-</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;padding:16px 22px">
+      <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-check-circle"></i></div><div><div class="sc-stat-value" id="reghealth-healthy">-</div><div class="sc-stat-label">Healthy (&ge;0.80)</div></div></div>
+      <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-exclamation-triangle"></i></div><div><div class="sc-stat-value" id="reghealth-degraded">-</div><div class="sc-stat-label">Degraded (&ge;0.60)</div></div></div>
+      <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-graph-down"></i></div><div><div class="sc-stat-value" id="reghealth-failing">-</div><div class="sc-stat-label">Failing (&ge;0.40)</div></div></div>
+      <div class="sc-stat"><div class="sc-stat-icon red"><i class="bi bi-x-octagon"></i></div><div><div class="sc-stat-value" id="reghealth-dead">-</div><div class="sc-stat-label">Dead (&lt;0.40)</div></div></div>
+      <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-question-circle"></i></div><div><div class="sc-stat-value" id="reghealth-unmeasured">-</div><div class="sc-stat-label">Unmeasured</div></div></div>
+    </div>
+    <div style="padding:0 22px">
+      <table class="sc-table" id="reghealth-table">
+        <thead><tr><th>Source family</th><th>Tier</th><th>Reliability</th><th>Samples</th><th>State</th></tr></thead>
+        <tbody id="reghealth-body"><tr><td colspan="5" style="text-align:center;padding:30px"><div class="sc-spinner"></div></td></tr></tbody>
+      </table>
+    </div>
+    <div style="padding:10px 22px 14px;font-size:11.5px;color:var(--sc-muted);border-top:1px solid var(--sc-border)">
+      From <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">/api/aria/source_validator/health</code> — the web_atlas reliability EMA, averaged across each family&rsquo;s topics.
+      <strong>Unmeasured</strong> means zero observations have ever been recorded for that family: it is <strong>not</strong> healthy and <strong>not</strong> failing, and it carries no score (R-F3254 &mdash; the 0.5 shown before was the prior, not a measurement).
+      Reliability rises only when a gate-cleared DD finding carries an attributable URL (R-F2735), so a family stays unmeasured until real work cites it. (R-F3255.)
     </div>
   </div>
 
@@ -721,11 +755,80 @@ async function loadOperationalFeeds() {
   }
 }
 
+// R-F3255 — render the registry reliability EMA that had no consumer.
+// Three states must stay visually distinct, because collapsing any two of them is
+// how this page has lied before: measured-good (green), measured-bad (amber/red),
+// and NEVER MEASURED (neutral grey, no score). An unreachable endpoint is a fourth
+// state and is reported as such — silence is not a clean reading.
+async function loadRegistryHealth() {
+  const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  const body = document.getElementById('reghealth-body');
+  const unknown = (msg) => {
+    ['healthy', 'degraded', 'failing', 'dead', 'unmeasured'].forEach(k => setTxt('reghealth-' + k, '?'));
+    setTxt('reghealth-total', 'unavailable');
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">' +
+      escHtml(msg) + '</td></tr>';
+  };
+  try {
+    const d = await API.get('/api/aria/source_validator/health');
+    if (!d || typeof d.total_sources !== 'number') {
+      unknown('Registry health endpoint unreachable — this is NOT a clean reading.');
+      return;
+    }
+    setTxt('reghealth-total', d.total_sources + ' families');
+    setTxt('reghealth-healthy', d.healthy_count ?? '?');
+    setTxt('reghealth-degraded', d.degraded_count ?? '?');
+    setTxt('reghealth-failing', d.failing_count ?? '?');
+    setTxt('reghealth-dead', d.dead_count ?? '?');
+    // '?' not 0 when the key is absent: an older aria-intel build predates the
+    // unmeasured bucket, and rendering 0 would assert "none are unmeasured".
+    setTxt('reghealth-unmeasured', d.unmeasured_count ?? '?');
+
+    const rows = [];
+    const push = (arr, label, cls) =>
+      (Array.isArray(arr) ? arr : []).forEach(r => rows.push({ r, label, cls }));
+    push(d.top_performers, 'Healthy', 'pysrc-badge-ok');
+    push(d.degraded, 'Degraded', 'pysrc-badge-warn');
+    push(d.failing, 'Failing', 'pysrc-badge-warn');
+    push(d.dead, 'Dead', 'pysrc-badge-err');
+    push(d.unmeasured, 'Unmeasured', '');     // neutral on purpose — see below
+
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sc-muted);padding:30px">' +
+        'No source families in the atlas index yet.</td></tr>';
+      return;
+    }
+    let html = '';
+    for (const { r, label, cls } of rows) {
+      const measured = r.overall_health !== null && r.overall_health !== undefined;
+      // No semantic badge class for unmeasured: ok/warn/err all carry a verdict,
+      // and "we never looked" is not a verdict. Neutral grey, inline so the
+      // shared aria.css is untouched.
+      const badge = cls
+        ? '<span class="pysrc-badge ' + cls + '">' + label + '</span>'
+        : '<span class="pysrc-badge" style="background:var(--sc-border);color:var(--sc-muted)">' + label + '</span>';
+      html += '<tr class="pysrc-row">' +
+        '<td class="pysrc-name"><strong>' + escHtml(r.family || '-') + '</strong></td>' +
+        '<td>' + escHtml(r.tier || '—') + '</td>' +
+        '<td>' + (measured
+          ? Number(r.overall_health).toFixed(2)
+          : '<span style="color:var(--sc-muted)">not measured</span>') + '</td>' +
+        '<td>' + (r.samples ?? 0) + '</td>' +
+        '<td>' + badge + '</td>' +
+      '</tr>';
+    }
+    body.innerHTML = html;
+  } catch (e) {
+    unknown('/api/aria/source_validator/health unreachable: ' + (e && e.message ? e.message : e));
+  }
+}
+
 loadBridge();
 loadCatalogue();
 loadOemPool();
 loadSourceMonitors();
 loadOperationalFeeds();
+loadRegistryHealth();   // R-F3255
 loadSectorStats();
 loadAdversarial();
 
@@ -735,6 +838,7 @@ setInterval(() => {
   loadBridge();
   loadSourceMonitors();
   loadOperationalFeeds();   // R-F2721
+  loadRegistryHealth();     // R-F3255
   loadCatalogue();   // R-F143
   loadOemPool();     // R-F143
   loadSectorStats();
