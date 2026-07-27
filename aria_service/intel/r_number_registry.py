@@ -61,6 +61,17 @@ _SAVE_RETRY_SLEEP_S = float(os.getenv("ARIA_RNUM_SAVE_RETRY_SLEEP", "0.08"))
 _CLAIM_ATTEMPTS = int(os.getenv("ARIA_RNUM_CLAIM_ATTEMPTS", "4"))
 
 
+def _repo_root_for(path: Path | None) -> Path:
+    """R-F3248 — the repo whose history governs THIS registry file.
+
+    Derived from the registry path rather than always from the module's own location,
+    so a registry that lives somewhere else (every test's tmp file, any tool pointed
+    at a copy) is never allocated against the real repo's history — it would skip
+    ~2700 live R-numbers and hand back nonsense.
+    """
+    return (path or _RESERVATIONS_PATH).resolve().parents[1]
+
+
 def _load(path: Path | None = None) -> dict[str, Any]:
     p = path or _RESERVATIONS_PATH
     if not p.exists():
@@ -191,6 +202,7 @@ def reserve(
     notes: str = "",
     *,
     path: Path | None = None,
+    repo_root: Path | None = None,
 ) -> str:
     """Claim the next available R-number atomically.
 
@@ -227,6 +239,34 @@ def reserve(
     # cannot collide with it). Raise rather than hand back a number that is not
     # recorded — a loud failure the caller can retry beats a number that quietly
     # belongs to someone else.
+    #
+    # ── R-F3248 — THE FILE IS NOT THE ONLY RECORD, AND IT IS THE LOSABLE ONE ──
+    #
+    # R-F3187 (above) made a claim verify that it LANDED. It could not make the
+    # allocator notice a number that was never in the file to begin with, because
+    # the skip loop below was built purely from this file's own entries. Result, on
+    # 2026-07-27: THREE collisions in one session — R-F3237, R-F3243 and R-F3245
+    # each issued to a second agent while a commit subject already claimed them.
+    # R-F3243 landed in two separate commits (`cb061cfe` and `d98c2063`), and the
+    # registry entry ended up carrying one agent's title against the other's SHA.
+    #
+    # Git is the record that cannot be clobbered. Scan it ONCE, here, and union it
+    # into the skip set. Deliberately OUTSIDE the lock: this repo is 4k+ commits and
+    # a ~1.5s scan held inside a fail-open lock would make contention worse, which is
+    # the failure mode `_file_lock` was written to avoid.
+    git_nums, git_readable = r_numbers_known_to_git(
+        repo_root=repo_root or _repo_root_for(path)
+    )
+    if not git_readable:
+        # Fail OPEN, loudly. Refusing to allocate would hang the very deploys this
+        # module must never hang — but a silent degrade here is indistinguishable
+        # from the guarantee holding, and that is how a false clean is born (§22).
+        logger.warning(
+            "[R-F3248] git history unreadable — allocating from the registry file "
+            "alone. A number already burned in a commit CAN be reissued; verify by "
+            "hand before shipping."
+        )
+
     claimed_at = _utcnow_iso()
     r_num = ""
     for _attempt in range(_CLAIM_ATTEMPTS):
@@ -239,7 +279,7 @@ def reserve(
                 for r in data.get("reservations", [])
                 if _R_NUMBER_RE.match(r.get("r_number", ""))
             }
-            while n in existing_nums:
+            while n in existing_nums or n in git_nums:   # R-F3248 — file ∪ git
                 n += 1
             r_num = f"R-F{n}"
             claimed_at = _utcnow_iso()
@@ -464,6 +504,94 @@ def expand_r_numbers(text: str) -> set[str]:
     return out
 
 
+def _git_log_records(
+    ref: str = "HEAD", *, repo_root: Path | None = None,
+) -> tuple[list[tuple[str, str, str]], bool]:
+    """R-F3248 — ``(records, readable)``, each record ``(short_sha, subject, body)``.
+
+    Split out of `scan_shipped_r_numbers` so ALLOCATION and RECONCILIATION read the
+    same history through the same parser — two parsers would eventually disagree
+    about which numbers are taken, which is the bug this whole module exists to stop.
+
+    The boolean is the honest answer to "did the scan actually run?". A dead git and
+    a repo with no matching commits both yield an empty list, and only this flag
+    tells them apart; a caller that fails open has to be able to SAY it failed open
+    rather than treat silence as proof that nothing is taken.
+    """
+    root = repo_root or _RESERVATIONS_PATH.resolve().parents[1]
+    try:
+        out = subprocess.run(
+            ["git", "log", ref, "--format=%h%x1f%s%x1f%b%x1e"],
+            cwd=str(root), capture_output=True, text=True, timeout=120,
+            encoding="utf-8", errors="replace",
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("[R-F3095] cannot read git history: %s", exc)
+        return [], False
+    if out.returncode != 0:
+        logger.warning("[R-F3095] git log failed for ref %r: %s", ref, (out.stderr or "")[:200])
+        return [], False
+
+    records: list[tuple[str, str, str]] = []
+    for record in (out.stdout or "").split("\x1e"):
+        parts = record.split("\x1f")
+        if len(parts) < 2:
+            continue
+        sha = parts[0].strip()
+        if not sha:
+            continue
+        records.append((sha, parts[1], parts[2] if len(parts) > 2 else ""))
+    return records, True
+
+
+# R-F3248 — allocation now consults git, and this repo is 4k+ commits (~1.5s per
+# scan). Cache per (root, ref) so a peek+reserve pair, or a batch of claims in one
+# process, pays for one scan. The TTL is deliberately short: a long-lived process
+# must never allocate against an hour-old view of history.
+_GIT_SCAN_TTL_S = float(os.getenv("ARIA_RNUM_GIT_SCAN_TTL", "30"))
+_git_scan_cache: dict[tuple[str, str], tuple[float, set[int], bool]] = {}
+
+
+def r_numbers_known_to_git(
+    ref: str = "HEAD", *, repo_root: Path | None = None,
+) -> tuple[set[int], bool]:
+    """R-F3248 — every R-number git has already seen, as ints, plus a readable flag.
+
+    THE REGISTRY FILE IS NOT THE ONLY RECORD, AND IT IS THE LOSABLE ONE. `reserve()`
+    allocated purely from `data/r_number_reservations.json`, so any way an entry went
+    missing became a reissue: a fail-open clobber (R-F3187), a worktree holding a
+    stale checkout of the file, or an agent that committed a number it never reserved.
+    Git cannot be clobbered and a commit subject is a permanent public claim, so it is
+    the correct second opinion.
+
+    SUBJECT ∪ BODY — deliberately STRICTER than `reconcile_with_git`, and the
+    asymmetry is the point. Reconcile refuses to ship-mark on a body-only mention
+    because writing a false ship record corrupts the audit trail. Allocation has the
+    opposite cost function: skipping a number that was merely mentioned costs ONE
+    unused integer, while issuing a number someone else is already using costs a
+    rename pass across code, commit messages and this log. So: mentioned anywhere in
+    history == not available.
+    """
+    # Resolve before keying: two spellings of the same root must share one cache
+    # entry, or a batch of claims re-scans 4k commits per spelling.
+    root = Path(repo_root).resolve() if repo_root else _RESERVATIONS_PATH.resolve().parents[1]
+    key = (str(root), ref)
+    now = time.monotonic()
+    cached = _git_scan_cache.get(key)
+    if cached is not None and (now - cached[0]) < _GIT_SCAN_TTL_S:
+        return set(cached[1]), cached[2]
+
+    records, readable = _git_log_records(ref, repo_root=root)
+    nums: set[int] = set()
+    for _sha, subject, body in records:
+        for token in expand_r_numbers(subject) | expand_r_numbers(body):
+            m = _R_NUMBER_RE.match(token)
+            if m:
+                nums.add(int(m.group(1)))
+    _git_scan_cache[key] = (now, set(nums), readable)
+    return nums, readable
+
+
 def scan_shipped_r_numbers(
     ref: str = "HEAD", *, repo_root: Path | None = None,
 ) -> tuple[dict[str, str], dict[str, str]]:
@@ -489,31 +617,10 @@ def scan_shipped_r_numbers(
     is never recorded as shipped. Returns empty maps when git is unavailable — a
     reconciler that cannot read history must report nothing, never guess.
     """
-    root = repo_root or _RESERVATIONS_PATH.resolve().parents[1]
-    try:
-        out = subprocess.run(
-            ["git", "log", ref, "--format=%h%x1f%s%x1f%b%x1e"],
-            cwd=str(root), capture_output=True, text=True, timeout=120,
-            encoding="utf-8", errors="replace",
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        logger.warning("[R-F3095] cannot read git history: %s", exc)
-        return {}, {}
-    if out.returncode != 0:
-        logger.warning("[R-F3095] git log failed for ref %r: %s", ref, (out.stderr or "")[:200])
-        return {}, {}
-
+    records, _readable = _git_log_records(ref, repo_root=repo_root)
     by_subject: dict[str, str] = {}
     by_body: dict[str, str] = {}
-    for record in (out.stdout or "").split("\x1e"):
-        parts = record.split("\x1f")
-        if len(parts) < 2:
-            continue
-        sha = parts[0].strip()
-        subject = parts[1]
-        body = parts[2] if len(parts) > 2 else ""
-        if not sha:
-            continue
+    for sha, subject, body in records:
         # R-F3100 — read the shorthand too, or a batch commit's subject line looks
         # like a single ship record with N-1 stray body references.
         for num in expand_r_numbers(subject):
@@ -603,8 +710,13 @@ def list_reservations(
     return rs
 
 
-def peek_next(*, path: Path | None = None) -> str:
-    """Return the next R-number that would be assigned, without claiming."""
+def peek_next(*, path: Path | None = None, repo_root: Path | None = None) -> str:
+    """Return the next R-number that would be assigned, without claiming.
+
+    R-F3248 — applies the SAME file ∪ git skip set as `reserve()`. A peek that
+    promises a number `reserve` would refuse is a lie the caller acts on: it goes
+    into a branch name and a commit subject before the claim is ever made.
+    """
     data = _load(path)
     n = int(data.get("next_available", 555))
     existing_nums = {
@@ -612,7 +724,10 @@ def peek_next(*, path: Path | None = None) -> str:
         for r in data.get("reservations", [])
         if _R_NUMBER_RE.match(r.get("r_number", ""))
     }
-    while n in existing_nums:
+    git_nums, _readable = r_numbers_known_to_git(
+        repo_root=repo_root or _repo_root_for(path)
+    )
+    while n in existing_nums or n in git_nums:
         n += 1
     return f"R-F{n}"
 
