@@ -67,8 +67,20 @@ async def test_followup_merges_findings_into_stored_report(monkeypatch) -> None:
     assert _am["coverage_by_class"] == {"press": 1}
     assert _am["status"] == "completed", "a finished sweep must SAY it finished"
     assert isinstance(_am.get("completed_at"), float)
+    # R-F3275 — the allow-list is WIDENED DELIBERATELY, not relaxed. Two keys were
+    # missing from it and both are legitimate: `materiality` and
+    # `findings_for_review` are written by the R-F3089 materiality gate
+    # (dd_orchestrator.py:11159-11160) and READ by the report renderer
+    # (dd_schema.py:2097-2100 and 2181-2185). This assertion predates that gate.
+    #
+    # Verified per key — a writer AND a consumer — rather than deleted to go green.
+    # The guard's intent is unchanged and still load-bearing: this merge writes
+    # straight into the stored report, so an unrecognised key here is how report
+    # state drifts and how a consumer misreads a screen. Adding a key to this
+    # dict must remain a decision, not an accident.
     assert set(_am) == {"ok", "findings_count", "coverage_by_class",
-                        "status", "completed_at"}, "nothing else invented"
+                        "status", "completed_at",
+                        "materiality", "findings_for_review"}, "nothing else invented"
     # merge touched ONLY adverse_media — the verdict and other fields are intact
     assert written["value"]["risk_classification"] == "RED"
     assert written["value"]["bottom_line"] == "verdict already delivered"
