@@ -8,38 +8,44 @@
   <link rel="stylesheet" href="../css/aria.css?v=15">
   <link rel="stylesheet" href="../fonts/bootstrap-icons/font-css.css">
   <style>
+    /* R-F3304 — white document theme, matching public/about/privacy.html and the
+       landing palette (#364655 headings, #4285f4 accent). Was the retired dark
+       aubergine (#0c0919 + violet), which broke continuity with the footer link
+       a visitor arrives from. */
     *, *::before, *::after { box-sizing: border-box; }
-    body { background: #0c0919; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: rgba(255,255,255,0.85); line-height: 1.7; }
+    body { background: #ffffff; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: #56636f; line-height: 1.7; }
     .legal-shell { max-width: 760px; margin: 0 auto; padding: 56px 24px 80px; }
-    .legal-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(124,58,237,0.85); font-weight: 700; margin-bottom: 12px; }
-    .legal-title { font-size: 34px; font-weight: 800; color: #fff; margin: 0 0 6px; letter-spacing: -0.02em; }
-    .legal-meta { font-size: 13px; color: rgba(255,255,255,0.4); margin-bottom: 28px; }
+    .legal-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: #4285f4; font-weight: 700; margin-bottom: 12px; }
+    .legal-title { font-size: 34px; font-weight: 800; color: #364655; margin: 0 0 6px; letter-spacing: -0.02em; }
+    .legal-meta { font-size: 13px; color: #8b96a1; margin-bottom: 28px; }
+    .legal-meta strong { color: #56636f; }
 
     .draft-banner {
       padding: 16px 20px; border-radius: 12px; margin-bottom: 36px;
-      background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.32);
-      color: #fbbf24; font-size: 13.5px;
+      background: #fff8ec; border: 1px solid #f2d29a;
+      color: #8a5a10; font-size: 13.5px;
     }
-    .draft-banner strong { color: #fff; display: block; margin-bottom: 4px; font-size: 14px; }
+    .draft-banner strong { color: #364655; display: block; margin-bottom: 4px; font-size: 14px; }
 
-    h2 { font-size: 22px; font-weight: 800; color: #fff; margin: 40px 0 12px; letter-spacing: -0.01em; }
-    h3 { font-size: 15px; font-weight: 700; color: #c4b5fd; margin: 26px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+    h2 { font-size: 22px; font-weight: 800; color: #364655; margin: 40px 0 12px; letter-spacing: -0.01em; }
+    h3 { font-size: 15px; font-weight: 700; color: #4285f4; margin: 26px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
     p { margin: 0 0 14px; font-size: 14.5px; }
-    p strong, li strong { color: #e9e3ff; }
+    p strong, li strong { color: #364655; }
     ul, ol { padding-left: 22px; margin: 0 0 16px; }
     li { margin: 6px 0; font-size: 14.5px; }
-    code { background: rgba(124,58,237,0.12); border: 1px solid rgba(124,58,237,0.18); padding: 1px 6px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12.5px; color: #c4b5fd; }
-    a { color: #c4b5fd; }
+    code { background: #f4f7fc; border: 1px solid #dfe6f1; padding: 1px 6px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12.5px; color: #2f6fdd; }
+    a { color: #2f6fdd; }
+    a:hover { color: #1a56c4; }
 
     .legal-callout {
       padding: 14px 18px; border-radius: 10px; margin: 14px 0 22px;
       border-left: 3px solid;
     }
-    .legal-callout.amber { background: rgba(245,158,11,0.07); border-color: #f59e0b; }
-    .legal-callout.red   { background: rgba(239,68,68,0.07);  border-color: #ef4444; }
-    .legal-callout p { margin: 0; font-size: 13.5px; color: rgba(255,255,255,0.78); }
+    .legal-callout.amber { background: #fff8ec; border-color: #f59e0b; }
+    .legal-callout.red   { background: #fdf2f2; border-color: #ef4444; }
+    .legal-callout p { margin: 0; font-size: 13.5px; color: #56636f; }
 
-    .legal-footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 12px; color: rgba(255,255,255,0.4); }
+    .legal-footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid #e1e6ee; font-size: 12px; color: #8b96a1; }
   </style>
 </head>
 <body>

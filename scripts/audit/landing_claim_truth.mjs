@@ -25,12 +25,20 @@ const forbiddenPhrases = [
 
 const requiredLandingPhrases = [
   'Decisions you can trace back to evidence.',
-  'with sources, confidence and limits made visible',
   'Uncertainty stays visible.',
   'Human judgement stays in control',
   '20 DD runs / month',
   '100 DD runs / month',
 ];
+
+// R-F3302 — this used to be a sixth exact phrase, 'with sources, confidence and
+// limits made visible'. The property that matters is that the hero promises all
+// three of source, confidence and limit; pinning one sentence meant any deliberate
+// copy edit read as a truth regression, and a guard that cries wolf on ordinary
+// editing is a guard somebody eventually deletes. The concepts are checked in the
+// hero paragraph specifically, so the words cannot be satisfied from elsewhere on
+// the page.
+const requiredHeroConcepts = ['source', 'confidence', 'limit'];
 
 function fail(message) {
   console.error(`landing claim truth failed: ${message}`);
@@ -46,6 +54,18 @@ for (const phrase of forbiddenPhrases) {
 for (const phrase of requiredLandingPhrases) {
   if (!landing.includes(phrase)) {
     fail(`required honest framing missing: ${phrase}`);
+  }
+}
+
+const heroParagraph = (landing.match(/<div class="hero-content">[\s\S]*?<p>([\s\S]*?)<\/p>/) || [])[1];
+if (!heroParagraph) {
+  fail('the hero paragraph could not be located, so its honest framing is unchecked');
+} else {
+  const heroText = heroParagraph.replace(/<[^>]+>/g, ' ').toLowerCase();
+  for (const concept of requiredHeroConcepts) {
+    if (!heroText.includes(concept)) {
+      fail(`the hero states no "${concept}" commitment: ${heroText.trim().slice(0, 120)}`);
+    }
   }
 }
 

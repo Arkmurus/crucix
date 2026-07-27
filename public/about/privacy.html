@@ -8,35 +8,47 @@
   <link rel="stylesheet" href="/css/aria.css?v=15">
   <link rel="stylesheet" href="/fonts/bootstrap-icons/font-css.css">
   <style>
+    /* R-F3304 — white document theme. These two legal pages were the only
+       surfaces still on the retired dark aubergine (#0c0919 + violet accents);
+       a visitor reaching them from the landing footer left a white page for a
+       near-black one. Palette is the landing's: #364655 headings, #4285f4
+       accent, white canvas, so the footer links stay visually continuous. */
     *, *::before, *::after { box-sizing: border-box; }
-    body { background: #0c0919; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: rgba(255,255,255,0.85); line-height: 1.7; }
+    body { background: #ffffff; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: #56636f; line-height: 1.7; }
     .legal-shell { max-width: 760px; margin: 0 auto; padding: 56px 24px 80px; }
-    .legal-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(124,58,237,0.85); font-weight: 700; margin-bottom: 12px; }
-    .legal-title { font-size: 34px; font-weight: 800; color: #fff; margin: 0 0 6px; letter-spacing: -0.02em; }
-    .legal-meta { font-size: 13px; color: rgba(255,255,255,0.4); margin-bottom: 28px; }
+    .legal-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: #4285f4; font-weight: 700; margin-bottom: 12px; }
+    .legal-title { font-size: 34px; font-weight: 800; color: #364655; margin: 0 0 6px; letter-spacing: -0.02em; }
+    .legal-meta { font-size: 13px; color: #8b96a1; margin-bottom: 28px; }
+    .legal-meta strong { color: #56636f; }
 
     .draft-banner {
       padding: 16px 20px; border-radius: 12px; margin-bottom: 36px;
-      background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.32);
-      color: #fbbf24; font-size: 13.5px;
+      background: #fff8ec; border: 1px solid #f2d29a;
+      color: #8a5a10; font-size: 13.5px;
     }
-    .draft-banner strong { color: #fff; display: block; margin-bottom: 4px; font-size: 14px; }
+    .draft-banner strong { color: #364655; display: block; margin-bottom: 4px; font-size: 14px; }
 
-    h2 { font-size: 22px; font-weight: 800; color: #fff; margin: 40px 0 12px; letter-spacing: -0.01em; }
-    h3 { font-size: 15px; font-weight: 700; color: #c4b5fd; margin: 26px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+    h2 { font-size: 22px; font-weight: 800; color: #364655; margin: 40px 0 12px; letter-spacing: -0.01em; }
+    h3 { font-size: 15px; font-weight: 700; color: #4285f4; margin: 26px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
     p { margin: 0 0 14px; font-size: 14.5px; }
-    p strong, li strong { color: #e9e3ff; }
+    p strong, li strong { color: #364655; }
     ul, ol { padding-left: 22px; margin: 0 0 16px; }
     li { margin: 6px 0; font-size: 14.5px; }
-    code { background: rgba(124,58,237,0.12); border: 1px solid rgba(124,58,237,0.18); padding: 1px 6px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12.5px; color: #c4b5fd; }
-    a { color: #c4b5fd; }
+    code { background: #f4f7fc; border: 1px solid #dfe6f1; padding: 1px 6px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12.5px; color: #2f6fdd; }
+    a { color: #2f6fdd; }
+    a:hover { color: #1a56c4; }
 
     .legal-table { width: 100%; border-collapse: collapse; margin: 12px 0 22px; font-size: 13.5px; }
-    .legal-table th { text-align: left; padding: 10px 12px; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.55); font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .legal-table td { padding: 11px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: top; }
+    .legal-table th { text-align: left; padding: 10px 12px; background: #f6f8fb; color: #6b7784; font-weight: 600; border-bottom: 1px solid #e1e6ee; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .legal-table td { padding: 11px 12px; border-bottom: 1px solid #eef1f6; vertical-align: top; }
     .legal-table tr:last-child td { border-bottom: none; }
 
-    .legal-footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 12px; color: rgba(255,255,255,0.4); }
+    .legal-footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid #e1e6ee; font-size: 12px; color: #8b96a1; }
+
+    /* R-F2329 pattern: fixed-width table columns overflow a phone content box. */
+    @media (max-width: 600px) {
+      .legal-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    }
   </style>
 </head>
 <body>
@@ -146,8 +158,8 @@
   </ul>
 
   <h2>8. International transfers</h2>
-  <p>Our primary infrastructure is in the United Kingdom (fly.io LHR region). LLM provider calls may transfer your conversation content outside the UK/EU depending on the configured provider: the current primary provider is <strong>DeepSeek</strong> (processing may occur in China, which is <strong>not</strong> covered by a UK/EU adequacy decision); fail-over providers, when enabled, include Anthropic and OpenAI (United States), Mistral (EU) and Groq (Singapore). Where available, transfers rely on the UK / EU Standard Contractual Clauses (SCCs) or the applicable adequacy regulations. <em>This international-transfer analysis — in particular the lawful-transfer basis for the DeepSeek (China) data plane — is pending confirmation in legal review.</em></p>
-  <p><strong>Employment-vetting data is carved out of the above.</strong> Personal data in a vetting case — identity documents, career evidence and criminal-conviction information — is never sent to the general LLM chain. Vetting document classification uses an explicitly approved processor list only (currently Anthropic, United States), and the system <strong>fails closed</strong>: where no approved processor is available, no extraction takes place and the document is routed to a human instead. No vetting personal data is transmitted to DeepSeek or to any provider outside that approved list.</p>
+  <p>Our primary infrastructure is in the United Kingdom (fly.io LHR region). LLM provider calls may transfer your conversation content outside the UK/EU depending on the configured provider: the current primary provider is <strong>DeepSeek</strong> (processing may occur in China, which is <strong>not</strong> covered by a UK/EU adequacy decision); fail-over providers, when enabled, include Anthropic and OpenAI (United States), Mistral (EU) and Groq (Singapore). Where available, transfers rely on the UK / EU Standard Contractual Clauses (SCCs) or the applicable adequacy regulations. <em>This international-transfer analysis, in particular the lawful-transfer basis for the DeepSeek (China) data plane, is pending confirmation in legal review.</em></p>
+  <p><strong>Employment-vetting data is carved out of the above.</strong> Personal data in a vetting case (identity documents, career evidence and criminal-conviction information) is never sent to the general LLM chain. Vetting document classification uses an explicitly approved processor list only (currently Anthropic, United States), and the system <strong>fails closed</strong>: where no approved processor is available, no extraction takes place and the document is routed to a human instead. No vetting personal data is transmitted to DeepSeek or to any provider outside that approved list.</p>
 
   <h2>9. Security</h2>
   <ul>

@@ -48,6 +48,10 @@ const ENFORCED = [
   'recovery.html', 'signin.html', 'signup.html', 'sources.html',
   'vault.html', 'vetting-portal.html', 'vetting.html', 'vls-chain.html',
   'wa-connections.html', 'watchlist.html',
+  // R-F3302 — the legal pages live one directory down, so the top-level readdir
+  // never saw them and both were unenforced. They are linked straight off the
+  // landing footer, which is exactly the copy a prospect reads.
+  'about/privacy.html', 'about/terms.html',
 ];
 
 function displayedLines(text) {
@@ -154,7 +158,13 @@ test('R-F3283 the data marker is used sparingly and only where stated', () => {
 
 test('R-F3278 every public page is either enforced or knowingly pending', () => {
   // Stops the list silently drifting: a new page must be a deliberate decision.
-  const pages = readdirSync(PUBLIC).filter((f) => f.endsWith('.html'));
+  // R-F3302 — the inventory now includes public/about/, which the original
+  // top-level readdir could not see. A page the guard cannot list is a page it
+  // cannot report as pending, so it stays clean-looking while nobody checks it.
+  const pages = [
+    ...readdirSync(PUBLIC).filter((f) => f.endsWith('.html')),
+    ...readdirSync(join(PUBLIC, 'about')).filter((f) => f.endsWith('.html')).map((f) => `about/${f}`),
+  ];
   const pending = pages.filter((p) => !ENFORCED.includes(p));
   // Not an assertion of zero — the sweep is staged. This records the remaining
   // surface so it cannot be forgotten or quietly claimed as done.

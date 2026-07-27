@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3298,
+  "next_available": 3306,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27005,18 +27005,20 @@
       "title": "process_analysis calls .lower() on raw LLM validates/challenges - the real deep_research crash",
       "claimed_at": "2026-07-27T18:55:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d762c300",
+      "notes": null,
+      "shipped_at": "2026-07-27T19:10:55Z"
     },
     {
       "r_number": "R-F3296",
       "title": "dd_orchestrator swallows the traceback so a crash cannot be located",
       "claimed_at": "2026-07-27T18:55:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d762c300",
+      "notes": null,
+      "shipped_at": "2026-07-27T19:10:56Z"
     },
     {
       "r_number": "R-F3297",
@@ -27027,6 +27029,81 @@
       "commit_sha": "05862fa1",
       "notes": null,
       "shipped_at": "2026-07-27T19:26:35Z"
+    },
+    {
+      "r_number": "R-F3298",
+      "title": "portal digest must not drive live registrations (test hang + prod double-sweep)",
+      "claimed_at": "2026-07-27T19:18:13Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4cfe6c81",
+      "notes": null,
+      "shipped_at": "2026-07-27T19:49:59Z"
+    },
+    {
+      "r_number": "R-F3299",
+      "title": "deploy.ps1 exact-sha check false-fails when a peer ships past you",
+      "claimed_at": "2026-07-27T19:18:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4cfe6c81",
+      "notes": null,
+      "shipped_at": "2026-07-27T19:50:00Z"
+    },
+    {
+      "r_number": "R-F3300",
+      "title": "deep_research post-processing loop is unbounded so the outer cancel discards all research",
+      "claimed_at": "2026-07-27T19:39:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0a7eb792",
+      "notes": null,
+      "shipped_at": "2026-07-27T20:03:25Z"
+    },
+    {
+      "r_number": "R-F3301",
+      "title": "landing lead form professional restyle",
+      "claimed_at": "2026-07-27T19:43:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3302",
+      "title": "landing narrative copy + em-dash removal",
+      "claimed_at": "2026-07-27T19:43:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3303",
+      "title": "model card links land on the correct section",
+      "claimed_at": "2026-07-27T19:43:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3304",
+      "title": "legal pages white background matching landing",
+      "claimed_at": "2026-07-27T19:43:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3305",
+      "title": "pelican style.css unclosed at-rule wraps the whole sheet",
+      "claimed_at": "2026-07-27T19:53:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
