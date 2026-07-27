@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3278,
+  "next_available": 3285,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -26377,27 +26377,30 @@
       "title": "DD: registry authority test unified — CONFIRMED only when a registry actually confirmed",
       "claimed_at": "2026-07-27T08:34:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dec07278",
+      "notes": null,
+      "shipped_at": "2026-07-27T13:39:51Z"
     },
     {
       "r_number": "R-F3232",
       "title": "DD: consume registry adapter data_gaps into the report",
       "claimed_at": "2026-07-27T08:34:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dec07278",
+      "notes": null,
+      "shipped_at": "2026-07-27T13:39:51Z"
     },
     {
       "r_number": "R-F3233",
       "title": "DD: vault source match requires subject naming, no silent cap",
       "claimed_at": "2026-07-27T08:34:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dec07278",
+      "notes": null,
+      "shipped_at": "2026-07-27T13:39:51Z"
     },
     {
       "r_number": "R-F3234",
@@ -26800,9 +26803,10 @@
       "title": "auto-link documents to career periods; declared history from the application form",
       "claimed_at": "2026-07-27T13:14:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d60ddc7e",
+      "notes": null,
+      "shipped_at": "2026-07-27T13:24:03Z"
     },
     {
       "r_number": "R-F3275",
@@ -26826,6 +26830,70 @@
       "r_number": "R-F3277",
       "title": "rf1715 tests drive a capability R-F3199 removed - prove the surviving property instead",
       "claimed_at": "2026-07-27T13:23:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3278",
+      "title": "user-facing copy must not use em/en dashes - reads as AI-authored",
+      "claimed_at": "2026-07-27T13:31:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3279",
+      "title": "harden and fully wire Stripe billing lifecycle",
+      "claimed_at": "2026-07-27T13:36:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3280",
+      "title": "rf3129 pins a reworded literal - assert the source_unavailable property instead",
+      "claimed_at": "2026-07-27T13:40:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3281",
+      "title": "rebuild the R-F559 verify_commit harness lost to an overwrite",
+      "claimed_at": "2026-07-27T13:40:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3282",
+      "title": "weekly report executive summary: LLMResponseCache is not callable (shipped unnumbered as R-F3243 @d98c2063)",
+      "claimed_at": "2026-07-27T13:41:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d98c2063",
+      "notes": "ALIAS: this work shipped in commit d98c2063 under the label 'R-F3243', which cb061cfe had already claimed 1m43s earlier (see the R-F3243 entry's R-F3248 collision note). The commit message cannot be rewritten -- it is pushed -- so R-F3282 is the number of record for the weekly-report executive-summary fix, and a reader who greps R-F3243 in the git log and lands on d98c2063 should resolve here. Reserved retroactively 2026-07-27; the work itself is live.",
+      "shipped_at": "2026-07-27T13:41:16Z"
+    },
+    {
+      "r_number": "R-F3283",
+      "title": "extend the R-F3278 no-AI-dash copy rule across aria-web",
+      "claimed_at": "2026-07-27T13:43:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3284",
+      "title": "pre-push must refuse an R-number reserved only in the working tree",
+      "claimed_at": "2026-07-27T13:52:25Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -118,11 +118,18 @@ export default async function AccountPage({ searchParams }: { searchParams: { bi
                     {t.autonomousEnabled ? <Feature text="Autonomous intelligence" /> : null}
                     {t.publicApiEnabled ? <Feature text="Public API access" /> : null}
                   </ul>
-                  {isUpgrade && t.id !== 'free' ? (
+                  {isUpgrade && t.id !== 'free' && currentTier === 'free' ? (
                     <form action={startCheckout}>
                       <input type="hidden" name="tier" value={t.id} />
                       <Button type="submit" className="w-full" disabled={t.checkoutReady === false}>
                         {t.checkoutReady === false ? 'Unavailable' : `Upgrade to ${t.label}`}
+                      </Button>
+                    </form>
+                  ) : null}
+                  {isUpgrade && t.id !== 'free' && currentTier !== 'free' ? (
+                    <form action={openPortal}>
+                      <Button type="submit" variant="outline" className="w-full">
+                        Change plan in billing portal
                       </Button>
                     </form>
                   ) : null}

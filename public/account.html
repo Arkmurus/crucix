@@ -299,20 +299,12 @@ Sidebar.init('account');
       upgradePro.onclick = function() { startCheckout('pro', this); };
       actions.appendChild(upgradePro);
     }
-    if (billingOn && meResp.tier === 'pro') {
+    if (billingOn && meResp.tier !== 'free') {
       var upgradeIntel = document.createElement('button');
       upgradeIntel.className = 'sc-btn sc-btn-primary sc-btn-sm';
-      upgradeIntel.textContent = 'Upgrade to Pro Intelligence';
-      upgradeIntel.onclick = function() { startCheckout('proIntel', this); };
+      upgradeIntel.textContent = 'Change plan';
+      upgradeIntel.onclick = function() { openPortal(this); };
       actions.appendChild(upgradeIntel);
-    }
-    if (billingOn && meResp.tier !== 'free') {
-      var manage = document.createElement('button');
-      manage.className = 'sc-btn sc-btn-sm';
-      manage.style.cssText = 'background:transparent;border:1px solid var(--sc-border-strong);color:var(--sc-text)';
-      manage.textContent = 'Manage subscription';
-      manage.onclick = function() { openPortal(this); };
-      actions.appendChild(manage);
     }
   }
 
