@@ -36,6 +36,25 @@ bound rather than being killed by it.
 These tests drive the real investigate(). Only _process_analysis is slow, which
 isolates the guarded loop: without the guard the call runs to the full stub cost
 and blows its deadline, which is the assertion that fails pre-fix.
+
+R-F3306 - WHAT THE FIRST FIX EXPOSED. Deployed, the next live run
+(dd_f89fdb2e18f6) stopped being cancelled and reported honestly for the first
+time: "bounded at 297s and stopped after article read (28 of 33 articles
+analysed) - 0 article(s) analysed, 0 fact(s) retained". Twenty-eight articles
+fetched, read and LLM-analysed, and not one fact reached the customer. R-F3300
+had converted a silent total loss into an HONEST total loss.
+
+The cause was the budget split, not the guard: _article_budget was everything
+except the synthesis reserve, so the article stage always left retention nothing
+and the floor fired on its first iteration. Reserving a fixed slice would only
+move the guess, since per-article retention cost depends on state-store latency.
+R-F3306 retains each article as it is analysed, which removes the need to predict
+and makes "analysed but discarded" unrepresentable: a cut can now only lose the
+un-analysed tail.
+
+Both fixes are proven failing-first by reverting them here, and the revert of
+R-F3306 reproduces the live symptom exactly: "article read (6 of 8 articles
+analysed)" with articles_read=0.
 """
 from __future__ import annotations
 
@@ -167,10 +186,102 @@ async def test_the_cut_is_declared_and_names_the_stage(_fast_engine):
         assert out.get("partial") is True, (
             "processed fewer articles than gathered but did not declare partial"
         )
-        assert "fact retention" in (out.get("stopped_after") or ""), (
+        # R-F3306 moved WHERE the cut lands. With retention incremental, the
+        # binding constraint is normally reading, not retention, so "article read"
+        # is the expected stage and "fact retention" now means the state store was
+        # slow enough to bind first. Either is honest; an unnamed stage is not.
+        stage = out.get("stopped_after") or ""
+        assert any(s in stage for s in ("article read", "fact retention", "search fan-out")), (
             "the stage must name itself; locating the last unnamed failure of "
-            f"this kind took three attempts (R-F3296). got: {out.get('stopped_after')!r}"
+            f"this kind took three attempts (R-F3296). got: {stage!r}"
         )
+
+
+
+# NOTE: an earlier test here asserted the analysed==retained invariant using the
+# retention-slow fixture above. It could only ever SKIP, because that fixture
+# makes retention the binding constraint by design, so the cut never lands at the
+# article stage. A test that always skips is the same "green but proves nothing"
+# problem this file exists to document, so it was removed rather than left in the
+# summary line. The invariant is asserted, non-vacuously, by
+# test_nothing_analysed_is_thrown_away_when_reading_binds below.
+
+@pytest.fixture
+def _reading_is_the_bottleneck(monkeypatch):
+    """Production-shaped: LLM analysis dominates, retention is cheap.
+
+    The live run is this shape, and it is the shape that produced "28 of 33
+    articles analysed, 0 retained". The other fixture inverts it to exercise the
+    R-F3300 floor; this one exercises the R-F3306 invariant, and without it that
+    invariant only ever reached a skip.
+    """
+    articles = [
+        {"title": f"Article {i}", "link": f"https://example.invalid/{i}",
+         "snippet": "s", "source": "example.invalid"}
+        for i in range(_N_ARTICLES)
+    ]
+
+    async def _search(query, *a, **kw):
+        return list(articles)
+
+    async def _slow_analyse(*a, **kw):
+        # Sized against the engine's real concurrency. _process_one_article runs
+        # under Semaphore(6) and depth="quick" yields ~10 jobs, so at 1.5s the two
+        # rounds finished INSIDE the budget, no cut occurred, and this test passed
+        # even with the fix reverted. 3.0s forces the second round to be cut.
+        await asyncio.sleep(3.0)          # the expensive LLM read
+        return {"facts": [{"fact": "f"}], "validates": None, "challenges": None}
+
+    async def _fast_process(parsed, topic, hypotheses, *a, **kw):
+        await asyncio.sleep(0.01)         # a healthy store
+        return (1, 0)
+
+    monkeypatch.setattr(dr, "_web_search", _search)
+    monkeypatch.setattr(dr, "_fetch_article_text", lambda *a, **kw: asyncio.sleep(0, result="x" * 2000))
+    monkeypatch.setattr(dr, "_analyse_article", _slow_analyse)
+    monkeypatch.setattr(dr, "_process_analysis", _fast_process)
+    monkeypatch.setattr(dr, "_mark_read", lambda *a, **kw: asyncio.sleep(0))
+    monkeypatch.setattr(dr, "_load_hypotheses", lambda *a, **kw: asyncio.sleep(0, result=[]))
+    monkeypatch.setattr(dr, "_save_hypotheses", lambda *a, **kw: asyncio.sleep(0))
+    monkeypatch.setattr(dr, "_get_read_urls", lambda *a, **kw: asyncio.sleep(0, result=set()))
+    monkeypatch.setattr(dr, "search_knowledge", lambda *a, **kw: [])
+
+
+@pytest.mark.asyncio
+async def test_nothing_analysed_is_thrown_away_when_reading_binds(_reading_is_the_bottleneck):
+    """THE LIVE SHAPE. Cut at the article stage, and every analysed article kept.
+
+    Pre-R-F3306 the article stage took the budget down to the synthesis reserve
+    and the separate retention pass got none of it, so this returned 0.
+    """
+    import re
+
+    out = await dr.investigate(
+        _StubLLM(), "AZURE PARKING LTD", depth="quick",
+        investigate_people=0, deadline_s=_DEADLINE_S,
+    )
+
+    stage = out.get("stopped_after") or ""
+    m = re.search(r"article read \((\d+) of (\d+) articles analysed\)", stage)
+
+    # VERIFY THE INSTRUMENT. If the run finished every article there was no cut,
+    # and this test proves nothing about losing work at a boundary. It must fail
+    # rather than pass vacuously: at 1.5s per article it did exactly that, and
+    # went green with the fix reverted.
+    assert m, (
+        "the run was NOT cut at the article stage, so this test is vacuous. "
+        f"Re-size the fixture against Semaphore(6). stopped_after={stage!r}"
+    )
+
+    analysed = int(m.group(1))
+    retained = out.get("articles_read", 0)
+    assert retained > 0, (
+        "the run analysed articles and retained none, which is exactly the live "
+        f"defect (dd_f89fdb2e18f6: 28 analysed, 0 retained). stopped_after={stage!r}"
+    )
+    assert retained == analysed, (
+        f"reported {analysed} articles analysed but retained {retained}"
+    )
 
 
 @pytest.mark.asyncio

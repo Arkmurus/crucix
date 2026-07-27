@@ -1214,6 +1214,63 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
                 return None
             return {"parsed": parsed, "article": article}
 
+    # R-F3306 — RETAIN each article as it is analysed, never in a second pass that
+    # the first pass has already starved.
+    #
+    # The R-F3300 live run (dd_f89fdb2e18f6) is the evidence. It reported, HONESTLY
+    # this time: "bounded at 297s and stopped after article read (28 of 33 articles
+    # analysed) — 0 article(s) analysed, 0 fact(s) retained". Twenty-eight articles
+    # were fetched, read and LLM-analysed, and not one fact reached the customer.
+    #
+    # The cause is the budget split, not the guard. `_article_budget` was
+    # `_remaining() - _synth_reserve_s`, i.e. everything except the synthesis
+    # reserve, so whenever the article stage used its budget it left retention
+    # exactly nothing and R-F3300's floor check fired on the first iteration.
+    # Analysing 28 articles and retaining none is strictly worse than analysing 18
+    # and retaining 18.
+    #
+    # Reserving a fixed slice for retention would just move the guess: per-article
+    # retention cost depends on state-store latency and is not knowable up front.
+    # Retaining incrementally removes the need to predict. Each article is retained
+    # as soon as it is analysed, so the split is self-balancing and a cut can only
+    # ever lose the un-analysed tail. Retention is still SEQUENTIAL, in the parent
+    # coroutine, which preserves the reason it was a separate pass at all:
+    # _process_analysis mutates the hypothesis dict and is not reentrant-safe.
+    async def _retain(results: list) -> None:
+        """Fold analysed articles into facts and hypotheses. Sequential by design."""
+        nonlocal articles_read, total_facts, total_hyp
+        for _pp_i, r in enumerate(results):
+            # R-F3300's floor stays: a slow store must not push us past the bound.
+            if _t_deadline is not None and _remaining() <= _synth_reserve_s:
+                # CUMULATIVE, not batch-local. _retain is now called once per
+                # completed batch, so the loop index counts only this batch and
+                # would understate the run as a whole. articles_read and
+                # parallel_results are both run totals at this point.
+                _mark_partial(
+                    f"fact retention ({articles_read} of {len(parallel_results)} "
+                    "analysed articles retained)"
+                )
+                return
+            if not r:
+                continue
+            parsed = r.get("parsed")
+            article = r.get("article", {})
+            if parsed:
+                fl, hg = await _process_analysis(parsed, f"investigation:{topic[:30]}", hypotheses)
+                total_facts += fl
+                total_hyp += hg
+                # R-F1812 — attach the source URL to each fact so findings are
+                # auditable back to their article (fixes citation collapse).
+                _src = article.get("link", "")
+                _facts = parsed.get("facts", []) or []
+                for _f in _facts:
+                    if isinstance(_f, dict) and _src and not _f.get("source_url"):
+                        _f["source_url"] = _src
+                all_facts.extend(_facts)
+            if article.get("link"):
+                await _mark_read(article["link"])
+            articles_read += 1
+
     # R-F3018 — harvest what FINISHES inside the budget instead of discarding
     # everything. `gather` is all-or-nothing under an outer cancel; `wait` with a
     # timeout hands back the completed set and lets us cancel the stragglers.
@@ -1226,67 +1283,39 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
             *(_process_one_article(q, a) for q, a in article_jobs),
             return_exceptions=False,
         )
+        await _retain(parallel_results)
     else:
         _tasks = [_aio.ensure_future(_process_one_article(q, a)) for q, a in article_jobs]
         parallel_results = []
-        if _tasks:
-            _done, _pending = await _aio.wait(_tasks, timeout=_article_budget)
-            for _t in _pending:
-                _t.cancel()
-            if _pending:
-                _mark_partial(f"article read ({len(_done)} of {len(_tasks)} articles analysed)")
+        _left: set = set(_tasks)
+        while _left:
+            # Re-derived every pass, so time spent RETAINING correctly reduces the
+            # time left for further reading. That is the self-balancing part.
+            _batch_budget = _remaining() - _synth_reserve_s
+            if _batch_budget <= 0:
+                break
+            _done, _left = await _aio.wait(
+                _left, timeout=_batch_budget, return_when=_aio.FIRST_COMPLETED
+            )
+            if not _done:
+                break  # budget expired with nothing new finished
+            _batch = []
             for _t in _done:
                 try:
-                    parallel_results.append(_t.result())
+                    _batch.append(_t.result())
                 except Exception as _e:
                     logger.debug("article task failed: %s", _e)
-
-    # Sequential post-processing so _process_analysis can mutate the
-    # hypothesis dict consistently (it isn't reentrant-safe).
-    #
-    # R-F3300 — this loop had NO deadline check while every stage around it did,
-    # and it is the single worst place to be cancelled: this is where gathered
-    # evidence is RETAINED (facts stored via _process_analysis, urls marked read).
-    # Each iteration awaits state-store writes, so on a slow or reconnecting store
-    # a few dozen articles take minutes.
-    #
-    # It explains the live AZURE PARKING LTD run exactly. The gap carried the
-    # OUTER backstop wording ("did not complete within 300s") and `partial` was
-    # never set, which is only possible if _mark_partial never fired. The article
-    # wait only marks partial when tasks are still `_pending` (line ~1236), so a
-    # run where every article completed sails past that checkpoint and then
-    # overruns HERE, unguarded. asyncio.wait_for CANCELS, so dd_orchestrator got
-    # `{}` and the report showed articles_read=0 after 300 seconds of real work.
-    #
-    # The floor is the synthesis reserve, matching the search fan-out above, so a
-    # cut here still leaves the closing assessment its budget and the whole call
-    # lands inside the caller's bound instead of being killed by it.
-    for _pp_i, r in enumerate(parallel_results):
-        if _t_deadline is not None and _remaining() <= _synth_reserve_s:
+            parallel_results.extend(_batch)
+            # Retain NOW, while there is still budget, not after it is gone.
+            await _retain(_batch)
+        for _t in _left:
+            _t.cancel()
+        if _left:
             _mark_partial(
-                f"fact retention ({_pp_i} of {len(parallel_results)} analysed "
-                "articles processed)"
+                f"article read ({len(_tasks) - len(_left)} of {len(_tasks)} "
+                "articles analysed)"
             )
-            break
-        if not r:
-            continue
-        parsed = r.get("parsed")
-        article = r.get("article", {})
-        if parsed:
-            fl, hg = await _process_analysis(parsed, f"investigation:{topic[:30]}", hypotheses)
-            total_facts += fl
-            total_hyp += hg
-            # R-F1812 — attach the source URL to each fact so findings are
-            # auditable back to their article (fixes citation collapse).
-            _src = article.get("link", "")
-            _facts = parsed.get("facts", []) or []
-            for _f in _facts:
-                if isinstance(_f, dict) and _src and not _f.get("source_url"):
-                    _f["source_url"] = _src
-            all_facts.extend(_facts)
-        if article.get("link"):
-            await _mark_read(article["link"])
-        articles_read += 1
+
 
     # R-F3300 — a state-store write on the critical path, previously unbounded.
     # A wedged or reconnecting store here would overrun the caller's bound and
