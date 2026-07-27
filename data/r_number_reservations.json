@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3292,
+  "next_available": 3295,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -26962,6 +26962,33 @@
       "r_number": "R-F3291",
       "title": "deploy history path is CWD-relative so tests write fake records into the real audit file",
       "claimed_at": "2026-07-27T14:46:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3292",
+      "title": "R-F3225 guard asserts an absence R-F3271 proved was a regression; assert the scheduling model instead",
+      "claimed_at": "2026-07-27T18:09:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3293",
+      "title": "collab_bridge_drain handler unreachable from run_task; R-F1410 guard asserted presence not dispatchability",
+      "claimed_at": "2026-07-27T18:11:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3294",
+      "title": "three autonomous guards predate deliberate tightenings (AST planner, SSRF check, absence-is-a-finding extractor)",
+      "claimed_at": "2026-07-27T18:14:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

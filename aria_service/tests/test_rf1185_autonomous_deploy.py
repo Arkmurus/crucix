@@ -334,7 +334,14 @@ class TestWebhookNotifier:
         """send makes a POST request when URL is set."""
         notifier = WebhookNotifier("https://hooks.example.com/deploy")
 
-        with patch.object(notifier._client, "post") as mock_post:
+        # R-F3294 — R-F1869 added an SSRF check to send(), and this test's URL
+        # does not resolve, so is_safe_url returns (False, "dns_fail") and the
+        # POST is correctly refused. The guard is right; the fixture predates
+        # it. Stubbed rather than swapped for a real host, because a unit test
+        # that needs live DNS fails offline and in CI for reasons that have
+        # nothing to do with what it is testing.
+        import aria_service.intel.url_safety as _url_safety
+        with patch.object(_url_safety, "is_safe_url", return_value=(True, "")),                 patch.object(notifier._client, "post") as mock_post:
             await notifier.send("test_event", {"key": "value"})
             mock_post.assert_called_once()
             args, kwargs = mock_post.call_args

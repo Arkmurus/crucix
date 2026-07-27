@@ -29,6 +29,38 @@ def test_collab_bridge_drain_tool_registered():
     )
 
 
+def test_collab_bridge_drain_is_reachable_from_run_task():
+    """R-F3293 — a handler nothing can dispatch to is not a registered tool.
+
+    The check above passed for months while the tool was UNREACHABLE. R-F1410
+    added the handler and a task whose tool_chain names it, but never added the
+    kind to run_task's dispatch tuple, so every run of that task answered
+    "unsupported tool kind". Asserting the handler EXISTS is the §3c failure
+    exactly: it tests the helper, not the path the task actually takes.
+
+    The bridge kept draining regardless, which is why nobody noticed — R-F1548
+    later added an independent 2-minute scheduler loop calling drain_for_aria()
+    directly. That masked the dead task path instead of replacing it, and a
+    masked failure is the kind that surfaces when the thing masking it is
+    changed.
+    """
+    import inspect
+    import re
+
+    from aria_service.autonomous import tasks as t
+
+    source = inspect.getsource(t)
+    # Comments are stripped first: a parenthesis inside one would truncate the
+    # tuple match and make this pass vacuously (the bug test_autonomous_
+    # dispatch_parity's own extractor was written to avoid).
+    clean = "\n".join(line.split("#", 1)[0] for line in source.splitlines())
+    m = re.search(r"elif\s+tool_kind\s+in\s*\(([^)]+)\):", clean, flags=re.DOTALL)
+    assert m, "could not locate run_task's dispatch tuple"
+    assert "collab_bridge_drain" in set(re.findall(r'"([^"]+)"', m.group(1))), (
+        "collab_bridge_drain has a handler but run_task cannot dispatch to it, "
+        "so the DRAIN-COLLAB-BRIDGE task errors 'unsupported tool kind'")
+
+
 def test_drain_collab_bridge_task_in_yaml():
     """Prove the DRAIN-COLLAB-BRIDGE task exists in tasks.yaml."""
     from pathlib import Path

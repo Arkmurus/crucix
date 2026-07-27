@@ -1612,6 +1612,16 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            "calibration_auto_tune",
                            "source_uptime_ping",
                            "self_diagnostic",
+                           # R-F3293 [2026-07-27]: R-F1410 added the
+                           # collab_bridge_drain HANDLER and a task whose
+                           # tool_chain names it, but never added it here — so
+                           # run_task answered "unsupported tool kind" for the
+                           # one task that uses it. The Claude<->ARIA bridge
+                           # kept draining only because R-F1548 later added an
+                           # independent 2-minute scheduler loop that calls
+                           # drain_for_aria() directly, which masked the dead
+                           # task path rather than replacing it.
+                           "collab_bridge_drain",
                            # R-F470 [2026-05-14]: daily golden-set eval
                            "run_eval",
                            # R-F662 [2026-05-17]: OSS-only learning controller

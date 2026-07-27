@@ -29,7 +29,11 @@ class TestAutonomousCoder:
         assert "target_files" in plan  # self_coder reads "target_files"
         assert "risk_level" in plan  # self_coder reads "risk_level"
         assert plan["llm_free"] is True
-        assert plan["source"] == "self_coding_os"
+        # R-F3294 — R-F1232 replaced the plan generator with the AST
+        # dataflow engine and renamed the marker accordingly. The marker names
+        # WHICH LLM-free engine produced the plan; `llm_free` above is the
+        # load-bearing claim and is unchanged.
+        assert plan["source"] == "code_understanding"
 
     @pytest.mark.asyncio
     async def test_write_code(self):

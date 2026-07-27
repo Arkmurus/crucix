@@ -93,6 +93,11 @@ class TestDiffValidator:
 # GapDetector
 # ════════════════════════════════════════════════════════════════════════════
 
+async def _never_claimed(gap_id: str) -> bool:
+    """R-F3294 — no other agent has claimed anything, deterministically."""
+    return False
+
+
 class _StubRedis:
     """In-memory async stub matching the slice of the redis.asyncio surface
     that GapDetector + R-counter use."""
@@ -188,12 +193,35 @@ class TestGapDetectorScan:
             assert stored == "802"
         _run(body())
 
-    def test_scan_returns_empty_on_no_data(self) -> None:
+    def test_scan_invents_nothing_from_no_data(self) -> None:
+        """R-F3294 — this asserted `gaps == []`, and R-F1166 then added an
+        extractor that treats a MISSING adversarial last-run record as a
+        finding ("the suite has never run"). An empty store therefore yields
+        exactly one gap, and that gap is correct: absence of a run record is
+        not evidence the suite is healthy, which is the honesty rule this
+        codebase is built on.
+
+        So the assertion is not "no gaps" — it is that nothing is INVENTED
+        about content we never read."""
         async def body() -> None:
             redis = _StubRedis()
             d = GapDetector(redis)
+            # R-F3294 — scan() consults the REAL AgentRegistry through
+            # _is_claimed_by_other, so this "unit" test was reading the
+            # developer's live state store. Proven, not guessed: on this
+            # machine `is_gap_claimed("adversarial_never_run")` returns
+            # "aria_coder", so the gap was filtered out as claimed and the
+            # result flipped between runs depending on that claim's TTL.
+            # Stubbed so the test measures the scan logic and nothing else.
+            d._is_claimed_by_other = _never_claimed  # type: ignore[method-assign]
             gaps = await d.scan()
-            assert gaps == []
+            ids = sorted(g.gap_id for g in gaps)
+            assert ids == ["adversarial_never_run"], (
+                f"a scan over an empty store produced unexpected gaps: {ids}")
+            # It is a disclosure of ABSENCE, not a claim about content.
+            only = gaps[0]
+            assert only.evidence.get("value") is None
+            assert "never run" in only.title.lower()
         _run(body())
 
     def test_scan_handles_extractor_failure(self) -> None:
