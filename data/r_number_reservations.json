@@ -27023,9 +27023,10 @@
       "title": "professional Pelican ARIA landing page",
       "claimed_at": "2026-07-27T19:01:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "05862fa1",
+      "notes": null,
+      "shipped_at": "2026-07-27T19:26:35Z"
     }
   ]
 }
