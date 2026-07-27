@@ -9382,7 +9382,15 @@ async def _persist_report(report: ARKDDReport) -> None:
                 _enroll_ok = bool(_wl_name)
                 try:
                     from . import sanctions as _sanc_enr
-                    if hasattr(_sanc_enr, "_looks_like_entity_name"):
+                    # R-F3239 - this name is the DD SUBJECT, registry-resolved
+                    # moments ago. Gating it on the search-query shape heuristic
+                    # meant R-F3228 could SCREEN "Marks & Spencer Group plc"
+                    # while this refused to WATCH it: one name, two standards,
+                    # on one page.
+                    if hasattr(_sanc_enr, "_screenable"):
+                        _enroll_ok = _enroll_ok and _sanc_enr._screenable(
+                            _wl_name, trusted=True)
+                    elif hasattr(_sanc_enr, "_looks_like_entity_name"):
                         _enroll_ok = _enroll_ok and _sanc_enr._looks_like_entity_name(_wl_name)
                 except Exception:
                     pass
@@ -11363,7 +11371,16 @@ def compose_decision_bluf(readiness: dict, name: str) -> dict:
     # whose entire purpose is to find blocking risk did not run, so "no blocking
     # risk" is an artefact of not having looked. On the Rossi report this sentence
     # opened a file whose sanctions screen had queried nothing at all.
-    _sanctions_open = any(k == "sanctions_export_control" for k, _q in unanswered)
+    # R-F3244 - the strong headline is honest only when the SANCTIONS half is
+    # what is missing. On the live Marks & Spencer run (dd_4ef819fb82ff) the
+    # composite question was unanswered purely because quick mode skips export
+    # control, and this printed "cannot state whether blocking risk exists"
+    # above an ELEVEN-LIST CLEAN SCREEN. A legacy scorecard without the flag
+    # keeps the cautious reading: absence of the flag is not proof it ran.
+    _sanctions_open = any(
+        k == "sanctions_export_control" and _q.get("sanctions_evidenced") is not True
+        for k, _q in unanswered
+    )
     if _sanctions_open:
         _bottom = (
             f"🟡 NOT CLEARED — for {name}, the check whose purpose is to find "
@@ -14228,7 +14245,13 @@ async def add_public_watchlist_entity(name: str, curated_by: str = "operator") -
         raise ValueError("name required")
     try:
         from . import sanctions as _sanc
-        if hasattr(_sanc, "_looks_like_entity_name") and not _sanc._looks_like_entity_name(name):
+        # R-F3239 - operator-curated, so the name is DECLARED, not guessed. The
+        # heuristic rejected "Marks & Spencer Group plc" and every other
+        # ampersand / particle / punctuated name an operator would curate.
+        _valid = (_sanc._screenable(name, trusted=True)
+                  if hasattr(_sanc, "_screenable")
+                  else _sanc._looks_like_entity_name(name))
+        if not _valid:
             raise ValueError("not a valid entity name")
     except ValueError:
         raise
@@ -16153,10 +16176,38 @@ async def rescreen_watchlist(
         from . import sanctions as _sanc
         if hasattr(_sanc, "_looks_like_entity_name"):
             before = len(watchlist)
-            watchlist = [
-                w for w in watchlist
-                if _sanc._looks_like_entity_name((w.get("name") or w.get("entity") or "").strip())
-            ]
+            # -- R-F3239 - PURGE BY PROVENANCE, NOT BY NAME SHAPE ------------
+            #
+            # THE DEFECT this closes is one R-F3228 would otherwise have CREATED.
+            # This purge deletes entries whose name fails the search-query
+            # heuristic and persists that deletion on the global path. The
+            # heuristic rejects six of thirty-two real UK company names, so once
+            # R-F3228 let "Marks & Spencer Group plc" be screened and enrolled,
+            # the next re-screen cycle would silently remove it again - a
+            # monitored counterparty vanishing with no event and no trace.
+            #
+            # The purge's real target is named in its own comment: search-query
+            # junk the autonomous escalation path used to enrol. That junk is
+            # distinguishable by PROVENANCE, not by spelling - every legitimate
+            # route stamps its origin (`dd_auto_enroll` here, `dd_report` /
+            # `vetting_case` from the R-F3235 enrollment control, operator
+            # curation for public entries). An entry that names a real record
+            # must never be deleted because a heuristic dislikes an ampersand.
+            #
+            # Unprovenanced entries keep the old rule EXACTLY, so the
+            # self-cleaning this was written for still happens.
+            _PROVENANCED = {"dd_auto_enroll", "dd_report", "vetting_case",
+                            "operator", "public_curated", "watchlist_ui"}
+
+            def _keep(w) -> bool:
+                _nm = (w.get("name") or w.get("entity") or "").strip()
+                if not _nm:
+                    return False
+                if str(w.get("source") or "").strip().lower() in _PROVENANCED:
+                    return True          # vouched for by a real record
+                return _sanc._looks_like_entity_name(_nm)
+
+            watchlist = [w for w in watchlist if _keep(w)]
             removed = before - len(watchlist)
             # R-F2613 — only persist the purge on the GLOBAL path (user_id is None).
             # On a per-user scoped call `watchlist` is the caller's subset; writing it

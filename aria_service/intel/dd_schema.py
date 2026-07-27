@@ -2550,9 +2550,33 @@ def _dd_decision_readiness(r: dict) -> dict:
             "status": "ANSWERED" if sanctions_export_ok else "UNRESOLVED",
             "answered": sanctions_export_ok,
             "evidence": "fresh sanctions source plus export-control assessment",
+            # -- R-F3244 - SAY WHICH HALF -----------------------------------
+            #
+            # A COMPOSITE question whose blocker collapsed both halves into
+            # "not both evidenced" tells the reader nothing about what to do.
+            # Found on the live Marks & Spencer run the moment R-F3228 let the
+            # screen through: eleven lists answered CLEAN, `export_control` was
+            # `{}` because quick mode never assesses it - and the report still
+            # implied the sanctions position was unevidenced. The two halves
+            # have different remedies (re-screen vs classify the goods), so
+            # naming the wrong one sends the reader to fix a check that passed.
+            #
+            # These flags are load-bearing: `compose_decision_bluf` reads them
+            # to decide whether the headline may say ARIA cannot state whether
+            # blocking risk exists - true when the screen did not run, badly
+            # false when it ran clean across eleven lists.
+            "sanctions_evidenced": sanctions_verified,
+            "export_control_evidenced": export_checked,
             "blocker": (
-                "sanctions and export-control checks are not both evidenced"
-                if not sanctions_export_ok else ""
+                "" if sanctions_export_ok
+                else "sanctions screen is not evidenced AND no export-control "
+                     "assessment was made"
+                if not sanctions_verified and not export_checked
+                else "sanctions screen is not evidenced (the export-control "
+                     "assessment was made)"
+                if not sanctions_verified
+                else "no export-control assessment was made - the sanctions "
+                     "screen itself completed and is evidenced"
             ),
         },
         "adverse_media": {
