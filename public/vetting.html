@@ -187,6 +187,10 @@
     .vt-std { margin-top: 30px; background: #fff; border: 1px solid var(--sc-border); border-radius: 12px; padding: 0; }
     .vt-std > summary { padding: 14px 18px; cursor: pointer; list-style: none; font-size: 13px; font-weight: 700; color: var(--sc-heading); }
     .vt-std > summary::-webkit-details-marker { display: none; }
+    /* The count travels with the title even when collapsed. */
+    .vt-std-headline { font-weight: 600; color: var(--sc-muted); font-size: 12px; margin-left: 8px; }
+    .vt-std > summary::after { content: '▾'; float: right; color: var(--sc-muted); }
+    .vt-std[open] > summary::after { content: '▴'; }
     .vt-std-body { padding: 0 18px 18px; }
     .vt-clause { padding: 9px 0; border-top: 1px dashed var(--sc-border); font-size: 12.5px; }
     .vt-clause-id { font-family: ui-monospace, monospace; font-weight: 700; color: var(--sc-prime-dark, #6d28d9); }
@@ -201,6 +205,22 @@
 
     <h1 class="vt-title">Vetting</h1>
 
+    <!-- R-F3250 — the scope statement sits DIRECTLY under the title, above the
+         queue, because it governs how everything below it should be read. At
+         the foot of the page it was a footnote a user reaches after forming a
+         view; here it is the first thing they see. It states the clause count
+         AND what the module does not model, and the two travel together: a
+         coverage figure read on its own reads as completeness. -->
+    <details class="vt-std" id="standard">
+      <summary>
+        <i class="bi bi-journal-check"></i> Which parts of BS 7858 this module implements
+        <span id="standard-headline" class="vt-std-headline">loading the clause register…</span>
+      </summary>
+      <div class="vt-std-body" id="standard-body">
+        <div class="vt-loading">Loading the clause register…</div>
+      </div>
+    </details>
+
     <div id="queue" class="vt-queue"></div>
     <div id="retention-note" class="vt-pack" style="display:none"></div>
 
@@ -210,13 +230,6 @@
     </div>
 
     <div id="cases"><div class="vt-empty">Loading…</div></div>
-
-    <details class="vt-std" id="standard">
-      <summary><i class="bi bi-journal-check"></i> Which parts of BS 7858 this module implements</summary>
-      <div class="vt-std-body" id="standard-body">
-        <div class="vt-loading">Loading the clause register…</div>
-      </div>
-    </details>
 
   </div>
 </main>
@@ -751,15 +764,25 @@ Sidebar.init('vetting');
   // A coverage figure read on its own reads as completeness.
   async function loadStandard() {
     const body = $('standard-body');
+    const headline = $('standard-headline');
     if (!body) return;
     try {
       const r = await authed('/api/aria/vetting/standard');
       if (!r.ok) {
         body.innerHTML = '<div class="vt-error">The clause register could not be loaded.</div>';
+        // Never leave the collapsed line implying coverage we could not read.
+        if (headline) headline.textContent = 'coverage unavailable — could not be read';
         return;
       }
       const d = await r.json();
       const c = d.counts || {};
+      // The collapsed line carries BOTH numbers. "26 clauses implemented" on
+      // its own is the completeness claim this register exists to refuse, so
+      // the scope limit is never one click away from the count.
+      if (headline) {
+        headline.textContent =
+          `${c.encoded || 0} clauses implemented · ${(d.not_modelled || []).length} stated scope limits`;
+      }
       const rows = (d.clauses || []).map((x) => `
         <div class="vt-clause">
           <span class="vt-clause-id">${esc(x.clause)}</span> — <strong>${esc(x.title)}</strong>
@@ -780,6 +803,7 @@ Sidebar.init('vetting');
         `<p class="vt-note">${esc(d.copyright_note)}</p>`;
     } catch (e) {
       body.innerHTML = '<div class="vt-error">The clause register could not be loaded.</div>';
+      if (headline) headline.textContent = 'coverage unavailable — could not be read';
     }
   }
 
@@ -1466,11 +1490,12 @@ Sidebar.init('vetting');
     await loadRetention();
     Toast.show('Refreshed', 'info', 2000);
   });
-  $('standard').addEventListener('toggle', function once(ev) {
-    if (ev.target.open) { loadStandard(); ev.target.removeEventListener('toggle', once); }
-  });
-
-  await Promise.all([loadPacks(), loadDocTypes()]);
+  // R-F3250 — loaded EAGERLY, not on first expand. The scope statement now
+  // sits above the queue, so its collapsed line has to carry real numbers from
+  // the moment the page renders; a lazy load would leave "loading…" sitting
+  // under the title until someone happened to click it, and an unread scope
+  // limit is the same as no scope limit.
+  await Promise.all([loadPacks(), loadDocTypes(), loadStandard()]);
   await loadCases();
   await loadRetention();
 })();
