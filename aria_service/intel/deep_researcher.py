@@ -1243,7 +1243,31 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
 
     # Sequential post-processing so _process_analysis can mutate the
     # hypothesis dict consistently (it isn't reentrant-safe).
-    for r in parallel_results:
+    #
+    # R-F3300 — this loop had NO deadline check while every stage around it did,
+    # and it is the single worst place to be cancelled: this is where gathered
+    # evidence is RETAINED (facts stored via _process_analysis, urls marked read).
+    # Each iteration awaits state-store writes, so on a slow or reconnecting store
+    # a few dozen articles take minutes.
+    #
+    # It explains the live AZURE PARKING LTD run exactly. The gap carried the
+    # OUTER backstop wording ("did not complete within 300s") and `partial` was
+    # never set, which is only possible if _mark_partial never fired. The article
+    # wait only marks partial when tasks are still `_pending` (line ~1236), so a
+    # run where every article completed sails past that checkpoint and then
+    # overruns HERE, unguarded. asyncio.wait_for CANCELS, so dd_orchestrator got
+    # `{}` and the report showed articles_read=0 after 300 seconds of real work.
+    #
+    # The floor is the synthesis reserve, matching the search fan-out above, so a
+    # cut here still leaves the closing assessment its budget and the whole call
+    # lands inside the caller's bound instead of being killed by it.
+    for _pp_i, r in enumerate(parallel_results):
+        if _t_deadline is not None and _remaining() <= _synth_reserve_s:
+            _mark_partial(
+                f"fact retention ({_pp_i} of {len(parallel_results)} analysed "
+                "articles processed)"
+            )
+            break
         if not r:
             continue
         parsed = r.get("parsed")
@@ -1264,7 +1288,23 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
             await _mark_read(article["link"])
         articles_read += 1
 
-    await _save_hypotheses(hypotheses)
+    # R-F3300 — a state-store write on the critical path, previously unbounded.
+    # A wedged or reconnecting store here would overrun the caller's bound and
+    # cost the whole run, trading everything gathered for a hypothesis save.
+    # Failing to persist hypotheses degrades the NEXT run; being cancelled
+    # destroys THIS one.
+    try:
+        if _t_deadline is None:
+            await _save_hypotheses(hypotheses)
+        else:
+            await _aio.wait_for(
+                _save_hypotheses(hypotheses),
+                timeout=max(1.0, min(5.0, _remaining())),
+            )
+    except (_aio.TimeoutError, TimeoutError):
+        _mark_partial("hypothesis save (state store did not respond in budget)")
+    except Exception as _e:
+        logger.debug("hypothesis save failed: %s", _e)
 
     # R-F1812 — recursive person drill-down (before synthesis so the people
     # appear IN the assessment). Bounded by investigate_people + time-guarded.
