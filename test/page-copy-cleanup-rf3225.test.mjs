@@ -17,6 +17,8 @@ test('R-F3225 removes irrelevant introductory and empty-assessment copy', () => 
   ]) {
     assert.equal(vetting.includes(text), false, `vetting.html still contains: ${text}`);
   }
+  assert.match(vetting, /<h1 class="vt-title">Vetting<\/h1>/);
+  assert.equal((vetting.match(/<h1\b/g) || []).length, 1);
 });
 
 test('R-F3225 removes the obsolete vault registry subtitle', () => {
