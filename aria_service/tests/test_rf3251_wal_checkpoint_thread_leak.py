@@ -331,3 +331,20 @@ async def test_the_gauge_is_actually_reachable_through_stats(tmp_path, monkeypat
     finally:
         ss._reap_old_conns(*list(ss._read_pool))
         ss._read_pool, ss._read_conn = [], None
+
+
+def test_the_gauge_has_an_http_route_not_just_a_function():
+    """R-F3263 — `stats()` carries the gauge but NOTHING renders stats() over
+    HTTP, so wiring it there alone left it as unreachable as before. The route
+    is what makes the number answerable without ssh-ing to the box mid-stall.
+    """
+    import inspect
+
+    from aria_service.routes import aria as aria_routes
+
+    src = inspect.getsource(aria_routes)
+    assert '"/admin/state/connections"' in src, (
+        "no HTTP route exposes the connection gauge — it is reachable only "
+        "from inside the process, which is where it was already stuck")
+    assert "connection_gauge()" in src, (
+        "the route does not call the gauge")

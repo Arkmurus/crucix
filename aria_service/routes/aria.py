@@ -1721,6 +1721,30 @@ async def admin_state_hotcold_backfill_status_ep():
     return await _ss.backfill_status()
 
 
+@router.get("/admin/state/connections")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def admin_state_connections_ep():
+    """R-F3263 — live aiosqlite connection cost, readable on demand.
+
+    Until this existed the number could only be obtained from an R-F704 wedge
+    stack, which is written ONLY WHEN A STALL HAPPENS — so the measurement that
+    warns you a connection leak is building required ssh-ing to the box and
+    grepping a crash dump, after the damage.
+
+    `stuck_reaps` is the one to watch. Reaps close fire-and-forget with a 30s
+    bound (a wedged connection's close() queues behind the stuck op and must
+    never block self-heal); the task is discarded on completion, so anything
+    still counted here is a close that never finished — a thread that is not
+    coming back.
+
+    A gauge nobody can reach is not a gauge. `state_store.stats()` carries this
+    too, but nothing renders `stats()` over HTTP, which is why this route
+    exists rather than a comment claiming /health already showed it.
+    """
+    from ..intel import state_store as _ss
+    return _ss.connection_gauge()
+
+
 @router.post("/admin/state/hotcold-reconcile")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def admin_state_hotcold_reconcile_ep(sample_n: int = 50):
