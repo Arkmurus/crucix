@@ -310,23 +310,180 @@ def new_evidence_id() -> str:
     return str(uuid.uuid4())
 
 
+# R-F3265 — bounds. An upload is a user-facing request, so extraction must not
+# be able to hold one open. A 500-page scan is capped by pages; a text-heavy
+# document is capped by characters. Both are generous for a screening document
+# (a passport is 1 page, a reference 1-3, a bank statement rarely over 20) and
+# small enough that no single upload stalls.
+_MAX_EXTRACT_PAGES = 30
+_MAX_EXTRACT_CHARS = 200_000
+# Below this many characters, a PDF page is treated as having no text layer —
+# a scan. Not zero: a scanned page often yields a few stray glyphs from a
+# letterhead, and treating that as "text found" skips the OCR that holds the
+# actual content.
+_OCR_TEXT_FLOOR = 24
+
+
+def _extract_pdf(content: bytes) -> str:
+    """PDF text, with OCR only for pages that have no text layer.
+
+    OCR is expensive, so it is a FALLBACK, not the default: a digital PDF is
+    read from its text layer, and tesseract runs only on pages that came back
+    empty — which is what a scan or a phone photo of a passport looks like.
+    """
+    try:
+        import fitz  # PyMuPDF
+    except Exception:  # noqa: BLE001 — an absent dep is a disclosed gap
+        _log.warning("vetting: PyMuPDF unavailable — PDF left unread")
+        return ""
+
+    parts: list[str] = []
+    try:
+        with fitz.open(stream=content, filetype="pdf") as doc:
+            for index, page in enumerate(doc):
+                if index >= _MAX_EXTRACT_PAGES:
+                    break
+                text = ""
+                try:
+                    text = page.get_text() or ""
+                except Exception:  # noqa: BLE001 — one bad page is not the document
+                    text = ""
+                if len(text.strip()) < _OCR_TEXT_FLOOR:
+                    text = _ocr_page(page) or text
+                parts.append(text)
+                if sum(len(p) for p in parts) >= _MAX_EXTRACT_CHARS:
+                    break
+    except Exception as exc:  # noqa: BLE001
+        # A corrupt or encrypted PDF reads as nothing — which routes to
+        # `extraction_unavailable` and a human, exactly as before.
+        _log.debug("vetting: PDF extraction failed: %s", exc)
+        return ""
+    return "\n".join(parts)[:_MAX_EXTRACT_CHARS]
+
+
+def _ocr_page(page: Any) -> str:
+    """Rasterise one page and OCR it. Returns "" if OCR is unavailable."""
+    try:
+        import io
+
+        import pytesseract  # noqa: F401 — presence check
+        from PIL import Image
+
+        pixmap = page.get_pixmap(dpi=200)
+        image = Image.open(io.BytesIO(pixmap.tobytes("png")))
+        return pytesseract.image_to_string(image) or ""
+    except Exception as exc:  # noqa: BLE001 — OCR is best-effort by design
+        _log.debug("vetting: OCR unavailable/failed for a page: %s", exc)
+        return ""
+
+
+def _extract_image(content: bytes) -> str:
+    """A photographed document — the common case on a phone."""
+    try:
+        import io
+
+        import pytesseract
+        from PIL import Image
+
+        return (pytesseract.image_to_string(Image.open(io.BytesIO(content)))
+                or "")[:_MAX_EXTRACT_CHARS]
+    except Exception as exc:  # noqa: BLE001
+        _log.debug("vetting: image OCR failed: %s", exc)
+        return ""
+
+
+def _extract_docx(content: bytes) -> str:
+    try:
+        import io
+
+        import docx
+
+        document = docx.Document(io.BytesIO(content))
+        return "\n".join(p.text for p in document.paragraphs)[:_MAX_EXTRACT_CHARS]
+    except Exception as exc:  # noqa: BLE001
+        _log.debug("vetting: docx extraction failed: %s", exc)
+        return ""
+
+
+def _extract_email(content: bytes) -> str:
+    """An .eml, INCLUDING its attachments.
+
+    For a referee reply the reference is almost always the attachment and the
+    covering note says "please find attached" — reading only the body would
+    miss the evidence entirely, which is the whole reason this walks parts.
+    """
+    try:
+        from email import policy
+        from email.parser import BytesParser
+
+        message = BytesParser(policy=policy.default).parsebytes(content)
+        parts: list[str] = []
+        for header in ("Subject", "From", "To", "Date"):
+            value = message.get(header)
+            if value:
+                parts.append(f"{header}: {value}")
+
+        for part in message.walk():
+            if part.is_multipart():
+                continue
+            name = part.get_filename() or ""
+            ctype = (part.get_content_type() or "").lower()
+            if ctype in ("text/plain", "text/html") and not name:
+                try:
+                    parts.append(part.get_content())
+                except Exception:  # noqa: BLE001
+                    pass
+                continue
+            payload = part.get_payload(decode=True)
+            if payload and name:
+                # Recurse ONE level into the attachment by its own filename.
+                nested = decode_text_best_effort(payload, name)
+                if nested:
+                    parts.append(f"[attachment: {name}]\n{nested}")
+        return "\n".join(parts)[:_MAX_EXTRACT_CHARS]
+    except Exception as exc:  # noqa: BLE001
+        _log.debug("vetting: email extraction failed: %s", exc)
+        return ""
+
+
 def decode_text_best_effort(content: bytes, filename: str) -> str:
     """Extract text we can actually read, without pretending we read more.
 
-    PDFs and images are NOT parsed here: this returns "" for them, which
-    routes to `extraction_unavailable` and a human. Shipping a plausible-
-    looking extraction from bytes we never decoded would be the fabrication
-    this module exists to avoid — a real PDF/OCR path is separate work.
+    R-F3265 — this used to return "" for anything that was not .txt/.csv/.md/
+    .json, which is to say for every document a real applicant sends. PDFs,
+    scans, phone photos, DOCX references and emailed replies all reported
+    `extraction_unavailable`, landed as OTHER, satisfied no requirement and
+    evidenced no period. The dependencies to read them (PyMuPDF, tesseract,
+    python-docx) were already in the image, and `intel/pdf_deep_ingest.py` had
+    been using them for the DD side the whole time.
+
+    What has NOT changed: this only ever supplies TEXT. Everything downstream
+    still treats extraction as a PROPOSAL — the confidence floor, the
+    authenticity flags and the RECEIVED-vs-ACCEPTED distinction are untouched,
+    and an unreadable document still returns "" so it routes to a human as a
+    DISCLOSED gap rather than a silent pass. Reading a date off a payslip is
+    not verifying an engagement.
     """
+    if not content:
+        return ""
     lowered = filename.lower()
-    if lowered.endswith((".txt", ".csv", ".md", ".json")):
-        try:
-            return content.decode("utf-8", errors="replace")
-        except Exception:  # noqa: BLE001 — never fail an upload on decode
-            return ""
-    if lowered.endswith(".json"):
-        try:
-            return json.dumps(json.loads(content))
-        except Exception:  # noqa: BLE001
-            return ""
+    try:
+        if lowered.endswith(".json"):
+            try:
+                return json.dumps(json.loads(content))[:_MAX_EXTRACT_CHARS]
+            except Exception:  # noqa: BLE001 — fall through to plain decode
+                pass
+        if lowered.endswith((".txt", ".csv", ".md", ".json", ".log")):
+            return content.decode("utf-8", errors="replace")[:_MAX_EXTRACT_CHARS]
+        if lowered.endswith(".pdf"):
+            return _extract_pdf(content)
+        if lowered.endswith((".docx", ".dotx")):
+            return _extract_docx(content)
+        if lowered.endswith((".eml", ".msg")):
+            return _extract_email(content)
+        if lowered.endswith((".png", ".jpg", ".jpeg", ".tif", ".tiff",
+                             ".bmp", ".webp", ".heic")):
+            return _extract_image(content)
+    except Exception as exc:  # noqa: BLE001 — an upload must never fail on decode
+        _log.debug("vetting: extraction failed for %s: %s", filename, exc)
     return ""
