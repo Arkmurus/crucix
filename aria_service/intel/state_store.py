@@ -912,6 +912,25 @@ async def _reconnect() -> None:
             except Exception:
                 pass  # the whole point is that it was wedged
     except Exception as e:
+        # ── R-F3262: reap the replacement we opened but never installed ────
+        #
+        # The same gap R-F3251 closed in `_ensure_read_conn`, in its sibling.
+        # The connect above succeeds and then four PRAGMAs run before `_conn`
+        # is assigned — and the comments right there record that
+        # `journal_mode=WAL` can raise "database is locked" during a multi-GB
+        # WAL replay. When it does, this `except` ran and the connection was
+        # neither installed nor closed: an orphaned worker thread, on the
+        # SELF-HEAL path, which by definition runs when the store is already
+        # wedged and can least afford another one.
+        #
+        # Live evidence: R-F3251 alone took the count from 56 to 20 against a
+        # design of ~6, so a second source had to exist. This is it.
+        #
+        # `conn` may be unbound if the connect itself failed — reap only what
+        # actually exists, and never touch `old`, which is still installed.
+        _pending = locals().get("conn")
+        if _pending is not None and _pending is not _conn:
+            _reap_old_conns(_pending)
         logger.error("[R-F1341] state_store reconnect failed: %s", e)
     finally:
         _reconnect_in_progress = False

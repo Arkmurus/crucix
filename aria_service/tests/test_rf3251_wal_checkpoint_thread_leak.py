@@ -164,3 +164,52 @@ async def test_a_rebuild_failure_is_still_swallowed_not_raised(tmp_path, monkeyp
     monkeypatch.setattr(ss, "_configure_read_conn", _always_fails)
     await ss._ensure_read_conn()          # must not raise
     await _settle(_live_connection_threads())
+
+
+# ── R-F3262: the same gap in the sibling self-heal path ──────────────────
+
+@pytest.mark.asyncio
+async def test_a_failed_reconnect_does_not_orphan_its_connection(tmp_path, monkeypatch):
+    """R-F3251 fixed `_ensure_read_conn`; `_reconnect` had the identical gap.
+
+    Post-fix measurement on the live box showed aiosqlite worker threads down
+    from 56 to 20 — a real reduction, but still far above the ~6 the pool
+    design implies, so a second source had to exist.
+
+    `_reconnect` opens a replacement, runs four PRAGMAs, and only then assigns
+    it to `_conn`. Its own comments note that `journal_mode=WAL` can raise
+    "database is locked" during a multi-GB WAL replay. When it does, control
+    jumps to the `except`, and the connection that was already open is neither
+    assigned nor closed — orphaned, exactly like the read pool was. And this is
+    the SELF-HEAL path: it runs when the store is already wedged, which is
+    precisely when another abandoned thread hurts most.
+    """
+    import aiosqlite
+
+    from aria_service.intel import state_store as ss
+
+    monkeypatch.setattr(ss, "_DB_PATH", tmp_path / "reconn.db", raising=False)
+    monkeypatch.setattr(ss, "_conn", None, raising=False)
+    monkeypatch.setattr(ss, "_reconnect_in_progress", False, raising=False)
+
+    real_execute = aiosqlite.Connection.execute
+
+    async def _wal_replay_locked(self, sql, *a, **kw):
+        if "journal_mode" in str(sql).lower():
+            raise aiosqlite.OperationalError("database is locked")
+        return await real_execute(self, sql, *a, **kw)
+
+    monkeypatch.setattr(aiosqlite.Connection, "execute", _wal_replay_locked)
+
+    await asyncio.sleep(0.2)
+    before = _live_connection_threads()
+
+    for _ in range(3):
+        ss._reconnect_in_progress = False
+        await ss._reconnect()          # swallows the error by design
+
+    after = await _settle(before)
+    assert after <= before, (
+        f"{after - before} aiosqlite connection thread(s) orphaned by 3 failed "
+        f"reconnects — the same defect R-F3251 fixed in the read pool, on the "
+        f"self-heal path that runs when the store is already struggling")
