@@ -132,12 +132,79 @@ const alertsDiv = document.getElementById('wl-alerts');
 
 searchInput.addEventListener('input', applySearch);
 
-// R-F2403 — polished on-brand Add modal (replaces three stacked prompt() dialogs).
-// Self-contained overlay reusing the design-system sc-mod classes (same look as
-// Modal.confirm), so the whole page shares one visual language. Returns the form
-// values via a Promise, or null on cancel. Escape / backdrop / × all cancel;
-// Enter in the name field submits.
-function openAddModal(prefill = {}) {
+// R-F3235 — watchlist enrollment is deliberately closed over existing DD and
+// vetting records. A typed name is not evidence of provenance, so the modal only
+// accepts an object returned by one of these owner-pinned list endpoints.
+function normaliseWatchlistCandidates(ddReports = [], vettingCases = []) {
+  const candidates = [];
+  const seenDd = new Set();
+  for (const report of ddReports) {
+    if (!report || !report.run_id) continue;
+    const name = [report.entity_name, report.name, report.entity, report.query]
+      .map((value) => String(value || '').trim()).find(Boolean);
+    if (!name || name === '(unknown)') continue;
+    const identity = String(report.canonical_entity_id || '').trim().toLowerCase()
+      || [name.toLowerCase(), String(report.entity_type || 'company').toLowerCase()].join('|');
+    if (seenDd.has(identity)) continue;
+    seenDd.add(identity);
+    candidates.push({
+      key: 'dd_report|' + report.run_id,
+      source: 'dd_report',
+      source_ref: String(report.run_id),
+      name,
+      entity_type: String(report.entity_type || 'company'),
+      jurisdiction: String(report.jurisdiction || '').toUpperCase(),
+      canonical_entity_id: String(report.canonical_entity_id || ''),
+    });
+  }
+  for (const record of vettingCases) {
+    if (!record || !record.case_id) continue;
+    const name = String(record.applicant_name || '').trim();
+    if (!name) continue;
+    candidates.push({
+      key: 'vetting_case|' + record.case_id,
+      source: 'vetting_case',
+      source_ref: String(record.case_id),
+      name,
+      entity_type: 'person',
+      jurisdiction: '',
+      canonical_entity_id: '',
+    });
+  }
+  return candidates;
+}
+
+async function loadWatchlistCandidates() {
+  const results = await Promise.allSettled([
+    authed('/api/aria/dd/reports?limit=200'),
+    authed('/api/aria/vetting/cases'),
+  ]);
+  const readList = async (result, field) => {
+    if (result.status !== 'fulfilled' || !result.value.ok) return [];
+    const payload = await result.value.json();
+    return Array.isArray(payload[field]) ? payload[field] : [];
+  };
+  const ddReports = await readList(results[0], 'reports');
+  const vettingCases = await readList(results[1], 'cases');
+  return {
+    candidates: normaliseWatchlistCandidates(ddReports, vettingCases),
+    available: {
+      dd_report: results[0].status === 'fulfilled' && results[0].value.ok,
+      vetting_case: results[1].status === 'fulfilled' && results[1].value.ok,
+    },
+  };
+}
+
+function resolveWatchlistCandidate(candidates, prefill = {}) {
+  const sameSource = candidates.filter((candidate) => candidate.source === prefill.source);
+  return sameSource.find((candidate) => candidate.source_ref === prefill.source_ref)
+    || sameSource.find((candidate) => prefill.canonical_entity_id
+      && candidate.canonical_entity_id === prefill.canonical_entity_id)
+    || sameSource.find((candidate) => candidate.name.toLowerCase() === String(prefill.name || '').trim().toLowerCase())
+    || null;
+}
+
+function openAddModal(candidates, available, prefill = {}) {
   return new Promise(resolve => {
     const ov = document.createElement('div');
     ov.className = 'sc-mod-overlay open';
@@ -145,18 +212,16 @@ function openAddModal(prefill = {}) {
       '<div class="sc-mod" role="dialog" aria-modal="true" aria-labelledby="wl-add-title" style="max-width:460px">'
       + '<div class="sc-mod-head">'
       + '<div class="sc-mod-ico" style="background:rgba(124,58,237,0.12);color:var(--sc-prime)"><i class="bi bi-plus-lg"></i></div>'
-      + '<div><h3 id="wl-add-title">Add entity to watchlist</h3><p>Choose how often ARIA should autonomously review this entity.</p></div>'
+      + '<div><h3 id="wl-add-title">Add entity to watchlist</h3><p>Select an existing DD report or vetting case, then choose its autonomous review cycle.</p></div>'
       + '<button class="sc-mod-x" data-add="cancel" type="button" aria-label="Close">&times;</button>'
       + '</div>'
       + '<div class="sc-mod-body">'
-      + '<label style="display:block;font-size:12px;font-weight:600;color:var(--sc-muted);margin:0 0 4px">Entity name <span style="color:var(--sc-red)">*</span></label>'
-      + '<input id="wl-add-name" class="wl-search" style="width:100%;min-width:0;margin-bottom:14px" placeholder="e.g. Assan Group" autocomplete="off">'
-      + '<div style="display:flex;gap:12px">'
-      + '<div style="flex:1"><label style="display:block;font-size:12px;font-weight:600;color:var(--sc-muted);margin:0 0 4px">Type</label>'
-      + '<select id="wl-add-type" class="wl-search" style="width:100%;min-width:0"><option value="">-</option><option value="company">Company</option><option value="person">Person</option><option value="vessel">Vessel</option><option value="aircraft">Aircraft</option></select></div>'
-      + '<div style="flex:1"><label style="display:block;font-size:12px;font-weight:600;color:var(--sc-muted);margin:0 0 4px">Jurisdiction</label>'
-      + '<input id="wl-add-juris" class="wl-search" style="width:100%;min-width:0" placeholder="ISO2, e.g. GB" maxlength="2" autocomplete="off"></div>'
-      + '</div>'
+      + '<label for="wl-add-source" style="display:block;font-size:12px;font-weight:600;color:var(--sc-muted);margin:0 0 4px">Type <span style="color:var(--sc-red)">*</span></label>'
+      + '<select id="wl-add-source" class="wl-search" style="width:100%;min-width:0;margin-bottom:14px">'
+      + '<option value="dd_report">DD Reports</option><option value="vetting_case">Vetting</option></select>'
+      + '<label for="wl-add-entity" style="display:block;font-size:12px;font-weight:600;color:var(--sc-muted);margin:0 0 4px">Entity <span style="color:var(--sc-red)">*</span></label>'
+      + '<select id="wl-add-entity" class="wl-search" style="width:100%;min-width:0"></select>'
+      + '<div id="wl-add-meta" style="color:var(--sc-muted);font-size:12px;margin-top:6px"></div>'
       + '<label style="display:block;font-size:12px;font-weight:600;color:var(--sc-muted);margin:14px 0 4px">Review cycle</label>'
       + '<select id="wl-add-cycle" class="wl-search" style="width:100%;min-width:0"><option value="24">Daily</option><option value="72">Every 3 days</option><option value="168" selected>Weekly</option><option value="336">Every 2 weeks</option><option value="720">Monthly</option></select>'
       + '<div id="wl-add-err" style="color:var(--sc-red);font-size:12.5px;margin-top:10px;display:none"></div>'
@@ -167,11 +232,31 @@ function openAddModal(prefill = {}) {
       + '</div></div>';
     document.body.appendChild(ov);
     const prevFocus = document.activeElement;
-    const nameEl = ov.querySelector('#wl-add-name');
+    const sourceEl = ov.querySelector('#wl-add-source');
+    const entityEl = ov.querySelector('#wl-add-entity');
+    const metaEl = ov.querySelector('#wl-add-meta');
     const errEl = ov.querySelector('#wl-add-err');
-    nameEl.value = prefill.name || '';
-    ov.querySelector('#wl-add-type').value = prefill.entity_type || '';
-    ov.querySelector('#wl-add-juris').value = (prefill.jurisdiction || '').toUpperCase();
+    const okEl = ov.querySelector('[data-add="ok"]');
+    const selectedPrefill = resolveWatchlistCandidate(candidates, prefill);
+    sourceEl.value = selectedPrefill ? selectedPrefill.source
+      : (prefill.source === 'vetting_case' ? 'vetting_case' : 'dd_report');
+    const renderEntities = () => {
+      const sourceCandidates = candidates.filter((candidate) => candidate.source === sourceEl.value);
+      entityEl.innerHTML = sourceCandidates.length
+        ? sourceCandidates.map((candidate) => '<option value="' + escAttr(candidate.key) + '">'
+          + escText(candidate.name) + (candidate.jurisdiction ? ' · ' + escText(candidate.jurisdiction) : '')
+          + '</option>').join('')
+        : '<option value="">No eligible entities available</option>';
+      if (selectedPrefill && selectedPrefill.source === sourceEl.value) entityEl.value = selectedPrefill.key;
+      entityEl.disabled = !sourceCandidates.length;
+      okEl.disabled = !sourceCandidates.length;
+      metaEl.textContent = available[sourceEl.value]
+        ? (sourceCandidates.length ? 'Only entities already recorded in this section can be monitored.'
+          : 'No eligible entities exist in this section yet.')
+        : 'This section could not be loaded. Close this window and try again.';
+    };
+    sourceEl.addEventListener('change', renderEntities);
+    renderEntities();
     const close = (val) => {
       document.removeEventListener('keydown', onKey);
       ov.remove();
@@ -179,36 +264,38 @@ function openAddModal(prefill = {}) {
       resolve(val);
     };
     const submit = () => {
-      const name = (nameEl.value || '').trim();
-      if (!name) { errEl.textContent = 'Entity name is required.'; errEl.style.display = 'block'; nameEl.focus(); return; }
+      const selected = candidates.find((candidate) =>
+        candidate.source === sourceEl.value && candidate.key === entityEl.value);
+      if (!selected) {
+        errEl.textContent = 'Select an entity from the available records.';
+        errEl.style.display = 'block';
+        entityEl.focus();
+        return;
+      }
       close({
-        name,
-        entity_type: (ov.querySelector('#wl-add-type').value || '').trim(),
-        jurisdiction: (ov.querySelector('#wl-add-juris').value || '').trim().toUpperCase(),
+        ...selected,
         review_interval_hours: Number(ov.querySelector('#wl-add-cycle').value),
-        canonical_entity_id: prefill.canonical_entity_id || '',
-        source: prefill.source || 'watchlist',
-        source_ref: prefill.source_ref || '',
       });
     };
     ov.querySelectorAll('[data-add="cancel"]').forEach(el => el.onclick = () => close(null));
-    ov.querySelector('[data-add="ok"]').onclick = submit;
+    okEl.onclick = submit;
     ov.onclick = (e) => { if (e.target === ov) close(null); };
-    nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
     const onKey = (e) => { if (e.key === 'Escape') close(null); };
     document.addEventListener('keydown', onKey);
-    setTimeout(() => nameEl.focus(), 0);
+    setTimeout(() => sourceEl.focus(), 0);
   });
 }
 
 async function addEntity(prefill = {}) {
-  const vals = await openAddModal(prefill);
-  if (!vals) return;
   const btn = document.getElementById('wl-add-btn');
   const orig = btn.innerHTML;
   btn.disabled = true;
-  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Adding…';
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Loading…';
   try {
+    const loaded = await loadWatchlistCandidates();
+    const vals = await openAddModal(loaded.candidates, loaded.available, prefill);
+    if (!vals) return;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Adding…';
     const body = { name: vals.name, review_interval_hours: vals.review_interval_hours };
     if (vals.entity_type) body.entity_type = vals.entity_type;
     if (vals.jurisdiction) body.jurisdiction = vals.jurisdiction;
@@ -226,9 +313,10 @@ async function addEntity(prefill = {}) {
       await loadWatchlist();
     }
   } catch (err) {
-    Toast.show('Error adding entity: ' + err.message, 'error');
+    Toast.show('Could not load eligible entities: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = orig;
   }
-  btn.disabled = false; btn.innerHTML = orig;
 }
 
 document.getElementById('wl-add-btn').addEventListener('click', () => addEntity());
