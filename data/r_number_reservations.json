@@ -27173,18 +27173,20 @@
       "title": "landing hero photo replacement",
       "claimed_at": "2026-07-27T21:08:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8e550e6d",
+      "notes": null,
+      "shipped_at": "2026-07-27T21:19:24Z"
     },
     {
       "r_number": "R-F3313",
       "title": "landing footer single-line bar",
       "claimed_at": "2026-07-27T21:12:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8e550e6d",
+      "notes": null,
+      "shipped_at": "2026-07-27T21:19:25Z"
     }
   ]
 }
