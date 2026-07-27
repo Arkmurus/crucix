@@ -6299,6 +6299,61 @@ async def _multi_query_search(name_for_search: str, target: dict) -> list:
     return merged
 
 
+def _coerce_entity_text(raw: object) -> str:
+    """R-F3258 — an entity name that reaches the search layer must be a string.
+
+    Returns "" for anything unusable so the caller's `or` chain falls through to
+    the next source, exactly as it would for an empty string. A dict is NOT
+    unwrapped: guessing which key held the name is the kind of silent repair that
+    produces a confidently wrong subject, and a wrong search subject is worse than
+    no search — it looks like a completed check.
+
+    A list picks the first non-empty string member: a list-shaped name is a
+    malformed SINGLE name (observed live: the AZURE PARKING LTD DD), not a request
+    to research several entities.
+    """
+    if isinstance(raw, str):
+        return raw.strip()
+    if isinstance(raw, (list, tuple)):
+        for item in raw:
+            if isinstance(item, str) and item.strip():
+                return item.strip()
+    return ""
+
+
+def _surface_research_disclosures(dr: object, section: Any) -> None:
+    """R-F3258/R-F3259/R-F3260 — carry deep research's self-reported failures into
+    the report's data gaps.
+
+    `investigate()` already returns `topic_coerced_from`, `synthesis_error` and
+    `verification_summary.failed`, but NOTHING read them: `verification_summary`
+    was a producer with no consumer, so even a recorded failure could not reach the
+    report. A step that did not run must never be indistinguishable from one that
+    ran and found nothing — that is the false-clean class this repo keeps meeting.
+    """
+    if not isinstance(dr, dict):
+        return
+    coerced = dr.get("topic_coerced_from")
+    if coerced:
+        section.data_gaps.append(
+            f"R-F3258: the search subject arrived as {coerced}, not text — it was "
+            "coerced to run the search, but the caller supplied a malformed entity name"
+        )
+    synth_err = dr.get("synthesis_error")
+    if synth_err:
+        section.data_gaps.append(
+            f"R-F3259: the research assessment could not be produced ({synth_err}) — "
+            "the articles and facts below are real, but they were NOT summarised"
+        )
+    vs = dr.get("verification_summary")
+    if isinstance(vs, dict) and vs.get("failed"):
+        section.data_gaps.append(
+            f"R-F3260: fact verification did NOT run ({vs['failed']}) — citation "
+            "downgrading, contradiction detection and past-fact cross-checks were "
+            "skipped, so confidence labels on these findings are UNVERIFIED"
+        )
+
+
 async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_deep: bool = False) -> None:
     """Layer 5 — Digital. web_search multilingual + RAG + neural + (opt.) deep_research.
 
@@ -6310,7 +6365,13 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
     """
     t0 = time.time()
     report.digital.meta.started_at = datetime.now(timezone.utc).isoformat()
-    name = report.identity.entity_name or target.get("query", "")
+    # R-F3258 — coerce BEFORE use. `target` is the caller-supplied DD request and
+    # is never type-validated, and `entity_name: str = ""` is a dataclass
+    # annotation, which Python does not enforce at runtime. `name` feeds ~20
+    # downstream uses in this function (query planning, brandification, the
+    # deep_researcher call), so it has to be a string here — guarding only at the
+    # investigate() call would leave the other nineteen exposed.
+    name = _coerce_entity_text(report.identity.entity_name) or _coerce_entity_text(target.get("query"))
 
     # R-F299: when name was derived from a hostname (R-F153 fallback) the
     # search query "modirumgespi.com defence procurement" returns nothing
@@ -6648,6 +6709,10 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                     f"{dr.get('facts_learned', 0)} fact(s) retained; "
                     "the results below are real but NOT an exhaustive sweep"
                 )
+            # R-F3258/R-F3259/R-F3260 — surface what the engine reported about
+            # ITSELF before reading its results, so a degraded run is visible in
+            # the report even when it still returned usable findings.
+            _surface_research_disclosures(dr, report.digital)
             if isinstance(dr, dict):
                 synth = dr.get("synthesis") or {}
                 report.digital.web_footprint = {
@@ -11682,6 +11747,11 @@ async def _run_adverse_media_followup(
     cannot corrupt the verdict or any other section.
     """
     from . import redis_store as rs
+    # R-F3261 — initialised up front so the outcome wire below can report EVERY
+    # terminal path, including the ones that never reach the merge block.
+    _t0_followup = time.time()
+    _esc: dict = {"escalated": False, "reason": ""}
+    _merged = False
     # R-F2945 — the follow-up runs in a DETACHED task, and the R-F2941 reconciler
     # re-launches it from a loop with NO _brave_scope, so the contextvar would be
     # unset → SearXNG-only → the partial/timeout this whole thread is fixing. Set
@@ -11796,6 +11866,7 @@ async def _run_adverse_media_followup(
                 # read. Sync both INSIDE the merge lock, before the write.
                 await _sync_report_surfaces_after_followup(_body, run_id)
                 await rs.set_json(REPORT_REDIS_KEY.format(run_id=run_id), _body, ex=REPORT_TTL_SECONDS)
+                _merged = True      # R-F3261 — the stored report really changed
             else:
                 _esc = {"escalated": False, "reason": "report-not-found"}
         if isinstance(_body, dict):
@@ -11809,6 +11880,84 @@ async def _run_adverse_media_followup(
             logger.debug("[R-F2657] follow-up: report %s not found to merge into", run_id)
     except Exception as _me:
         logger.debug("[R-F2657] adverse-media follow-up merge failed for %s: %s", run_id, _me)
+
+    # ── R-F3261 — the merge may not be invisible. Reports EVERY terminal path
+    # (completed / partial / incomplete / never-merged), so a dead follow-up
+    # becomes a capability gap the self-heal loop can act on instead of a report
+    # that quietly never answers its most decision-relevant question.
+    await _record_adverse_followup_outcome(run_id, _am_result, _esc, _merged, _t0_followup)
+
+
+async def _record_adverse_followup_outcome(
+    run_id: str,
+    am_result: object,
+    esc: object,
+    merged: bool,
+    started_at: float,
+) -> None:
+    """R-F3261 — §21a/§25: the adverse-media follow-up must report itself.
+
+    THE DEFECT. On merge, `_run_adverse_media_followup` did exactly one thing:
+    `logger.info(...)`. By §21a's own definition that is DARK, not wired. Three
+    consequences, all live:
+
+      * ARIA could not answer "was this DD's adverse-media question ever
+        answered?" — the §25 proprioception requirement, on the one question that
+        most often decides whether a report can be relied on.
+      * A follow-up that died left NOTHING for the self-heal loop. `record_outcome`
+        files a capability gap on any non-success, so this is the trigger (§21e).
+      * R-F2780 can ESCALATE the stored verdict AFTER the customer already holds
+        the delivered report. That is the most decision-relevant event this engine
+        can produce, and it was invisible.
+
+    NOT changed here: the honesty layer is already correct. The renderer's
+    "STILL RUNNING", the R-F2941 reconciler and the never-false-clean marking are
+    untouched. The merge now REPORTS ITSELF; it does not re-describe itself.
+
+    Best-effort — a reporting failure must never cost the customer the merged
+    findings, so every path is swallowed.
+    """
+    try:
+        from .outcome_wire import OutcomeRecord, record_outcome
+
+        _am = am_result if isinstance(am_result, dict) else {}
+        _esc = esc if isinstance(esc, dict) else {}
+        _status = str(_am.get("status") or "")
+        _found = _am.get("findings_count", 0)
+
+        if not merged:
+            outcome = "error"
+            detail = "adverse-media sweep finished but the report could not be updated (report not found or merge failed)"
+        elif _status == "incomplete" or not _am.get("ok"):
+            outcome = "error"
+            detail = (f"adverse-media screening did NOT complete ({_status or 'incomplete'}): "
+                      f"{str(_am.get('error') or 'no reason recorded')[:160]}")
+        elif _status == "partial" or _am.get("partial"):
+            outcome = "timeout_fallback"
+            detail = (f"adverse-media screening self-bounded and merged PARTIAL findings "
+                      f"({_found} finding(s)) — not the full template set")
+        else:
+            outcome = "delivered_real_answer"
+            detail = f"adverse-media screening completed and merged ({_found} finding(s))"
+
+        # The customer may already be holding the pre-escalation copy.
+        if _esc.get("escalated"):
+            detail = (f"VERDICT ESCALATED after the report was delivered "
+                      f"({_esc.get('reason') or 'credible adverse findings'}) — the copy "
+                      f"already in the customer's hands is now understated. " + detail)
+
+        await record_outcome(OutcomeRecord(
+            surface="dd",
+            # distinct from the main DD outcome's `dd:{trace_id}` so the
+            # (surface, request_id) dedupe cannot make one overwrite the other
+            request_id=f"dd_adverse:{run_id}",
+            intended_result="adverse_media_followup",
+            actual_outcome=outcome,
+            latency_ms=int(max(0.0, time.time() - started_at) * 1000),
+            detail=detail,
+        ))
+    except Exception as _oe:  # noqa: BLE001
+        logger.debug("[R-F3261] adverse-media outcome wire failed for %s: %s", run_id, _oe)
 
 
 def _launch_adverse_media_followup(report: "ARKDDReport") -> None:

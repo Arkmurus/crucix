@@ -839,6 +839,43 @@ async def _discover_and_investigate_people(
     return out
 
 
+def _coerce_topic(raw: object) -> tuple[str, str | None]:
+    """R-F3258 — normalise the investigation subject to a searchable string.
+
+    `investigate()` is typed `topic: str`, but every caller derives it from data
+    that is never type-checked: `dd_orchestrator._run_digital` builds it as
+    ``report.identity.entity_name or target.get("query", "")`` where `target` is
+    the caller-supplied DD request and `entity_name: str = ""` is a dataclass
+    ANNOTATION — which Python does not enforce at runtime.
+
+    A list therefore reaches `researcher._detect_target_languages(query)`, whose
+    first statement is `query.lower()`, and the AttributeError unwinds the whole
+    function. `dd_orchestrator.py:6692` catches it and turns it into a data-gap
+    string, so EVERY article read and fact learned in that layer is discarded.
+    Observed live on the AZURE PARKING LTD DD:
+        "deep_research failed: 'list' object has no attribute 'lower'"
+        "Raw, unfiltered search results returned: 0"
+
+    Fixed at the BOUNDARY, not at the leaf: `_detect_target_languages(query: str)`
+    is correctly typed and its contract was violated by the caller. Scattering
+    isinstance guards through every leaf would be symptom-patching (§1).
+
+    Returns ``(topic, coerced_from)``. `coerced_from` is None when the caller
+    already passed a clean string; otherwise it names what actually arrived, so a
+    repair is DISCLOSED rather than silently papered over.
+    """
+    if isinstance(raw, str):
+        return raw.strip(), None
+    if isinstance(raw, (list, tuple)):
+        for item in raw:
+            if isinstance(item, str) and item.strip():
+                return item.strip(), f"{type(raw).__name__}[{len(raw)}]"
+        return "", f"{type(raw).__name__}[{len(raw)}]"
+    if raw is None:
+        return "", "None"
+    return "", type(raw).__name__
+
+
 @fail_wire(module="deep_researcher", gap_type="source_failure")
 async def investigate(
     llm: LLMProvider,
@@ -862,6 +899,25 @@ async def investigate(
     """
     if not llm or not llm.is_configured:
         return {"error": "LLM not configured"}
+
+    # R-F3258 — normalise the subject BEFORE any string operation touches it.
+    topic, _topic_coerced_from = _coerce_topic(topic)
+    if not topic:
+        # Refuse loudly rather than run a sweep against nothing: an empty search
+        # returning no adverse media must never be mistakable for a clean one.
+        return {
+            "error": f"investigation subject is unusable (received {_topic_coerced_from or 'empty'}) "
+                     "— no search was performed; this is NOT a clean result",
+            "topic_coerced_from": _topic_coerced_from,
+            "articles_read": 0,
+            "facts_learned": 0,
+        }
+    if _topic_coerced_from:
+        logger.warning(
+            "[R-F3258] investigation subject arrived as %s, not str — coerced to %r. "
+            "The CALLER should be fixed; this guard only stops it costing the layer "
+            "all of its research.", _topic_coerced_from, topic[:80],
+        )
 
     t_start = time.time()
     max_searches = {"quick": 3, "thorough": 8, "exhaustive": 15}.get(depth, 8)
@@ -1236,26 +1292,67 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
 
     # Step 3: Synthesise findings into an assessment
     synthesis = None
+    synthesis_error: str | None = None
     if all_facts:
-        # R-F1812 — facts carry their source URL so the assessment can cite them.
-        def _fact_line(f: dict) -> str:
-            src = f.get("source_url")
-            cite = f" [src: {src}]" if src else ""
-            return f"- [{f['confidence']}] {f['topic']}: {f['content'][:150]}{cite}"
-        facts_block = "\n".join(_fact_line(f) for f in all_facts[:20])
-        hyp_block = "\n".join(f"- {h['hypothesis']}" for h in hypotheses[:5] if topic.lower().split()[0] in h.get("hypothesis", "").lower()) or "None specific to this topic."
-        # R-F1812 — fold investigated people into the assessment.
-        if people:
-            def _person_line(p: dict) -> str:
-                d = p.get("dossier") or {}
-                risk = d.get("risk_assessment", "?")
-                pep = d.get("pep_status", "")
-                flags = "; ".join((d.get("red_flags") or [])[:2])
-                return (f"- {p['name']} ({p.get('role') or 'role unknown'}) — risk={risk}"
-                        f"{', PEP: ' + pep if pep else ''}{', flags: ' + flags if flags else ''}")
-            people_block = "\n".join(_person_line(p) for p in people)
-        else:
-            people_block = "None investigated (no named individuals surfaced)." if _is_entity_dd else "N/A"
+        # ── R-F3259 — THE ASSESSMENT MAY NOT COST US THE RESEARCH ────────────
+        #
+        # Everything below formats dicts built from LLM output and scraped web
+        # content, and it used to index them DIRECTLY (f['confidence'],
+        # h['hypothesis'], p['name']). One malformed entry raised out of
+        # investigate(), and dd_orchestrator.py:6692 catches ANY exception from
+        # this call and turns it into a data-gap string — so every article read
+        # and every fact learned was discarded because the SUMMARY could not be
+        # formatted. Live: three separate crashes at these lines (KeyError
+        # 'confidence'; 'str' has no 'get'; 'NoneType' has no 'lower').
+        #
+        # Same failure R-F3018 fixed for the TIMEOUT path ("the result was not
+        # partial, it was zero") — this is the ERROR path. The assessment is the
+        # LAST step, so losing it must cost the assessment ONLY.
+        #
+        # .get() everywhere, and a guard that degrades the PROMPT, not the RUN.
+        try:
+            # R-F1812 — facts carry their source URL so the assessment can cite them.
+            def _fact_line(f: dict) -> str:
+                if not isinstance(f, dict):
+                    return f"- {str(f)[:150]}"
+                src = f.get("source_url")
+                cite = f" [src: {src}]" if src else ""
+                return (f"- [{f.get('confidence', 'ASSESSED')}] {f.get('topic', '?')}: "
+                        f"{str(f.get('content', ''))[:150]}{cite}")
+            facts_block = "\n".join(_fact_line(f) for f in all_facts[:20])
+            # `topic.lower().split()[0]` also IndexError'd on a whitespace-only
+            # subject — same blast radius, so anchor defensively.
+            _anchor = next(iter(topic.lower().split()), "")
+            hyp_block = "\n".join(
+                f"- {h['hypothesis']}" for h in hypotheses[:5]
+                if isinstance(h, dict) and isinstance(h.get("hypothesis"), str)
+                and _anchor and _anchor in h["hypothesis"].lower()
+            ) or "None specific to this topic."
+            # R-F1812 — fold investigated people into the assessment.
+            if people:
+                def _person_line(p: dict) -> str:
+                    if not isinstance(p, dict):
+                        return f"- {str(p)[:120]}"
+                    d = p.get("dossier") or {}
+                    if not isinstance(d, dict):
+                        d = {}
+                    risk = d.get("risk_assessment", "?")
+                    pep = d.get("pep_status", "")
+                    flags = "; ".join(str(x) for x in (d.get("red_flags") or [])[:2])
+                    return (f"- {p.get('name', '?')} ({p.get('role') or 'role unknown'}) — risk={risk}"
+                            f"{', PEP: ' + pep if pep else ''}{', flags: ' + flags if flags else ''}")
+                people_block = "\n".join(_person_line(p) for p in people)
+            else:
+                people_block = "None investigated (no named individuals surfaced)." if _is_entity_dd else "N/A"
+        except Exception as _be:
+            synthesis_error = (
+                f"assessment prompt could not be built ({type(_be).__name__}: {str(_be)[:100]})"
+            )
+            logger.warning("[R-F3259] synthesis prompt build failed: %s", _be)
+            facts_block = (f"{len(all_facts)} fact(s) were gathered; detail omitted "
+                           f"— {synthesis_error}")
+            hyp_block = "None specific to this topic."
+            people_block = "N/A"
 
         synth_prompt = f"""ARIA has completed a deep investigation on: "{topic}"
 
@@ -1306,6 +1403,14 @@ Return JSON:
                 synthesis = parsed
         except Exception as e:
             logger.warning(f"Synthesis failed: {e}")
+            # R-F3259 — disclose it. Without this the caller sees an empty
+            # assessment and cannot tell "nothing was found" from "the summary
+            # step failed", which is the difference between a clean read and an
+            # unmeasured one.
+            synthesis_error = (
+                synthesis_error
+                or f"assessment call failed ({type(e).__name__}: {str(e)[:100]})"
+            )
             _mark_partial("synthesis (did not complete in the remaining budget)")
 
     duration = int((time.time() - t_start) * 1000)
@@ -1322,6 +1427,10 @@ Return JSON:
         "downgraded_no_source": 0,
         "downgraded_past_contradiction": 0,
         "cross_fact_contradictions": 0,
+        # R-F3260 — always present so a consumer can distinguish "ran, found
+        # nothing" (None) from "did not run" (a reason string). An absent key
+        # would read as the former.
+        "failed": None,
     }
     try:
         from . import verified_intel as _vi
@@ -1395,7 +1504,17 @@ Return JSON:
             if fact.get("confidence") == "CONFIRMED" and not fact.get("_verification_note"):
                 verification_summary["confirmed_kept"] += 1
     except Exception as _ve:
-        logger.debug("verification tagger failed: %s", _ve)
+        # R-F3260 — RECORD IT. This tagger is what downgrades uncited claims,
+        # flags in-run contradictions and cross-checks past verified facts. At
+        # DEBUG, a failure meant all three silently did not run while the report
+        # still published "Claims traced to a source 30%" and a confidence floor
+        # — traceability computed from a step that never executed. A check that
+        # did not run must never be indistinguishable from one that found nothing.
+        verification_summary["failed"] = f"{type(_ve).__name__}: {str(_ve)[:120]}"
+        logger.warning(
+            "[R-F3260] verification tagger failed — citation downgrade, contradiction "
+            "detection and past-fact cross-check did NOT run: %s", _ve,
+        )
 
     # ── Brain hook: feed investigation findings to learning ──
     try:
@@ -1413,6 +1532,13 @@ Return JSON:
 
     return {
         "topic": topic,
+        # R-F3258 — non-None when the caller passed a non-string subject. Carried
+        # into the result so a malformed caller is visible downstream instead of
+        # being silently repaired here and forgotten.
+        "topic_coerced_from": _topic_coerced_from,
+        # R-F3259 — non-None when the assessment could not be produced. The
+        # articles/facts below are still real; only the summary is missing.
+        "synthesis_error": synthesis_error,
         "depth": depth,
         "search_angles": len(queries),
         "articles_read": articles_read,
