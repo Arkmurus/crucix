@@ -13,13 +13,26 @@ const MVP_PAGES = [
   'public/watchlist.html',
 ];
 
+function executableSource(html) {
+  return html
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/(['"`])(?:\\.|(?!\1)[\s\S])*\1/g, '');
+}
+
 test('R-F2387 launch-critical pages use in-app Modal and Toast instead of blocking dialogs', () => {
   for (const page of MVP_PAGES) {
     const html = readFileSync(page, 'utf8');
-    const withoutComments = html.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\/[^\n]*/g, '');
-    assert(!/(^|[^\w.])alert\s*\(/.test(withoutComments), `${page} still calls bare alert()`);
-    assert(!/(^|[^\w.])confirm\s*\(/.test(withoutComments), `${page} still calls bare confirm()`);
+    const source = executableSource(html);
+    assert(!/(^|[^\w.])alert\s*\(/.test(source), `${page} still calls bare alert()`);
+    assert(!/(^|[^\w.])confirm\s*\(/.test(source), `${page} still calls bare confirm()`);
   }
+});
+
+test('R-F3236 blocking-dialog guard ignores prose but still catches executable calls', () => {
+  assert.doesNotMatch(executableSource("Toast.show('Could not delete alert (HTTP 500)');"), /alert\s*\(/);
+  assert.match(executableSource("alert ('blocking');"), /alert\s*\(/);
+  assert.match(executableSource("confirm('continue?');"), /confirm\s*\(/);
 });
 
 test('R-F2387 DD delete accepts every verified backend deletion layer', () => {
