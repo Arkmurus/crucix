@@ -35,6 +35,32 @@ from aria_service.utils.git_utils import (
 
 
 @pytest.fixture(autouse=True)
+def _isolate_deploy_history(tmp_path_factory, monkeypatch) -> None:
+    """R-F3291 — no test in this file may touch the REAL deploy audit file.
+
+    One unit test patched DEPLOY_HISTORY_DIR, but the full-flow tests
+    (test_deploy_success and the canary / live-verification cases) reach
+    _record_deploy through deploy() and never did. So every run appended a
+    fabricated record to data/deploy_history/aria-intel.json:
+
+        {"app": "aria-intel", "r_number": 1183,
+         "image": "registry.fly.io/aria-intel:deployment-abcdef12", ...}
+
+    That is invented data in the file that answers "what actually shipped", and
+    it dirtied the working tree on every run, which blocked a rebase and weakened
+    "git status is clean" as a deploy-safety signal.
+
+    autouse, so a test added later inherits the isolation instead of having to
+    remember it. The per-test patch below still works and is left alone.
+    """
+    import aria_service.autonomous.machines_deployer as _md
+    monkeypatch.setattr(
+        _md, "DEPLOY_HISTORY_DIR",
+        tmp_path_factory.mktemp("deploy_history_isolated"),
+    )
+
+
+@pytest.fixture(autouse=True)
 def _fast_poll() -> None:
     """Speed up poll intervals for tests (avoids 3-minute timeouts)."""
     import aria_service.autonomous.machines_deployer as _md

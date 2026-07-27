@@ -63,8 +63,47 @@ POLL_MAX_ATTEMPTS = 36  # 3 minutes
 # Test overrides — set to small values in tests to avoid timeouts
 _TEST_POLL_INTERVAL_S: float = 0.0
 _TEST_BUILD_POLL_S: float = 0.0
-DEPLOY_HISTORY_DIR = Path("data/deploy_history")
+# R-F3291 — ANCHORED to the repo, not to the caller's CWD. This was
+# Path("data/deploy_history"), which resolves against wherever the process was
+# started, so the deploy AUDIT file moved with the caller. Two live consequences:
+# running the test suite from a git worktree appended a fabricated record
+# (r_number 1183, commit_sha abcdef12...) to the repository's real history, and a
+# service started from any other directory writes a history that
+# truth_verifier.py:315 — which reads from the PROJECT ROOT — then cannot find,
+# reporting absence rather than the deploys that actually happened.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DEPLOY_HISTORY_DIR = _PROJECT_ROOT / "data" / "deploy_history"
 DEPLOY_HISTORY_MAX = 100
+
+
+def _record_deploy_history(app: str, record: dict[str, Any],
+                           *, history_dir: Path | None = None) -> None:
+    """R-F3291 — append one record to an app's deploy history.
+
+    Extracted so a test can pass `history_dir` and write somewhere disposable.
+    Before this the write was inline against the module-level constant, so the
+    deployer tests had no way to avoid appending invented deployments to the file
+    that answers "what actually shipped".
+    """
+    d = history_dir or DEPLOY_HISTORY_DIR
+    try:
+        history_file = d / f"{app}.json"
+        d.mkdir(parents=True, exist_ok=True)
+        history: list[dict[str, Any]] = []
+        if history_file.exists():
+            try:
+                history = json.loads(history_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                history = []
+        if not isinstance(history, list):
+            history = []
+        history.insert(0, record)
+        history_file.write_text(
+            json.dumps(history[:DEPLOY_HISTORY_MAX], indent=2),
+            encoding="utf-8",
+        )
+    except Exception as _e:  # noqa: BLE001 — history must never break a deploy
+        logger.debug("[R-F3291] deploy history write failed for %s: %s", app, _e)
 
 
 @dataclass
@@ -880,35 +919,19 @@ class MachinesDeployer:
             "ts": datetime.now(timezone.utc).isoformat(),
         }
 
-        try:
-            history_file = DEPLOY_HISTORY_DIR / f"{app}.json"
-            DEPLOY_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
-
-            history: list[dict[str, Any]] = []
-            if history_file.exists():
-                try:
-                    history = json.loads(
-                        history_file.read_text(encoding="utf-8"),
-                    )
-                except (json.JSONDecodeError, OSError):
-                    history = []
-
-            history.insert(0, record)
-            history = history[:DEPLOY_HISTORY_MAX]
-
-            history_file.write_text(
-                json.dumps(history, indent=2), encoding="utf-8",
-            )
-            logger.info(
-                "[machines_deployer] deploy record saved: R-F%d → %s",
-                r_number, image,
-            )
-
-        except Exception as e:
-            logger.warning(
-                "[machines_deployer] record_deploy failed "
-                "(non-fatal): %s", e,
-            )
+        # R-F3291 — goes through the extracted writer so the history DIRECTORY is
+        # a parameter. Leaving this inline is what made the deployer tests write
+        # invented records into the repository's real audit file: they had no seam
+        # to redirect. `history_dir` on the instance lets a test point it at a
+        # temporary directory without touching module state.
+        _record_deploy_history(
+            app, record,
+            history_dir=getattr(self, "history_dir", None),
+        )
+        logger.info(
+            "[machines_deployer] deploy record saved: R-F%d → %s",
+            r_number, image,
+        )
 
     def _load_deploy_record(
         self, app: str, r_number: int,

@@ -5,6 +5,34 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
 
+@pytest.fixture(autouse=True)
+def _isolate_llm_builder_root(tmp_path_factory, monkeypatch):
+    """R-F3291 - keep LLMBuilder off the repository's real data/training dir.
+
+    LLMBuilder.__init__ hardcoded its root to the repo, and prepare_training_config
+    writes data/training/training_config.json. So every run of this file REWROTE
+    the real config, replacing output_dir with whatever tree the tests executed in:
+
+        -  "output_dir": "C:\\\\code\\\\crucix\\\\data\\\\training\\\\checkpoints"
+        +  "output_dir": "C:\\\\tmp\\\\crucix-ddfix\\\\data\\\\training\\\\checkpoints"
+
+    Committing that would point the real training config at a temporary worktree.
+    It also dirtied the working tree on every run, which weakens "git status is
+    clean" as a deploy-safety signal.
+
+    autouse so a test added later inherits the isolation rather than having to
+    remember it. R-F3291 added the `root` seam that makes this possible.
+    """
+    from aria_service.intel import llm_builder as _lb
+    tmp = tmp_path_factory.mktemp("llm_builder_root")
+    _orig_init = _lb.LLMBuilder.__init__
+
+    def _patched(self, root=None):
+        _orig_init(self, root=root or tmp)
+
+    monkeypatch.setattr(_lb.LLMBuilder, "__init__", _patched)
+
+
 class TestLLMBuilder:
     """Test the LLM Builder."""
 

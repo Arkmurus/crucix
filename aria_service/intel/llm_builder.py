@@ -22,8 +22,13 @@ logger = logging.getLogger("aria.llm_builder")
 class LLMBuilder:
     """Build and train ARIA's own LLM."""
 
-    def __init__(self):
-        self.root = pathlib.Path(__file__).parent.parent.parent
+    def __init__(self, root: "pathlib.Path | None" = None):
+        # R-F3291 — `root` is injectable so a test can write somewhere disposable.
+        # It was hardcoded to the repo, so running the suite REWROTE the real
+        # data/training/training_config.json, changing output_dir to whatever tree
+        # the tests happened to run in. Committing that would have pointed the
+        # training config at a temporary worktree. Default is unchanged.
+        self.root = pathlib.Path(root) if root else pathlib.Path(__file__).parent.parent.parent
         self.data_dir = self.root / "data" / "training"
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
