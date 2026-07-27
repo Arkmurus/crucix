@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3270,
+  "next_available": 3274,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -26644,36 +26644,40 @@
       "title": "type-guard DD research boundary: non-str name/topic kills all web research",
       "claimed_at": "2026-07-27T10:57:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9897fa0c",
+      "notes": null,
+      "shipped_at": "2026-07-27T12:52:12Z"
     },
     {
       "r_number": "R-F3259",
       "title": "deep_research error path must return gathered articles/facts, not discard them",
       "claimed_at": "2026-07-27T10:57:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9897fa0c",
+      "notes": null,
+      "shipped_at": "2026-07-27T12:52:13Z"
     },
     {
       "r_number": "R-F3260",
       "title": "verification tagger must not fail silently while report publishes traceability",
       "claimed_at": "2026-07-27T10:58:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9897fa0c",
+      "notes": null,
+      "shipped_at": "2026-07-27T12:52:13Z"
     },
     {
       "r_number": "R-F3261",
       "title": "adverse-media delivery: report must not be handed over mid-followup",
       "claimed_at": "2026-07-27T10:58:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9897fa0c",
+      "notes": null,
+      "shipped_at": "2026-07-27T12:52:13Z"
     },
     {
       "r_number": "R-F3262",
@@ -26720,9 +26724,10 @@
       "title": "vetting: allow an operator to move a case to a newer pack version, on the record",
       "claimed_at": "2026-07-27T12:17:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "pending",
+      "notes": null,
+      "shipped_at": "2026-07-27T13:05:13Z"
     },
     {
       "r_number": "R-F3267",
@@ -26739,14 +26744,52 @@
       "title": "coerce identity.entity_name at every assignment - adverse-media path bypassed R-F3258",
       "claimed_at": "2026-07-27T12:32:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c43defe6",
+      "notes": null,
+      "shipped_at": "2026-07-27T13:01:30Z"
     },
     {
       "r_number": "R-F3269",
       "title": "vetting case search bar, DD-parity design + honest filter",
       "claimed_at": "2026-07-27T12:36:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "84ead789",
+      "notes": null,
+      "shipped_at": "2026-07-27T12:38:20Z"
+    },
+    {
+      "r_number": "R-F3270",
+      "title": "route-inventory test only scanned aria.py - false positive on every other router",
+      "claimed_at": "2026-07-27T12:59:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3271",
+      "title": "restore watchlist Re-screen All control removed by R-F3225 copy cleanup",
+      "claimed_at": "2026-07-27T12:59:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3272",
+      "title": "reconcile max_age_s=0 must mean everything is stale (wall-clock boundary)",
+      "claimed_at": "2026-07-27T12:59:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3273",
+      "title": "resumed-DD task is unreferenced - can be GC'd mid-resume, the vanish R-F3009 prevents",
+      "claimed_at": "2026-07-27T13:03:15Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

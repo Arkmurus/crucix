@@ -245,10 +245,22 @@ class VettingCaseStore:
         if mark_stale and not case.assessment_stale:
             case = case.model_copy(update={"assessment_stale": True})
         with self._connect() as connection:
+            # R-F3266 — the pack COLUMNS are written here too, from the
+            # manifest. They were previously set once at create() and never
+            # again, which was invisible only because nothing could change a
+            # manifest. `list_cases` builds every queue card from these
+            # columns, so a pack migration that updated case_json alone would
+            # move the governing rules while every card kept reporting the
+            # version the case was created on. The manifest is the authority;
+            # the columns are a read index over it and must follow it.
             cursor = connection.execute(
-                "UPDATE vetting_cases SET case_json = ?, updated_at = ? "
+                "UPDATE vetting_cases SET case_json = ?, updated_at = ?, "
+                "pack_id = COALESCE(?, pack_id), "
+                "pack_version = COALESCE(?, pack_version) "
                 "WHERE tenant_id = ? AND case_id = ?",
                 (case.model_dump_json(), _now_iso(),
+                 case.manifest.pack_id if case.manifest else None,
+                 case.manifest.pack_version if case.manifest else None,
                  case.tenant_id, case.case_id),
             )
             if cursor.rowcount == 0:

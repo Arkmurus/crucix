@@ -377,6 +377,16 @@ class VettingCase(BaseModel):
     decisions: list[dict] = Field(default_factory=list)
     disputes: list[dict] = Field(default_factory=list)
 
+    # ── R-F3266 — the record of every change to the governing rules ─────────
+    #
+    # `manifest` says which rules govern the case NOW. On its own that cannot
+    # answer "which rules governed it in March, and who changed them?" — and
+    # for a file whose whole value is being replayable, an unexplained change
+    # of governing rules is worse than no change at all. Every migration
+    # appends {from_version, from_hash, to_version, to_hash, at, migrated_by,
+    # reason}; nothing rewrites or removes an entry.
+    pack_migrations: list[dict] = Field(default_factory=list)
+
     # ── R-F3211 — requirements the officer added by hand ────────────────────
     #
     # The pack carries what the framework demands; this carries what THIS

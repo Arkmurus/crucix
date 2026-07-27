@@ -484,16 +484,54 @@ Sidebar.init('vetting');
     return sec('Where this file is', current ? current.label : '', body);
   }
 
+  // ── R-F3266: is a newer PRODUCTION version of this case's pack available? ──
+  //
+  // Compared NUMERICALLY. A string compare puts "1.9.0" above "1.10.0", which
+  // would quietly stop offering the upgrade at the tenth revision — the exact
+  // bug R-F3175 fixed on the server side of this same question.
+  function packVersionKey(v) {
+    return String(v || '').split('.').map((c) => parseInt(c.replace(/\D/g, ''), 10) || 0);
+  }
+  function packVersionNewer(a, b) {          // a > b ?
+    const x = packVersionKey(a), y = packVersionKey(b);
+    for (let i = 0; i < Math.max(x.length, y.length); i++) {
+      const d = (x[i] || 0) - (y[i] || 0);
+      if (d) return d > 0;
+    }
+    return false;
+  }
+  function newerPackFor(a) {
+    const cur = a && a.pack;
+    if (!cur || !cur.pack_id || !cur.version) return null;
+    // PACKS is already filtered to PRODUCTION — a case must never be offered a
+    // move onto a DRAFT pack, which the server refuses anyway.
+    return (PACKS || [])
+      .filter((p) => p.pack_id === cur.pack_id && packVersionNewer(p.version, cur.version))
+      .sort((p, q) => (packVersionNewer(p.version, q.version) ? -1 : 1))[0] || null;
+  }
+  function upgradeButton(caseId, a) {
+    const next = newerPackFor(a);
+    if (!next) return '';
+    return `<button class="vt-btn secondary sm" data-migrate="${esc(caseId)}"
+              data-to="${esc(next.version)}" title="Move this case onto ${esc(next.pack_id)} v${esc(next.version)}">
+              <i class="bi bi-arrow-up-circle"></i> Update rules to v${esc(next.version)}</button>`;
+  }
+
   function requirementsSection(caseId, a) {
     const reqs = a.requirements || [];
     const s = a.requirements_summary || {};
-    const add = `<button class="vt-btn secondary sm" data-addreq="${esc(caseId)}">
+    const add = `${upgradeButton(caseId, a)}
+      <button class="vt-btn secondary sm" data-addreq="${esc(caseId)}">
       <i class="bi bi-plus-lg"></i> Add requirement</button>`;
     if (!reqs.length) {
+      const next = newerPackFor(a);
       return sec('Required documents', 'none defined',
         `<div class="vt-empty">This case is pinned to a rule pack version that defines no
          document requirements. Cases keep the pack they were opened under — which is why a
-         historical assessment still means what it meant.</div>`, add);
+         historical assessment still means what it meant.${next ? `<br><br>
+         <strong>${esc(next.pack_id)} v${esc(next.version)} is available</strong> and does define
+         requirements. Updating re-pins this case to it, records the change on the file, and
+         marks the assessment for re-running.` : ''}</div>`, add);
     }
     const rows = reqs.map((r) => {
       const acts = [];
@@ -1122,6 +1160,48 @@ Sidebar.init('vetting');
     } catch (e) { Toast.show('Not recorded — service unreachable.', 'danger', 8000); }
   }
 
+  // ── R-F3266 — move this case onto a newer version of its rule pack ────────
+  //
+  // Never automatic. A case's governing rules changing by itself, on a page
+  // load, is the opposite of the replayability the pin exists to give — so the
+  // officer is told exactly what changes and names themselves for the record.
+  async function migratePack(caseId, toVersion) {
+    const values = await Modal.form({
+      title: `Update this case to pack v${toVersion}`,
+      message: 'The case is re-pinned to the newer rules. Everything on the file — '
+             + 'documents, career history, inputs — is untouched; only which rules apply '
+             + 'changes. The move is recorded on the case with your name, and the current '
+             + 'assessment is marked for re-running, because it was computed under the '
+             + 'rules being replaced. This cannot be undone: a case never moves backwards.',
+      icon: 'bi-arrow-up-circle', okLabel: 'Update rules',
+      fields: [
+        { name: 'migrated_by', label: 'Who is making this change?', type: 'text',
+          required: true, autofocus: true },
+        { name: 'reason', label: 'Why (optional)', type: 'text' },
+      ],
+    });
+    if (!values) return;
+    try {
+      const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/pack/migrate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ migrated_by: values.migrated_by,
+                               to_version: toVersion, reason: values.reason || '' }),
+      });
+      if (!r.ok) {
+        // Every refusal is a stated reason, not a generic failure — show it.
+        const body = await r.json().catch(() => ({}));
+        const msg = (body.detail && (body.detail.message || body.detail.code)) || `HTTP ${r.status}`;
+        Toast.show(`Not updated: ${escHtml(msg)}`, 'danger', 9000);
+        return;
+      }
+      const done = await r.json();
+      Toast.show(`Re-pinned v${escHtml(done.from_version)} → v${escHtml(done.to_version)}. `
+               + 'Re-assess to see the file under the new rules.', 'success', 7000);
+      await loadCases();
+      await loadDetail(caseId, true);
+    } catch (e) { Toast.show('Not updated — the service was unreachable.', 'danger', 8000); }
+  }
+
   // R-F3157/R-F3170 — record the employment decision (UK GDPR Art. 22).
   // The dialog puts the CURRENT assessment in front of the officer as
   // read-only context, and enforces the adverse-decision requirements inline —
@@ -1541,6 +1621,9 @@ Sidebar.init('vetting');
       const c = el.getAttribute('data-case');
       simpleDelete(c, `/api/aria/vetting/case/${encodeURIComponent(c)}/requirements/${encodeURIComponent(el.getAttribute('data-delreq'))}`,
                    'Requirement removed'); return;
+    }
+    if ((el = hit('migrate'))) {
+      migratePack(el.getAttribute('data-migrate'), el.getAttribute('data-to')); return;
     }
     if ((el = hit('interview'))) { recordInterview(el.getAttribute('data-interview')); return; }
     if ((el = hit('decide'))) { decide(el.getAttribute('data-decide')); return; }

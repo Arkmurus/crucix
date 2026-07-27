@@ -819,6 +819,69 @@ async def vetting_assess_ep(
     return result
 
 
+class PackMigrationRequest(BaseModel):
+    """R-F3266 — move a case onto a newer version of its own rule pack."""
+    migrated_by: str = Field(min_length=1, max_length=200)
+    to_version: str | None = None
+    reason: str = ""
+
+
+@router.post("/case/{case_id}/pack/migrate")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_migrate_pack_ep(
+    case_id: str, body: PackMigrationRequest, user_id: str = "",
+):
+    """Re-pin a case to a newer PRODUCTION version of its pack.
+
+    Deliberately a POST an officer has to make, never something that happens
+    on read: a case's governing rules changing by itself, on a page load, is
+    the opposite of the replayability the pin exists to give. Every refusal is
+    a 409 with the engine's own words, because each one describes a decision
+    the caller has to make, not a server fault.
+    """
+    import asyncio
+
+    from ..vetting.service import PackMigrationRefused
+
+    tenant = _tenant(user_id)
+    service = _service()
+    try:
+        record = await asyncio.to_thread(
+            service.migrate_pack,
+            tenant, case_id,
+            to_version=body.to_version,
+            migrated_by=body.migrated_by,
+            reason=body.reason,
+            at=datetime.now(UTC).date(),
+        )
+    except CaseNotFound:
+        raise HTTPException(status_code=404, detail="case not found") from None
+    except PackMigrationRefused as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "pack_migration_refused", "message": str(exc)},
+        ) from exc
+    except PackNotUsable as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "pack_not_usable", "message": str(exc)},
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_migration", "message": str(exc)},
+        ) from exc
+
+    wire_success(
+        module=_MODULE,
+        summary=(f"vetting case re-pinned {record['from_version']} -> "
+                 f"{record['to_version']}"),
+    )
+    # The verdict is now stale by construction (the rules changed), which the
+    # caller has to be told plainly rather than left to infer from a re-render.
+    return {**record, "assessment_stale": True}
+
+
 class DecisionRequest(BaseModel):
     decision: str
     decided_by: str = Field(min_length=1, max_length=200)
