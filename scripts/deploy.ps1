@@ -199,13 +199,30 @@ Write-Host "  [PASS] tree integrity: no tracked file is missing ($(@(git ls-file
 Write-Host ""
 
 # ---- R-number tag ----
+# R-F3247 - the banner is a CLAIM ABOUT WHAT IS IN THE BUILD, so it may not
+# name R-numbers that never shipped. Two measured defects, both live today:
+#
+#   OVER-CLAIM. The scan matches any 'R-F<n>' in a commit SUBJECT, so the
+#   bookkeeping commit "chore: reserve R-F3226..R-F3229" put R-F3226 and
+#   R-F3229 in the banner although only their RESERVATIONS were committed -
+#   and it missed 3227/3228, which the range only implies. The live banner
+#   read "...+R-F3229 - sha 4598730c" for a build that did not contain it.
+#
+#   UNDER-CLAIM. When the newest deploy-* tag is at or ahead of HEAD (a peer
+#   deploys, or two deploys share a commit) the range is empty and this
+#   rendered "no-r-tag" - which reads as "this build ships nothing", on a
+#   build containing everything. Observed live as "no-r-tag - sha 30cd35ca".
+#
+# Registry bookkeeping is excluded by SUBJECT PREFIX, narrowly: a 'chore:' that
+# does real work still counts, and 'test:'/'docs:' R-numbers are real shipped
+# changes (e.g. "test: R-F3236 - fix blocking-dialog string false positive").
 $LAST_TAG = git tag --list 'deploy-*' --sort=-version:refname | Select-Object -First 1
-if ($LAST_TAG) {
-    $R_NUMBERS = git log "$LAST_TAG..HEAD" --pretty=%s | Select-String -Pattern 'R-F[0-9]+' -AllMatches | ForEach-Object { $_.Matches.Value } | Sort-Object -Unique
-} else {
-    $R_NUMBERS = git log --pretty=%s | Select-String -Pattern 'R-F[0-9]+' -AllMatches | ForEach-Object { $_.Matches.Value } | Sort-Object -Unique
-}
-$R_TAG = if ($R_NUMBERS) { ($R_NUMBERS -join '+') } else { "no-r-tag" }
+$_SUBJECTS = if ($LAST_TAG) { git log "$LAST_TAG..HEAD" --pretty=%s } else { git log --pretty=%s }
+$_SHIPPED  = $_SUBJECTS | Where-Object { $_ -notmatch '^chore:\s*(reserve|mark|ship)' }
+$R_NUMBERS = $_SHIPPED | Select-String -Pattern 'R-F[0-9]+' -AllMatches | ForEach-Object { $_.Matches.Value } | Sort-Object -Unique
+$R_TAG = if ($R_NUMBERS) { ($R_NUMBERS -join '+') }
+         elseif ($LAST_TAG) { "no-new-r-numbers" }
+         else { "no-r-tag" }
 Write-Host "  r-tags: $R_TAG"
 Write-Host ""
 

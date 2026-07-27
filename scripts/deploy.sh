@@ -86,11 +86,18 @@ echo "  ✅ tree integrity: no tracked file is missing"
 
 LAST_TAG=$(git tag --list 'deploy-*' --sort=-version:refname | head -1 || echo "")
 if [[ -n "$LAST_TAG" ]]; then
-    R_NUMBERS=$(git log "$LAST_TAG..HEAD" --pretty=%s | grep -oE 'R-F[0-9]+' | sort -u | tr '\n' '+' | sed 's/+$//')
+    # R-F3247 - exclude registry bookkeeping; see deploy.ps1 for the two
+    # measured defects (a reserve commit claiming an unshipped R-number, and an
+    # empty range rendering as "no-r-tag" on a build containing everything).
+    R_NUMBERS=$(git log "$LAST_TAG..HEAD" --pretty=%s | grep -vE '^chore:[[:space:]]*(reserve|mark|ship)' | grep -oE 'R-F[0-9]+' | sort -u | tr '\n' '+' | sed 's/+$//')
 else
-    R_NUMBERS=$(git log --pretty=%s | grep -oE 'R-F[0-9]+' | sort -u | tr '\n' '+' | sed 's/+$//')
+    R_NUMBERS=$(git log --pretty=%s | grep -vE '^chore:[[:space:]]*(reserve|mark|ship)' | grep -oE 'R-F[0-9]+' | sort -u | tr '\n' '+' | sed 's/+$//')
 fi
-R_TAG="${R_NUMBERS:-no-r-tag}"
+# R-F3247 - "no-r-tag" reads as "this build ships nothing"; when a deploy tag
+# exists the honest statement is that nothing is NEW since it.
+if [ -n "${R_NUMBERS}" ]; then R_TAG="${R_NUMBERS}"
+elif [ -n "${LAST_TAG:-}" ]; then R_TAG="no-new-r-numbers"
+else R_TAG="no-r-tag"; fi
 
 echo "=== ARIA bulletproof deploy (R-F1116) ==="
 echo "  commit: $GIT_SHA ($GIT_SHORT)"
