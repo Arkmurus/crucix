@@ -3888,6 +3888,14 @@ async def lifespan(app: FastAPI):
             ("market_competitor_knowledge", "Market & competitor",  "ingest_to_knowledge"),
             ("osint_knowledge",          "OSINT methodology",    "ingest_to_knowledge"),
             ("security_protocol",        "Security protocol",    "ingest_to_knowledge"),
+            # R-F3215 — BS 7858 lived ONLY inside aria_service/vetting/ as
+            # clause reference strings. ARIA enforced the standard and could
+            # not discuss it: asked what it requires, she had a general
+            # model's recollection of a paywalled document to fall back on.
+            # This ingests OUR encoded register (clause numbers + our own
+            # statement of each obligation + what we do NOT model). No BSI
+            # text, here or anywhere.
+            ("vetting_standard_knowledge", "BS 7858 screening", "ingest_to_knowledge"),
             ("sipri_knowledge",          "SIPRI + equipment",    "ingest_all_sections"),
             ("global_defence_knowledge", "Global defence intel", "ingest_all_sections"),
         ]

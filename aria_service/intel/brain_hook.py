@@ -79,6 +79,14 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "sanctions":            ["compliance", "legal", "sanctions"],
     "conflict_tracker":     ["geopolitics", "relationships"],
     "international_law":    ["legal", "compliance"],
+    # R-F3215 — the vetting module has been emitting wire_success/wire_failure
+    # since R-F3138 and was never registered here, so every signal it produced
+    # filed under 'generic' and the module showed ⚠ on /aria-brain System
+    # Health. A limb the brain cannot topic-map is a limb it cannot learn from
+    # (§21). `vetting_standard_knowledge` is the BS 7858 clause register.
+    "vetting":              ["compliance", "legal", "relationships"],
+    "vetting_portal":       ["compliance", "legal"],
+    "vetting_standard_knowledge": ["compliance", "legal"],
     # Node.js seenode modules (via POST /api/aria/brain/absorb — registered
     # here so their signals are correctly topic-mapped when they arrive)
     "registry_adapter":     ["compliance", "legal"],

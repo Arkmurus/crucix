@@ -671,6 +671,49 @@ _MODULES: list[dict] = [
         "endpoint": "/api/aria/leads/inbound",
         "critical": False,
     },
+    # ── R-F3226: the vetting limb ────────────────────────────────────────
+    #
+    # The module has emitted wire_success/wire_failure since R-F3138 and was
+    # in NEITHER this catalogue nor brain_hook._MODULE_TOPICS, so every signal
+    # it produced filed under 'generic' and the limb was invisible to the
+    # diagnostic and source-health surfaces. That is the §21 definition of
+    # dark, on a module holding the most sensitive data set in the platform.
+    #
+    # The same discovery as R-F2772 made about inbound_leads, and it was made
+    # the same way — by an invariant test refusing a brain topic with no
+    # module behind it. Adding the topic to the orphan allowlist would have
+    # silenced the test and left the limb dark.
+    {
+        "name": "vetting",
+        "module": "aria_service.vetting.rules",
+        "entry": "assess",
+        "brain_registered": True,
+        "endpoint": "/api/aria/vetting/packs",
+        "critical": False,
+    },
+    {
+        # Unauthenticated BY DESIGN, and every failure mode returns the same
+        # 404 so the endpoint cannot become an oracle — so 404 is the HEALTHY
+        # response to an unauthenticated probe here, not a fault.
+        "name": "vetting_portal",
+        "module": "aria_service.routes.vetting_portal",
+        "entry": "portal_context_ep",
+        "brain_registered": True,
+        # The OpenAPI path template, which is what the cross-ref invariant
+        # matches against. Probing it literally sends "{token}" as the token —
+        # which is exactly the unknown-token case, and 404 is the correct and
+        # healthy answer to it.
+        "endpoint": "/api/vetting-portal/{token}",
+        "endpoint_unauth_ok_codes": (404,),
+        "critical": False,
+    },
+    {
+        "name": "vetting_standard_knowledge",
+        "module": "aria_service.intel.vetting_standard_knowledge",
+        "entry": "ingest_to_knowledge",
+        "brain_registered": True,
+        "critical": False,
+    },
 ]
 
 
