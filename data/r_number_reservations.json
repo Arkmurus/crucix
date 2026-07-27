@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3234,
+  "next_available": 3237,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -26393,6 +26393,36 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3234",
+      "title": "align BS 7858 vetting UI capability guards",
+      "claimed_at": "2026-07-27T08:44:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b2c33fd5b126559a1ad206b7afccafcaf0d9683f",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:05:35Z"
+    },
+    {
+      "r_number": "R-F3235",
+      "title": "controlled watchlist enrollment from DD and vetting",
+      "claimed_at": "2026-07-27T08:54:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "30cd35cade10c65dd4d514fa86b1861879b0f389",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:05:35Z"
+    },
+    {
+      "r_number": "R-F3236",
+      "title": "fix blocking dialog test string false positive",
+      "claimed_at": "2026-07-27T09:01:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f67ad994",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:05:35Z"
     }
   ]
 }
