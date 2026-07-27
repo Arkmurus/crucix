@@ -10597,6 +10597,14 @@ async def _build_run_diagnostics(report: "ARKDDReport", target: dict, mode: str)
 # (anti-hallucination law #12 / R-F1363: a task with no live reference never executes).
 _AM_FOLLOWUP_TASKS: set = set()
 
+# R-F3273 — the SAME hazard on the resume path, which had no registry at all.
+# `reconcile_stale_running_dds` created the resume task bare, so the loop held it
+# only weakly — while the reconcile had already spent a `resume_count` attempt,
+# written status back and logged "resuming restart-killed DD". A collected task
+# therefore reproduces the exact vanish R-F3009 exists to prevent, and burns the
+# retry budget doing it.
+_DD_RESUME_TASKS: set = set()
+
 # R-F2671 — the adverse-media and independent-verification follow-ups are BOTH detached
 # tasks that read-modify-write the SAME stored report blob (get_report → mutate one field
 # → set_json). Without serialization their RMW windows can interleave and one clobbers the
@@ -14979,7 +14987,17 @@ async def reconcile_stale_running_dds(max_age_s: float = 1800.0) -> dict:
                 age = now - datetime.fromisoformat(started).timestamp()
             except Exception:
                 age = None
-        if not (age is None or age > max_age_s):
+        # R-F3272 — `>=`, not `>`. Strictly-greater made `max_age_s=0` mean
+        # "everything EXCEPT what started this instant", contradicting the
+        # docstring. A run whose started_at lands on the same clock tick as `now`
+        # has age == 0.0 exactly and was silently skipped — on Windows the clock
+        # granularity is ~15.6ms, so two back-to-back calls routinely collide.
+        # Measured cost: test_rf3009_reconcile_resumes_orphan_with_target failed
+        # 1-2 times in 12 isolated runs on BOTH builds, which makes every "green
+        # suite" claim after it worthless. Production is unchanged in practice —
+        # the only caller uses the 1800s default, where `>` and `>=` differ solely
+        # for a run that is exactly 1800.000s old.
+        if not (age is None or age >= max_age_s):
             continue  # within the live-DD window (age-based, R-F2300) — leave alone
         _rid = val.get("run_id") or key.rsplit(":", 1)[-1]
         _tgt = val.get("resume_target")
@@ -14995,10 +15013,16 @@ async def reconcile_stale_running_dds(max_age_s: float = 1800.0) -> dict:
                     f"Due diligence resuming after an interruption (attempt {_count + 2})…"
                 )
                 await rs.set_json(REPORT_REDIS_KEY.format(run_id=_rid), val, ex=REPORT_TTL_SECONDS)
-                asyncio.create_task(_resume_orphaned_dd(
+                # R-F3273 — retain a strong reference (same pattern as
+                # _AM_FOLLOWUP_TASKS above). A bare create_task here could be
+                # collected before it ran, leaving resume_count spent, the status
+                # written back as resuming, and nothing actually running.
+                _rt = asyncio.create_task(_resume_orphaned_dd(
                     _rid, _tgt, val.get("orchestrator_mode") or "standard",
                     val.get("user_id"), val.get("user_email_lower"),
                 ))
+                _DD_RESUME_TASKS.add(_rt)
+                _rt.add_done_callback(_DD_RESUME_TASKS.discard)
                 resumed += 1
                 logger.warning("[R-F3009] resuming restart-killed DD %s (attempt %d/%d)",
                                _rid, _count + 1, _MAX_DD_RESUMES)
@@ -15025,6 +15049,11 @@ async def reconcile_stale_running_dds(max_age_s: float = 1800.0) -> dict:
             "[R-F2300/R-F3009] %d resumed + %d failed of %d stale 'running' DD placeholder(s)",
             resumed, reconciled, scanned,
         )
+    # NOTE (R-F3273): `resumed` is counted and logged here but deliberately NOT
+    # returned — test_rf2300 pins this return shape with exact equality, and
+    # widening it is a contract change that belongs in its own R-number rather
+    # than riding along on a GC fix. The gap is real (the caller cannot tell a
+    # re-launched DD from a failed one, and a log is not a consumer, §21a).
     return {"scanned": scanned, "reconciled": reconciled}
 
 

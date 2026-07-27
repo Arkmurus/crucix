@@ -39,6 +39,14 @@ def test_rf3009_reconcile_resumes_orphan_with_target():
                                   target={"name": "Acme Ltd", "type": "company"})
         with patch.object(ddo, "_resume_orphaned_dd", new=AsyncMock()) as m:
             res = await ddo.reconcile_stale_running_dds(max_age_s=0)
+            # R-F3273 — the resume is launched as a DETACHED task, so it is merely
+            # SCHEDULED when reconcile returns; it does not run until the loop
+            # reaches an await point. Asserting await_count here raced the
+            # scheduler and failed ~1-2 runs in 12-20, on every build measured —
+            # which quietly devalues every "suite is green" claim made after it.
+            # Await the tasks R-F3273 now retains, so this proves the guarantee
+            # instead of sampling the scheduler.
+            await asyncio.gather(*list(ddo._DD_RESUME_TASKS), return_exceptions=True)
         rep = await ddo.get_report(rid)
         assert rep["resume_count"] == 1, "resume must be counted"
         assert rep["status"] == "running", "a resumed run stays 'running' (not failed)"
