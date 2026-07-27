@@ -47,7 +47,7 @@
   <div class="sc-page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
     <div>
       <h1 class="sc-page-title"><i class="bi bi-reception-4"></i> Source Health</h1>
-      <p class="sc-page-sub">Reachability, operational feed reliability, and the seeded catalogue — each measured on its own terms (they are not one provenance chain)</p>
+      <p class="sc-page-sub">Reachability, operational feed reliability, and the seeded catalogue, each measured on its own terms (they are not one provenance chain)</p>
     </div>
     <!-- R-F2194/R-F2386 — add a non-duplicate vault-curated Website/RSS source. -->
     <button id="btn-add-intel-source" class="sc-btn" style="background:#7c3aed;color:#fff;border:none;padding:9px 18px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
@@ -188,7 +188,7 @@
     <div id="catalogue-body" style="padding:18px 22px;font-size:13.5px;color:var(--sc-text)">Loading…</div>
     <div style="padding:10px 22px 14px;font-size:11.5px;color:var(--sc-muted);border-top:1px solid var(--sc-border)">
       Persistent registry of defence-DD sources seeded into <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">web_atlas</code> at startup.
-      <strong>Reference registry only; measured observations where available</strong> — a DD finalizer records a source observation only when a gate-cleared finding has an attributable URL. This panel does not claim every catalogue URL was fetched; sources with no observation remain unmeasured, not healthy. Use Operational feed health above for sweep reliability. (R-F2735 / R-F3237.)
+      <strong>Reference registry only; measured observations where available</strong>. A DD finalizer records a source observation only when a gate-cleared finding has an attributable URL. This panel does not claim every catalogue URL was fetched; sources with no observation remain unmeasured, not healthy. Use Operational feed health above for sweep reliability. (R-F2735 / R-F3237.)
       View raw via <a href="/api/aria/sources/seed/catalogue" style="color:#7c3aed">/api/aria/sources/seed/catalogue</a>.
       Measured counts are in <strong>Registry reliability</strong> below.
     </div>
@@ -221,7 +221,7 @@
       </table>
     </div>
     <div style="padding:10px 22px 14px;font-size:11.5px;color:var(--sc-muted);border-top:1px solid var(--sc-border)">
-      From <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">/api/aria/source_validator/health</code> — the web_atlas reliability EMA, averaged across each family&rsquo;s topics.
+      From <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">/api/aria/source_validator/health</code>: the web_atlas reliability EMA, averaged across each family&rsquo;s topics.
       <strong>Unmeasured</strong> means zero observations have ever been recorded for that family: it is <strong>not</strong> healthy and <strong>not</strong> failing, and it carries no score (R-F3254 &mdash; the 0.5 shown before was the prior, not a measurement).
       Reliability rises only when a gate-cleared DD finding carries an attributable URL (R-F2735), so a family stays unmeasured until real work cites it. (R-F3255.)
     </div>
@@ -772,7 +772,7 @@ async function loadRegistryHealth() {
   try {
     const d = await API.get('/api/aria/source_validator/health');
     if (!d || typeof d.total_sources !== 'number') {
-      unknown('Registry health endpoint unreachable — this is NOT a clean reading.');
+      unknown('Registry health endpoint unreachable. This is NOT a clean reading.');
       return;
     }
     setTxt('reghealth-total', d.total_sources + ' families');

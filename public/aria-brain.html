@@ -594,7 +594,7 @@ function _renderFetchFailureBanner() {
     const noun = n === 1 ? 'panel requires' : 'panels require';
     html += (html ? '<div style="height:8px"></div>' : '')
       + `🔒 <strong>${n} ${noun} sign-in</strong> to display. The endpoints are `
-      + `reachable, just protected — these are not "down".`;
+      + `reachable, just protected. These are not "down".`;
   }
   // 403 — signed in, but this tier may not call the control plane. R-F2139 scopes
   // /autonomous/* and /autonomy/* to the OPERATOR token; the web tier holds only
@@ -607,7 +607,7 @@ function _renderFetchFailureBanner() {
       + `🛡️ <strong>${n} control-plane ${noun} operator-tier only</strong> and cannot be `
       + `shown in the web UI. The autonomy and autonomous-engine endpoints require the `
       + `operator token (R-F2139); this tier holds the shared service token deliberately. `
-      + `Not a fault, and not fixable by signing in — read them via the operator CLI.`;
+      + `Not a fault, and not fixable by signing in. Read them via the operator CLI.`;
   }
   banner.innerHTML = html;
   banner.style.display = 'block';
@@ -816,7 +816,7 @@ async function loadAmendments() {
         + 'Operator triage: each amendment is a constitutional change candidate '
         + 'staged from a failed adversarial attack. Review the proposed text below '
         + 'before acting. Reject invalid ones with a reason (audit-logged). '
-        + '<strong>Approve only STAGES</strong> the change (R-F2710) — it is then '
+        + '<strong>Approve only STAGES</strong> the change (R-F2710), and it is then '
         + 'committed, pushed, deployed, and finally verified live as separate '
         + 'steps. Approving here is NOT a live deploy: it stages via '
         + 'self_improve, and a separate <code>POST /api/aria/self/deploy/{id}</code> '
@@ -919,7 +919,7 @@ async function loadAmendments() {
             + `border-radius:4px;font-size:0.8em;line-height:1.5;white-space:pre-wrap;`
             + `overflow-wrap:anywhere;color:#3d3a34">${escapeHtml(proposed)}</pre></details>`
           : `<div style="margin-top:8px;font-size:0.78em;color:#b45309">`
-            + `No proposed-amendment text on this entry — do not approve blind.</div>`)
+            + `No proposed-amendment text on this entry. Do not approve blind.</div>`)
       + `</div>`; // close amendment card
   });
   el.innerHTML = html;
@@ -1172,7 +1172,7 @@ async function approveAmendment(attackId) {
         + `border-radius:4px;font-size:0.8em;line-height:1.5;white-space:pre-wrap;`
         + `overflow-wrap:anywhere;max-height:220px;overflow:auto;color:#3d3a34">${escapeHtml(_proposed)}</pre>`
       : `<div style="margin-top:8px;font-size:0.82em;color:#b45309">`
-        + `⚠ No proposed-amendment text on this entry — you would be approving a `
+        + `⚠ No proposed-amendment text on this entry. You would be approving a `
         + `change you cannot see. Reject or investigate instead.</div>`;
     r = await showOperatorModal({
       title: `Approve amendment`,
@@ -1411,7 +1411,7 @@ async function loadCompounding() {
   const note = '<div style="margin:8px 0;font-size:0.78em;color:#9b968c;line-height:1.5">'
     + '<strong>Is she compounding?</strong> This tracks the gate&nbsp;#2 floor over time. '
     + 'A rising floor / more cells ≥70% = real growth. '
-    + (seeded ? 'The floor can dip when new region cells appear (they start at 50% and must earn their score) — that is the gate becoming <em>earned</em>, not a regression.' : '')
+    + (seeded ? 'The floor can dip when new region cells appear (they start at 50% and must earn their score). That is the gate becoming <em>earned</em>, not a regression.' : '')
     + '</div>';
 
   const floorSpark = '<div style="margin-top:6px"><div style="font-size:0.75em;color:#9b968c">Floor</div>'
@@ -1458,7 +1458,7 @@ async function loadEcosystem(root){
     const bc = hs.by_color || {};
     const sens = hs.pct_live_sensor!=null
       ? ` · sensors ${hs.with_live_sensor}/${hs.total_nodes} <span class="good">${bc.green||0}</span>/<span class="warn">${bc.amber||0}</span>/<span style="color:var(--red)">${bc.red||0}</span>` : '';
-    cvEl.innerHTML = `<span title="100% by construction — node set == filesystem">${c.on_map} modules</span> · `
+    cvEl.innerHTML = `<span title="100% by construction: node set == filesystem">${c.on_map} modules</span> · `
       + `<span class="${oc}">${c.orphans} unassigned</span> · ${ie.resolved_intra_repo} imports · call-graph partial${sens}`;
   } else if(cvEl && root && root.startsWith('mod:')){
     // module drill → show its audit R-numbers (with titles) + function wired/dark (T3)
@@ -1493,8 +1493,8 @@ async function loadEcosystem(root){
     const ct = n.type==='organ' ? (n.module_count!=null?n.module_count:'')
       : (n.type==='function' ? (n.wired?'wired':'') : (rn.length?rn[rn.length-1]:''));
     const tip = `${nm} (${n.type})`
-      + (n.sensor ? ` — [${n.health||'grey'}] ${n.sensor}${n.sensor_value!=null?(' = '+n.sensor_value):''}` : '')
-      + (rn.length ? ` — audit ${rn.slice(-4).reverse().join(', ')}` : '');
+      + (n.sensor ? ` · [${n.health||'grey'}] ${n.sensor}${n.sensor_value!=null?(' = '+n.sensor_value):''}` : '')
+      + (rn.length ? ` · audit ${rn.slice(-4).reverse().join(', ')}` : '');
     const drill = n.type!=='function';
     return `<div class="eco-card eco-h-${_h(n)}"${drill?` onclick="ecoDrill('${n.id}','${nm.replace(/'/g,'')}')"`:' style="cursor:default"'} title="${tip.replace(/"/g,'')}">`
       + `<i class="bi ${_ecoIcon(n)}"></i><span class="eco-nm">${nm}</span><span class="eco-ct">${ct}</span></div>`;
@@ -1568,10 +1568,10 @@ async function loadHeatmap() {
   // panel). We surface the real gaps rather than relabel them "unmeasured".
   const _caption = '<div style="margin-bottom:8px;font-size:0.78em;color:#9b968c;line-height:1.5">'
     + '<strong>Region-specific coverage</strong> (Phase&nbsp;A gate&nbsp;#2). '
-    + 'A low cell is a <em>measured regional coverage gap</em> — thin region-specific signal for that topic — not a statement about ARIA\'s subject competence, which is tracked separately in the Mastery panel above. '
+    + 'A low cell is a <em>measured regional coverage gap</em>, meaning thin region-specific signal for that topic. It is not a statement about ARIA\'s subject competence, which is tracked separately in the Mastery panel above. '
     + _rc + ' region' + (_rc === 1 ? '' : 's') + ' sampled'
     + (_total ? ('; of ' + _total + ' cells, ' + _scaffold + ' not yet measured (&le;1 observation)'
-        + (_weak ? ', ' + _weak + ' measured-weak — real gate-#2 gaps the study loop targets' : '')) : '')
+        + (_weak ? ', ' + _weak + ' measured-weak, the real gate-#2 gaps the study loop targets' : '')) : '')
     + '.</div>';
 
   let html = _caption + '<table><tr><th></th>';
@@ -1682,7 +1682,7 @@ async function loadComposite() {
   let html = metricRow('Composite Score', pct(d.composite_score) + pendingNote, scoreClass(d.composite_score, 0.7, 0.5));
   html += metricRow('Displayed Tier', `${tierNameEff} (${tierEffective})`, tierEffective >= 3 ? 'good' : tierEffective >= 2 ? 'warn' : 'bad');
   if (tierEffective !== d.tier) {
-    html += metricRow('Raw Tier', `${d.tier_name} (${d.tier}) — confidence cap applied`, 'neutral');
+    html += metricRow('Raw Tier', `${d.tier_name} (${d.tier}): confidence cap applied`, 'neutral');
   }
   if (d.confidence != null) {
     html += metricRow('Measured Weight', pct(d.confidence), d.low_confidence ? 'warn' : 'good');

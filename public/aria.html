@@ -1615,7 +1615,7 @@ async function send(text, opts) {
       if (resp.status === 429) {
         var _qbody = await resp.json().catch(function(){ return {}; });
         var _qmsg = (_qbody && _qbody.error) ? String(_qbody.error) : 'plan limit reached';
-        streamBody.innerHTML = md('**Plan limit reached.** ' + _qmsg + ' — [manage your plan](/account.html).');
+        streamBody.innerHTML = md('**Plan limit reached.** ' + _qmsg + ' [Manage your plan](/account.html).');
         streamBadge.remove();
         sending = false; resize(); ta.focus();
         return;
@@ -1729,7 +1729,7 @@ async function send(text, opts) {
               '[R-F753] SSE event drop (#' + window._ariaSseMalformedTotal
               + ', this-stream=' + window._ariaSseMalformedThisStream + '):',
               e && e.message || e,
-              '— raw head:', (raw || '').slice(0, 200)
+              'raw head:', (raw || '').slice(0, 200)
             );
           } catch (_) {}
           // Degraded-stream banner threshold — 5 bad events in one

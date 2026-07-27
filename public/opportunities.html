@@ -38,7 +38,7 @@ async function load() {
   // rendering "No opportunities available" on a load failure is the §22
   // empty-vs-error lie (looks like an honest empty state; it's a broken fetch).
   if (data === null) {
-    document.getElementById('opps-grid').innerHTML = '<p class="text-muted">Couldn\'t load opportunities — the page is up but live data is unavailable. Retry shortly.</p>';
+    document.getElementById('opps-grid').innerHTML = '<p class="text-muted">Couldn\'t load opportunities. The page is up but live data is unavailable. Retry shortly.</p>';
     return;
   }
   const opps = data?.opportunities || (Array.isArray(data) ? data : []);

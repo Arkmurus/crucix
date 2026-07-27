@@ -1433,7 +1433,7 @@
         <!-- evidence / finding card -->
         <div class="lp-hv-ev">
           <div class="lp-hv-ev-hd">Finding: Sanctions <span style="font-weight:600;color:#febc2e">· ILLUSTRATIVE</span></div>
-          <div style="font-size:10px;color:#febc2e;margin:2px 0 4px">⚠ Illustrative only — fictional entity, not a real screening result.</div>
+          <div style="font-size:10px;color:#febc2e;margin:2px 0 4px">⚠ Illustrative only. Fictional entity, not a real screening result.</div>
           <div class="lp-hv-ev-src"><span class="lp-hv-src-dot"></span>ofac_sdn<span class="lp-hv-src-sc">&mdash;</span></div>
           <div class="lp-hv-ev-src"><span class="lp-hv-src-dot"></span>eu_consolidated<span class="lp-hv-src-sc">&mdash;</span></div>
           <div class="lp-hv-ev-ft"><span class="lp-hv-grade">ILLUSTRATIVE</span><span class="lp-hv-conf">per-source evidence shown here</span></div>
@@ -1698,7 +1698,7 @@
     <div class="lp-evidence-grid">
       <div class="lp-ev-card">
         <div class="lp-ev-label">Finding: Sanctions</div>
-        <div class="lp-ev-finding">Illustrative example — not a real entity and not a real screening result. In a genuine run this card shows whether the entity matched OFAC SDN, the EU Consolidated List, the UN Security Council list or OFSI, with the per-source evidence behind it. ARIA never presents an absence of findings as a clean bill of health.</div>
+        <div class="lp-ev-finding">Illustrative example. Not a real entity and not a real screening result. In a genuine run this card shows whether the entity matched OFAC SDN, the EU Consolidated List, the UN Security Council list or OFSI, with the per-source evidence behind it. ARIA never presents an absence of findings as a clean bill of health.</div>
         <div class="lp-ev-sources">
           <div class="lp-ev-src"><div class="lp-ev-src-dot" style="background:#16a34a"></div><span style="color:#16a34a">ofac_sdn</span><span style="color:var(--sc-muted);margin-left:auto">&mdash;</span></div>
           <div class="lp-ev-src"><div class="lp-ev-src-dot" style="background:#16a34a"></div><span style="color:#16a34a">eu_consolidated</span><span style="color:var(--sc-muted);margin-left:auto">&mdash;</span></div>
@@ -1711,7 +1711,7 @@
       </div>
       <div class="lp-ev-card">
         <div class="lp-ev-label">Finding: Deception</div>
-        <div class="lp-ev-finding">Illustrative example — not a real entity and not a real finding. In a genuine run this card shows a claimed-vs-evidenced discrepancy with the primary source behind each side, and states plainly when it is unresolved.</div>
+        <div class="lp-ev-finding">Illustrative example. Not a real entity and not a real finding. In a genuine run this card shows a claimed-vs-evidenced discrepancy with the primary source behind each side, and states plainly when it is unresolved.</div>
         <div class="lp-ev-sources">
           <div class="lp-ev-src"><div class="lp-ev-src-dot" style="background:#123a63"></div><span style="color:#123a63">company_house</span><span style="color:var(--sc-muted);margin-left:auto">&mdash;</span></div>
           <div class="lp-ev-src"><div class="lp-ev-src-dot" style="background:#123a63"></div><span style="color:#123a63">website_claim</span><span style="color:var(--sc-muted);margin-left:auto">&mdash;</span></div>
@@ -2002,11 +2002,11 @@ document.getElementById('lp-request-btn').addEventListener('click', async functi
       for (var i = 0; i < inputs.length; i++) { inputs[i].disabled = true; }
     } else {
       btn.disabled = false;
-      flash((data && data.error) ? data.error : 'Something went wrong — please try again', 3500);
+      flash((data && data.error) ? data.error : 'Something went wrong. Please try again', 3500);
     }
   } catch (e) {
     btn.disabled = false;
-    flash('Network error — please try again', 3500);
+    flash('Network error. Please try again', 3500);
   }
 });
 

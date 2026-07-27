@@ -85,7 +85,7 @@ const partial = await render({
 assert.match(partial['composite-badge'].textContent, /^PARTIAL SCORE: 82% MEDIUM \(capped, signal-pending\)/);
 assert.match(partial['composite-metrics'].innerHTML, /Measured Weight.*38%/s);
 assert.match(partial['composite-metrics'].innerHTML, /Displayed Tier.*MEDIUM \(capped, signal-pending\) \(2\)/s);
-assert.match(partial['composite-metrics'].innerHTML, /Raw Tier.*HIGH \(3\) — confidence cap applied/s);
+assert.match(partial['composite-metrics'].innerHTML, /Raw Tier.*HIGH \(3\): confidence cap applied/s);
 assert.match(partial['composite-metrics'].innerHTML, /excluded.*no qualifying data; excluded from score/s);
 assert.doesNotMatch(partial['composite-metrics'].innerHTML, /default to 50%|50%\*/);
 

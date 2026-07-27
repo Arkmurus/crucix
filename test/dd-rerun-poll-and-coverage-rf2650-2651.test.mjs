@@ -64,8 +64,8 @@ test('R-F2651 renderSection flags EVERY non-ok LayerStatus (full enum)', () => {
   assert.match(html, /did NOT complete \(ERROR\)/, 'ERROR layer must be labelled');
   assert.match(html, /PREREQUISITE MISSING/, 'prereq_fail layer must be labelled');
   assert.match(html, /was SKIPPED/, 'SKIPPED layer must be labelled');
-  assert.match(html, /PARTIAL — this check did not fully complete/, 'PARTIAL layer must be labelled');
-  assert.match(html, /DEGRADED — a prerequisite was missing/, 'degraded layer must be labelled');
+  assert.match(html, /PARTIAL\. This check did not fully complete/, 'PARTIAL layer must be labelled');
+  assert.match(html, /DEGRADED\. A prerequisite was missing/, 'degraded layer must be labelled');
   assert.match(html, /absence of findings here is NOT an all-clear/,
     'an incomplete layer must state that empty ≠ clean');
 });

@@ -150,7 +150,7 @@
   <div class="sc-page-header" style="margin-top:34px">
     <div>
       <h2 class="sc-page-title" style="font-size:20px"><i class="bi bi-bank2"></i> Company Registry Coverage</h2>
-      <p class="sc-page-sub">Direct company-registry access points ARIA queries by API / open data (CH, NO, EE, GB, DE, FR …) with observed liveness. Distinct from the signup vault above — these need no account.</p>
+      <p class="sc-page-sub">Direct company-registry access points ARIA queries by API / open data (CH, NO, EE, GB, DE, FR …) with observed liveness. Distinct from the signup vault above: these need no account.</p>
     </div>
   </div>
   <div class="sc-grid-4 mb-16" id="coverage-summary">
@@ -170,7 +170,7 @@
   </div>
   <div class="mt-16" style="font-size:12px;color:#9b968c;padding:0 4px">
     <i class="bi bi-info-circle"></i> Tri-state liveness: <b>Live</b> = proven by a successful query · <b>Failing</b> = a probe failed · <b>Unproven</b> = not yet exercised (never read as "broken").
-    <br><i class="bi bi-exclamation-triangle" style="color:#b45309"></i> <b>Live *</b> = the registry answered, but a known data-quality defect affects the fields it returns — hover for detail. Liveness and correctness are separate claims and this table does not blur them.
+    <br><i class="bi bi-exclamation-triangle" style="color:#b45309"></i> <b>Live *</b> = the registry answered, but a known data-quality defect affects the fields it returns, so hover for detail. Liveness and correctness are separate claims and this table does not blur them.
     <br><i class="bi bi-slash-circle"></i> <b>Why</b> explains an unproven row: <b>No registry API</b> = none exists to read, so it needs manual verification rather than more engineering · <b>Source gone</b> = the endpoint has disappeared · <b>Blocked / auth</b> = the registry refuses automated access (403, login required, or blocks our IP) · <b>No API</b> = it responds but serves HTML only, with no machine-readable API. Hover any row for the probe date.
     <br>API: <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">GET /api/aria/registry/coverage</code>
   </div>

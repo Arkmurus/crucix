@@ -654,13 +654,13 @@ Sidebar.init('vetting');
           <span class="vt-ref">${esc(e.entry_type)} · ${esc(label)} ·
             ${docs} document(s)${e.referee_name ? ' · referee ' + esc(e.referee_name) : ''}</span>
           ${e.source === 'EXTRACTED_FROM_DOCUMENT' ? `<p class="vt-note" style="margin-top:3px">
-            Read from a document on this file — the applicant's declaration as a model read it,
+            Read from a document on this file. This is the applicant's declaration as a model read it,
             not confirmed by a person. Check it against the document before relying on it.</p>` : ''}
         </div></div>`;
     }).join('');
     return sec('Declared periods', `${entries.length} period(s)`,
       rows + (extracted ? `<p class="vt-note">${extracted} of these were read from an uploaded
-        document. Nothing read from a document is ever recorded as verified — a document arriving
+        document. Nothing read from a document is ever recorded as verified: a document arriving
         is evidence received, and verification stays a person's decision.</p>` : ''));
   }
 
@@ -982,7 +982,7 @@ Sidebar.init('vetting');
           // read now. Leaving "nothing here reads a PDF" in place would have
           // the page asserting a limitation the product no longer has, which
           // is its own kind of dishonesty.
-          help: 'The file is read where it can be — PDF, scan, photo, DOCX, or an email and '
+          help: 'The file is read where it can be: PDF, scan, photo, DOCX, or an email and '
               + 'its attachments. What is read is recorded as DECLARED, never as verified, '
               + 'and your answer here wins if the two disagree.' },
         { name: 'attach_to_entry_id', label: 'Evidence for which period? (optional)', type: 'select',
@@ -1022,9 +1022,9 @@ Sidebar.init('vetting');
       const linked = (t.linked_entry_ids || []).length;
       const created = (t.created_entry_ids || []).length;
       let what = '';
-      if (created) what = ` — ${created} declared period(s) read from it`;
-      else if (linked) what = ` — evidence against ${linked} period(s)`;
-      else if (t.reason) what = ` — not applied to the timeline: ${t.reason}`;
+      if (created) what = `. ${created} declared period(s) read from it`;
+      else if (linked) what = `. Evidence against ${linked} period(s)`;
+      else if (t.reason) what = `. Not applied to the timeline: ${t.reason}`;
       Toast.show(
         `${body.doc_type} stored` + what
         + (body.needs_human_review ? ' · needs your review' : ''),
@@ -1232,8 +1232,8 @@ Sidebar.init('vetting');
   async function migratePack(caseId, toVersion) {
     const values = await Modal.form({
       title: `Update this case to pack v${toVersion}`,
-      message: 'The case is re-pinned to the newer rules. Everything on the file — '
-             + 'documents, career history, inputs — is untouched; only which rules apply '
+      message: 'The case is re-pinned to the newer rules. Everything on the file, '
+             + 'meaning documents, career history and inputs, is untouched; only which rules apply '
              + 'changes. The move is recorded on the case with your name, and the current '
              + 'assessment is marked for re-running, because it was computed under the '
              + 'rules being replaced. This cannot be undone: a case never moves backwards.',
@@ -1263,7 +1263,7 @@ Sidebar.init('vetting');
                + 'Re-assess to see the file under the new rules.', 'success', 7000);
       await loadCases();
       await loadDetail(caseId, true);
-    } catch (e) { Toast.show('Not updated — the service was unreachable.', 'danger', 8000); }
+    } catch (e) { Toast.show('Not updated. The service was unreachable.', 'danger', 8000); }
   }
 
   // R-F3157/R-F3170 — record the employment decision (UK GDPR Art. 22).

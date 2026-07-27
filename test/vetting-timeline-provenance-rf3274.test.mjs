@@ -51,8 +51,8 @@ test('the upload result says what the document did to the timeline', () => {
   const fn = page.match(/async function upload\([\s\S]*?\n  \}/)[0];
   assert.match(fn, /body\.timeline/);
   assert.match(fn, /declared period\(s\) read from it/);
-  assert.match(fn, /evidence against/);
-  assert.match(fn, /not applied to the timeline/,
+  assert.match(fn, /Evidence against/);
+  assert.match(fn, /Not applied to the timeline/,
     'a document that changed nothing must say why');
 });
 

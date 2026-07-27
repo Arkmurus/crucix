@@ -180,7 +180,7 @@
   <ul>
     <li>Each entry is a JSON object containing <code>{ ts, subject, claim, sources, confidence, tier_breakdown, prev_hash, hash }</code>.</li>
     <li>Each entry's <code>hash</code> is <code>SHA-256(prev_hash || canonical(entry))</code>, forming a tamper-evident chain.</li>
-    <li>The chain is HMAC-signed; the active signing-key fingerprint is <strong><code id="mc-signing-fingerprint">loading…</code></strong> (first 16 hex of <code>SHA-256(key)</code> — the key itself is never exposed). A verifier uses this to confirm an entry was signed by the expected key. <span id="mc-signing-mode"></span></li>
+    <li>The chain is HMAC-signed; the active signing-key fingerprint is <strong><code id="mc-signing-fingerprint">loading…</code></strong> (first 16 hex of <code>SHA-256(key)</code>; the key itself is never exposed). A verifier uses this to confirm an entry was signed by the expected key. <span id="mc-signing-mode"></span></li>
     <li>Audit-grade PDF exports (R-F43) carry a derived HMAC signature of <code>(content_sha256 || user_id || session_id || message_index || generated_at)</code>. Third-party verification is via the public <code>POST /api/reports/verify</code> endpoint. A counterparty's compliance officer can confirm a forwarded PDF without an account.</li>
   </ul>
   <div class="mc-callout green">
@@ -188,7 +188,7 @@
   </div>
 
   <h2 class="mc-h2">8. Constitution (foundational clauses)</h2>
-  <p>The full constitution is loaded at the top of every conversation (see <code>aria_service/aria_engine.py</code>). It is incident-anchored: every clause cites the past failure that motivated it. The live constitution currently has <strong><span id="mc-cc-full">37</span> clauses</strong>; the <strong>24</strong> summarised below are the foundational set — later clauses are amendments added as new failure modes were closed. Summary:</p>
+  <p>The full constitution is loaded at the top of every conversation (see <code>aria_service/aria_engine.py</code>). It is incident-anchored: every clause cites the past failure that motivated it. The live constitution currently has <strong><span id="mc-cc-full">37</span> clauses</strong>; the <strong>24</strong> summarised below are the foundational set, and later clauses are amendments added as new failure modes were closed. Summary:</p>
   <div class="mc-clauses">
     <div class="mc-clause"><div class="mc-clause-num">Clause 1</div><div class="mc-clause-title">Epistemic honesty</div><div class="mc-clause-text">Tag every material claim with confidence. Never state uncertainty as fact.</div></div>
     <div class="mc-clause"><div class="mc-clause-num">Clause 2</div><div class="mc-clause-title">Source integrity</div><div class="mc-clause-text">Every assessment traceable to a real source. No manufactured citations.</div></div>
@@ -373,7 +373,7 @@
         if (fpEl) fpEl.textContent = (d.active_key_fingerprint || 'unavailable');
         if (modeEl) {
           if (d.dev_mode) {
-            modeEl.innerHTML = ' <strong style="color:#b91c1c">Dev-fallback key — NOT compliance-grade.</strong>';
+            modeEl.innerHTML = ' <strong style="color:#b91c1c">Dev-fallback key. NOT compliance-grade.</strong>';
           } else {
             modeEl.textContent = '';
           }

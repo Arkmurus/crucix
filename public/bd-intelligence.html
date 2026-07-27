@@ -184,8 +184,8 @@ async function load() {
   // payload). A null here is a broken fetch, not "no data yet" — say so honestly
   // rather than implying the operator just needs to run a sweep (§22).
   if (!data) {
-    document.getElementById('bd-sub').textContent = 'Couldn\'t load BD intelligence — live data is unavailable. Retry shortly.';
-    document.getElementById('panel-leads').innerHTML = '<p class="text-muted">Couldn\'t load — the page is up but the BD feed is unavailable right now.</p>';
+    document.getElementById('bd-sub').textContent = 'Couldn\'t load BD intelligence. Live data is unavailable. Retry shortly.';
+    document.getElementById('panel-leads').innerHTML = '<p class="text-muted">Couldn\'t load. The page is up but the BD feed is unavailable right now.</p>';
     return;
   }
   bdData = data;
@@ -331,7 +331,7 @@ async function loadPipeline() {
   // fetch as "No deals in pipeline yet" (§22 empty-vs-error).
   if (data === null) {
     document.getElementById('cnt-pipeline').textContent = '—';
-    document.getElementById('panel-pipeline').innerHTML = '<p class="text-muted">Couldn\'t load the pipeline — live data is unavailable. Retry shortly.</p>';
+    document.getElementById('panel-pipeline').innerHTML = '<p class="text-muted">Couldn\'t load the pipeline. Live data is unavailable. Retry shortly.</p>';
     return;
   }
   const deals = data || [];

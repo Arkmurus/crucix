@@ -18,7 +18,7 @@
 <main id="app-main">
   <div class="sc-page-header">
     <h1 class="sc-page-title"><i class="bi bi-people"></i> Design Partners</h1>
-    <p class="sc-page-sub">Real prospective users you're working with — Phase A gate #7 closes at 4+ <strong>qualified</strong> partners. Admin-only (contact details). Public applications from <a href="/partners.html" target="_blank" style="color:var(--sc-prime)">partners.html</a> arrive here as <em>applied</em> — they do <strong>not</strong> count toward the gate until you approve them. Only genuine, operator-vouched conversations count.</p>
+    <p class="sc-page-sub">Real prospective users you're working with. Phase A gate #7 closes at 4+ <strong>qualified</strong> partners. Admin-only (contact details). Public applications from <a href="/partners.html" target="_blank" style="color:var(--sc-prime)">partners.html</a> arrive here as <em>applied</em>, and they do <strong>not</strong> count toward the gate until you approve them. Only genuine, operator-vouched conversations count.</p>
   </div>
 
   <div id="dp-progress" style="margin-bottom:16px"></div>
@@ -72,7 +72,7 @@ function renderProgress(stats){
   document.getElementById('dp-progress').innerHTML =
     '<div class="sc-card" style="padding:14px">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px">'+
-        '<strong>Gate #7 — design partners</strong>'+
+        '<strong>Gate #7: design partners</strong>'+
         '<span style="font-weight:600;color:'+(pass?'#2e7d32':'var(--sc-muted,#666)')+'">'+
           qualified+' / '+TARGET+' qualified'+(pass?'  ✓ closed':'  — '+(TARGET-qualified)+' more to close')+'</span>'+
       '</div>'+
@@ -80,7 +80,7 @@ function renderProgress(stats){
         '<div style="height:100%;width:'+pct+'%;background:'+(pass?'#2e7d32':'#1565c0')+';transition:width .3s"></div>'+
       '</div>'+
       (applied>0?'<div style="margin-top:9px;font-size:12.5px;color:#8a6d00;background:#fff8e1;border:1px solid #ffe1a8;border-radius:6px;padding:7px 10px">'+
-        '<strong>'+applied+'</strong> pending application'+(applied===1?'':'s')+' awaiting your review below — approve to count toward the gate.</div>':'')+
+        '<strong>'+applied+'</strong> pending application'+(applied===1?'':'s')+' awaiting your review below. Approve to count toward the gate.</div>':'')+
     '</div>';
 }
 
@@ -91,7 +91,7 @@ async function load(){
   if(!res.ok||res.status===0||res.isErrorEnvelope||res.data==null){
     stateEl.className='';
     var why=res.timedOut?'the request timed out':(res.status?('HTTP '+res.status):'the service is unreachable');
-    stateEl.innerHTML='<p class="text-muted">Couldn\'t load design partners — '+why+'. The page is up but live data is unavailable. Retry shortly.</p>';
+    stateEl.innerHTML='<p class="text-muted">Couldn\'t load design partners: '+why+'. The page is up but live data is unavailable. Retry shortly.</p>';
     return;
   }
   var entries=Array.isArray(res.data.entries)?res.data.entries:[];

@@ -703,13 +703,13 @@ function followUpState(rep) {
     return { state: 'pending', blocksComplete: true,
       label: 'Adverse-media screening is still running',
       detail: 'This report is not yet a complete evidence set. It will update when the ' +
-              'search finishes — reopen it shortly.' };
+              'search finishes. Reopen it shortly.' };
   }
   if (am.status === 'incomplete' || am.error) {
     return { state: 'failed', blocksComplete: true,
       label: 'Adverse-media screening did not complete',
       detail: String(am.error || 'no reason recorded') +
-              ' — treat adverse media as UNSCREENED, not clear.' };
+              '. Treat adverse media as UNSCREENED, not clear.' };
   }
   if (am.ok === true && (am.partial === true || am.timed_out === true)) {
     return { state: 'partial', blocksComplete: true,
@@ -745,11 +745,11 @@ async function ddStartFailureMessage(resp, what) {
     const reason = body && body.error ? String(body.error) : 'plan limit reached';
     const q = body && body.quota;
     const used = (q && q.cap != null) ? ' (' + q.current + ' of ' + q.cap + ' used)' : '';
-    return { isQuota: true, text: 'Plan limit reached — ' + reason + used +
+    return { isQuota: true, text: 'Plan limit reached. ' + reason + used +
       '. Manage your plan at /account.html to run more.' };
   }
   if (resp.status === 401 || resp.status === 403) {
-    return { isQuota: false, text: 'Your session has expired — please sign in again.' };
+    return { isQuota: false, text: 'Your session has expired. Please sign in again.' };
   }
   const detail = body && body.error ? (': ' + String(body.error).slice(0, 160)) : '';
   return { isQuota: false, text: label + ' could not start (HTTP ' + resp.status + ')' + detail + '.' };
@@ -1019,7 +1019,7 @@ function renderEntityScope(scope) {
   const parent = scope.immediate_parent || {};
   const chain = Array.isArray(scope.ownership_chain_traced) ? scope.ownership_chain_traced : [];
   let h = '<div class="dd-section dd-section-warn"><div class="dd-section-head">'
-    + '<span class="status-icon">🏛️</span>Entity scope — what this report is about</div>'
+    + '<span class="status-icon">🏛️</span>Entity scope: what this report is about</div>'
     + '<div class="dd-section-body" style="font-size:12.5px;line-height:1.7">';
   h += '<div><b>Registry subject:</b> ' + escText(scope.subject_name || '(unnamed)')
     + (scope.subject_registration ? ' <span style="color:var(--sc-muted)">('
@@ -1028,7 +1028,7 @@ function renderEntityScope(scope) {
     h += '<div><b>Controlled by:</b> ' + escText(parent.name)
       + (parent.registration_number
           ? ' <span style="color:var(--sc-muted)">(' + escText(parent.registration_number) + ')</span>'
-          : ' <span style="color:#fbbf24">— no registration number; chain not walked</span>')
+          : ' <span style="color:#fbbf24">no registration number; chain not walked</span>')
       + '</div>';
   }
   // R-F3220 — arrows only for the ownership descent the registry anchored. The
@@ -1041,7 +1041,7 @@ function renderEntityScope(scope) {
   const parties = Array.isArray(scope.parties_traversed) ? scope.parties_traversed : [];
   for (const p of parties) {
     if (!p || !Array.isArray(p.names) || !p.names.length || p.hop === 0) continue;
-    h += '<div><b>Parties traversed — ' + escText(p.relation || ('hop ' + p.hop))
+    h += '<div><b>Parties traversed: ' + escText(p.relation || ('hop ' + p.hop))
       + ':</b> ' + p.names.map(escText).join('; ') + '</div>';
   }
   if (parties.some(p => p && p.hop > 0)) {
@@ -1086,7 +1086,7 @@ function renderRunDiagnostics(rd) {
   if (!parts.length) return '';
   const incomplete = !!(rd.layers && rd.layers.count_skipped);
   return '<div class="dd-section ' + (incomplete ? 'dd-section-warn' : 'dd-section-info') + '">'
-    + '<div class="dd-section-head"><span class="status-icon">🧭</span>Run coverage — what actually ran</div>'
+    + '<div class="dd-section-head"><span class="status-icon">🧭</span>Run coverage: what actually ran</div>'
     + '<div class="dd-section-body dd-run-coverage" style="font-size:12.5px;line-height:1.8">' + parts.join(' &nbsp;·&nbsp; ') + '</div></div>';
 }
 
@@ -1148,7 +1148,7 @@ function ddExtractVerdict(md) {
   const risk = ((md.match(/Risk classification:\s*([A-Z][A-Z\- ]+)/i) || [])[1]
             || (md.match(/\b(HARD[_-]?STOP|AMBER[- ]?LIGHT|GREEN[- ]?LIGHT|RED|AMBER|GREEN)\b/) || [])[1]
             || 'ASSESSED').trim();
-  let bottom = (md.match(/—\s*([^\n]{20,200})/) || [])[1] || '';
+  let bottom = (md.match(/—\s*([^\n]{20,200})/) || [])[1] || '';  // dash-is-data: parses report markdown
   bottom = bottom.replace(/[*_`]/g, '').trim();
   const grounded = (md.match(/Grounded rate:\s*(\d+%)/i) || [])[1] || '';
   const ghost = (md.match(/Ghost score[^:]*:\s*([\d\/]+)/i) || [])[1] || '';
@@ -1283,10 +1283,10 @@ async function toggleDetail(row, runId) {
       const _STATUS = {
         ok:          { cls: 'dd-section-ok',   banner: '' },
         error:       { cls: 'dd-section-err',  banner: '⚠ This check did NOT complete (ERROR)' },
-        prereq_fail: { cls: 'dd-section-err',  banner: '⚠ PREREQUISITE MISSING — this check could not run (zero signal)' },
-        skipped:     { cls: 'dd-section-warn', banner: '⊘ This check was SKIPPED — it did not run' },
-        partial:     { cls: 'dd-section-warn', banner: '◐ PARTIAL — this check did not fully complete' },
-        degraded:    { cls: 'dd-section-warn', banner: '◐ DEGRADED — a prerequisite was missing; results are self-reported / unverified' },
+        prereq_fail: { cls: 'dd-section-err',  banner: '⚠ PREREQUISITE MISSING. This check could not run (zero signal)' },
+        skipped:     { cls: 'dd-section-warn', banner: '⊘ This check was SKIPPED and did not run' },
+        partial:     { cls: 'dd-section-warn', banner: '◐ PARTIAL. This check did not fully complete' },
+        degraded:    { cls: 'dd-section-warn', banner: '◐ DEGRADED. A prerequisite was missing; results are self-reported / unverified' },
       };
       const _si = _STATUS[st] || { cls: 'dd-section-info', banner: '' };
       const sc = _si.cls;
@@ -1303,7 +1303,7 @@ async function toggleDetail(row, runId) {
       // company gets no extra chrome.
       if (sec.scope_is_group && sec.scope_entity) {
         h += '<div class="dd-scope-note"><i class="bi bi-diagram-3"></i> Scope: <b>'
-          + escText(sec.scope_entity) + '</b> — resolved by ' + escText(sec.scope_basis || 'name search')
+          + escText(sec.scope_entity) + '</b>, resolved by ' + escText(sec.scope_basis || 'name search')
           + '. Findings here may describe the wider group, not this legal entity alone.</div>';
       }
       // R-F2651 — never-false-clean: a layer that did not fully/honestly run must SAY SO.
@@ -1320,7 +1320,7 @@ async function toggleDetail(row, runId) {
       const _visible = (sec.findings || []).filter(f => !DD_DEBUG_FINDING_RE.test(String(f.title || '')));
       sec = Object.assign({}, sec, { findings: _visible });
       if (sec.findings && sec.findings.length) { for (const f of sec.findings) { h += '<div style="padding:7px 0;border-top:1px solid var(--sc-border,#26324a)"><div style="display:flex;gap:8px;align-items:flex-start">'+sevPill(f.severity)+'<div style="flex:1;min-width:0"><div style="font-weight:600">'+escText(f.title)+'</div>'+(f.detail?'<div style="font-size:12.5px;color:var(--sc-text,#cbd5e1);margin-top:2px;line-height:1.5">'+escText(f.detail)+'</div>':'')+fmtSource(f)+'</div></div></div>'; } }
-      else if (!(sec.highlights&&sec.highlights.length) && !(sec.evidence&&sec.evidence.length)) { h += '<div style="color:var(--sc-muted);font-size:12.5px">' + (st==='ok' ? 'No findings recorded.' : 'No findings captured — but this check did not fully run (see status above); this is NOT an all-clear.') + '</div>'; }
+      else if (!(sec.highlights&&sec.highlights.length) && !(sec.evidence&&sec.evidence.length)) { h += '<div style="color:var(--sc-muted);font-size:12.5px">' + (st==='ok' ? 'No findings recorded.' : 'No findings captured, but this check did not fully run (see status above); this is NOT an all-clear.') + '</div>'; }
       // R-F3098 — environment-level items, visually SUBORDINATE and clearly labelled.
       // On the Mitie report "Sovereign macro context: central-govt debt 130.7% of GDP"
       // (whose own text says "not a finding against this entity") and the USAspending
@@ -1330,7 +1330,7 @@ async function toggleDetail(row, runId) {
         const kinds = [...new Set(sec.context_findings.map(f => f.context_kind).filter(Boolean))];
         h += '<div class="dd-context-block"><div class="dd-context-head">'
           + escText(kinds.join(' · ') || 'Context')
-          + ' — about the environment, not about this entity</div>';
+          + ' (about the environment, not about this entity)</div>';
         for (const f of sec.context_findings) {
           h += '<div class="dd-context-item"><b>' + escText(f.title) + '</b>'
             + (f.detail ? '<div class="dd-context-detail">' + escText(f.detail) + '</div>' : '')
@@ -1346,7 +1346,7 @@ async function toggleDetail(row, runId) {
       if (!readiness || !drQuestions.length) return '';
       let h = '<div class="dd-section ' + (readiness.clearance_ready ? 'dd-section-ok' : 'dd-section-warn') + '">' +
         '<div class="dd-section-head"><span class="status-icon">' + (readiness.clearance_ready ? '✓' : '⚠') +
-        '</span>Decision readiness — ' + escText(readiness.status || 'NOT_CLEARED') +
+        '</span>Decision readiness: ' + escText(readiness.status || 'NOT_CLEARED') +
         '<span style="margin-left:auto;font-size:11px;color:var(--sc-muted);font-weight:400">' +
         escText(String(readiness.completion_pct || 0)) + '%</span></div><div class="dd-section-body">';
       for (const q of drQuestions) {
@@ -1727,10 +1727,10 @@ function parseReportSections(md) {
     }
 
     // Detect severity line (e.g. "*AMBER-LIGHT* — ?? LIMITED REGISTRY DATA")
-    if (line.startsWith('*') && line.includes('* —')) {
+    if (line.startsWith('*') && line.includes('* —')) {  // dash-is-data: markdown severity delimiter
       if (inHeader) {
         // This is the severity + description line in the header
-        const sevMatch = line.match(/^\*([^*]+)\*\s*[—–-]\s*(.+)/);
+        const sevMatch = line.match(/^\*([^*]+)\*\s*[—–-]\s*(.+)/);  // dash-is-data: markdown severity delimiter
         if (sevMatch) {
           sections.push({
             type: 'header',
@@ -2078,11 +2078,11 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
           const liveEl = document.getElementById('dd-run-live');
           if (liveEl) liveEl.innerHTML =
             '<span style="color:#b45309">⏳ Still running after ' +
-            Math.round((MAX_TRIES * 5) / 60) + ' min. This page has stopped watching — ' +
+            Math.round((MAX_TRIES * 5) / 60) + ' min. This page has stopped watching. ' +
             'the run has NOT been reported complete. It will appear in your reports ' +
             'below when it finishes; this list refreshes on its own.</span>';
           if (window.Toast) Toast.show(
-            'Due diligence for ' + name + ' is taking longer than usual — still running.',
+            'Due diligence for ' + name + ' is taking longer than usual, still running.',
             'info');
         };
         const poll = async () => {
@@ -2116,7 +2116,7 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
                   String(rep.error || 'see report').replace(/</g, '&lt;') + '</span>';
                 if (window.Toast) Toast.show('DD failed for ' + name, 'error');
               } else if (fu.blocksComplete) {
-                if (liveEl) liveEl.innerHTML = '<span style="color:#b45309">⚠ Report ready — ' +
+                if (liveEl) liveEl.innerHTML = '<span style="color:#b45309">⚠ Report ready. ' +
                   escText(fu.label) + '.</span><br><span style="color:#57534e;font-size:12px">' +
                   escText(fu.detail) + '</span>';
                 if (window.Toast) Toast.show(
