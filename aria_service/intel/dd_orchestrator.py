@@ -3277,6 +3277,186 @@ async def _rescreen_under_registered_name(
     return False
 
 
+# R-F3233 — legal-form suffixes, stripped before matching so a page naming
+# "Acme Holdings" still evidences "Acme Holdings Ltd". Kept deliberately short:
+# an over-long list starts stripping real name words.
+#
+# LEGAL FORMS ONLY. "Holdings", "Group" and "Company" are name words, not legal
+# forms — stripping them turned "Acme Holdings Ltd" into the single token
+# "acme", which then failed to match a page that plainly said "Acme Holdings".
+# The test that caught it is the reason this list stays narrow: anything that
+# can carry meaning in a name does not belong here.
+_LEGAL_SUFFIXES = {
+    "ltd", "limited", "llc", "llp", "lp", "inc", "incorporated", "plc", "corp",
+    "corporation", "sa", "sas", "sarl", "ag", "gmbh", "bv", "nv", "as", "asa",
+    "ab", "oy", "oyj", "aps", "srl", "spa", "pty", "pte", "kft", "zrt", "nyrt",
+    "sp", "zoo", "doo", "ooo", "jsc",
+}
+
+
+def _vault_text_names_subject(name: str, text: str) -> bool:
+    """R-F3233 — does this text actually NAME the subject?
+
+    The vault consult matched with `needle in text.lower()`. A bare substring
+    cites any page that merely CONTAINS the name as a fragment: "Acme Ltd"
+    matched "Acmetech Solutions", and a one-word name matched half the web.
+    This is the same name-coincidence class that put a fraud headline about an
+    unrelated person into a clean report's cited sources.
+
+    Two rules:
+
+    1. **Word boundaries, suffix-tolerant.** The subject's legal-form suffix is
+       stripped before matching, so a page saying "Acme Holdings announced"
+       evidences "Acme Holdings Ltd" — but "Acmetech" never evidences "Acme".
+
+    2. **A single word is not an identification.** "Apple", "Shell" and "Orange"
+       are ordinary nouns; citing a page because it contains one is a fabricated
+       link. Where stripping the suffix leaves ONE token, the FULL name is
+       required instead ("Equinor ASA" still matches), and a name that is one
+       token even with its suffix is refused outright. Abstaining loses a little
+       real signal; the alternative manufactures evidence, and on this product
+       that trade is not close.
+    """
+    subject = (name or "").strip().lower()
+    body = (text or "").lower()
+    if not subject or not body:
+        return False
+
+    tokens = [t for t in re.split(r"[^a-z0-9&]+", subject) if t]
+    if not tokens:
+        return False
+    core = [t for t in tokens if t not in _LEGAL_SUFFIXES]
+    # Fall back to the full name when stripping leaves nothing distinctive.
+    if len(core) < 2:
+        core = tokens
+    if len(core) < 2:
+        return False          # one token even with its suffix — not an identification
+
+    pattern = r"\b" + r"[\s\-,\.]+".join(re.escape(t) for t in core) + r"\b"
+    return re.search(pattern, body) is not None
+
+
+def _apply_registry_result(
+    report: "ARKDDReport",
+    reg_result: dict,
+    registration_number: str | None = None,
+) -> bool:
+    """R-F3231/R-F3232 — turn one registry-adapter result into report state.
+
+    THE SINGLE PLACE that decides whether a registry confirmed anything. It was
+    previously inline in `_run_identity` and gated on `if reg_result:` —
+    truthiness, not authority — which is how a stub that queried NO registry
+    produced a `confidence="CONFIRMED"` finding.
+
+    The authority test is `RegistryStatus.is_authority()`, the same closed
+    vocabulary `registry_coverage` already keys its liveness ledger on
+    (registry_adapters.py:219-228). Two different tests for one question is how
+    the two surfaces disagreed: the coverage ledger correctly recorded a stub as
+    "empty" while the report called the same result CONFIRMED.
+
+    Returns True when an authoritative registry answered.
+
+    Three rules:
+
+    1. **Never certify what was not established.** A non-authority result still
+       produces a finding — silence would be its own kind of dishonesty — but it
+       says no registry answered and carries UNCERTAIN confidence.
+    2. **A stub may not write identity fields.** `_build_us_stub` copies the
+       address it was GIVEN into its profile, so writing it back presents the
+       caller's own input as a registry finding. Nothing from a non-authority
+       result is written to the identity fields at all.
+    3. **Additive, never clobber (R-F2511).** This runs AFTER Companies House on
+       GB, and the adapter carries no GB officers, so an unconditional
+       assignment overwrote CH's directors with an empty list and real GB
+       companies showed 0 directors. Only ever fill what is still empty.
+    """
+    from .registry_adapters import RegistryStatus
+
+    if not reg_result:
+        return False
+
+    profile = reg_result.get("profile") or {}
+    adapter = str(reg_result.get("adapter") or "")
+    status = RegistryStatus.coerce(reg_result.get("registry_status"))
+    if status is None and adapter:
+        status = RegistryStatus.for_adapter(adapter)   # older results carry no field
+    is_authority = status is not None and status.is_authority()
+
+    # Carry the status onto the report FIRST. This is the field dd_schema's
+    # quality metrics read to refuse identity authority; it existing is the
+    # whole point of R-F3231, and a later `return` must not be able to skip it.
+    #
+    # Evidence only ever RATCHETS UP. A second application (primary then
+    # fallback) may replace a non-authority status with an authoritative one —
+    # that is strictly more evidence — but an authority already established is
+    # never demoted by a later stub. Writing it unconditionally would let a
+    # fallback stub erase a real registry answer; first-writer-wins would let a
+    # stub pin the report below the evidence actually obtained. Neither is
+    # reachable on today's control flow (the fallback loop only runs when the
+    # primary returned nothing at all), and that is exactly why it is pinned
+    # here rather than left to the caller to keep true.
+    if status is not None:
+        _current = RegistryStatus.coerce(report.identity.registry_status)
+        if _current is None or (is_authority and not _current.is_authority()):
+            report.identity.registry_status = status.value
+
+    # R-F3232 — the caveats the adapter wrote for exactly this case. Eighteen
+    # adapters build `result["data_gaps"]` — "US has no federal company
+    # registry", "UBO is NOT public; request the FinCEN BOI report", the exact
+    # manual-search URL — and nothing read a single one of them. De-duplicated
+    # because the identity layer may apply a primary and then a fallback result.
+    for gap in (reg_result.get("data_gaps") or []):
+        text = str(gap).strip()
+        if text and text not in report.identity.data_gaps:
+            report.identity.data_gaps.append(text)
+
+    report.identity.meta.subcalls += 1
+
+    if not is_authority:
+        # Say it plainly. An auditor asking "was this entity registry-verified?"
+        # must not have to infer the answer from a `_stub` suffix in a title.
+        report.identity.findings.append(Finding(
+            severity="info",
+            title="Registry not verified — no registry answered for this entity",
+            detail=(
+                f"The {adapter or 'registry'} path produced a result but it is "
+                f"not an authority ({(status.value if status else 'unknown')}): "
+                f"no national registry confirmed this entity. Identity is "
+                f"UNVERIFIED and must be established by hand — see the data gaps "
+                f"for the manual steps this adapter supplied."
+            ),
+            source=f"registry_adapters.{adapter or 'unknown'}",
+            confidence="UNCERTAIN",
+        ))
+        return False
+
+    report.identity.registration_number = (
+        report.identity.registration_number or profile.get("company_number")
+        or registration_number)
+    report.identity.registration_status = (
+        report.identity.registration_status or profile.get("company_status"))
+    report.identity.incorporation_date = (
+        report.identity.incorporation_date or profile.get("date_of_creation"))
+    report.identity.registered_address = (
+        report.identity.registered_address or profile.get("registered_office_address"))
+    report.identity.declared_activity = (
+        report.identity.declared_activity
+        or ", ".join(profile.get("sic_codes") or [])[:200])
+    report.identity.directors = (
+        report.identity.directors or reg_result.get("officers") or [])
+    report.identity.shareholders = (
+        report.identity.shareholders or reg_result.get("psc") or [])
+    report.identity.findings.append(Finding(
+        severity="info",
+        title=(f"Registry lookup: {adapter or 'registry'} "
+               f"({profile.get('company_status', 'unknown')})"),
+        detail=f"Source: {reg_result.get('source_url', 'registry adapter')}",
+        source=f"registry_adapters.{adapter or 'unknown'}",
+        confidence="CONFIRMED",
+    ))
+    return True
+
+
 async def _consult_vault_sources(name: str, jurisdiction: str, report: "ARKDDReport") -> int:
     """R-F2195 (Pipeline 3 of the vault review) — DD consults the operator-curated
     Agent Signup Vault for the entity.
@@ -3297,16 +3477,26 @@ async def _consult_vault_sources(name: str, jurisdiction: str, report: "ARKDDRep
     except Exception:
         return 0
 
-    sites = [
+    eligible = [
         e for e in entries
         if (e.get("site_type") or "").lower() in ("website", "rss")
         and (e.get("status") or "").lower() not in ("failed", "expired", "cancelled")
         and str(e.get("site_url") or "").startswith(("http://", "https://"))
-    ][:6]  # cap the per-run fetch
+    ]
+    _CAP = 6
+    sites = eligible[:_CAP]      # cap the per-run fetch
+    # R-F3233 — NO SILENT CAPS. Dropping sources without saying so reads as "we
+    # checked the curated sources", which is exactly what an operator who added
+    # them would believe. State what was not consulted.
+    if len(eligible) > _CAP:
+        report.identity.data_gaps.append(
+            f"Curated vault sources: {len(sites)} of {len(eligible)} eligible "
+            f"sources were consulted this run (per-run cap {_CAP}); "
+            f"{len(eligible) - _CAP} were not read."
+        )
     if not sites or not (name or "").strip():
         return 0
 
-    needle = name.lower().strip()
     added = 0
 
     async def _check(entry: dict) -> None:
@@ -3318,9 +3508,16 @@ async def _consult_vault_sources(name: str, jurisdiction: str, report: "ARKDDRep
         except Exception:
             return
         text = str((res or {}).get("text", "") or "")
-        if not text or needle not in text.lower():
+        # R-F3233 — the page must NAME the subject, not merely contain its
+        # letters. See _vault_text_names_subject.
+        if not text or not _vault_text_names_subject(name, text):
             return
-        idx = text.lower().find(needle)
+        # Anchor the snippet on the first token of the matched name so the
+        # quoted context is the mention itself, not an unrelated fragment.
+        _first = (re.split(r"[^A-Za-z0-9&]+", name.strip()) or [name])[0].lower()
+        idx = text.lower().find(_first)
+        if idx < 0:
+            idx = 0
         snippet = text[max(0, idx - 120): idx + 200].strip().replace("\n", " ")
         try:
             report.identity.findings.append(Finding(
@@ -4749,29 +4946,10 @@ async def _run_identity(
                         break
             if reg_result:
                 profile = reg_result.get("profile", {})
-                # R-F2511 — ADDITIVE, never clobber. This registry-adapter fallback runs
-                # in the `else` of `if registration_number:`; because the LOCAL
-                # registration_number stays None (CH/GLEIF populate report.identity, not
-                # the local var), it executes even for GB AFTER the Companies House block
-                # already set directors/PSC. The old unconditional assignment overwrote
-                # CH's officers with the adapter's EMPTY list (registry/GLEIF carry no GB
-                # officers — CH is the source) → the DD showed 0 directors for real GB
-                # companies. Only fill fields the CH block left empty.
-                report.identity.registration_number = report.identity.registration_number or profile.get("company_number") or registration_number
-                report.identity.registration_status = report.identity.registration_status or profile.get("company_status")
-                report.identity.incorporation_date = report.identity.incorporation_date or profile.get("date_of_creation")
-                report.identity.registered_address = report.identity.registered_address or profile.get("registered_office_address")
-                report.identity.declared_activity = report.identity.declared_activity or ", ".join(profile.get("sic_codes") or [])[:200]
-                report.identity.directors = report.identity.directors or reg_result.get("officers") or []
-                report.identity.shareholders = report.identity.shareholders or reg_result.get("psc") or []
-                report.identity.meta.subcalls += 1
-                report.identity.findings.append(Finding(
-                    severity="info",
-                    title=f"Registry lookup: {reg_result.get('adapter', jurisdiction_iso2)} ({profile.get('company_status', 'unknown')})",
-                    detail=f"Source: {reg_result.get('source_url', 'registry adapter')}",
-                    source=f"registry_adapters.{reg_result.get('adapter', 'unknown')}",
-                    confidence="CONFIRMED",
-                ))
+                # R-F3231 — ONE authority path. See _apply_registry_result: the
+                # decision "did a registry actually confirm this?" is made in a
+                # single place, from RegistryStatus, and never from truthiness.
+                _apply_registry_result(report, reg_result, registration_number)
                 # ── Virtual-office re-check on registry-returned address ──
                 # If the registry returned an address and the supplied_address
                 # check earlier did not fire (e.g. no address was supplied
