@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3207,
+  "next_available": 3225,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -26149,6 +26149,168 @@
       "commit_sha": "ede8b6b5",
       "notes": null,
       "shipped_at": "2026-07-26T23:55:18Z"
+    },
+    {
+      "r_number": "R-F3207",
+      "title": "vetting: document requirement model + core BS7858 doc set",
+      "claimed_at": "2026-07-27T07:20:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3208",
+      "title": "vetting: requirement findings wired into assess",
+      "claimed_at": "2026-07-27T07:20:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3209",
+      "title": "vetting: officer can read stored documents (list + decrypt view)",
+      "claimed_at": "2026-07-27T07:20:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3210",
+      "title": "vetting: declared doc type on upload (officer + portal)",
+      "claimed_at": "2026-07-27T07:20:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3211",
+      "title": "vetting: manual per-case document requirements",
+      "claimed_at": "2026-07-27T07:20:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3212",
+      "title": "vetting: screening stage tracker incl. interview record",
+      "claimed_at": "2026-07-27T07:20:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3213",
+      "title": "vetting: card redesign - DD-report-style case file",
+      "claimed_at": "2026-07-27T07:20:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3214",
+      "title": "vetting: BS 7858 clause coverage map + honest gaps",
+      "claimed_at": "2026-07-27T07:20:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3215",
+      "title": "vetting: BS 7858 knowledge wired to the brain",
+      "claimed_at": "2026-07-27T07:20:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3216",
+      "title": "vetting: latest_usable never used _version_key (R-F3175 fix unwired)",
+      "claimed_at": "2026-07-27T07:22:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3217",
+      "title": "sanctions screen fail-closed on any screen error",
+      "claimed_at": "2026-07-27T07:28:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3218",
+      "title": "entity-shape guard accepts bracketed legal-name segments",
+      "claimed_at": "2026-07-27T07:28:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3219",
+      "title": "adopt canonical registry name for name-resolved checks",
+      "claimed_at": "2026-07-27T07:28:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3220",
+      "title": "ownership chain render by hop depth not node list",
+      "claimed_at": "2026-07-27T07:28:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3221",
+      "title": "press relevance gate surname-only token",
+      "claimed_at": "2026-07-27T07:28:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3222",
+      "title": "DD report wording, dead BLUF block, country-risk partial",
+      "claimed_at": "2026-07-27T07:28:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3223",
+      "title": "vetting portal: applicant sees what is outstanding and labels each upload",
+      "claimed_at": "2026-07-27T07:44:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3224",
+      "title": "truthful news monitor counters and source deduplication",
+      "claimed_at": "2026-07-27T07:47:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

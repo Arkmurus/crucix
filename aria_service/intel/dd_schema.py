@@ -1285,10 +1285,62 @@ def _dd_entity_scope(r: dict) -> dict:
     is_subsidiary = bool(controllers) and not is_person
     immediate_parent = controllers[0] if controllers else None
 
-    # The deepest node the walker actually reached. NOT asserted to be the ultimate
-    # parent — only that the walk got there and stopped.
-    chain = [str(u.get("name") or "").strip()
-             for u in (net.get("ubo_chain") or []) if isinstance(u, dict) and u.get("name")]
+    # ── R-F3220 — A NODE LIST IS NOT A CHAIN ────────────────────────────────
+    #
+    # THE DEFECT (Rossi, 07101898). `network.ubo_chain` is assigned the `nodes`
+    # array of the walker's GRAPH (dd_orchestrator: `ubo_result["graph"]["nodes"]`)
+    # — an unordered set of everything the walk touched. This built a flat list of
+    # names from it and both renderers joined that list with arrows, so the report
+    # printed:
+    #
+    #   Chain traced: Rossi Security → ALKSMANTAS, Ernestas → DIMITROV, Dimitar
+    #                 Stoyanov → ROSSI, Cibele → CROOK, Benjamin Paul → …
+    #
+    # Read literally — and an arrow chain has exactly one literal reading — that
+    # asserts Alksmantas controls the subject, Dimitrov controls Alksmantas, and so
+    # on. None of it is true. Every node at hop_depth 1 is a SIBLING (a direct
+    # officer or PSC of the seed), and officers are not beneficial owners at all —
+    # the point R-F3027 already made about the scorecard, still unfixed in the
+    # RENDER. Worse, the one relationship the registry DID anchor — Rossi Support
+    # Services Ltd, 75-100% — appeared nowhere in the "chain".
+    #
+    # So: the arrow rendering is reserved for the ownership descent the registry
+    # actually anchored (subject → parent → …), and the walk is reported as what it
+    # is — parties traversed, grouped by hop, with the relationship named.
+    _HOP_LABELS = {
+        0: "subject",
+        1: "officers / PSCs of the subject",
+        2: "entities connected to those officers / PSCs",
+    }
+    _by_hop: dict[int, list[str]] = {}
+    _seen_party: set[str] = set()
+    for u in (net.get("ubo_chain") or []):
+        if not isinstance(u, dict):
+            continue
+        _nm = str(u.get("name") or "").strip()
+        if not _nm:
+            continue
+        # "ROSSI, Cibele" and "ROSSI, Cibele Rocha" are one person reached by two
+        # routes (officer record vs PSC record). Counting both inflates the traversal
+        # and invents a party. Collapse on the normalised name.
+        _key = " ".join(sorted(_re.findall(r"[a-z0-9]+", _nm.lower())))
+        if _key in _seen_party:
+            continue
+        _seen_party.add(_key)
+        try:
+            _hop = int(u.get("hop_depth") if u.get("hop_depth") is not None else u.get("hop") or 0)
+        except (TypeError, ValueError):
+            _hop = 0
+        _by_hop.setdefault(_hop, []).append(_nm)
+    parties_traversed = [
+        {"hop": h,
+         "relation": _HOP_LABELS.get(h, f"reached at hop {h}"),
+         "names": _by_hop[h]}
+        for h in sorted(_by_hop)
+    ]
+    # The ownership descent — arrows are legitimate here because each step IS a
+    # control edge the registry recorded. Only rendered when there is a real descent.
+    chain = ([subject] + [c["name"] for c in controllers]) if (subject and controllers) else []
     deepest_traced = chain[-1] if chain else None
 
     warnings: list[str] = []
@@ -1339,6 +1391,10 @@ def _dd_entity_scope(r: dict) -> dict:
         "controllers": controllers,
         "ownership_chain_traced": chain,
         "deepest_node_traced": deepest_traced,
+        # R-F3220 — what the walk actually reached, by hop, with the relationship
+        # named. Replaces the arrow-joined node list.
+        "parties_traversed": parties_traversed,
+        "parties_traversed_count": sum(len(p["names"]) for p in parties_traversed),
         "layers": layers,
         "warnings": warnings,
     }
@@ -1357,6 +1413,22 @@ def _sanctions_match_metric(screen) -> str | None:
     accounted for is indistinguishable from a match never found."""
     if not isinstance(screen, dict) or not screen:
         return None
+    # ── R-F3217 — a screen that never RAN has no match count to report ───────
+    #
+    # Live on the Rossi DD: `screen_with_aliases` returned
+    # `{"error": "not_entity_shaped"}` having queried nothing, `classify_matches`
+    # dutifully classified the empty match list as 0 actionable / 0 noise, and this
+    # chip printed "Sanctions matches: none" in the identity panel — the third
+    # surface (with the CLEAN finding and the quality metric) to publish a clean
+    # that was never performed. "none found" and "never looked" are the two
+    # readings this product exists to keep apart.
+    # Positive evidence of failure only. A blob written before R-F1696 carries no
+    # `screened` key, and absence of a field is not evidence of a negative
+    # (R-F2693) — treating it as one would retract already-delivered reports. The
+    # live path always sets `error` when a screen does not run, so failing closed
+    # on `error` (plus an explicit False) is sufficient without guessing.
+    if screen.get("error") or screen.get("screened") is False:
+        return "NOT SCREENED — see data gaps"
     cls = screen.get("match_classification")
     if not isinstance(cls, dict):
         # Legacy blob written before the classification was persisted. Do NOT
@@ -1462,9 +1534,15 @@ def _quality_metrics(r: dict) -> dict:
         or bool(adverse.get("skipped") or adverse.get("error"))
     )
     sanctions_screen = ident.get("sanctions_screen") or {}
+    # R-F3217 — ANY error means the screen did not produce evidence, so the
+    # 25-point penalty must fire. Matching the single string
+    # "sanctions_source_unavailable" let `not_entity_shaped` (Rossi: zero lists
+    # queried) score IDENTICALLY to a completed screen — the same enumerate-the-
+    # known-failures mistake the orchestrator's CLEAN branch made.
     sanctions_unavailable = bool(
         sanctions_screen.get("source_unavailable")
-        or sanctions_screen.get("error") == "sanctions_source_unavailable"
+        or sanctions_screen.get("error")
+        or sanctions_screen.get("screened") is False
     )
     export_control = comp.get("export_control") or {}
     export_checked = bool(
@@ -1506,8 +1584,13 @@ def _quality_metrics(r: dict) -> dict:
     _registry_is_authority = registry_substance and (
         _reg_status is None or _reg_status.is_authority()
     )
+    # R-F3217 — `verified_sources` is populated even when every entry reads
+    # UNAVAILABLE (derive_verified_sources emits the full canonical table on a
+    # failed screen), so its mere presence never evidenced an authority. Require
+    # the screen to have run.
     identity_authority = bool(
-        _registry_is_authority or sanctions_screen.get("verified_sources")
+        _registry_is_authority
+        or (sanctions_screen.get("verified_sources") and not sanctions_unavailable)
     )
     # R-F2658 — did the identity/registry layer actually RUN, or did it error / get
     # clamped under load? A missing registry substance means "genuinely thin entity"
@@ -1662,8 +1745,13 @@ def _quality_penalties(metrics: dict) -> list[tuple[int, str]]:
         (metrics["memory_only_sources"]
          and metrics["memory_only_sources"] * 2 >= max(metrics["press_total"], 1), 15,
          "live web returned memory-only evidence"),
+        # R-F3222 — this fires when ZERO citations were CHECKED, so saying none were
+        # "grounded by source verifier" names the wrong obstacle twice over: it
+        # implies the verifier ran and found nothing groundable, on a report whose
+        # verification panel separately states independent source verification was
+        # NOT run. The reader is sent to fix a step that never executed.
         (metrics["citations_checked"] == 0, 20,
-         "no citations were grounded by source verifier"),
+         "no citation was checked against its source — the grounding step never ran"),
         (low_citation_rate, 15,
          f"citation grounding rate below 80% ({citation_rate_text})"),
         (metrics["adverse_media_skipped"], 15,
@@ -2693,7 +2781,14 @@ def structured_view(r: dict) -> dict:
         ], kind="core"),
         # 2) COMPLIANCE & SANCTIONS — the decision drivers (core)
         _sv_section("compliance", "Compliance & Sanctions", "⚖", comp, [
-            ("Country risk", cr.get("headline_risk") or cr.get("risk_level")),
+            # R-F3222 — say which inputs the chip actually had. The headline comes
+            # from the sanctions/embargo regime; when the World Bank governance
+            # overlay did not answer, a bare "GREEN" overstates what was assessed.
+            ("Country risk", (
+                (lambda _h: (f"{_h} (sanctions/embargo regime only — governance "
+                             "overlay did not complete)")
+                 if _h and cr.get("governance_overlay_complete") is False else _h)
+            )(cr.get("headline_risk") or cr.get("risk_level"))),
             ("Financial health", fin.get("health_verdict")),
             ("Export control", ec.get("recommendation")),
             ("Sanctions regimes", ", ".join(comp.get("sanctions_regimes") or []) or None),

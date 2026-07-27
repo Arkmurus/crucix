@@ -3141,6 +3141,93 @@ async def _identity_primary_source_screen(
     return hard_stop
 
 
+async def _rescreen_under_registered_name(
+    report: "ARKDDReport", registered_name: str, supplied_name: str,
+) -> bool:
+    """R-F3219 — screen the REGISTERED name once the registry has resolved the subject.
+
+    The identity sanctions screen runs before the Companies House lookup, so it can
+    only ever use the string the customer typed. When the register then resolves a
+    DIFFERENT legal name, the screen on record does not cover the entity this report
+    is about. Asserting that it does would be the §22 failure — claiming coverage we
+    cannot show — so we screen the registered name too.
+
+    Additive and fail-safe: a corroborated hit escalates (returns True), a clean
+    result only records that this name was screened as well, and any failure is
+    written as a data gap rather than swallowed. Never replaces a screen that ran
+    with one that did not.
+    """
+    from . import sanctions
+    from ._sanctions_classify import classify_matches, derive_verified_sources
+
+    prev = (report.identity.sanctions_screen
+            if isinstance(report.identity.sanctions_screen, dict) else {})
+    already = {str(n).casefold() for n in (prev.get("aliases_checked") or [])}
+    if registered_name.casefold() in already:
+        return False                      # R-F3218 split may already have covered it
+
+    screen = await sanctions.screen_with_aliases(
+        registered_name, known_aliases=[supplied_name] if supplied_name else None)
+    report.identity.meta.subcalls += 1
+    if (not isinstance(screen, dict) or screen.get("error")
+            or screen.get("screened") is not True):
+        report.identity.data_gaps.append(
+            f"registered-name sanctions re-screen did not run for {registered_name!r} "
+            f"({(screen or {}).get('error') or 'screen not performed'}) — the screen on "
+            f"record covers {supplied_name!r} only"
+        )
+        return False
+
+    matches = list(screen.get("matches") or [])
+    screen["verified_sources"] = derive_verified_sources(matches, screen_succeeded=True)
+    if not screen.get("screened_at"):
+        screen["screened_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # Preserve what the first pass covered, so the record shows every name screened
+    # rather than only the last one.
+    screen["aliases_checked"] = list(dict.fromkeys(
+        [*(prev.get("aliases_checked") or []), *(screen.get("aliases_checked") or [])]
+    ))
+    classified = classify_matches(matches, query_name=registered_name)
+    _noise = int(classified.get("noise_filtered") or 0)
+    _total = int(classified.get("total_matches") or len(matches))
+    screen["match_classification"] = {
+        "total": _total,
+        "noise_filtered": _noise,
+        "actionable": max(0, _total - _noise),
+        "worst_severity": classified.get("worst_severity"),
+    }
+    report.identity.sanctions_screen = screen
+
+    _worst = classified.get("worst_severity")
+    if _worst in ("hard_stop", "red", "amber"):
+        report.identity.findings.append(Finding(
+            severity=("hard_stop" if _worst == "hard_stop" else _worst),
+            title=(f"Sanctions/PEP match under the REGISTERED name "
+                   f"{registered_name!r} ({_worst})"),
+            detail=(
+                f"{classified.get('summary', '')} — surfaced only after the subject "
+                f"was resolved to its registered name; the screen on the supplied "
+                f"name {supplied_name!r} did not carry it."
+            ),
+            source="sanctions.screen_with_aliases:R-F3219",
+            confidence="PROBABLE" if _worst != "hard_stop" else "CONFIRMED",
+        ))
+        return _worst == "hard_stop"
+
+    report.identity.findings.append(Finding(
+        severity="info",
+        title="Sanctions re-screened under the registered legal name — no matches",
+        detail=(
+            f"{registered_name} was screened in its own right (the first screen ran on "
+            f"{supplied_name!r}). No matches. Lists that answered are listed under the "
+            "sanctions screen record; check the data gaps for any that did not."
+        ),
+        source="sanctions.screen_with_aliases:R-F3219",
+        confidence="CONFIRMED",
+    ))
+    return False
+
+
 async def _consult_vault_sources(name: str, jurisdiction: str, report: "ARKDDReport") -> int:
     """R-F2195 (Pipeline 3 of the vault review) — DD consults the operator-curated
     Agent Signup Vault for the entity.
@@ -3834,7 +3921,38 @@ async def _run_identity(
                     source="sanctions.screen_with_aliases",
                     confidence="ASSESSED",
                 ))
-        elif screen.get("source_unavailable") or screen.get("error") == "sanctions_source_unavailable":
+        elif (
+            screen.get("source_unavailable")
+            or screen.get("error")
+            or screen.get("screened") is not True
+        ):
+            # ── R-F3217 — FAIL CLOSED ON *ANY* UNPERFORMED SCREEN ───────────
+            #
+            # THE DEFECT, live on the Rossi DD (subject
+            # "Rossi Security (Rossi Facility Services Ltd)"). This branch tested
+            # exactly TWO keys — `source_unavailable` and the single error string
+            # "sanctions_source_unavailable" — so every OTHER way a screen can fail
+            # to run fell through to the CLEAN `else` below and was published as
+            # "Sanctions screen CLEAN · CONFIRMED".
+            #
+            # The name never reached OpenSanctions at all: `_looks_like_entity_name`
+            # rejects a token beginning "(" (sanctions.py), so `screen_with_aliases`
+            # returned `{"error": "not_entity_shaped"}` with ZERO calls made. Neither
+            # tested key was set. The "CLEAN" prose then named a list — "UK OFSI —
+            # HM Treasury Consolidated List" — purely because R-F740's OFSI direct
+            # adapter writes its entry OUTSIDE the entity-shape gate, so one real
+            # lookup dressed an unperformed screen as an evidenced clearance.
+            #
+            # The decision scorecard was right the whole time (`dd_schema` rejects
+            # ANY error), which is exactly why the report contradicted itself: the
+            # body said CLEAN on the same page the scorecard said UNRESOLVED.
+            #
+            # Enumerating failure keys is the bug. A screen is CLEAN only when it
+            # PROVABLY ran — `screened is True` and no error — and anything else is
+            # UNVERIFIED. That closes the class, not this one instance:
+            # "no valid names to screen", a future error string, or a screen dict
+            # that carries no `screened` field at all now all fail closed.
+            #
             # R-F1696: ZERO matches but the source NEVER ANSWERED. This is the
             # catastrophic false-negative class — pre-fix this branch stamped
             # "Sanctions screen CLEAN — CONFIRMED — treat as clearance" on an
@@ -3842,13 +3960,34 @@ async def _run_identity(
             # rate-limited/breaker-open). NEVER report an unscreenable entity as
             # clear: surface it as UNVERIFIED + a hard data-gap so the verdict
             # cannot read as a clearance.
-            _reasons = ", ".join((screen.get("source_reasons") or [])[:4]) or "source unreachable"
+            # R-F3217 — name the REASON THIS screen failed. Telling a reader the
+            # source was unreachable when the truth is "we never asked, because the
+            # name we were given is not screenable" sends them to check a system
+            # that is working (the R-F3125 wrong-obstacle defect).
+            _err = str(screen.get("error") or "").strip()
+            _reasons = ", ".join((screen.get("source_reasons") or [])[:4])
+            if _err == "not_entity_shaped":
+                _why = (
+                    f"the subject name as supplied ({name!r}) was not accepted as an "
+                    "entity name by the screening guard, so NO list was queried. "
+                    "Re-run with the registered legal name (no bracketed or "
+                    "descriptive text) to screen it."
+                )
+            elif _err and _err != "sanctions_source_unavailable":
+                _why = (
+                    f"the screen did not run ({_err}), so NO list was queried."
+                )
+            else:
+                _why = (
+                    "the sanctions source (OpenSanctions / primary lists) could not "
+                    f"be reached ({_reasons or 'source unreachable'}), so NO screen "
+                    "was performed."
+                )
             report.identity.findings.append(Finding(
                 severity="amber",
-                title="Sanctions screen NOT performed — source unavailable",
+                title="Sanctions screen NOT performed — UNVERIFIED",
                 detail=(
-                    f"{name} — the sanctions source (OpenSanctions / primary lists) "
-                    f"could not be reached ({_reasons}), so NO screen was performed. "
+                    f"{name} — {_why} "
                     f"This is UNVERIFIED — it is NOT a clearance. A re-screen against "
                     f"OFAC SDN / UK OFSI / EU / UN is required before relying on this."
                 ),
@@ -3856,9 +3995,25 @@ async def _run_identity(
                 confidence="UNCERTAIN",
             ))
             report.identity.data_gaps.append(
-                "sanctions screen did not complete — source unavailable "
+                f"sanctions screen did not complete — {_err or 'source unavailable'} "
                 "(UNVERIFIED, must re-screen; not a clearance)"
             )
+            # §21e — a screen that cannot run on a normal customer-supplied name is a
+            # capability gap, not a one-off: record it so the loop can see the class.
+            if _err and _err != "sanctions_source_unavailable":
+                try:
+                    from . import capability_gaps
+                    _sg = asyncio.create_task(capability_gaps.record_gap(
+                        gap_type="module_bug",
+                        detail=(f"[R-F3217] sanctions screen skipped for {name!r}: "
+                                f"{_err} — no list queried"),
+                        source="dd_orchestrator._run_identity:sanctions",
+                    ))
+                    _sg.add_done_callback(
+                        lambda t: t.result()
+                        if not t.cancelled() and not t.exception() else None)
+                except Exception:
+                    pass
         else:
             # Clean screen — zero matches across the full alias/variant set,
             # AND the source actually answered (screened=True / no error).
@@ -4132,6 +4287,61 @@ async def _run_identity(
                     # genuine live CH profile clears the flag — GLEIF/vault fallback cannot
                     # populate a CH profile — so this stays never-false-clean.
                     _ch_registry_verified_live = _ch_verified_live(profile, _ch_unavail)
+                    # ── R-F3219 — ADOPT THE NAME THE REGISTER ACTUALLY HOLDS ────
+                    #
+                    # THE DEFECT (Rossi, 07101898). This block adopts the company
+                    # NUMBER, STATUS, DATE and ADDRESS from the resolved Companies
+                    # House profile — but never the NAME. `entity_name` stayed the
+                    # raw string the customer typed, "Rossi Security (Rossi Facility
+                    # Services Ltd)", for the whole run. Everything downstream that
+                    # resolves BY NAME then ran on a string that exists in no
+                    # register:
+                    #   · the FCA Register lookup (:4318 below, which runs AFTER this
+                    #     block) searched the composite and of course matched nothing,
+                    #     reported as "no authorised firm matched";
+                    #   · the R-F1631 press-relevance tokens were derived from it;
+                    #   · the R-F3123 ambiguity finding scored a 0.67 "no exact
+                    #     distinctive-name match" against the composite — an artefact
+                    #     of our own input handling, printed as a fact about the
+                    #     register.
+                    # Once the registry has RESOLVED the subject, the registered name
+                    # is the authoritative one. The supplied string is kept (target.*
+                    # already persists it) and the swap is disclosed, so this narrows
+                    # nothing and hides nothing — R-F3123's ambiguity disclosure is
+                    # untouched and still fires.
+                    _ch_name = str(profile.get("company_name") or "").strip()
+                    _supplied_name = str(report.identity.entity_name or "").strip()
+                    if (_ch_name and _ch_registry_verified_live
+                            and _ch_name.casefold() != _supplied_name.casefold()):
+                        report.identity.entity_name = _ch_name
+                        report.identity.findings.append(Finding(
+                            severity="info",
+                            title="Subject name resolved to the registered legal name",
+                            detail=(
+                                f"Searched as {_supplied_name!r}; Companies House "
+                                f"holds this entity as {_ch_name!r} "
+                                f"({profile.get('company_number') or '?'}). Later "
+                                "name-resolved checks (FCA Register, press and "
+                                "adverse-media relevance) use the registered name. "
+                                "Where the supplied text is a trading or brand name, "
+                                "coverage found under it may describe the wider group."
+                            ),
+                            source="companies_house.profile:R-F3219",
+                            confidence="CONFIRMED",
+                        ))
+                        # The sanctions screen already ran, on the supplied string.
+                        # Re-screen under the registered name rather than assert the
+                        # earlier result covers it (§22 — do not claim coverage you
+                        # cannot show). Additive: a HIT escalates, a clean result only
+                        # records that this name was screened too.
+                        try:
+                            if await _rescreen_under_registered_name(
+                                    report, _ch_name, _supplied_name):
+                                hard_stop = True
+                        except Exception as _rs_e:      # noqa: BLE001
+                            logger.debug(
+                                "[R-F3219] re-screen under registered name skipped: %s",
+                                _rs_e)
                     if profile.get("company_number"):
                         report.identity.registration_number = profile.get("company_number")
                     report.identity.registration_status = profile.get("company_status") or report.identity.registration_status
@@ -5159,6 +5369,14 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                 report.compliance.data_gaps.append(
                     f"WB Indicators overlay unavailable for {iso2_for_overlay}: {str(overlay.get('error'))[:120]}"
                 )
+            # R-F3222 — the country-risk CHIP is computed from the sanctions/embargo
+            # regime alone, so it renders (e.g. "GREEN") whether or not the governance
+            # overlay answered. Live on the Rossi DD the chip read GREEN two lines
+            # above its own gap saying the overlay timed out — a complete-looking
+            # verdict standing on a check that did not finish. Flag it so the chip can
+            # say which inputs it actually had.
+            if not overlay.get("ok") and isinstance(report.compliance.country_risk, dict):
+                report.compliance.country_risk["governance_overlay_complete"] = False
     except Exception as e:
         logger.debug("Compliance: WB Indicators overlay failed (non-fatal): %s", e)
 
@@ -5592,7 +5810,41 @@ def _press_hit_is_relevant(title: str, snippet: str, url: str, distinctive_token
 
     # Aboutness signal: title or URL (host + slug), excluding the snippet.
     hay = _norm(f"{title or ''} {url or ''}")
-    return any(t in hay for t in distinctive_tokens)
+    hits = [t for t in distinctive_tokens if t in hay]
+    if not hits:
+        return False
+    # ── R-F3221 — ONE token is not aboutness when that token is a SURNAME ────
+    #
+    # THE DEFECT (Rossi, 07101898). The gate returned True on any single token
+    # hit. For "Rossi Security (Rossi Facility Services Ltd)" the distinctive set
+    # is {rossi, facility}, so a bare "rossi" carried:
+    #   · "George Rossi" — an unrelated individual
+    #   · "Unsealed suits against Rossi, Reditus allege widespread fraud and
+    #      corruption" — a US case about different people entirely
+    # Both were published in Cited sources of a report whose adverse-media section
+    # said "nothing found in the sources searched". A partner reading that page
+    # sees a fraud headline sitting inside a clean file; the two filters disagreed
+    # because they were never the same filter.
+    #
+    # When the entity has MORE THAN ONE distinctive token, requiring two of them
+    # (or one that is not merely a family name in a name-shaped title) is the
+    # difference between "about this company" and "shares a surname". Single-token
+    # entities are unchanged — there is nothing stronger to ask of them.
+    if len(distinctive_tokens) > 1 and len(hits) < 2:
+        # A single token IS aboutness when it is in the HOST: rossisecurity.co.uk
+        # is the entity's own domain, whereas ciproud.com/rossi-reditus only
+        # mentions the word in a slug. This keeps the subject's own site and
+        # directory entries (which a one-token rule would otherwise drop along with
+        # the noise) without readmitting third-party coverage of a namesake.
+        _host = ""
+        try:
+            from urllib.parse import urlparse as _up
+            _host = _norm(_up(str(url or "")).netloc)
+        except Exception:                                   # noqa: BLE001
+            _host = ""
+        if not any(t in _host for t in hits):
+            return False
+    return True
 
 
 # ── R-F1636 — registry-gap enrichment (rich data for no-registry targets) ────
@@ -10755,51 +11007,14 @@ def _refresh_persisted_decision_readiness(body: dict) -> dict:
     body["next_actions"] = _bluf["next_actions"]
     return readiness
 
-    # ── R-F3092 — SAY EACH THING ONCE ───────────────────────────────────────
-    #
-    # THE DEFECT (Mitie, operator report 2026-07-26). One 60-word blocker paragraph
-    # ("financial capacity is unknown — Companies House holds accounts made up to
-    # 2025-03-31 … figures would need the issuer's own published annual report")
-    # appeared FOUR times on a single page: pasted into `bottom_line`, again as the
-    # scorecard row's blocker, again under "Recommended next actions" as a verbatim
-    # restatement, and again in the data gaps. The reader has to re-read the same
-    # sentence four times to discover it is the same sentence.
-    #
-    # `bottom_line` now names the unresolved QUESTIONS; their detail lives on the
-    # scorecard row that owns it. `next_actions` become ACTIONS — what to do next —
-    # instead of "Resolve decision-readiness blocker: <the blocker text again>".
-    blockers = list(readiness.get("blocking_reasons") or [])
-    _questions = readiness.get("questions") if isinstance(readiness.get("questions"), dict) else {}
-    _unanswered = [(k, q) for k, q in _questions.items()
-                   if isinstance(q, dict) and not q.get("answered")]
-    _labels = [str(q.get("label") or k) for k, q in _unanswered]
-    _open_clause = (
-        "; ".join(_labels[:3]) + (f" (+{len(_labels) - 3} more)" if len(_labels) > 3 else "")
-        if _labels else "decision-critical coverage is incomplete"
-    )
-    body["bottom_line"] = (
-        f"🟡 NOT CLEARED — {name} has no blocking risk in the checks that completed, "
-        f"but {_coverage_clause(readiness)}. Unresolved: {_open_clause}. "
-        "Each is explained on the decision-readiness scorecard. This is not a clean "
-        "bill and the standard contracting path is NOT available."
-    )
-    body["recommendation"] = (
-        "Do not rely on this report for counterparty clearance. Resolve every item in the "
-        "decision-readiness scorecard, then re-run or obtain independent commercial DD."
-    )
-    _actions = [_DECISION_REMEDIES[k] for k, _q in _unanswered if k in _DECISION_REMEDIES]
-    if not readiness.get("evidence_ready"):
-        _actions.append(
-            "Raise evidence grade to A: obtain corroboration from a second independent "
-            "reputable source for the claims currently carried by one source."
-        )
-    # Anything without a codified remedy still has to be actionable, not silent.
-    _uncodified = [str(q.get("label") or k) for k, q in _unanswered if k not in _DECISION_REMEDIES]
-    if _uncodified:
-        _actions.append("Resolve the remaining scorecard item(s): " + "; ".join(_uncodified))
-    body["next_actions"] = _actions or (
-        ["Complete all five decision-critical DD checks"] if blockers else [])
-    return readiness
+    # R-F3222 — a 46-line copy of the BLUF composition sat here, UNREACHABLE
+    # after the `return readiness` above. R-F3116 moved the live logic into
+    # `compose_decision_bluf`, which both writers now call, but left the dead
+    # copy in place. Deleted: this file has already shipped three defects caused
+    # by a second writer (R-F3019→R-F3031→R-F3038, R-F3039→R-F3050,
+    # R-F3091/R-F3092 reaching only one path), and an unreachable copy of the
+    # exact function that caused them is the next one waiting to happen — an
+    # edit here would look correct, test green in isolation, and change nothing.
 
 
 # R-F3092 — what to DO about each unanswered decision-critical question. Keyed by
@@ -10910,13 +11125,34 @@ def compose_decision_bluf(readiness: dict, name: str) -> dict:
     uncodified = [str(q.get("label") or k) for k, q in unanswered if k not in _DECISION_REMEDIES]
     if uncodified:
         actions.append("Resolve the remaining scorecard item(s): " + "; ".join(uncodified))
-    return {
-        "bottom_line": (
-            f"🟡 NOT CLEARED — {name} has no blocking risk in the checks that "
-            f"completed, but {_coverage_clause(readiness)}. Unresolved: {open_clause}. "
+    # ── R-F3217 — DO NOT LEAD WITH REASSURANCE WHEN THE SCREEN IS THE GAP ────
+    #
+    # "has no blocking risk in the checks that completed" is literally true and
+    # reads as a clean bill. That is tolerable when the open questions are
+    # secondary, and misleading when the OPEN question is sanctions: the check
+    # whose entire purpose is to find blocking risk did not run, so "no blocking
+    # risk" is an artefact of not having looked. On the Rossi report this sentence
+    # opened a file whose sanctions screen had queried nothing at all.
+    _sanctions_open = any(k == "sanctions_export_control" for k, _q in unanswered)
+    if _sanctions_open:
+        _bottom = (
+            f"🟡 NOT CLEARED — for {name}, the check whose purpose is to find "
+            f"blocking risk (sanctions and export-control screening) is NOT "
+            f"satisfied, so this report cannot state whether blocking risk exists. "
+            f"Coverage: {_coverage_clause(readiness)}. Unresolved: {open_clause}. "
             "Each is explained on the decision-readiness scorecard. This is not a "
             "clean bill and the standard contracting path is NOT available."
-        ),
+        )
+    else:
+        _bottom = (
+            f"🟡 NOT CLEARED — {name} has no blocking risk in the checks that "
+            f"completed, but {_coverage_clause(readiness)}. Unresolved: "
+            f"{open_clause}. Each is explained on the decision-readiness scorecard. "
+            "This is not a clean bill and the standard contracting path is NOT "
+            "available."
+        )
+    return {
+        "bottom_line": _bottom,
         "recommendation": (
             "Do not rely on this report for counterparty clearance. Resolve every item "
             "in the decision-readiness scorecard, then re-run or obtain independent "

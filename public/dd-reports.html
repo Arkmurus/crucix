@@ -1005,8 +1005,23 @@ function renderEntityScope(scope) {
           : ' <span style="color:#fbbf24">— no registration number; chain not walked</span>')
       + '</div>';
   }
+  // R-F3220 — arrows only for the ownership descent the registry anchored. The
+  // walk's node list is reported as parties reached, grouped by hop, because a set
+  // of siblings joined by arrows reads as a control chain that does not exist.
   if (chain.length > 1) {
-    h += '<div><b>Chain traced:</b> ' + chain.map(escText).join(' → ') + '</div>';
+    h += '<div><b>Ownership chain (registry-anchored):</b> '
+      + chain.map(escText).join(' → ') + '</div>';
+  }
+  const parties = Array.isArray(scope.parties_traversed) ? scope.parties_traversed : [];
+  for (const p of parties) {
+    if (!p || !Array.isArray(p.names) || !p.names.length || p.hop === 0) continue;
+    h += '<div><b>Parties traversed — ' + escText(p.relation || ('hop ' + p.hop))
+      + ':</b> ' + p.names.map(escText).join('; ') + '</div>';
+  }
+  if (parties.some(p => p && p.hop > 0)) {
+    h += '<div style="margin-top:5px;color:var(--sc-muted)">These parties were reached'
+      + ' by the ownership/officer walk. Being listed here is not an assertion of'
+      + ' control: officers and PSC records are separate relationships.</div>';
   }
   for (const w of (scope.warnings || [])) {
     h += '<div style="margin-top:7px;color:#fbbf24">' + escText(w) + '</div>';
@@ -1400,7 +1415,8 @@ async function toggleDetail(row, runId) {
       if (_sectionGaps.size) {
         detailHtml += '<div style="font-size:11.5px;color:var(--sc-muted);margin-top:'
           + (_extraGaps.length ? '8px' : '0') + '">'
-          + _sectionGaps.size + ' further gap(s) are shown on the section each one belongs to.</div>';
+          + _sectionGaps.size + ' further gap' + (_sectionGaps.size === 1 ? ' is' : 's are')
+          + ' shown within the section it belongs to.</div>';
       }
       detailHtml += '</div></div>';
     }

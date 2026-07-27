@@ -27,11 +27,19 @@ from aria_service.intel import financial_health as fh
 def test_rf3038_both_screen_assignment_sites_stamp_a_date():
     import inspect
     src = inspect.getsource(ddo)
-    # there are two assignments; both must carry the stamp
-    assert src.count("report.identity.sanctions_screen = ") == 2, (
-        "if a third appears, it needs the stamp too")
+    # R-F3219 added a THIRD site — the re-screen under the registered legal name,
+    # once Companies House resolves a different name from the one supplied. This
+    # test's own instruction was "if a third appears, it needs the stamp too", so
+    # the count moves and the new site is held to the same rule below.
+    assert src.count("report.identity.sanctions_screen = ") == 3, (
+        "if a fourth appears, it needs the stamp too")
     assert '"screened_at": datetime.now(timezone.utc)' in src      # site 1 (R-F3031)
     assert 'screen["screened_at"] = datetime.now(timezone.utc)' in src  # site 2 (R-F3038)
+    # site 3 (R-F3219) — stamped before it is assigned, same never-overwrite rule
+    import re as _re
+    _rescreen = inspect.getsource(ddo._rescreen_under_registered_name)
+    assert 'screen["screened_at"] = datetime.now(timezone.utc)' in _rescreen
+    assert 'if not screen.get("screened_at")' in _rescreen
 
 
 def test_rf3038_existing_stamp_is_never_overwritten():

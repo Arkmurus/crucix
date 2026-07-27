@@ -51,7 +51,37 @@ test('R-F3091: a subsidiary report states its scope and names the controller', (
   assert.ok(s.includes('02938041'), 'its registration number');
   assert.ok(s.includes('Mitie Treasury Management Limited'), 'the controller');
   assert.ok(s.includes('07351242'), 'the controller registration number');
-  assert.ok(s.includes('Chain traced'), 'the walk that was actually performed');
+  // R-F3220 — the label is now 'Ownership chain (registry-anchored)'. The arrow
+  // rendering is reserved for a real control descent; the walk's node list is
+  // reported separately as parties traversed, because joining sibling officers
+  // with arrows asserted a control chain that did not exist (Rossi, 07101898).
+  assert.ok(s.includes('Ownership chain (registry-anchored)'),
+    'the control descent the registry actually anchored');
+  assert.ok(!s.includes('Chain traced'),
+    'the old label read as a control chain over an unordered node list');
+});
+
+test('R-F3220: officer nodes render as parties traversed, never as a chain', () => {
+  const s = flat({
+    subject_name: 'ROSSI FACILITY SERVICES LTD',
+    subject_registration: '07101898',
+    is_subsidiary: true,
+    immediate_parent: {
+      name: 'Rossi Support Services Ltd', registration_number: '14833360', anchored: true },
+    ownership_chain_traced: ['ROSSI FACILITY SERVICES LTD', 'Rossi Support Services Ltd'],
+    parties_traversed: [
+      { hop: 0, relation: 'subject', names: ['ROSSI FACILITY SERVICES LTD'] },
+      { hop: 1, relation: 'officers / PSCs of the subject',
+        names: ['ALKSMANTAS, Ernestas', 'DIMITROV, Dimitar Stoyanov'] },
+    ],
+    warnings: [],
+  });
+  assert.ok(s.includes('Parties traversed - officers / PSCs of the subject'),
+    'the relationship must be named');
+  assert.ok(s.includes('ALKSMANTAS, Ernestas; DIMITROV, Dimitar Stoyanov'),
+    'siblings are listed as siblings');
+  assert.ok(!/ALKSMANTAS[^\n]*>[^\n]*DIMITROV/.test(s),
+    'officers must never be joined by control arrows');
 });
 
 test('R-F3091: a standalone company gets no scope section (no added noise)', () => {

@@ -1135,9 +1135,39 @@ def _looks_like_entity_name(s: str) -> bool:
             if (_i >= len(words) - 2
                     and w.lower().strip(".,()") in _ENTITY_LEGAL_FORMS):
                 continue
-            if not w[0].isupper() and not w[0].isdigit():
+            # R-F3218 — an OPENING BRACKET is punctuation, not a lowercase common
+            # noun. "Rossi Security (Rossi Facility Services Ltd)" failed the case
+            # test on the token "(Rossi" — `"("[0].isupper()` is False — so the
+            # whole screen was declined for a perfectly ordinary way of writing
+            # "trading name (registered name)". Strip leading punctuation before
+            # the case test; the fragment guard is unchanged for real words.
+            _w = w.lstrip("([{\"'“‘")
+            if not _w:
+                continue          # a bare bracket carries no case signal
+            if not _w[0].isupper() and not _w[0].isdigit():
                 return False
     return True
+
+
+# R-F3218 — "Trading Name (Registered Name Ltd)" is how customers actually type a
+# subject, and the parenthetical is usually the MORE screenable of the two (it is
+# the registered legal name). Screening the composite string as one name matches
+# nothing on any list, so split it and screen both.
+_BRACKETED_SEGMENT_RE = re.compile(r"[\(\[]([^)\]]{2,80})[\)\]]")
+
+
+def split_bracketed_name(s: str) -> tuple[str, list[str]]:
+    """('Rossi Security (Rossi Facility Services Ltd)')
+        -> ('Rossi Security', ['Rossi Facility Services Ltd'])
+
+    Returns (outer, [inner, ...]). Returns (s, []) when there is nothing to split.
+    """
+    if not s or not isinstance(s, str) or "(" not in s and "[" not in s:
+        return (s or "", [])
+    inner = [m.strip() for m in _BRACKETED_SEGMENT_RE.findall(s) if m.strip()]
+    outer = _BRACKETED_SEGMENT_RE.sub(" ", s)
+    outer = re.sub(r"\s+", " ", outer).strip(" -–—,")
+    return (outer or s.strip(), inner)
 
 
 @fail_wire(module="sanctions", gap_type="source_failure")
@@ -1192,6 +1222,24 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
                 _brandified_stem = brandified
         except Exception as _be:
             logger.debug("R-F311 brandify failed for %r: %s", name[:60], _be)
+
+    # R-F3218 — split "Trading Name (Registered Name Ltd)" so BOTH halves are
+    # screened. The composite matches no list entry, and before this the whole
+    # screen was declined outright. The outer text stays primary (callers key off
+    # `result["name"]`); the registered name rides as an alias, which is exactly
+    # what the alias machinery below is for.
+    _outer, _inner = split_bracketed_name(name)
+    if _inner and _outer and _outer != name:
+        known_aliases = list(known_aliases or [])
+        for _seg in _inner:
+            if _seg not in known_aliases and _looks_like_entity_name(_seg):
+                known_aliases.append(_seg)
+        if _looks_like_entity_name(_outer):
+            logger.info(
+                "R-F3218: screen_with_aliases split %r → primary %r + alias(es) %s",
+                name[:70], _outer[:50], [s[:40] for s in _inner][:3],
+            )
+            name = _outer
 
     # Reject inputs that aren't entity names — caller passed a search
     # query / description by mistake. Returning early avoids hitting
