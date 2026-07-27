@@ -122,6 +122,26 @@ intel_build_rev() {
       | grep -oE 'sha [a-f0-9]+' | awk '{print $2}' | head -1
 }
 
+# R-F3299: does the LIVE sha CONTAIN our commit? Mirrors deploy.ps1's
+# Test-LiveShaContainsHead. The exact-sha test below reports a FAILED deploy
+# whenever a peer ships a commit that INCLUDES ours: our code is serving, the sha
+# on the wire is theirs, and the loop burns its full poll budget before printing
+# red on a deploy that succeeded. Ancestry is the honest test, and an unrelated or
+# OLDER sha still fails because ancestry is real containment.
+#
+# An object we do not hold is NOT a pass. We fetch once (a peer's commit is often
+# simply not fetched yet, which is the exact case this exists to resolve) and if
+# it is still unknown we return failure: "cannot verify" is not "verified".
+live_sha_contains_head() {
+    local live="$1"
+    [[ -z "$live" ]] && return 1
+    if ! git cat-file -e "${live}^{commit}" 2>/dev/null; then
+        git fetch origin --quiet 2>/dev/null || true
+        git cat-file -e "${live}^{commit}" 2>/dev/null || return 1
+    fi
+    git merge-base --is-ancestor "$GIT_SHA" "$live" 2>/dev/null
+}
+
 # Deploy one app and PROVE it landed. Returns 0 only when verified live.
 deploy_and_verify() {
     local app="$1" config="$2" timeout="$3"
@@ -150,6 +170,12 @@ deploy_and_verify() {
             local live_sha; live_sha=$(intel_build_rev)
             if [[ "$live_sha" == "$GIT_SHORT" ]]; then
                 echo "  ✅ $app LIVE — build_rev=$live_sha matches commit (version $now_ver)"
+                ok=true; break
+            fi
+            # R-F3299: a peer's commit that CONTAINS ours means our code is live.
+            if live_sha_contains_head "$live_sha"; then
+                echo "  ✅ $app LIVE (ancestor) — serving $live_sha, which CONTAINS your commit $GIT_SHORT."
+                echo "     A peer deployed past you. Your code IS live; the exact sha is not."
                 ok=true; break
             fi
             echo "  poll $i/36: version $pre_ver->$now_ver, live build_rev=${live_sha:-?} (want $GIT_SHORT)"

@@ -267,6 +267,39 @@ function Get-NodeBuildRev {
     return $null
 }
 
+# ---- R-F3299: does the LIVE sha CONTAIN our commit? ----
+# The exact-sha test reports [FAIL] whenever a peer ships a commit that INCLUDES
+# ours: our code is serving, the sha on the wire is theirs, and the poll runs its
+# full 5 minutes before printing red on a deploy that actually succeeded. This is
+# the shared deploy path, so it cry-wolfs for every agent and every operator, and
+# a deploy check people have learned to ignore is worse than no check at all.
+# Same root as R-F1478, which race-proofed the post-deploy health check by taking
+# an --expected-sha instead of trusting a mutable file.
+#
+# Ancestry is the honest test: our commit is live iff it is an ancestor of what is
+# serving. The property that must NOT be weakened is that an UNRELATED sha still
+# fails, and it does: ancestry is a real containment check, not a looser match.
+function Test-LiveShaContainsHead {
+    param([string]$LiveSha)
+    if (-not $LiveSha) { return $false }
+
+    # Ancestry can only be judged for an object we actually hold. An unknown sha
+    # is NOT a pass: "cannot verify" and "verified" are different answers, and
+    # conflating them is how a failed deploy gets reported as shipped.
+    # Piped to Out-Null deliberately (R-F1369): Invoke-Native emits to the OUTPUT
+    # stream, and anything left there would be returned as this function's value,
+    # making it truthy regardless of the answer.
+    Invoke-Native { git cat-file -e "$LiveSha^{commit}" } | Out-Null
+    if ($script:NativeExitCode -ne 0) {
+        Invoke-Native { git fetch origin --quiet } | Out-Null
+        Invoke-Native { git cat-file -e "$LiveSha^{commit}" } | Out-Null
+        if ($script:NativeExitCode -ne 0) { return $false }
+    }
+
+    Invoke-Native { git merge-base --is-ancestor $GIT_SHA $LiveSha } | Out-Null
+    return ($script:NativeExitCode -eq 0)
+}
+
 # ---- Deploy one app and verify ----
 function Deploy-And-Verify {
     param([string]$App, [string]$Config, [int]$TimeoutSeconds)
@@ -315,6 +348,12 @@ function Deploy-And-Verify {
                 Write-Host "  [PASS] $App LIVE - build_rev=$liveSha matches commit (version $nowVer)"
                 $ok = $true; break
             }
+            # R-F3299: a peer's commit that CONTAINS ours means our code is live.
+            if (Test-LiveShaContainsHead $liveSha) {
+                Write-Host "  [PASS-ANCESTOR] $App LIVE - serving $liveSha, which CONTAINS your commit $GIT_SHORT."
+                Write-Host "                  A peer deployed past you. Your code IS live; the exact sha is not."
+                $ok = $true; break
+            }
             $shaDisplay = '?'
             if ($liveSha) { $shaDisplay = $liveSha }
             Write-Host "  poll $i/36: version $preVer->$nowVer, live build_rev=$shaDisplay (want $GIT_SHORT)"
@@ -346,6 +385,13 @@ function Deploy-And-Verify {
                 # test here never matches and polls to a false FAIL.
                 if ($liveRev.StartsWith($GIT_SHORT) -and $code -eq 200) {
                     Write-Host "  [PASS] $App LIVE - build_rev=$liveRev matches commit (version $nowVer)"
+                    $ok = $true; break
+                }
+                # R-F3299: same containment rule for the node apps. HTTP 200 is
+                # still required, so a healthy-but-older server cannot pass.
+                if (($code -eq 200) -and (Test-LiveShaContainsHead $liveRev)) {
+                    Write-Host "  [PASS-ANCESTOR] $App LIVE - serving $liveRev, which CONTAINS your commit $GIT_SHORT."
+                    Write-Host "                  A peer deployed past you. Your code IS live; the exact sha is not."
                     $ok = $true; break
                 }
                 Write-Host "  poll $i/36: version $preVer->$nowVer, live build_rev=$liveRev (want $GIT_SHORT), HTTP $code"
