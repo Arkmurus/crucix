@@ -427,12 +427,28 @@ const _bridgeRecheckTimer = setInterval(() => {
 if (typeof _bridgeRecheckTimer.unref === 'function') _bridgeRecheckTimer.unref();
 
 // === SMTP Diagnostics ===
-const smtpConfigured = !!(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
-if (smtpConfigured) {
-  console.log(`[Email] SMTP configured — host:${process.env.EMAIL_HOST} port:${process.env.EMAIL_PORT || 587} user:${process.env.EMAIL_USER}`);
+// R-F3253 — ASK THE MAILER, do not re-derive.
+//
+// This block computed its own answer from bare EMAIL_HOST/USER/PASS and knew
+// nothing about the ARIA_SMTP_* fallback that lib/auth/email.mjs actually
+// resolves through. On 2026-07-27 the live log carried both lines within the
+// same second:
+//
+//   [EMAIL] SMTP configured — host=ox.livemail.co.uk ... (via ARIA fallback)
+//   [Email] SMTP NOT configured — missing env vars: EMAIL_HOST, EMAIL_USER,
+//           EMAIL_PASS — emails will be logged to console only
+//
+// The mailer was right and this was wrong. Worse than wrong: it told the
+// operator mail was disabled when it was sending, so a real delivery problem
+// would have been read as "expected, SMTP is off". Two implementations of one
+// question, and the duplicate had no idea the fallback existed.
+//
+// `isConfigured` is already imported at the top of this file as
+// `smtpIsConfigured` — the single source was in scope the whole time.
+if (smtpIsConfigured) {
+  console.log('[Email] SMTP configured (per lib/auth/email.mjs — the module that actually sends)');
 } else {
-  const missing = ['EMAIL_HOST','EMAIL_USER','EMAIL_PASS'].filter(k => !process.env[k]);
-  console.warn(`[Email] SMTP NOT configured — missing env vars: ${missing.join(', ')} — emails will be logged to console only`);
+  console.warn('[Email] SMTP NOT configured — set EMAIL_HOST/USER/PASS or ARIA_SMTP_HOST/USER/PASS. Mail will be logged to stdout only.');
 }
 
 // MONKEY-PATCH: Override _handleBrief on the instance to guarantee the 8-section
@@ -5298,7 +5314,13 @@ app.post('/api/auth/register', async (req, res) => {
       console.log(`[Auth] Register attempt for existing ${emailExists ? 'email' : (usernameExists ? 'username' : 'bucket-slug')}: ${_maskEmail(email)} / ${username} — responding with generic success to prevent enumeration`);
       // Optional: if SMTP is configured and the email exists, email the
       // legitimate owner. This is the security-best-practice flow.
-      if (emailExists && process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      // R-F3253 — gate on the MAILER's own answer, not on bare EMAIL_* vars.
+      // This is a send gate, not a diagnostic: with credentials supplied
+      // through the ARIA_SMTP_* fallback (which is how the live box is
+      // configured), these three vars are unset and the duplicate-registration
+      // warning to the legitimate account owner was silently never sent —
+      // a security-notification path that looked wired and was not.
+      if (emailExists && smtpIsConfigured) {
         try {
           const { sendEmail } = await import('./lib/auth/email.mjs');
           await sendEmail(email, 'Someone tried to register with your email',

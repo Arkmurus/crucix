@@ -114,8 +114,21 @@ def test_rf703_stall_detector_logs_at_warning_level():
     assert "logger.warning(" in src, (
         "R-F703 expected logger.warning() call for stall events"
     )
-    assert "event loop stalled for" in src, (
-        "R-F703 expected the 'event loop stalled for' marker in the log"
+    # R-F3252 — the marker moved because the old one asserted a CAUSE the
+    # detector never measured ("synchronous CPU work blocked the loop"). A live
+    # R-F704 stack taken during one of these showed the main thread parked in a
+    # bare asyncio.runners.run with no application frame: nothing was blocking a
+    # coroutine, the loop was starved by 56 aiosqlite worker threads. The
+    # detector measures loop latency and nothing else, so that is all it may say.
+    assert "event loop heartbeat did not tick for" in src, (
+        "R-F703 expected the stall marker in the log"
+    )
+    assert "CAUSE NOT ESTABLISHED" in src, (
+        "R-F3252 — the stall log must not assert a cause it did not measure"
+    )
+    assert "synchronous CPU work blocked the loop." not in src, (
+        "R-F3252 — the asserted-cause wording is back; it sent two review "
+        "cycles hunting a blocking call that was never there"
     )
 
 

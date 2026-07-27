@@ -1703,13 +1703,31 @@ async def lifespan(app: FastAPI):
                 except Exception:
                     pass
             if elapsed > _STALL_WARN_THRESHOLD_S:
+                # R-F3252 — report the MEASUREMENT, not a guess at its cause.
+                #
+                # This said "synchronous CPU work blocked the loop" and then
+                # named three culprits. All the detector actually knows is that
+                # the heartbeat did not tick for `elapsed` seconds. On
+                # 2026-07-27 the R-F704 stack captured during one of these
+                # showed the main thread parked in a bare `asyncio.runners.run`
+                # with NO application frame — nothing was blocking a coroutine.
+                # The real signature was 56 live aiosqlite connection worker
+                # threads (peak 140) against a design of ~6: GIL starvation, a
+                # different failure with a different fix.
+                #
+                # An asserted cause is worse than no cause: two review cycles
+                # went looking for a blocking call that was never there. The
+                # stack dump is the evidence — point at it and stop guessing.
                 logger.warning(
-                    "[R-F703] event loop stalled for %.2fs (threshold=%.1fs) — "
-                    "synchronous CPU work blocked the loop. Likely culprits: "
-                    "sync sentence_transformers.encode(), large JSON load/save, "
-                    "or unwrapped CPU-bound work. Correlate with concurrent "
-                    "log lines around this timestamp. [R-F704] check %s for "
-                    "live-stack capture from the wedge watchdog.",
+                    "[R-F703] event loop heartbeat did not tick for %.2fs "
+                    "(threshold=%.1fs). CAUSE NOT ESTABLISHED by this detector "
+                    "— it measures loop latency only. Both a blocking call in a "
+                    "coroutine AND thread/GIL starvation with an idle loop "
+                    "produce this. [R-F704] the live stack dump at %s "
+                    "distinguishes them: an application frame on the main "
+                    "thread means something blocked the loop; a bare "
+                    "asyncio.runners.run means it was starved, so count the "
+                    "worker threads instead.",
                     elapsed, _STALL_WARN_THRESHOLD_S, _wedge_log_path,
                 )
                 # R-F2185 — feed the adaptive load governor so autonomy SHEDS its

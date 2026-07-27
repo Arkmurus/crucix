@@ -2087,8 +2087,12 @@ async def _ensure_read_conn() -> None:
         new_pool = []
         for _ in range(_READ_POOL_SIZE):
             _rc = await aiosqlite.connect(str(_DB_PATH))
-            await _configure_read_conn(_rc)
+            # R-F3251 — TRACK IT BEFORE CONFIGURING. `_configure_read_conn` runs
+            # PRAGMAs, so it can raise on a stressed store; appending afterwards
+            # meant a connection that failed to configure was already open and
+            # already referenced by nothing.
             new_pool.append(_rc)
+            await _configure_read_conn(_rc)
         _read_pool = new_pool
         _read_conn = new_pool[0]
         # R-F2754: close the superseded read connections so their worker threads
@@ -2096,6 +2100,23 @@ async def _ensure_read_conn() -> None:
         # the dominant contributor to the 54-thread oversubscription).
         _reap_old_conns(*_old_pool)
     except Exception as e:
+        # ── R-F3251: reap what we built before we failed ──────────────────
+        #
+        # R-F2754 fixed the SUCCESS path and left this one. On failure the
+        # partially-built pool was never assigned to `_read_pool` and never
+        # closed, so its worker threads ran on unreferenced — up to
+        # _READ_POOL_SIZE per failed rebuild.
+        #
+        # And this function is called BECAUSE the store is struggling, so the
+        # failure path is the HOT one exactly when the box can least afford
+        # more threads. Measured on the live box: 56 live connection worker
+        # threads (peak 140 in an earlier capture) against a design of ~6, with
+        # the main thread parked in a bare `asyncio.runners.run` — the loop was
+        # never blocked by a coroutine; it was starved by thread contention.
+        #
+        # The old pool is deliberately NOT reaped here: the swap did not happen,
+        # so `_read_pool` still points at it and it is still in use.
+        _reap_old_conns(*new_pool)
         logger.warning("[R-F1449/R-F2242] _ensure_read_conn failed: %s", e)
 async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, float | None] | None:
     """Fetch (value, kind, expires_at) for a key. Returns None if missing
