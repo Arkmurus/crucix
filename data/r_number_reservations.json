@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3295,
+  "next_available": 3298,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -26915,9 +26915,10 @@
       "title": "rf526 round-trip tests predate the R-F2576 absolute coverage floor",
       "claimed_at": "2026-07-27T14:15:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dca54b73",
+      "notes": null,
+      "shipped_at": "2026-07-27T18:36:08Z"
     },
     {
       "r_number": "R-F3287",
@@ -26934,9 +26935,10 @@
       "title": "dd reconcile outcome is logged but reaches no sink - wire it",
       "claimed_at": "2026-07-27T14:21:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dca54b73",
+      "notes": null,
+      "shipped_at": "2026-07-27T18:36:08Z"
     },
     {
       "r_number": "R-F3289",
@@ -26963,9 +26965,10 @@
       "title": "deploy history path is CWD-relative so tests write fake records into the real audit file",
       "claimed_at": "2026-07-27T14:46:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dca54b73",
+      "notes": null,
+      "shipped_at": "2026-07-27T18:36:09Z"
     },
     {
       "r_number": "R-F3292",
@@ -26973,9 +26976,9 @@
       "claimed_at": "2026-07-27T18:09:54Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "0fdcf278",
+      "commit_sha": "dca54b73",
       "notes": null,
-      "shipped_at": "2026-07-27T18:20:59Z"
+      "shipped_at": "2026-07-27T18:36:09Z"
     },
     {
       "r_number": "R-F3293",
@@ -26996,6 +26999,33 @@
       "commit_sha": "0fdcf278",
       "notes": null,
       "shipped_at": "2026-07-27T18:21:00Z"
+    },
+    {
+      "r_number": "R-F3295",
+      "title": "process_analysis calls .lower() on raw LLM validates/challenges - the real deep_research crash",
+      "claimed_at": "2026-07-27T18:55:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3296",
+      "title": "dd_orchestrator swallows the traceback so a crash cannot be located",
+      "claimed_at": "2026-07-27T18:55:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3297",
+      "title": "professional Pelican ARIA landing page",
+      "claimed_at": "2026-07-27T19:01:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

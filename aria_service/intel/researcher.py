@@ -2105,18 +2105,38 @@ async def _process_analysis(parsed: dict, source: str, hypotheses: list[dict]) -
         })
         hyp_generated += 1
 
-    validates = parsed.get("validates")
-    if validates:
+    # ── R-F3295 — THE MODEL DECIDES THIS SHAPE, SO IT CANNOT BE ASSUMED ──────
+    #
+    # `validates` / `challenges` come straight out of the LLM's article analysis
+    # and were used as strings. When the model answers with a LIST — an entirely
+    # ordinary reply to "which hypotheses does this validate?" — `.lower()` raised
+    #     AttributeError: 'list' object has no attribute 'lower'
+    #
+    # This runs in investigate()'s ARTICLE LOOP, before synthesis, so the error
+    # escaped investigate() and dd_orchestrator.py:6692 turned it into a data-gap
+    # string, discarding every article read and every fact learned. Live on the
+    # AZURE PARKING LTD DD: the gap present, articles_read and facts_learned
+    # absent, and the digital layer contributing nothing.
+    #
+    # Coerced rather than skipped. Dropping non-str input would stop the crash and
+    # silently lose every hypothesis match, trading a loud failure for a quiet one.
+    def _as_phrases(value: object) -> list[str]:
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, (list, tuple)):
+            return [v for v in value if isinstance(v, str) and v.strip()]
+        return []
+
+    for phrase in _as_phrases(parsed.get("validates")):
         for h in hypotheses:
-            if validates.lower() in h.get("hypothesis", "").lower():
+            if phrase.lower() in str(h.get("hypothesis", "")).lower():
                 h["evidence_count"] = h.get("evidence_count", 0) + 1
                 if h["evidence_count"] >= 3:
                     h["status"] = "STRENGTHENED"
 
-    challenges = parsed.get("challenges")
-    if challenges:
+    for phrase in _as_phrases(parsed.get("challenges")):
         for h in hypotheses:
-            if challenges.lower() in h.get("hypothesis", "").lower():
+            if phrase.lower() in str(h.get("hypothesis", "")).lower():
                 h["status"] = "CHALLENGED"
 
     return facts_learned, hyp_generated

@@ -6755,8 +6755,36 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                             confidence="ASSESSED",
                         ))
         except Exception as e:
-            logger.warning("Digital: deep_research failed: %s", e)
-            report.digital.data_gaps.append(f"deep_research failed: {str(e)[:120]}")
+            # ── R-F3296 — AN ERROR HANDLER MUST NOT DISCARD WHERE THE ERROR WAS ──
+            #
+            # This recorded only str(e)[:120], so the live AZURE PARKING LTD report
+            # said exactly "deep_research failed: 'list' object has no attribute
+            # 'lower'" and nothing more. That message is true and useless: the
+            # engine has ~20 `.lower()` calls across two modules, and locating the
+            # real one (researcher.py:2111, R-F3295) took three attempts and two
+            # wrong fixes. The traceback existed at the moment of the catch and
+            # was thrown away.
+            #
+            # Records the innermost frame INSIDE aria_service, which is the line
+            # that actually raised rather than this catch site.
+            _where = ""
+            try:
+                import traceback as _tb
+                _frames = [f for f in _tb.extract_tb(e.__traceback__)
+                           if "aria_service" in (f.filename or "")]
+                if _frames:
+                    _f = _frames[-1]
+                    # basename by string, NOT pathlib: `Path` is not imported in
+                    # this module, and the NameError would have been swallowed by
+                    # the except below, leaving _where empty. The fix would have
+                    # looked applied and reported nothing.
+                    _name = str(_f.filename).replace("\\", "/").rsplit("/", 1)[-1]
+                    _where = f" at {_name}:{_f.lineno} in {_f.name}()"
+            except Exception:      # noqa: BLE001 — diagnostics must never mask the error
+                pass
+            logger.warning("Digital: deep_research failed%s: %s", _where, e, exc_info=True)
+            report.digital.data_gaps.append(
+                f"deep_research failed{_where}: {str(e)[:120]}")
 
     # ── 5e-bis. Domain ownership verification (RDAP) ──
     # MOVED to Layer 1 / identity as of R-F1836 (see _check_domain_ownership):
