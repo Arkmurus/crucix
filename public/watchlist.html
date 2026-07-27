@@ -103,6 +103,13 @@
     <div class="wl-toolbar">
       <input class="wl-search" id="wl-search" placeholder="Search by entity name…" type="search">
       <button class="wl-btn" id="wl-add-btn"><i class="bi bi-plus-lg"></i> Add Entity</button>
+      <!-- R-F3271 — RESTORED. R-F3225 ("focused page copy cleanup") deleted this
+           control and its handler without declaring it. The backend endpoint
+           POST /api/aria/dd/watchlist/rescreen was left in place with no caller,
+           so the user had no way to trigger a re-screen: per-entity schedules are
+           periodic, and adding a high-risk counterparty needs an answer now, not
+           at the next cycle. -->
+      <button class="wl-btn sec" id="wl-rescreen-btn"><i class="bi bi-arrow-clockwise"></i> Re-screen All</button>
       <a class="wl-btn sec" href="/vetting.html" style="text-decoration:none"><i class="bi bi-person-check"></i> Vetting</a>
       <a class="wl-btn sec" href="/dd-reports.html" style="text-decoration:none"><i class="bi bi-folder2-open"></i> DD Reports</a>
     </div>
@@ -320,6 +327,58 @@ async function addEntity(prefill = {}) {
 }
 
 document.getElementById('wl-add-btn').addEventListener('click', () => addEntity());
+
+// R-F3271 — RESTORED with its handler. Recovered verbatim from 4598730c^ (the
+// commit before R-F3225 removed it), then re-verified against the CURRENT page
+// rather than trusted: Modal.confirm/Modal.info (js/app.js:450, loaded at line
+// 122), Toast.show, authed(), loadWatchlist() and loadAlerts() all still exist,
+// and rescreen_watchlist still returns entities_screened / changes_detected[] /
+// errors[] (dd_orchestrator.py:14567). Restoring code that calls vanished helpers
+// would be worse than leaving the button out.
+document.getElementById('wl-rescreen-btn').addEventListener('click', async () => {
+  const ok = await Modal.confirm({
+    title: 'Re-screen all entities?',
+    message: 'Runs sanctions + PEP checks on every entity on your watchlist. This may take a moment.',
+    okLabel: 'Re-screen all', cancelLabel: 'Cancel',
+    danger: false, icon: 'bi-arrow-clockwise',
+  });
+  if (!ok) return;
+  const btn = document.getElementById('wl-rescreen-btn');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Re-screening…';
+  try {
+    const r = await authed('/api/aria/dd/watchlist/rescreen', { method: 'POST' });
+    if (!r.ok) {
+      Toast.show('Re-screen failed (HTTP ' + r.status + ')', 'error');
+    } else {
+      // R-F2403 — map the REAL response fields (rescreen_watchlist returns
+      // entities_screened + changes_detected[] + errors[]); the old code read
+      // data.scanned/alerts/errors which don't exist, so it always showed 0/0
+      // and rendered "Errors: [object Object]" for the errors LIST.
+      const data = await r.json();
+      const scanned = data.entities_screened || 0;
+      const changes = Array.isArray(data.changes_detected) ? data.changes_detected.length : (data.changes_detected || 0);
+      const errs = Array.isArray(data.errors) ? data.errors.length : (data.errors || 0);
+      Modal.info({
+        title: 'Re-screen complete',
+        icon: errs ? 'bi-exclamation-triangle-fill' : 'bi-check-circle-fill',
+        tone: errs ? 'danger' : 'success',
+        bodyHtml:
+          '<div style="display:grid;grid-template-columns:1fr auto;gap:8px 18px;font-size:13.5px">'
+          + '<span style="color:var(--sc-muted)">Entities scanned</span><span style="font-weight:600;text-align:right">' + scanned + '</span>'
+          + '<span style="color:var(--sc-muted)">Changes detected</span><span style="font-weight:600;text-align:right">' + changes + '</span>'
+          + '<span style="color:var(--sc-muted)">Errors</span><span style="font-weight:600;text-align:right' + (errs ? ';color:var(--sc-red)' : '') + '">' + errs + '</span>'
+          + '</div>',
+      });
+      await loadWatchlist();
+      await loadAlerts();
+    }
+  } catch (err) {
+    Toast.show('Re-screen error: ' + err.message, 'error');
+  }
+  btn.disabled = false; btn.innerHTML = orig;
+});
 
 let _allEntries = [];
 

@@ -296,34 +296,85 @@ def test_watchlist_all_event_listeners_wired():
     )
 
 
+def _mounted_api_routes() -> set[str]:
+    """R-F3270 — the AUTHORITATIVE route table, straight from the app.
+
+    This used to regex `@router.get(...)` out of `routes/aria.py` and compare the
+    DECORATOR path against the full URL. Two defects, and they cancelled in a way
+    that hid both until a real call tripped it:
+
+      * only ONE router was scanned. `vetting_router` and `vetting_portal_router`
+        are also mounted (main.py:4572-4574), so every route they own read as
+        missing.
+      * the decorator path excludes the router PREFIX. `/api/aria/vetting/cases`
+        is `@router.get("/cases")` on a router mounted at `/api/aria/vetting`, so
+        the comparison could never match even if the file had been scanned.
+
+    Result: a live, working endpoint was reported as a dead UI call. A guard that
+    cries wolf gets muted, and then it protects nothing.
+
+    `app.routes` cannot drift from reality — it IS reality, prefixes applied.
+    """
+    from aria_service.main import app
+    return {p for p in (getattr(r, "path", "") for r in app.routes) if p}
+
+
+def _route_matches(call: str, routes: set[str]) -> bool:
+    """True if `call` is served by one of `routes`.
+
+    `_extract_api_calls` only captures QUOTED literals, so a URL built as
+    `'/api/aria/dd/report/' + id` arrives as the prefix `/api/aria/dd/report`.
+    Accept exact matches, prefixes of a longer route, and `{param}` segments.
+    """
+    if call in routes:
+        return True
+    for r in routes:
+        if r.startswith(call.rstrip("/") + "/"):
+            return True
+        if "{" in r:
+            parts = re.split(r"(\{[^}]+\})", r)
+            pattern = "".join(
+                "[^/]+" if p.startswith("{") and p.endswith("}") else re.escape(p)
+                for p in parts
+            )
+            if re.fullmatch(pattern, call):
+                return True
+    return False
+
+
 def test_watchlist_all_api_calls_have_backend_routes():
     """Every /api/... call in watchlist.html must have a matching Python route."""
     html = _read("watchlist.html")
     api_calls = _extract_api_calls(html)
+    py_routes = _mounted_api_routes()
 
-    py_text = (REPO_ROOT / "aria_service" / "routes" / "aria.py").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    py_routes = set()
-    for m in re.finditer(
-        r"""@router\.(?:get|post|delete|put)\(["']([^"']+)["']""",
-        py_text,
-    ):
-        py_routes.add(m.group(1))
-
-    missing = []
-    for call in sorted(api_calls):
-        if not call.startswith("/api/aria/"):
-            continue
-        py_path = call.replace("/api/aria", "")
-        found = any(py_path in r for r in py_routes)
-        if not found:
-            missing.append(call)
+    missing = [
+        call for call in sorted(api_calls)
+        if call.startswith("/api/aria/") and not _route_matches(call, py_routes)
+    ]
 
     assert not missing, (
         f"API calls in watchlist.html with NO matching Python route ({len(missing)}):\n"
         + "\n".join(f"  • {c}" for c in missing)
     )
+
+
+def test_the_route_inventory_covers_every_mounted_router():
+    """R-F3270 — verify the INSTRUMENT, or the guard above proves nothing.
+
+    A route table that silently lost a router would make this suite green while
+    real dead calls shipped. Assert the table actually contains a route from each
+    mounted router, including the one whose absence caused the false positive.
+    """
+    routes = _mounted_api_routes()
+    assert any(r.startswith("/api/aria/vetting") for r in routes), (
+        "vetting_router is mounted at main.py:4573 but no vetting route is in the "
+        "inventory — the instrument is blind to it"
+    )
+    assert "/api/aria/vetting/cases" in routes, (
+        "the exact route whose absence produced the original false positive"
+    )
+    assert any(r.startswith("/api/aria/dd/") for r in routes), "aria_router missing"
 
 
 def test_watchlist_all_api_calls_have_server_proxy():
