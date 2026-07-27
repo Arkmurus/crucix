@@ -27065,45 +27065,50 @@
       "title": "landing lead form professional restyle",
       "claimed_at": "2026-07-27T19:43:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b81afaab",
+      "notes": null,
+      "shipped_at": "2026-07-27T20:11:18Z"
     },
     {
       "r_number": "R-F3302",
       "title": "landing narrative copy + em-dash removal",
       "claimed_at": "2026-07-27T19:43:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b81afaab",
+      "notes": null,
+      "shipped_at": "2026-07-27T20:11:18Z"
     },
     {
       "r_number": "R-F3303",
       "title": "model card links land on the correct section",
       "claimed_at": "2026-07-27T19:43:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b81afaab",
+      "notes": null,
+      "shipped_at": "2026-07-27T20:11:18Z"
     },
     {
       "r_number": "R-F3304",
       "title": "legal pages white background matching landing",
       "claimed_at": "2026-07-27T19:43:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b81afaab",
+      "notes": null,
+      "shipped_at": "2026-07-27T20:11:19Z"
     },
     {
       "r_number": "R-F3305",
       "title": "pelican style.css unclosed at-rule wraps the whole sheet",
       "claimed_at": "2026-07-27T19:53:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b81afaab",
+      "notes": null,
+      "shipped_at": "2026-07-27T20:11:19Z"
     }
   ]
 }
