@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3230,
+  "next_available": 3234,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -26353,6 +26353,42 @@
       "r_number": "R-F3229",
       "title": "markdown export sanctions CLEAN fallback",
       "claimed_at": "2026-07-27T08:19:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3230",
+      "title": "evidence_brief fabricated sanctions CLEAN to verdict LLM (renumbered from R-F3226 collision)",
+      "claimed_at": "2026-07-27T08:28:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3231",
+      "title": "DD: registry authority test unified — CONFIRMED only when a registry actually confirmed",
+      "claimed_at": "2026-07-27T08:34:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3232",
+      "title": "DD: consume registry adapter data_gaps into the report",
+      "claimed_at": "2026-07-27T08:34:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3233",
+      "title": "DD: vault source match requires subject naming, no silent cap",
+      "claimed_at": "2026-07-27T08:34:48Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

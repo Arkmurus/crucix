@@ -1170,14 +1170,69 @@ def split_bracketed_name(s: str) -> tuple[str, list[str]]:
     return (outer or s.strip(), inner)
 
 
+# ── R-F3228 — WHERE THE NAME CAME FROM DECIDES WHETHER TO SECOND-GUESS IT ───
+#
+# `_looks_like_entity_name` is a SEARCH-QUERY heuristic. It exists (F1/F2,
+# 2026-04-27) because tasks.yaml passed strings like "sanctions update OFAC SDN
+# EU UN Security Council embargo 2026" as `entity:`, burning 80+ OpenSanctions
+# calls per cycle on prose. That is a real problem and the guard solves it.
+#
+# It was never designed to arbitrate whether a REGISTERED COMPANY NAME is real,
+# and used that way it is wrong often enough to matter. Measured against 32 live
+# UK company names it rejected SIX:
+#
+#   Marks & Spencer Group plc      Smith & Nephew plc      Tate & Lyle PLC
+#   Compagnie de Saint-Gobain      A.G. Barr p.l.c.        Rossi Security, Ltd
+#
+# — the "&" token, lowercase particles (de/van/der), punctuated legal forms, and
+# any comma. This is the THIRD class of legitimate name it has silently refused
+# to screen (R-F3166 lowercase 'plc', R-F3218 brackets, now these), and each fix
+# so far taught it one more character. A fourth patch would be the same mistake:
+# the guard is not too narrow, it is being asked the wrong question.
+#
+# A DD subject name arrives from the operator or from Companies House. It is not
+# a search query and nothing is saved by doubting it — the quota argument does
+# not apply to one screen of one named counterparty. So the CALLER declares the
+# provenance, and only untrusted provenance gets the heuristic.
+#
+# Default is `free_text`: every existing caller keeps today's behaviour, and a
+# path must opt IN to being trusted. Trusted still enforces the cheap sanity
+# rules that protect the quota (length, and the R-F49 denylist that stops "ITAR"
+# or "OFAC" being screened as if they were entities).
+_TRUSTED_NAME_SOURCES = frozenset({"dd_subject", "registry", "operator"})
+
+
+def _screenable(s: str, *, trusted: bool) -> bool:
+    """May `s` be sent to the sanctions source?"""
+    if not s or not isinstance(s, str):
+        return False
+    s = s.strip()
+    if len(s) < 2 or len(s) > 100:
+        return False
+    if s.lower() in _NON_ENTITY_DENYLIST:
+        return False
+    if not trusted:
+        return _looks_like_entity_name(s)
+    # A trusted name still must not be a sentence — a caller that hands us prose
+    # under a trusted label is a bug, and 12 words is prose by any reading.
+    return len(s.split()) <= 12
+
+
 @fail_wire(module="sanctions", gap_type="source_failure")
-async def screen_with_aliases(name: str, known_aliases: list[str] | None = None) -> dict:
+async def screen_with_aliases(name: str, known_aliases: list[str] | None = None,
+                              *, source: str = "free_text") -> dict:
     """Screen a primary name plus user-provided aliases. Combines results.
 
     Use this when you already know an entity has aliases (e.g. ship name + IMO,
     company name + former name) — passes each through the full fuzzy pipeline
     and returns the worst-case (highest-scoring) hit.
+
+    `source` declares where the name came from (R-F3228). Anything in
+    `_TRUSTED_NAME_SOURCES` — an operator-supplied or registry-resolved subject —
+    skips the search-query shape heuristic, which rejects ordinary company names
+    like "Marks & Spencer Group plc". Leave it at the default for free text.
     """
+    _trusted = source in _TRUSTED_NAME_SOURCES
     # R-F311 (2026-05-11): when the operator-supplied name is a hostname
     # ("modirumgespi.com"), brandify it BEFORE the entity-shape gate.
     # The 21:11 live DD on modirumgespi.com had the screen rejected
@@ -1232,9 +1287,9 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
     if _inner and _outer and _outer != name:
         known_aliases = list(known_aliases or [])
         for _seg in _inner:
-            if _seg not in known_aliases and _looks_like_entity_name(_seg):
+            if _seg not in known_aliases and _screenable(_seg, trusted=_trusted):
                 known_aliases.append(_seg)
-        if _looks_like_entity_name(_outer):
+        if _screenable(_outer, trusted=_trusted):
             logger.info(
                 "R-F3218: screen_with_aliases split %r → primary %r + alias(es) %s",
                 name[:70], _outer[:50], [s[:40] for s in _inner][:3],
@@ -1244,10 +1299,11 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
     # Reject inputs that aren't entity names — caller passed a search
     # query / description by mistake. Returning early avoids hitting
     # OpenSanctions for 80+ wasted calls per cycle (F1+F2 fix 2026-04-27).
-    if not _looks_like_entity_name(name):
+    if not _screenable(name, trusted=_trusted):
         logger.info(
-            "screen_with_aliases: rejecting non-entity input %r (looks like a search query, not a name)",
-            name[:80],
+            "screen_with_aliases: rejecting non-entity input %r (source=%s; looks "
+            "like a search query, not a name)",
+            name[:80], source,
         )
         return {
             "name": name,
@@ -1259,7 +1315,7 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
         }
 
     targets = [name] + (known_aliases or [])
-    targets = [t for t in targets if t and len(t.strip()) >= 2 and _looks_like_entity_name(t)]
+    targets = [t for t in targets if _screenable(t, trusted=_trusted)]
     if not targets:
         return {"error": "no valid names to screen"}
 

@@ -285,6 +285,20 @@ class IdentitySection:
     jurisdiction_iso2: Optional[str] = None
     registration_number: Optional[str] = None
     registration_status: Optional[str] = None  # active | dissolved | dormant | …
+    # ── R-F3231: what a registry ACTUALLY established, not what it returned ──
+    #
+    # The carrier R-F2693 never built. That change created the vocabulary
+    # (RegistryStatus), made `registry_adapters._build_result` emit it, and made
+    # `_evidence_counters` below refuse identity authority when it is not
+    # VERIFIED/PARTIAL — but IdentitySection had nowhere to hold it and
+    # dd_orchestrator never carried it across. So `ident.get("registry_status")`
+    # read None for EVERY report, not merely the legacy ones the guard's comment
+    # allows for, and the guard could not fire for anyone.
+    #
+    # A producer and a consumer with no carrier between them is the same shape as
+    # R-F3175's `_version_key`: written, unit-tested in isolation, never on the
+    # path it was written for. The value here is a RegistryStatus.value.
+    registry_status: Optional[str] = None
     incorporation_date: Optional[str] = None
     registered_address: Optional[str] = None
     declared_activity: Optional[str] = None
@@ -821,6 +835,15 @@ class ARKDDReport:
                 verdict = f"ERROR — {self.identity.sanctions_screen.get('error')}"
             elif _matches:
                 verdict = f"{len(_matches)} match(es) — see findings"
+            # R-F3229 — the exported report is a DELIVERABLE, and this `else`
+            # printed "CLEAN ✅" for a screen that merely recorded nothing. The
+            # branch above only catches an `error`; a screen carrying
+            # `screened: False` with no error string, or one written before the
+            # sanctions finding was emitted, fell straight through to a tick.
+            # R-F3217 removed exactly this shape from three live surfaces; this
+            # is the fourth, and the one a customer keeps on disk.
+            elif self.identity.sanctions_screen.get("screened") is False:
+                verdict = "NOT SCREENED — see data gaps (not a clearance)"
             else:
                 verdict = "CLEAN ✅"
             lines.append(f"Sanctions screen: {verdict}")

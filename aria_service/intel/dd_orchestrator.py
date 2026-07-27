@@ -3141,6 +3141,54 @@ async def _identity_primary_source_screen(
     return hard_stop
 
 
+def _sanctions_brief_line(screen) -> str:
+    """R-F3230 — how the sanctions screen is described TO THE VERDICT MODEL.
+
+    THE DEFECT. The RED-verdict second-opinion prompt (`evidence_brief`) built
+    this line as:
+
+        f"Sanctions screen: {report.identity.sanctions_screen or 'CLEAN'}"
+
+    so an ABSENT screen — the dict is empty whenever the screen block raised
+    before assignment — told the model, in the evidence it was asked to reason
+    over, that the entity is sanctions-clean. R-F3217 closed this same failure on
+    the three surfaces a CUSTOMER reads; this one sits upstream of them, feeding
+    the model whose job is to independently challenge a RED verdict. A fabricated
+    clean is at its most dangerous precisely there: it argues against the
+    escalation, on a path that only runs when ARIA already believes the
+    counterparty is high-risk.
+
+    `or 'CLEAN'` is also the wrong Python for the intent even when a screen
+    exists — an empty-but-present dict is falsy, so "we screened and recorded
+    nothing" and "we never screened" both rendered as CLEAN.
+
+    Returns a short, honest phrase rather than the raw dict: the previous form
+    interpolated the entire screen (every match, every per-alias result) into the
+    prompt, which is both noisy and a way for filtered name-overlap noise to
+    reach the model as if it were evidence.
+    """
+    if not isinstance(screen, dict) or not screen:
+        return ("NOT PERFORMED — no screen is recorded on this report. Treat as "
+                "UNKNOWN, never as clear.")
+    if screen.get("error") or screen.get("screened") is False:
+        return (f"NOT PERFORMED ({screen.get('error') or 'screen did not run'}) — "
+                f"no list was queried. Treat as UNKNOWN, never as clear.")
+    _cls = screen.get("match_classification")
+    _actionable = int((_cls or {}).get("actionable") or 0) if isinstance(_cls, dict) else None
+    _vs = screen.get("verified_sources")
+    _lists = (
+        len([k for k, v in _vs.items()
+             if isinstance(v, dict) and str(v.get("status") or "").upper() in ("CLEAN", "HIT")])
+        if isinstance(_vs, dict) else 0
+    )
+    _cover = f"{_lists} list(s) answered" if _lists else "list coverage not recorded"
+    if _actionable is None:
+        return f"screen ran; {len(screen.get('matches') or [])} raw match(es), unclassified; {_cover}"
+    if _actionable:
+        return f"{_actionable} actionable match(es); {_cover}"
+    return f"no matches; {_cover}"
+
+
 async def _rescreen_under_registered_name(
     report: "ARKDDReport", registered_name: str, supplied_name: str,
 ) -> bool:
@@ -3167,7 +3215,8 @@ async def _rescreen_under_registered_name(
         return False                      # R-F3218 split may already have covered it
 
     screen = await sanctions.screen_with_aliases(
-        registered_name, known_aliases=[supplied_name] if supplied_name else None)
+        registered_name, known_aliases=[supplied_name] if supplied_name else None,
+        source="registry")      # R-F3228 — straight from Companies House
     report.identity.meta.subcalls += 1
     if (not isinstance(screen, dict) or screen.get("error")
             or screen.get("screened") is not True):
@@ -3714,7 +3763,10 @@ async def _run_identity(
     try:
         from . import sanctions
         if hasattr(sanctions, "screen_with_aliases"):
-            screen = await sanctions.screen_with_aliases(name)
+            # R-F3228 — this name is the DD subject: operator-supplied or
+            # registry-resolved, never a search query. Declaring that is what
+            # lets "Marks & Spencer Group plc" be screened at all.
+            screen = await sanctions.screen_with_aliases(name, source="dd_subject")
         elif hasattr(sanctions, "fuzzy_screen"):
             screen = await sanctions.fuzzy_screen(name)
         else:
@@ -5764,15 +5816,15 @@ def _entity_distinctive_tokens(*names: str) -> list[str]:
     relevance so noise (unrelated academic papers, generic 'security' hits,
     tangential procurement notices) doesn't enter the DD as 'press coverage'.
     Returns [] for an all-generic name — the caller then keeps everything, so
-    we never silently drop all coverage for an un-discriminable name."""
+    we never silently drop all coverage for an un-discriminable name.
+
+    R-F3227 — the private `_GENERIC` set that used to live here is gone. It
+    disagreed with the sanctions-side list about 'capital' and 'management',
+    which is what let two generic finance words satisfy the R-F3221 two-token
+    rule. Both gates now read `_GENERIC_ENTITY_TOKENS`; the ORDER-PRESERVING
+    list return and the >=3-char rule stay, because callers index into this."""
     import unicodedata
-    _GENERIC = {
-        "security", "services", "service", "inc", "ltd", "llc", "gmbh", "co",
-        "company", "corp", "corporation", "group", "holding", "holdings",
-        "international", "global", "the", "and", "for", "of", "sa", "ag", "plc",
-        "as", "limited", "trading", "consulting", "solutions", "systems",
-        "technologies", "technology", "defence", "defense", "guvenlik",
-    }
+    _GENERIC = _GENERIC_ENTITY_TOKENS
     def _norm(s: str) -> str:
         return "".join(
             c for c in unicodedata.normalize("NFKD", s or "")
@@ -11285,13 +11337,50 @@ def _person_match_is_coincidence(person: str, matched_name: str) -> bool:
     return not (a & b)
 
 
+# ── R-F3227 — ONE definition of "distinctive", for both gates ───────────────
+#
+# THE DEFECT. Two functions answered the same question — which tokens of a name
+# actually identify the entity — from two different generic lists, and they
+# disagreed in OPPOSITE directions:
+#
+#   name                              R-F2994 sanctions gate    R-F1631 press gate
+#   Silverbrook Capital Management    {silverbrook}             {silverbrook, capital, management}
+#   Rossi Security (…)                {rossi, facility, security}  {rossi, facility}
+#
+# The press list treated 'capital' and 'management' as DISTINCTIVE, so the
+# two-token rule R-F3221 had just shipped was satisfied by two generic finance
+# words. Measured, before this fix:
+#
+#   subject "Silverbrook Capital Management"
+#   "System Capital Management sued for widespread fraud"   -> RELEVANT
+#   "Ashcroft Capital Management fined by SEC"              -> RELEVANT
+#
+# That is the exact Rossi defect — a fraud headline about strangers cited in a
+# report whose adverse-media section says nothing was found — reproduced for
+# every finance-sector name, and it survived R-F3221 *because* the fix and the
+# data it consumes were defined in different places. This is the R-F2639 fork
+# class: one concept, two definitions, both load-bearing on an honesty path.
+#
+# So: ONE set, the union of both. Union is the safe direction for both callers —
+# a larger generic set means FEWER tokens count as identifying, which makes the
+# press gate stricter (drops coincidences) and the sanctions coincidence filter
+# stricter (drops more display-only name-overlap). Neither can manufacture a
+# clean: both fail safe when the distinctive set comes back empty by keeping
+# everything, which is the behaviour they already had.
 _GENERIC_ENTITY_TOKENS = frozenset({
+    # ── corporate form and structure (was in both lists) ──
     "capital", "management", "holdings", "holding", "group", "ltd", "limited",
     "plc", "llp", "llc", "inc", "incorporated", "corp", "corporation", "co",
     "company", "international", "global", "partners", "partner", "fund", "funds",
     "investment", "investments", "asset", "assets", "advisors", "advisers",
     "advisory", "services", "service", "trading", "trust", "ventures",
     "enterprise", "enterprises", "and", "the", "of",
+    # ── from the R-F1631 press list, absent from the R-F2994 one ──
+    # These are the tokens whose absence let two generic words pass as an
+    # identification. 'security' and 'defence' in particular are sector words
+    # shared by thousands of unrelated firms.
+    "security", "gmbh", "sa", "ag", "as", "for", "consulting", "solutions",
+    "systems", "technologies", "technology", "defence", "defense", "guvenlik",
 })
 
 
@@ -13379,7 +13468,7 @@ async def _orchestrate_dd_impl(
             evidence_brief = (
                 f"Entity: {report.identity.entity_name}\n"
                 f"Jurisdiction: {report.identity.jurisdiction_iso2 or 'unknown'}\n"
-                f"Sanctions screen: {report.identity.sanctions_screen or 'CLEAN'}\n"
+                f"Sanctions screen: {_sanctions_brief_line(report.identity.sanctions_screen)}\n"
                 f"Data gaps: {', '.join(report.data_gaps_summary[:10]) if report.data_gaps_summary else 'none'}\n"
                 f"Findings (identity): {'; '.join(getattr(f, 'title', '')[:120] for f in report.identity.findings[:6])}\n"
                 f"Findings (network):  {'; '.join(getattr(f, 'title', '')[:120] for f in report.network.findings[:4])}\n"
