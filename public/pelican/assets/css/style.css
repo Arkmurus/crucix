@@ -2004,22 +2004,91 @@ body {
 	font-weight: 600 !important;
 }
 
-/* R-F3308 — footer alignment. The three columns sit in a `.row.align-items-center`,
-   so they are centred on their own box heights, and every box carried a different
-   leftover margin: Bootstrap's reboot gives `ul` a 1rem bottom margin and `h6` a
-   0.5rem one, and `.footer-logo` adds 15px. That put the brand, the copyright and
-   the links on three different baselines (0, -4px and -8px off centre). Bootstrap
-   also never zeroes the UA's `padding-inline-start: 40px` on a list, so on mobile,
-   where the footer is centred, the link row rendered 20px right of true centre.
-   Zeroing the inherited spacing is the fix; the deliberate spacing (the logo's
-   15px gap when the columns stack) is kept below. */
-.footer-sm ul {
-	padding-left: 0;
+/* R-F3308 + R-F3313 — the footer is ONE line.
+   R-F3308 zeroed the inherited spacing that put the three items on three
+   different baselines: Bootstrap's reboot gives `ul` a 1rem bottom margin and
+   `h6` a 0.5rem one, `.footer-logo` added 15px, and Bootstrap never zeroes the
+   UA's `padding-inline-start: 40px` on a list, so a centred link row rendered
+   20px right of true centre. That was necessary and not sufficient: the three
+   items were `col-md-4`, a rigid third of the row each, and the link column at
+   ~240px could not hold "Model card / Privacy policy / Terms of service" on one
+   line, so it wrapped. Widening the labels for clarity is what pushed it over.
+   R-F3313 replaces the grid with a flex bar whose items take their natural
+   width, so wrapping is structurally impossible rather than merely unlikely.
+   Below 900px the bar stacks and centres, which is where a single line genuinely
+   stops fitting. */
+.footer-sm .footer-bar {
+	display: -webkit-box;
+	display: -ms-flexbox;
+	display: flex;
+	-webkit-box-align: center;
+	-ms-flex-align: center;
+	align-items: center;
+	-ms-flex-pack: justify;
+	justify-content: space-between;
+	-ms-flex-wrap: nowrap;
+	flex-wrap: nowrap;
+	gap: 24px;
+	text-align: left;
+}
+
+.footer-sm .footer-bar > * {
+	margin: 0;
+}
+
+.footer-sm .footer-logo {
 	margin-bottom: 0;
+	white-space: nowrap;
 }
 
 .footer-sm h6 {
 	margin-bottom: 0;
+	white-space: nowrap;
+}
+
+.footer-sm ul {
+	display: -webkit-box;
+	display: -ms-flexbox;
+	display: flex;
+	-webkit-box-align: center;
+	-ms-flex-align: center;
+	align-items: center;
+	-ms-flex-wrap: nowrap;
+	flex-wrap: nowrap;
+	gap: 22px;
+	padding-left: 0;
+	margin: 0;
+	white-space: nowrap;
+}
+
+.footer-sm ul li {
+	margin: 0;
+	white-space: nowrap;
+}
+
+@media only screen and (max-width: 899px) {
+	.footer-sm {
+		text-align: center;
+	}
+	.footer-sm .footer-bar {
+		-webkit-box-orient: vertical;
+		-webkit-box-direction: normal;
+		-ms-flex-direction: column;
+		flex-direction: column;
+		-ms-flex-pack: center;
+		justify-content: center;
+		text-align: center;
+		gap: 16px;
+	}
+	.footer-sm ul {
+		-ms-flex-pack: center;
+		justify-content: center;
+		-ms-flex-wrap: wrap;
+		flex-wrap: wrap;
+		gap: 8px 20px;
+		white-space: normal;
+		text-align: center;
+	}
 }
 
 @media only screen and (min-width: 767px) {

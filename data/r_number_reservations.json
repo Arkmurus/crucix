@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3312,
+  "next_available": 3314,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27167,6 +27167,24 @@
       "commit_sha": "ba9a434c",
       "notes": null,
       "shipped_at": "2026-07-27T21:01:40Z"
+    },
+    {
+      "r_number": "R-F3312",
+      "title": "landing hero photo replacement",
+      "claimed_at": "2026-07-27T21:08:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3313",
+      "title": "landing footer single-line bar",
+      "claimed_at": "2026-07-27T21:12:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

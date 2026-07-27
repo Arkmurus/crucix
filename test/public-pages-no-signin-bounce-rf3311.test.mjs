@@ -175,27 +175,41 @@ test('R-F3309 the landing offers a design-partner route, and it reaches the publ
     'the application form must not require an account');
 });
 
-test('R-F3308 the footer columns carry no leftover spacing to sit off-centre on', () => {
+test('R-F3308/R-F3313 the footer is one line, and nothing in it can wrap', () => {
   const rules = baseRules(LANDING_CSS);
+  // The real chain, read off public/index.html. R-F3313 removed the col-md-4
+  // grid; if this list stops matching the markup the guard silently measures
+  // an element that no longer exists.
+  assert.match(INDEX, /<div class="footer-bar">/, 'the footer bar markup changed');
+  assert.doesNotMatch(INDEX, /<footer[\s\S]{0,400}col-md-4/,
+    'the footer is back on the rigid third-width grid that forced the links to wrap');
   const ancestors = [
     { tag: 'body', classes: [], id: null },
     { tag: 'div', classes: ['wrapper'], id: null },
     { tag: 'div', classes: ['main'], id: 'main' },
     { tag: 'footer', classes: ['footer-sm'], id: null },
     { tag: 'div', classes: ['container-m'], id: null },
-    { tag: 'div', classes: ['row', 'align-items-center'], id: null },
-    { tag: 'div', classes: ['col-md-4'], id: null },
+    { tag: 'div', classes: ['footer-bar'], id: null },
   ];
+  const bar = declarationsFor(rules, { tag: 'div', classes: ['footer-bar'], id: null }, ancestors.slice(0, -1));
   const list = declarationsFor(rules, { tag: 'ul', classes: [], id: null }, ancestors);
+  const item = declarationsFor(rules, { tag: 'li', classes: [], id: null }, [...ancestors, { tag: 'ul', classes: [], id: null }]);
   const copyright = declarationsFor(rules, { tag: 'h6', classes: [], id: null }, ancestors);
 
-  // Bootstrap's reboot leaves ul/h6 a bottom margin and never zeroes the UA's
-  // padding-inline-start, so the three columns centred on three different boxes
-  // and the centred link row sat ~20px right of true centre.
+  // R-F3313: one line is a structural property, not a hope about text width.
+  assert.equal(bar.get('display'), 'flex', 'the footer bar is not a flex row');
+  assert.equal(bar.get('flex-wrap'), 'nowrap', 'the footer bar may wrap onto a second line');
+  assert.equal(list.get('display'), 'flex', 'the link list is not laid out as a row');
+  assert.equal(list.get('flex-wrap'), 'nowrap', 'the link list may break mid-list');
+  assert.equal(list.get('white-space'), 'nowrap', 'a link label may break across lines');
+
+  // R-F3308: and no inherited spacing to sit off-centre on.
   assert.equal(list.get('padding-left'), '0',
     'the footer link list keeps the UA list indent, so it renders off-centre');
-  assert.equal(list.get('margin-bottom'), '0',
-    "the footer link list keeps Bootstrap's 1rem bottom margin, so it sits above the row centre");
+  assert.equal(list.get('margin'), '0',
+    "the footer link list keeps Bootstrap's bottom margin, so it sits above the bar centre");
+  assert.equal(item.get('margin'), '0',
+    'the list items keep their side margins, which double up with the flex gap');
   assert.equal(copyright.get('margin-bottom'), '0',
     "the copyright keeps Bootstrap's 0.5rem bottom margin");
 });
