@@ -1789,7 +1789,7 @@ async def _run_identity_person(
     organisation = target.get("organisation") or target.get("employer")
     dob = target.get("dob") or target.get("date_of_birth")
 
-    report.identity.entity_name = name
+    report.identity.entity_name = _coerce_entity_text(name)   # R-F3268
     report.identity.entity_type = "person"
     report.identity.jurisdiction = target.get("jurisdiction") or nationality
     report.identity.jurisdiction_iso2 = target.get("jurisdiction_iso2")
@@ -3655,7 +3655,7 @@ async def _run_identity(
                     jurisdiction = "Slovak Republic"
                 break
 
-    report.identity.entity_name = name
+    report.identity.entity_name = _coerce_entity_text(name)   # R-F3268
     report.identity.entity_type = entity_type
     report.identity.jurisdiction = jurisdiction
     report.identity.jurisdiction_iso2 = jurisdiction_iso2
@@ -4562,7 +4562,7 @@ async def _run_identity(
                     _supplied_name = str(report.identity.entity_name or "").strip()
                     if (_ch_name and _ch_registry_verified_live
                             and _ch_name.casefold() != _supplied_name.casefold()):
-                        report.identity.entity_name = _ch_name
+                        report.identity.entity_name = _coerce_entity_text(_ch_name)   # R-F3268
                         report.identity.findings.append(Finding(
                             severity="info",
                             title="Subject name resolved to the registered legal name",
@@ -9284,7 +9284,7 @@ async def _persist_report(report: ARKDDReport) -> None:
             _lineage = report.target.get("_rerun_lineage") if isinstance(report.target, dict) else {}
             if isinstance(_lineage, dict):
                 if not (report.identity.entity_name or "").strip() and _lineage.get("entity_name"):
-                    report.identity.entity_name = _lineage.get("entity_name")
+                    report.identity.entity_name = _coerce_entity_text(_lineage.get("entity_name"))   # R-F3268
                 if not report.identity.jurisdiction and _lineage.get("jurisdiction"):
                     report.identity.jurisdiction = _lineage.get("jurisdiction")
                 if not report.identity.jurisdiction_iso2 and _lineage.get("jurisdiction_iso2"):
@@ -9379,7 +9379,9 @@ async def _persist_report(report: ARKDDReport) -> None:
                 "generated_at": report.generated_at,
                 # Mirror entity name + jurisdiction into the columns the
                 # dashboard table expects so the library renders both.
-                "entity_name": report.identity.entity_name,
+                # R-F3268 — the dashboard renders this column directly, so a list
+                # here would display as "['Acme Ltd']" in the library table.
+                "entity_name": _coerce_entity_text(report.identity.entity_name),
                 "jurisdiction": report.identity.jurisdiction,
                 "jurisdiction_iso2": report.identity.jurisdiction_iso2,
                 "registration_number": report.identity.registration_number,
@@ -12277,7 +12279,7 @@ async def orchestrate_dd(
             rep = ARKDDReport(target=target, orchestrator_mode=mode, trace_id=trace_id)
             if run_id:
                 rep.run_id = run_id  # R-F2250: keep the async poll key stable on timeout
-            rep.identity.entity_name = _name
+            rep.identity.entity_name = _coerce_entity_text(_name)   # R-F3268
             rep.identity.entity_type = target.get("type") or EntityType.UNKNOWN.value
         # R-F1830: flag the hard-deadline path as time-boxed too (the _clamp
         # path already does, dd_orchestrator.py ~7454). Callers use this to
@@ -12554,7 +12556,16 @@ async def _orchestrate_dd_impl(
     )
     if run_id:
         report.run_id = run_id  # R-F2250: caller-assigned id for the async fire-and-poll path
-    report.identity.entity_name = target.get("name") or target.get("entity") or target.get("query", "")
+    # R-F3268 — THE ROOT. `target` is the caller-supplied DD request and is never
+    # type-validated, so a list landed straight on the field here. R-F3258 coerced
+    # a downstream COPY in _run_digital; every other consumer still read the raw
+    # field — including the adverse-media params, whose queries reach
+    # researcher._web_search -> _detect_target_languages(query).lower().
+    report.identity.entity_name = (
+        _coerce_entity_text(target.get("name"))
+        or _coerce_entity_text(target.get("entity"))
+        or _coerce_entity_text(target.get("query"))
+    )
     report.identity.entity_type = target.get("type") or EntityType.UNKNOWN.value
 
     # R-F1628: expose the live report to the hard-deadline wrapper so a budget
@@ -13760,7 +13771,9 @@ async def _orchestrate_dd_impl(
             # Stashed for orchestrate_dd to launch the follow-up after persist. ARKDDReport
             # tolerates undeclared attrs (cf. rep.time_boxed at the hard-deadline path).
             _am_params = {
-                "entity_name": report.identity.entity_name,
+                # R-F3268 — this becomes a _web_search query; a non-string here
+                # costs the entire adverse-media sweep.
+                "entity_name": _coerce_entity_text(report.identity.entity_name),
                 "director_names": _director_names[:3],  # bound search cost
                 "ubo_names": _ubo_names[:2],
                 "sectors": _sectors,
