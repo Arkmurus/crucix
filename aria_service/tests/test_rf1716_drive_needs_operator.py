@@ -39,7 +39,10 @@ class _VaultStub:
 async def test_driver_attempts_needs_operator_and_pending_not_declined():
     driven = []
 
-    async def _fake_drive(pid):
+    # R-F3298 added the keyword-only `drive` flag. The stub mirrors the real
+    # signature deliberately: a stub that swallowed **kwargs would keep passing
+    # while the production call drifted away from it.
+    async def _fake_drive(pid, *, drive=True):
         driven.append(pid)
         return {"status": "needs_operator", "blocker": "test"}
 

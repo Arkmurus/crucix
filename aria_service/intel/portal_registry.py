@@ -1178,7 +1178,7 @@ async def register_for_portal(portal_id: str, purpose: str = "") -> dict[str, An
         # Free, open access — no registration needed
         return {
             "success": True,
-            "message": f"{portal.name} is free and open — no registration needed",
+            "message": f"{portal.name} is free and open, so no registration is needed",
             "portal_id": portal_id,
             "access": "open",
         }
@@ -2740,15 +2740,20 @@ _DEFERRED_PORTAL_IDS = {"acled"}
 
 
 @fail_wire(module="portal_registry", gap_type="registry_lookup")
-async def determine_and_drive(portal_id: str) -> dict[str, Any]:
+async def determine_and_drive(portal_id: str, *, drive: bool = True) -> dict[str, Any]:
     """R-F1502: For ONE portal, determine its honest status and drive the outcome.
 
     Returns one of three:
-      {"status": "open_api"}           — free/open, no registration needed
-      {"status": "registered", ...}    — ARIA successfully registered
+      {"status": "open_api"}           free/open, no registration needed
+      {"status": "registered", ...}    ARIA successfully registered
       {"status": "needs_operator", "blocker": "...", "declined": bool, "deferred": bool}
 
     The determination is driven by the REAL attempt outcome, NEVER a guess.
+
+    R-F3298: `drive=False` stops after the local determination (steps 1-5) and
+    never calls register_for_portal, so a caller that only needs to REPORT status
+    cannot trigger live portal registrations as a side effect. Steps 1-5 read the
+    vault and two id sets; step 6 is the only one that touches the network.
     """
     portal = next((p for p in PORTALS if p.id == portal_id), None)
     if not portal:
@@ -2809,9 +2814,14 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
                 "deferred": portal_id in _DEFERRED_PORTAL_IDS,
                 "_portal_name": portal.name,
                 "_portal_url": portal.url,
+                # R-F3298: this used to read "no solver is configured (set
+                # ARIA_TWOCAPTCHA_API_KEY)". R-F3199 REMOVED 2captcha entirely
+                # (see the unconditional ImportError above), so that told the
+                # operator to set a key nothing reads any more, which is the
+                # exact failure R-F1501 existed to prevent.
                 "message": (
-                    f"{portal.name} requires CAPTCHA and no solver is configured "
-                    f"(set ARIA_TWOCAPTCHA_API_KEY) — operator must register manually"
+                    f"{portal.name} requires a CAPTCHA. ARIA has no CAPTCHA solver, "
+                    f"so this portal can only be registered manually."
                 ),
             }
         # solver ready → proceed to the register+solve path below.
@@ -2825,7 +2835,7 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
             "deferred": False,
             "_portal_name": portal.name,
             "_portal_url": portal.url,
-            "message": f"{portal.name} requires paid subscription — operator declined (§18)",
+            "message": f"{portal.name} requires a paid subscription. Operator declined (§18)",
         }
 
     # 5. Deferred portals (e.g. ACLED waiting for env vars)
@@ -2837,12 +2847,25 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
             "deferred": True,
             "_portal_name": portal.name,
             "_portal_url": portal.url,
-            "message": f"{portal.name} deferred — waiting for env vars (ACLED_EMAIL, ACLED_PASSWORD)",
+            "message": f"{portal.name} is deferred, waiting for env vars (ACLED_EMAIL, ACLED_PASSWORD)",
         }
 
     # 6. Attempt auto-registration
+    if not drive:
+        # R-F3298: determination-only caller. Reporting the state of a portal must
+        # never REGISTER on it. Returning a distinct status (rather than guessing
+        # an outcome) keeps this honest: we did not attempt, so we do not claim.
+        return {
+            "status": "not_attempted",
+            "blocker": "not_attempted",
+            "declined": False,
+            "deferred": False,
+            "_portal_name": portal.name,
+            "_portal_url": portal.url,
+            "message": f"{portal.name}: auto-registration not attempted (determination only)",
+        }
     try:
-        outcome = await register_for_portal(portal_id, purpose=f"Auto-registration for {portal.name} — {portal.description[:100]}")
+        outcome = await register_for_portal(portal_id, purpose=f"Auto-registration for {portal.name}: {portal.description[:100]}")
         if outcome.get("success"):
             # Real registration succeeded
             try:
@@ -2862,7 +2885,7 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
                 "deferred": False,
                 "_portal_name": portal.name,
                 "_portal_url": portal.url,
-                "message": f"{portal.name} requires email verification — IMAP not configured",
+                "message": f"{portal.name} requires email verification, and IMAP is not configured",
             }
 
         # Attempt failed
@@ -2874,7 +2897,7 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
             "deferred": False,
             "_portal_name": portal.name,
             "_portal_url": portal.url,
-            "message": f"{portal.name}: auto-registration failed — {error[:200]}",
+            "message": f"{portal.name}: auto-registration failed. {error[:200]}",
         }
     except Exception as e:
         return {
@@ -2884,17 +2907,22 @@ async def determine_and_drive(portal_id: str) -> dict[str, Any]:
             "deferred": False,
             "_portal_name": portal.name,
             "_portal_url": portal.url,
-            "message": f"{portal.name}: auto-registration exception — {e}",
+            "message": f"{portal.name}: auto-registration exception. {e}",
         }
 
 
 @fail_wire(module="portal_registry", gap_type="registry_lookup")
-async def determine_and_drive_all(portal_ids: list[str] | None = None) -> list[dict]:
+async def determine_and_drive_all(
+    portal_ids: list[str] | None = None, *, drive: bool = True
+) -> list[dict]:
     """R-F1502: Run determine_and_drive for multiple portals.
 
     Args:
         portal_ids: List of portal IDs to process. If None, processes all
                     portals that are currently 'pending'.
+        drive: R-F3298. When False this is a REPORT: each portal is determined
+               locally and nothing is registered, no vault status is written and
+               no operator action is filed. Reporting must not mutate.
 
     Returns list of result dicts.
     """
@@ -2928,15 +2956,21 @@ async def determine_and_drive_all(portal_ids: list[str] | None = None) -> list[d
     results = []
     for pid in portal_ids:
         try:
-            result = await determine_and_drive(pid)
-            # Update vault status
+            result = await determine_and_drive(pid, drive=drive)
+            # Update vault status. R-F3298: only a DRIVING pass may write vault
+            # status or file an operator action. A determination-only pass is a
+            # read, and a read that mutates is how the digest ended up
+            # re-registering every portal each time it was rendered.
+            if not drive:
+                results.append(result)
+                continue
             try:
                 from .agent_signup_vault import get_vault
                 vault = get_vault()
                 status = result.get("status", "needs_operator")
                 if status == "open_api":
                     vault.update_status(pid, "open_api",
-                        notes="Free/open API — no registration required.")
+                        notes="Free and open API, no registration required.")
                 elif status == "registered":
                     vault.update_status(pid, "registered",
                         notes=result.get("message", "Registered successfully.")[:200])
@@ -2950,10 +2984,10 @@ async def determine_and_drive_all(portal_ids: list[str] | None = None) -> list[d
                     # terminal states that suppress the portal from the digest.
                     if declined:
                         vault.update_status(pid, "declined",
-                            notes=notes + " [DECLINED — suppressed from digest]")
+                            notes=notes + " [DECLINED, suppressed from digest]")
                     elif deferred:
                         vault.update_status(pid, "deferred",
-                            notes=notes + " [DEFERRED — suppressed from digest]")
+                            notes=notes + " [DEFERRED, suppressed from digest]")
                     else:
                         vault.update_status(pid, "needs_operator", notes=notes)
                         # R-F1755: notify operator about portals that need
@@ -2970,7 +3004,7 @@ async def determine_and_drive_all(portal_ids: list[str] | None = None) -> list[d
                                     f"  Blocker: {blocker}\n"
                                     f"  Detail: {notes}\n"
                                     f"  Action needed: "
-                                    f"{'Set up CAPTCHA solver (ARIA_TWOCAPTCHA_API_KEY)' if blocker == 'captcha' else ''}"
+                                    f"{'Register manually on the portal website (ARIA has no CAPTCHA solver)' if blocker == 'captcha' else ''}"
                                     f"{'Set up IMAP email verification' if blocker == 'email_verify' else ''}"
                                     f"{'Register manually on the portal website' if blocker in ('attempt_failed', 'manual_signup') else ''}"
                                 ),
@@ -2985,7 +3019,13 @@ async def determine_and_drive_all(portal_ids: list[str] | None = None) -> list[d
                 pass
             results.append(result)
         except Exception as e:
-            results.append({"status": "error", "error": str(e)})
+            # R-F3298: name the portal. This used to record only str(e), so a
+            # per-portal failure became an anonymous {"status": "error"} that the
+            # digest counts in no bucket at all, i.e. invisible. That is how a
+            # TypeError from a drifted signature could zero out the entire drive
+            # while every caller still saw a full-length result list.
+            logger.warning("[R-F3298] determine_and_drive failed for %s: %s", pid, e)
+            results.append({"status": "error", "portal_id": pid, "error": str(e)})
 
     return results
 
@@ -3012,8 +3052,14 @@ async def email_portal_requirements_to_operator() -> dict[str, Any]:
     if not operator:
         return {"sent": False, "error": "no operator email configured (ARIA_OPERATOR_EMAIL)"}
 
-    # R-F1502: run determine_and_drive for all pending portals
-    results = await determine_and_drive_all()
+    # R-F3298: DETERMINE, do not drive. This function renders a digest, but it
+    # called determine_and_drive_all() with driving ON, so every render performed
+    # a live registration sweep: 17 of 24 portals reached register_for_portal.
+    # autonomous_scheduler._portal_vault_redrive() already drives them in the
+    # statement immediately before it calls this, so the whole sweep ran TWICE
+    # per tick against real government portals. It also made a unit test about
+    # email composition drive live registrations, which is the R-F2812 class.
+    results = await determine_and_drive_all(drive=False)
 
     # Categorize results
     actionable: list[str] = []
@@ -3021,6 +3067,14 @@ async def email_portal_requirements_to_operator() -> dict[str, Any]:
     paid: list[str] = []
     deferred: list[str] = []
     already_working: list[str] = []
+    # R-F3298: every result must land in a bucket. Before this, `error` and
+    # `not_attempted` fell through all branches and were counted NOWHERE, so the
+    # returned counts silently described fewer portals than were examined. Two
+    # live vault entries ('open_corporates', 'european_business_register') are
+    # ids that no longer exist in PORTALS, and they had been invisible on every
+    # surface because of exactly this.
+    unknown: list[str] = []
+    not_attempted = 0
 
     for r in results:
         status = r.get("status", "")
@@ -3033,6 +3087,10 @@ async def email_portal_requirements_to_operator() -> dict[str, Any]:
             already_working.append(f"  - {msg}")
         elif status == "registered":
             already_working.append(f"  - {msg}")
+        elif status == "not_attempted":
+            not_attempted += 1
+        elif status == "error":
+            unknown.append(r.get("portal_id") or r.get("error", "?"))
         elif status == "needs_operator":
             if declined:
                 paid.append(f"  - {msg}")
@@ -3043,47 +3101,55 @@ async def email_portal_requirements_to_operator() -> dict[str, Any]:
             else:
                 actionable.append(f"  - {msg}")
 
+    if unknown:
+        # An engineering drift, not an operator action, so it is logged and
+        # counted rather than emailed. Silence was the previous behaviour.
+        logger.warning(
+            "[R-F3298] %d vault entries reference portals absent from PORTALS: %s",
+            len(unknown), unknown,
+        )
+
+    def _counts() -> dict[str, int]:
+        return {"actionable": len(actionable), "captcha": len(captcha),
+                "paid": len(paid), "deferred": len(deferred),
+                "already_working": len(already_working),
+                "not_attempted": not_attempted, "unknown": len(unknown)}
+
     # Only send if there's something actionable
     if not actionable and not captcha:
-        return {"sent": False, "reason": "nothing actionable", "counts": {
-            "actionable": len(actionable), "captcha": len(captcha),
-            "paid": len(paid), "deferred": len(deferred),
-            "already_working": len(already_working),
-        }}
+        return {"sent": False, "reason": "nothing actionable", "counts": _counts()}
 
     parts = [
-        "Hi — here is the HONEST state of the external data sources ARIA cannot use "
+        "Hi, here is the HONEST state of the external data sources ARIA cannot use "
         "autonomously.\n"
     ]
     if actionable:
-        parts.append("ACTION REQUIRED — ARIA attempted but could not complete:\n"
+        parts.append("ACTION REQUIRED. ARIA attempted these but could not complete them:\n"
                      + "\n".join(actionable) + "\n")
     if captcha:
-        parts.append("CAPTCHA — manual signup required:\n" + "\n".join(captcha) + "\n")
+        parts.append("CAPTCHA, manual signup required:\n" + "\n".join(captcha) + "\n")
     if paid:
-        parts.append("PAID/DECLINED — your previous decisions (not actionable):\n"
+        parts.append("PAID or DECLINED. Your previous decisions, not actionable:\n"
                      + "\n".join(paid) + "\n")
     if deferred:
-        parts.append("DEFERRED — waiting on env vars or other prerequisites:\n"
+        parts.append("DEFERRED, waiting on env vars or other prerequisites:\n"
                      + "\n".join(deferred) + "\n")
     if already_working:
         parts.append("ALREADY WORKING (no action needed):\n"
                      + "\n".join(already_working) + "\n")
 
-    parts.append("— ARIA")
+    parts.append("ARIA")
     body = "\n".join(parts)
 
     from ..integrations.email_outbound import send_email
     result = send_email(
         to=operator,
-        subject="ARIA — portal access digest",
+        subject="ARIA portal access digest",
         body=body,
         internal=True,
         sender_note="R-F1502 portal-requirements digest",
     )
-    counts = {"actionable": len(actionable), "captcha": len(captcha),
-              "paid": len(paid), "deferred": len(deferred),
-              "already_working": len(already_working)}
+    counts = _counts()
     try:
         from .engine_wiring import wire_success
         wire_success(
