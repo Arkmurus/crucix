@@ -394,19 +394,40 @@ async def _generate_summary(llm: Any, report: dict) -> Optional[str]:
             "corrections": report.get("corrections", {}),
         }, indent=2, default=str)
 
-        prompt = (
+        # R-F3243 — call the PROVIDER INTERFACE, not the object.
+        #
+        # This was `await llm(prompt)`, and the live log said exactly why it
+        # never worked: "LLM summary generation failed: 'LLMResponseCache'
+        # object is not callable". Everything ARIA is handed here is an
+        # LLMProvider (llm/provider.py:89) — LLMResponseCache wraps one — and
+        # the interface is `complete(system_prompt, user_message)` returning an
+        # LLMResult, never `__call__`.
+        #
+        # The bug was invisible because the whole body sits in a try/except that
+        # logs a WARNING and returns None: every weekly report has silently
+        # shipped with no executive summary since this was written, and the
+        # report still looked well-formed. A broad except around an entire
+        # feature turns a hard TypeError into a missing section nobody chases.
+        system_prompt = (
             "You are ARIA, a defence procurement intelligence agent. "
-            "Write a 200-word executive summary of your weekly learning report. "
-            "Be concise, factual, and highlight the most important changes. "
-            "Cover: new knowledge acquired, mastery score trends, capability gaps, "
-            "and reasoning library health. Use bullet points.\n\n"
-            f"DATA:\n{data_block}"
+            "Write a 200-word executive summary of your weekly learning "
+            "report. Be concise and factual, and highlight the most important "
+            "changes. Cover new knowledge acquired, mastery score trends, "
+            "capability gaps and reasoning library health. Use bullet points."
         )
-
-        response = await llm(prompt)
-        if isinstance(response, dict):
-            return response.get("text") or response.get("content") or str(response)
-        return str(response) if response else None
+        if not hasattr(llm, "complete"):
+            # Say what is wrong rather than failing into a silent None: a
+            # caller passing something that is not a provider is a wiring
+            # error, and it must be visible as one.
+            logger.warning(
+                "weekly report summary skipped: %s is not an LLMProvider "
+                "(no .complete) — nothing generated the summary",
+                type(llm).__name__)
+            return None
+        result = await llm.complete(system_prompt, f"DATA:\n{data_block}",
+                                    max_tokens=800, timeout=60.0)
+        text = getattr(result, "text", "") or ""
+        return text.strip() or None
     except Exception as e:
         logger.warning("LLM summary generation failed: %s", e)
         return None
