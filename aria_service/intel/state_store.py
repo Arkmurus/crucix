@@ -3597,6 +3597,67 @@ async def scan_json(pattern: str, count: int = 200) -> list[tuple[str, "Any"]]:
 # Diagnostics
 # ─────────────────────────────────────────────────────────────────────────
 
+def connection_gauge() -> dict:
+    """R-F3263 — live aiosqlite connection cost, readable at ANY time.
+
+    Until now this number could only be obtained from an R-F704 wedge stack,
+    which is written only WHEN A STALL HAPPENS. So the one measurement that
+    tells you a connection leak is building was available exclusively after it
+    had already done its damage — and the 2026-07-27 investigation had to ssh
+    to the box and grep a crash dump to get it.
+
+    Two numbers, and the second is the important one:
+
+      workers        live aiosqlite worker threads. Each connection runs
+                     exactly one, so this IS the connection count.
+      stuck_reaps    `_reap_old_conns` closes fire-and-forget with a 30s bound
+                     because a WEDGED connection's close() queues behind the
+                     stuck op and would block the self-heal path. The task is
+                     held in `_reap_tasks` and discarded on completion — so a
+                     close that never completes stays in that set FOREVER.
+                     A non-zero, non-falling value here is a thread that will
+                     never come back, which is the residual leak in its purest
+                     form. It was already being tracked; nobody could see it.
+
+    `expected` is the design cost, stated so a reader can judge the others
+    without knowing the architecture: state_store's own writer + read pool +
+    cold pair, plus the six modules that each hold one lazy singleton
+    (brain_ingest_queue, dialogue_state, user_model, bookmarks, reading_queue,
+    search_index). Counting only state_store's six — as the first pass of this
+    investigation did — overstates the gap by half.
+
+    Counted by THREAD NAME. aiosqlite's Connection is not a Thread subclass, so
+    an isinstance check silently returns zero and every alarm built on it never
+    fires.
+    """
+    import threading as _th
+
+    # BOTH names, and this is not defensive padding — it is the whole
+    # correctness of the gauge. `redis_store` replaces
+    # `aiosqlite.core._connection_worker_thread` with its own `_patched_worker`
+    # (the R-F "Event loop is closed" shutdown guard), and CPython names a
+    # thread after its TARGET FUNCTION. So in any process that imports
+    # redis_store — i.e. production — every worker is
+    # "Thread-N (_patched_worker)" and matching only the aiosqlite name returns
+    # ZERO FOREVER.
+    #
+    # Caught because this gauge's test passed alone and failed in the suite:
+    # standalone there is no redis_store import, in-suite there is. That was
+    # not flakiness. The wedge-stack counts taken during the investigation are
+    # unaffected — they grep stack FRAMES, and the innermost frame is still
+    # aiosqlite's own function, called by the patched wrapper.
+    _WORKER_THREAD_NAMES = ("_connection_worker_thread", "_patched_worker")
+    workers = sum(1 for t in _th.enumerate()
+                  if t.is_alive() and any(n in t.name for n in _WORKER_THREAD_NAMES))
+    expected = _READ_POOL_SIZE + 1 + 2 + 6
+    return {
+        "workers": workers,
+        "stuck_reaps": len(_reap_tasks),
+        "expected": expected,
+        "excess": max(0, workers - expected),
+    }
+
+
 async def stats() -> dict:
     """Return basic backend stats for the /health endpoint."""
     hot_depth = _QUEUED_WRITES.qsize() if _QUEUED_WRITES is not None else 0

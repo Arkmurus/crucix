@@ -58,8 +58,15 @@ def _live_connection_threads() -> int:
     live wedge stack reports, which is what makes this the right instrument:
     it measures exactly what was measured on the box.
     """
+    # Must match BOTH names. redis_store patches aiosqlite's worker function,
+    # and CPython names a thread after its target — so in any process that
+    # imports redis_store (production, and this suite) the worker is
+    # "Thread-N (_patched_worker)". Matching only aiosqlite's own name counts
+    # zero forever, which is how this file's first instrument was wrong twice.
     return sum(1 for t in threading.enumerate()
-               if "_connection_worker_thread" in t.name and t.is_alive())
+               if t.is_alive() and (
+                   "_connection_worker_thread" in t.name
+                   or "_patched_worker" in t.name))
 
 
 async def _settle(baseline: int, tries: int = 40) -> int:
@@ -213,3 +220,92 @@ async def test_a_failed_reconnect_does_not_orphan_its_connection(tmp_path, monke
         f"{after - before} aiosqlite connection thread(s) orphaned by 3 failed "
         f"reconnects — the same defect R-F3251 fixed in the read pool, on the "
         f"self-heal path that runs when the store is already struggling")
+
+
+# ── R-F3263: the leak must be readable without waiting for a crash ───────
+
+def test_connection_gauge_reports_workers_and_stuck_reaps():
+    """Until this existed, the only way to see a connection leak building was
+    an R-F704 wedge stack — written only WHEN A STALL HAPPENS. The number that
+    warns you was available exclusively after the damage."""
+    from aria_service.intel import state_store as ss
+
+    g = ss.connection_gauge()
+    for key in ("workers", "stuck_reaps", "expected", "excess"):
+        assert key in g, f"gauge is missing {key}"
+        assert isinstance(g[key], int)
+    assert g["excess"] == max(0, g["workers"] - g["expected"])
+
+
+def test_the_gauge_counts_a_real_connection(tmp_path):
+    """It must see a live connection, and it must count the RIGHT predicate.
+
+    Asserted by agreement with an independent count taken at the same instant,
+    not by an absolute delta. Other tests in this process open and close their
+    own connections, so a before/after delta measures their timing as much as
+    the gauge — which is the order-dependence this file already had to fix
+    once. Agreement is deterministic; a delta is not.
+    """
+    import aiosqlite
+
+    from aria_service.intel import state_store as ss
+
+    async def _probe():
+        conn = await aiosqlite.connect(str(tmp_path / "g.db"))
+        try:
+            # aiosqlite starts the worker inside connect(), but `Thread.start()`
+            # returning and the thread appearing in `threading.enumerate()` are
+            # not the same instant. Standalone that gap is invisible; under a
+            # loaded suite it is not, and asserting through it measures
+            # scheduler timing rather than the gauge. Bounded wait, then assert.
+            for _ in range(50):
+                if ss.connection_gauge()["workers"] >= 1:
+                    break
+                await asyncio.sleep(0.02)
+
+            gauge = ss.connection_gauge()["workers"]
+            direct = _live_connection_threads()
+            assert gauge == direct, (
+                f"the gauge ({gauge}) disagrees with a direct count of the same "
+                f"predicate ({direct}) — it is not counting what it claims to")
+            assert gauge >= 1, (
+                "a connection is open and the gauge still reads zero after a "
+                "second — this is the isinstance mistake this file already "
+                "made once")
+        finally:
+            await conn.close()
+
+    asyncio.run(_probe())
+
+
+def test_expected_counts_the_whole_process_not_just_state_store():
+    """The first pass of this investigation called 20 workers '3x design' by
+    counting state_store's six and forgetting the six module singletons
+    (brain_ingest_queue, dialogue_state, user_model, bookmarks, reading_queue,
+    search_index). Overstating a gap sends the next reader hunting a leak twice
+    the real size."""
+    from aria_service.intel import state_store as ss
+
+    assert ss.connection_gauge()["expected"] == ss._READ_POOL_SIZE + 1 + 2 + 6
+
+
+def test_the_gauge_survives_the_redis_store_worker_patch():
+    """R-F3263 — the gauge must count the PATCHED thread name.
+
+    `redis_store` replaces `aiosqlite.core._connection_worker_thread` with its
+    own `_patched_worker`, and CPython names a thread after its target. So in
+    production every worker is "Thread-N (_patched_worker)". A gauge matching
+    only aiosqlite's own name reads zero forever — an alarm that can never
+    fire, which is worse than no alarm because it reads as healthy.
+    """
+    import inspect
+
+    from aria_service.intel import state_store as ss
+
+    src = inspect.getsource(ss.connection_gauge)
+    assert "_patched_worker" in src, (
+        "the gauge does not know about redis_store's patched worker name — it "
+        "will read 0 in production")
+    assert "_connection_worker_thread" in src, (
+        "the gauge dropped the unpatched name — it would miss a process that "
+        "has not imported redis_store")
