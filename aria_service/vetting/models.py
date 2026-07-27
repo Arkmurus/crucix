@@ -100,7 +100,81 @@ class DocumentType(str, Enum):
     TRAVEL_EVIDENCE = "TRAVEL_EVIDENCE"
     APPLICATION_FORM = "APPLICATION_FORM"
     SIGNED_AUTHORISATION = "SIGNED_AUTHORISATION"
+    # R-F3207 — the intake set an officer actually chases. These existed
+    # nowhere in the vocabulary, so a CV or an interview write-up could only be
+    # filed as OTHER, and OTHER satisfies no requirement and evidences no
+    # clause. A document the file needs but cannot name is a document the
+    # engine cannot count.
+    CV = "CV"
+    INTERVIEW_RECORD = "INTERVIEW_RECORD"
+    RIGHT_TO_WORK_CHECK = "RIGHT_TO_WORK_CHECK"
     OTHER = "OTHER"
+
+
+# R-F3207 — how a requirement got onto the file. Displayed, not decorative: an
+# auditor asking "why was this asked for?" gets a different answer for a clause
+# of the standard than for something the screening team added by hand, and the
+# officer waiving one needs to know which they are waiving.
+RequirementBasisLiteral = Literal[
+    "STANDARD",         # required by the screening standard — carries a clause
+    "STATUTORY",        # required by law independently of the standard, e.g.
+                        # the right-to-work check under the Immigration, Asylum
+                        # and Nationality Act 2006. Distinguished because the
+                        # consequence of skipping it is a civil penalty, not a
+                        # non-conformity — and because it survives a customer
+                        # who chooses not to screen to BS 7858 at all.
+    "HOUSE_PRACTICE",   # our own intake discipline, not the standard's demand
+    "CLIENT_CONTRACT",  # asked for by the customer this screening is run for
+]
+
+
+class DocumentRequirement(BaseModel):
+    """One thing the file must hold, and what satisfies it.
+
+    Lives here rather than in requirements.py so packs can carry these without
+    a circular import, and so the manual per-case additions are the SAME shape
+    as the pack's — an officer's bespoke requirement is a first-class item, not
+    a note in a free-text box that nothing counts.
+
+    `accepted` is a LIST because the question is almost never "do you have a
+    passport" but "do you have any acceptable proof of identity". Encoding the
+    alternatives means a driving licence satisfies the requirement without an
+    officer having to know that it does.
+    """
+
+    model_config = {"frozen": True}
+
+    key: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    accepted: list[DocumentType] = Field(min_length=1)
+    # 2 proofs of address is a min_count of 2, not two separate requirements:
+    # a file holding one is PARTIAL, which is a different thing to say than
+    # "the second proof of address is outstanding".
+    min_count: int = 1
+    reference: str = ""
+    basis: RequirementBasisLiteral = "STANDARD"
+    # Which part of the screening this belongs to; drives the officer's view.
+    stage: str = "INTAKE"
+    mandatory: bool = True
+    note: str = ""
+    origin: Literal["PACK", "MANUAL"] = "PACK"
+
+
+class RequirementWaiver(BaseModel):
+    """A requirement deliberately not pursued — recorded, never implied.
+
+    Waiving is a judgement a named person makes and must answer for, so it
+    carries who and why, exactly like an employment decision. A waived
+    requirement renders as WAIVED with that name attached; it never renders as
+    satisfied. The one thing that must not be possible here is a file that
+    looks complete because someone quietly stopped asking.
+    """
+
+    model_config = {"frozen": True}
+    key: str = Field(min_length=1)
+    waived_by: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    waived_at: date
 
 
 class UploadedDocument(BaseModel):
@@ -239,6 +313,16 @@ class ScreeningInputs(BaseModel):
     identity_examined_by: str = ""
     address_examined_by: str = ""
 
+    # ── R-F3212 — 7.3.4, the interview ──────────────────────────────────────
+    #
+    # `interview_done` alone is a tick with nobody and no date behind it. The
+    # clause requires the interview to happen BEFORE an offer, and that is a
+    # claim about a date — unanswerable from a boolean. Recording who conducted
+    # it matters for the same reason the examiner of an identity document does:
+    # an auditor asks "who, and when", and "yes" is not an answer to either.
+    interview_date: date | None = None
+    interviewed_by: str = ""
+
 
 class CaseManifest(BaseModel):
     """Pins the exact rules a case is governed by. Immutable once set;
@@ -292,6 +376,20 @@ class VettingCase(BaseModel):
     # live on the same file as the decision they contest.
     decisions: list[dict] = Field(default_factory=list)
     disputes: list[dict] = Field(default_factory=list)
+
+    # ── R-F3211 — requirements the officer added by hand ────────────────────
+    #
+    # The pack carries what the framework demands; this carries what THIS
+    # screening additionally needs — a sponsor licence, a professional
+    # registration, an airside pass, whatever the contract asks for. Same
+    # shape as the pack's, so it is counted, chased and reported identically
+    # rather than living as a note nothing reads.
+    #
+    # On the CASE, not the pack, deliberately: adding one must never mutate a
+    # released pack (its hash is pinned in every manifest), and one applicant's
+    # extra requirement is not every applicant's.
+    extra_requirements: list[DocumentRequirement] = Field(default_factory=list)
+    requirement_waivers: list[RequirementWaiver] = Field(default_factory=list)
 
     # R-F3153 — Art. 6 / Art. 10 lawful basis, recorded per case.
     #

@@ -10,6 +10,7 @@ pt_generic    DRAFT — structure only, pending local legal review
 from __future__ import annotations
 
 from ..models import CareerEntryType as C
+from ..models import DocumentRequirement as R
 from ..models import DocumentType as D
 from ..models import Money
 from .base import (
@@ -203,5 +204,106 @@ UK_BS7858_V120 = UK_BS7858.model_copy(update={
 })
 
 
-for _p in (UK_BS7858, UK_BS7858_V120, INTL_BASELINE, PT_GENERIC_DRAFT):
+# ── R-F3207: the intake document set ──────────────────────────────────────
+#
+# Everything above indexes evidence by CAREER PERIOD, which is the right shape
+# for "what confirms this engagement" and the wrong shape for every document
+# that belongs to the person rather than to a period. The consequence was that
+# a file could reach READY_FOR_CONTROLLER_REVIEW with no identity document on
+# it at all — not because a rule was lenient, but because no rule asked.
+#
+# `basis` is not decoration. An auditor, and an officer deciding whether a
+# waiver is theirs to sign, needs to know whether a requirement comes from the
+# standard, from statute, or from our own intake discipline. A CV is not
+# demanded by BS 7858; saying it is would be the same overstatement as marking
+# an applicant's payslip a primary-official record.
+_CORE_DOCUMENTS = [
+    R(key="application_form", label="Application form",
+      accepted=[D.APPLICATION_FORM], min_count=1,
+      reference="7.3.2", basis="STANDARD", stage="APPLICATION",
+      note="The declared history everything else is verified against."),
+    R(key="signed_authorisation", label="Signed screening authorisation",
+      accepted=[D.SIGNED_AUTHORISATION], min_count=1,
+      reference="7.3.2 e)", basis="STANDARD", stage="APPLICATION",
+      note="Evidence the screening was authorised. NOT the GDPR lawful "
+           "basis — see the case's recorded basis for that."),
+    R(key="cv", label="CV / career summary",
+      accepted=[D.CV], min_count=1,
+      reference="house practice", basis="HOUSE_PRACTICE", stage="APPLICATION",
+      note="Not required by the standard. Held because the declared timeline "
+           "is cross-checked against it, and discrepancies between the two "
+           "are what a screening interview is for."),
+    R(key="identity_document", label="Photographic identity document",
+      accepted=[D.PASSPORT, D.DRIVING_LICENCE, D.RESIDENCE_PERMIT,
+                D.BIRTH_CERTIFICATE],
+      min_count=1, reference="7.4 c)", basis="STANDARD", stage="IDENTITY",
+      note="The original must be sighted and a copy retained; record who "
+           "examined it."),
+    R(key="proof_of_address", label="Proof of address (two items)",
+      accepted=[D.PROOF_OF_ADDRESS, D.BANK_STATEMENT, D.HMRC_DOCUMENT],
+      min_count=2, reference="7.4 d)", basis="STANDARD", stage="IDENTITY",
+      note="Two DIFFERENT items. The same document uploaded twice counts "
+           "once — matching is by the digest of what was examined."),
+    R(key="right_to_work", label="Right-to-work evidence",
+      accepted=[D.RIGHT_TO_WORK_CHECK, D.PASSPORT, D.RESIDENCE_PERMIT],
+      min_count=1, reference="Immigration, Asylum and Nationality Act 2006",
+      basis="STATUTORY", stage="IDENTITY",
+      note="A statutory duty in its own right; failing it is a civil penalty, "
+           "not a screening non-conformity."),
+    R(key="interview_record", label="Interview record",
+      accepted=[D.INTERVIEW_RECORD], min_count=1,
+      reference="7.3.4", basis="STANDARD", stage="INTERVIEW",
+      note="The clause requires the interview before any offer, which is a "
+           "claim about a date — record when it happened and who held it."),
+    R(key="criminality_certificate", label="Criminal-record disclosure",
+      accepted=[D.DISCLOSURE_CERTIFICATE, D.NPCC_POLICE_LETTER, D.SIA_LICENCE],
+      min_count=1, reference="7.7 j)", basis="STANDARD", stage="CRIMINALITY",
+      note="The certificate itself. Distinct from the checklist item, which "
+           "records WHICH route was chosen — a chosen route with no "
+           "certificate on file is not a completed check."),
+]
+
+# ── R-F3207: UK pack v1.3.0 ───────────────────────────────────────────────
+#
+# A new version, not an edit: v1.2.0's hash is pinned in the manifest of every
+# case opened under it, and mutating a released pack breaks `get_exact` for all
+# of them. Existing cases keep v1.2.0 and stay reproducible; new cases get the
+# document set and the interview record fields.
+UK_BS7858_V130 = UK_BS7858_V120.model_copy(update={
+    "version": "1.3.0",
+    "required_documents": _CORE_DOCUMENTS,
+    "checklist": [
+        *UK_BS7858_V120.checklist,
+        # R-F3212 — 7.3.4 asks for an interview BEFORE any offer. A boolean
+        # cannot evidence a date, and "who conducted it" is the same question
+        # the standard already asks about who examined an identity document.
+        ChecklistSpec(field="interview_date",
+                      label="Interview date recorded", reference="7.3.4"),
+        ChecklistSpec(field="interviewed_by",
+                      label="Who conducted the interview", reference="7.3.4"),
+    ],
+    "source_references": [
+        "BS 7858:2019 (licensed copy required per customer)",
+        "Verified clause-by-clause 2026-07-26: 7.3.2, 7.4, 7.6, 7.7",
+        "R-F3207 2026-07-27: intake document set (7.3.2, 7.3.4, 7.4 c)/d), "
+        "7.7 j)) plus statutory right-to-work and one house-practice item, "
+        "each labelled with its basis",
+    ],
+})
+
+# The international baseline gets the SAME intake discipline minus the item
+# that is a jurisdiction-specific claim: a UK statutory right-to-work duty
+# does not travel. This pack organises evidence anywhere and must not imply it
+# knows the local law — that is what FRAMEWORK_ONLY means.
+INTL_BASELINE_V120 = INTL_BASELINE.model_copy(update={
+    "version": "1.2.0",
+    "required_documents": [
+        r.model_copy(update={"reference": "baseline", "basis": "HOUSE_PRACTICE"})
+        for r in _CORE_DOCUMENTS
+        if r.key not in {"right_to_work"}
+    ],
+})
+
+for _p in (UK_BS7858, UK_BS7858_V120, UK_BS7858_V130,
+           INTL_BASELINE, INTL_BASELINE_V120, PT_GENERIC_DRAFT):
     registry.ensure_registered(_p)

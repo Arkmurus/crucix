@@ -14,7 +14,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from ..models import CareerEntryType, DocumentType, Money
+from ..models import CareerEntryType, DocumentRequirement, DocumentType, Money
 
 
 class PackStatus(str, Enum):
@@ -83,6 +83,17 @@ class ScreeningPack(BaseModel):
     min_documentary_items_without_reference: int = 1
     # Evidence that IS a direct reference, and therefore stands alone.
     direct_reference_documents: list[DocumentType] = Field(default_factory=list)
+
+    # ── R-F3207 — the file-level document set ───────────────────────────────
+    #
+    # `accepted_evidence` answers a per-PERIOD question: what confirms this
+    # engagement. It cannot express the intake set — application form, CV,
+    # identity, criminality certificate, two proofs of address — because none
+    # of those belong to a career period. The result was that the engine had no
+    # opinion whatsoever on whether the core documents were on file: an officer
+    # could reach READY_FOR_CONTROLLER_REVIEW without an identity document,
+    # because nothing ever asked. This is the list that asks.
+    required_documents: list[DocumentRequirement] = Field(default_factory=list)
 
     # R-F3189 — documents BS 7858 7.4 c)/d) expects to be sighted in the
     # ORIGINAL, not accepted as a copy. Pack data rather than a hardcoded list,
@@ -211,7 +222,17 @@ class PackRegistry:
                 f"No PRODUCTION version of '{pack_id}' (found: {status}); "
                 f"production cases require a PRODUCTION pack."
             )
-        return max(candidates, key=lambda p: p.version)
+        # R-F3216 — this is the call site R-F3175 was written for, and it was
+        # never wired: the selection stayed `key=lambda p: p.version`, a STRING
+        # compare, while `_version_key` sat beside it exercised only by a unit
+        # test of the helper itself. The test passed; the behaviour was
+        # unchanged. That is the §3c failure exactly — a helper test is not a
+        # capability test, and a fix that is not on the path it names has not
+        # shipped. Live consequence: at v1.10.0 the registry would keep issuing
+        # v1.9.0 to every new case while still reporting the newer pack as
+        # PRODUCTION — the wrong compliance rules quietly in force, with
+        # nothing failing to say so.
+        return max(candidates, key=lambda p: self._version_key(p.version))
 
     def list_packs(self) -> list[dict]:
         return [{"pack_id": p.pack_id, "version": p.version,

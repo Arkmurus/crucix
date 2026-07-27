@@ -349,6 +349,69 @@ def sighting_findings(case: VettingCase, pack: ScreeningPack) -> list[Finding]:
     return out
 
 
+# --------------------------------------------------- core documents ------
+
+def requirement_findings(
+    case: VettingCase, pack: ScreeningPack, as_of: date,
+) -> list[Finding]:
+    """R-F3207 — the intake documents the file is asked to hold.
+
+    Before this, `evidence_findings` was the only document rule and it is
+    indexed by career period, so the engine had literally nothing to say about
+    whether an identity document, a criminality certificate or two proofs of
+    address were on the file. A case could reach READY_FOR_CONTROLLER_REVIEW
+    without any of them — not because a threshold was lenient, but because
+    nothing asked the question.
+
+    Severity is ACTION, never BLOCKER, and that is deliberate. A missing
+    document is work outstanding; it is not a reason the screening cannot
+    proceed, and it clears by someone sending a file. The one thing it must do
+    is keep the status off READY_FOR_CONTROLLER_REVIEW, which ACTION does.
+
+    Sighting is left to `sighting_findings`. Both rules see the same
+    copy-only passport, and only one of them may report it, or the officer
+    reads one problem twice under two names.
+    """
+    from .requirements import RequirementState, resolve_requirements
+
+    out: list[Finding] = []
+    for item in resolve_requirements(case, pack):
+        req = item.requirement
+        ref = req.reference or pack.pack_id
+        if item.state == RequirementState.WAIVED:
+            # Recorded as INFO so it appears in the file's own history: an
+            # auditor asking why a required document is absent finds the name
+            # and the reason here, rather than an unexplained gap.
+            out.append(Finding(
+                "REQUIREMENT_WAIVED", Severity.INFO, ref,
+                f"{req.label}: waived by {item.waived_by} — "
+                f"{item.waived_reason}"))
+            continue
+        if not req.mandatory:
+            continue
+        if item.state == RequirementState.OUTSTANDING:
+            accepted = ", ".join(t.value for t in req.accepted[:4])
+            out.append(Finding(
+                "DOCUMENT_OUTSTANDING", Severity.ACTION, ref,
+                f"{req.label}: nothing on the file satisfies this. "
+                f"Acceptable: {accepted}."))
+        elif item.state == RequirementState.PARTIAL:
+            out.append(Finding(
+                "DOCUMENT_PARTIAL", Severity.ACTION, ref,
+                f"{req.label}: {item.held} of {item.needed} held. "
+                f"{item.outstanding_count} more needed — the same document "
+                f"uploaded twice counts once."))
+        elif item.state == RequirementState.RECEIVED:
+            reasons = [r for m in item.matched for r in m.reasons]
+            if not reasons:
+                continue          # only sighting is outstanding; see 7.4 c)/d)
+            out.append(Finding(
+                "DOCUMENT_NEEDS_REVIEW", Severity.ACTION, ref,
+                f"{req.label}: on the file but not yet confirmed — "
+                f"{reasons[0]}."))
+    return out
+
+
 # ------------------------------------------------------- coverage map ----
 
 @dataclass(frozen=True)
@@ -439,6 +502,7 @@ def assess(case: VettingCase, pack: ScreeningPack, as_of: date) -> dict:
         + gap_findings(case, pack, as_of)
         + evidence_findings(case, pack, as_of)
         + referee_findings(case, pack, as_of)   # R-F3206
+        + requirement_findings(case, pack, as_of)   # R-F3207
         + sighting_findings(case, pack)
         + signoff_findings(case, pack)
         + deadline_findings(case, pack, as_of)
@@ -458,6 +522,16 @@ def assess(case: VettingCase, pack: ScreeningPack, as_of: date) -> dict:
         status = "EVIDENCE_COMPLETE"     # framework packs never issue readiness
     start, end = screening_period(case, pack)
     months = coverage_map(case, pack, as_of)
+    # R-F3207/R-F3212 — computed HERE, from the same findings the verdict was
+    # computed from, so the officer's view of the file and the engine's verdict
+    # can never be two different opinions. A UI that derived either of these
+    # for itself would be a second, weaker copy of the rule.
+    from .requirements import resolve_requirements
+    from .requirements import summarise as summarise_requirements
+    from .stages import build_stages, current_stage
+
+    resolved = resolve_requirements(case, pack)
+    stages = build_stages(case, pack, resolved, findings, as_of)
     return {
         "case_id": case.case_id,
         "as_of": as_of.isoformat(),
@@ -485,4 +559,12 @@ def assess(case: VettingCase, pack: ScreeningPack, as_of: date) -> dict:
             "unverified": sum(1 for c in months if c.state == "UNVERIFIED"),
             "undeclared": sum(1 for c in months if c.state == "UNDECLARED"),
         },
+        # R-F3207 — what the file must hold, and what it holds. `state` per
+        # requirement distinguishes RECEIVED from ACCEPTED: a document nobody
+        # could read is present, not checked.
+        "requirements": [item.as_dict() for item in resolved],
+        "requirements_summary": summarise_requirements(resolved),
+        # R-F3212 — where the file IS. Derived on every assess, never stored.
+        "stages": [stage.as_dict() for stage in stages],
+        "current_stage": current_stage(stages),
     }
