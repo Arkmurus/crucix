@@ -421,12 +421,17 @@ function renderTable(entries) {
   // entity had been re-screened today, which read as "never re-screened".
   let html = '<table class="wl-table"><thead><tr><th>Entity</th><th>Type</th><th>Jurisdiction</th><th>Risk</th><th>Review cycle</th><th>Next review</th><th>Last review</th><th>Actions</th></tr></thead><tbody>';
   for (const e of entries) {
+    // R-F3285 — tone and label from the one shared normaliser (js/app.js). The
+    // hand-written list this replaces missed AMBER-DARK entirely, so a dark-amber
+    // entity rendered in the grey "not screened" colour: a real verdict shown as
+    // the absence of one. It also printed the stored value verbatim, so the same
+    // entity read AMBER-LIGHT here and AMBER on its own report.
     const risk = String(e.last_risk || '').toUpperCase();
-    const riskCls = risk === 'RED' || risk === 'HARD_STOP' ? 'red'
-                  : (risk === 'AMBER' || risk === 'AMBER-LIGHT' ? 'amber'
-                  : (risk === 'GREEN' || risk === 'CLEAR' ? 'green' : 'muted'));
-    const riskColor = riskCls === 'red' ? '#b91c1c' : riskCls === 'amber' ? '#c2410c' : riskCls === 'green' ? '#15803d' : '#9b968c';
-    const riskPill = risk ? '<span style="font-weight:600;color:' + riskColor + '">' + escText(risk) + '</span>' : '<span style="color:#9b968c">not screened</span>';
+    const riskCls = window.riskTone ? window.riskTone(risk) : 'unknown';
+    const riskColor = riskCls === 'red' ? '#b91c1c' : riskCls === 'amber' ? '#b45309'
+                    : riskCls === 'green' ? '#15803d' : '#9b968c';
+    const riskText = window.riskLabel ? window.riskLabel(risk) : risk;
+    const riskPill = risk ? '<span style="font-weight:600;color:' + riskColor + '">' + escText(riskText) + '</span>' : '<span style="color:#9b968c">not screened</span>';
     // R-F2750 — "Last DD" = when it entered monitoring; "Last re-screen" = the
     // last sanctions re-screen observation (never conflate the two again).
     const rescreenTs = e.last_rescreened_at;

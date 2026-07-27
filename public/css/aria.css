@@ -345,6 +345,12 @@ body.nav-expanded .nav-dropdown-menu { left: calc(var(--rail-expanded-w) + 8px);
 .sc-badge-green  { background: rgba(22,163,74,0.12);  color: #15803d; }
 .sc-badge-orange { background: rgba(234,88,12,0.12);  color: #c2410c; }
 .sc-badge-red    { background: rgba(220,38,38,0.12);  color: #b91c1c; }
+/* R-F3285 - AMBER's own colour. The palette had green, orange and red but no
+   yellow, so every amber verdict either borrowed orange (which sits next to
+   the red pill and reads as a shade of it) or, on the dashboard, missed its
+   class lookup entirely and rendered muted grey. A traffic light is only
+   useful if its three states are distinguishable at a glance. */
+.sc-badge-yellow { background: rgba(245,158,11,0.16); color: #b45309; }
 .sc-badge-muted  { background: #f2f0e9; color: var(--sc-muted); }
 
 /* ── Page header ──────────────────────────────────────────────────── */

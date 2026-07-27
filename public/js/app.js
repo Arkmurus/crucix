@@ -525,3 +525,66 @@ function authed(path, opts = {}) {
     headers: { ...API.headers(), ...(opts.headers || {}) },
   });
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * R-F3285 — ONE source for how a risk classification is shown.
+ *
+ * The defect this closes, exactly: dd-reports.html built the pill's CSS class
+ * with `sev.toLowerCase().replace(/[^a-z_]/g, '')`. That strips a HYPHEN
+ * rather than mapping it to an underscore, so "AMBER-LIGHT" became the class
+ * `amberlight` while the stylesheet defined `.dd-pill.amber_light`. The rule
+ * never matched. GREEN and RED are single words and matched fine, which is why
+ * only amber shipped with no colour around it — and why nothing looked broken
+ * enough to notice for months.
+ *
+ * The label was the second half of the same problem: every surface printed the
+ * STORED value verbatim, so an operator read "AMBER-LIGHT" in one place,
+ * "AMBERLIGHT" on a PDF and "AMBER" on a finding pill, for one verdict.
+ *
+ * The stored values do NOT change. AMBER-LIGHT and AMBER-DARK are what the
+ * engine computes and what every archived report holds; rewriting them would
+ * change the meaning of records already issued to customers. This is a
+ * DISPLAY normaliser: the file keeps its precision, the human sees one word.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+function riskKey(raw) {
+  // Hyphen, space and underscore all mean the same separator here. Normalising
+  // BEFORE the strip is the whole fix.
+  return String(raw || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+}
+
+function riskTone(raw) {
+  const k = riskKey(raw);
+  if (!k) return 'unknown';
+  if (k.includes('HARD_STOP') || (k.includes('RED') && !k.includes('AMBER'))) return 'red';
+  if (k.includes('AMBER') || k === 'HIGH' || k === 'ORANGE') return 'amber';
+  if (k.includes('GREEN') || k.includes('CLEAR') || k.includes('PROCEED') || k === 'LOW') return 'green';
+  if (k === 'MEDIUM') return 'medium';
+  if (k === 'PENDING' || k === 'UNKNOWN') return 'unknown';
+  return 'unknown';
+}
+
+function riskLabel(raw) {
+  const k = riskKey(raw);
+  if (!k) return '';
+  // AMBER-LIGHT / AMBER-DARK / AMBERLIGHT all read as AMBER to a human. The
+  // light/dark gradation is an internal ranking used to order verdicts; it has
+  // never meant anything to the person reading the report, and showing it
+  // invited exactly the "is AMBER-LIGHT better or worse than AMBER?" question
+  // that a traffic light exists to prevent.
+  if (k.includes('AMBER')) return 'AMBER';
+  if (k.includes('HARD_STOP')) return 'HARD STOP';
+  return k.replace(/_/g, ' ');
+}
+
+// Attached to `window`, not exported. package.json declares "type": "module",
+// so a CommonJS `module.exports` here is dead code that READS like an export —
+// `require()` of this file returns an empty namespace and any test written
+// against it would silently assert nothing. The pages load this as a classic
+// <script>, so the global is the real interface; the guard test reads the
+// source and evaluates these three functions directly.
+if (typeof window !== 'undefined') {
+  window.riskKey = riskKey;
+  window.riskTone = riskTone;
+  window.riskLabel = riskLabel;
+}

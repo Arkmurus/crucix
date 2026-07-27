@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
-  "next_available": 3285,
+  "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
+  "next_available": 3286,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -26885,14 +26886,24 @@
       "title": "extend the R-F3278 no-AI-dash copy rule across aria-web",
       "claimed_at": "2026-07-27T13:43:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ac21f61f",
+      "notes": null,
+      "shipped_at": "2026-07-27T14:00:04Z"
     },
     {
       "r_number": "R-F3284",
       "title": "pre-push must refuse an R-number reserved only in the working tree",
       "claimed_at": "2026-07-27T13:52:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3285",
+      "title": "one risk-classification label/tone source: AMBER-LIGHT rendered colourless because the class name lost its hyphen",
+      "claimed_at": "2026-07-27T14:01:24Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

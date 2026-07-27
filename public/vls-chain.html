@@ -235,9 +235,14 @@ function renderChain(data, canonicalId) {
   html += '<div class="vls-chain">';
   for (const r of results) {
     const v = r.verified ? 'pass' : 'fail';
-    // R-F2065: risk_classification values use hyphens (AMBER-LIGHT, AMBER-DARK)
-    // but CSS classes use underscores (amber_light, amber_dark). Normalise.
-    const riskPill = r.risk_classification ? '<span class="vls-pill ' + r.risk_classification.toLowerCase().replace(/-/g, '_').replace(/[^a-z_]/g, '') + '">' + escText(r.risk_classification) + '</span>' : '';
+    // R-F2065 spotted the hyphen problem here first and fixed the CLASS by
+    // mapping '-' to '_' before the strip. R-F3285 makes that the shared rule
+    // (js/app.js riskKey) and fixes the half R-F2065 left: the LABEL still
+    // printed the stored value, so this chain said AMBER-LIGHT while the
+    // report it verifies said AMBER.
+    const _rk = window.riskKey ? window.riskKey(r.risk_classification) : String(r.risk_classification || '').toUpperCase().replace(/-/g, '_');
+    const _rt = window.riskLabel ? window.riskLabel(r.risk_classification) : r.risk_classification;
+    const riskPill = r.risk_classification ? '<span class="vls-pill ' + _rk.toLowerCase().replace(/[^a-z_]/g, '') + ' ' + (window.riskTone ? window.riskTone(r.risk_classification) : '') + '">' + escText(_rt) + '</span>' : '';
     html += '<div class="vls-version">';
     html += '  <div class="vls-version-indicator"><div class="vls-version-dot ' + v + '"></div><div class="vls-version-num">v' + (r.version || '?') + '</div></div>';
     html += '  <div class="vls-version-body">';

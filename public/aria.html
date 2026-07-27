@@ -1306,6 +1306,13 @@ function renderDDStatusCard(runId, container) {
   var token = localStorage.getItem('crucix_token') || '';
   function riskClass(r) {
     r = String(r || '').toUpperCase();
+    // R-F3285 — same tone decision as every other surface.
+    if (window.riskTone) {
+      const t = window.riskTone(risk);
+      if (t === 'red') return 'risk-red';
+      if (t === 'amber') return 'risk-amber';
+      if (t === 'green') return 'risk-green';
+    }
     if (r.indexOf('HARD') >= 0 || (r.indexOf('RED') >= 0 && r.indexOf('AMBER') < 0)) return 'risk-red';
     if (r.indexOf('AMBER') >= 0 || r.indexOf('HIGH') >= 0) return 'risk-amber';
     if (r.indexOf('GREEN') >= 0 || r.indexOf('CLEAR') >= 0 || r.indexOf('PROCEED') >= 0) return 'risk-green';

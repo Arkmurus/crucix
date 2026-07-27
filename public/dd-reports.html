@@ -122,8 +122,16 @@
     .dd-pill.clean::before { background: #15803d; }
     .dd-pill.unknown { background: #f2f0e9; color: var(--sc-muted); }
     .dd-pill.unknown::before { background: #9b968c; }
-    .dd-pill.amber_light { background: rgba(234,88,12,0.1); color: #c2410c; }
-    .dd-pill.amber_light::before { background: #c2410c; }
+    /* R-F3285 — amber, and reachable. The class used to be built by stripping
+       the hyphen out of AMBER-LIGHT, which produced `amberlight` and matched
+       nothing, so the one verdict that most needs a colour shipped without one.
+       Kept as amber/yellow rather than the old orange: orange next to a red
+       pill reads as a shade of red, and the point of a traffic light is three
+       states a person can tell apart at a glance. */
+    .dd-pill.amber { background: rgba(245,158,11,0.16); color: #b45309; }
+    .dd-pill.amber::before { background: #f59e0b; }
+    .dd-pill.amber_light, .dd-pill.amber_dark { background: rgba(245,158,11,0.16); color: #b45309; }
+    .dd-pill.amber_light::before, .dd-pill.amber_dark::before { background: #f59e0b; }
     .dd-pill.green { background: rgba(22,163,74,0.1); color: #15803d; }
     .dd-pill.green::before { background: #15803d; }
     .dd-pill.red { background: rgba(220,38,38,0.1); color: #b91c1c; }
@@ -659,8 +667,16 @@ function fmtDate(d) {
 
 function severityPill(sev) {
   if (!sev) return '<span class="dd-pill unknown">-</span>';
-  const cls = (sev || '').toLowerCase().replace(/[^a-z_]/g, '');
-  return '<span class="dd-pill ' + cls + '">' + escText(sev.replace(/_/g, ' ')) + '</span>';
+  // R-F3285 — both the class and the label come from the shared normaliser in
+  // js/app.js. This used to be `.replace(/[^a-z_]/g, '')`, which STRIPS a
+  // hyphen instead of mapping it, so AMBER-LIGHT produced the class
+  // `amberlight` and matched no rule in the stylesheet above.
+  const key = (window.riskKey ? window.riskKey(sev) : String(sev).toUpperCase());
+  const cls = key.toLowerCase().replace(/[^a-z_]/g, '');
+  const tone = window.riskTone ? window.riskTone(sev) : '';
+  const text = window.riskLabel ? window.riskLabel(sev) : String(sev).replace(/_/g, ' ');
+  return '<span class="dd-pill ' + cls + (tone ? ' ' + tone : '') + '">'
+       + escText(text) + '</span>';
 }
 
 // R-F2341 — running/failed async DDs get a clear status badge instead of a bogus
@@ -1138,6 +1154,16 @@ async function startRerun(btn, ctx) {
 
 // R-F2264 — professional report formatting: risk-verdict hero + clean citations.
 function ddRiskClass(risk) {
+  // R-F3285 — the shared normaliser decides the tone; this only maps it to the
+  // hero's class name. Four surfaces each re-derived this by hand and one of
+  // them got the regex wrong, which is the defect that produced a colourless
+  // AMBER pill.
+  if (window.riskTone) {
+    const t = window.riskTone(risk);
+    if (t === 'red') return 'risk-red';
+    if (t === 'amber') return 'risk-amber';
+    if (t === 'green') return 'risk-green';
+  }
   const r = (risk || '').toUpperCase();
   if (r.includes('HARD') || (r.includes('RED') && !r.includes('AMBER'))) return 'risk-red';
   if (r.includes('AMBER') || r.includes('HIGH')) return 'risk-amber';

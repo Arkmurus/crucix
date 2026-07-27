@@ -268,9 +268,17 @@ function toggleBrief() {
 // ── Severity pill helper ──
 function severityPill(sev) {
   if (!sev) return '<span class="sc-badge sc-badge-muted">-</span>';
-  const cls = (sev || '').toLowerCase().replace(/[^a-z_]/g, '');
-  const map = { 'hard_stop': 'sc-badge-red', 'red': 'sc-badge-red', 'amber-light': 'sc-badge-orange', 'amber-dark': 'sc-badge-orange', 'green': 'sc-badge-green' };
-  return '<span class="sc-badge ' + (map[cls] || 'sc-badge-muted') + '">' + escHtml(sev.replace(/_/g, ' ')) + '</span>';
+  // R-F3285 — this was the same defect as dd-reports, with a worse symptom.
+  // `cls` was built by STRIPPING the hyphen, giving `amberlight`, while the
+  // map below was keyed 'amber-light' WITH one. The lookup always missed, so
+  // every amber verdict on the dashboard fell through to sc-badge-muted and
+  // rendered grey: a real verdict shown in the colour reserved for not having
+  // one. Tone and label now come from the shared normaliser in js/app.js.
+  const tone = window.riskTone ? window.riskTone(sev) : 'unknown';
+  const map = { red: 'sc-badge-red', amber: 'sc-badge-yellow',
+                green: 'sc-badge-green', medium: 'sc-badge-blue' };
+  const text = window.riskLabel ? window.riskLabel(sev) : String(sev).replace(/_/g, ' ');
+  return '<span class="sc-badge ' + (map[tone] || 'sc-badge-muted') + '">' + escHtml(text) + '</span>';
 }
 
 function priorityBadge(priority) {
