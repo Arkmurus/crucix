@@ -5,8 +5,20 @@ name: Deploy ARIA to Fly.io
 # 5 deploys in 30 min = 5 × ~60-90s outages).
 #
 # Deploy ONLY via:
-#   1. workflow_dispatch (manual trigger in GitHub UI) — preferred
-#   2. A commit whose message contains "[deploy]" — for urgent hotfixes
+#   1. workflow_dispatch (manual trigger in GitHub UI) — the ONLY CI route
+#   2. scripts/deploy.ps1 (Windows) / deploy.sh (POSIX) — the normal route
+#
+# R-F3238 — a "[deploy]" COMMIT MESSAGE DOES NOTHING, and this header claimed
+# otherwise for seven weeks after it stopped working. That cost a real deploy:
+# an agent read the `if:` guard below (`github.event_name == 'push'`), concluded
+# a tagged commit would ship, pushed one, and waited on a build never queued.
+# R-F1408 removed the `push:` trigger on 2026-06-07; with no `push` in `on:`,
+# that arm of the `if:` is unreachable by construction.
+#
+# The `if:` stays — it costs nothing and is correct the moment anyone restores
+# `push:` — but the comment that ADVERTISED the route is now the truth instead.
+# Same rule the DD engine is held to: a surface may not describe a capability
+# the code does not have.
 #
 # Use scripts/deploy.sh for local batching: it collects all pending
 # R-numbers since the last deploy tag and deploys them as one batch.
