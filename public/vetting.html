@@ -184,7 +184,13 @@
     .vt-row-name { font-weight: 600; color: var(--sc-heading); overflow-wrap: anywhere; }
 
     /* standard coverage disclosure */
-    .vt-std { margin-top: 30px; background: #fff; border: 1px solid var(--sc-border); border-radius: 12px; padding: 0; }
+    /* R-F3256 — 18px below, matching .vt-queue's own margin-bottom, so the
+       gap above the queue equals the gap below it. `margin-top: 30px` was a
+       leftover from when this block sat at the FOOT of the page; the title
+       already carries its own 22px, so keeping it stacked two margins and
+       left none underneath — the box butted straight into the stat tiles
+       while everything below them was evenly spaced. */
+    .vt-std { margin: 0 0 18px; background: #fff; border: 1px solid var(--sc-border); border-radius: 12px; padding: 0; }
     .vt-std > summary { padding: 14px 18px; cursor: pointer; list-style: none; font-size: 13px; font-weight: 700; color: var(--sc-heading); }
     .vt-std > summary::-webkit-details-marker { display: none; }
     /* The count travels with the title even when collapsed. */
