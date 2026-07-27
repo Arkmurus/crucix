@@ -39,5 +39,8 @@ test('the register loads eagerly, so the collapsed line is never a placeholder',
 });
 
 test('a failed read says so rather than implying coverage', () => {
-  assert.match(page, /coverage unavailable — could not be read/);
+  // R-F3278 — the em dash was removed from this copy; the assertion pins the
+  // MEANING (an unreadable source must say so, never imply coverage), not the
+  // punctuation.
+  assert.match(page, /coverage unavailable, could not be read/);
 });

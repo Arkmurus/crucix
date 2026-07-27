@@ -38,7 +38,7 @@ test('R-F3143 — every unassessed case ships in the UNKNOWN queue', () => {
   assert.match(HTML, /key:\s*'UNKNOWN'/);
   assert.match(HTML, /match:\s*\(c\)\s*=>\s*!c\.last_status/);
   assert.match(HTML, /Not assessed/);
-  assert.match(HTML, /status is unknown, not clear/);
+  assert.match(HTML, /[Ss]tatus is unknown, not clear/);
 });
 
 test('R-F3143 — no clean verdict wording is baked into static markup', () => {
@@ -136,7 +136,7 @@ test('R-F3168 an unassessed case is grouped as unknown, never as clear', () => {
   // Same rule as the verdict banner: absence of an assessment is not a pass.
   assert.match(HTML, /Not yet assessed/,
     'there must be a section for cases with no assessment');
-  assert.match(HTML, /status is unknown, not clear/,
+  assert.match(HTML, /[Ss]tatus is unknown, not clear/,
     'the unassessed section must say what its absence means');
   assert.ok(!/last_status\s*\|\|\s*['"]READY/.test(HTML),
     'a missing cached status must never default to a ready state');

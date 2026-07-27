@@ -83,7 +83,7 @@
     .vt-summary:hover { background: #faf9f6; }
     .vt-case[open] .vt-summary { border-bottom: 1px solid var(--sc-border); background: #faf9f6; }
     /* Initials, not photographs. We hold passports, so a face is technically
-       available — but extracting one is biometric processing (Art. 9) and would
+       available, but extracting one is biometric processing (Art. 9) and would
        move the product toward biometric categorisation under the EU AI Act,
        which our own assessment records that we do NOT do. Initials give the
        same at-a-glance recognition at none of that cost. */
@@ -199,7 +199,7 @@
        gap above the queue equals the gap below it. `margin-top: 30px` was a
        leftover from when this block sat at the FOOT of the page; the title
        already carries its own 22px, so keeping it stacked two margins and
-       left none underneath — the box butted straight into the stat tiles
+       left none underneath. The box butted straight into the stat tiles
        while everything below them was evenly spaced. */
     .vt-std { margin: 0 0 18px; background: #fff; border: 1px solid var(--sc-border); border-radius: 12px; padding: 0; }
     .vt-std > summary { padding: 14px 18px; cursor: pointer; list-style: none; font-size: 13px; font-weight: 700; color: var(--sc-heading); }
@@ -290,7 +290,7 @@ Sidebar.init('vetting');
     NOT_READY: ['Not ready', 'Blocking findings must be cleared before this file can go to review.'],
     AWAITING_SIGNOFF: ['Awaiting sign-off', 'Requires a documented top-management acceptance-of-risk decision.'],
     IN_PROGRESS: ['In progress', 'Outstanding actions remain on the checklist, documents or timeline.'],
-    READY_FOR_CONTROLLER_REVIEW: ['Ready for controller review', 'Evidence is complete. A named human makes the employment decision — this module does not.'],
+    READY_FOR_CONTROLLER_REVIEW: ['Ready for controller review', 'Evidence is complete. A named human makes the employment decision. This module does not.'],
     EVIDENCE_COMPLETE: ['Evidence complete', 'Organised under a framework-only pack, which cannot issue jurisdictional decision-readiness.'],
   };
   const ICONS = {
@@ -313,7 +313,7 @@ Sidebar.init('vetting');
   const BASIS_TEXT = {
     STANDARD: 'required by the standard',
     STATUTORY: 'required by law',
-    HOUSE_PRACTICE: 'house practice — not demanded by the standard',
+    HOUSE_PRACTICE: 'house practice, not demanded by the standard',
     CLIENT_CONTRACT: 'asked for by the customer',
   };
 
@@ -342,9 +342,9 @@ Sidebar.init('vetting');
       match: (c) => c.last_status === 'IN_PROGRESS' },
     // R-F3172 — sits ABOVE the clean sections deliberately: a stale verdict is
     // the one most likely to be trusted, because it looks settled.
-    { key: 'STALE', title: 'Changed since last assessment', hint: 'Re-assess — the recorded verdict no longer describes this file',
+    { key: 'STALE', title: 'Changed since last assessment', hint: 'Re-assess. The recorded verdict no longer describes this file',
       match: (c) => c.assessment_stale },
-    { key: 'UNKNOWN', title: 'Not yet assessed', hint: 'No assessment has been run — status is unknown, not clear',
+    { key: 'UNKNOWN', title: 'Not yet assessed', hint: 'No assessment has been run. Status is unknown, not clear',
       match: (c) => !c.last_status },
     { key: 'DONE', title: 'Ready / complete', hint: 'Evidence complete; the decision is a human’s',
       match: (c) => c.last_status === 'READY_FOR_CONTROLLER_REVIEW'
@@ -368,7 +368,7 @@ Sidebar.init('vetting');
             <span class="vt-name">${esc(c.applicant_name || '(unnamed)')}</span>
             <span class="vt-ref">${esc(c.case_id)} · ${asOf} · ${esc(c.pack_id)} v${esc(c.pack_version)}</span>
             <span class="vt-face" data-face-for="${esc(c.case_id)}">
-              <span class="vt-facemeta">${Number(c.document_count || 0)} document(s) on file — expand for detail</span>
+              <span class="vt-facemeta">${Number(c.document_count || 0)} document(s) on file, expand for detail</span>
             </span>
           </span>
           <span class="sc-badge ${badgeCls} vt-status">${esc(badgeText)}</span>
@@ -463,7 +463,7 @@ Sidebar.init('vetting');
         <p class="vt-ref" style="margin-top:5px">${esc(pack.pack_id)} v${esc(pack.version)} · ${esc(pack.jurisdiction)} ·
           screening period ${esc(period[0])} → ${esc(period[1])} · assessed as of ${esc(a.as_of)}</p>
         ${pack.employment_decision_eligible ? '' :
-          `<p class="vt-vstrip-sub" style="color:#b45309">FRAMEWORK-ONLY pack — it organises and grades
+          `<p class="vt-vstrip-sub" style="color:#b45309">FRAMEWORK-ONLY pack. It organises and grades
            evidence but cannot state whether screening is lawful or sufficient in any jurisdiction.</p>`}
       </div></div>`;
   }
@@ -478,7 +478,7 @@ Sidebar.init('vetting');
         <div class="vt-stage-num">${s.total ? `${s.done}/${s.total} done` : 'nothing outstanding'}${
           s.blockers ? ` · <span style="color:#dc2626">${s.blockers} blocker(s)</span>` : ''}</div>
       </div>`).join('')}</div>
-      <p class="vt-note">Derived from the file on every assessment — never advanced by hand.
+      <p class="vt-note">Derived from the file on every assessment, never advanced by hand.
         A stage completes when its evidence is present and nothing in it is still flagged.</p>`;
     const current = stages.find((s) => s.key === a.current_stage);
     return sec('Where this file is', current ? current.label : '', body);
@@ -527,7 +527,7 @@ Sidebar.init('vetting');
       const next = newerPackFor(a);
       return sec('Required documents', 'none defined',
         `<div class="vt-empty">This case is pinned to a rule pack version that defines no
-         document requirements. Cases keep the pack they were opened under — which is why a
+         document requirements. Cases keep the pack they were opened under, which is why a
          historical assessment still means what it meant.${next ? `<br><br>
          <strong>${esc(next.pack_id)} v${esc(next.version)} is available</strong> and does define
          requirements. Updating re-pins this case to it, records the change on the file, and
@@ -575,7 +575,7 @@ Sidebar.init('vetting');
             ${r.origin === 'MANUAL' ? ' · added by hand' : ''}</div>
           ${r.note ? `<div class="vt-req-meta">${esc(r.note)}</div>` : ''}
           ${r.state === 'WAIVED'
-            ? `<div class="vt-req-why">Waived by ${esc(r.waived_by)} — ${esc(r.waived_reason)}.
+            ? `<div class="vt-req-why">Waived by ${esc(r.waived_by)}: ${esc(r.waived_reason)}.
                It is not satisfied; it is no longer being pursued.</div>`
             : ''}
           ${why.length ? `<div class="vt-req-why"><i class="bi bi-exclamation-triangle"></i>
@@ -589,7 +589,7 @@ Sidebar.init('vetting');
       `${s.accepted || 0}/${s.total || 0} accepted`,
       rows + `<p class="vt-note">ACCEPTED means the document is on the file and nothing about it is
         still waiting on a person. RECEIVED means it arrived but has not been read, or the original
-        has not been sighted — present is not checked.</p>`,
+        has not been sighted, present is not checked.</p>`,
       add);
   }
 
@@ -686,7 +686,7 @@ Sidebar.init('vetting');
   function documentsSection(caseId, docs) {
     if (!docs) {
       return sec('Documents on file', 'unavailable',
-        '<div class="vt-error">The document list could not be loaded. Nothing can be concluded from that — it is not an empty file.</div>');
+        '<div class="vt-error">The document list could not be loaded. Nothing can be concluded from that. It is not an empty file.</div>');
     }
     if (!docs.length) {
       return sec('Documents on file', '0',
@@ -702,7 +702,7 @@ Sidebar.init('vetting');
             d.covers_from ? ' · covers ' + esc(d.covers_from) + '→' + esc(d.covers_to || '') : ''}
             · sighting ${esc(d.sighting)}${d.examined_by ? ' by ' + esc(d.examined_by) : ''}
             · ${d.encrypted ? 'encrypted' : 'NOT encrypted'}</span>
-          ${bad ? '<div class="vt-req-why">Integrity verification FAILED — do not rely on this copy.</div>' : ''}
+          ${bad ? '<div class="vt-req-why">Integrity verification FAILED. Do not rely on this copy.</div>' : ''}
         </div>
         <button class="vt-btn secondary sm" data-sighting="${esc(d.document_id)}" data-case="${esc(caseId)}">
           <i class="bi bi-eyeglasses"></i> Sighting</button>
@@ -723,7 +723,7 @@ Sidebar.init('vetting');
       ? rows.map((r) => `<div class="vt-row">
           <span class="vt-pill ${r.overdue ? 'deadline' : (r.is_open ? 'action' : 'info')}">${esc(r.code)}</span>
           <div class="vt-row-main">
-            <div class="vt-row-name">${esc(r.label)} — ${esc(r.sent_to)}</div>
+            <div class="vt-row-name">${esc(r.label)} · ${esc(r.sent_to)}</div>
             <span class="vt-ref">sent ${esc(r.sent_at)}${r.channel ? ' by ' + esc(r.channel) : ''} ·
               ${esc(r.status)}${r.is_open ? ` · ${r.days_outstanding} day(s) outstanding` : ''}${
                 r.overdue ? ' · OVERDUE' : ''}</span>
@@ -837,7 +837,7 @@ Sidebar.init('vetting');
     // the engine would reject.
     const out = [];
     DOC_TYPES.forEach((g) => (g.types || []).forEach((t) => {
-      out.push({ value: t, label: `${g.label} — ${t.replace(/_/g, ' ').toLowerCase()}` });
+      out.push({ value: t, label: `${g.label} · ${t.replace(/_/g, ' ').toLowerCase()}` });
     }));
     if (!out.length) out.push({ value: 'OTHER', label: 'Other' });
     if (selected && !out.some((o) => o.value === selected)) {
@@ -920,7 +920,7 @@ Sidebar.init('vetting');
       if (!r.ok) {
         body.innerHTML = '<div class="vt-error">The clause register could not be loaded.</div>';
         // Never leave the collapsed line implying coverage we could not read.
-        if (headline) headline.textContent = 'coverage unavailable — could not be read';
+        if (headline) headline.textContent = 'coverage unavailable, could not be read';
         return;
       }
       const d = await r.json();
@@ -934,7 +934,7 @@ Sidebar.init('vetting');
       }
       const rows = (d.clauses || []).map((x) => `
         <div class="vt-clause">
-          <span class="vt-clause-id">${esc(x.clause)}</span> — <strong>${esc(x.title)}</strong>
+          <span class="vt-clause-id">${esc(x.clause)}</span> · <strong>${esc(x.title)}</strong>
           <span class="vt-state ${x.status === 'ENCODED' ? 'ACCEPTED' : (x.status === 'OPERATOR_CONTROL' ? 'RECEIVED' : 'OUTSTANDING')}">${esc(x.status)}</span>
           <div style="margin-top:3px">${esc(x.requirement)}</div>
           <div class="vt-ref" style="margin-top:3px">${esc((x.implemented_by || []).join(' · '))}${
@@ -952,7 +952,7 @@ Sidebar.init('vetting');
         `<p class="vt-note">${esc(d.copyright_note)}</p>`;
     } catch (e) {
       body.innerHTML = '<div class="vt-error">The clause register could not be loaded.</div>';
-      if (headline) headline.textContent = 'coverage unavailable — could not be read';
+      if (headline) headline.textContent = 'coverage unavailable, could not be read';
     }
   }
 
@@ -971,7 +971,7 @@ Sidebar.init('vetting');
 
     const values = await Modal.form({
       title: 'Add a document to the file',
-      message: `${file.name} — ${(file.size / 1024).toFixed(0)} KB`,
+      message: `${file.name} · ${(file.size / 1024).toFixed(0)} KB`,
       icon: 'bi-file-earmark-arrow-up',
       okLabel: 'Upload',
       fields: [
@@ -986,7 +986,7 @@ Sidebar.init('vetting');
               + 'its attachments. What is read is recorded as DECLARED, never as verified, '
               + 'and your answer here wins if the two disagree.' },
         { name: 'attach_to_entry_id', label: 'Evidence for which period? (optional)', type: 'select',
-          options: [{ value: '', label: '— not tied to a career period' }].concat(
+          options: [{ value: '', label: '(not tied to a career period)' }].concat(
             career.map((e) => ({ value: e.entry_id,
               label: `${e.organisation || e.entry_type} (${e.start} → ${e.end || 'present'})` }))),
           help: 'Optional. A document that states the period it covers is matched to the '
@@ -1022,16 +1022,16 @@ Sidebar.init('vetting');
       const linked = (t.linked_entry_ids || []).length;
       const created = (t.created_entry_ids || []).length;
       let what = '';
-      if (created) what = `. ${created} declared period(s) read from it`;
-      else if (linked) what = `. Evidence against ${linked} period(s)`;
-      else if (t.reason) what = `. Not applied to the timeline: ${t.reason}`;
+      if (created) what = `, ${created} declared period(s) read from it`;
+      else if (linked) what = `, evidence against ${linked} period(s)`;
+      else if (t.reason) what = `, not applied to the timeline: ${t.reason}`;
       Toast.show(
         `${body.doc_type} stored` + what
         + (body.needs_human_review ? ' · needs your review' : ''),
         body.needs_human_review ? 'info' : 'success', linked || created ? 6000 : 9000);
       await loadDetail(caseId, true);
     } catch (e) {
-      Toast.show('Upload failed — the service was unreachable. The document was NOT added.', 'danger', 9000);
+      Toast.show('Upload failed. The service was unreachable. The document was NOT added.', 'danger', 9000);
     }
   }
 
@@ -1058,7 +1058,7 @@ Sidebar.init('vetting');
       if (!opened) Toast.show('Your browser blocked the document window.', 'info', 6000);
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) {
-      Toast.show('That document could not be opened — the service was unreachable.', 'danger', 9000);
+      Toast.show('That document could not be opened. The service was unreachable.', 'danger', 9000);
     }
   }
 
@@ -1071,9 +1071,9 @@ Sidebar.init('vetting');
         { name: 'sighting', label: 'What was seen?', type: 'select', required: true, autofocus: true,
           options: [
             { value: 'ORIGINAL_SEEN', label: 'Original inspected in person, copy retained' },
-            { value: 'COPY_ONLY', label: 'A copy or scan only — the original was never sighted' },
+            { value: 'COPY_ONLY', label: 'A copy or scan only. The original was never sighted' },
             { value: 'NOT_APPLICABLE', label: 'Not applicable (e.g. an electronic share code)' },
-            { value: 'NOT_RECORDED', label: 'Not recorded — nobody has answered yet' },
+            { value: 'NOT_RECORDED', label: 'Not recorded. Nobody has answered yet' },
           ] },
         { name: 'examined_by', label: 'Who examined it?', type: 'text',
           help: 'Required when an original was sighted. A sighting with nobody attached cannot be evidenced to an auditor.' },
@@ -1095,7 +1095,7 @@ Sidebar.init('vetting');
       Toast.show('Sighting recorded', 'success');
       await loadDetail(caseId, true);
     } catch (e) {
-      Toast.show('Not recorded — the service was unreachable.', 'danger', 8000);
+      Toast.show('Not recorded. The service was unreachable.', 'danger', 8000);
     }
   }
 
@@ -1103,14 +1103,14 @@ Sidebar.init('vetting');
   async function addRequirement(caseId) {
     const values = await Modal.form({
       title: 'Add a document requirement',
-      message: 'Applies to this case only. The rule pack is never modified — its hash is pinned in the case manifest.',
+      message: 'Applies to this case only. The rule pack is never modified. Its hash is pinned in the case manifest.',
       icon: 'bi-list-check', okLabel: 'Add',
       fields: [
         { name: 'label', label: 'What is needed?', type: 'text', required: true, autofocus: true,
           placeholder: 'Airside pass application' },
         { name: 'accepted', label: 'Which document type satisfies it?', type: 'select', required: true,
           options: docTypeOptions('OTHER'),
-          help: 'Use OTHER if nothing in the list fits — the requirement is still counted and chased.' },
+          help: 'Use OTHER if nothing in the list fits. The requirement is still counted and chased.' },
         { name: 'min_count', label: 'How many?', type: 'number', value: '1' },
         { name: 'basis', label: 'Why is it needed?', type: 'select', required: true,
           options: [
@@ -1151,14 +1151,14 @@ Sidebar.init('vetting');
       Toast.show('Requirement added', 'success');
       await loadDetail(caseId, true);
     } catch (e) {
-      Toast.show('Not added — the service was unreachable.', 'danger', 8000);
+      Toast.show('Not added. The service was unreachable.', 'danger', 8000);
     }
   }
 
   async function waiveRequirement(caseId, key, label) {
     const values = await Modal.form({
       title: 'Stop pursuing this requirement',
-      message: `${label}. This is recorded against your name and stays on the file — the requirement will show as WAIVED, never as satisfied.`,
+      message: `${label}. This is recorded against your name and stays on the file. The requirement will show as WAIVED, never as satisfied.`,
       icon: 'bi-slash-circle', okLabel: 'Record waiver',
       fields: [
         { name: 'waived_by', label: 'Your full name', type: 'text', required: true, autofocus: true },
@@ -1175,7 +1175,7 @@ Sidebar.init('vetting');
       if (!r.ok) { Toast.show('Waiver not recorded.', 'danger', 8000); return; }
       Toast.show('Waiver recorded', 'success');
       await loadDetail(caseId, true);
-    } catch (e) { Toast.show('Waiver not recorded — service unreachable.', 'danger', 8000); }
+    } catch (e) { Toast.show('Waiver not recorded. Service unreachable.', 'danger', 8000); }
   }
 
   async function simpleDelete(caseId, path, okMessage) {
@@ -1184,7 +1184,7 @@ Sidebar.init('vetting');
       if (!r.ok) { Toast.show(`Not done (HTTP ${r.status}).`, 'danger', 8000); return; }
       Toast.show(okMessage, 'success');
       await loadDetail(caseId, true);
-    } catch (e) { Toast.show('Not done — the service was unreachable.', 'danger', 8000); }
+    } catch (e) { Toast.show('Not done. The service was unreachable.', 'danger', 8000); }
   }
 
   // R-F3212 — 7.3.4 asks for an interview BEFORE any offer, which is a claim
@@ -1197,7 +1197,7 @@ Sidebar.init('vetting');
     } catch (e) { /* the form still works empty */ }
     const values = await Modal.form({
       title: 'Record the screening interview',
-      message: 'BS 7858 7.3.4 — the interview happens before any offer of employment.',
+      message: 'BS 7858 7.3.4. The interview happens before any offer of employment.',
       icon: 'bi-mic', okLabel: 'Record',
       fields: [
         { name: 'interview_date', label: 'Date held', type: 'date', required: true, autofocus: true,
@@ -1221,7 +1221,7 @@ Sidebar.init('vetting');
       }
       Toast.show('Interview recorded', 'success');
       await loadDetail(caseId, true);
-    } catch (e) { Toast.show('Not recorded — service unreachable.', 'danger', 8000); }
+    } catch (e) { Toast.show('Not recorded. Service unreachable.', 'danger', 8000); }
   }
 
   // ── R-F3266 — move this case onto a newer version of its rule pack ────────
@@ -1232,11 +1232,15 @@ Sidebar.init('vetting');
   async function migratePack(caseId, toVersion) {
     const values = await Modal.form({
       title: `Update this case to pack v${toVersion}`,
+      // R-F3278 — no em dashes in copy an officer reads. The mechanical pass turned
+      // the two parenthetical dashes into a comma list ("the file, documents, career
+      // history, inputs, is untouched"), which is ambiguous; written out properly here.
       message: 'The case is re-pinned to the newer rules. Everything on the file, '
-             + 'meaning documents, career history and inputs, is untouched; only which rules apply '
-             + 'changes. The move is recorded on the case with your name, and the current '
-             + 'assessment is marked for re-running, because it was computed under the '
-             + 'rules being replaced. This cannot be undone: a case never moves backwards.',
+             + 'including documents, career history and inputs, is untouched. Only '
+             + 'which rules apply changes. The move is recorded on the case with your '
+             + 'name, and the current assessment is marked for re-running, because it '
+             + 'was computed under the rules being replaced. This cannot be undone: a '
+             + 'case never moves backwards.',
       icon: 'bi-arrow-up-circle', okLabel: 'Update rules',
       fields: [
         { name: 'migrated_by', label: 'Who is making this change?', type: 'text',
@@ -1277,17 +1281,17 @@ Sidebar.init('vetting');
       try {
         const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/assess`, { method: 'POST' });
         if (r.ok) engine = await r.json();
-      } catch (e) { /* handled below — we simply decide without the context */ }
+      } catch (e) { /* handled below. We simply decide without the context */ }
     }
     const counts = (engine && engine.counts) || {};
     const blockers = Number(counts.blockers || 0);
     const statusText = engine
-      ? `${esc(engine.status)} — ${blockers} blocker(s), ${Number(counts.signoffs || 0)} sign-off(s), ${Number(counts.actions || 0)} action(s)`
+      ? `${esc(engine.status)} · ${blockers} blocker(s), ${Number(counts.signoffs || 0)} sign-off(s), ${Number(counts.actions || 0)} action(s)`
       : 'Could not read the current assessment. Decide only if you have the file in front of you.';
 
     const values = await Modal.form({
       title: 'Record employment decision',
-      message: `Case ${caseId}. The decision is recorded against your name — ARIA never decides.`,
+      message: `Case ${caseId}. The decision is recorded against your name. ARIA never decides.`,
       icon: 'bi-person-check-fill', okLabel: 'Record decision',
       fields: [
         { name: 'engine', label: 'Current assessment', type: 'static',
@@ -1299,13 +1303,13 @@ Sidebar.init('vetting');
             { value: 'APPROVED', label: 'Approved' },
             { value: 'APPROVED_WITH_CONDITIONS', label: 'Approved with conditions' },
             { value: 'REJECTED', label: 'Rejected' },
-            { value: 'DEFERRED', label: 'Deferred — more evidence sought' },
+            { value: 'DEFERRED', label: 'Deferred, more evidence sought' },
             { value: 'WITHDRAWN', label: 'Withdrawn by applicant' },
           ] },
         { name: 'decided_by', label: 'Your full name', type: 'text', required: true,
           help: 'An employment decision must be attributable to a named person (UK GDPR Art. 22).' },
         { name: 'reason', label: 'Reason', type: 'textarea', rows: 3,
-          help: 'Required for a rejection — the applicant is entitled to be told why.' },
+          help: 'Required for a rejection. The applicant is entitled to be told why.' },
         { name: 'assessed_by', label: 'Who ran the screening', type: 'text',
           help: 'Required for a rejection: the screener may not also be the sole decision-maker.' },
         { name: 'blocker_override_reason', label: 'Override reason', type: 'textarea', rows: 2,
@@ -1358,14 +1362,14 @@ Sidebar.init('vetting');
           `<div class="sc-form-static"><strong>${escHtml(body.decision)}</strong> by ${escHtml(body.decided_by)}<br>`
           + `Engine at decision time: ${escHtml(body.engine_status)} · ${body.engine_blockers} blocker(s)<br>`
           + (body.departed_from_engine
-              ? '<span style="color:#c2410c">Departed from the recommendation — recorded.</span>'
+              ? '<span style="color:#c2410c">Departed from the recommendation, recorded.</span>'
               : 'Matched the recommendation.')
           + '</div>',
       });
       await loadCases();
       await loadDetail(caseId, true);
     } catch (e) {
-      Toast.show('Decision not recorded — the service was unreachable.', 'danger', 8000);
+      Toast.show('Decision not recorded. The service was unreachable.', 'danger', 8000);
     }
   }
 
@@ -1386,8 +1390,8 @@ Sidebar.init('vetting');
       refByEntry[e.entry_id] = { name: nomName, to: nomTo };
       const base = (e.organisation || e.entry_type) + ' (' + e.start + ' → ' + (e.end || 'present') + ')';
       const tag = nomName
-        ? ' — ' + nomName + (nomTo ? '' : ' (no contact on file)')
-        : ' — no referee nominated';
+        ? ' · ' + nomName + (nomTo ? '' : ' (no contact on file)')
+        : '. No referee nominated';
       return { value: e.entry_id, label: base + tag };
     });
 
@@ -1417,17 +1421,17 @@ Sidebar.init('vetting');
 
     const _formPromise = Modal.form({
       title: 'Share a secure upload link',
-      message: 'Case ' + caseId + '. The link is shown once — copy or send it now.',
+      message: 'Case ' + caseId + '. The link is shown once. Copy or send it now.',
       icon: 'bi-qr-code', okLabel: 'Create and share',
       fields: [
         { name: 'kind', label: 'Who is this for?', type: 'select', required: true, autofocus: true,
           options: [
-            { value: 'APPLICANT', label: 'The person being vetted — upload their own documents' },
-            { value: 'REFEREE', label: 'A referee or previous employer — confirm one period' },
+            { value: 'APPLICANT', label: 'The person being vetted. Upload their own documents' },
+            { value: 'REFEREE', label: 'A referee or previous employer, confirm one period' },
           ],
           help: 'A referee link reveals only the one engagement they are confirming.' },
         { name: 'entry_id', label: 'Which period? (referee links only)', type: 'select',
-          options: [{ value: '', label: '—' }].concat(entries),
+          options: [{ value: '', label: '(none)' }].concat(entries),
           help: 'Required for a referee link. Nothing else on the file is shared with them.' },
         { name: 'referee_name', label: 'Recipient name', type: 'text',
           help: 'Auto-filled from the referee the applicant nominated for the selected period.' },
@@ -1472,20 +1476,20 @@ Sidebar.init('vetting');
         return;
       }
     } catch (e) {
-      Toast.show('Link not created — the service was unreachable.', 'danger', 9000);
+      Toast.show('Link not created. The service was unreachable.', 'danger', 9000);
       return;
     }
 
     const d = body.delivery || {};
     const deliveryLine = !d.attempted
-      ? '<span class="sc-badge sc-badge-muted">not sent — copy or scan below</span>'
+      ? '<span class="sc-badge sc-badge-muted">not sent. Copy or scan below</span>'
       : d.sent
         ? '<span class="sc-badge sc-badge-green">sent by ' + escHtml(d.channel) + '</span>'
         : '<span class="sc-badge sc-badge-orange">not sent</span><div class="vt-ref" style="margin-top:6px">' + escHtml(d.detail || 'delivery failed') + '</div>';
     const qrSrc = '/api/vetting/qr?url=' + encodeURIComponent(body.link);
     Modal.info({
       title: 'Secure link created',
-      message: 'This link is shown once. Copy it now — it cannot be displayed again.',
+      message: 'This link is shown once. Copy it now. It cannot be displayed again.',
       tone: 'vls', icon: 'bi-qr-code',
       bodyHtml:
         '<div style="text-align:center;margin-bottom:16px">' +
@@ -1497,7 +1501,7 @@ Sidebar.init('vetting');
         '<a class="sc-btn sc-btn-outline sc-btn-sm" href="' + escHtml(qrSrc) + '" download="vetting-qr-' + escHtml(caseId) + '.svg">Download QR</a>' +
         '</div><div style="margin-top:14px">' + deliveryLine + '</div>' +
         '<p class="vt-ref" style="margin-top:12px">Expires ' + escHtml(String(body.expires_at || '').slice(0, 10)) +
-        '. Anyone holding this link can upload to this case — do not post it in a shared channel.</p>',
+        '. Anyone holding this link can upload to this case. Do not post it in a shared channel.</p>',
     });
     setTimeout(function () {
       const btn = document.getElementById('vt-copy');
@@ -1524,7 +1528,7 @@ Sidebar.init('vetting');
       URL.revokeObjectURL(url);
       Toast.show('Subject-access export downloaded', 'success');
     } catch (e) {
-      Toast.show('Export failed — the service was unreachable.', 'danger', 8000);
+      Toast.show('Export failed. The service was unreachable.', 'danger', 8000);
     }
   }
 
@@ -1540,7 +1544,7 @@ Sidebar.init('vetting');
       el.style.display = '';
       el.innerHTML = `<i class="bi bi-clock-history" aria-hidden="true"></i><div>`
         + (overdue
-          ? `<strong>${overdue} case(s) past their retention period</strong> — dispose to satisfy the storage-limitation duty (Art. 5(1)(e)).`
+          ? `<strong>${overdue} case(s) past their retention period</strong>. Dispose to satisfy the storage-limitation duty (Art. 5(1)(e)).`
           : `No case is past its retention period.`)
         + ` <span class="vt-ref">reviewed as of ${esc(data.as_of)}</span></div>`;
     } catch (e) { /* retention is advisory here; never block the page */ }
@@ -1578,7 +1582,7 @@ Sidebar.init('vetting');
           value: PACKS[0] && PACKS[0].pack_id,
           options: PACKS.map((p) => ({
             value: p.pack_id,
-            label: `${p.pack_id} v${p.version}${p.decision_eligible ? '' : ' — framework only'}`,
+            label: `${p.pack_id} v${p.version}${p.decision_eligible ? '' : '. Framework only'}`,
           })),
           help: 'A framework-only pack organises evidence but never issues decision-readiness.' },
       ],
@@ -1594,7 +1598,7 @@ Sidebar.init('vetting');
           } else {
             const years = (start - dob) / (365.25 * 24 * 3600 * 1000);
             if (years < 16) errs.date_of_birth = `Applicant would be ${Math.floor(years)} at the start date; screening assumes at least 16.`;
-            if (years > 100) errs.date_of_birth = 'Date of birth looks implausible — please re-check.';
+            if (years > 100) errs.date_of_birth = 'Date of birth looks implausible. Please re-check.';
           }
         }
         return errs;
@@ -1621,7 +1625,7 @@ Sidebar.init('vetting');
       const card = document.querySelector(`[data-case="${CSS.escape(values.case_id)}"]`);
       if (card) { card.open = true; await loadDetail(values.case_id, true); }
     } catch (e) {
-      Toast.show('Case not created — the vetting service was unreachable.', 'danger', 9000);
+      Toast.show('Case not created. The vetting service was unreachable.', 'danger', 9000);
     }
   }
 

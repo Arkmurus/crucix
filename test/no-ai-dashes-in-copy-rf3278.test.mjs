@@ -30,16 +30,15 @@ const PUBLIC = 'public';
 // Pages already cleaned. New pages should be added here as they are cleaned,
 // so the guard ratchets forward instead of being switched off wholesale.
 //
-// R-F3283 swept the remaining 27. `vetting.html` is the one page NOT listed,
-// and deliberately: its cleanup is 140 lines of R-F3278 sitting unmerged on
-// fix/dd-research-robustness. Doing it twice, in parallel, on a file both
-// agents were editing is how a previous session lost work. It goes on this
-// list when that branch lands.
+// R-F3283 swept the remaining 27; R-F3278 cleaned vetting.html on the branch
+// that has now landed. Resolved as the peer's merge note specified: the UNION,
+// keeping R-F3283's inline-block-comment stripper and `dash-is-data` marker and
+// adding 'vetting.html', so the list is all 28 and the sweep is complete.
 //
-// MERGE NOTE for whoever resolves that branch: this file exists on both sides.
-// The resolution is the UNION — take R-F3283's inline-block-comment stripper
-// and `dash-is-data` marker from here, take 'vetting.html' from there, and the
-// list becomes all 28.
+// The five copy conflicts inside vetting.html were both agents removing the SAME
+// dashes and choosing different punctuation. Resolved per hunk on readability,
+// not ownership: the peer's colon before a list ("read where it can be: PDF,
+// scan, photo") replaced a comma version I had already flagged as garbled.
 const ENFORCED = [
   'account.html', 'admin.html', 'aria-brain.html', 'aria.html',
   'bd-intelligence.html', 'dashboard.html', 'dd-reports.html',
@@ -47,7 +46,7 @@ const ENFORCED = [
   'index.html', 'leads.html', 'login.html', 'model-card.html',
   'network.html', 'news.html', 'opportunities.html', 'partners.html',
   'recovery.html', 'signin.html', 'signup.html', 'sources.html',
-  'vault.html', 'vetting-portal.html', 'vls-chain.html',
+  'vault.html', 'vetting-portal.html', 'vetting.html', 'vls-chain.html',
   'wa-connections.html', 'watchlist.html',
 ];
 
