@@ -62,6 +62,15 @@ CREATE TABLE IF NOT EXISTS entries (
 
 CREATE INDEX IF NOT EXISTS idx_entries_norm ON entries(normalised_name);
 CREATE INDEX IF NOT EXISTS idx_entries_source ON entries(source);
+-- R-F3264 — `newest_entry_refresh()` runs `SELECT MAX(last_refreshed) FROM
+-- entries` on every sanctions refresh tick. With no index that is a FULL TABLE
+-- SCAN: 24,953 rows on the live box, through the synchronous sqlite3 driver.
+-- A live R-F704 wedge stack caught it blocking the event loop. With an index
+-- SQLite answers MAX() by reading the last key, so the scan becomes a lookup.
+-- The (source, last_refreshed) pair serves the source-scoped variant too, and
+-- its leading column makes it usable for source-only filters as well.
+CREATE INDEX IF NOT EXISTS idx_entries_last_refreshed ON entries(last_refreshed);
+CREATE INDEX IF NOT EXISTS idx_entries_source_refreshed ON entries(source, last_refreshed);
 
 CREATE TABLE IF NOT EXISTS aliases (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

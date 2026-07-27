@@ -482,7 +482,20 @@ async def _sanctions_refresh_once() -> dict:
     store if a feed's format ever breaks the parser (refuses to overwrite good data)."""
     try:
         from .intel.sanctions_canonical import store as _ss
-        newest = _ss.newest_entry_refresh()
+        # R-F3264 — OFF THE LOOP, like the refresh it guards.
+        #
+        # This was called inline while the docstring above already claimed the
+        # refresh "runs off the event loop". The expensive half was true —
+        # `refresh_all` is wrapped below — but the cheap-LOOKING gate in front
+        # of it was not, and it is a synchronous sqlite3 MAX() over the
+        # `entries` table. A live R-F704 wedge stack caught exactly this frame
+        # blocking the loop, with 24,953 rows to scan.
+        #
+        # R-F3264 also indexes `last_refreshed` so the scan becomes a lookup.
+        # Both are needed: an index alone would leave synchronous sqlite on the
+        # loop, which is wrong at any speed, and `to_thread` alone would move a
+        # table scan onto a worker thread and call it fixed.
+        newest = await asyncio.to_thread(_ss.newest_entry_refresh)
         max_age_h = float(_os.getenv("ARIA_SANCTIONS_REFRESH_MAX_AGE_H", "20"))
         if newest is not None and (time.time() - newest) < max_age_h * 3600:
             return {"refreshed": False, "reason": "fresh",
