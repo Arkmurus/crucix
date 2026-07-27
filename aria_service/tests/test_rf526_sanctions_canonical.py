@@ -258,8 +258,22 @@ _MINIMAL_SDN_XML = """<?xml version="1.0"?>
 """
 
 
-def test_rf526_ofac_xml_parser_round_trip(tmp_path):
+def test_rf526_ofac_xml_parser_round_trip(tmp_path, monkeypatch):
+    """R-F3286 — the floor must be lowered for a fixture, not removed from the code.
+
+    This failed because R-F2576 later added an ABSOLUTE first-load floor
+    (_MIN_EXPECTED_ROWS, 10000 for OFAC) so a broken first load cannot commit thin
+    data over an empty store. A 1-entry fixture is below it by design, so
+    load_from_file correctly REFUSED and returned 0.
+
+    The guard is the point, not an obstacle: overwriting a healthy sanctions list
+    with a thin parse screens the dropped entities as CLEAR, which is the false
+    clean this product exists to prevent. So the fixture lowers the floor for
+    itself rather than the guard being weakened, and the guard's own behaviour is
+    asserted separately below.
+    """
     from aria_service.intel.sanctions_canonical import ofac_sdn, store
+    monkeypatch.setattr(ofac_sdn, "_MIN_EXPECTED_ROWS", 1)
     xml_path = tmp_path / "test_sdn.xml"
     xml_path.write_text(_MINIMAL_SDN_XML)
     n = ofac_sdn.load_from_file(str(xml_path))
@@ -269,6 +283,43 @@ def test_rf526_ofac_xml_parser_round_trip(tmp_path):
     r = check_sanctions("Michele Zagaria")
     assert r["verdict"] == "HARD_STOP"
     assert store.count_entries("ofac_sdn") == 1
+
+
+def test_rf3286_a_thin_load_is_refused_not_committed(tmp_path):
+    """R-F3286 — the property the round-trip tests were quietly disabling.
+
+    With the real floor in place, a 1-entry parse must be REFUSED and the store
+    left untouched. Nothing asserted this: both round-trips were failing on it and
+    the behaviour was being read as a defect rather than as the guard working.
+    """
+    from aria_service.intel.sanctions_canonical import ofac_sdn, store
+    xml_path = tmp_path / "thin_sdn.xml"
+    xml_path.write_text(_MINIMAL_SDN_XML)
+
+    before = store.count_entries("ofac_sdn")
+    n = ofac_sdn.load_from_file(str(xml_path))   # real floor: 10000
+
+    assert n == 0, "a parse far below the floor must not be committed"
+    assert store.count_entries("ofac_sdn") == before, (
+        "the store must be left exactly as it was; a rolled-back replace that "
+        "still dropped rows would screen sanctioned entities as CLEAR"
+    )
+
+
+def test_rf3286_an_empty_store_is_insufficient_data_never_clear(tmp_path):
+    """R-F3286 — fail CLOSED. The reason a thin load is refused at all.
+
+    Verified against the live code path: with no rows loaded, a KNOWN sanctioned
+    name returns INSUFFICIENT_DATA, not CLEAR. An empty store that answered CLEAR
+    would be the worst output this system can produce.
+    """
+    from aria_service.intel.sanctions_canonical import check_sanctions, store
+    if store.count_entries("ofac_sdn") == 0:
+        r = check_sanctions("Michele Zagaria")
+        assert r["verdict"] != "CLEAR", (
+            "an unloaded sanctions store must never answer CLEAR"
+        )
+        assert r["verdict"] == "INSUFFICIENT_DATA"
 
 
 # ───────── EU CSV parser round-trip ─────────
@@ -282,8 +333,12 @@ Entity_logical_id;Subject_type;Naal_wholename;Naal_aliastype;Addr_country;Progra
 """
 
 
-def test_rf526_eu_csv_parser_round_trip(tmp_path):
+def test_rf526_eu_csv_parser_round_trip(tmp_path, monkeypatch):
+    """R-F3286 — same cause as the OFAC round-trip: R-F2576's absolute floor
+    (_MIN_EXPECTED_ROWS, 1000 for EU) correctly refuses a 1-entity fixture. The
+    floor is lowered for the fixture; the guard itself is not touched."""
     from aria_service.intel.sanctions_canonical import eu_consolidated, store
+    monkeypatch.setattr(eu_consolidated, "_MIN_EXPECTED_ROWS", 1)
     csv_path = tmp_path / "test_eu.csv"
     csv_path.write_text(_MINIMAL_EU_CSV, encoding="utf-8")
     n = eu_consolidated.load_from_file(str(csv_path))
