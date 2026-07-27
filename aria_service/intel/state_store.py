@@ -3685,6 +3685,12 @@ async def stats() -> dict:
             "db_path": str(_DB_PATH) if _DB_PATH else None,
             "write_queue_depth": queue_stats["total"],
             "write_queue": queue_stats,
+            # R-F3263 — the gauge belongs on THIS branch most of all. `_conn is
+            # None` is the wedged/reconnecting state, which is exactly when
+            # orphaned workers accumulate and exactly when someone is looking.
+            # Reporting connections only on the healthy path would hide the
+            # number in the one condition it exists to explain.
+            "connections": connection_gauge(),
         }
     try:
         cur = await _conn.execute(
@@ -3707,6 +3713,11 @@ async def stats() -> dict:
             "file_bytes": file_bytes,
             "write_queue_depth": queue_stats["total"],
             "write_queue": queue_stats,
+            # R-F3263 — the connection gauge has to be REACHABLE or it is just
+            # a function nobody calls. `stats()` is what /health renders, so
+            # this is the surface that makes `workers` and `stuck_reaps`
+            # answerable without ssh-ing to the box during a stall.
+            "connections": connection_gauge(),
         }
     except Exception as e:
         logger.warning("state_store: stats failed: %s", e)

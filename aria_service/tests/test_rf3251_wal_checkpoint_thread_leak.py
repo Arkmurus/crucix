@@ -309,3 +309,25 @@ def test_the_gauge_survives_the_redis_store_worker_patch():
     assert "_connection_worker_thread" in src, (
         "the gauge dropped the unpatched name — it would miss a process that "
         "has not imported redis_store")
+
+
+@pytest.mark.asyncio
+async def test_the_gauge_is_actually_reachable_through_stats(tmp_path, monkeypatch):
+    """R-F3263 — a gauge with no consumer is the defect this whole session has
+    been about. `stats()` is what /health renders, so the numbers have to
+    arrive there or they are unreadable in production exactly when needed.
+    """
+    from aria_service.intel import state_store as ss
+
+    monkeypatch.setattr(ss, "_DB_PATH", tmp_path / "stats.db", raising=False)
+    await ss._ensure_read_conn()
+    try:
+        s = await ss.stats()
+        assert "connections" in s, (
+            "stats() does not carry the connection gauge — it is a function "
+            "nobody calls, which is how it was written the first time")
+        for key in ("workers", "stuck_reaps", "expected", "excess"):
+            assert key in s["connections"], f"stats().connections lacks {key}"
+    finally:
+        ss._reap_old_conns(*list(ss._read_pool))
+        ss._read_pool, ss._read_conn = [], None
