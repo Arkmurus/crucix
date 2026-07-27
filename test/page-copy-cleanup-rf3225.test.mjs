@@ -36,7 +36,20 @@ test('R-F3225 renders and wires an individual Recent Alerts delete action', () =
 });
 
 test('R-F3225 makes monitoring autonomous and user-scheduled', () => {
-  assert.doesNotMatch(watchlist, /Re-screen All|wl-rescreen-btn|watchlist\/rescreen/);
+  // R-F3292 — this used to also assert the ABSENCE of the "Re-screen All"
+  // control. That assertion outlived its evidence. R-F3271 established, with
+  // `git log -S`, that R-F3225 deleted that button and its whole click handler
+  // during a change whose message said "focused page copy cleanup" and never
+  // mentioned removing a functional control — leaving POST
+  // /api/aria/dd/watchlist/rescreen with no caller and users with no way to
+  // trigger a re-screen at all. It was restored deliberately.
+  //
+  // So the guard was pinning a regression as though it were the design, and
+  // the two changes have been in direct contradiction since: one restores the
+  // control, the other forbids it. Autonomous scheduling and an on-demand
+  // re-screen are not alternatives — someone adding a high-risk counterparty
+  // needs an answer now, not at the next cycle. What R-F3225 actually
+  // introduced was the SCHEDULING model, so that is what is asserted.
   assert.match(watchlist, /href="\/vetting\.html"/);
   assert.match(watchlist, /review_interval_hours/);
   assert.match(watchlist, /\/schedule/);
