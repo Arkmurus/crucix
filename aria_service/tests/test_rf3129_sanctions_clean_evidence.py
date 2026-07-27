@@ -102,5 +102,22 @@ def test_rf3129_title_states_which_case_it_is():
 def test_rf3129_still_distinguishes_source_unavailable():
     """R-F1696's guard must survive: a screen that could not run is a different
     statement again, and must not be folded into either clean branch."""
+    # R-F3280 — assert the PROPERTY, not the wording. This pinned the literal
+    # "Sanctions screen NOT performed — source unavailable", which was reworded to
+    # "... — UNVERIFIED" (dd_orchestrator.py:4237). The R-F1696 guarantee did not
+    # weaken; it got STRONGER, moving from prose into a structured field that
+    # downstream code actually reads:
+    #     "source_unavailable": _sanctions_unverified          (:1891, the writer)
+    #     _scr.get("screened") is False or _scr.get("source_unavailable")  (:1861)
+    # A string match would also have gone red on the em-dash sweep (R-F3278)
+    # without anything about the behaviour changing at all.
     src = inspect.getsource(ddo)
-    assert "Sanctions screen NOT performed — source unavailable" in src
+    assert "Sanctions screen NOT performed" in src, (
+        "the unscreenable-entity finding must still be raised"
+    )
+    assert '"source_unavailable"' in src, (
+        "the source-unavailable state must remain a FIELD, not just prose"
+    )
+    assert 'get("source_unavailable")' in src, (
+        "a field nothing reads is not a guard: the distinction must be consumed"
+    )
