@@ -10,10 +10,10 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body { background: var(--sc-bg); margin: 0; font-family: 'gorditaregular', 'Segoe UI', system-ui, -apple-system, sans-serif; color: var(--sc-text); line-height: 1.65; }
-    .vt-shell { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
+    .vt-shell { max-width: 1180px; margin: 0 auto; padding: 28px 24px 60px; }
     .vt-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--sc-prime); font-weight: 700; margin-bottom: 8px; }
     .vt-title { font-size: 28px; font-weight: 800; color: var(--sc-heading); margin: 0 0 6px; letter-spacing: -0.02em; }
-    .vt-sub { font-size: 13px; color: var(--sc-muted); margin: 0 0 22px; max-width: 70ch; }
+    .vt-sub { font-size: 13px; color: var(--sc-muted); margin: 0 0 22px; max-width: 74ch; }
 
     .vt-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
     .vt-btn {
@@ -23,36 +23,37 @@
       font-size: 13px; font-weight: 600; cursor: pointer;
     }
     .vt-btn.secondary { background: #fff; color: var(--sc-heading); border: 1px solid var(--sc-border-strong); }
+    .vt-btn.sm { padding: 6px 11px; font-size: 12px; border-radius: 7px; }
     .vt-btn:disabled { opacity: .55; cursor: not-allowed; }
 
-    /* ── verdict banner ───────────────────────────────────────────────────
-       R-F3142 — ships in the UNKNOWN state, exactly as status.html was made
-       to (R-F2819). A screening verdict is the LAST thing that may ever be
-       green by default: "we could not measure" is not "measured and clear". */
-    .vt-banner { display: flex; align-items: center; gap: 16px; padding: 20px 24px; border-radius: 14px; margin-bottom: 22px; border: 1px solid; }
-    .vt-banner-icon { font-size: 34px; flex-shrink: 0; }
-    .vt-banner-status { font-size: 20px; font-weight: 800; margin: 0; line-height: 1.2; }
-    .vt-banner-summary { font-size: 13px; color: var(--sc-text); margin: 6px 0 0; }
-    .vt-banner.unknown { background: rgba(120,113,108,0.08); border-color: rgba(120,113,108,0.30); color: #57534e; }
-    .vt-banner.unknown .vt-banner-icon { color: #78716c; }
-    .vt-banner.not_ready { background: rgba(239,68,68,0.09); border-color: rgba(239,68,68,0.34); color: #b91c1c; }
-    .vt-banner.not_ready .vt-banner-icon { color: #dc2626; }
-    .vt-banner.awaiting_signoff { background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.32); color: #c2410c; }
-    .vt-banner.awaiting_signoff .vt-banner-icon { color: #d97706; }
-    .vt-banner.in_progress { background: rgba(37,99,235,0.08); border-color: rgba(37,99,235,0.28); color: #1d4ed8; }
-    .vt-banner.in_progress .vt-banner-icon { color: #2563eb; }
-    .vt-banner.ready_for_controller_review, .vt-banner.evidence_complete { background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.32); color: #15803d; }
-    .vt-banner.ready_for_controller_review .vt-banner-icon, .vt-banner.evidence_complete .vt-banner-icon { color: #16a34a; }
-
-    .vt-pack { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; background: #f5f4ef; border: 1px solid var(--sc-border); border-radius: 10px; margin-bottom: 22px; font-size: 12.5px; }
+    .vt-pack { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; background: #f5f4ef; border: 1px solid var(--sc-border); border-radius: 10px; margin-bottom: 14px; font-size: 12.5px; }
     .vt-pack-warn { background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.32); }
 
-    .vt-section-title { font-size: 13px; font-weight: 700; color: var(--sc-muted); text-transform: uppercase; letter-spacing: 1.5px; margin: 30px 0 12px; }
-    .vt-card { background: #fff; border: 1px solid var(--sc-border); border-radius: 12px; padding: 14px 18px; margin-bottom: 10px; }
-    .vt-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-    .vt-card-title { font-size: 14.5px; font-weight: 700; color: var(--sc-heading); margin: 0; }
-    .vt-card-meta { font-size: 12px; color: var(--sc-muted); }
-    .vt-msg { font-size: 13px; margin: 6px 0 0; }
+    /* ── R-F3213: the QUEUE summary. The page answers "what needs me today?";
+       the card answers "what is this file?". The old page had a single global
+       verdict banner that belonged to whichever case was assessed last, which
+       is a per-file answer rendered where a per-queue question is asked. */
+    .vt-queue { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+    .vt-qstat {
+      flex: 1; min-width: 128px; background: #fff; border: 1px solid var(--sc-border);
+      border-radius: 11px; padding: 12px 14px;
+    }
+    .vt-qstat-num { font-size: 22px; font-weight: 800; color: var(--sc-heading); line-height: 1.1; }
+    .vt-qstat-lab { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--sc-muted); font-weight: 700; margin-top: 3px; }
+    .vt-qstat.red .vt-qstat-num { color: #dc2626; }
+    .vt-qstat.orange .vt-qstat-num { color: #d97706; }
+    .vt-qstat.blue .vt-qstat-num { color: #2563eb; }
+    .vt-qstat.green .vt-qstat-num { color: #16a34a; }
+
+    .vt-section { margin-bottom: 26px; }
+    .vt-section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+    .vt-section-name { font-size: 13px; font-weight: 800; color: var(--sc-heading); text-transform: uppercase; letter-spacing: 1.2px; }
+    .vt-section-count { font-size: 11px; font-weight: 700; color: var(--sc-muted); background: #ece9e2; border-radius: 20px; padding: 2px 9px; }
+    .vt-section-hint { font-size: 12px; color: var(--sc-muted); }
+
+    .vt-empty { padding: 26px; text-align: center; color: var(--sc-muted); font-size: 13px; border: 1px dashed var(--sc-border-strong); border-radius: 12px; }
+    .vt-error { padding: 14px 18px; border-radius: 10px; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.3); color: #b91c1c; font-size: 13px; }
+    .vt-note { font-size: 12px; color: var(--sc-muted); font-style: italic; margin-top: 10px; }
     .vt-ref { font-size: 11px; color: var(--sc-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
     .vt-pill { display: inline-block; padding: 3px 9px; border-radius: 5px; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; flex-shrink: 0; }
@@ -62,85 +63,133 @@
     .vt-pill.deadline { background: rgba(217,119,6,0.16); color: #b45309; }
     .vt-pill.info { background: rgba(120,113,108,0.14); color: #57534e; }
 
-    .vt-empty { padding: 26px; text-align: center; color: var(--sc-muted); font-size: 13px; border: 1px dashed var(--sc-border-strong); border-radius: 12px; }
-    .vt-error { padding: 16px 20px; border-radius: 10px; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.3); color: #b91c1c; font-size: 13px; }
-
-    .vt-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; background: #fff; border: 1px solid var(--sc-border); border-radius: 12px; padding: 18px; margin-bottom: 22px; }
-    .vt-field label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--sc-muted); margin-bottom: 5px; }
-    .vt-field input, .vt-field select { width: 100%; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--sc-border-strong); font-family: inherit; font-size: 13px; }
-
-    .vt-note { font-size: 12px; color: var(--sc-muted); font-style: italic; margin-top: 10px; }
-
-    /* R-F3168 — card grid + status sections */
-    .vt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
-    .vt-section { margin-bottom: 28px; }
-    .vt-section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-    .vt-section-name { font-size: 13px; font-weight: 800; color: var(--sc-heading); text-transform: uppercase; letter-spacing: 1.2px; }
-    .vt-section-count {
-      font-size: 11px; font-weight: 700; color: var(--sc-muted);
-      background: #ece9e2; border-radius: 20px; padding: 2px 9px;
-    }
-    .vt-section-hint { font-size: 12px; color: var(--sc-muted); }
-    .vt-case .sc-card-body { padding: 16px 18px; }
-    /* Initials, not photographs — see the note on the SECTIONS constant. */
+    /* ── the case card ─────────────────────────────────────────────────── */
+    .vt-case { padding: 0; overflow: hidden; background: #fff; border: 1px solid var(--sc-border); border-radius: 12px; }
+    .vt-case + .vt-case { margin-top: 10px; }
+    .vt-case[open] { border-color: var(--sc-border-strong); box-shadow: 0 2px 14px rgba(15,23,42,0.06); }
+    .vt-summary { display: flex; align-items: flex-start; gap: 12px; padding: 14px 18px; cursor: pointer; list-style: none; transition: background .12s; }
+    .vt-summary::-webkit-details-marker { display: none; }
+    .vt-summary:hover { background: #faf9f6; }
+    .vt-case[open] .vt-summary { border-bottom: 1px solid var(--sc-border); background: #faf9f6; }
+    /* Initials, not photographs. We hold passports, so a face is technically
+       available — but extracting one is biometric processing (Art. 9) and would
+       move the product toward biometric categorisation under the EU AI Act,
+       which our own assessment records that we do NOT do. Initials give the
+       same at-a-glance recognition at none of that cost. */
     .vt-avatar {
       display: inline-flex; align-items: center; justify-content: center;
-      width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+      width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0; margin-top: 2px;
       background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff;
       font-size: 12px; font-weight: 800; letter-spacing: .5px;
     }
-    .vt-upload-note:empty { display: none; }
-
-    /* R-F3179 — expandable card. Collapsed it answers one question: what is
-       this case's state? Expanded it offers the actions. Both, at once, on
-       twenty cards, is what made the previous layout unreadable. */
-    .vt-case { padding: 0; overflow: hidden; }
-    .vt-case + .vt-case { margin-top: 10px; }
-    .vt-summary {
-      display: flex; align-items: center; gap: 12px;
-      padding: 14px 18px; cursor: pointer; list-style: none;
-      transition: background .12s;
-    }
-    .vt-summary::-webkit-details-marker { display: none; }
-    .vt-summary:hover { background: #faf9f6; }
-    .vt-case[open] .vt-summary { border-bottom: 1px solid var(--sc-border); }
     .vt-ident { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-    /* R-F3183 — the applicant's FULL name, always. It was truncated with
-       text-overflow: ellipsis, so "Antonio Magalhaes Cande Correa" rendered
-       clipped. On a screening file the name IS the identity being verified —
-       against a passport, against a reference, against a register entry — and
-       a clipped name is the one field an officer cannot afford to guess at.
-       Long names wrap onto a second line; the card grows, which is correct. */
-    .vt-name {
-      font-size: 14.5px; font-weight: 700; color: var(--sc-heading);
-      white-space: normal; overflow-wrap: anywhere; word-break: break-word;
-    }
-    /* Let the row grow with a wrapped name rather than squashing it. */
-    .vt-summary { align-items: flex-start; }
-    .vt-avatar, .vt-status, .vt-chev { margin-top: 2px; }
-    .vt-status { flex-shrink: 0; }
-    .vt-chev { color: var(--sc-muted); font-size: 13px; transition: transform .15s; flex-shrink: 0; }
+    /* R-F3183 — the applicant's FULL name, always. On a screening file the name
+       IS the identity being verified, and a clipped name is the one field an
+       officer cannot afford to guess at. Long names wrap; the card grows. */
+    .vt-name { font-size: 14.5px; font-weight: 700; color: var(--sc-heading); white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+    .vt-status, .vt-chev { flex-shrink: 0; margin-top: 2px; }
+    .vt-chev { color: var(--sc-muted); font-size: 13px; transition: transform .15s; }
     .vt-case[open] .vt-chev { transform: rotate(180deg); }
 
-    .vt-body { padding: 16px 18px 18px; }
-    /* A definition list, not a paragraph: an officer verifying a file scans
-       label/value pairs, and a table of five facts reads faster than prose. */
-    .vt-facts {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 12px 18px; margin: 0 0 14px;
+    /* Face-level progress: documents accepted out of documents required. Two
+       numbers an officer can act on, not a percentage that averages them. */
+    .vt-face { display: flex; align-items: center; gap: 10px; margin-top: 5px; flex-wrap: wrap; }
+    .vt-bar { width: 108px; height: 5px; border-radius: 4px; background: #e7e5e0; overflow: hidden; flex-shrink: 0; }
+    .vt-bar span { display: block; height: 100%; background: #16a34a; }
+    .vt-facemeta { font-size: 11.5px; color: var(--sc-muted); }
+
+    .vt-body { padding: 0; }
+    .vt-loading { padding: 22px; text-align: center; color: var(--sc-muted); font-size: 12.5px; }
+
+    /* verdict strip — the card's own honest header */
+    .vt-vstrip { display: flex; gap: 14px; align-items: flex-start; padding: 15px 18px; border-bottom: 1px solid var(--sc-border); }
+    .vt-vstrip i { font-size: 26px; flex-shrink: 0; }
+    .vt-vstrip-title { font-size: 15px; font-weight: 800; margin: 0; line-height: 1.25; }
+    .vt-vstrip-sub { font-size: 12.5px; margin: 4px 0 0; color: var(--sc-text); }
+    .vt-vstrip.unknown { background: rgba(120,113,108,0.07); color: #57534e; }
+    .vt-vstrip.not_ready { background: rgba(239,68,68,0.07); color: #b91c1c; }
+    .vt-vstrip.awaiting_signoff { background: rgba(245,158,11,0.09); color: #c2410c; }
+    .vt-vstrip.in_progress { background: rgba(37,99,235,0.06); color: #1d4ed8; }
+    .vt-vstrip.ready_for_controller_review, .vt-vstrip.evidence_complete { background: rgba(34,197,94,0.07); color: #15803d; }
+
+    .vt-acts { display: flex; gap: 7px; flex-wrap: wrap; padding: 12px 18px; border-bottom: 1px solid var(--sc-border); background: #fcfbf9; }
+
+    /* DD-report-style sections inside the card */
+    .vt-sec { border-bottom: 1px solid var(--sc-border); }
+    .vt-sec:last-child { border-bottom: none; }
+    .vt-sec-head { display: flex; align-items: center; gap: 9px; padding: 12px 18px 0; flex-wrap: wrap; }
+    .vt-sec-name { font-size: 11px; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: var(--sc-muted); }
+    .vt-sec-tag { font-size: 10.5px; font-weight: 700; color: var(--sc-muted); background: #ece9e2; border-radius: 20px; padding: 1px 8px; }
+    .vt-sec-body { padding: 10px 18px 16px; }
+    .vt-sec-spacer { flex: 1; }
+
+    /* stage strip */
+    .vt-stages { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+    .vt-stage {
+      flex: 1 0 auto; min-width: 118px; border: 1px solid var(--sc-border);
+      border-radius: 9px; padding: 8px 10px; background: #fff;
     }
-    .vt-facts dt {
-      font-size: 10.5px; font-weight: 700; letter-spacing: .8px;
-      text-transform: uppercase; color: var(--sc-muted); margin-bottom: 3px;
-    }
-    .vt-facts dd { margin: 0; font-size: 13.5px; color: var(--sc-heading); font-weight: 600; }
-    .vt-warn {
-      display: flex; gap: 8px; align-items: flex-start;
-      background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.32);
-      color: #b45309; border-radius: 9px; padding: 10px 12px;
-      font-size: 12.5px; margin: 0 0 14px;
-    }
-    .vt-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .vt-stage-lab { font-size: 11.5px; font-weight: 700; color: var(--sc-heading); }
+    .vt-stage-num { font-size: 11px; color: var(--sc-muted); margin-top: 2px; }
+    .vt-stage-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; background: #d6d3ce; }
+    .vt-stage.NOT_STARTED { background: #fbfaf8; }
+    .vt-stage.IN_PROGRESS { border-color: rgba(37,99,235,0.35); }
+    .vt-stage.IN_PROGRESS .vt-stage-dot { background: #2563eb; }
+    .vt-stage.COMPLETE { border-color: rgba(34,197,94,0.35); }
+    .vt-stage.COMPLETE .vt-stage-dot { background: #16a34a; }
+    .vt-stage.BLOCKED { border-color: rgba(239,68,68,0.45); background: rgba(239,68,68,0.05); }
+    .vt-stage.BLOCKED .vt-stage-dot { background: #dc2626; }
+    .vt-stage.current { box-shadow: 0 0 0 2px rgba(124,58,237,0.22); }
+
+    /* requirement rows — the core of the officer's day */
+    .vt-req { display: flex; align-items: flex-start; gap: 11px; padding: 10px 0; border-top: 1px dashed var(--sc-border); }
+    .vt-req:first-child { border-top: none; }
+    .vt-req-ico { font-size: 16px; width: 18px; text-align: center; flex-shrink: 0; margin-top: 1px; }
+    .vt-req-main { flex: 1; min-width: 0; }
+    .vt-req-lab { font-size: 13.5px; font-weight: 700; color: var(--sc-heading); }
+    .vt-req-meta { font-size: 11.5px; color: var(--sc-muted); margin-top: 2px; }
+    .vt-req-why { font-size: 11.5px; color: #b45309; margin-top: 3px; }
+    .vt-req-acts { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+    .vt-req.OUTSTANDING .vt-req-ico { color: #dc2626; }
+    .vt-req.PARTIAL .vt-req-ico { color: #d97706; }
+    .vt-req.RECEIVED .vt-req-ico { color: #2563eb; }
+    .vt-req.ACCEPTED .vt-req-ico { color: #16a34a; }
+    .vt-req.WAIVED .vt-req-ico { color: #78716c; }
+    .vt-req.WAIVED .vt-req-lab { text-decoration: line-through; color: var(--sc-muted); }
+    .vt-state { font-size: 10px; font-weight: 800; letter-spacing: .6px; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; }
+    .vt-state.OUTSTANDING { background: rgba(239,68,68,0.14); color: #b91c1c; }
+    .vt-state.PARTIAL { background: rgba(245,158,11,0.16); color: #b45309; }
+    .vt-state.RECEIVED { background: rgba(37,99,235,0.13); color: #1d4ed8; }
+    .vt-state.ACCEPTED { background: rgba(34,197,94,0.15); color: #15803d; }
+    .vt-state.WAIVED { background: rgba(120,113,108,0.13); color: #57534e; }
+
+    /* coverage grid */
+    .vt-cov-row { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
+    .vt-cov-year { font-size: 10.5px; color: var(--sc-muted); width: 34px; flex-shrink: 0; font-family: ui-monospace, monospace; }
+    .vt-cov-cell { width: 21px; height: 15px; border-radius: 3px; background: #efede9; font-size: 8.5px; color: #a8a29e; display: flex; align-items: center; justify-content: center; }
+    .vt-cov-cell.VERIFIED { background: #16a34a; color: #fff; }
+    .vt-cov-cell.UNVERIFIED { background: #fcd34d; color: #78350f; }
+    .vt-cov-cell.UNDECLARED { background: #fca5a5; color: #7f1d1d; }
+    .vt-cov-cell.none { background: #f5f4f1; color: #d6d3ce; }
+    .vt-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--sc-muted); margin-top: 8px; }
+    .vt-legend b { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+
+    /* findings + tables */
+    .vt-find { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-top: 1px dashed var(--sc-border); }
+    .vt-find:first-child { border-top: none; }
+    .vt-find-msg { font-size: 12.5px; margin: 0; }
+    .vt-row { display: flex; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px dashed var(--sc-border); font-size: 12.5px; }
+    .vt-row:first-child { border-top: none; }
+    .vt-row-main { flex: 1; min-width: 0; }
+    .vt-row-name { font-weight: 600; color: var(--sc-heading); overflow-wrap: anywhere; }
+
+    /* standard coverage disclosure */
+    .vt-std { margin-top: 30px; background: #fff; border: 1px solid var(--sc-border); border-radius: 12px; padding: 0; }
+    .vt-std > summary { padding: 14px 18px; cursor: pointer; list-style: none; font-size: 13px; font-weight: 700; color: var(--sc-heading); }
+    .vt-std > summary::-webkit-details-marker { display: none; }
+    .vt-std-body { padding: 0 18px 18px; }
+    .vt-clause { padding: 9px 0; border-top: 1px dashed var(--sc-border); font-size: 12.5px; }
+    .vt-clause-id { font-family: ui-monospace, monospace; font-weight: 700; color: var(--sc-prime-dark, #6d28d9); }
   </style>
 </head>
 <body>
@@ -153,44 +202,29 @@
     <div class="vt-eyebrow">Workforce trust</div>
     <h1 class="vt-title">Employment vetting</h1>
     <p class="vt-sub">
-      Deterministic pre-employment screening. Every gap, clock and threshold is
-      computed from a versioned rule pack — not inferred by a model. The module
-      produces an evidence file and a clause-referenced finding list; a named
-      human makes the employment decision.
+      Deterministic pre-employment screening. Every gap, clock, document
+      requirement and threshold is computed from a versioned rule pack — not
+      inferred by a model. The module produces an evidence file and a
+      clause-referenced finding list; a named human makes the employment
+      decision.
     </p>
 
-    <!-- R-F3142: ships UNKNOWN. Never green until an assessment has actually
-         been read back from the server. -->
-    <div id="verdict" class="vt-banner unknown">
-      <i id="verdict-icon" class="bi bi-question-circle vt-banner-icon" aria-hidden="true"></i>
-      <div>
-        <p id="verdict-status" class="vt-banner-status">No assessment loaded</p>
-        <p id="verdict-summary" class="vt-banner-summary">Select or create a case, then run an assessment.</p>
-      </div>
-    </div>
-
+    <div id="queue" class="vt-queue"></div>
     <div id="retention-note" class="vt-pack" style="display:none"></div>
-
-    <div id="pack-info" class="vt-pack" style="display:none">
-      <i class="bi bi-file-earmark-ruled" aria-hidden="true"></i>
-      <div id="pack-text"></div>
-    </div>
 
     <div class="vt-toolbar">
       <button class="vt-btn" id="new-case-btn"><i class="bi bi-plus-lg"></i> New case</button>
       <button class="vt-btn secondary" id="refresh-btn"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
     </div>
 
-    <!-- R-F3170: case creation is a Modal.form dialog, not an inline form -->
-
-    <div class="vt-section-title">Cases</div>
     <div id="cases"><div class="vt-empty">Loading…</div></div>
 
-    <div id="findings-wrap" style="display:none">
-      <div class="vt-section-title">Findings <span id="findings-count" class="vt-card-meta"></span></div>
-      <div id="findings"></div>
-      <p class="vt-note" id="controller-notes"></p>
-    </div>
+    <details class="vt-std" id="standard">
+      <summary><i class="bi bi-journal-check"></i> Which parts of BS 7858 this module implements</summary>
+      <div class="vt-std-body" id="standard-body">
+        <div class="vt-loading">Loading the clause register…</div>
+      </div>
+    </details>
 
   </div>
 </main>
@@ -198,16 +232,29 @@
 <script src="js/app.js?v=8"></script>
 <script src="js/sidebar.js?v=13"></script>
 <script>
-Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
+Sidebar.init('vetting');
 
-// R-F3143 — vetting surface loader.
+// ── R-F3213 — the vetting case file ──────────────────────────────────────
 //
-// Honesty contract (inherited from R-F2819, which was written for status.html
-// and must outlive it): the verdict banner ships UNKNOWN and may only leave
-// that state after a successful read. A failed or unreachable /assess must
-// return the banner to UNKNOWN — never leave a stale green verdict on screen
-// beside an error. On a screening product a false clean is the one failure
-// that matters.
+// What changed and why. The card used to show five facts and five buttons.
+// Everything the engine knew about a file — which documents were outstanding,
+// where the screening had got to, which months of the career history were
+// still uncovered, what the findings actually said — was either computed and
+// never rendered (the coverage grid, live since R-F3177) or not computed at
+// all. An officer could not answer "what does this file still need?" without
+// running an assessment that then printed its findings into a panel at the
+// bottom of the page, belonging to whichever case was assessed last.
+//
+// So: the PAGE is the queue, and the CARD is the file. Expanding a card loads
+// that file's assessment, documents and request ledger and lays them out as
+// sections, in the order an officer works: verdict, where we are, what is
+// missing, what is covered, what the engine found, what we hold, what we have
+// asked for.
+//
+// Honesty contract, inherited from R-F2819 and not negotiable here: nothing
+// renders green until a real assessment has been read back from the server. A
+// failed or unreachable /assess returns the card to UNKNOWN and says so. On a
+// screening product a false clean is the one failure that matters.
 (async () => {
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
@@ -216,7 +263,7 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
   const STATUS_TEXT = {
     NOT_READY: ['Not ready', 'Blocking findings must be cleared before this file can go to review.'],
     AWAITING_SIGNOFF: ['Awaiting sign-off', 'Requires a documented top-management acceptance-of-risk decision.'],
-    IN_PROGRESS: ['In progress', 'Outstanding actions remain on the checklist or timeline.'],
+    IN_PROGRESS: ['In progress', 'Outstanding actions remain on the checklist, documents or timeline.'],
     READY_FOR_CONTROLLER_REVIEW: ['Ready for controller review', 'Evidence is complete. A named human makes the employment decision — this module does not.'],
     EVIDENCE_COMPLETE: ['Evidence complete', 'Organised under a framework-only pack, which cannot issue jurisdictional decision-readiness.'],
   };
@@ -225,87 +272,6 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
     IN_PROGRESS: 'bi-hourglass-split', READY_FOR_CONTROLLER_REVIEW: 'bi-check-circle-fill',
     EVIDENCE_COMPLETE: 'bi-check-circle',
   };
-
-  function setUnknown(summary) {
-    $('verdict').className = 'vt-banner unknown';
-    $('verdict-icon').className = 'bi bi-question-circle vt-banner-icon';
-    $('verdict-status').textContent = 'Assessment unavailable';
-    $('verdict-summary').textContent = summary;
-    $('findings-wrap').style.display = 'none';
-  }
-
-  function renderVerdict(result) {
-    const status = result && result.status;
-    const known = STATUS_TEXT[status];
-    if (!known) { setUnknown('The server returned a status this page does not recognise.'); return; }
-    $('verdict').className = 'vt-banner ' + status.toLowerCase();
-    $('verdict-icon').className = 'bi ' + (ICONS[status] || 'bi-question-circle') + ' vt-banner-icon';
-    $('verdict-status').textContent = known[0];
-    const c = result.counts || {};
-    $('verdict-summary').textContent =
-      `${known[1]} — ${c.blockers || 0} blocker(s), ${c.signoffs || 0} sign-off(s), ${c.actions || 0} action(s).`;
-
-    const pack = result.pack || {};
-    $('pack-info').style.display = '';
-    $('pack-info').className = 'vt-pack' + (pack.employment_decision_eligible ? '' : ' vt-pack-warn');
-    $('pack-text').innerHTML =
-      `<strong>${esc(pack.pack_id)} v${esc(pack.version)}</strong> · ${esc(pack.jurisdiction)} · ${esc(pack.status)}` +
-      `<br>${pack.employment_decision_eligible
-        ? 'Legally reviewed for this jurisdiction; may support decision-readiness.'
-        : 'FRAMEWORK-ONLY pack — organises and grades evidence, but cannot state whether screening is lawful or sufficient in any jurisdiction. Engage local counsel.'}` +
-      `<br><span class="vt-ref">screening period ${esc((result.screening_period || [])[0])} → ${esc((result.screening_period || [])[1])} · assessed as of ${esc(result.as_of)}</span>`;
-
-    const findings = Array.isArray(result.findings) ? result.findings : [];
-    const order = { BLOCKER: 0, SIGNOFF: 1, DEADLINE: 2, ACTION: 3, INFO: 4 };
-    findings.sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
-    $('findings-count').textContent = `(${findings.length})`;
-    $('findings').innerHTML = findings.length
-      ? findings.map((f) => `
-        <div class="vt-card">
-          <div class="vt-card-head">
-            <p class="vt-card-title">${esc(f.code)}</p>
-            <span class="vt-pill ${esc(String(f.severity || '').toLowerCase())}">${esc(f.severity)}</span>
-          </div>
-          <p class="vt-msg">${esc(f.message)}</p>
-          <span class="vt-ref">${esc(f.ref)}${f.due_date ? ' · due ' + esc(f.due_date) : ''}</span>
-        </div>`).join('')
-      : '<div class="vt-empty">No findings were returned for this assessment.</div>';
-    $('controller-notes').textContent = (result.controller_notes || []).join(' · ');
-    $('findings-wrap').style.display = '';
-  }
-
-  // ── R-F3168: case cards, grouped so the eye lands on what needs a human ──
-  //
-  // Sections are ordered by what demands attention, not alphabetically or by
-  // date. A screening queue's only real question is "what is stuck?", so
-  // blocked files sort first and completed ones sink.
-  //
-  // NOTE ON PHOTOS: applicant photographs are deliberately NOT shown. We hold
-  // passports, so a face is technically available — but extracting one would be
-  // biometric processing (Art. 9 GDPR) and would move the product toward
-  // biometric categorisation under the EU AI Act, which our own assessment
-  // records that we do NOT do. Initials give the same at-a-glance recognition
-  // with none of that, so the visual affordance costs no legal ground.
-  const SECTIONS = [
-    { key: 'NOT_READY', title: 'Blocked', hint: 'Blocking findings must clear before review',
-      match: (c) => c.last_status === 'NOT_READY' },
-    { key: 'AWAITING_SIGNOFF', title: 'Awaiting sign-off', hint: 'Needs a documented management decision',
-      match: (c) => c.last_status === 'AWAITING_SIGNOFF' },
-    { key: 'IN_PROGRESS', title: 'In progress', hint: 'Outstanding actions on the checklist or timeline',
-      match: (c) => c.last_status === 'IN_PROGRESS' },
-    // R-F3172 — the file changed after its last assessment, so the cached
-    // verdict describes a file that no longer exists. Sits ABOVE the clean
-    // sections deliberately: a stale verdict is the one most likely to be
-    // trusted, because it looks settled.
-    { key: 'STALE', title: 'Changed since last assessment', hint: 'Re-assess — the recorded verdict no longer describes this file',
-      match: (c) => c.assessment_stale },
-    { key: 'UNKNOWN', title: 'Not yet assessed', hint: 'No assessment has been run — status is unknown, not clear',
-      match: (c) => !c.last_status },
-    { key: 'DONE', title: 'Ready / complete', hint: 'Evidence complete; the decision is a human\\u2019s',
-      match: (c) => c.last_status === 'READY_FOR_CONTROLLER_REVIEW'
-                 || c.last_status === 'EVIDENCE_COMPLETE' },
-  ];
-
   const STATUS_BADGE = {
     NOT_READY: ['sc-badge-red', 'Blocked'],
     AWAITING_SIGNOFF: ['sc-badge-orange', 'Sign-off'],
@@ -313,6 +279,22 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
     READY_FOR_CONTROLLER_REVIEW: ['sc-badge-green', 'Ready for review'],
     EVIDENCE_COMPLETE: ['sc-badge-green', 'Evidence complete'],
   };
+  const REQ_ICON = {
+    OUTSTANDING: 'bi-circle', PARTIAL: 'bi-circle-half', RECEIVED: 'bi-record-circle',
+    ACCEPTED: 'bi-check-circle-fill', WAIVED: 'bi-slash-circle',
+  };
+  const MONTHS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+  const BASIS_TEXT = {
+    STANDARD: 'required by the standard',
+    STATUTORY: 'required by law',
+    HOUSE_PRACTICE: 'house practice — not demanded by the standard',
+    CLIENT_CONTRACT: 'asked for by the customer',
+  };
+
+  let PACKS = [];
+  let DOC_TYPES = [];              // [{label, types:[...]}]
+  let CASES = [];
+  const DETAIL = new Map();        // case_id -> {assessment, documents, requests}
 
   function initials(name) {
     const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -320,59 +302,54 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
     return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
   }
 
+  // ── card face ──────────────────────────────────────────────────────────
+  //
+  // Sections ordered by what demands attention, not alphabetically or by date.
+  // A screening queue's only real question is "what is stuck?", so blocked
+  // files sort first and completed ones sink.
+  const SECTIONS = [
+    { key: 'NOT_READY', title: 'Blocked', hint: 'Blocking findings must clear before review',
+      match: (c) => c.last_status === 'NOT_READY' },
+    { key: 'AWAITING_SIGNOFF', title: 'Awaiting sign-off', hint: 'Needs a documented management decision',
+      match: (c) => c.last_status === 'AWAITING_SIGNOFF' },
+    { key: 'IN_PROGRESS', title: 'In progress', hint: 'Outstanding actions on the checklist, documents or timeline',
+      match: (c) => c.last_status === 'IN_PROGRESS' },
+    // R-F3172 — sits ABOVE the clean sections deliberately: a stale verdict is
+    // the one most likely to be trusted, because it looks settled.
+    { key: 'STALE', title: 'Changed since last assessment', hint: 'Re-assess — the recorded verdict no longer describes this file',
+      match: (c) => c.assessment_stale },
+    { key: 'UNKNOWN', title: 'Not yet assessed', hint: 'No assessment has been run — status is unknown, not clear',
+      match: (c) => !c.last_status },
+    { key: 'DONE', title: 'Ready / complete', hint: 'Evidence complete; the decision is a human’s',
+      match: (c) => c.last_status === 'READY_FOR_CONTROLLER_REVIEW'
+                 || c.last_status === 'EVIDENCE_COMPLETE' },
+  ];
+
   function caseCard(c) {
-    // R-F3179 — the actions live INSIDE the card, revealed on expand.
-    // Previously every card showed four buttons at once, so a queue of twenty
-    // cases was eighty competing controls and the status — the thing an
-    // officer actually scans for — was crowded out. Native <details> is used
-    // rather than a JS toggle: it is keyboard-accessible, survives a re-render
-    // without state bookkeeping, and degrades to "open" if scripting fails.
     const stale = !!c.assessment_stale;
     const [badgeCls, badgeText] = stale
       ? ['sc-badge-orange', 'Re-assess']
       : (STATUS_BADGE[c.last_status] || ['sc-badge-muted', 'Not assessed']);
     const asOf = !c.last_assessed_at
       ? 'never assessed'
-      : stale
-        ? `file changed since ${esc(c.last_assessed_at)}`
-        : `assessed ${esc(c.last_assessed_at)}`;
-    const blockers = Number(c.last_blockers || 0);
-    const docs = Number(c.document_count || 0);
-    const decisions = Number(c.decision_count || 0);
-
+      : stale ? `file changed since ${esc(c.last_assessed_at)}`
+              : `assessed ${esc(c.last_assessed_at)}`;
     return `
-      <details class="sc-card vt-case" data-case="${esc(c.case_id)}">
+      <details class="vt-case" data-case="${esc(c.case_id)}">
         <summary class="vt-summary">
           <span class="vt-avatar">${esc(initials(c.applicant_name))}</span>
           <span class="vt-ident">
             <span class="vt-name">${esc(c.applicant_name || '(unnamed)')}</span>
-            <span class="vt-ref">${esc(c.case_id)} · ${asOf}</span>
+            <span class="vt-ref">${esc(c.case_id)} · ${asOf} · ${esc(c.pack_id)} v${esc(c.pack_version)}</span>
+            <span class="vt-face" data-face-for="${esc(c.case_id)}">
+              <span class="vt-facemeta">${Number(c.document_count || 0)} document(s) on file — expand for detail</span>
+            </span>
           </span>
           <span class="sc-badge ${badgeCls} vt-status">${esc(badgeText)}</span>
           <i class="bi bi-chevron-down vt-chev" aria-hidden="true"></i>
         </summary>
-
-        <div class="vt-body">
-          <dl class="vt-facts">
-            <div><dt>Rule pack</dt><dd>${esc(c.pack_id)} v${esc(c.pack_version)}</dd></div>
-            <div><dt>Blockers</dt><dd>${stale ? '—' : blockers}</dd></div>
-            <div><dt>Documents</dt><dd>${docs}</dd></div>
-            <div><dt>Decision</dt><dd>${decisions > 0 ? 'recorded' : 'not yet'}</dd></div>
-            <div><dt>Outcome</dt><dd>${esc(c.outcome || 'PENDING')}</dd></div>
-          </dl>
-          ${stale ? `<p class="vt-warn"><i class="bi bi-exclamation-triangle-fill"></i>
-             The file changed after this verdict was computed. Re-assess before relying on it.</p>` : ''}
-          <div class="vt-actions">
-            <label class="vt-btn secondary" style="margin:0">
-              <i class="bi bi-upload"></i> Upload
-              <input type="file" data-upload="${esc(c.case_id)}" hidden>
-            </label>
-            <button class="vt-btn secondary" data-assess="${esc(c.case_id)}"><i class="bi bi-clipboard-check"></i> Assess</button>
-            <button class="vt-btn secondary" data-decide="${esc(c.case_id)}"><i class="bi bi-person-check"></i> Decide</button>
-            <button class="vt-btn secondary" data-share="${esc(c.case_id)}"><i class="bi bi-qr-code"></i> Share upload link</button>
-            <button class="vt-btn secondary" data-sar="${esc(c.case_id)}"><i class="bi bi-file-earmark-person"></i> Subject access</button>
-          </div>
-          <div class="vt-upload-note" data-status-for="${esc(c.case_id)}"></div>
+        <div class="vt-body" data-body-for="${esc(c.case_id)}">
+          <div class="vt-loading"><i class="bi bi-hourglass-split"></i> Opening the file…</div>
         </div>
       </details>`;
   }
@@ -391,7 +368,7 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
             <span class="vt-section-count">${rows.length}</span>
             <span class="vt-section-hint">${esc(section.hint)}</span>
           </div>
-          <div class="vt-grid">${rows.map(caseCard).join('')}</div>
+          <div>${rows.map(caseCard).join('')}</div>
         </div>`;
     }
     // Anything the sections did not claim still has to appear — a case that
@@ -401,24 +378,361 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
       html += `<div class="vt-section">
         <div class="vt-section-head"><span class="vt-section-name">Other</span>
         <span class="vt-section-count">${orphans.length}</span></div>
-        <div class="vt-grid">${orphans.map(caseCard).join('')}</div></div>`;
+        <div>${orphans.map(caseCard).join('')}</div></div>`;
     }
     return html;
   }
 
-  // R-F3170 — packs are loaded once and reused by the create dialog. A create
-  // attempt with no pack loaded used to send pack_id="" and fail server-side
-  // with "no PRODUCTION version of ''"; now the dialog refuses to open and says
-  // why, which is the difference between a dead button and an explained one.
-  let PACKS = [];
+  function renderQueue(cases) {
+    const count = (fn) => cases.filter(fn).length;
+    const stats = [
+      ['red', count((c) => c.last_status === 'NOT_READY'), 'Blocked'],
+      ['orange', count((c) => c.last_status === 'AWAITING_SIGNOFF'), 'Awaiting sign-off'],
+      ['blue', count((c) => c.last_status === 'IN_PROGRESS'), 'In progress'],
+      ['orange', count((c) => c.assessment_stale), 'Need re-assessing'],
+      // Deliberately labelled "Not assessed", never folded into a clean count:
+      // an unassessed file's status is unknown, and unknown is not clear.
+      ['', count((c) => !c.last_status), 'Not assessed'],
+      ['green', count((c) => c.last_status === 'READY_FOR_CONTROLLER_REVIEW'
+                          || c.last_status === 'EVIDENCE_COMPLETE'), 'Ready / complete'],
+    ];
+    $('queue').innerHTML = stats.map(([tone, n, label]) => `
+      <div class="vt-qstat ${tone}">
+        <div class="vt-qstat-num">${n}</div>
+        <div class="vt-qstat-lab">${esc(label)}</div>
+      </div>`).join('');
+  }
 
+  // ── the file, section by section ───────────────────────────────────────
+  function sec(name, tag, body, extra) {
+    return `<div class="vt-sec">
+      <div class="vt-sec-head">
+        <span class="vt-sec-name">${esc(name)}</span>
+        ${tag ? `<span class="vt-sec-tag">${esc(tag)}</span>` : ''}
+        <span class="vt-sec-spacer"></span>${extra || ''}
+      </div>
+      <div class="vt-sec-body">${body}</div>
+    </div>`;
+  }
+
+  function verdictStrip(a) {
+    const known = STATUS_TEXT[a && a.status];
+    if (!known) {
+      return `<div class="vt-vstrip unknown">
+        <i class="bi bi-question-circle"></i>
+        <div><p class="vt-vstrip-title">Assessment unavailable</p>
+        <p class="vt-vstrip-sub">No conclusion can be drawn from this. Run an assessment.</p></div></div>`;
+    }
+    const c = a.counts || {};
+    const pack = a.pack || {};
+    const period = a.screening_period || [];
+    return `<div class="vt-vstrip ${esc(String(a.status).toLowerCase())}">
+      <i class="bi ${esc(ICONS[a.status] || 'bi-question-circle')}"></i>
+      <div>
+        <p class="vt-vstrip-title">${esc(known[0])}</p>
+        <p class="vt-vstrip-sub">${esc(known[1])}</p>
+        <p class="vt-vstrip-sub"><strong>${Number(c.blockers || 0)}</strong> blocker(s) ·
+          <strong>${Number(c.signoffs || 0)}</strong> sign-off(s) ·
+          <strong>${Number(c.actions || 0)}</strong> action(s)</p>
+        <p class="vt-ref" style="margin-top:5px">${esc(pack.pack_id)} v${esc(pack.version)} · ${esc(pack.jurisdiction)} ·
+          screening period ${esc(period[0])} → ${esc(period[1])} · assessed as of ${esc(a.as_of)}</p>
+        ${pack.employment_decision_eligible ? '' :
+          `<p class="vt-vstrip-sub" style="color:#b45309">FRAMEWORK-ONLY pack — it organises and grades
+           evidence but cannot state whether screening is lawful or sufficient in any jurisdiction.</p>`}
+      </div></div>`;
+  }
+
+  function stagesSection(a) {
+    const stages = a.stages || [];
+    if (!stages.length) return '';
+    const body = `<div class="vt-stages">${stages.map((s) => `
+      <div class="vt-stage ${esc(s.state)} ${s.key === a.current_stage ? 'current' : ''}"
+           title="${esc((s.outstanding || []).join(' · ') || s.hint)}">
+        <div class="vt-stage-lab"><span class="vt-stage-dot"></span>${esc(s.label)}</div>
+        <div class="vt-stage-num">${s.total ? `${s.done}/${s.total} done` : 'nothing outstanding'}${
+          s.blockers ? ` · <span style="color:#dc2626">${s.blockers} blocker(s)</span>` : ''}</div>
+      </div>`).join('')}</div>
+      <p class="vt-note">Derived from the file on every assessment — never advanced by hand.
+        A stage completes when its evidence is present and nothing in it is still flagged.</p>`;
+    const current = stages.find((s) => s.key === a.current_stage);
+    return sec('Where this file is', current ? current.label : '', body);
+  }
+
+  function requirementsSection(caseId, a) {
+    const reqs = a.requirements || [];
+    const s = a.requirements_summary || {};
+    const add = `<button class="vt-btn secondary sm" data-addreq="${esc(caseId)}">
+      <i class="bi bi-plus-lg"></i> Add requirement</button>`;
+    if (!reqs.length) {
+      return sec('Required documents', 'none defined',
+        `<div class="vt-empty">This case is pinned to a rule pack version that defines no
+         document requirements. Cases keep the pack they were opened under — which is why a
+         historical assessment still means what it meant.</div>`, add);
+    }
+    const rows = reqs.map((r) => {
+      const acts = [];
+      if (r.state !== 'WAIVED') {
+        acts.push(`<label class="vt-btn secondary sm" style="margin:0">
+          <i class="bi bi-upload"></i> Upload
+          <input type="file" hidden data-upload-req="${esc(r.key)}" data-case="${esc(caseId)}"
+                 data-type="${esc((r.accepted || [])[0] || 'OTHER')}">
+        </label>`);
+      }
+      (r.documents || []).forEach((d) => {
+        acts.push(`<button class="vt-btn secondary sm" data-view="${esc(d.document_id)}"
+          data-case="${esc(caseId)}"><i class="bi bi-eye"></i> View</button>`);
+      });
+      if (r.state === 'WAIVED') {
+        acts.push(`<button class="vt-btn secondary sm" data-unwaive="${esc(r.key)}"
+          data-case="${esc(caseId)}">Restore</button>`);
+      } else {
+        acts.push(`<button class="vt-btn secondary sm" data-waive="${esc(r.key)}"
+          data-case="${esc(caseId)}" data-label="${esc(r.label)}">Waive</button>`);
+      }
+      if (r.origin === 'MANUAL') {
+        acts.push(`<button class="vt-btn secondary sm" data-delreq="${esc(r.key)}"
+          data-case="${esc(caseId)}" title="Remove this manually added requirement">
+          <i class="bi bi-x-lg"></i></button>`);
+      }
+
+      const why = [];
+      (r.documents || []).forEach((d) => {
+        (d.reasons || []).forEach((x) => why.push(x));
+        (d.sighting_reasons || []).forEach((x) => why.push(x));
+      });
+      const count = r.needed > 1 ? `${r.held} of ${r.needed}` : (r.held ? 'on file' : 'not on file');
+      return `<div class="vt-req ${esc(r.state)}">
+        <i class="bi ${esc(REQ_ICON[r.state] || 'bi-circle')} vt-req-ico"></i>
+        <div class="vt-req-main">
+          <div class="vt-req-lab">${esc(r.label)}
+            <span class="vt-state ${esc(r.state)}">${esc(r.state)}</span></div>
+          <div class="vt-req-meta">${esc(count)} ·
+            ${esc(r.reference || 'no reference')} · ${esc(BASIS_TEXT[r.basis] || r.basis)}
+            ${r.origin === 'MANUAL' ? ' · added by hand' : ''}</div>
+          ${r.note ? `<div class="vt-req-meta">${esc(r.note)}</div>` : ''}
+          ${r.state === 'WAIVED'
+            ? `<div class="vt-req-why">Waived by ${esc(r.waived_by)} — ${esc(r.waived_reason)}.
+               It is not satisfied; it is no longer being pursued.</div>`
+            : ''}
+          ${why.length ? `<div class="vt-req-why"><i class="bi bi-exclamation-triangle"></i>
+             ${esc(why.slice(0, 3).join(' · '))}</div>` : ''}
+        </div>
+        <div class="vt-req-acts">${acts.join('')}</div>
+      </div>`;
+    }).join('');
+
+    return sec('Required documents',
+      `${s.accepted || 0}/${s.total || 0} accepted`,
+      rows + `<p class="vt-note">ACCEPTED means the document is on the file and nothing about it is
+        still waiting on a person. RECEIVED means it arrived but has not been read, or the original
+        has not been sighted — present is not checked.</p>`,
+      add);
+  }
+
+  function coverageSection(a) {
+    const cells = a.coverage || [];
+    if (!cells.length) return '';
+    const cs = a.coverage_summary || {};
+    const byYear = new Map();
+    cells.forEach((c) => {
+      if (!byYear.has(c.year)) byYear.set(c.year, new Array(12).fill(null));
+      byYear.get(c.year)[c.month - 1] = c.state;
+    });
+    const rows = [...byYear.entries()].map(([year, months]) => `
+      <div class="vt-cov-row"><span class="vt-cov-year">${year}</span>
+        ${months.map((state, i) => `<span class="vt-cov-cell ${esc(state || 'none')}"
+          title="${year}-${String(i + 1).padStart(2, '0')}: ${esc(state || 'outside the screening period')}"
+          >${MONTHS[i]}</span>`).join('')}</div>`).join('');
+    return sec('Career timeline coverage',
+      `${cs.verified || 0} verified · ${cs.unverified || 0} declared · ${cs.undeclared || 0} uncovered`,
+      rows + `<div class="vt-legend">
+        <span><b style="background:#16a34a"></b>verified</span>
+        <span><b style="background:#fcd34d"></b>declared, not yet verified</span>
+        <span><b style="background:#fca5a5"></b>nothing covers this month</span>
+        <span><b style="background:#f5f4f1"></b>outside the screening period</span>
+      </div>
+      <p class="vt-note">A navigation aid, not the compliance test. The grid works in months; the
+        31-day unverified limit works in days, so the findings below remain the authority.</p>`);
+  }
+
+  function findingsSection(a) {
+    const order = { BLOCKER: 0, SIGNOFF: 1, DEADLINE: 2, ACTION: 3, INFO: 4 };
+    const findings = (a.findings || []).slice().sort(
+      (x, y) => (order[x.severity] ?? 9) - (order[y.severity] ?? 9));
+    const body = findings.length
+      ? findings.map((f) => `
+        <div class="vt-find">
+          <span class="vt-pill ${esc(String(f.severity || '').toLowerCase())}">${esc(f.severity)}</span>
+          <div class="vt-row-main">
+            <p class="vt-find-msg">${esc(f.message)}</p>
+            <span class="vt-ref">${esc(f.code)} · ${esc(f.ref)}${f.due_date ? ' · due ' + esc(f.due_date) : ''}</span>
+          </div>
+        </div>`).join('')
+      : '<div class="vt-empty">No findings were returned for this assessment.</div>';
+    const notes = (a.controller_notes || []).join(' · ');
+    return sec('Findings', String(findings.length),
+      body + (notes ? `<p class="vt-note">${esc(notes)}</p>` : ''));
+  }
+
+  function documentsSection(caseId, docs) {
+    if (!docs) {
+      return sec('Documents on file', 'unavailable',
+        '<div class="vt-error">The document list could not be loaded. Nothing can be concluded from that — it is not an empty file.</div>');
+    }
+    if (!docs.length) {
+      return sec('Documents on file', '0',
+        '<div class="vt-empty">Nothing has been uploaded to this case yet.</div>');
+    }
+    const rows = docs.map((d) => {
+      const integrity = d.integrity || {};
+      const bad = integrity.artifact_valid === false || integrity.metadata_valid === false;
+      return `<div class="vt-row">
+        <div class="vt-row-main">
+          <div class="vt-row-name">${esc(d.filename || '(no filename)')}</div>
+          <span class="vt-ref">${esc(d.doc_type)}${d.issuer ? ' · ' + esc(d.issuer) : ''}${
+            d.covers_from ? ' · covers ' + esc(d.covers_from) + '→' + esc(d.covers_to || '') : ''}
+            · sighting ${esc(d.sighting)}${d.examined_by ? ' by ' + esc(d.examined_by) : ''}
+            · ${d.encrypted ? 'encrypted' : 'NOT encrypted'}</span>
+          ${bad ? '<div class="vt-req-why">Integrity verification FAILED — do not rely on this copy.</div>' : ''}
+        </div>
+        <button class="vt-btn secondary sm" data-sighting="${esc(d.document_id)}" data-case="${esc(caseId)}">
+          <i class="bi bi-eyeglasses"></i> Sighting</button>
+        ${d.viewable
+          ? `<button class="vt-btn secondary sm" data-view="${esc(d.document_id)}" data-case="${esc(caseId)}">
+               <i class="bi bi-eye"></i> View</button>`
+          : '<span class="vt-ref">not retrievable</span>'}
+      </div>`;
+    }).join('');
+    return sec('Documents on file', String(docs.length), rows);
+  }
+
+  function requestsSection(caseId, data) {
+    if (!data) return '';
+    const rows = data.requests || [];
+    const s = data.summary || {};
+    const body = rows.length
+      ? rows.map((r) => `<div class="vt-row">
+          <span class="vt-pill ${r.overdue ? 'deadline' : (r.is_open ? 'action' : 'info')}">${esc(r.code)}</span>
+          <div class="vt-row-main">
+            <div class="vt-row-name">${esc(r.label)} — ${esc(r.sent_to)}</div>
+            <span class="vt-ref">sent ${esc(r.sent_at)}${r.channel ? ' by ' + esc(r.channel) : ''} ·
+              ${esc(r.status)}${r.is_open ? ` · ${r.days_outstanding} day(s) outstanding` : ''}${
+                r.overdue ? ' · OVERDUE' : ''}</span>
+          </div>
+        </div>`).join('')
+      : '<div class="vt-empty">Nothing has been requested on this case yet. Sharing a referee link records the request automatically.</div>';
+    return sec('Verification requests',
+      `${s.open || 0} open · ${s.overdue || 0} overdue`, body);
+  }
+
+  // ── loading one file ───────────────────────────────────────────────────
+  async function loadDetail(caseId, force) {
+    const body = document.querySelector(`[data-body-for="${CSS.escape(caseId)}"]`);
+    if (!body) return;
+    if (DETAIL.has(caseId) && !force) { paint(caseId); return; }
+    body.innerHTML = '<div class="vt-loading"><i class="bi bi-hourglass-split"></i> Opening the file…</div>';
+
+    // The assessment is the authority; documents and the ledger are context.
+    // A failure in either context call must not block the verdict, and must
+    // not be rendered as "none" — see documentsSection.
+    const [assessment, documents, requests] = await Promise.all([
+      authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/assess`, { method: 'POST' })
+        .then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/documents`)
+        .then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/requests`)
+        .then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]);
+    DETAIL.set(caseId, {
+      assessment,
+      documents: documents ? (documents.documents || []) : null,
+      requests,
+    });
+    paint(caseId);
+    refreshFace(caseId);
+  }
+
+  function paint(caseId) {
+    const body = document.querySelector(`[data-body-for="${CSS.escape(caseId)}"]`);
+    const detail = DETAIL.get(caseId);
+    if (!body || !detail) return;
+    const a = detail.assessment;
+    const actions = `<div class="vt-acts">
+      <button class="vt-btn secondary sm" data-assess="${esc(caseId)}"><i class="bi bi-clipboard-check"></i> Re-assess</button>
+      <label class="vt-btn secondary sm" style="margin:0"><i class="bi bi-upload"></i> Upload document
+        <input type="file" hidden data-upload-req="" data-case="${esc(caseId)}" data-type="OTHER"></label>
+      <button class="vt-btn secondary sm" data-share="${esc(caseId)}"><i class="bi bi-qr-code"></i> Share link</button>
+      <button class="vt-btn secondary sm" data-interview="${esc(caseId)}"><i class="bi bi-mic"></i> Record interview</button>
+      <button class="vt-btn secondary sm" data-decide="${esc(caseId)}"><i class="bi bi-person-check"></i> Decide</button>
+      <button class="vt-btn secondary sm" data-sar="${esc(caseId)}"><i class="bi bi-file-earmark-person"></i> Subject access</button>
+    </div>`;
+
+    if (!a) {
+      body.innerHTML = verdictStrip(null) + actions + sec('This file', '',
+        '<div class="vt-error">The assessment could not be completed, so nothing about this file is being asserted. Try Re-assess.</div>');
+      return;
+    }
+    body.innerHTML =
+      verdictStrip(a) + actions +
+      stagesSection(a) +
+      requirementsSection(caseId, a) +
+      coverageSection(a) +
+      findingsSection(a) +
+      documentsSection(caseId, detail.documents) +
+      requestsSection(caseId, detail.requests);
+  }
+
+  function refreshFace(caseId) {
+    const face = document.querySelector(`[data-face-for="${CSS.escape(caseId)}"]`);
+    const detail = DETAIL.get(caseId);
+    if (!face || !detail || !detail.assessment) return;
+    const a = detail.assessment;
+    const s = a.requirements_summary || {};
+    const total = Number(s.total || 0);
+    const done = Number(s.accepted || 0);
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    const c = a.counts || {};
+    face.innerHTML =
+      `<span class="vt-bar"><span style="width:${pct}%"></span></span>` +
+      `<span class="vt-facemeta">${done}/${total} documents accepted · ` +
+      `${Number(c.blockers || 0)} blocker(s) · ${Number(c.actions || 0)} action(s)</span>`;
+    // Keep the badge honest after a re-assess without a full list reload.
+    const card = document.querySelector(`[data-case="${CSS.escape(caseId)}"]`);
+    const badge = card && card.querySelector('.vt-status');
+    if (badge && STATUS_BADGE[a.status]) {
+      badge.className = `sc-badge ${STATUS_BADGE[a.status][0]} vt-status`;
+      badge.textContent = STATUS_BADGE[a.status][1];
+    }
+  }
+
+  // ── loaders ────────────────────────────────────────────────────────────
   async function loadPacks() {
     try {
       const r = await authed('/api/aria/vetting/packs');
       if (!r.ok) return;
-      const data = await r.json();
-      PACKS = (data.packs || []).filter((p) => p.status === 'PRODUCTION');
+      PACKS = ((await r.json()).packs || []).filter((p) => p.status === 'PRODUCTION');
     } catch (e) { /* the dialog reports this; never block page load */ }
+  }
+
+  async function loadDocTypes() {
+    try {
+      const r = await authed('/api/aria/vetting/document-types');
+      if (r.ok) DOC_TYPES = (await r.json()).groups || [];
+    } catch (e) { /* the picker falls back to OTHER */ }
+  }
+
+  function docTypeOptions(selected) {
+    // Flattened from the SERVER's grouping, so the picker cannot offer a type
+    // the engine would reject.
+    const out = [];
+    DOC_TYPES.forEach((g) => (g.types || []).forEach((t) => {
+      out.push({ value: t, label: `${g.label} — ${t.replace(/_/g, ' ').toLowerCase()}` });
+    }));
+    if (!out.length) out.push({ value: 'OTHER', label: 'Other' });
+    if (selected && !out.some((o) => o.value === selected)) {
+      out.unshift({ value: selected, label: selected });
+    }
+    return out;
   }
 
   async function loadCases() {
@@ -428,109 +742,317 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
         $('cases').innerHTML = `<div class="vt-error">Could not load cases (HTTP ${r.status}).</div>`;
         return;
       }
-      const data = await r.json();
-      const cases = data.cases || [];
-      $('cases').innerHTML = cases.length
-        ? renderSections(cases)
+      CASES = (await r.json()).cases || [];
+      renderQueue(CASES);
+      $('cases').innerHTML = CASES.length
+        ? renderSections(CASES)
         : '<div class="vt-empty">No vetting cases yet. Create one to begin.</div>';
     } catch (e) {
       $('cases').innerHTML = '<div class="vt-error">Could not reach the vetting service.</div>';
     }
   }
 
-  async function assess(caseId) {
-    setUnknown('Running assessment…');
+  // R-F3214 — what the module implements, and what it does not.
+  //
+  // The scope limits render alongside the count, never behind a second click.
+  // A coverage figure read on its own reads as completeness.
+  async function loadStandard() {
+    const body = $('standard-body');
+    if (!body) return;
     try {
-      const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/assess`, { method: 'POST' });
+      const r = await authed('/api/aria/vetting/standard');
       if (!r.ok) {
-        // Explicitly NOT a clean verdict. An unreachable or refusing server
-        // tells us nothing about the applicant.
-        setUnknown(`Assessment could not be completed (HTTP ${r.status}). No conclusion can be drawn from this.`);
+        body.innerHTML = '<div class="vt-error">The clause register could not be loaded.</div>';
         return;
       }
-      renderVerdict(await r.json());
+      const d = await r.json();
+      const c = d.counts || {};
+      const rows = (d.clauses || []).map((x) => `
+        <div class="vt-clause">
+          <span class="vt-clause-id">${esc(x.clause)}</span> — <strong>${esc(x.title)}</strong>
+          <span class="vt-state ${x.status === 'ENCODED' ? 'ACCEPTED' : (x.status === 'OPERATOR_CONTROL' ? 'RECEIVED' : 'OUTSTANDING')}">${esc(x.status)}</span>
+          <div style="margin-top:3px">${esc(x.requirement)}</div>
+          <div class="vt-ref" style="margin-top:3px">${esc((x.implemented_by || []).join(' · '))}${
+            x.verified_on ? ' · read against the licensed standard ' + esc(x.verified_on) : ' · NOT verified'}</div>
+          ${x.note ? `<div class="vt-req-meta">${esc(x.note)}</div>` : ''}
+        </div>`).join('');
+      body.innerHTML =
+        `<p style="font-size:13px;margin:0 0 10px"><strong>${esc(d.honest_summary)}</strong></p>` +
+        `<p class="vt-ref" style="margin-bottom:12px">${c.encoded} encoded · ${c.corroborated} corroborated against the live pack · ` +
+        `${c.claimed_not_corroborated} claiming code the pack cannot corroborate · ${c.operator_control} organisational controls</p>` +
+        `<div class="vt-pack vt-pack-warn"><i class="bi bi-exclamation-triangle"></i><div>
+           <strong>Not modelled.</strong><ul style="margin:6px 0 0;padding-left:18px">` +
+        (d.not_modelled || []).map((x) => `<li>${esc(x)}</li>`).join('') +
+        `</ul></div></div>` + rows +
+        `<p class="vt-note">${esc(d.copyright_note)}</p>`;
     } catch (e) {
-      setUnknown('Assessment could not be completed — the service was unreachable. No conclusion can be drawn from this.');
+      body.innerHTML = '<div class="vt-error">The clause register could not be loaded.</div>';
     }
   }
 
-  // R-F3144/R-F3145 — upload one document into the case's evidence file.
-  // The badge reports the SERVER's needs_human_review verdict verbatim. It is
-  // never computed here: a client that decided for itself when a document
-  // looked fine would be a second, weaker copy of the rule.
-  async function upload(caseId, file) {
-    const note = document.querySelector(`[data-status-for="${CSS.escape(caseId)}"]`);
-    const say = (html) => { if (note) note.innerHTML = html; };
-    say('<span class="vt-card-meta">Uploading…</span>');
+  // R-F3210 — the officer says WHAT they are uploading.
+  //
+  // The control used to send `declared_doc_type: "OTHER"` for every file, so
+  // every real document landed as OTHER — and OTHER satisfies no requirement.
+  // That was not cosmetic: PDFs and images are not text-extractable here by
+  // design, so the declaration is the only signal there is for most uploads.
+  async function upload(caseId, file, presetType) {
+    let career = [];
+    try {
+      const r = await authed('/api/aria/vetting/case/' + encodeURIComponent(caseId));
+      if (r.ok) career = ((await r.json()).career || []);
+    } catch (e) { /* attaching to a period is optional */ }
+
+    const values = await Modal.form({
+      title: 'Add a document to the file',
+      message: `${file.name} — ${(file.size / 1024).toFixed(0)} KB`,
+      icon: 'bi-file-earmark-arrow-up',
+      okLabel: 'Upload',
+      fields: [
+        { name: 'declared_doc_type', label: 'What is this document?', type: 'select',
+          required: true, autofocus: true, value: presetType || 'OTHER',
+          options: docTypeOptions(presetType),
+          help: 'Nothing here reads a PDF or an image, so this is the only signal the engine gets. '
+              + 'It is recorded as DECLARED, never as verified.' },
+        { name: 'attach_to_entry_id', label: 'Evidence for which period? (optional)', type: 'select',
+          options: [{ value: '', label: '— not tied to a career period' }].concat(
+            career.map((e) => ({ value: e.entry_id,
+              label: `${e.organisation || e.entry_type} (${e.start} → ${e.end || 'present'})` }))),
+          help: 'Attaching it here is what lets the period count it as evidence.' },
+      ],
+    });
+    if (!values) return;
+
+    Toast.show('Uploading…', 'info', 2000);
     try {
       const buf = await file.arrayBuffer();
-      let binary = '';
       const bytes = new Uint8Array(buf);
+      let binary = '';
       for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
       const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/documents`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          filename: file.name,
-          content_base64: btoa(binary),
-          declared_doc_type: 'OTHER',
+          filename: file.name, content_base64: btoa(binary),
+          declared_doc_type: values.declared_doc_type,
+          attach_to_entry_id: values.attach_to_entry_id || null,
         }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        say(`<span class="vt-error" style="display:block;margin-top:8px">Upload failed (HTTP ${r.status}). The document was NOT added to the file.</span>`);
+        Toast.show(`Upload failed (HTTP ${r.status}). The document was NOT added to the file.`, 'danger', 9000);
         return;
       }
-      const flags = (body.authenticity_flags || []).map(esc).join(' · ');
-      say(
-        `<div style="margin-top:8px;font-size:12.5px">` +
-        `<strong>${esc(body.doc_type)}</strong> stored · hash ${body.content_hash_verified ? 'verified' : 'UNVERIFIED'}` +
-        (body.needs_human_review
-          ? ` · <span class="vt-pill signoff">needs human review</span>`
-          : ` · <span class="vt-pill info">classified</span>`) +
-        (flags ? `<div class="vt-ref" style="margin-top:4px">${flags}</div>` : '') +
-        `</div>`);
+      Toast.show(
+        `${body.doc_type} stored` + (body.needs_human_review ? ' — needs your review' : ''),
+        body.needs_human_review ? 'info' : 'success', 5000);
+      await loadDetail(caseId, true);
     } catch (e) {
-      say('<span class="vt-error" style="display:block;margin-top:8px">Upload failed — the service was unreachable. The document was NOT added to the file.</span>');
+      Toast.show('Upload failed — the service was unreachable. The document was NOT added.', 'danger', 9000);
     }
   }
 
-  $('cases').addEventListener('change', (ev) => {
-    const input = ev.target.closest('[data-upload]');
-    if (input && input.files && input.files[0]) {
-      upload(input.getAttribute('data-upload'), input.files[0]);
-      input.value = '';
-    }
-  });
-
-  // R-F3157 — record the employment decision (UK GDPR Art. 22).
+  // R-F3209 — open a stored document.
   //
-  // The form asks for the decider's NAME and, on an adverse outcome, a reason
-  // and a second reviewer. Those are not form-design choices: the server
-  // refuses the decision without them, and this UI asks for exactly what the
-  // server requires so the user is never bounced by a rule they couldn't see.
-  // Nothing here pre-fills a decision from the engine verdict — the whole
-  // point is that a human supplies it.
-  // ── R-F3170: decision support, not a popup chain ─────────────────────────
-  //
-  // The old flow asked four window.prompt() questions in sequence. Beyond being
-  // ugly, it was ACTIVELY UNSAFE for this task: the officer answered from
-  // memory, with no sight of the file they were deciding on, and a typo in
-  // question two could not be corrected without abandoning the whole sequence.
-  //
-  // Now the dialog fetches the CURRENT assessment first and puts it in front of
-  // the officer as read-only context, and the adverse-decision requirements
-  // (reason, second reviewer) are enforced INLINE — the same rules the server
-  // enforces, surfaced before the round-trip so nobody is bounced by a rule
-  // they could not see.
-  async function decide(caseId) {
-    let engine = null;
+  // Fetched with the auth header and handed to the browser as a blob, rather
+  // than linked directly: the API is reached through the authenticated proxy,
+  // so a bare <a href> would arrive without credentials and 401. The object
+  // URL is revoked on a timer so the decrypted bytes do not sit in the page.
+  async function viewDocument(caseId, documentId) {
     try {
-      const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/assess`,
-                             { method: 'POST' });
-      if (r.ok) engine = await r.json();
-    } catch (e) { /* handled below — we simply decide without the context */ }
+      const r = await authed(
+        `/api/aria/vetting/case/${encodeURIComponent(caseId)}/documents/${encodeURIComponent(documentId)}/content`);
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        Toast.show(
+          (body && body.detail && body.detail.message)
+            || `That document could not be opened (HTTP ${r.status}).`, 'danger', 9000);
+        return;
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const opened = window.open(url, '_blank', 'noopener');
+      if (!opened) Toast.show('Your browser blocked the document window.', 'info', 6000);
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      Toast.show('That document could not be opened — the service was unreachable.', 'danger', 9000);
+    }
+  }
 
+  async function setSighting(caseId, documentId) {
+    const values = await Modal.form({
+      title: 'Record how this document was seen',
+      message: 'BS 7858 7.4 c)/d): the original is inspected and a copy retained, with a record of who examined it.',
+      icon: 'bi-eyeglasses', okLabel: 'Record',
+      fields: [
+        { name: 'sighting', label: 'What was seen?', type: 'select', required: true, autofocus: true,
+          options: [
+            { value: 'ORIGINAL_SEEN', label: 'Original inspected in person, copy retained' },
+            { value: 'COPY_ONLY', label: 'A copy or scan only — the original was never sighted' },
+            { value: 'NOT_APPLICABLE', label: 'Not applicable (e.g. an electronic share code)' },
+            { value: 'NOT_RECORDED', label: 'Not recorded — nobody has answered yet' },
+          ] },
+        { name: 'examined_by', label: 'Who examined it?', type: 'text',
+          help: 'Required when an original was sighted. A sighting with nobody attached cannot be evidenced to an auditor.' },
+      ],
+      validate: (v) => (v.sighting === 'ORIGINAL_SEEN' && !v.examined_by
+        ? { examined_by: 'Name the person who examined the original.' } : {}),
+    });
+    if (!values) return;
+    try {
+      const r = await authed(
+        `/api/aria/vetting/case/${encodeURIComponent(caseId)}/documents/${encodeURIComponent(documentId)}/sighting`,
+        { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(values) });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        Toast.show(`Not recorded: ${escHtml((body.detail && body.detail.message) || r.status)}`, 'danger', 8000);
+        return;
+      }
+      Toast.show('Sighting recorded', 'success');
+      await loadDetail(caseId, true);
+    } catch (e) {
+      Toast.show('Not recorded — the service was unreachable.', 'danger', 8000);
+    }
+  }
+
+  // R-F3211 — a requirement this particular screening needs.
+  async function addRequirement(caseId) {
+    const values = await Modal.form({
+      title: 'Add a document requirement',
+      message: 'Applies to this case only. The rule pack is never modified — its hash is pinned in the case manifest.',
+      icon: 'bi-list-check', okLabel: 'Add',
+      fields: [
+        { name: 'label', label: 'What is needed?', type: 'text', required: true, autofocus: true,
+          placeholder: 'Airside pass application' },
+        { name: 'accepted', label: 'Which document type satisfies it?', type: 'select', required: true,
+          options: docTypeOptions('OTHER'),
+          help: 'Use OTHER if nothing in the list fits — the requirement is still counted and chased.' },
+        { name: 'min_count', label: 'How many?', type: 'number', value: '1' },
+        { name: 'basis', label: 'Why is it needed?', type: 'select', required: true,
+          options: [
+            { value: 'CLIENT_CONTRACT', label: 'The customer asks for it' },
+            { value: 'HOUSE_PRACTICE', label: 'Our own screening practice' },
+            { value: 'STATUTORY', label: 'Required by law' },
+            { value: 'STANDARD', label: 'Required by the screening standard' },
+          ],
+          help: 'An auditor gets a different answer for a clause of the standard than for something we added ourselves.' },
+        { name: 'reference', label: 'Reference (optional)', type: 'text',
+          placeholder: 'Contract schedule 3, or a clause number' },
+        { name: 'stage', label: 'Which stage?', type: 'select', value: 'APPLICATION',
+          options: [
+            { value: 'APPLICATION', label: 'Application' },
+            { value: 'IDENTITY', label: 'Identity & right to work' },
+            { value: 'INTERVIEW', label: 'Interview' },
+            { value: 'CRIMINALITY', label: 'Criminality & conduct' },
+          ] },
+        { name: 'note', label: 'Note (optional)', type: 'textarea', rows: 2 },
+      ],
+    });
+    if (!values) return;
+    try {
+      const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/requirements`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: values.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 60),
+          label: values.label, accepted: [values.accepted],
+          min_count: Number(values.min_count) || 1, reference: values.reference,
+          basis: values.basis, stage: values.stage, note: values.note, mandatory: true,
+        }),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        Toast.show(`Not added: ${escHtml((body.detail && body.detail.code) || r.status)}`, 'danger', 8000);
+        return;
+      }
+      Toast.show('Requirement added', 'success');
+      await loadDetail(caseId, true);
+    } catch (e) {
+      Toast.show('Not added — the service was unreachable.', 'danger', 8000);
+    }
+  }
+
+  async function waiveRequirement(caseId, key, label) {
+    const values = await Modal.form({
+      title: 'Stop pursuing this requirement',
+      message: `${label}. This is recorded against your name and stays on the file — the requirement will show as WAIVED, never as satisfied.`,
+      icon: 'bi-slash-circle', okLabel: 'Record waiver',
+      fields: [
+        { name: 'waived_by', label: 'Your full name', type: 'text', required: true, autofocus: true },
+        { name: 'reason', label: 'Why is it not being pursued?', type: 'textarea', rows: 3, required: true,
+          help: 'An auditor asking why a required document is absent reads this.' },
+      ],
+    });
+    if (!values) return;
+    try {
+      const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/requirements/waive`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, waived_by: values.waived_by, reason: values.reason }),
+      });
+      if (!r.ok) { Toast.show('Waiver not recorded.', 'danger', 8000); return; }
+      Toast.show('Waiver recorded', 'success');
+      await loadDetail(caseId, true);
+    } catch (e) { Toast.show('Waiver not recorded — service unreachable.', 'danger', 8000); }
+  }
+
+  async function simpleDelete(caseId, path, okMessage) {
+    try {
+      const r = await authed(path, { method: 'DELETE' });
+      if (!r.ok) { Toast.show(`Not done (HTTP ${r.status}).`, 'danger', 8000); return; }
+      Toast.show(okMessage, 'success');
+      await loadDetail(caseId, true);
+    } catch (e) { Toast.show('Not done — the service was unreachable.', 'danger', 8000); }
+  }
+
+  // R-F3212 — 7.3.4 asks for an interview BEFORE any offer, which is a claim
+  // about a date. A boolean cannot evidence one.
+  async function recordInterview(caseId) {
+    let current = {};
+    try {
+      const r = await authed('/api/aria/vetting/case/' + encodeURIComponent(caseId));
+      if (r.ok) current = (await r.json()).inputs || {};
+    } catch (e) { /* the form still works empty */ }
+    const values = await Modal.form({
+      title: 'Record the screening interview',
+      message: 'BS 7858 7.3.4 — the interview happens before any offer of employment.',
+      icon: 'bi-mic', okLabel: 'Record',
+      fields: [
+        { name: 'interview_date', label: 'Date held', type: 'date', required: true, autofocus: true,
+          value: current.interview_date || '' },
+        { name: 'interviewed_by', label: 'Who conducted it?', type: 'text', required: true,
+          value: current.interviewed_by || '' },
+      ],
+    });
+    if (!values) return;
+    try {
+      const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inputs: Object.assign({}, current, {
+          interview_done: true, interview_date: values.interview_date,
+          interviewed_by: values.interviewed_by }) }),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        Toast.show(`Not recorded: ${escHtml((body.detail && body.detail.code) || r.status)}`, 'danger', 8000);
+        return;
+      }
+      Toast.show('Interview recorded', 'success');
+      await loadDetail(caseId, true);
+    } catch (e) { Toast.show('Not recorded — service unreachable.', 'danger', 8000); }
+  }
+
+  // R-F3157/R-F3170 — record the employment decision (UK GDPR Art. 22).
+  // The dialog puts the CURRENT assessment in front of the officer as
+  // read-only context, and enforces the adverse-decision requirements inline —
+  // the same rules the server enforces, so nobody is bounced by a rule they
+  // could not see. Nothing here pre-fills a decision from the engine verdict.
+  async function decide(caseId) {
+    let engine = (DETAIL.get(caseId) || {}).assessment || null;
+    if (!engine) {
+      try {
+        const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/assess`, { method: 'POST' });
+        if (r.ok) engine = await r.json();
+      } catch (e) { /* handled below — we simply decide without the context */ }
+    }
     const counts = (engine && engine.counts) || {};
     const blockers = Number(counts.blockers || 0);
     const statusText = engine
@@ -540,8 +1062,7 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
     const values = await Modal.form({
       title: 'Record employment decision',
       message: `Case ${caseId}. The decision is recorded against your name — ARIA never decides.`,
-      icon: 'bi-person-check-fill',
-      okLabel: 'Record decision',
+      icon: 'bi-person-check-fill', okLabel: 'Record decision',
       fields: [
         { name: 'engine', label: 'Current assessment', type: 'static',
           html: `<strong>${statusText}</strong>${blockers > 0
@@ -566,7 +1087,6 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
         { name: 'conditions', label: 'Conditions', type: 'text',
           help: 'Comma-separated. Required when approving with conditions.' },
       ],
-      // The same rules the server applies, checked before the round-trip.
       validate: (v) => {
         const errs = {};
         const adverse = v.decision === 'REJECTED';
@@ -590,13 +1110,10 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
 
     try {
       const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/decision`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          decision: values.decision,
-          decided_by: values.decided_by,
-          reason: values.reason,
-          assessed_by: values.assessed_by,
+          decision: values.decision, decided_by: values.decided_by,
+          reason: values.reason, assessed_by: values.assessed_by,
           blocker_override_reason: values.blocker_override_reason,
           conditions: values.conditions
             ? values.conditions.split(',').map((c) => c.trim()).filter(Boolean) : [],
@@ -604,13 +1121,12 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        Toast.show(`Decision not recorded: ${escHtml(body?.detail?.message || body?.detail || r.status)}`, 'danger', 8000);
+        Toast.show(`Decision not recorded: ${escHtml((body.detail && body.detail.message) || body.detail || r.status)}`, 'danger', 8000);
         return;
       }
       Toast.show(`${body.decision} recorded by ${escHtml(body.decided_by)}`, 'success');
       Modal.info({
-        title: 'Decision recorded',
-        message: `Case ${caseId}`,
+        title: 'Decision recorded', message: `Case ${caseId}`,
         tone: 'success', icon: 'bi-check-circle-fill',
         bodyHtml:
           `<div class="sc-form-static"><strong>${escHtml(body.decision)}</strong> by ${escHtml(body.decided_by)}<br>`
@@ -621,17 +1137,15 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
           + '</div>',
       });
       await loadCases();
+      await loadDetail(caseId, true);
     } catch (e) {
       Toast.show('Decision not recorded — the service was unreachable.', 'danger', 8000);
     }
   }
 
-  // ── R-F3186: share an upload link ────────────────────────────────────────
-  //
-  // Minted and delivered in ONE call, because the plaintext token exists for
-  // exactly one moment — there is no endpoint that can show it again, by
-  // design. The result dialog is therefore the only chance to copy it, and it
-  // says so plainly rather than letting someone close it and lose the link.
+  // R-F3186/R-F3206 — mint and deliver a scoped upload link in ONE call. The
+  // plaintext token exists for exactly one moment; there is no endpoint that
+  // can show it again, by design, so the result dialog says so plainly.
   async function shareLink(caseId) {
     let caseData = null;
     try {
@@ -639,34 +1153,22 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
       if (r.ok) caseData = await r.json();
     } catch (e) { /* the dialog still works without the period list */ }
 
-    // R-F3206 - the applicant already nominated a referee on the application
-    // form; the officer should not re-key it. Carry the nomination alongside
-    // each period so selecting one fills the recipient.
     const refByEntry = {};
     const entries = ((caseData && caseData.career) || []).map(function (e) {
       const nomName = (e.referee_name || '').trim();
       const nomTo = (e.referee_email || '').trim() || (e.referee_phone || '').trim();
-      refByEntry[e.entry_id] = { name: nomName, to: nomTo, title: (e.referee_title || '').trim() };
-      const base = (e.organisation || e.entry_type) + ' (' + e.start + ' \u2192 ' + (e.end || 'present') + ')';
-      // Say which periods have nobody nominated, so the officer sees it BEFORE
-      // choosing rather than after, when the recipient box is blank.
+      refByEntry[e.entry_id] = { name: nomName, to: nomTo };
+      const base = (e.organisation || e.entry_type) + ' (' + e.start + ' → ' + (e.end || 'present') + ')';
       const tag = nomName
-        ? ' \u2014 ' + nomName + (nomTo ? '' : ' (no contact on file)')
-        : ' \u2014 no referee nominated';
+        ? ' — ' + nomName + (nomTo ? '' : ' (no contact on file)')
+        : ' — no referee nominated';
       return { value: e.entry_id, label: base + tag };
     });
 
-    // R-F3206 - auto-fill the recipient from the nominated referee.
-    //
-    // Scoped to THIS page on purpose. Modal.form (public/js/app.js) has no
-    // change hook, and adding one would touch a component every page's dialogs
-    // use, on a tier with no CI. The rendered fields carry stable `name`
-    // attributes, so the wiring can attach to them from here and the shared
-    // component is untouched.
-    //
-    // NEVER clobbers typing: it writes only when the box is empty or still holds
-    // the value this wiring last put there. An officer who overtypes for a gap
-    // referee keeps what they typed even if they change period afterwards.
+    // Scoped to THIS page: Modal.form has no change hook, and adding one would
+    // touch a component every page's dialogs use, on a tier with no CI. NEVER
+    // clobbers typing — it writes only when the box is empty or still holds
+    // what this wiring last put there.
     const _wireRefereeAutofill = function () {
       const sel = document.querySelector('select[name="entry_id"]');
       const nameEl = document.querySelector('input[name="referee_name"]');
@@ -678,12 +1180,8 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
         if (kindEl && kindEl.value !== 'REFEREE') return;
         const nom = refByEntry[sel.value];
         if (!nom) return;
-        if (!nameEl.value || nameEl.value === auto.name) {
-          nameEl.value = nom.name; auto.name = nom.name;
-        }
-        if (!toEl.value || toEl.value === auto.to) {
-          toEl.value = nom.to; auto.to = nom.to;
-        }
+        if (!nameEl.value || nameEl.value === auto.name) { nameEl.value = nom.name; auto.name = nom.name; }
+        if (!toEl.value || toEl.value === auto.to) { toEl.value = nom.to; auto.to = nom.to; }
       };
       sel.addEventListener('change', apply);
       if (kindEl) kindEl.addEventListener('change', apply);
@@ -693,21 +1191,20 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
 
     const _formPromise = Modal.form({
       title: 'Share a secure upload link',
-      message: 'Case ' + caseId + '. The link is shown once \u2014 copy or send it now.',
-      icon: 'bi-qr-code',
-      okLabel: 'Create and share',
+      message: 'Case ' + caseId + '. The link is shown once — copy or send it now.',
+      icon: 'bi-qr-code', okLabel: 'Create and share',
       fields: [
         { name: 'kind', label: 'Who is this for?', type: 'select', required: true, autofocus: true,
           options: [
-            { value: 'APPLICANT', label: 'The person being vetted \u2014 upload their own documents' },
-            { value: 'REFEREE', label: 'A referee or previous employer \u2014 confirm one period' },
+            { value: 'APPLICANT', label: 'The person being vetted — upload their own documents' },
+            { value: 'REFEREE', label: 'A referee or previous employer — confirm one period' },
           ],
           help: 'A referee link reveals only the one engagement they are confirming.' },
         { name: 'entry_id', label: 'Which period? (referee links only)', type: 'select',
-          options: [{ value: '', label: '\u2014' }].concat(entries),
+          options: [{ value: '', label: '—' }].concat(entries),
           help: 'Required for a referee link. Nothing else on the file is shared with them.' },
         { name: 'referee_name', label: 'Recipient name', type: 'text',
-          help: 'Auto-filled from the referee the applicant nominated for the selected period. Overtype it for a gap referee, or where none was nominated.' },
+          help: 'Auto-filled from the referee the applicant nominated for the selected period.' },
         { name: 'channel', label: 'How to send', type: 'select', required: true,
           options: [
             { value: 'link', label: 'Just give me the link and QR code' },
@@ -722,22 +1219,12 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
       ],
       validate: function (v) {
         const errs = {};
-        if (v.kind === 'REFEREE' && !v.entry_id) {
-          errs.entry_id = 'A referee link must name the period it covers.';
-        }
-        if (v.channel !== 'link' && !v.to) {
-          errs.to = 'Enter where to send it, or choose "just give me the link".';
-        }
-        if (v.channel === 'email' && v.to && v.to.indexOf('@') === -1) {
-          errs.to = 'That does not look like an email address.';
-        }
+        if (v.kind === 'REFEREE' && !v.entry_id) errs.entry_id = 'A referee link must name the period it covers.';
+        if (v.channel !== 'link' && !v.to) errs.to = 'Enter where to send it, or choose "just give me the link".';
+        if (v.channel === 'email' && v.to && v.to.indexOf('@') === -1) errs.to = 'That does not look like an email address.';
         return errs;
       },
     });
-    // Attach once the dialog's DOM exists. Modal.form renders synchronously
-    // before it awaits, so the first attempt normally succeeds; the timeout is
-    // the fallback if that ever changes. Failure is silent and harmless — the
-    // officer simply types the recipient as they did before.
     if (!_wireRefereeAutofill()) setTimeout(_wireRefereeAutofill, 0);
     const values = await _formPromise;
     if (!values) return;
@@ -745,8 +1232,7 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
     let body;
     try {
       const r = await authed('/api/vetting/share', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           case_id: caseId, kind: values.kind, entry_id: values.entry_id,
           referee_name: values.referee_name, channel: values.channel,
@@ -760,21 +1246,20 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
         return;
       }
     } catch (e) {
-      Toast.show('Link not created \u2014 the service was unreachable.', 'danger', 9000);
+      Toast.show('Link not created — the service was unreachable.', 'danger', 9000);
       return;
     }
 
     const d = body.delivery || {};
     const deliveryLine = !d.attempted
-      ? '<span class="sc-badge sc-badge-muted">not sent \u2014 copy or scan below</span>'
+      ? '<span class="sc-badge sc-badge-muted">not sent — copy or scan below</span>'
       : d.sent
         ? '<span class="sc-badge sc-badge-green">sent by ' + escHtml(d.channel) + '</span>'
         : '<span class="sc-badge sc-badge-orange">not sent</span><div class="vt-ref" style="margin-top:6px">' + escHtml(d.detail || 'delivery failed') + '</div>';
-
     const qrSrc = '/api/vetting/qr?url=' + encodeURIComponent(body.link);
     Modal.info({
       title: 'Secure link created',
-      message: 'This link is shown once. Copy it now \u2014 it cannot be displayed again.',
+      message: 'This link is shown once. Copy it now — it cannot be displayed again.',
       tone: 'vls', icon: 'bi-qr-code',
       bodyHtml:
         '<div style="text-align:center;margin-bottom:16px">' +
@@ -784,49 +1269,36 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
         '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
         '<button class="sc-btn sc-btn-outline sc-btn-sm" id="vt-copy" type="button">Copy link</button>' +
         '<a class="sc-btn sc-btn-outline sc-btn-sm" href="' + escHtml(qrSrc) + '" download="vetting-qr-' + escHtml(caseId) + '.svg">Download QR</a>' +
-        '</div>' +
-        '<div style="margin-top:14px">' + deliveryLine + '</div>' +
+        '</div><div style="margin-top:14px">' + deliveryLine + '</div>' +
         '<p class="vt-ref" style="margin-top:12px">Expires ' + escHtml(String(body.expires_at || '').slice(0, 10)) +
-        '. Anyone holding this link can upload to this case \u2014 do not post it in a shared channel.</p>',
+        '. Anyone holding this link can upload to this case — do not post it in a shared channel.</p>',
     });
-
     setTimeout(function () {
       const btn = document.getElementById('vt-copy');
       if (!btn) return;
       btn.onclick = async function () {
-        try {
-          await navigator.clipboard.writeText(body.link);
-          btn.textContent = 'Copied';
-        } catch (e) {
-          btn.textContent = 'Select the link above and copy';
-        }
+        try { await navigator.clipboard.writeText(body.link); btn.textContent = 'Copied'; }
+        catch (e) { btn.textContent = 'Select the link above and copy'; }
       };
     }, 50);
-    await loadCases();
+    await loadDetail(caseId, true);
   }
 
-  // Art. 15 export. Opened as a download rather than rendered inline: it is a
-  // record to be handed to a person, and inlining it would invite screenshots
-  // of criminal-offence data into whatever chat the operator is in.
+  // Art. 15 export. Downloaded rather than rendered inline: it is a record to
+  // be handed to a person, and inlining it would invite screenshots of
+  // criminal-offence data into whatever chat the operator is in.
   async function subjectAccess(caseId) {
-    const note = document.querySelector(`[data-status-for="${CSS.escape(caseId)}"]`);
     try {
       const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/subject-access`);
-      if (!r.ok) {
-        if (note) note.innerHTML = `<span class="vt-error" style="display:block;margin-top:8px">Export failed (HTTP ${r.status}).</span>`;
-        return;
-      }
-      const blob = new Blob([JSON.stringify(await r.json(), null, 2)],
-                            { type: 'application/json' });
+      if (!r.ok) { Toast.show(`Export failed (HTTP ${r.status}).`, 'danger', 8000); return; }
+      const blob = new Blob([JSON.stringify(await r.json(), null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = `subject-access-${caseId}.json`;
-      a.click();
+      a.href = url; a.download = `subject-access-${caseId}.json`; a.click();
       URL.revokeObjectURL(url);
-      if (note) note.innerHTML = '<span class="vt-card-meta">Subject-access export downloaded.</span>';
+      Toast.show('Subject-access export downloaded', 'success');
     } catch (e) {
-      if (note) note.innerHTML = '<span class="vt-error" style="display:block;margin-top:8px">Export failed — service unreachable.</span>';
+      Toast.show('Export failed — the service was unreachable.', 'danger', 8000);
     }
   }
 
@@ -840,8 +1312,7 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
       if (!el) return;
       el.className = overdue ? 'vt-pack vt-pack-warn' : 'vt-pack';
       el.style.display = '';
-      el.innerHTML =
-        `<i class="bi bi-clock-history" aria-hidden="true"></i><div>`
+      el.innerHTML = `<i class="bi bi-clock-history" aria-hidden="true"></i><div>`
         + (overdue
           ? `<strong>${overdue} case(s) past their retention period</strong> — dispose to satisfy the storage-limitation duty (Art. 5(1)(e)).`
           : `No case is past its retention period.`)
@@ -849,31 +1320,8 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
     } catch (e) { /* retention is advisory here; never block the page */ }
   }
 
-  $('cases').addEventListener('click', (ev) => {
-    const assessBtn = ev.target.closest('[data-assess]');
-    if (assessBtn) { assess(assessBtn.getAttribute('data-assess')); return; }
-    const decideBtn = ev.target.closest('[data-decide]');
-    if (decideBtn) { decide(decideBtn.getAttribute('data-decide')); return; }
-    const shareBtn = ev.target.closest('[data-share]');
-    if (shareBtn) { shareLink(shareBtn.getAttribute('data-share')); return; }
-    const sarBtn = ev.target.closest('[data-sar]');
-    if (sarBtn) { subjectAccess(sarBtn.getAttribute('data-sar')); }
-  });
-  // ── R-F3170: guided case creation ────────────────────────────────────────
-  //
-  // The reported symptom was "does not allow you to create case". Root cause:
-  // the pack <select> was populated by loadPacks(), which itself failed on the
-  // R-F3167 400 — so the form submitted pack_id="" and the server correctly
-  // refused a case with no PRODUCTION pack. The button looked dead because the
-  // failure was reported through a window.alert the user had to dismiss.
-  //
-  // Now: packs are checked BEFORE the dialog opens, dates are validated inline
-  // against each other, and a successful create immediately runs the first
-  // assessment so the officer sees what is outstanding without a second click.
   async function createCase() {
-    if (!PACKS.length) {
-      await loadPacks();
-    }
+    if (!PACKS.length) await loadPacks();
     if (!PACKS.length) {
       Modal.info({
         title: 'No rule pack available',
@@ -885,13 +1333,11 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
       });
       return;
     }
-
     const today = new Date().toISOString().slice(0, 10);
     const values = await Modal.form({
       title: 'New vetting case',
-      message: 'ARIA computes every gap, clock and threshold from the pinned rule pack.',
-      icon: 'bi-folder-plus',
-      okLabel: 'Create and assess',
+      message: 'ARIA computes every gap, clock, document requirement and threshold from the pinned rule pack.',
+      icon: 'bi-folder-plus', okLabel: 'Create and assess',
       fields: [
         { name: 'case_id', label: 'Case reference', type: 'text', required: true,
           autofocus: true, placeholder: 'VET-2026-001',
@@ -901,8 +1347,7 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
         { name: 'date_of_birth', label: 'Date of birth', type: 'date', required: true,
           help: 'Used to floor the screening period at the 16th birthday.' },
         { name: 'employment_start', label: 'Employment start date', type: 'date', required: true,
-          value: today,
-          help: 'The screening period is counted back from this date.' },
+          value: today, help: 'The screening period is counted back from this date.' },
         { name: 'pack_id', label: 'Rule pack', type: 'select', required: true,
           value: PACKS[0] && PACKS[0].pack_id,
           options: PACKS.map((p) => ({
@@ -911,8 +1356,6 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
           })),
           help: 'A framework-only pack organises evidence but never issues decision-readiness.' },
       ],
-      // Catch the mistakes a screening officer actually makes, before the
-      // round-trip, with the message on the offending field.
       validate: (v) => {
         const errs = {};
         const dob = new Date(v.date_of_birth);
@@ -935,37 +1378,94 @@ Sidebar.init('vetting');   // R-F3168 — the nav never rendered without this
 
     try {
       const r = await authed('/api/aria/vetting/cases', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(values),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const msg = body?.detail?.message || body?.detail?.errors?.join('; ')
-                    || body?.detail || `HTTP ${r.status}`;
+        const msg = (body.detail && (body.detail.message || (body.detail.errors || []).join('; ')))
+                    || body.detail || `HTTP ${r.status}`;
         Toast.show(`Case not created: ${escHtml(msg)}`, 'danger', 9000);
         return;
       }
       Toast.show(`Case ${escHtml(values.case_id)} created`, 'success');
       await loadCases();
-      // Run the first assessment straight away: the officer's next question is
-      // always "what is outstanding?", so answering it unprompted removes a
-      // step and starts the file with a real status instead of "not assessed".
-      await assess(values.case_id);
-      await loadCases();
+      // Open it straight away: the officer's next question is always "what is
+      // outstanding?", and the expanded file answers it without a second click.
+      const card = document.querySelector(`[data-case="${CSS.escape(values.case_id)}"]`);
+      if (card) { card.open = true; await loadDetail(values.case_id, true); }
     } catch (e) {
       Toast.show('Case not created — the vetting service was unreachable.', 'danger', 9000);
     }
   }
 
+  // ── event wiring ───────────────────────────────────────────────────────
+  // Native <details> with a delegated toggle listener: keyboard-accessible,
+  // survives a re-render without state bookkeeping, and loads a file's detail
+  // only when someone actually opens it. A queue of twenty cases must not
+  // fetch twenty assessments to draw itself.
+  $('cases').addEventListener('toggle', (ev) => {
+    const card = ev.target.closest('.vt-case');
+    if (card && card.open) loadDetail(card.getAttribute('data-case'));
+  }, true);
+
+  $('cases').addEventListener('change', (ev) => {
+    const input = ev.target.closest('[data-upload-req]');
+    if (input && input.files && input.files[0]) {
+      const file = input.files[0];
+      const caseId = input.getAttribute('data-case');
+      const type = input.getAttribute('data-type') || 'OTHER';
+      input.value = '';
+      upload(caseId, file, type);
+    }
+  });
+
+  $('cases').addEventListener('click', (ev) => {
+    const hit = (attr) => ev.target.closest(`[data-${attr}]`);
+    let el;
+    if ((el = hit('assess'))) {
+      Toast.show('Re-assessing…', 'info', 1500);
+      loadDetail(el.getAttribute('data-assess'), true); return;
+    }
+    if ((el = hit('view'))) {
+      viewDocument(el.getAttribute('data-case'), el.getAttribute('data-view')); return;
+    }
+    if ((el = hit('sighting'))) {
+      setSighting(el.getAttribute('data-case'), el.getAttribute('data-sighting')); return;
+    }
+    if ((el = hit('addreq'))) { addRequirement(el.getAttribute('data-addreq')); return; }
+    if ((el = hit('waive'))) {
+      waiveRequirement(el.getAttribute('data-case'), el.getAttribute('data-waive'),
+                       el.getAttribute('data-label')); return;
+    }
+    if ((el = hit('unwaive'))) {
+      const c = el.getAttribute('data-case');
+      simpleDelete(c, `/api/aria/vetting/case/${encodeURIComponent(c)}/requirements/waive/${encodeURIComponent(el.getAttribute('data-unwaive'))}`,
+                   'Waiver withdrawn'); return;
+    }
+    if ((el = hit('delreq'))) {
+      const c = el.getAttribute('data-case');
+      simpleDelete(c, `/api/aria/vetting/case/${encodeURIComponent(c)}/requirements/${encodeURIComponent(el.getAttribute('data-delreq'))}`,
+                   'Requirement removed'); return;
+    }
+    if ((el = hit('interview'))) { recordInterview(el.getAttribute('data-interview')); return; }
+    if ((el = hit('decide'))) { decide(el.getAttribute('data-decide')); return; }
+    if ((el = hit('share'))) { shareLink(el.getAttribute('data-share')); return; }
+    if ((el = hit('sar'))) { subjectAccess(el.getAttribute('data-sar')); }
+  });
+
   $('new-case-btn').addEventListener('click', createCase);
   $('refresh-btn').addEventListener('click', async () => {
+    DETAIL.clear();
     await loadCases();
     await loadRetention();
     Toast.show('Refreshed', 'info', 2000);
   });
+  $('standard').addEventListener('toggle', function once(ev) {
+    if (ev.target.open) { loadStandard(); ev.target.removeEventListener('toggle', once); }
+  });
 
-  await loadPacks();
+  await Promise.all([loadPacks(), loadDocTypes()]);
   await loadCases();
   await loadRetention();
 })();

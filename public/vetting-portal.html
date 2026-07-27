@@ -32,6 +32,20 @@
     .pt-facts dt { color: var(--sc-muted); font-weight: 600; }
     .pt-facts dd { margin: 0; color: var(--sc-heading); font-weight: 700; text-align: right; }
 
+    /* R-F3223 — what is still needed, and what this file is. */
+    .pt-need { margin: 0 0 16px; padding: 14px 16px; border-radius: 10px;
+               background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.22); }
+    .pt-need-title { margin: 0 0 6px; font-size: 12px; font-weight: 800;
+                     text-transform: uppercase; letter-spacing: 1px; color: #1d4ed8; }
+    .pt-need ul { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--sc-heading); }
+    .pt-need li { margin-bottom: 3px; }
+    .pt-need em { color: var(--sc-muted); font-style: normal; font-size: 12px; }
+    .pt-pick { display: block; margin: 0 0 16px; }
+    .pt-pick span { display: block; font-size: 12px; font-weight: 700; text-transform: uppercase;
+                    letter-spacing: 1px; color: var(--sc-muted); margin-bottom: 6px; }
+    .pt-pick select { width: 100%; padding: 12px 14px; font-size: 15px; font-family: inherit;
+                      border-radius: 10px; border: 1px solid var(--sc-border-strong); background: #fff; }
+
     /* Big, obviously-tappable target — most people arrive here on a phone. */
     .pt-drop {
       border: 2px dashed var(--sc-border-strong); border-radius: 12px;
@@ -102,6 +116,15 @@
       + 'Please ask your contact for a new one.</p></div>';
   };
 
+  // R-F3223 — what this file IS, chosen by the person sending it.
+  //
+  // The portal used to send no type at all, so every applicant upload landed
+  // as OTHER and satisfied none of the documents that were asked for. Nothing
+  // reads a PDF or a photo here by design, so the sender's answer is the only
+  // signal there is. It is recorded as DECLARED, never as verified — an
+  // officer still has to look.
+  let declaredType = '';
+
   const upload = async (file, listEl) => {
     const row = document.createElement('li');
     row.className = 'pt-item';
@@ -116,7 +139,8 @@
       const r = await fetch(`/api/vetting-portal/${encodeURIComponent(token)}/documents`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: file.name, content_base64: btoa(bin) }),
+        body: JSON.stringify({ filename: file.name, content_base64: btoa(bin),
+                               declared_doc_type: declaredType || 'OTHER' }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -143,6 +167,10 @@
   const render = (data) => {
     const c = data.context || {};
     const isReferee = data.kind === 'REFEREE';
+    // Referee links never see this: a referee confirms one engagement and has
+    // no reason to know anything else about the person.
+    const outstanding = (!isReferee && Array.isArray(data.outstanding))
+      ? data.outstanding : [];
     const facts = isReferee
       ? [['Person', c.applicant_name], ['Organisation', c.organisation],
          ['Period', `${esc(c.period_from)} → ${esc(c.period_to)}`]]
@@ -155,6 +183,18 @@
       + facts.map(([k, v]) => '<div><dt>' + esc(k) + '</dt><dd>' + esc(v) + '</dd></div>').join('')
       + '</dl>'
       + (isReferee && c.note ? '<p class="pt-sub">' + esc(c.note) + '</p>' : '')
+      + (outstanding.length
+        ? '<div class="pt-need"><p class="pt-need-title">Still needed</p><ul>'
+          + outstanding.map((o) => '<li>' + esc(o.label)
+              + (o.still_needed > 1 ? ' <em>(' + o.still_needed + ' more)</em>' : '')
+              + '</li>').join('')
+          + '</ul></div>'
+          + '<label class="pt-pick"><span>What are you sending?</span>'
+          + '<select id="doctype"><option value="">Choose…</option>'
+          + outstanding.map((o) => '<option value="' + esc(o.doc_type) + '">'
+              + esc(o.label) + '</option>').join('')
+          + '<option value="OTHER">Something else</option></select></label>'
+        : '')
       + '<div class="pt-drop" id="drop" tabindex="0" role="button"'
       + ' aria-label="Choose files to upload">'
       + '<i class="bi bi-cloud-arrow-up"></i>'
@@ -166,6 +206,10 @@
     const drop = document.getElementById('drop');
     const picker = document.getElementById('picker');
     const list = document.getElementById('list');
+    const chooser = document.getElementById('doctype');
+    if (chooser) {
+      chooser.addEventListener('change', () => { declaredType = chooser.value; });
+    }
     const take = (files) => [...files].forEach((f) => upload(f, list));
 
     drop.addEventListener('click', () => picker.click());
