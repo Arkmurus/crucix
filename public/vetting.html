@@ -22,6 +22,17 @@
       background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff;
       font-size: 13px; font-weight: 600; cursor: pointer;
     }
+    /* R-F3269 — the DD library's search field, declaration for declaration.
+       Two list surfaces in one product should not have two dialects of the
+       same control; a regression test compares these rules against
+       .dd-search so they cannot drift apart quietly. */
+    .vt-search {
+      flex: 1; min-width: 240px; padding: 10px 14px; border-radius: 9px;
+      background: #fff; border: 1px solid var(--sc-border-strong);
+      color: var(--sc-heading); font-size: 14px; font-family: inherit; outline: none;
+    }
+    .vt-search:focus { border-color: var(--sc-prime); box-shadow: 0 0 0 3px rgba(124,58,237,0.15); }
+    .vt-search-note { font-size: 12px; color: var(--sc-muted); margin: -8px 0 14px; }
     .vt-btn.secondary { background: #fff; color: var(--sc-heading); border: 1px solid var(--sc-border-strong); }
     .vt-btn.sm { padding: 6px 11px; font-size: 12px; border-radius: 7px; }
     .vt-btn:disabled { opacity: .55; cursor: not-allowed; }
@@ -231,10 +242,14 @@
     <div id="retention-note" class="vt-pack" style="display:none"></div>
 
     <div class="vt-toolbar">
+      <input class="vt-search" id="case-search" type="search"
+             placeholder="Search by applicant name or case reference…"
+             aria-label="Search vetting cases by applicant name or case reference">
       <button class="vt-btn" id="new-case-btn"><i class="bi bi-plus-lg"></i> New case</button>
       <button class="vt-btn secondary" id="refresh-btn"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
     </div>
 
+    <div class="vt-search-note" id="search-note" style="display:none"></div>
     <div id="cases"><div class="vt-empty">Loading…</div></div>
 
   </div>
@@ -747,18 +762,62 @@ Sidebar.init('vetting');
     return out;
   }
 
+  // ── R-F3269: finding a named file ──────────────────────────────────────
+  //
+  // The filter narrows the LIST only. The stat strip above it answers "what
+  // needs me today?" about the whole caseload, and a search that could empty
+  // it would render "Blocked 0" — a statement about the text box that reads as
+  // a statement about the queue. renderQueue is therefore always handed CASES.
+  //
+  // Matching covers the name and the case reference because both are printed
+  // on the face of every card, and the reference is how a file gets referred
+  // to out loud. Pack id is deliberately not matched: every case shares one,
+  // so it would return the whole queue and look like a bug.
+  function applyCaseSearch() {
+    const q = (($('case-search') || {}).value || '').trim().toLowerCase();
+    const filtered = q
+      ? CASES.filter((c) => (c.applicant_name || '').toLowerCase().includes(q)
+                         || (c.case_id || '').toLowerCase().includes(q))
+      : CASES;
+
+    const note = $('search-note');
+    if (note) {
+      // While a filter is active the page states the size of what it is
+      // hiding. A screening list that silently drops files is the worst bug
+      // this page can carry.
+      note.style.display = q ? '' : 'none';
+      note.textContent = q
+        ? `Showing ${filtered.length} of ${CASES.length} case(s) matching “${q}”.`
+        : '';
+    }
+
+    if (!filtered.length) {
+      $('cases').innerHTML = q
+        ? `<div class="vt-empty">No case matches “${esc(q)}”. Try part of the applicant's
+             name or the case reference, or clear the search.</div>`
+        : '<div class="vt-empty">No vetting cases yet. Create one to begin.</div>';
+      return;
+    }
+    $('cases').innerHTML = renderSections(filtered);
+  }
+
+  function renderCases() {
+    renderQueue(CASES);          // always the full caseload — never filtered
+    applyCaseSearch();
+  }
+
   async function loadCases() {
     try {
-      const r = await authed('/api/aria/vetting/cases');
+      // limit=500 is the endpoint's ceiling. The default is 50, and filtering
+      // client-side over a 50-case window would answer "no case matches" for a
+      // case that exists — the one answer a screening queue must never give.
+      const r = await authed('/api/aria/vetting/cases?limit=500');
       if (!r.ok) {
         $('cases').innerHTML = `<div class="vt-error">Could not load cases (HTTP ${r.status}).</div>`;
         return;
       }
       CASES = (await r.json()).cases || [];
-      renderQueue(CASES);
-      $('cases').innerHTML = CASES.length
-        ? renderSections(CASES)
-        : '<div class="vt-empty">No vetting cases yet. Create one to begin.</div>';
+      renderCases();
     } catch (e) {
       $('cases').innerHTML = '<div class="vt-error">Could not reach the vetting service.</div>';
     }
@@ -1488,6 +1547,11 @@ Sidebar.init('vetting');
     if ((el = hit('share'))) { shareLink(el.getAttribute('data-share')); return; }
     if ((el = hit('sar'))) { subjectAccess(el.getAttribute('data-sar')); }
   });
+
+  // R-F3269 — live filtering on input, as on the DD library. Re-rendering the
+  // list collapses any open card, which is why the filter is on the list only:
+  // the stat strip above it never moves while typing.
+  document.getElementById('case-search').addEventListener('input', applyCaseSearch);
 
   $('new-case-btn').addEventListener('click', createCase);
   $('refresh-btn').addEventListener('click', async () => {

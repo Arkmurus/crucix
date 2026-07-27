@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3237,
+  "next_available": 3270,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -26245,9 +26245,10 @@
       "title": "sanctions screen fail-closed on any screen error",
       "claimed_at": "2026-07-27T07:28:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "30cd35ca",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:34:00Z"
     },
     {
       "r_number": "R-F3218",
@@ -26290,9 +26291,10 @@
       "title": "DD report wording, dead BLUF block, country-risk partial",
       "claimed_at": "2026-07-27T07:28:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "30cd35ca",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:34:00Z"
     },
     {
       "r_number": "R-F3223",
@@ -26336,9 +26338,10 @@
       "title": "unfork distinctive-token definitions",
       "claimed_at": "2026-07-27T08:19:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "30cd35ca",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:34:01Z"
     },
     {
       "r_number": "R-F3228",
@@ -26354,18 +26357,20 @@
       "title": "markdown export sanctions CLEAN fallback",
       "claimed_at": "2026-07-27T08:19:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "30cd35ca",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:34:01Z"
     },
     {
       "r_number": "R-F3230",
       "title": "evidence_brief fabricated sanctions CLEAN to verdict LLM (renumbered from R-F3226 collision)",
       "claimed_at": "2026-07-27T08:28:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "30cd35ca",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:34:01Z"
     },
     {
       "r_number": "R-F3231",
@@ -26423,6 +26428,329 @@
       "commit_sha": "f67ad994",
       "notes": null,
       "shipped_at": "2026-07-27T09:05:35Z"
+    },
+    {
+      "r_number": "R-F3237",
+      "title": "correct stale source health wiring claim",
+      "claimed_at": "2026-07-27T09:22:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "47a51480d079e94d3696c87881b0b4448eac6a71",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:28:43Z"
+    },
+    {
+      "r_number": "R-F3238",
+      "title": "watchlist guards keyed on provenance not name shape (renumbered from R-F3237 collision)",
+      "claimed_at": "2026-07-27T09:27:57Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8d3d413f",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:54:46Z"
+    },
+    {
+      "r_number": "R-F3239",
+      "title": "watchlist guards keyed on provenance not name shape",
+      "claimed_at": "2026-07-27T09:28:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8d3d413f",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:54:46Z"
+    },
+    {
+      "r_number": "R-F3240",
+      "title": "capability test for country-risk overlay disclosure",
+      "claimed_at": "2026-07-27T09:28:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2afac65b",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:31:42Z"
+    },
+    {
+      "r_number": "R-F3241",
+      "title": "split sanctions vs export-control halves in blocker and BLUF",
+      "claimed_at": "2026-07-27T09:28:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2afac65b",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:31:42Z"
+    },
+    {
+      "r_number": "R-F3242",
+      "title": "sanctions/export half split + country-risk test (post-collision)",
+      "claimed_at": "2026-07-27T09:29:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2afac65b",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:31:43Z"
+    },
+    {
+      "r_number": "R-F3243",
+      "title": "sanctions/export half split + country-risk test (post-collision)",
+      "claimed_at": "2026-07-27T09:29:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cb061cfe",
+      "notes": "[R-F3248] COLLISION: this number was used by TWO commits. cb061cfe (10:32:19) shipped the work this entry titles (sanctions/export half split + country-risk test) and claimed it first; d98c2063 (10:34:02) reused the same label for an unrelated weekly-report executive-summary fix that was never reserved. commit_sha was stamped d98c2063 -- the wrong agent's work -- and is corrected here to cb061cfe, which is also what scan_shipped_r_numbers resolves by subject. Git history cannot be rewritten, so d98c2063's subject keeps the wrong label permanently; this note is the record. Root cause fixed by R-F3248: reserve() now refuses a number already present in git history.",
+      "shipped_at": "2026-07-27T09:34:17Z"
+    },
+    {
+      "r_number": "R-F3244",
+      "title": "sanctions/export half split + country-risk test (post-collision)",
+      "claimed_at": "2026-07-27T09:29:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8d3d413f",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:54:46Z"
+    },
+    {
+      "r_number": "R-F3245",
+      "title": "harden sidebar order guard: contiguity, first-item, uniqueness",
+      "claimed_at": "2026-07-27T09:38:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8d3d413f",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:54:47Z"
+    },
+    {
+      "r_number": "R-F3246",
+      "title": "harden sidebar order guard: contiguity, first-item, uniqueness",
+      "claimed_at": "2026-07-27T09:39:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8d3d413f",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:54:47Z"
+    },
+    {
+      "r_number": "R-F3247",
+      "title": "build_rev banner must not claim reserved-but-unshipped R-numbers",
+      "claimed_at": "2026-07-27T09:42:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8d3d413f",
+      "notes": null,
+      "shipped_at": "2026-07-27T09:54:47Z"
+    },
+    {
+      "r_number": "R-F3248",
+      "title": "reserve must refuse a number already present in git history",
+      "claimed_at": "2026-07-27T09:55:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bf499afb",
+      "notes": null,
+      "shipped_at": "2026-07-27T10:17:17Z"
+    },
+    {
+      "r_number": "R-F3249",
+      "title": "vetting P0: pack hash table missed two earlier schema eras — live case unassessable",
+      "claimed_at": "2026-07-27T10:07:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cf264ef3",
+      "notes": null,
+      "shipped_at": "2026-07-27T10:09:53Z"
+    },
+    {
+      "r_number": "R-F3250",
+      "title": "vetting: BS 7858 scope statement above the queue, loaded eagerly",
+      "claimed_at": "2026-07-27T10:13:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3ce94dd8",
+      "notes": null,
+      "shipped_at": "2026-07-27T10:14:16Z"
+    },
+    {
+      "r_number": "R-F3251",
+      "title": "state_store: bounded WAL checkpoint orphans a connection thread on timeout",
+      "claimed_at": "2026-07-27T10:19:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7c32a028",
+      "notes": null,
+      "shipped_at": "2026-07-27T10:39:03Z"
+    },
+    {
+      "r_number": "R-F3252",
+      "title": "state_store: stall message must not assert a cause it did not measure",
+      "claimed_at": "2026-07-27T10:19:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7c32a028",
+      "notes": null,
+      "shipped_at": "2026-07-27T10:39:04Z"
+    },
+    {
+      "r_number": "R-F3253",
+      "title": "email: two SMTP config paths disagree, one is dark",
+      "claimed_at": "2026-07-27T10:19:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7c32a028",
+      "notes": null,
+      "shipped_at": "2026-07-27T10:39:04Z"
+    },
+    {
+      "r_number": "R-F3254",
+      "title": "source_validator health: never-measured sources bucketed as failing",
+      "claimed_at": "2026-07-27T10:26:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "adba0466",
+      "notes": null,
+      "shipped_at": "2026-07-27T10:50:55Z"
+    },
+    {
+      "r_number": "R-F3255",
+      "title": "wire source_validator registry health to Sources page, unmeasured distinct",
+      "claimed_at": "2026-07-27T10:27:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "adba0466",
+      "notes": null,
+      "shipped_at": "2026-07-27T10:50:55Z"
+    },
+    {
+      "r_number": "R-F3256",
+      "title": "vetting: uniform spacing above and below the queue tiles",
+      "claimed_at": "2026-07-27T10:50:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "27c942ce",
+      "notes": null,
+      "shipped_at": "2026-07-27T10:50:48Z"
+    },
+    {
+      "r_number": "R-F3257",
+      "title": "aria chat: welcoming, non-defence-only opening line",
+      "claimed_at": "2026-07-27T10:53:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9ea26118",
+      "notes": null,
+      "shipped_at": "2026-07-27T10:54:35Z"
+    },
+    {
+      "r_number": "R-F3258",
+      "title": "type-guard DD research boundary: non-str name/topic kills all web research",
+      "claimed_at": "2026-07-27T10:57:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3259",
+      "title": "deep_research error path must return gathered articles/facts, not discard them",
+      "claimed_at": "2026-07-27T10:57:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3260",
+      "title": "verification tagger must not fail silently while report publishes traceability",
+      "claimed_at": "2026-07-27T10:58:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3261",
+      "title": "adverse-media delivery: report must not be handed over mid-followup",
+      "claimed_at": "2026-07-27T10:58:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3262",
+      "title": "state_store: _reconnect orphans its connection when a PRAGMA raises",
+      "claimed_at": "2026-07-27T11:02:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8578316e",
+      "notes": null,
+      "shipped_at": "2026-07-27T11:04:22Z"
+    },
+    {
+      "r_number": "R-F3263",
+      "title": "state_store: expose live aiosqlite worker + stuck-reap gauge (leak measurable without a wedge)",
+      "claimed_at": "2026-07-27T11:18:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3fc18712",
+      "notes": null,
+      "shipped_at": "2026-07-27T11:56:57Z"
+    },
+    {
+      "r_number": "R-F3264",
+      "title": "sanctions staleness gate blocks the event loop with an unindexed MAX() scan",
+      "claimed_at": "2026-07-27T12:11:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "262f4f08",
+      "notes": null,
+      "shipped_at": "2026-07-27T12:15:57Z"
+    },
+    {
+      "r_number": "R-F3265",
+      "title": "vetting: real document text extraction (PDF/OCR/DOCX/email) instead of returning empty",
+      "claimed_at": "2026-07-27T12:17:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9897fa0c",
+      "notes": null,
+      "shipped_at": "2026-07-27T12:21:29Z"
+    },
+    {
+      "r_number": "R-F3266",
+      "title": "vetting: allow an operator to move a case to a newer pack version, on the record",
+      "claimed_at": "2026-07-27T12:17:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3267",
+      "title": "vetting: enlarge the stage/coverage sections for readability",
+      "claimed_at": "2026-07-27T12:17:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9897fa0c",
+      "notes": null,
+      "shipped_at": "2026-07-27T12:21:29Z"
+    },
+    {
+      "r_number": "R-F3268",
+      "title": "coerce identity.entity_name at every assignment - adverse-media path bypassed R-F3258",
+      "claimed_at": "2026-07-27T12:32:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3269",
+      "title": "vetting case search bar, DD-parity design + honest filter",
+      "claimed_at": "2026-07-27T12:36:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
