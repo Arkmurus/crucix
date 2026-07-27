@@ -308,6 +308,54 @@ class DDEvidenceStore:
             },
         }
 
+    def read_artifact(
+        self, tenant_id: str, evidence_id: str,
+    ) -> tuple[bytes, dict[str, Any]] | None:
+        """R-F3209 — the retained bytes, or None.
+
+        The store could WRITE evidence and prove its integrity but never hand
+        it back: `get()` returns metadata and an integrity verdict, and the
+        artifact sat on disk with no reader. For DD that was survivable — the
+        report is the product. For vetting it was not: a screening officer's
+        core task is to LOOK at the passport, and there was no path from a
+        stored document to their screen.
+
+        Verifies the hash on the way out. A byte that changed on disk is a
+        tamper signal, and handing it over while reporting success would
+        destroy the one property the append-only store exists to provide — so
+        this returns None and wires a failure rather than serving it.
+        """
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT record_json, artifact_retained, artifact_path "
+                "FROM dd_evidence WHERE tenant_id = ? AND evidence_id = ?",
+                (tenant_id, evidence_id),
+            ).fetchone()
+        if row is None or not row["artifact_retained"]:
+            return None
+        record = json.loads(str(row["record_json"]))
+        path = Path(str(row["artifact_path"]))
+        if not path.is_file():
+            wire_failure(
+                module="dd_evidence_store",
+                detail=(f"evidence {evidence_id} is recorded as retained but "
+                        f"its artifact is missing from disk"),
+                gap_type="data_integrity",
+                source="dd_evidence_store.read_artifact",
+            )
+            return None
+        data = path.read_bytes()
+        if _sha256(data) != record.get("content_hash"):
+            wire_failure(
+                module="dd_evidence_store",
+                detail=(f"evidence {evidence_id} failed integrity verification "
+                        f"on read — stored bytes do not match the recorded hash"),
+                gap_type="data_integrity",
+                source="dd_evidence_store.read_artifact",
+            )
+            return None
+        return data, record
+
     @staticmethod
     def _fail(record: EvidenceRecord, detail: str) -> None:
         wire_failure(

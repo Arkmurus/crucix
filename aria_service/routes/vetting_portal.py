@@ -94,6 +94,51 @@ async def portal_context_ep(token: str):
         # The period this referee was asked about is no longer on the case.
         raise _GONE from None
 
+    # ── R-F3223: tell the applicant WHAT is still needed ──────────────────
+    #
+    # The portal offered a file picker and nothing else, so every upload
+    # arrived typed as OTHER — satisfying no requirement, and leaving the
+    # applicant to guess what "your documents" meant. They then send four
+    # payslips and no proof of address, and nobody finds out until an officer
+    # opens the file.
+    #
+    # APPLICANT links only. A referee confirms one engagement and must never
+    # be shown the subject's outstanding document list — that is disclosure
+    # about a person to someone with no reason to know it, and it is exactly
+    # the scope creep the separate referee context exists to prevent.
+    outstanding: list[dict] = []
+    if invite.kind is not InviteKind.REFEREE and case.manifest is not None:
+        try:
+            from ..vetting.packs.base import registry
+            from ..vetting.requirements import RequirementState, resolve_requirements
+
+            pack = registry.get_exact(
+                pack_id=case.manifest.pack_id,
+                version=case.manifest.pack_version,
+                content_hash=case.manifest.pack_hash)
+            for item in resolve_requirements(case, pack):
+                if item.state in (RequirementState.ACCEPTED,
+                                  RequirementState.WAIVED):
+                    continue
+                if not item.requirement.mandatory:
+                    continue
+                outstanding.append({
+                    "key": item.requirement.key,
+                    "label": item.requirement.label,
+                    # The type the upload should be declared as. The applicant
+                    # chooses a plain-English label; this is what goes on the
+                    # wire, so the picker cannot offer a value the engine
+                    # would reject.
+                    "doc_type": item.requirement.accepted[0].value,
+                    "still_needed": max(0, item.needed - item.held),
+                })
+        except Exception as exc:  # noqa: BLE001
+            # Advisory only. A pack this process does not carry, or any other
+            # failure here, must not turn a working upload link into a dead
+            # one — the applicant can still send files, they simply do not get
+            # the checklist.
+            _log.debug("portal: could not resolve outstanding documents: %s", exc)
+
     store = get_case_store()
     await asyncio.to_thread(store.record_invite_use, invite.token_hash)
     wire_success(module=_MODULE, summary=f"portal opened ({invite.kind.value})")
@@ -101,6 +146,7 @@ async def portal_context_ep(token: str):
         "kind": invite.kind.value,
         "expires_at": invite.expires_at,
         "context": context,
+        "outstanding": outstanding,
         "upload_accepted": True,
     }
 

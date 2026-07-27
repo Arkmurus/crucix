@@ -395,6 +395,86 @@ async def vetting_packs_ep():
     return {"packs": packs, "count": len(packs)}
 
 
+@router.get("/standard")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_standard_coverage_ep(pack_id: str = "uk_bs7858"):
+    """R-F3214 — which clauses of BS 7858 this module actually implements.
+
+    Answers "does ARIA understand the standard?" with a number that can be
+    wrong, rather than a claim that cannot. Every ENCODED clause is
+    cross-checked against the live rule pack at read time; one that cannot be
+    corroborated is reported as CLAIMED_NOT_CORROBORATED rather than counted.
+
+    The response carries `not_modelled` alongside the counts on purpose. A
+    coverage figure read without it reads as completeness, and this module's
+    whole discipline is that absence is never a finding.
+
+    No BSI text is stored or served — that is copyright. Clause numbers and
+    ARIA's own statement of each obligation only; a licensed copy is required
+    to audit against it.
+    """
+    from ..vetting.standard_map import coverage_report
+
+    try:
+        pack = registry.latest_usable(pack_id)
+    except PackNotUsable as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "pack_not_usable", "message": str(exc)}) from exc
+    report = coverage_report(pack)
+    wire_success(
+        module=_MODULE,
+        summary=(f"served BS 7858 clause coverage: "
+                 f"{report['counts']['corroborated']}/"
+                 f"{report['counts']['encoded']} corroborated"))
+    return report
+
+
+@router.get("/document-types")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_document_types_ep():
+    """R-F3210 — the document vocabulary, served rather than hardcoded.
+
+    The upload control sent `declared_doc_type: "OTHER"` for every file, which
+    meant every real document landed as OTHER — and OTHER satisfies no
+    requirement and evidences no period. That is not a cosmetic gap: PDFs and
+    images are not text-extractable (`decode_text_best_effort` returns "" for
+    them by design), so the declared type is the ONLY signal for the majority
+    of real uploads. Nothing was ever going to classify them.
+
+    Served from the enum so the picker cannot drift from what the engine
+    accepts — a client-side copy of this list is a list that will one day
+    offer a type the server rejects.
+    """
+    from ..vetting.models import DocumentType
+
+    # Grouped the way an officer thinks about them, not the way the enum is
+    # declared. The residue group exists so adding a member to the enum can
+    # never silently drop it out of the picker.
+    groups = {
+        "Identity & entitlement": ["PASSPORT", "DRIVING_LICENCE",
+                                   "BIRTH_CERTIFICATE", "RESIDENCE_PERMIT",
+                                   "RIGHT_TO_WORK_CHECK"],
+        "Address": ["PROOF_OF_ADDRESS", "BANK_STATEMENT", "HMRC_DOCUMENT"],
+        "Application & interview": ["APPLICATION_FORM", "CV",
+                                    "SIGNED_AUTHORISATION", "INTERVIEW_RECORD"],
+        "Employment history": ["EMPLOYER_REFERENCE", "PAYSLIP", "P45", "P60",
+                               "EMPLOYMENT_CONTRACT", "REDUNDANCY_LETTER",
+                               "DWP_CONFIRMATION", "EDUCATION_REFERENCE",
+                               "ACCOUNTANT_REFERENCE", "TRAVEL_EVIDENCE",
+                               "STATUTORY_DECLARATION"],
+        "Criminality & licensing": ["DISCLOSURE_CERTIFICATE",
+                                    "NPCC_POLICE_LETTER", "SIA_LICENCE"],
+    }
+    placed = {value for values in groups.values() for value in values}
+    residue = [t.value for t in DocumentType if t.value not in placed]
+    if residue:
+        groups["Other"] = residue
+    return {"groups": [{"label": label, "types": types}
+                       for label, types in groups.items()],
+            "count": len(list(DocumentType))}
+
+
 # ── cases ─────────────────────────────────────────────────────────────────
 @router.post("/cases")
 @fail_wire(module=_MODULE, gap_type="engine_failure")
@@ -1240,6 +1320,362 @@ async def vetting_document_sighting_ep(
     await asyncio.to_thread(store.save, case.model_copy(update={"documents": documents}))
     wire_success(module=_MODULE, summary=f"document sighting recorded ({sighting})")
     return {"document_id": document_id, "sighting": sighting}
+
+
+# ── R-F3209: the officer can finally SEE what was uploaded ────────────────
+#
+# The module could take a document, encrypt it, hash it, prove its integrity
+# and count it — and then had no way to show it to anyone. A vetting officer's
+# core task is to LOOK at the passport, and the only path to a stored document
+# was a subject-access export handed to the applicant. The evidence side was
+# built; the reading side was simply missing.
+
+# What may be rendered INLINE in the browser. Anything else is forced to
+# download as an opaque octet-stream.
+#
+# This is not a nicety. These files are uploaded by applicants and referees
+# through an unauthenticated portal link, and they are served back from the
+# platform's own origin. An HTML or SVG file rendered inline is script running
+# as us, against an authenticated officer's session — stored XSS, delivered by
+# the product's own evidence store. The safe set is documents and raster
+# images only, with nosniff so the browser cannot be talked out of it.
+_INLINE_TYPES = {
+    "pdf": "application/pdf",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+    "txt": "text/plain; charset=utf-8",
+    "csv": "text/plain; charset=utf-8",
+}
+
+
+def _disposition_for(filename: str) -> tuple[str, str]:
+    """(content type, disposition) for a stored evidence file."""
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    media = _INLINE_TYPES.get(extension)
+    if media is None:
+        return "application/octet-stream", "attachment"
+    return media, "inline"
+
+
+@router.get("/case/{case_id}/documents")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_list_documents_ep(case_id: str, user_id: str = ""):
+    """Every document on the file, with what it satisfies and what it needs.
+
+    Enriched with the evidence store's integrity verdict, because "we hold
+    this" and "we can still prove this is what we were given" are different
+    claims and an officer relying on a document should see both.
+    """
+    import asyncio
+
+    from ..intel.dd_evidence_store import get_evidence_store
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    case = await asyncio.to_thread(store.get, tenant, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    def _collect() -> list[dict]:
+        evidence_store = get_evidence_store()
+        rows: list[dict] = []
+        for document in case.documents:
+            filename = ""
+            integrity: dict = {}
+            if document.evidence_id:
+                stored = evidence_store.get(tenant, document.evidence_id)
+                if stored:
+                    payload = stored["record"].get("structured_payload") or {}
+                    filename = str(payload.get("filename", ""))
+                    integrity = stored["integrity"]
+            media, disposition = _disposition_for(filename)
+            rows.append({
+                "document_id": document.document_id,
+                "doc_type": document.doc_type.value,
+                "filename": filename,
+                "issuer": document.issuer,
+                "covers_from": document.covers_from.isoformat() if document.covers_from else None,
+                "covers_to": document.covers_to.isoformat() if document.covers_to else None,
+                "extraction_confidence": document.extraction_confidence,
+                "authenticity_flags": list(document.authenticity_flags),
+                "sighting": document.sighting,
+                "examined_by": document.examined_by,
+                "examined_at": document.examined_at.isoformat() if document.examined_at else None,
+                "encrypted": document.encrypted,
+                "plaintext_sha256": document.plaintext_sha256,
+                # Viewable at all? A record whose artifact was never retained,
+                # or whose evidence_id is missing, cannot be opened — say so
+                # here rather than letting the officer click into a 404.
+                "viewable": bool(document.evidence_id
+                                 and integrity.get("artifact_retained")),
+                "renders_inline": disposition == "inline",
+                "integrity": integrity,
+            })
+        return rows
+
+    documents = await asyncio.to_thread(_collect)
+    wire_success(module=_MODULE,
+                 summary=f"listed {len(documents)} vetting documents")
+    return {"case_id": case_id, "documents": documents,
+            "count": len(documents)}
+
+
+@router.get("/case/{case_id}/documents/{document_id}/content")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_document_content_ep(
+    case_id: str, document_id: str, user_id: str = "",
+):
+    """Hand back one stored document, decrypted, for the officer to read.
+
+    Every access reaches the brain. That is not observability for its own
+    sake: Art. 5(2) accountability means being able to say who looked at an
+    applicant's criminal-record certificate, and a read path that emits
+    nothing cannot answer it. §21a would call this dark either way.
+    """
+    import asyncio
+
+    from fastapi.responses import Response
+
+    from ..intel.dd_evidence_store import get_evidence_store
+    from ..vetting.crypto import decrypt
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    case = await asyncio.to_thread(store.get, tenant, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    document = next(
+        (d for d in case.documents if d.document_id == document_id), None)
+    if document is None or not document.evidence_id:
+        raise HTTPException(status_code=404, detail="document not found")
+
+    def _load() -> tuple[bytes, str] | None:
+        evidence_store = get_evidence_store()
+        found = evidence_store.read_artifact(tenant, document.evidence_id)
+        if found is None:
+            return None
+        raw, record = found
+        payload = record.get("structured_payload") or {}
+        return raw, str(payload.get("filename", "document"))
+
+    loaded = await asyncio.to_thread(_load)
+    if loaded is None:
+        # Includes the integrity-failure case, which read_artifact has already
+        # wired. Refusing to serve bytes that failed verification is the point
+        # — serving them while reporting success would destroy the property
+        # the append-only store exists to provide.
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "artifact_unavailable",
+                    "message": "The stored copy of this document could not be "
+                               "produced. It is recorded on the file, but the "
+                               "retained bytes are missing or failed integrity "
+                               "verification."})
+    raw, filename = loaded
+
+    if document.encrypted:
+        case_key = await asyncio.to_thread(
+            store.get_or_create_case_key, tenant, case_id)
+        try:
+            raw = await asyncio.to_thread(decrypt, raw, case_key)
+        except Exception as exc:  # noqa: BLE001 — never leak crypto detail
+            # A case whose key was destroyed at disposal lands here. That is
+            # erasure working exactly as designed (R-F3155), so it is a plain
+            # 404, not a server error.
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "artifact_unavailable",
+                        "message": "The stored copy could not be decrypted. If "
+                                   "this case was disposed of, its key was "
+                                   "destroyed and the document is "
+                                   "irrecoverable by design."}) from exc
+
+    media, disposition = _disposition_for(filename)
+    safe_name = "".join(
+        c for c in filename if c.isalnum() or c in "._- ").strip() or "document"
+    wire_success(
+        module=_MODULE,
+        summary=(f"vetting document opened ({document.doc_type.value}) "
+                 f"on case {case_id}"))
+    return Response(
+        content=raw,
+        media_type=media,
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{safe_name}"',
+            # Never let this sit in a shared cache or a browser's disk cache
+            # any longer than the tab that asked for it.
+            "Cache-Control": "no-store, private, max-age=0",
+            "X-Content-Type-Options": "nosniff",
+            # Belt and braces with _INLINE_TYPES: even if a document somehow
+            # renders, it may not fetch, script or frame anything.
+            "Content-Security-Policy":
+                "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox",
+        },
+    )
+
+
+# ── R-F3211: requirements the officer adds or waives ──────────────────────
+class AddRequirementRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=160)
+    accepted: list[str] = Field(min_length=1)
+    min_count: int = Field(default=1, ge=1, le=20)
+    reference: str = ""
+    basis: str = "CLIENT_CONTRACT"
+    stage: str = "APPLICATION"
+    mandatory: bool = True
+    note: str = ""
+
+
+class WaiveRequirementRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=64)
+    waived_by: str = Field(min_length=1, max_length=160)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+@router.post("/case/{case_id}/requirements")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_add_requirement_ep(
+    case_id: str, body: AddRequirementRequest, user_id: str = "",
+):
+    """Add a document this particular screening needs.
+
+    Defaults to CLIENT_CONTRACT rather than STANDARD: a requirement added by
+    hand is, by definition, not one the framework demanded, and letting the UI
+    label it as the standard's would put a clause reference behind a house
+    decision. An officer can still say otherwise explicitly.
+    """
+    import asyncio
+
+    from ..vetting.models import DocumentRequirement, DocumentType
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    case = await asyncio.to_thread(store.get, tenant, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    try:
+        accepted = [DocumentType(t.strip().upper()) for t in body.accepted]
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "unknown_document_type",
+                    "accepted": [t.value for t in DocumentType]}) from exc
+    try:
+        requirement = DocumentRequirement(
+            key=body.key.strip().lower().replace(" ", "_"),
+            label=body.label.strip(), accepted=accepted,
+            min_count=body.min_count, reference=body.reference.strip(),
+            basis=body.basis, stage=body.stage.strip().upper() or "APPLICATION",
+            mandatory=body.mandatory, note=body.note.strip(), origin="MANUAL",
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_requirement", "errors": [str(exc)]}) from exc
+
+    others = [r for r in case.extra_requirements if r.key != requirement.key]
+    await asyncio.to_thread(
+        store.save,
+        case.model_copy(update={"extra_requirements": [*others, requirement]}))
+    wire_success(module=_MODULE,
+                 summary=f"vetting requirement added ({requirement.key})")
+    return {"case_id": case_id, "requirement": requirement.model_dump(mode="json")}
+
+
+@router.delete("/case/{case_id}/requirements/{key}")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_remove_requirement_ep(
+    case_id: str, key: str, user_id: str = "",
+):
+    """Remove a MANUAL requirement. A pack requirement is waived, not deleted.
+
+    The distinction is the audit trail: deleting something the framework asked
+    for would leave no trace that it was ever asked, which is precisely the
+    silence a waiver exists to prevent.
+    """
+    import asyncio
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    case = await asyncio.to_thread(store.get, tenant, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    remaining = [r for r in case.extra_requirements if r.key != key]
+    if len(remaining) == len(case.extra_requirements):
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "not_a_manual_requirement",
+                    "message": "No manually added requirement with that key. A "
+                               "requirement that comes from the rule pack is "
+                               "waived with a recorded reason, not deleted."})
+    await asyncio.to_thread(
+        store.save, case.model_copy(update={"extra_requirements": remaining}))
+    wire_success(module=_MODULE, summary=f"vetting requirement removed ({key})")
+    return {"case_id": case_id, "removed": key}
+
+
+@router.post("/case/{case_id}/requirements/waive")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_waive_requirement_ep(
+    case_id: str, body: WaiveRequirementRequest, user_id: str = "",
+):
+    """Stop pursuing a requirement, on the record.
+
+    Name and reason are mandatory at the type level, so a waiver cannot be
+    anonymous. The waived requirement renders as WAIVED with that name beside
+    it and is reported as an INFO finding on every assessment — it never reads
+    as satisfied. A file that looks complete because someone quietly stopped
+    asking is the failure this shape exists to prevent.
+    """
+    import asyncio
+
+    from ..vetting.models import RequirementWaiver
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    case = await asyncio.to_thread(store.get, tenant, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    waiver = RequirementWaiver(
+        key=body.key.strip(), waived_by=body.waived_by.strip(),
+        reason=body.reason.strip(), waived_at=datetime.now(UTC).date())
+    others = [w for w in case.requirement_waivers if w.key != waiver.key]
+    await asyncio.to_thread(
+        store.save,
+        case.model_copy(update={"requirement_waivers": [*others, waiver]}))
+    wire_success(module=_MODULE,
+                 summary=f"vetting requirement waived ({waiver.key})")
+    return {"case_id": case_id, "waiver": waiver.model_dump(mode="json")}
+
+
+@router.delete("/case/{case_id}/requirements/waive/{key}")
+@fail_wire(module=_MODULE, gap_type="engine_failure")
+async def vetting_unwaive_requirement_ep(
+    case_id: str, key: str, user_id: str = "",
+):
+    """Undo a waiver — the requirement returns to whatever state the file
+    actually supports, which is usually OUTSTANDING."""
+    import asyncio
+
+    tenant = _tenant(user_id)
+    store = get_case_store()
+    case = await asyncio.to_thread(store.get, tenant, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    remaining = [w for w in case.requirement_waivers if w.key != key]
+    if len(remaining) == len(case.requirement_waivers):
+        raise HTTPException(status_code=404, detail="no waiver for that key")
+    await asyncio.to_thread(
+        store.save, case.model_copy(update={"requirement_waivers": remaining}))
+    wire_success(module=_MODULE, summary=f"vetting waiver withdrawn ({key})")
+    return {"case_id": case_id, "unwaived": key}
 
 
 @router.get("/retention")

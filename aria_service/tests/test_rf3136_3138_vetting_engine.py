@@ -151,6 +151,40 @@ def test_draft_pack_refused_for_new_cases(svc):
         ), "pt_generic")
 
 
+def core_documents(pack_id: str = "intl_baseline"):
+    """A document set that actually satisfies the pack's intake requirements.
+
+    R-F3207: before the requirement rules existed, a case with NO documents at
+    all assessed as complete — nothing asked whether an identity document was
+    on the file. Tests that assert a clean terminal state therefore have to
+    supply the documents, or they are asserting the absence of a rule.
+
+    Each document is built ACCEPTED-shaped: confident classification, no
+    authenticity flags, and a distinct plaintext digest so the two proofs of
+    address are counted as two items rather than de-duplicated into one.
+    """
+    from aria_service.vetting.models import UploadedDocument
+    from aria_service.vetting.packs.base import registry as _registry
+
+    pack = _registry.latest_usable(pack_id)
+    documents = []
+    index = 0
+    for requirement in pack.required_documents:
+        for _ in range(requirement.min_count):
+            index += 1
+            documents.append(UploadedDocument(
+                document_id=f"doc{index}",
+                doc_type=requirement.accepted[0],
+                evidence_id=f"ev{index}",
+                extraction_confidence=0.95,
+                plaintext_sha256=f"{index:064x}",
+                sighting="ORIGINAL_SEEN",
+                examined_by="O. Fficer",
+                examined_at=date(2026, 6, 1),
+            ))
+    return documents
+
+
 def test_framework_pack_never_issues_decision_readiness(svc):
     clean = VettingCase(
         tenant_id=TENANT, case_id="VET-CLEAN", applicant_name="T",
@@ -161,6 +195,7 @@ def test_framework_pack_never_issues_decision_readiness(svc):
             entry_id="c1", entry_type=CareerEntryType.EMPLOYMENT,
             start=date(2021, 6, 1), end=None, organisation="Solo",
             state=VerificationState.VERIFIED)],
+        documents=core_documents("intl_baseline"),
     )
     svc.create_case(clean, "intl_baseline")
     result = svc.assess(TENANT, "VET-CLEAN", as_of=AS_OF)
@@ -409,20 +444,35 @@ def test_rf3138_duplicate_case_id_is_409(client):
 
 # ── R-F3174/R-F3175 — verified against the licensed BS 7858:2019 ─────────
 
-def test_rf3174_uk_pack_v120_is_the_default_for_new_cases():
+def test_rf3207_uk_pack_v130_is_the_default_for_new_cases():
     latest = registry.latest_usable("uk_bs7858")
-    assert latest.version == "1.2.0"
+    assert latest.version == "1.3.0"
+    # The substantive property, not just the number: the newest pack is the
+    # one that carries the intake document set, and a future pack that lost it
+    # would still pass a version-only assertion.
+    assert latest.required_documents, "the current pack must ask for documents"
+    keys = {r.key for r in latest.required_documents}
+    assert {"application_form", "identity_document", "proof_of_address",
+            "criminality_certificate"} <= keys
 
 
-def test_rf3175_versions_order_numerically_not_lexically():
-    """max() on the raw string picks "1.9.0" over "1.10.0", so the tenth
-    revision of a pack would silently never reach new cases while still being
-    reported PRODUCTION. Nothing fails; the wrong rules quietly stay in force."""
-    from aria_service.vetting.packs.base import PackRegistry
-    key = PackRegistry._version_key
-    assert key("1.10.0") > key("1.9.0")
-    assert key("1.2.0") > key("1.1.0")
-    assert max(["1.9.0", "1.10.0"], key=key) == "1.10.0"
+def test_rf3216_latest_usable_orders_versions_numerically():
+    """R-F3175 defined `_version_key` and `latest_usable` never called it.
+
+    The original test exercised the helper directly, so it passed while the
+    behaviour it was written to protect was unchanged — a helper test is not a
+    capability test (§3c). This drives the real selection path with a pack set
+    that a string compare gets WRONG: "1.9.0" > "1.10.0" lexically, so a
+    registry holding both must still hand back 1.10.0.
+    """
+    from aria_service.vetting.packs.base import PackRegistry, PackStatus
+
+    isolated = PackRegistry()
+    for version in ("1.9.0", "1.10.0"):
+        isolated.register(B.UK_BS7858.model_copy(update={
+            "pack_id": "ordering_probe", "version": version,
+            "status": PackStatus.PRODUCTION}))
+    assert isolated.latest_usable("ordering_probe").version == "1.10.0"
 
 
 def test_rf3174_v110_still_resolves_so_old_cases_replay():
