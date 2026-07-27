@@ -188,7 +188,7 @@
     <div id="catalogue-body" style="padding:18px 22px;font-size:13.5px;color:var(--sc-text)">Loading…</div>
     <div style="padding:10px 22px 14px;font-size:11.5px;color:var(--sc-muted);border-top:1px solid var(--sc-border)">
       Persistent registry of defence-DD sources seeded into <code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">web_atlas</code> at startup.
-      <strong>Reference registry only</strong> — the per-source ingestion reliability that would feed Tier-1a/1b/2 credibility into DD/chat is <strong>not yet wired in production</strong> (<code style="background:var(--sc-prime-soft);padding:1px 5px;border-radius:4px;color:var(--sc-prime-dark)">web_atlas.record_ingest</code> has no live caller, so live coverage is 0). Tier labels here describe the seed classification, not a measured live contribution. (R-F2721 / Codex source-health audit #1–2.)
+      <strong>Reference registry only; measured observations where available</strong> — a DD finalizer records a source observation only when a gate-cleared finding has an attributable URL. This panel does not claim every catalogue URL was fetched; sources with no observation remain unmeasured, not healthy. Use Operational feed health above for sweep reliability. (R-F2735 / R-F3237.)
       View raw via <a href="/api/aria/sources/seed/catalogue" style="color:#7c3aed">/api/aria/sources/seed/catalogue</a>.
     </div>
   </div>
