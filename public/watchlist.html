@@ -442,7 +442,14 @@ function renderTable(entries) {
     const cycleOptions = [[24, 'Daily'], [72, 'Every 3 days'], [168, 'Weekly'], [336, 'Every 2 weeks'], [720, 'Monthly']]
       .map(([hours, label]) => '<option value="' + hours + '"' + (hours === cycle ? ' selected' : '') + '>' + label + '</option>').join('');
     html += '<tr class="wl-row">' +
-      '<td><strong style="color:var(--sc-heading)">' + escText(e.name || e.entity_name || '(unnamed)') + '</strong></td>' +
+      '<td><strong style="color:var(--sc-heading)">' + escText(e.name || e.entity_name || '(unnamed)') + '</strong>' +
+        // R-F3287 — entries added automatically before the gate landed. Each
+        // one is a recurring re-screen the user never asked for, so it is
+        // marked rather than left indistinguishable from a deliberate add.
+        // Nothing is purged: removing a monitored entity is the user's call.
+        (String(e.source || '') === 'dd_auto_enroll'
+          ? '<div style="font-size:11px;color:#b45309;margin-top:2px">added automatically by a past DD, not by you</div>'
+          : '') + '</td>' +
       '<td style="color:var(--sc-muted)">' + escText(e.entity_type || '-') + '</td>' +
       '<td style="color:var(--sc-muted)">' + escText(e.jurisdiction || '-') + '</td>' +
       '<td>' + riskPill + '</td>' +

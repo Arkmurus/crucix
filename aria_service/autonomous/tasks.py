@@ -1994,8 +1994,19 @@ async def _auto_escalate_to_watchlist(
             "auto_escalated": True,
         }
         try:
+            # R-F3287 — deliberately does NOT pass requested_by_user. A keyword
+            # match in a research task is not a person asking to pay for
+            # recurring monitoring, and this loop ran on every autonomous cycle.
+            # It can still enrich an entity the user already watches; if it is
+            # not on the list, nothing is created and ok=False comes back.
             result = await dd_orchestrator.add_to_watchlist(target)
-            if result.get("note") != "already on watchlist":
+            if result.get("ok") is False:
+                logger.info(
+                    "[autonomous escalation] %s matched %s but was NOT enrolled: "
+                    "the watchlist is user-added only (R-F3287)",
+                    name, ", ".join(target["detected_risk"]),
+                )
+            elif result.get("note") != "already on watchlist":
                 logger.info(
                     "[autonomous escalation] added %s to DD watchlist from task %s "
                     "(risks: %s)",

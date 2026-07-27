@@ -57,8 +57,14 @@ def _no_operator_env(monkeypatch):
 # ── #5 add_to_watchlist: per-owner dedup (no cross-tenant collision) ─────────
 
 def test_add_watchlist_two_users_same_name_get_separate_entries(rs):
-    asyncio.run(dd.add_to_watchlist({"name": "Acme", "user_id": "alice"}))
-    asyncio.run(dd.add_to_watchlist({"name": "Acme", "user_id": "bob"}))
+    # R-F3287 — both are USER adds; that is what this test is about (two
+    # tenants who each asked). Creating an entry now requires saying so, and
+    # the flag is exactly what the "Add Entity" route passes. The per-owner
+    # dedup property being asserted here is unchanged.
+    asyncio.run(dd.add_to_watchlist({"name": "Acme", "user_id": "alice"},
+                                    requested_by_user=True))
+    asyncio.run(dd.add_to_watchlist({"name": "Acme", "user_id": "bob"},
+                                    requested_by_user=True))
     wl = rs.store[dd.WATCHLIST_KEY]
     owners = sorted(w.get("user_id") for w in wl if (w.get("name") == "Acme"))
     assert owners == ["alice", "bob"], f"each tenant needs their own entry, got {owners}"

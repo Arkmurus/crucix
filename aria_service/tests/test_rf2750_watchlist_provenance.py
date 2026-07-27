@@ -67,10 +67,26 @@ def test_route_calls_enrich():
     assert "enrich_watchlist_with_observations" in src, "route does not enrich the watchlist"
 
 
-# ── the UI splits Last DD vs Last re-screen and reads the new field ────────────
+# ── the UI never conflates "entered monitoring" with "last re-screened" ───────
 def test_ui_splits_columns_and_reads_field():
+    """R-F3290 — this pinned the column CAPTIONS ("Last DD" / "Last re-screen"),
+    and R-F3225 deliberately replaced them when it reworked the table around
+    review cycles ("Review cycle" / "Next review" / "Last review"). The guard
+    has been red ever since, asserting a caption rather than the thing R-F2750
+    was actually about.
+
+    What R-F2750 protects is the DISTINCTION: the add-date and the last
+    re-screen are different facts, and showing the add-date where a re-screen
+    belongs reads as "never re-screened" for an entity screened this morning.
+    That property survived the rework intact, so this now asserts it.
+    """
     html = (Path(o.__file__).resolve().parents[2] / "public" / "watchlist.html").read_text(encoding="utf-8")
-    assert "<th>Last DD</th>" in html and "<th>Last re-screen</th>" in html
-    assert "e.last_rescreened_at" in html
-    # the old conflated single column is gone
+    # The re-screen timestamp is read from its own field, not from added_at.
+    assert "e.last_rescreened_at" in html, "the re-screen field is not read"
+    # An entity that has never been re-screened says so, rather than borrowing
+    # the add-date and looking current.
+    assert "not re-screened yet" in html
+    # The old conflated single column stays gone.
     assert "<th>Last Checked</th>" not in html
+    # And the two facts are still rendered in separate cells.
+    assert "<th>Next review</th>" in html and "<th>Last review</th>" in html

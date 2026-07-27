@@ -9461,6 +9461,20 @@ async def _persist_report(report: ARKDDReport) -> None:
                         _enroll_ok = _enroll_ok and _sanc_enr._looks_like_entity_name(_wl_name)
                 except Exception:
                     pass
+                # R-F3287 — this call no longer ENROLS. It deliberately does
+                # not pass requested_by_user, so it can only enrich an entry
+                # the user already added (back-filling canonical_entity_id,
+                # last_dd_run_id, last_risk so the re-screen matches by
+                # canonical id). If the entity is not on the list, the call
+                # returns ok=False and nothing is created.
+                #
+                # This knowingly gives up R-F878's coherence property — that a
+                # manually DD'd entity is automatically monitored. That was a
+                # real gap when R-F878 closed it. The operator has weighed it
+                # against unrequested spend: every enrolled entity is
+                # re-screened on a recurring cycle at the user's cost, and
+                # nobody asked for the subscription. Adding an entity is now
+                # one click on the watchlist page.
                 if _enroll_ok:
                     await add_to_watchlist({
                         "name": _wl_name,
@@ -14294,9 +14308,30 @@ def _apply_watchlist_schedule(entry: dict, *, legacy_default: bool = False) -> d
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure", control_flow_exempt=("ValueError",))
-async def add_to_watchlist(target: dict) -> dict:
+async def add_to_watchlist(target: dict, *, requested_by_user: bool = False) -> dict:
     """Add a target to the DD watchlist. Target must include at least
-    a name. Idempotent — dedupes by name."""
+    a name. Idempotent — dedupes by name.
+
+    R-F3287 — CREATING an entry requires `requested_by_user=True`.
+
+    A watchlist entry is not a row in a table; it is a standing instruction to
+    re-screen that entity on every review cycle, for as long as it sits there,
+    and each cycle costs the user money. R-F878 enrolled EVERY completed DD
+    automatically, so someone who ran three DDs to look something up acquired
+    three permanent billable monitoring subscriptions without asking, and found
+    out by noticing them on the watchlist page. Operator directive: nothing
+    goes on this list unless a person put it there.
+
+    The flag is keyword-only and defaults to False, so a caller that does not
+    say a human asked cannot create an entry — including a caller nobody has
+    written yet. Fail-closed, because the failure mode here is silent spend.
+
+    ENRICHING an entry that already exists stays open to every caller. That
+    entity is already enrolled and already being re-screened, so back-filling
+    its canonical id or its latest risk costs nothing extra and makes the
+    monitoring the user DID ask for more accurate. Refusing it would degrade
+    the user's own entries to make a point.
+    """
     from . import redis_store as rs
     current = await rs.get_json(WATCHLIST_KEY) or []
     name = (target.get("name") or target.get("entity") or "").strip()
@@ -14340,6 +14375,37 @@ async def add_to_watchlist(target: dict) -> dict:
                 await rs.set_json(WATCHLIST_KEY, current)
             return {"ok": True, "note": "already on watchlist",
                     "count": len(current), "enriched": _changed}
+    # R-F3287 — the only place an entry is CREATED, and therefore the only
+    # place a recurring re-screen charge begins. Everything above this line
+    # either enriched an existing entry or fell through the per-owner dedup
+    # (R-F2401), and that fall-through is a create too: an automatic call
+    # naming a second owner would otherwise insert a brand-new entry for a
+    # user who never asked. Both routes are gated here, once.
+    if not requested_by_user:
+        _src = str(target.get("source") or "unspecified")[:80]
+        logger.info(
+            "[R-F3287] refused automatic watchlist enrolment of %r (source=%s): "
+            "a watchlist entry starts a recurring re-screen charge, so it is "
+            "added only when a user asks.", name[:120], _src,
+        )
+        try:
+            from .engine_wiring import wire_success
+            wire_success(
+                module="dd_orchestrator",
+                summary=(f"watchlist enrolment refused (not user-requested): "
+                         f"{name[:80]} via {_src}"),
+            )
+        except Exception:  # noqa: BLE001 — observability must never block the refusal
+            pass
+        return {
+            "ok": False,
+            "enrolled": False,
+            "note": ("not enrolled: an entity is added to the watchlist only "
+                     "when a user asks for it, because each entry is re-screened "
+                     "on a recurring cycle at the user's cost"),
+            "count": len(current),
+        }
+
     current.insert(0, target)
     current = current[:200]
     await rs.set_json(WATCHLIST_KEY, current)

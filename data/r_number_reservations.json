@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3286,
+  "next_available": 3291,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -26849,9 +26849,10 @@
       "title": "harden and fully wire Stripe billing lifecycle",
       "claimed_at": "2026-07-27T13:36:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9d2d696c",
+      "notes": null,
+      "shipped_at": "2026-07-27T14:23:22Z"
     },
     {
       "r_number": "R-F3280",
@@ -26904,6 +26905,52 @@
       "r_number": "R-F3285",
       "title": "one risk-classification label/tone source: AMBER-LIGHT rendered colourless because the class name lost its hyphen",
       "claimed_at": "2026-07-27T14:01:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "684fa160",
+      "notes": null,
+      "shipped_at": "2026-07-27T14:10:42Z"
+    },
+    {
+      "r_number": "R-F3286",
+      "title": "rf526 round-trip tests predate the R-F2576 absolute coverage floor",
+      "claimed_at": "2026-07-27T14:15:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3287",
+      "title": "watchlist enrolment requires a human: no entity enrolled automatically (recurring cost per entry)",
+      "claimed_at": "2026-07-27T14:16:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3288",
+      "title": "dd reconcile outcome is logged but reaches no sink - wire it",
+      "claimed_at": "2026-07-27T14:21:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3289",
+      "title": "SMTP reported configured while structurally unable to authenticate (EMAIL_USER == EMAIL_PASS)",
+      "claimed_at": "2026-07-27T14:22:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3290",
+      "title": "R-F2750 guard pinned a column CAPTION that R-F3225 deliberately replaced; assert the property",
+      "claimed_at": "2026-07-27T14:27:56Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

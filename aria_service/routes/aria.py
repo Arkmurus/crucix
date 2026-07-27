@@ -1831,7 +1831,12 @@ async def dd_watchlist_add_ep(
     body.setdefault("added_at", datetime.now(timezone.utc).isoformat())
     from ..intel import dd_orchestrator
     try:
-        return await dd_orchestrator.add_to_watchlist(body)
+        # R-F3287 — this endpoint IS the user doing it manually: it is reached
+        # only from the "Add Entity" control, with the caller's own identity.
+        # It is the one caller that may create an entry, and therefore the one
+        # that passes the flag.
+        return await dd_orchestrator.add_to_watchlist(
+            body, requested_by_user=True)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

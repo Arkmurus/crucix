@@ -50,9 +50,14 @@ test('the upload result says what the document did to the timeline', () => {
   // A bare "stored" cannot be told apart from "filed and ignored".
   const fn = page.match(/async function upload\([\s\S]*?\n  \}/)[0];
   assert.match(fn, /body\.timeline/);
-  assert.match(fn, /declared period\(s\) read from it/);
-  assert.match(fn, /Evidence against/);
-  assert.match(fn, /Not applied to the timeline/,
+  // Matched case-insensitively, deliberately. The first cut pinned the exact
+  // wording, and the R-F3278 copy sweep then legitimately rewrote a full stop
+  // as a comma, which turned "Evidence" into "evidence" and failed a test
+  // about SUBSTANCE on a question of typography. A guard must not make a copy
+  // edit look like a regression.
+  assert.match(fn, /declared period\(s\) read from it/i);
+  assert.match(fn, /evidence against/i);
+  assert.match(fn, /not applied to the timeline/i,
     'a document that changed nothing must say why');
 });
 
