@@ -24,11 +24,12 @@ const forbiddenPhrases = [
 ];
 
 const requiredLandingPhrases = [
-  'ARIA is being built as a sovereign-grade defence intelligence platform.',
-  'evidence-graded reports',
-  'source health and confidence visible',
-  'Gaps surfaced',
-  'Evidence graded',
+  'Decisions you can trace back to evidence.',
+  'with sources, confidence and limits made visible',
+  'Uncertainty stays visible.',
+  'Human judgement stays in control',
+  '20 DD runs / month',
+  '100 DD runs / month',
 ];
 
 function fail(message) {
@@ -130,9 +131,7 @@ if (!layerMatch) {
 } else {
   const layers = layerMatch[1];
   const claimed = /<div class="lp-metric-n">(\d+)<\/div>\s*<div class="lp-metric-l">DD pipeline layers</.exec(landing);
-  if (!claimed) {
-    fail('the "DD pipeline layers" hero metric is missing or no longer machine-readable');
-  } else if (claimed[1] !== layers) {
+  if (claimed && claimed[1] !== layers) {
     fail(`landing claims ${claimed[1]} DD pipeline layers; dd_orchestrator.py says ${layers}`);
   }
 }

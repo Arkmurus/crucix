@@ -18,6 +18,7 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rd = (p) => readFileSync(join(__dirname, '..', p), 'utf8');
 const INDEX = rd('public/index.html');
+const LANDING_JS = rd('public/pelican/assets/js/custom.js');
 const SERVER = rd('server.mjs');
 const LEADS = rd('public/leads.html');
 
@@ -31,15 +32,16 @@ console.log('R-F2620 H3 — inbound lead capture (landing → brain → operator
 
 // ── 1. index.html: the form POSTs, and only claims success honestly ──────────
 check('landing form POSTs to /api/leads',
-  /fetch\('\/api\/leads'\s*,\s*\{[\s\S]{0,120}method:\s*'POST'/.test(INDEX));
-check('sends name + email + use_case', /body: JSON.stringify\(\{ name: name, email: email, use_case:/.test(INDEX));
-check('only shows "Thanks" when r.ok && data.ok (no fake success)',
-  /if \(r\.ok && data\.ok\)[\s\S]{0,200}Thanks, we\\?'ll be in touch/.test(INDEX));
+  /action="\/api\/leads"/.test(INDEX) && /url:\s*'\/api\/leads'[\s\S]{0,80}method:\s*'POST'/.test(LANDING_JS));
+check('sends name + email + use_case',
+  /JSON\.stringify\(\{[\s\S]{0,100}name:\s*name,[\s\S]{0,50}email:\s*email,[\s\S]{0,50}use_case:/.test(LANDING_JS));
+check('only shows success after the request resolves',
+  /\.done\(function\(\)[\s\S]{0,220}request has been recorded/.test(LANDING_JS));
 check('surfaces a failure branch (retry) instead of faking success',
-  /btn\.disabled = false;[\s\S]{0,120}(Something went wrong|please try again)/.test(INDEX));
+  /\.fail\(function\(xhr\)[\s\S]{0,260}(try again|try again shortly)/i.test(LANDING_JS));
 // the old fire-and-forget "Thanks" (unconditional) must be gone
 check('no unconditional success (Thanks not shown before the fetch resolves)',
-  !/click', function\(\) \{[\s\S]{0,400}Thanks, we\\?'ll be in touch[\s\S]{0,80}inputs\[i\]\.disabled = true;[\s\S]{0,20}\}\);/.test(INDEX));
+  !/\.on\('submit'[\s\S]{0,450}request has been recorded[\s\S]{0,100}\$\.ajax/.test(LANDING_JS));
 
 // ── 2. server.mjs: public POST + admin GET, forwarding to aria-intel ─────────
 check('POST /api/leads is registered', /app\.post\('\/api\/leads'/.test(SERVER));
