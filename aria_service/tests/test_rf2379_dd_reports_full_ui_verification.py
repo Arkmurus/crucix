@@ -829,7 +829,14 @@ def test_watchlist_has_add_entity_button():
 
 
 def test_watchlist_has_rescreen_button():
-    """The watchlist page must have a 'Re-screen All' button wired to POST /api/aria/dd/watchlist/rescreen."""
+    """The watchlist page must have a 'Re-screen All' button wired to POST /api/aria/dd/watchlist/rescreen.
+
+    R-F3271 — this guard was RIGHT and had been red for weeks. R-F3225 deleted the
+    button and its whole handler under a commit message that said only "focused
+    page copy cleanup", leaving the backend endpoint orphaned and users with no way
+    to trigger a re-screen. Restored, and the R-number is named here so the R-F559
+    verifier can find the test that covers it.
+    """
     html = _read("watchlist.html")
     assert "wl-rescreen-btn" in html, "watchlist.html is missing wl-rescreen-btn"
     assert "/api/aria/dd/watchlist/rescreen" in html, (

@@ -1,6 +1,5 @@
 {
   "schema_version": 1,
-  "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
   "next_available": 3285,
   "reservations": [
     {
