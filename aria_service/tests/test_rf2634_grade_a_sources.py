@@ -112,3 +112,10 @@ def test_rf2634_no_duplicate_feed_urls():
     urls = [u.rstrip("/") for (_n, u, _c, _l, _t, _tp) in NEWS_SOURCES]
     dupes = [u for u, c in collections.Counter(urls).items() if c > 1]
     assert not dupes, f"duplicate feed URLs would fake corroboration: {dupes}"
+
+
+def test_rf3224_no_duplicate_publisher_aliases():
+    """URL aliases from one publisher must not masquerade as independent sources."""
+    publishers = [name.strip().casefold() for name, *_rest in NEWS_SOURCES]
+    dupes = [name for name, count in collections.Counter(publishers).items() if count > 1]
+    assert not dupes, f"publisher aliases would fake corroboration: {dupes}"

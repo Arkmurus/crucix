@@ -328,8 +328,8 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
     # ══════════════════════════════════════════════════════════════════════
     # GLOBAL DEFENCE NEWS
     # ══════════════════════════════════════════════════════════════════════
-    ("Defense News", "https://www.defensenews.com/arc/outboundfeeds/rss/", "defence_global", "en", "tier_2",
-     ["defence", "market_intel", "procurement"]),
+    ("Defense News", "https://www.defensenews.com/arc/outboundfeeds/rss/", "defence_global", "en", "tier_1b",
+     ["defence", "market_intel", "procurement", "industry"]),
     ("Naval News", "https://www.navalnews.com/feed/", "defence_global", "en", "tier_2",
      ["defence", "naval", "market_intel"]),
     ("UK Defence Journal", "https://ukdefencejournal.org.uk/feed/", "defence_global", "en", "tier_2",
@@ -382,8 +382,8 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
      ["technology", "c4isr", "defence"]),
     ("Breaking Defense", "https://breakingdefense.com/feed/", "technology", "en", "tier_2",
      ["technology", "defence", "market_intel"]),
-    ("The War Zone", "https://www.twz.com/rss", "technology", "en", "tier_2",
-     ["technology", "defence", "military"]),
+    ("The War Zone", "https://www.twz.com/rss", "technology", "en", "tier_1b",
+     ["technology", "defence", "military", "capability", "analysis"]),
     ("UK Defence Journal Tech", "https://ukdefencejournal.org.uk/category/technology/feed/", "technology", "en", "tier_2",
      ["technology", "defence", "uk"]),
 
@@ -479,15 +479,11 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
      "geopolitics", "en", "tier_1a", ["geopolitics", "official", "primary"]),
 
     # ── tier_1b — specialist outlets that still publish free RSS (replace the dead) ──
-    ("Defense News", "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml",
-     "defence_global", "en", "tier_1b", ["defence", "procurement", "industry"]),
     # NOT added (already registered above and healthy — a second entry on the same URL
     # would count one article twice => FALSE corroboration):
-    #   Breaking Defense, War on the Rocks, Defence Blog.
+    #   Defense News, The War Zone, Breaking Defense, War on the Rocks, Defence Blog.
     # They probed OK precisely BECAUSE they already work. Caught by
-    # test_rf2634_no_duplicate_feed_urls during this change.
-    ("The War Zone", "https://www.twz.com/feed",
-     "defence_global", "en", "tier_1b", ["defence", "capability", "analysis"]),
+    # the source-identity guard even when publishers expose URL aliases.
     ("DefenseScoop", "https://defensescoop.com/feed/",
      "technology", "en", "tier_1b", ["defence", "technology", "procurement"]),
     ("Bellingcat", "https://www.bellingcat.com/feed/",
@@ -521,6 +517,25 @@ NEWS_SOURCES: list[tuple[str, str, str, str, str, list[str]]] = [
      "maritime_risk", "en", "tier_1a",
      ["maritime", "hurricane", "ports", "official", "primary", "early_warning"]),
 ]
+
+
+def _dedupe_sources(sources: list[tuple]) -> list[tuple]:
+    """Keep one feed per named publisher, preserving catalogue order.
+
+    Feed URLs are not stable identities: publishers commonly expose aliases such
+    as ``/rss`` and ``/feed`` or add query strings to the same underlying feed.
+    Counting those aliases as independent sources can manufacture corroboration.
+    """
+    unique: list[tuple] = []
+    seen_publishers: set[str] = set()
+    for source in sources:
+        publisher = str(source[0]).strip().casefold()
+        if publisher in seen_publishers:
+            logger.warning("[news_monitor] duplicate publisher feed suppressed: %s", source[0])
+            continue
+        seen_publishers.add(publisher)
+        unique.append(source)
+    return unique
 
 # ── Feed parsing ──────────────────────────────────────────────────────────────
 
@@ -1959,7 +1974,7 @@ async def poll_feeds(
     Returns:
         dict with counts of fetched, new, and failed feeds.
     """
-    sources = list(NEWS_SOURCES)
+    sources = _dedupe_sources(list(NEWS_SOURCES))
     if categories:
         sources = [s for s in sources if s[2] in categories]
     else:
@@ -2427,7 +2442,7 @@ async def get_stats() -> dict:
     if _stats_cache and (now - _stats_cache_ts) < _STATS_CACHE_TTL:
         return dict(_stats_cache)
 
-    articles = await get_recent_articles(1000)
+    articles = await get_recent_articles(_MAX_ARTICLES)
     by_category: dict[str, int] = {}
     by_source: dict[str, int] = {}
     for a in articles:
@@ -2436,12 +2451,14 @@ async def get_stats() -> dict:
         src = a.get("source", "unknown")
         by_source[src] = by_source.get(src, 0) + 1
 
+    configured_sources = _dedupe_sources(list(NEWS_SOURCES))
     result = {
-        "total_sources": len(NEWS_SOURCES),
+        "total_sources": len(configured_sources),
         "recent_articles": len(articles),
+        "retention_limit": _MAX_ARTICLES,
         "by_category": by_category,
         "top_sources": dict(sorted(by_source.items(), key=lambda x: x[1], reverse=True)[:20]),
-        "categories": sorted(set(s[2] for s in NEWS_SOURCES)),
+        "categories": sorted(set(s[2] for s in configured_sources)),
         "poll_state": await _read_poll_state(),
     }
     _stats_cache = result

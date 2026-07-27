@@ -114,7 +114,7 @@ describe('R-F2077 PART B — static regression locks (the 7 audit fixes)', () =>
     const s = read('public/vls-chain.html');
     assert.ok(/data\.error\s*&&\s*noEntries/.test(s), 'must handle the {verified:false,error} 200 response as empty-state');
   });
-  it('#5 news shows the true recent_articles count, not the capped page length', () => {
+  it('#5 news shows the retained recent_articles count, not the 100-row page length', () => {
     const s = read('public/news.html');
     assert.ok(/stats\.recent_articles/.test(s), 'kpi-total must read stats.recent_articles');
   });

@@ -96,7 +96,7 @@
 
   <!-- KPI Tiles -->
   <div class="sc-grid-4 mb-24" id="kpi-row">
-    <div class="sc-stat"><div class="sc-stat-icon"><i class="bi bi-newspaper"></i></div><div><div class="sc-stat-value" id="kpi-total">-</div><div class="sc-stat-label">Recent Articles</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon"><i class="bi bi-newspaper"></i></div><div><div class="sc-stat-value" id="kpi-total">-</div><div class="sc-stat-label" id="kpi-total-label">Retained Articles</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-globe"></i></div><div><div class="sc-stat-value" id="kpi-sources">-</div><div class="sc-stat-label">Sources</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-tags"></i></div><div><div class="sc-stat-value" id="kpi-categories">-</div><div class="sc-stat-label">Categories</div></div></div>
     <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-clock"></i></div><div><div class="sc-stat-value" id="kpi-last-poll">-</div><div class="sc-stat-label">Last Poll</div></div></div>
@@ -248,16 +248,20 @@
   }
 
   function updateKPI(stats, articles) {
-    // R-F2076 (2026-06-28 audit) — show the TRUE recent count (stats.recent_articles),
-    // not the page-capped articles.length. /news/recent?limit=100 caps at 100 while the
-    // real recent total is ~328, and the category-breakdown bars below already sum to
-    // the real total → the KPI used to contradict its own chart. Fall back to the
-    // fetched page length only if stats is unavailable.
+    // The server deliberately retains a bounded rolling corpus. Calling this a
+    // growing "Recent Articles" total made every new item invisible once the list
+    // reached its 1,000-row cap. Show the retained count and surface the current
+    // poll's new-item count separately.
     const recentTrue = (stats && typeof stats.recent_articles === 'number') ? stats.recent_articles : (articles ? articles.length : null);
     document.getElementById('kpi-total').textContent = recentTrue == null ? '-' : recentTrue;
+    const retentionLimit = stats && Number(stats.retention_limit);
+    document.getElementById('kpi-total-label').textContent =
+      retentionLimit && recentTrue >= retentionLimit ? 'Retained Articles (cap)' : 'Retained Articles';
     document.getElementById('kpi-sources').textContent = stats ? stats.total_sources : '-';
     document.getElementById('kpi-categories').textContent = stats && stats.categories ? stats.categories.length : '-';
-    document.getElementById('kpi-last-poll').textContent = articles && articles.length ? 'Active' : 'Waiting…';
+    const poll = stats && stats.poll_state;
+    document.getElementById('kpi-last-poll').textContent =
+      poll && typeof poll.articles_new === 'number' ? poll.articles_new + ' new' : 'Waiting…';
     document.getElementById('source-count').textContent = stats ? stats.total_sources : '—';
   }
 
@@ -269,7 +273,9 @@
       ]);
 
       allArticles = (articles && articles.articles) || [];
-      document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
+      const lastPollAt = stats && stats.poll_state && stats.poll_state.last_poll_at;
+      document.getElementById('last-updated').textContent =
+        lastPollAt ? 'Last poll ' + formatTime(lastPollAt) : 'Poll time unavailable';
 
       updateKPI(stats, allArticles);
       renderCategoryFilters(stats);
