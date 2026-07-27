@@ -80,10 +80,25 @@ def test_rf2780_handles_legacy_string_tiers_defensively():
     clean)."""
     from aria_service.intel import dd_orchestrator as dd
 
+    # R-F3276 — the title must NAME THE SUBJECT. This fixture said only
+    # "gov sanction notice", and it passed until R-F3089 added the materiality/
+    # attribution gate — the fix for the Mitie "green report, adverse comments"
+    # class, where the adverse filter passed on domain match alone. The gate now
+    # (correctly) answers `no-material-adverse` for a finding that never names the
+    # entity, so this test was asserting behaviour that was deliberately removed.
+    #
+    # The LEGACY-TIER property it exists to prove is intact and still proven here:
+    # _adverse_finding_tier({"credibility_tier": "tier_1a"}) == 1, and with the
+    # subject named the same legacy string escalates GREEN -> AMBER-LIGHT.
+    # Loosening the attribution gate to make this green would reintroduce exactly
+    # the false-positive class R-F3089 fixed.
     body = _green_body()
+    _subject = (body.get("identity") or {}).get("entity_name") or "Acme Defence Ltd"
     res = dd._apply_adverse_media_to_verdict(body, _am([{"credibility_tier": "tier_1a",
-                                                         "title": "gov sanction notice"}]))
+                                                         "title": f"{_subject} sanction notice"}]))
     assert res["escalated"] is True and body["risk_classification"] == "AMBER-LIGHT"
+    # and the legacy string really was read as official-tier, not defaulted to 5
+    assert dd._adverse_finding_tier({"credibility_tier": "tier_1a"}) == 1
 
 
 def test_rf2780_does_not_escalate_on_single_midtier_or_weak_sources():

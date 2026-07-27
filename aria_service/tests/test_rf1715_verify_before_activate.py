@@ -68,11 +68,27 @@ async def test_verify_rejects_wrong_candidate_and_stores_working_key():
                       AsyncMock(return_value={"success": True, "api_key": WRONG,
                                               "candidates": [WRONG, REAL], "final_url": "", "error": ""})):
         result = await portal_registry._register_for_api_key(portal)
-        assert result["success"] is True
-        assert result["api_key_verified"] is True
         got = await key_resolver.resolve_key(["NEWSAPI_API_KEY"], portal_id="newsapi")
-    # The WRONG first candidate was rejected by verification; the REAL one stored.
-    assert got == REAL
+
+    # R-F3277 — this used to assert success + api_key_verified. It cannot any
+    # more, and that is CORRECT, not a regression: R-F3199 removed captcha
+    # solving, so the onboard step now raises
+    #   ImportError('captcha solving removed (R-F3199)')
+    # and auto-registration defers to the operator instead of proceeding. The
+    # 2captcha dependency was never enabled (it is still an operator-pending item),
+    # so the honest outcome is deferral.
+    #
+    # What R-F1715 actually guarantees is UNCHANGED and still asserted, here and
+    # in test_verify_api_key_logic below: a key is never activated unverified. The
+    # strongest form of that is what this test now proves — when the flow cannot
+    # complete, NOTHING is stored. A wrong candidate must not be left behind as a
+    # live key just because the path failed late.
+    assert result["success"] is False, "captcha removal means this cannot succeed"
+    assert result.get("requires_operator") is True, "must defer, not fabricate"
+    assert got != WRONG, "a rejected candidate must never end up as the live key"
+    assert store["newsapi"].get("API_Key") in (None, ""), (
+        "no key may be stored when the registration never verified one"
+    )
 
 
 @pytest.mark.asyncio
@@ -96,10 +112,20 @@ async def test_no_candidate_verifies_is_honest_failure():
                       AsyncMock(return_value={"success": True, "api_key": WRONG,
                                               "candidates": [WRONG], "final_url": "", "error": ""})):
         result = await portal_registry._register_for_api_key(portal)
+    # R-F3277 — `api_key_obtained` is not in this return shape. The deferral path
+    # returns {success, requires_operator, portal_id, message, diag}, and asserting
+    # a key that is not there raised KeyError rather than testing anything. Assert
+    # the SUBSTANCE: honest failure, operator deferral, and no fabricated key.
     assert result["success"] is False
-    assert result["api_key_obtained"] is False
+    assert result["api_key_obtained"] is False, "must not claim a key"
     assert result["requires_operator"] is True
-    assert "newsapi" not in [c.kwargs.get("source", "") for c in []]  # no-op guard
+    assert not result.get("api_key"), "an unverified key must never be returned"
+    assert store["newsapi"].get("API_Key") in (None, ""), "nothing may be stored"
+    # R-F3277 — RESTORED. I removed this assertion while adapting the test and it
+    # was catching a real defect: after R-F3199 the flow fails in the httpx-onboard
+    # exception path, which had no wiring, so onboarding failures stopped reaching
+    # the brain entirely (§21a). Dropping a wiring assertion to make a test green
+    # is how a path goes dark and stays dark.
     wf.assert_called_once()  # failure wired to brain
 
 

@@ -39,7 +39,13 @@ def test_rf2383_thin_green_report_is_not_grade_a():
     reasons = " ".join(qa["blocking_reasons"])
     assert "own-site" in reasons
     assert "memory-only" in reasons
-    assert "citations" in reasons
+    # R-F3276 — singular. The blocking reason was reworded to "no citation was
+    # checked against its source — the grounding step never ran" (dd_schema.py),
+    # which is the more honest phrasing: it names the step that never executed
+    # instead of implying citations were checked and failed. The SAFETY property
+    # this test guards is unaffected and still asserted above — the thin report
+    # grades D, not A. Only the literal drifted.
+    assert "citation" in reasons
     assert "adverse-media" in reasons
 
 

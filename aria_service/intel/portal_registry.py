@@ -2256,7 +2256,30 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
                                 f"Tried: {tried or 'none'}. Last step status={last.get('status')} "
                                 f"logged_in={last.get('logged_in')}. See {portal.id}_httpx_debug.json.")})
     except Exception as e:
+        # R-F3277 — WIRE THIS. The R-F1715 honest-failure branch further down
+        # (portal_registry.py:2325) wires onboarding failures to the brain, but
+        # this earlier exception path never did. It did not matter until R-F3199
+        # removed captcha solving: the flow now raises
+        #   ImportError('captcha solving removed (R-F3199)')
+        # HERE, so every portal-onboarding failure began returning through this
+        # branch instead — silently. Nothing reached the brain, the self-heal loop
+        # could not act on it, and the operator was never told (§21a: a return
+        # value is not a sink; §19e).
+        try:
+            from .engine_wiring import wire_failure as _wf3277
+            _wf3277(
+                module="portal_onboarding",
+                detail=f"{portal.name}: httpx onboard error: {e!r}",
+                gap_type="onboarding_failed",
+                source=f"portal_onboarding:{portal.id}",
+            )
+        except Exception:      # noqa: BLE001 — wiring must never mask the original
+            pass
         return await _finish({"success": False, "requires_operator": True, "portal_id": portal.id,
+                # R-F3277 — same shape as the sibling deferral at :2253, which
+                # carries this key. Its absence here is what made the caller's
+                # `result["api_key_obtained"]` raise KeyError instead of reading False.
+                "api_key_obtained": False,
                 "message": f"{portal.name}: httpx onboard error: {e!r}"})
 
 
