@@ -771,6 +771,18 @@ function ddDisplayEntityName(...values) {
   return '';
 }
 
+function openWatchlistAdd(entity) {
+  const params = new URLSearchParams({
+    add: entity.name || '',
+    type: entity.entity_type || '',
+    jurisdiction: entity.jurisdiction || '',
+    canonical_id: entity.canonical_entity_id || '',
+    source: 'dd_report',
+    source_ref: entity.source_ref || '',
+  });
+  location.href = '/watchlist.html?' + params.toString();
+}
+
 function renderTable(reports) {
   const content = document.getElementById('dd-content');
   if (!reports.length) {
@@ -834,6 +846,7 @@ function renderTable(reports) {
             sharedBadge +
             '<div class="dd-row-actions">' +
               '<button class="dd-row-action-btn dd-rerun-btn" data-run-id="' + escAttr(r.run_id) + '" data-canonical-id="' + escAttr(r.canonical_entity_id || '') + '" data-entity="' + escAttr(entityName) + '" data-jur="' + escAttr(jur) + '" data-jur-iso2="' + escAttr(r.jurisdiction_iso2 || '') + '" data-reg="' + escAttr(r.registration_number || '') + '" data-website="' + escAttr(r.website_url || r.website || '') + '" data-type="' + escAttr(entityType) + '" title="Re-run DD" aria-label="Re-run DD for ' + escAttr(entityName) + '"><i class="bi bi-arrow-clockwise"></i></button>' +
+              '<button class="dd-row-action-btn dd-watch-btn" data-run-id="' + escAttr(r.run_id) + '" data-canonical-id="' + escAttr(r.canonical_entity_id || '') + '" data-entity="' + escAttr(entityName) + '" data-jur="' + escAttr(jur) + '" data-type="' + escAttr(entityType) + '" title="Add to watchlist" aria-label="Monitor ' + escAttr(entityName) + '"><i class="bi bi-eye"></i></button>' +
               '<button class="dd-row-action-btn dd-copy-btn" data-run-id="' + escAttr(r.run_id) + '" title="Copy markdown" aria-label="Copy report markdown"><i class="bi bi-clipboard"></i></button>' +
               '<button class="dd-row-action-btn danger dd-delete-btn" data-run-id="' + escAttr(r.run_id) + '" title="Delete report" aria-label="Delete report for ' + escAttr(entityName) + '"><i class="bi bi-trash"></i></button>' +
             '</div>' +
@@ -873,6 +886,19 @@ function renderTable(reports) {
         registration_number: btn.dataset.reg || undefined,
         website_url: btn.dataset.website || undefined,
         entity_type: btn.dataset.type || undefined,
+      });
+    });
+  });
+
+  content.querySelectorAll('.dd-watch-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openWatchlistAdd({
+        name: btn.dataset.entity,
+        entity_type: btn.dataset.type,
+        jurisdiction: btn.dataset.jur,
+        canonical_entity_id: btn.dataset.canonicalId,
+        source_ref: btn.dataset.runId,
       });
     });
   });
@@ -1360,6 +1386,7 @@ async function toggleDetail(row, runId) {
       '<div class="dd-detail-actions">' +
       '<button class="dd-act-btn primary" data-action="rerun" data-entity="' + escAttr(entityName) + '">' +
         '<i class="bi bi-arrow-clockwise"></i> Re-run DD</button>' +
+      '<button class="dd-act-btn" data-action="watchlist"><i class="bi bi-eye"></i> Add to watchlist</button>' +
       '<a class="dd-act-btn" href="/aria.html" title="Discuss this report in chat">' +
         '<i class="bi bi-chat-dots"></i> Discuss in chat</a>' +
       '<button class="dd-act-btn dd-act-primary" data-action="pdf" ' +
@@ -1530,6 +1557,15 @@ async function toggleDetail(row, runId) {
         website_url: websiteUrl,
         entity_type: entityType,
         mode: sv.orchestrator_mode || undefined,
+      });
+    });
+    detailRow.querySelector('[data-action="watchlist"]')?.addEventListener('click', () => {
+      openWatchlistAdd({
+        name: entityName,
+        entity_type: entityType,
+        jurisdiction,
+        canonical_entity_id: canonicalId,
+        source_ref: runId,
       });
     });
     // VLS verify — R-F2293: styled result modal (was a raw alert)

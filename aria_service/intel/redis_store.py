@@ -404,6 +404,32 @@ async def ltrim(key: str, start: int, stop: int) -> None:
             logger.warning("Redis LTRIM %s failed: %s", key, e)
 
 
+async def lrem(key: str, count: int, value: str) -> int:
+    """Remove matching list entries and return the number removed."""
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.lrem(key, count, value)
+    if _client:
+        try:
+            return int(await _client.lrem(key, count, value))
+        except Exception as e:
+            logger.warning("Redis LREM %s failed: %s", key, e)
+    items = json.loads(_mem_store.get(key, "[]"))
+    if not isinstance(items, list):
+        return 0
+    remaining = abs(count) if count else len(items)
+    indexes = range(len(items)) if count >= 0 else range(len(items) - 1, -1, -1)
+    remove_indexes: set[int] = set()
+    for index in indexes:
+        if remaining and items[index] == value:
+            remove_indexes.add(index)
+            remaining -= 1
+    _mem_store[key] = json.dumps(
+        [item for index, item in enumerate(items) if index not in remove_indexes]
+    )
+    return len(remove_indexes)
+
+
 async def llen(key: str) -> int:
     """Return the length of a Redis list."""
     if _use_sqlite():

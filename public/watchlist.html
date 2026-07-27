@@ -74,6 +74,12 @@
     .wl-alert .wl-alert-entity { font-weight: 600; color: var(--sc-heading); }
     .wl-alert .wl-alert-date { font-size: 11px; color: #9b968c; }
     .wl-alert .wl-alert-detail { color: #57534b; font-size: 12px; }
+    .wl-alert-delete {
+      border: 0; background: transparent; color: #9b968c; cursor: pointer;
+      padding: 4px 6px; border-radius: 5px; line-height: 1; margin-left: 2px;
+    }
+    .wl-alert-delete:hover { color: #b91c1c; background: rgba(185,28,28,0.08); }
+    .wl-alert-delete:disabled { opacity: .5; cursor: wait; }
 
     .wl-loading { padding: 36px; text-align: center; color: var(--sc-muted); font-size: 13px; }
 
@@ -97,7 +103,7 @@
     <div class="wl-toolbar">
       <input class="wl-search" id="wl-search" placeholder="Search by entity name…" type="search">
       <button class="wl-btn" id="wl-add-btn"><i class="bi bi-plus-lg"></i> Add Entity</button>
-      <button class="wl-btn sec" id="wl-rescreen-btn"><i class="bi bi-arrow-clockwise"></i> Re-screen All</button>
+      <a class="wl-btn sec" href="/vetting.html" style="text-decoration:none"><i class="bi bi-person-check"></i> Vetting</a>
       <a class="wl-btn sec" href="/dd-reports.html" style="text-decoration:none"><i class="bi bi-folder2-open"></i> DD Reports</a>
     </div>
 
@@ -131,7 +137,7 @@ searchInput.addEventListener('input', applySearch);
 // Modal.confirm), so the whole page shares one visual language. Returns the form
 // values via a Promise, or null on cancel. Escape / backdrop / × all cancel;
 // Enter in the name field submits.
-function openAddModal() {
+function openAddModal(prefill = {}) {
   return new Promise(resolve => {
     const ov = document.createElement('div');
     ov.className = 'sc-mod-overlay open';
@@ -139,7 +145,7 @@ function openAddModal() {
       '<div class="sc-mod" role="dialog" aria-modal="true" aria-labelledby="wl-add-title" style="max-width:460px">'
       + '<div class="sc-mod-head">'
       + '<div class="sc-mod-ico" style="background:rgba(124,58,237,0.12);color:var(--sc-prime)"><i class="bi bi-plus-lg"></i></div>'
-      + '<div><h3 id="wl-add-title">Add entity to watchlist</h3><p>ARIA re-screens it against sanctions &amp; PEP lists on every cycle.</p></div>'
+      + '<div><h3 id="wl-add-title">Add entity to watchlist</h3><p>Choose how often ARIA should autonomously review this entity.</p></div>'
       + '<button class="sc-mod-x" data-add="cancel" type="button" aria-label="Close">&times;</button>'
       + '</div>'
       + '<div class="sc-mod-body">'
@@ -151,6 +157,8 @@ function openAddModal() {
       + '<div style="flex:1"><label style="display:block;font-size:12px;font-weight:600;color:var(--sc-muted);margin:0 0 4px">Jurisdiction</label>'
       + '<input id="wl-add-juris" class="wl-search" style="width:100%;min-width:0" placeholder="ISO2, e.g. GB" maxlength="2" autocomplete="off"></div>'
       + '</div>'
+      + '<label style="display:block;font-size:12px;font-weight:600;color:var(--sc-muted);margin:14px 0 4px">Review cycle</label>'
+      + '<select id="wl-add-cycle" class="wl-search" style="width:100%;min-width:0"><option value="24">Daily</option><option value="72">Every 3 days</option><option value="168" selected>Weekly</option><option value="336">Every 2 weeks</option><option value="720">Monthly</option></select>'
       + '<div id="wl-add-err" style="color:var(--sc-red);font-size:12.5px;margin-top:10px;display:none"></div>'
       + '</div>'
       + '<div class="sc-mod-foot">'
@@ -161,6 +169,9 @@ function openAddModal() {
     const prevFocus = document.activeElement;
     const nameEl = ov.querySelector('#wl-add-name');
     const errEl = ov.querySelector('#wl-add-err');
+    nameEl.value = prefill.name || '';
+    ov.querySelector('#wl-add-type').value = prefill.entity_type || '';
+    ov.querySelector('#wl-add-juris').value = (prefill.jurisdiction || '').toUpperCase();
     const close = (val) => {
       document.removeEventListener('keydown', onKey);
       ov.remove();
@@ -174,6 +185,10 @@ function openAddModal() {
         name,
         entity_type: (ov.querySelector('#wl-add-type').value || '').trim(),
         jurisdiction: (ov.querySelector('#wl-add-juris').value || '').trim().toUpperCase(),
+        review_interval_hours: Number(ov.querySelector('#wl-add-cycle').value),
+        canonical_entity_id: prefill.canonical_entity_id || '',
+        source: prefill.source || 'watchlist',
+        source_ref: prefill.source_ref || '',
       });
     };
     ov.querySelectorAll('[data-add="cancel"]').forEach(el => el.onclick = () => close(null));
@@ -186,17 +201,20 @@ function openAddModal() {
   });
 }
 
-document.getElementById('wl-add-btn').addEventListener('click', async () => {
-  const vals = await openAddModal();
+async function addEntity(prefill = {}) {
+  const vals = await openAddModal(prefill);
   if (!vals) return;
   const btn = document.getElementById('wl-add-btn');
   const orig = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Adding…';
   try {
-    const body = { name: vals.name };
+    const body = { name: vals.name, review_interval_hours: vals.review_interval_hours };
     if (vals.entity_type) body.entity_type = vals.entity_type;
     if (vals.jurisdiction) body.jurisdiction = vals.jurisdiction;
+    if (vals.canonical_entity_id) body.canonical_entity_id = vals.canonical_entity_id;
+    if (vals.source) body.source = vals.source;
+    if (vals.source_ref) body.source_ref = vals.source_ref;
     const r = await authed('/api/aria/dd/watchlist', {
       method: 'POST',
       body: JSON.stringify(body),
@@ -211,52 +229,9 @@ document.getElementById('wl-add-btn').addEventListener('click', async () => {
     Toast.show('Error adding entity: ' + err.message, 'error');
   }
   btn.disabled = false; btn.innerHTML = orig;
-});
+}
 
-document.getElementById('wl-rescreen-btn').addEventListener('click', async () => {
-  const ok = await Modal.confirm({
-    title: 'Re-screen all entities?',
-    message: 'Runs sanctions + PEP checks on every entity on your watchlist. This may take a moment.',
-    okLabel: 'Re-screen all', cancelLabel: 'Cancel',
-    danger: false, icon: 'bi-arrow-clockwise',
-  });
-  if (!ok) return;
-  const btn = document.getElementById('wl-rescreen-btn');
-  const orig = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Re-screening…';
-  try {
-    const r = await authed('/api/aria/dd/watchlist/rescreen', { method: 'POST' });
-    if (!r.ok) {
-      Toast.show('Re-screen failed (HTTP ' + r.status + ')', 'error');
-    } else {
-      // R-F2403 — map the REAL response fields (rescreen_watchlist returns
-      // entities_screened + changes_detected[] + errors[]); the old code read
-      // data.scanned/alerts/errors which don't exist, so it always showed 0/0
-      // and rendered "Errors: [object Object]" for the errors LIST.
-      const data = await r.json();
-      const scanned = data.entities_screened || 0;
-      const changes = Array.isArray(data.changes_detected) ? data.changes_detected.length : (data.changes_detected || 0);
-      const errs = Array.isArray(data.errors) ? data.errors.length : (data.errors || 0);
-      Modal.info({
-        title: 'Re-screen complete',
-        icon: errs ? 'bi-exclamation-triangle-fill' : 'bi-check-circle-fill',
-        tone: errs ? 'danger' : 'success',
-        bodyHtml:
-          '<div style="display:grid;grid-template-columns:1fr auto;gap:8px 18px;font-size:13.5px">'
-          + '<span style="color:var(--sc-muted)">Entities scanned</span><span style="font-weight:600;text-align:right">' + scanned + '</span>'
-          + '<span style="color:var(--sc-muted)">Changes detected</span><span style="font-weight:600;text-align:right">' + changes + '</span>'
-          + '<span style="color:var(--sc-muted)">Errors</span><span style="font-weight:600;text-align:right' + (errs ? ';color:var(--sc-red)' : '') + '">' + errs + '</span>'
-          + '</div>',
-      });
-      await loadWatchlist();
-      await loadAlerts();
-    }
-  } catch (err) {
-    Toast.show('Re-screen error: ' + err.message, 'error');
-  }
-  btn.disabled = false; btn.innerHTML = orig;
-});
+document.getElementById('wl-add-btn').addEventListener('click', () => addEntity());
 
 let _allEntries = [];
 
@@ -297,7 +272,7 @@ function renderTable(entries) {
   // entity entered monitoring) and "Last re-screen" (last_rescreened_at, from the
   // R-F2744 observation). The old single column showed the add-date even when the
   // entity had been re-screened today, which read as "never re-screened".
-  let html = '<table class="wl-table"><thead><tr><th>Entity</th><th>Type</th><th>Jurisdiction</th><th>Risk</th><th>Last DD</th><th>Last re-screen</th><th>Actions</th></tr></thead><tbody>';
+  let html = '<table class="wl-table"><thead><tr><th>Entity</th><th>Type</th><th>Jurisdiction</th><th>Risk</th><th>Review cycle</th><th>Next review</th><th>Last review</th><th>Actions</th></tr></thead><tbody>';
   for (const e of entries) {
     const risk = String(e.last_risk || '').toUpperCase();
     const riskCls = risk === 'RED' || risk === 'HARD_STOP' ? 'red'
@@ -307,17 +282,20 @@ function renderTable(entries) {
     const riskPill = risk ? '<span style="font-weight:600;color:' + riskColor + '">' + escText(risk) + '</span>' : '<span style="color:#9b968c">not screened</span>';
     // R-F2750 — "Last DD" = when it entered monitoring; "Last re-screen" = the
     // last sanctions re-screen observation (never conflate the two again).
-    const lastDdTs = e.added_at || e.last_dd_at;
-    const lastDd = lastDdTs ? new Date(lastDdTs).toLocaleString() : '-';
     const rescreenTs = e.last_rescreened_at;
     let lastRescreen = rescreenTs ? new Date(rescreenTs).toLocaleString() : 'not re-screened yet';
     if (rescreenTs && e.source_complete === false) lastRescreen += ' (source incomplete)';
+    const nextReview = e.next_review_at ? new Date(e.next_review_at).toLocaleString() : 'Due now';
+    const cycle = Number(e.review_interval_hours || 24);
+    const cycleOptions = [[24, 'Daily'], [72, 'Every 3 days'], [168, 'Weekly'], [336, 'Every 2 weeks'], [720, 'Monthly']]
+      .map(([hours, label]) => '<option value="' + hours + '"' + (hours === cycle ? ' selected' : '') + '>' + label + '</option>').join('');
     html += '<tr class="wl-row">' +
       '<td><strong style="color:var(--sc-heading)">' + escText(e.name || e.entity_name || '(unnamed)') + '</strong></td>' +
       '<td style="color:var(--sc-muted)">' + escText(e.entity_type || '-') + '</td>' +
       '<td style="color:var(--sc-muted)">' + escText(e.jurisdiction || '-') + '</td>' +
       '<td>' + riskPill + '</td>' +
-      '<td style="color:var(--sc-muted);font-size:12px">' + escText(lastDd) + '</td>' +
+      '<td><select class="wl-search wl-cycle" data-name="' + escAttr(e.name) + '" aria-label="Review cycle for ' + escAttr(e.name) + '" style="min-width:124px;padding:6px 8px">' + cycleOptions + '</select></td>' +
+      '<td style="color:var(--sc-muted);font-size:12px">' + escText(nextReview) + (e.review_due ? ' <span class="wl-pill inactive">due</span>' : '') + '</td>' +
       '<td style="color:var(--sc-muted);font-size:12px">' + escText(lastRescreen) + '</td>' +
       '<td>' +
         // R-F1569 — these buttons formerly used inline onclick handlers that
@@ -335,6 +313,25 @@ function renderTable(entries) {
   html += '</tbody></table>';
   content.innerHTML = html;
 }
+
+content.addEventListener('change', async (event) => {
+  const select = event.target.closest('.wl-cycle');
+  if (!select) return;
+  const name = select.dataset.name || '';
+  select.disabled = true;
+  try {
+    const response = await authed('/api/aria/dd/watchlist/' + encodeURIComponent(name) + '/schedule', {
+      method: 'PATCH',
+      body: JSON.stringify({ review_interval_hours: Number(select.value) }),
+    });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    Toast.show('Review cycle updated for "' + name + '"', 'success');
+    await loadWatchlist();
+  } catch (error) {
+    Toast.show('Could not update review cycle: ' + error.message, 'error');
+    await loadWatchlist();
+  }
+});
 
 async function loadAlerts() {
   try {
@@ -366,7 +363,8 @@ async function loadAlerts() {
         '<div class="wl-alert-head">' +
           '<span class="wl-alert-entity">' + escText(entity) + '</span>' +
           chip +
-          (date ? '<span class="wl-alert-date" style="margin-left:auto">' + new Date(date).toLocaleString() + '</span>' : '') +
+          (date ? '<span class="wl-alert-date" style="margin-left:auto">' + new Date(date).toLocaleString() + '</span>' : '<span style="margin-left:auto"></span>') +
+          '<button type="button" class="wl-alert-delete" data-alert-id="' + escAttr(a.alert_id || '') + '" data-alert-entity="' + escAttr(entity) + '" title="Delete alert" aria-label="Delete alert for ' + escAttr(entity) + '"><i class="bi bi-trash"></i></button>' +
         '</div>' +
         (detail ? '<div class="wl-alert-detail">' + escText(detail) + '</div>' : '') +
       '</div>';
@@ -374,6 +372,39 @@ async function loadAlerts() {
     alertsDiv.innerHTML = html;
   } catch (err) {
     // Silently fail — alerts are non-critical
+  }
+}
+
+async function deleteAlert(alertId, entity, btn) {
+  if (!alertId) {
+    Toast.show('This alert has no deletable identifier. Refresh and try again.', 'error');
+    return;
+  }
+  const ok = await Modal.confirm({
+    title: 'Delete this alert?',
+    message: 'Delete the recent alert for “' + entity + '”? This does not remove the entity from the watchlist.',
+    okLabel: 'Delete alert', cancelLabel: 'Cancel',
+    danger: true, icon: 'bi-trash-fill',
+  });
+  if (!ok) return;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-arrow-repeat"></i>';
+  try {
+    const r = await authed('/api/aria/dd/watchlist/alerts/' + encodeURIComponent(alertId), {
+      method: 'DELETE',
+    });
+    if (!r.ok) {
+      Toast.show('Could not delete alert (HTTP ' + r.status + ')', 'error');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-trash"></i>';
+      return;
+    }
+    Toast.show('Alert deleted', 'success');
+    await loadAlerts();
+  } catch (err) {
+    Toast.show('Could not delete alert: ' + err.message, 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-trash"></i>';
   }
 }
 
@@ -454,9 +485,32 @@ content.addEventListener('click', function(ev) {
   else if (btn.classList.contains('wl-act-remove')) removeEntry(name, btn);
 });
 
+alertsDiv.addEventListener('click', function(ev) {
+  const btn = ev.target.closest('button[data-alert-id]');
+  if (!btn) return;
+  deleteAlert(
+    btn.getAttribute('data-alert-id') || '',
+    btn.getAttribute('data-alert-entity') || 'this entity',
+    btn,
+  );
+});
+
 // Load on init
 loadWatchlist();
 loadAlerts();
+const addParams = new URLSearchParams(location.search);
+if (addParams.get('add')) {
+  const prefill = {
+    name: addParams.get('add') || '',
+    entity_type: addParams.get('type') || '',
+    jurisdiction: addParams.get('jurisdiction') || '',
+    canonical_entity_id: addParams.get('canonical_id') || '',
+    source: addParams.get('source') || '',
+    source_ref: addParams.get('source_ref') || '',
+  };
+  history.replaceState({}, '', location.pathname);
+  setTimeout(() => addEntity(prefill), 0);
+}
 </script>
 </body>
 </html>

@@ -3525,13 +3525,14 @@ async def lifespan(app: FastAPI):
             from .autonomous.safety import is_engine_paused as _is_paused
             if await _is_paused():
                 logger.debug("[Watchlist] engine paused — skipping cycle")
-                await asyncio.sleep(86400)
+                await asyncio.sleep(3600)
                 continue
             try:
                 await _tick_heartbeat("watchlist_rescreen", "Re-screen DD watchlist entities against sanctions/PEP")
                 from .intel import dd_orchestrator
                 result = await dd_orchestrator.rescreen_watchlist(
                     llm=getattr(app.state, "llm_provider", None),
+                    due_only=True,
                 )
                 await _wire_agent_success(
                     "watchlist_rescreen",
@@ -3616,10 +3617,10 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 await _wire_agent_failure("watchlist_rescreen", f"Re-screen failed: {e}")
                 logger.warning("[Watchlist] Re-screen failed: %s", e)
-            await asyncio.sleep(86400)  # Every 24 hours
+            await asyncio.sleep(3600)  # Hourly due-check; each entity owns its cadence
 
     watchlist_rescreen_task = _singleton_task(_watchlist_rescreen_loop, "watchlist_rescreen_loop")  # R-F2073 singleton
-    logger.info("Watchlist re-screen loop started (daily, 10 min after startup)")
+    logger.info("Watchlist due-check loop started (hourly, 10 min after startup)")
 
     # ── BRAVE STUDENT TRAINER (R-F2339) ───────────────────────────────────
     # Closes the Brave->SearXNG learning loop: periodically re-trains the student

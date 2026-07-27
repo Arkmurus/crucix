@@ -199,16 +199,6 @@
 <main id="app-main">
   <div class="vt-shell">
 
-    <div class="vt-eyebrow">Workforce trust</div>
-    <h1 class="vt-title">Employment vetting</h1>
-    <p class="vt-sub">
-      Deterministic pre-employment screening. Every gap, clock, document
-      requirement and threshold is computed from a versioned rule pack — not
-      inferred by a model. The module produces an evidence file and a
-      clause-referenced finding list; a named human makes the employment
-      decision.
-    </p>
-
     <div id="queue" class="vt-queue"></div>
     <div id="retention-note" class="vt-pack" style="display:none"></div>
 
@@ -659,6 +649,7 @@ Sidebar.init('vetting');
     const a = detail.assessment;
     const actions = `<div class="vt-acts">
       <button class="vt-btn secondary sm" data-assess="${esc(caseId)}"><i class="bi bi-clipboard-check"></i> Re-assess</button>
+      <button class="vt-btn secondary sm" data-watch="${esc(caseId)}"><i class="bi bi-eye"></i> Monitor</button>
       <label class="vt-btn secondary sm" style="margin:0"><i class="bi bi-upload"></i> Upload document
         <input type="file" hidden data-upload-req="" data-case="${esc(caseId)}" data-type="OTHER"></label>
       <button class="vt-btn secondary sm" data-share="${esc(caseId)}"><i class="bi bi-qr-code"></i> Share link</button>
@@ -1426,6 +1417,18 @@ Sidebar.init('vetting');
     if ((el = hit('assess'))) {
       Toast.show('Re-assessing…', 'info', 1500);
       loadDetail(el.getAttribute('data-assess'), true); return;
+    }
+    if ((el = hit('watch'))) {
+      const caseId = el.getAttribute('data-watch');
+      const record = CASES.find((item) => item.case_id === caseId) || {};
+      const params = new URLSearchParams({
+        add: record.applicant_name || '',
+        type: 'person',
+        source: 'vetting_case',
+        source_ref: caseId,
+      });
+      location.href = '/watchlist.html?' + params.toString();
+      return;
     }
     if ((el = hit('view'))) {
       viewDocument(el.getAttribute('data-case'), el.getAttribute('data-view')); return;

@@ -1796,15 +1796,47 @@ async def dd_watchlist_get_ep(user_id: str = "", user_email_domain: str = ""):
 
 @router.post("/dd/watchlist")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_watchlist_add_ep(req: Request):
+async def dd_watchlist_add_ep(
+    req: Request, user_id: str = "", user_email_domain: str = ""
+):
     body = await req.json()
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="body must be a JSON object")
+    body["user_id"] = user_id
+    body["user_email_domain"] = user_email_domain
+    body.setdefault("added_at", datetime.now(timezone.utc).isoformat())
     from ..intel import dd_orchestrator
     try:
         return await dd_orchestrator.add_to_watchlist(body)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/dd/watchlist/{name}/schedule")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def dd_watchlist_schedule_ep(
+    name: str,
+    req: Request,
+    user_id: str = "",
+    user_email_domain: str = "",
+):
+    """Set one caller-visible entity's autonomous review cadence."""
+    body = await req.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="body must be a JSON object")
+    from ..intel import dd_orchestrator
+    try:
+        result = await dd_orchestrator.update_watchlist_schedule(
+            name,
+            body.get("review_interval_hours"),
+            user_id=user_id,
+            user_email_domain=user_email_domain,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail="Watchlist entity not found")
+    return result
 
 
 @router.delete("/dd/watchlist/{name}")
@@ -1905,6 +1937,22 @@ async def dd_watchlist_alerts_ep(since_hours: int = 24, user_id: str = "",
     if unread_count is not None:
         out["unread_count"] = unread_count
     return out
+
+
+@router.delete("/dd/watchlist/alerts/{alert_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def dd_watchlist_alert_delete_ep(alert_id: str, user_id: str = "",
+                                       user_email_domain: str = ""):
+    """Delete one caller-visible watchlist alert."""
+    from ..intel import dd_orchestrator
+    result = await dd_orchestrator.delete_watchlist_alert(
+        alert_id,
+        user_id=user_id,
+        user_email_domain=user_email_domain or "",
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return result
 
 
 class WatchlistAlertsReadRequest(BaseModel):
@@ -28698,5 +28746,3 @@ async def runpod_stop_ep() -> dict:
         return {"ok": True, "stop": res}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
-
-

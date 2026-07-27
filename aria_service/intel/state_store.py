@@ -2801,6 +2801,34 @@ async def ltrim(key: str, start: int, stop: int) -> None:
         logger.warning("[R-F1515] ltrim %s failed: %s", key, e)
 
 
+async def lrem(key: str, count: int, value: str) -> int:
+    """Remove list entries equal to ``value`` using Redis LREM semantics."""
+    if _conn is None:
+        return 0
+    try:
+        await _migrate_list_if_needed(key)
+        if count == 0:
+            cur = await _conn.execute(
+                "DELETE FROM list_entries WHERE list_key = ? AND value = ?",
+                (key, value),
+            )
+        else:
+            order = "DESC" if count > 0 else "ASC"
+            cur = await _conn.execute(
+                "DELETE FROM list_entries WHERE list_key = ? AND seq IN ("  # nosec B608 - order is selected from two fixed SQL keywords; all values remain parameterized.
+                f"SELECT seq FROM list_entries WHERE list_key = ? AND value = ? "
+                f"ORDER BY seq {order} LIMIT ?)",
+                (key, key, value, abs(count)),
+            )
+        removed = max(0, int(cur.rowcount or 0))
+        await cur.close()
+        await _conn.commit()
+        return removed
+    except Exception as e:
+        logger.warning("[R-F3225] lrem %s failed: %s", key, e)
+        return 0
+
+
 async def llen(key: str) -> int:
     """Return the number of entries in a list.
     

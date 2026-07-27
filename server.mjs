@@ -3675,6 +3675,45 @@ function _ddPinUserParams(req) {
   } catch {}
   return params;
 }
+
+// R-F3225 — all customer watchlist mutations are owner-pinned, including for
+// privileged users. The generic proxy intentionally grants broader operator
+// access and therefore cannot safely carry customer schedule/delete writes.
+app.post('/api/aria/dd/watchlist', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  return ariaProxy(req, res, `/api/aria/dd/watchlist?${_ddPinUserParams(req).toString()}`, {
+    method: 'POST',
+    fallback: async () => res.status(503).json(_brainFallback()),
+  });
+});
+app.patch('/api/aria/dd/watchlist/:name/schedule', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  const name = encodeURIComponent(req.params.name || '');
+  return ariaProxy(req, res, `/api/aria/dd/watchlist/${name}/schedule?${_ddPinUserParams(req).toString()}`, {
+    method: 'PATCH',
+    fallback: async () => res.status(503).json(_brainFallback()),
+  });
+});
+app.delete('/api/aria/dd/watchlist/alerts/:alertId', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  const alertId = encodeURIComponent(req.params.alertId || '');
+  return ariaProxy(req, res, `/api/aria/dd/watchlist/alerts/${alertId}?${_ddPinUserParams(req).toString()}`, {
+    method: 'DELETE',
+    fallback: async () => res.status(503).json(_brainFallback()),
+  });
+});
+app.delete('/api/aria/dd/watchlist/:name', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  const name = encodeURIComponent(req.params.name || '');
+  return ariaProxy(req, res, `/api/aria/dd/watchlist/${name}?${_ddPinUserParams(req).toString()}`, {
+    method: 'DELETE',
+    fallback: async () => res.status(503).json(_brainFallback()),
+  });
+});
 // R-F3071 — pin the owner for the vault STATS panel too. R-F2097 added explicit
 // pinned routes for search + case and left stats to the generic catch-all, which
 // does not pin for admin/privileged callers — so the operator's dd-reports.html

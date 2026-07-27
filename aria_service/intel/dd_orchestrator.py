@@ -13789,6 +13789,54 @@ def _build_ecosystem_status(report) -> dict:
 # =============================================================================
 
 WATCHLIST_KEY = "crucix:dd:watchlist"
+WATCHLIST_REVIEW_INTERVALS = {
+    24: "Daily",
+    72: "Every 3 days",
+    168: "Weekly",
+    336: "Every 2 weeks",
+    720: "Monthly",
+}
+_WATCHLIST_DEFAULT_REVIEW_HOURS = 168
+
+
+def _watchlist_review_hours(value: Any, *, legacy_default: bool = False) -> int:
+    """Validate a persisted review cadence and return its interval in hours."""
+    if value in (None, ""):
+        return 24 if legacy_default else _WATCHLIST_DEFAULT_REVIEW_HOURS
+    try:
+        hours = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("review_interval_hours must be a supported integer") from exc
+    if hours not in WATCHLIST_REVIEW_INTERVALS:
+        allowed = ", ".join(str(v) for v in WATCHLIST_REVIEW_INTERVALS)
+        raise ValueError(f"review_interval_hours must be one of: {allowed}")
+    return hours
+
+
+def _apply_watchlist_schedule(entry: dict, *, legacy_default: bool = False) -> dict:
+    """Attach the validated review policy and derived next-review state."""
+    from datetime import timedelta as _td
+
+    hours = _watchlist_review_hours(
+        entry.get("review_interval_hours"), legacy_default=legacy_default)
+    entry["review_interval_hours"] = hours
+    entry["review_cycle_label"] = WATCHLIST_REVIEW_INTERVALS[hours]
+    reference = entry.get("last_rescreened_at") or entry.get("added_at")
+    if not reference:
+        entry["review_due"] = True
+        entry["next_review_at"] = None
+        return entry
+    try:
+        reference_dt = datetime.fromisoformat(str(reference).replace("Z", "+00:00"))
+        if reference_dt.tzinfo is None:
+            reference_dt = reference_dt.replace(tzinfo=timezone.utc)
+        next_review = reference_dt + _td(hours=hours)
+        entry["next_review_at"] = next_review.isoformat()
+        entry["review_due"] = next_review <= datetime.now(timezone.utc)
+    except (TypeError, ValueError):
+        entry["next_review_at"] = None
+        entry["review_due"] = True
+    return entry
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure", control_flow_exempt=("ValueError",))
@@ -13800,6 +13848,9 @@ async def add_to_watchlist(target: dict) -> dict:
     name = (target.get("name") or target.get("entity") or "").strip()
     if not name:
         raise ValueError("target must include a name")
+    review_hours = _watchlist_review_hours(target.get("review_interval_hours"))
+    target["review_interval_hours"] = review_hours
+    target["review_cycle_label"] = WATCHLIST_REVIEW_INTERVALS[review_hours]
     _t_owner = (target.get("user_id") or "").strip()
     for w in current:
         if (w.get("name") or "").strip().lower() == name.lower():
@@ -13827,6 +13878,10 @@ async def add_to_watchlist(target: dict) -> dict:
                 if target.get(_k) and w.get(_k) != target[_k]:
                     w[_k] = target[_k]
                     _changed = True
+            if w.get("review_interval_hours") != review_hours:
+                w["review_interval_hours"] = review_hours
+                w["review_cycle_label"] = WATCHLIST_REVIEW_INTERVALS[review_hours]
+                _changed = True
             if _changed:
                 await rs.set_json(WATCHLIST_KEY, current)
             return {"ok": True, "note": "already on watchlist",
@@ -13835,6 +13890,53 @@ async def add_to_watchlist(target: dict) -> dict:
     current = current[:200]
     await rs.set_json(WATCHLIST_KEY, current)
     return {"ok": True, "added": target, "count": len(current)}
+
+
+async def update_watchlist_schedule(
+    name: str,
+    review_interval_hours: Any,
+    user_id: str = "",
+    user_email_domain: str = "",
+) -> dict:
+    """Update one caller-visible entity's autonomous review cadence."""
+    from . import redis_store as rs
+
+    hours = _watchlist_review_hours(review_interval_hours)
+    current = await rs.get_json(WATCHLIST_KEY) or []
+    target_name = (name or "").strip().lower()
+    caller_domain = (user_email_domain or "").strip().lower()
+
+    def _caller_can_update(entry: dict) -> bool:
+        if not user_id:
+            return True
+        if (entry.get("user_id") or "").strip() == user_id:
+            return True
+        entry_domain = (entry.get("user_email_domain") or "").strip().lower()
+        return bool(
+            caller_domain
+            and entry_domain == caller_domain
+            and not _is_public_webmail_domain(caller_domain)
+            and entry.get("share_to_company", True) is not False
+        )
+
+    updated = 0
+    for entry in current:
+        if (entry.get("name") or "").strip().lower() != target_name:
+            continue
+        if not _caller_can_update(entry):
+            continue
+        entry["review_interval_hours"] = hours
+        entry["review_cycle_label"] = WATCHLIST_REVIEW_INTERVALS[hours]
+        updated += 1
+    if not updated:
+        return {"ok": False, "updated": 0}
+    await rs.set_json(WATCHLIST_KEY, current)
+    return {
+        "ok": True,
+        "updated": updated,
+        "review_interval_hours": hours,
+        "review_cycle_label": WATCHLIST_REVIEW_INTERVALS[hours],
+    }
 
 
 # ── System-public watchlist (R-F2559) ────────────────────────────────────────
@@ -14052,7 +14154,7 @@ async def get_watchlist(user_id: str | None = None,
     """R-F2355 — per-user scoping (mirrors list_reports R-F607/608). When ``user_id`` is
     set, return ONLY entries owned by that user OR shared by a same-email-domain colleague;
     entries with no owner (pre-R-F2355 / internal) are hidden from user-filtered views (fail
-    CLOSED — R-F2097). ``user_id=None`` = admin / internal (the daily re-screen loop) and
+    CLOSED — R-F2097). ``user_id=None`` = admin / internal (the autonomous due-check) and
     sees the FULL list so monitoring still covers every watched entity."""
     from . import redis_store as rs
     items = await rs.get_json(WATCHLIST_KEY) or []
@@ -15593,6 +15695,9 @@ async def enrich_watchlist_with_observations(entries: list[dict]) -> list[dict]:
                 e["source_complete"] = obs.get("source_complete", True)
         except Exception:
             continue  # provenance is best-effort; never break the list read
+        finally:
+            _apply_watchlist_schedule(
+                e, legacy_default="review_interval_hours" not in e)
     return entries
 
 
@@ -15737,16 +15842,22 @@ async def _fan_out_alert_to_deals(alert: dict) -> list[dict]:
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
-async def rescreen_watchlist(llm=None, user_id=None, user_email_domain=None) -> dict:
+async def rescreen_watchlist(
+    llm=None,
+    user_id=None,
+    user_email_domain=None,
+    *,
+    due_only: bool = False,
+) -> dict:
     """Re-screen watchlist entities (sanctions + PEP only, no LLM).
 
-    R-F2613 — OWNER-SCOPED when ``user_id`` is set (a manual per-user "Re-screen All").
+    R-F2613 — OWNER-SCOPED when ``user_id`` is set.
     Pre-R-F2613 this ALWAYS read the GLOBAL watchlist and re-screened the first 50
     entities across ALL tenants — so any authenticated user's click burned the shared
     50-entity budget and returned entities_screened/changes_detected spanning other
     tenants (a cross-tenant count leak). Now a per-user call re-screens only the caller's
     owned/shared entries (via get_watchlist's R-F2355 scoping). ``user_id=None`` = the
-    internal daily loop = full global coverage (unchanged).
+    internal autonomous loop = full global coverage.
 
     Returns summary dict with entities_screened, changes_detected, errors,
     and duration_ms. Alerts are persisted in Redis for later retrieval.
@@ -15827,6 +15938,20 @@ async def rescreen_watchlist(llm=None, user_id=None, user_email_domain=None) -> 
     # screens deliberately do NOT persist an observation, so they keep sorting to
     # the front and are retried preferentially — the correct behaviour.
     await enrich_watchlist_with_observations(watchlist)
+    not_due = 0
+    if due_only:
+        before_due_filter = len(watchlist)
+        watchlist = [entry for entry in watchlist if entry.get("review_due", True)]
+        not_due = before_due_filter - len(watchlist)
+        if not watchlist:
+            await _release_rescreen_lock(_lock_scope)
+            return {
+                "entities_screened": 0,
+                "changes_detected": [],
+                "errors": [],
+                "not_due": not_due,
+                "duration_ms": int((time.monotonic() - t0) * 1000),
+            }
 
     def _rescreen_rotation_key(_w: dict):
         _ts = _w.get("last_rescreened_at")
@@ -16123,6 +16248,7 @@ async def rescreen_watchlist(llm=None, user_id=None, user_email_domain=None) -> 
         "entities_screened": len(entities),
         "changes_detected": changes,
         "errors": errors,
+        "not_due": not_due,
         "duration_ms": duration_ms,
     }
 
@@ -16189,6 +16315,7 @@ async def get_watchlist_alerts(since_hours: int = 24, user_id: str = "",
                 ts = _dt.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
                 if ts < cutoff:
                     continue
+            alert["alert_id"] = _watchlist_alert_id(alert)
             if user_id:
                 a_owner = (alert.get("user_id") or "").strip()
                 a_dom = (alert.get("user_email_domain") or "").strip().lower()
@@ -16206,6 +16333,50 @@ async def get_watchlist_alerts(since_hours: int = 24, user_id: str = "",
         except Exception:
             continue
     return alerts
+
+
+def _watchlist_alert_id(alert: dict) -> str:
+    """Return a stable opaque ID for legacy and newly-created alerts."""
+    import hashlib as _hashlib
+    import json as _json
+
+    identity = {
+        key: value for key, value in alert.items()
+        if key not in {"alert_id", "read"}
+    }
+    payload = _json.dumps(identity, sort_keys=True, separators=(",", ":"), default=str)
+    return _hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
+async def delete_watchlist_alert(alert_id: str, user_id: str = "",
+                                 user_email_domain: str = "") -> dict:
+    """Delete exactly one caller-visible alert by stable ID."""
+    import json as _json
+    from . import redis_store as rs
+
+    wanted = (alert_id or "").strip().lower()
+    if not wanted:
+        return {"ok": False, "removed": 0, "reason": "alert_id required"}
+    visible = await get_watchlist_alerts(
+        since_hours=24 * 365,
+        user_id=user_id,
+        user_email_domain=user_email_domain,
+    )
+    if wanted not in {str(alert.get("alert_id") or "").lower() for alert in visible}:
+        return {"ok": False, "removed": 0, "reason": "alert not found"}
+
+    raw_list = await rs.lrange(WATCHLIST_ALERTS_KEY, 0, 499)
+    for raw in raw_list:
+        try:
+            alert = _json.loads(raw) if isinstance(raw, str) else raw
+        except Exception:
+            continue
+        if isinstance(alert, dict) and _watchlist_alert_id(alert) == wanted:
+            encoded = raw if isinstance(raw, str) else _json.dumps(raw, default=str)
+            removed = await rs.lrem(WATCHLIST_ALERTS_KEY, 1, encoded)
+            return {"ok": removed == 1, "removed": removed, "alert_id": wanted}
+    return {"ok": False, "removed": 0, "reason": "alert not found"}
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
