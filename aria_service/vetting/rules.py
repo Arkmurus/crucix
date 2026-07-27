@@ -553,6 +553,22 @@ def assess(case: VettingCase, pack: ScreeningPack, as_of: date) -> dict:
             {"year": c.year, "month": c.month, "state": c.state,
              "entry_ids": list(c.entry_ids)} for c in months
         ],
+        # R-F3274 — the periods the grid above is computed FROM, with their
+        # provenance. The grid alone cannot answer "which of these did a human
+        # type and which did a model read off a scan?", and once extraction can
+        # propose periods that is the first question an officer should be able
+        # to ask. Served from the same assess() call as the grid for the reason
+        # given above: one view of the file, not two opinions.
+        "career": [
+            {"entry_id": e.entry_id, "entry_type": e.entry_type.value,
+             "start": e.start.isoformat(),
+             "end": e.end.isoformat() if e.end else None,
+             "organisation": e.organisation, "state": e.state.value,
+             "source": e.source, "source_document_id": e.source_document_id,
+             "supporting_documents": list(e.supporting_documents),
+             "referee_name": e.referee_name}
+            for e in sorted(case.career, key=lambda x: x.start)
+        ],
         "coverage_summary": {
             "months_total": len(months),
             "verified": sum(1 for c in months if c.state == "VERIFIED"),

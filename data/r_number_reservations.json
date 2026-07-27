@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3274,
+  "next_available": 3278,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -26725,9 +26725,9 @@
       "claimed_at": "2026-07-27T12:17:52Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "pending",
+      "commit_sha": "c21ad8a1",
       "notes": null,
-      "shipped_at": "2026-07-27T13:05:13Z"
+      "shipped_at": "2026-07-27T13:05:17Z"
     },
     {
       "r_number": "R-F3267",
@@ -26790,6 +26790,42 @@
       "r_number": "R-F3273",
       "title": "resumed-DD task is unreferenced - can be GC'd mid-resume, the vanish R-F3009 prevents",
       "claimed_at": "2026-07-27T13:03:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3274",
+      "title": "auto-link documents to career periods; declared history from the application form",
+      "claimed_at": "2026-07-27T13:14:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3275",
+      "title": "adverse-media merge contract test predates the R-F3089 materiality gate",
+      "claimed_at": "2026-07-27T13:15:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3276",
+      "title": "rf2383/rf2780 fixtures predate deliberate tightenings - update to test their stated property",
+      "claimed_at": "2026-07-27T13:20:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3277",
+      "title": "rf1715 tests drive a capability R-F3199 removed - prove the surviving property instead",
+      "claimed_at": "2026-07-27T13:23:24Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

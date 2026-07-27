@@ -216,6 +216,17 @@ class CareerEntry(BaseModel):
     supporting_documents: list[str] = Field(default_factory=list)
     notes: str = ""
 
+    # ── R-F3274 — where this period came from ───────────────────────────────
+    #
+    # "OFFICER" is a human who typed it. "EXTRACTED_FROM_DOCUMENT" is a period
+    # a model read off an application form, and the two are not the same claim:
+    # a misread date would otherwise put words in the applicant's mouth on a
+    # file that decides whether they get a job. Recording the source document
+    # means the officer can open the page the period was read from and confirm
+    # or delete it, rather than inheriting an assertion with no provenance.
+    source: str = "OFFICER"
+    source_document_id: str | None = None
+
     # ── R-F3206 — the referee the APPLICANT nominated for this period ────────
     #
     # The share dialog made the vetting officer TYPE the referee's name and

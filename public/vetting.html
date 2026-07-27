@@ -619,6 +619,51 @@ Sidebar.init('vetting');
         31-day unverified limit works in days, so the findings below remain the authority.</p>`);
   }
 
+  // ── R-F3274 — the periods the coverage grid is computed from ──────────────
+  //
+  // The grid says WHICH months are covered; it cannot say which periods a
+  // human typed and which a model read off an application form. Now that
+  // extraction can propose periods, that is the first thing an officer needs
+  // to be able to see — an unattributed period on a screening file is an
+  // assertion with nobody behind it.
+  const PERIOD_STATE = {
+    VERIFIED: ['#16a34a', 'verified'],
+    EVIDENCE_RECEIVED: ['#2563eb', 'evidence received, not yet verified'],
+    COVERED_BY_STAT_DEC: ['#7c3aed', 'covered by statutory declaration'],
+    VERIFICATION_FAILED: ['#dc2626', 'verification failed'],
+    UNVERIFIED: ['#d97706', 'declared, no evidence yet'],
+  };
+
+  function periodsSection(a) {
+    const entries = a.career || [];
+    if (!entries.length) {
+      return sec('Declared periods', 'none on file',
+        `<div class="vt-empty">No career periods are on this file yet, which is why the grid
+         above is entirely uncovered. Upload the application form and the declared history is
+         read from it, or add periods by hand.</div>`);
+    }
+    const extracted = entries.filter((e) => e.source === 'EXTRACTED_FROM_DOCUMENT').length;
+    const rows = entries.map((e) => {
+      const [colour, label] = PERIOD_STATE[e.state] || ['#78716c', String(e.state || '')];
+      const docs = (e.supporting_documents || []).length;
+      return `<div class="vt-find">
+        <span class="vt-pill" style="background:${colour}1f;color:${colour}">${esc(e.state)}</span>
+        <div class="vt-row-main">
+          <p class="vt-find-msg">${esc(e.organisation || e.entry_type)}
+            <span class="vt-ref">${esc(e.start)} → ${esc(e.end || 'present')}</span></p>
+          <span class="vt-ref">${esc(e.entry_type)} · ${esc(label)} ·
+            ${docs} document(s)${e.referee_name ? ' · referee ' + esc(e.referee_name) : ''}</span>
+          ${e.source === 'EXTRACTED_FROM_DOCUMENT' ? `<p class="vt-note" style="margin-top:3px">
+            Read from a document on this file — the applicant's declaration as a model read it,
+            not confirmed by a person. Check it against the document before relying on it.</p>` : ''}
+        </div></div>`;
+    }).join('');
+    return sec('Declared periods', `${entries.length} period(s)`,
+      rows + (extracted ? `<p class="vt-note">${extracted} of these were read from an uploaded
+        document. Nothing read from a document is ever recorded as verified — a document arriving
+        is evidence received, and verification stays a person's decision.</p>` : ''));
+  }
+
   function findingsSection(a) {
     const order = { BLOCKER: 0, SIGNOFF: 1, DEADLINE: 2, ACTION: 3, INFO: 4 };
     const findings = (a.findings || []).slice().sort(
@@ -742,6 +787,7 @@ Sidebar.init('vetting');
       stagesSection(a) +
       requirementsSection(caseId, a) +
       coverageSection(a) +
+      periodsSection(a) +
       findingsSection(a) +
       documentsSection(caseId, detail.documents) +
       requestsSection(caseId, detail.requests);
@@ -932,13 +978,19 @@ Sidebar.init('vetting');
         { name: 'declared_doc_type', label: 'What is this document?', type: 'select',
           required: true, autofocus: true, value: presetType || 'OTHER',
           options: docTypeOptions(presetType),
-          help: 'Nothing here reads a PDF or an image, so this is the only signal the engine gets. '
-              + 'It is recorded as DECLARED, never as verified.' },
+          // R-F3265 made this text false: PDFs, images, DOCX and emails ARE
+          // read now. Leaving "nothing here reads a PDF" in place would have
+          // the page asserting a limitation the product no longer has, which
+          // is its own kind of dishonesty.
+          help: 'The file is read where it can be — PDF, scan, photo, DOCX, or an email and '
+              + 'its attachments. What is read is recorded as DECLARED, never as verified, '
+              + 'and your answer here wins if the two disagree.' },
         { name: 'attach_to_entry_id', label: 'Evidence for which period? (optional)', type: 'select',
           options: [{ value: '', label: '— not tied to a career period' }].concat(
             career.map((e) => ({ value: e.entry_id,
               label: `${e.organisation || e.entry_type} (${e.start} → ${e.end || 'present'})` }))),
-          help: 'Attaching it here is what lets the period count it as evidence.' },
+          help: 'Optional. A document that states the period it covers is matched to the '
+              + 'overlapping periods on its own; naming one here overrides that.' },
       ],
     });
     if (!values) return;
@@ -962,9 +1014,21 @@ Sidebar.init('vetting');
         Toast.show(`Upload failed (HTTP ${r.status}). The document was NOT added to the file.`, 'danger', 9000);
         return;
       }
+      // R-F3274 — say what the document DID to the timeline, including when
+      // the answer is "nothing, because …". A bare "stored" leaves the officer
+      // unable to tell a document that evidenced a period from one that was
+      // filed and ignored.
+      const t = body.timeline || {};
+      const linked = (t.linked_entry_ids || []).length;
+      const created = (t.created_entry_ids || []).length;
+      let what = '';
+      if (created) what = ` — ${created} declared period(s) read from it`;
+      else if (linked) what = ` — evidence against ${linked} period(s)`;
+      else if (t.reason) what = ` — not applied to the timeline: ${t.reason}`;
       Toast.show(
-        `${body.doc_type} stored` + (body.needs_human_review ? ' — needs your review' : ''),
-        body.needs_human_review ? 'info' : 'success', 5000);
+        `${body.doc_type} stored` + what
+        + (body.needs_human_review ? ' · needs your review' : ''),
+        body.needs_human_review ? 'info' : 'success', linked || created ? 6000 : 9000);
       await loadDetail(caseId, true);
     } catch (e) {
       Toast.show('Upload failed — the service was unreachable. The document was NOT added.', 'danger', 9000);

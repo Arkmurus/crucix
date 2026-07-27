@@ -655,6 +655,7 @@ async def vetting_upload_document_ep(
     )
     from ..vetting.crypto import encrypt, encryption_enabled
     from ..vetting.models import DocumentType
+    from ..vetting.timeline import apply_document_to_timeline
 
     tenant = _tenant(user_id)
     store = get_case_store()
@@ -737,14 +738,32 @@ async def vetting_upload_document_ep(
     await _require_art10_position(
         tenant, case.model_copy(update={"documents": documents}),
         datetime.now(UTC).date())
-    career = case.career
+    # R-F3274 — carry what the document says onto the career timeline. Until
+    # now the ONLY route from a document to a period was the officer passing
+    # attach_to_entry_id by hand, so a payslip that plainly covered a declared
+    # period left the timeline reading "0 declared · 61 uncovered".
+    #
+    # timeline.py is pure and decides conservatively: an evidencing document
+    # lifts a period to EVIDENCE_RECEIVED (never VERIFIED — that is a human's
+    # or a referee's act), an application form contributes DECLARED periods,
+    # and an identity document cannot touch the timeline at all, because a
+    # passport's issue-to-expiry span would otherwise "cover" ten years of a
+    # career. Its summary is returned to the caller, because a document that
+    # changed nothing must not look like a document that had nothing to say.
+    career, timeline_summary = apply_document_to_timeline(
+        case, document, extraction)
+
+    # The officer's explicit attachment is applied ON TOP and always wins: a
+    # human naming the period a document belongs to is a stronger statement
+    # than any overlap rule.
     if body.attach_to_entry_id:
         career = [
             e.model_copy(update={
                 "supporting_documents": [*e.supporting_documents,
                                          document.document_id]})
-            if e.entry_id == body.attach_to_entry_id else e
-            for e in case.career
+            if (e.entry_id == body.attach_to_entry_id
+                and document.document_id not in e.supporting_documents) else e
+            for e in career
         ]
     await asyncio.to_thread(
         store.save,
@@ -763,6 +782,9 @@ async def vetting_upload_document_ep(
         "authenticity_flags": document.authenticity_flags,
         # The single field the UI should key its "needs a human" badge on.
         "needs_human_review": needs_human_review(document),
+        # R-F3274 — what this document did to the timeline, including when the
+        # answer is "nothing, because …". Silence would read as success.
+        "timeline": timeline_summary,
     }
 
 

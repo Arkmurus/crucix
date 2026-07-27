@@ -40,7 +40,7 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Any
 
-from .models import DocumentType, UploadedDocument
+from .models import CareerEntryType, DocumentType, UploadedDocument
 
 _log = logging.getLogger(__name__)
 
@@ -67,6 +67,13 @@ Return ONLY what the document itself shows. Rules:
   an altered total. Do not speculate about intent; describe what you see.
 - You are NOT assessing the person. Never infer suitability, character or
   risk. Classify the document only.
+- declared_periods: ONLY for an APPLICATION_FORM, and only for periods the
+  form itself states. This is the applicant's declared history — employment,
+  self-employment, unemployment, education, career breaks, time abroad. Copy
+  the dates as written; do not infer, tidy or fill a gap. If a period has no
+  stated end date leave end null. For any other kind of document return an
+  empty list: a payslip that happens to mention other dates is not a
+  declaration of history.
 """
 
 _EXTRACTION_SCHEMA: dict[str, Any] = {
@@ -81,6 +88,26 @@ _EXTRACTION_SCHEMA: dict[str, Any] = {
                       "description": "ISO date YYYY-MM-DD or null"},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
         "authenticity_concerns": {"type": "array", "items": {"type": "string"}},
+        # R-F3274 — an application form is the applicant DECLARING a history.
+        # Only that document type fills this; see the prompt. Consumed by
+        # timeline.py, which files every period as UNVERIFIED (declared, not
+        # evidenced) and records which document it was read from.
+        "declared_periods": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "entry_type": {"type": "string",
+                                   "enum": [t.value for t in CareerEntryType]},
+                    "start": {"type": ["string", "null"],
+                              "description": "ISO date YYYY-MM-DD"},
+                    "end": {"type": ["string", "null"],
+                            "description": "ISO date YYYY-MM-DD, or null if ongoing"},
+                    "organisation": {"type": ["string", "null"]},
+                },
+                "required": ["entry_type", "start"],
+            },
+        },
     },
     "required": ["doc_type", "confidence"],
 }
