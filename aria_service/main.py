@@ -438,11 +438,41 @@ async def _dd_reconcile_once() -> None:
     failure to the brain so the self-heal loop can act instead of user DDs silently hanging."""
     try:
         from .intel import dd_orchestrator as _ddo
-        await _ddo.reconcile_stale_running_dds()
+        _rec = await _ddo.reconcile_stale_running_dds()
         # R-F2941 — same pass re-launches adverse-media follow-ups orphaned by a
         # restart, so the Grade-A adverse-media question self-heals instead of
         # hanging at status=in_progress forever.
-        await _ddo.reconcile_pending_adverse_media()
+        _am_rec = await _ddo.reconcile_pending_adverse_media()
+        # ── R-F3288 — WIRE THE SUCCESS BRANCH TOO ────────────────────────────
+        #
+        # R-F2568 wired the failure and stopped there, so only half of §21a was
+        # satisfied ("emits on BOTH the success and the failure branch"). This
+        # reconcile counts exactly what it did, logs it, and returned a dict that
+        # this line used to DISCARD — so a pass that re-launched five
+        # restart-killed DDs was indistinguishable from one that found nothing.
+        #
+        # That is the blind spot that matters: this is the only thing clearing
+        # orphaned 'running' DDs after a restart, so if it quietly stops resuming,
+        # the first evidence is a user's DD hanging forever, which is the R-F2300
+        # failure it exists to prevent.
+        #
+        # Signal only when there was WORK. A heartbeat on every 600s pass would
+        # bury the real events in noise, which is its own kind of dark.
+        try:
+            _resumed = int((_rec or {}).get("resumed") or 0)
+            _cleared = int((_rec or {}).get("reconciled") or 0)
+            _relaunched = int((_am_rec or {}).get("relaunched") or 0)
+            if _resumed or _cleared or _relaunched:
+                from .intel.engine_wiring import wire_success
+                wire_success(
+                    module="dd_reconcile",
+                    summary=(f"dd reconcile: resumed {_resumed} restart-killed DD(s), "
+                             f"cleared {_cleared} orphan(s), relaunched "
+                             f"{_relaunched} adverse-media follow-up(s)"),
+                    source_id="main:_dd_reconcile_once:R-F3288",
+                )
+        except Exception:  # noqa: BLE001 — reporting must never break the loop
+            pass
     except Exception as _e:  # noqa: BLE001 — best-effort, never crash the loop
         logger.debug("[R-F2300] dd reconcile error: %s", _e)
         try:  # R-F2568 §21d — surface reconcile failures to the brain (was dark)
