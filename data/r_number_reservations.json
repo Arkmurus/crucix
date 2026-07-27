@@ -27205,9 +27205,10 @@
       "title": "record hero photo licence provenance",
       "claimed_at": "2026-07-27T22:47:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "818c6185",
+      "notes": null,
+      "shipped_at": "2026-07-27T22:48:40Z"
     }
   ]
 }
