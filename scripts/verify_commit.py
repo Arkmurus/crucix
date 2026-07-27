@@ -103,6 +103,42 @@ def _registry_r_numbers() -> set[str]:
         return set()
 
 
+_REGISTRY_REL = "data/r_number_reservations.json"
+
+
+def _committed_registry_r_numbers() -> set[str]:
+    """R-F3284 - the registry AS COMMITTED, not as it sits on this disk.
+
+    Every other reader takes the working-tree file, which is exactly what makes
+    the drift invisible: a claim reserved here looks present here and is absent
+    everywhere else. Reading HEAD is the only way to answer the real question,
+    "is this claim durable yet?".
+    """
+    rc, out, _ = _run(["git", "show", f"HEAD:{_REGISTRY_REL}"])
+    if rc != 0:
+        return set()
+    try:
+        data = json.loads(out)
+        return {r["r_number"] for r in data.get("reservations", [])}
+    except Exception:
+        return set()
+
+
+def _uncommitted_registry_numbers() -> set[str]:
+    """Reservations that exist only in this working tree."""
+    return _registry_r_numbers() - _committed_registry_r_numbers()
+
+
+def _uncommitted_in_range(r_numbers: set[str]) -> set[str]:
+    """R-F3284 - of the R-numbers BEING PUSHED, which are not yet durable?
+
+    Scoped to the push on purpose. A blanket "the registry is dirty" failure
+    would fire whenever any peer had an in-flight reservation, and a gate that
+    fails on someone else's work teaches everyone to reach for --no-verify.
+    """
+    return {r for r in r_numbers if r in _uncommitted_registry_numbers()}
+
+
 def _test_files_present_for(r_number: str) -> list[Path]:
     """Return all test files that anchor a given R-number.
 
@@ -246,6 +282,33 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 3
+
+    # ── 3b. R-F3284 — the claim must be DURABLE, not merely present here ──
+    #
+    # A reservation lives in a git-tracked file that nothing forces anyone to
+    # commit, so it can sit in one working tree indefinitely. Measured on
+    # 2026-07-27: the committed copy stopped at R-F3277 while the working tree
+    # held R-F3281. Until it is committed the claim does not exist for anybody
+    # else, which is how R-F3187 lost R-F3133/3134/3135 (reserved, used in
+    # shipped code, then absent from the log), and why this very gate read stale
+    # inside a worktree and had to be diagnosed before it could be trusted.
+    #
+    # Push is the right moment: it is when the work becomes shared, and the first
+    # moment another agent can be handed the same number.
+    if r_numbers:
+        undurable = sorted(_uncommitted_in_range(set(r_numbers)))
+        if undurable:
+            print(
+                "\n[R-F559] FAIL — R-numbers reserved ONLY in this working tree:\n  "
+                + "\n  ".join(undurable)
+                + "\n\nThe reservation log is git-tracked and is the claim of record"
+                  " (CLAUDE.md section 2). Until it is committed another agent can be"
+                  " handed the same number, and a fresh clone cannot see the claim at"
+                  " all.\n\nCommit it with this push:\n  git add "
+                + _REGISTRY_REL,
+                file=sys.stderr,
+            )
+            return 4
 
     # ── 4. Run pytest ─────────────────────────────────────────────────
     if args.skip_tests:
