@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 3225,
+  "next_available": 3230,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -26307,6 +26307,51 @@
       "r_number": "R-F3224",
       "title": "truthful news monitor counters and source deduplication",
       "claimed_at": "2026-07-27T07:47:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3225",
+      "title": "remove irrelevant copy and add alert deletion",
+      "claimed_at": "2026-07-27T08:12:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3226",
+      "title": "evidence_brief fabricated sanctions CLEAN to verdict LLM",
+      "claimed_at": "2026-07-27T08:19:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3227",
+      "title": "unfork distinctive-token definitions",
+      "claimed_at": "2026-07-27T08:19:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3228",
+      "title": "route-aware entity-shape guard for registry subjects",
+      "claimed_at": "2026-07-27T08:19:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3229",
+      "title": "markdown export sanctions CLEAN fallback",
+      "claimed_at": "2026-07-27T08:19:47Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
