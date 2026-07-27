@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3306,
+  "next_available": 3312,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27109,6 +27109,60 @@
       "commit_sha": "b81afaab",
       "notes": null,
       "shipped_at": "2026-07-27T20:11:19Z"
+    },
+    {
+      "r_number": "R-F3306",
+      "title": "retain each article as it is analysed, not in a starved second pass",
+      "claimed_at": "2026-07-27T20:12:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3307",
+      "title": "rf1401 eval tests run the un-mocked framework evaluator over 100 items",
+      "claimed_at": "2026-07-27T20:27:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3308",
+      "title": "landing footer alignment",
+      "claimed_at": "2026-07-27T20:38:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3309",
+      "title": "design partners entry point on landing",
+      "claimed_at": "2026-07-27T20:38:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3310",
+      "title": "auth pages share one shell in the landing palette",
+      "claimed_at": "2026-07-27T20:38:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3311",
+      "title": "public pages bounce anonymous visitors to signin via API.get 401 autologout",
+      "claimed_at": "2026-07-27T20:44:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

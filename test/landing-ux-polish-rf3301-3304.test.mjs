@@ -24,6 +24,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
+import { baseRules, declarationsFor } from './helpers/css_match.mjs';
 
 const CSS = readFileSync(join('public', 'pelican', 'assets', 'css', 'style.css'), 'utf8');
 const INDEX = readFileSync(join('public', 'index.html'), 'utf8');
@@ -31,89 +32,9 @@ const MODEL_CARD = readFileSync(join('public', 'model-card.html'), 'utf8');
 const PRIVACY = readFileSync(join('public', 'about', 'privacy.html'), 'utf8');
 const TERMS = readFileSync(join('public', 'about', 'terms.html'), 'utf8');
 
-// ── a very small CSS matcher ────────────────────────────────────────────────
-// Deliberately narrow: this stylesheet uses only descendant combinators and
-// simple selectors, so that is all it handles. Anything it cannot parse is
-// dropped rather than guessed at, which can only make the guard stricter.
-
-/** Strip comments and every @media block, leaving the unconditional cascade. */
-function baseRules(css) {
-  const text = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  const out = [];
-  let i = 0;
-  while (i < text.length) {
-    const at = text.indexOf('@media', i);
-    const brace = text.indexOf('{', i);
-    if (brace === -1) break;
-    if (at !== -1 && at < brace) {
-      // skip the whole at-rule, matching braces
-      let depth = 0;
-      let j = text.indexOf('{', at);
-      if (j === -1) break;
-      for (; j < text.length; j += 1) {
-        if (text[j] === '{') depth += 1;
-        else if (text[j] === '}') { depth -= 1; if (depth === 0) { j += 1; break; } }
-      }
-      i = j;
-      continue;
-    }
-    const close = text.indexOf('}', brace);
-    if (close === -1) break;
-    out.push({
-      selectors: text.slice(i, brace).split(',').map((s) => s.trim()).filter(Boolean),
-      body: text.slice(brace + 1, close),
-    });
-    i = close + 1;
-  }
-  return out;
-}
-
-/** Does one simple selector (`div.a#b`) describe this element? */
-function matchesSimple(part, el) {
-  if (part.includes(':') || part.includes('[') || part.includes('>')) return null; // unsupported → caller drops the rule
-  const tag = (part.match(/^[a-zA-Z][\w-]*/) || [''])[0];
-  if (tag && tag !== el.tag) return false;
-  for (const cls of part.match(/\.[\w-]+/g) || []) {
-    if (!el.classes.includes(cls.slice(1))) return false;
-  }
-  for (const id of part.match(/#[\w-]+/g) || []) {
-    if (el.id !== id.slice(1)) return false;
-  }
-  return true;
-}
-
-/** el = the element; ancestors = outermost-first. */
-function declarationsFor(rules, el, ancestors) {
-  const props = new Map();
-  for (const rule of rules) {
-    let hit = false;
-    for (const selector of rule.selectors) {
-      const parts = selector.split(/\s+/).filter(Boolean);
-      const own = matchesSimple(parts[parts.length - 1], el);
-      if (own !== true) continue;
-      // walk the ancestor requirements right-to-left
-      let cursor = ancestors.length - 1;
-      let ok = true;
-      for (let p = parts.length - 2; p >= 0; p -= 1) {
-        let found = false;
-        while (cursor >= 0) {
-          const m = matchesSimple(parts[p], ancestors[cursor]);
-          cursor -= 1;
-          if (m === true) { found = true; break; }
-        }
-        if (!found) { ok = false; break; }
-      }
-      if (ok) { hit = true; break; }
-    }
-    if (!hit) continue;
-    for (const decl of rule.body.split(';')) {
-      const idx = decl.indexOf(':');
-      if (idx < 1) continue;
-      props.set(decl.slice(0, idx).trim().toLowerCase(), decl.slice(idx + 1).trim());
-    }
-  }
-  return props;
-}
+// The matcher moved to test/helpers/css_match.mjs in R-F3308 so the auth-page
+// guard can reuse it instead of copying it. The instrument check at the bottom
+// of this file still verifies it against a known-broken stylesheet.
 
 // The real chain the form sits in, read off public/index.html.
 const FORM_ANCESTORS = [

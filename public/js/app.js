@@ -40,10 +40,30 @@ const API = {
     return keys.every(k => errEnvelope.has(k));
   },
 
+  // R-F3311 — a 401 is only a session EXPIRY if there was a session. When no
+  // token was ever sent, 401 just means "anonymous", and treating it as expiry
+  // makes Auth.logout() redirect to /signin.html.
+  //
+  // That is not theoretical. model-card.html is public by design and says so in
+  // a comment, but it calls Sidebar.init() -> Auth.me() -> API.get('/api/auth/me'),
+  // which 401s for a logged-out visitor and bounced them to the sign-in page.
+  // The landing page's "Read the model card" button therefore led to a login
+  // wall for every anonymous prospect: the exact reader the model card is FOR.
+  // The page opting out of Auth.requireAuth() did nothing, because the shell it
+  // loads reached auth through a side door.
+  //
+  // Kicking a user who was never logged in is wrong on every page, so the guard
+  // lives here rather than in a per-page workaround. Callers still get null, and
+  // a real expired token still logs out exactly as before.
+  _handle401() {
+    if (this.token()) { Auth.logout(); return; }
+    // anonymous: leave the visitor where they are
+  },
+
   async get(path) {
     try {
       const r = await fetch(this.BASE + path, { headers: this.headers() });
-      if (r.status === 401) { Auth.logout(); return null; }
+      if (r.status === 401) { this._handle401(); return null; }
       const data = await r.json();
       // Network OK but body is an error envelope — surface as null.
       if (this._isErrorEnvelope(data)) {
@@ -108,7 +128,7 @@ const API = {
         headers: this.headers(),
         body: JSON.stringify(body)
       });
-      if (r.status === 401) { Auth.logout(); return { ok: false, data: {} }; }
+      if (r.status === 401) { this._handle401(); return { ok: false, data: {} }; }
       let data = {};
       try { data = await r.json(); } catch { data = {}; }
       return { ok: r.ok, data };
@@ -124,7 +144,7 @@ const API = {
         method: 'DELETE',
         headers: this.headers()
       });
-      if (r.status === 401) { Auth.logout(); return { ok: false, data: {} }; }
+      if (r.status === 401) { this._handle401(); return { ok: false, data: {} }; }
       let data = {};
       try { data = await r.json(); } catch { data = {}; }
       return { ok: r.ok, data };
@@ -153,6 +173,10 @@ const Auth = {
 
   async me() {
     if (this.user) return this.user;
+    // R-F3311 — no token means no user. Asking the server anyway produced a 401
+    // on every public page load, which is what tripped the auto-logout above.
+    // Callers already handle a null user (the shell renders anonymous chrome).
+    if (!this.isLoggedIn()) return null;
     const cached = localStorage.getItem('crucix_user');
     if (cached) { this.user = JSON.parse(cached); return this.user; }
     const data = await API.get('/api/auth/me');

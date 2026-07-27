@@ -7,39 +7,32 @@
   <meta name="description" content="Join the ARIA Intelligence design-partner program. Help shape a genuinely honest security & defence intelligence platform, with free access during the pilot.">
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/aria.css?v=15">
+  <!-- R-F3310 — auth colour lives in ONE file now, in the landing palette. -->
+  <link rel="stylesheet" href="css/auth.css?v=1">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
-    body { background: var(--sc-bg); margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: var(--sc-text); }
 
     .auth-page { display: flex; min-height: 100vh; }
 
     .auth-left {
-      width: 48%; min-height: 100vh; background: linear-gradient(160deg, #faf7f1, #f1ecfb);
+      width: 48%; min-height: 100vh;
       display: none; align-items: center; justify-content: center;
       position: relative; overflow: hidden; padding: 48px;
     }
     @media(min-width:900px){ .auth-left { display: flex; } }
-    .auth-left::before {
-      content: ''; position: absolute; inset: 0;
-      background: linear-gradient(145deg, rgba(145,59,255,.08) 0%, rgba(0,102,255,.05) 100%);
-    }
+    .auth-left::before { content: ''; position: absolute; inset: 0; }
     .auth-glow-1 { position: absolute; width: 400px; height: 400px; border-radius: 50%;
-      background: radial-gradient(circle, rgba(145,59,255,.12) 0%, transparent 70%); top: -80px; right: -80px; pointer-events: none; }
+      top: -80px; right: -80px; pointer-events: none; }
     .auth-glow-2 { position: absolute; width: 260px; height: 260px; border-radius: 50%;
-      background: radial-gradient(circle, rgba(0,102,255,.10) 0%, transparent 70%); bottom: 40px; left: 20px; pointer-events: none; }
+      bottom: 40px; left: 20px; pointer-events: none; }
     .auth-left-content { position: relative; z-index: 1; max-width: 440px; }
     .auth-eyebrow { display:inline-flex; align-items:center; gap:8px; font-size:12px; font-weight:600; letter-spacing:.04em;
-      text-transform:uppercase; color:#7b3fe4; background:rgba(145,59,255,.10); padding:6px 12px; border-radius:999px; margin-bottom:20px; }
+      text-transform:uppercase; padding:6px 12px; border-radius:999px; margin-bottom:20px; }
     .auth-tagline { font-size: 34px; font-weight: 700; line-height: 1.25; color: var(--sc-heading); margin-bottom: 16px; }
-    .auth-tagline span { background: linear-gradient(90deg, #913BFF, #0066FF);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
     .auth-desc { font-size: 14px; color: var(--sc-text); line-height: 1.75; margin-bottom: 28px; }
     .auth-features { display: flex; flex-direction: column; gap: 13px; }
     .auth-feature { display: flex; align-items: flex-start; gap: 11px; font-size: 13.5px; color: var(--sc-text); line-height:1.5; }
-    .auth-feature-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 6px;
-      background: #913BFF; box-shadow: 0 0 8px rgba(145,59,255,.4); }
-    .auth-feature-dot.blue  { background: #0066FF; box-shadow: 0 0 8px rgba(0,102,255,.4); }
-    .auth-feature-dot.green { background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,.4); }
+    .auth-feature-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 6px; }
 
     .auth-right { flex: 1; display: flex; align-items: center; justify-content: center; padding: 48px 5%; min-height: 100vh; }
     .auth-form-wrap { width: 100%; max-width: 440px; }
@@ -52,7 +45,7 @@
     .auth-link { color: var(--sc-prime); font-size: 13px; font-weight: 500; text-decoration: none; }
     /* success state */
     .dp-done { text-align:center; padding: 12px 0; }
-    .dp-done-mark { width:64px;height:64px;border-radius:16px;background:var(--sc-prime-soft,#f1ecfb);
+    .dp-done-mark { width:64px;height:64px;border-radius:16px;background:var(--sc-prime-soft);
       display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:32px; }
   </style>
 </head>
@@ -125,7 +118,7 @@
   </div>
 </div>
 
-<script src="js/app.js?v=8"></script>
+<script src="js/app.js?v=9"></script>
 <script>
 (function(){
   'use strict';

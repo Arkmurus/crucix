@@ -2004,6 +2004,24 @@ body {
 	font-weight: 600 !important;
 }
 
+/* R-F3308 — footer alignment. The three columns sit in a `.row.align-items-center`,
+   so they are centred on their own box heights, and every box carried a different
+   leftover margin: Bootstrap's reboot gives `ul` a 1rem bottom margin and `h6` a
+   0.5rem one, and `.footer-logo` adds 15px. That put the brand, the copyright and
+   the links on three different baselines (0, -4px and -8px off centre). Bootstrap
+   also never zeroes the UA's `padding-inline-start: 40px` on a list, so on mobile,
+   where the footer is centred, the link row rendered 20px right of true centre.
+   Zeroing the inherited spacing is the fix; the deliberate spacing (the logo's
+   15px gap when the columns stack) is kept below. */
+.footer-sm ul {
+	padding-left: 0;
+	margin-bottom: 0;
+}
+
+.footer-sm h6 {
+	margin-bottom: 0;
+}
+
 @media only screen and (min-width: 767px) {
 	.hero h1 { font-size: 42px; }
 	.yd-reviews .intro h2,

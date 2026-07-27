@@ -6,32 +6,28 @@
   <title>Create Account | ARIA Intelligence</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/aria.css?v=15">
+  <!-- R-F3310 — auth colour lives in ONE file now, in the landing palette.
+       Geometry (incl. the R-F2335 short-viewport rules below) stays here. -->
+  <link rel="stylesheet" href="css/auth.css?v=1">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
-    body { background: var(--sc-bg); margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: var(--sc-text); }
     .auth-page { display: flex; min-height: 100vh; }
     .auth-left {
-      width: 45%; min-height: 100vh; background: linear-gradient(160deg, #faf7f1, #f1ecfb);
+      width: 45%; min-height: 100vh;
       display: none; align-items: center; justify-content: center;
       position: relative; overflow: hidden; padding: 48px;
     }
     @media(min-width:900px){ .auth-left { display: flex; } }
-    .auth-left::before {
-      content: ''; position: absolute; inset: 0;
-      background: linear-gradient(145deg, rgba(145,59,255,.08), rgba(0,102,255,.05));
-    }
+    .auth-left::before { content: ''; position: absolute; inset: 0; }
     .auth-glow { position: absolute; border-radius: 50%; pointer-events: none; }
-    .auth-glow-1 { width:380px;height:380px;background:radial-gradient(circle,rgba(145,59,255,.12) 0%,transparent 70%);top:-60px;right:-60px; }
-    .auth-glow-2 { width:240px;height:240px;background:radial-gradient(circle,rgba(0,102,255,.10) 0%,transparent 70%);bottom:40px;left:20px; }
+    .auth-glow-1 { width:380px;height:380px;top:-60px;right:-60px; }
+    .auth-glow-2 { width:240px;height:240px;bottom:40px;left:20px; }
     .auth-left-content { position:relative;z-index:1;max-width:380px; }
     .auth-tagline { font-size:32px;font-weight:700;line-height:1.25;color:var(--sc-heading);margin-bottom:16px; }
-    .auth-tagline span { background:linear-gradient(90deg,#913BFF,#0066FF);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text; }
     .auth-desc { font-size:14px;color:var(--sc-text);line-height:1.75;margin-bottom:28px; }
     .auth-features { display:flex;flex-direction:column;gap:10px; }
     .auth-feature { display:flex;align-items:center;gap:10px;font-size:13px;color:var(--sc-text); }
-    .auth-feature-dot { width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#913BFF;box-shadow:0 0 8px rgba(145,59,255,.4); }
-    .auth-feature-dot.blue { background:#0066FF;box-shadow:0 0 8px rgba(0,102,255,.4); }
-    .auth-feature-dot.green { background:#22c55e;box-shadow:0 0 8px rgba(34,197,94,.4); }
+    .auth-feature-dot { width:8px;height:8px;border-radius:50%;flex-shrink:0; }
     /* R-F2335: the form must never be clipped off-screen. align-items:center on
        a viewport-tall flex column pushed the top (back-link + title) above the
        fold with no way to reach it on short monitors. `margin:auto` on the child
@@ -50,7 +46,7 @@
     .w-full { width:100% !important;justify-content:center !important; }
     .pending-wrap { text-align:center; }
     .pending-icon { width:70px;height:70px;border-radius:18px;background:var(--sc-prime-soft);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:34px; }
-    .pending-checklist { background:var(--sc-prime-soft);border:1px solid rgba(124,58,237,.25);border-radius:12px;padding:16px 20px;margin-bottom:22px;text-align:left; }
+    .pending-checklist { background:var(--sc-prime-soft);border:1px solid;border-radius:12px;padding:16px 20px;margin-bottom:22px;text-align:left; }
     .pending-check { display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--sc-text);margin-bottom:10px; }
     .pending-check:last-child { margin-bottom:0; }
     .pending-check .chk { color:#15803d;font-size:16px;flex-shrink:0;margin-top:1px; }
@@ -58,7 +54,7 @@
     /* R-F48b: 3-screen registration */
     .progress-dots { display:flex;justify-content:center;gap:6px;margin-bottom:22px; }
     .progress-dot { width:8px;height:8px;border-radius:50%;background:var(--sc-border-strong);transition:all .2s; }
-    .progress-dot.active { background:linear-gradient(135deg,#913BFF,#0066FF);box-shadow:0 0 8px rgba(145,59,255,.4); }
+    /* .progress-dot.active is painted by css/auth.css */
     .progress-dot.done { background:#16a34a; }
 
     .row { display:flex;gap:10px; }
@@ -68,13 +64,13 @@
       border:1px solid var(--sc-border-strong);color:var(--sc-heading);font-size:14px;font-family:inherit;
       cursor:pointer;outline:none;transition:border-color .15s, box-shadow .15s;
     }
-    select.sc-input:focus, .sc-field select:focus { border-color:var(--sc-prime);box-shadow:0 0 0 3px rgba(124,58,237,.15); }
+    select.sc-input:focus, .sc-field select:focus { border-color:var(--sc-prime); }
     .sc-field textarea {
       width:100%;padding:11px 14px;border-radius:8px;background:#fff;
       border:1px solid var(--sc-border-strong);color:var(--sc-heading);font-size:14px;font-family:inherit;
       resize:vertical;min-height:70px;outline:none;transition:border-color .15s, box-shadow .15s;
     }
-    .sc-field textarea:focus { border-color:var(--sc-prime);box-shadow:0 0 0 3px rgba(124,58,237,.15); }
+    .sc-field textarea:focus { border-color:var(--sc-prime); }
     .chip-grid { display:flex;flex-wrap:wrap;gap:8px;margin-top:6px; }
     .chip-toggle {
       display:inline-flex;align-items:center;gap:4px;padding:6px 12px;
@@ -374,7 +370,7 @@
   </div>
 </div>
 
-<script src="js/app.js?v=8"></script>
+<script src="js/app.js?v=9"></script>
 <script>
 (function() {
   'use strict';

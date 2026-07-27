@@ -1,0 +1,95 @@
+/* ARIA auth shell palette — R-F3310 (2026-07-27)
+ *
+ * The five pages that use the split auth layout (signin, signup, partners,
+ * forgot-password, recovery) each carried their own copy of the palette:
+ * `#913BFF`/`#0066FF` gradients, violet glows, violet focus rings, a warm cream
+ * canvas. Five copies of a colour scheme drift, and they had: the tagline
+ * gradient, the glow radii and the panel wash were all subtly different per
+ * page, and none of them matched the landing page a visitor arrives from.
+ *
+ * This file is the single source for auth colour. Geometry stays on each page,
+ * because signup's is load-bearing (R-F2335 keeps a tall form reachable) and
+ * normalising it would be a layout change wearing a colour change's clothes.
+ *
+ * The mechanism is token re-binding, not overrides. aria.css builds its
+ * components from `--sc-prime` and friends, so rebinding those on `.auth-page`
+ * repaints every `.sc-btn`, `.sc-field` and `.sc-badge` inside the auth shell
+ * in the landing palette without a single `!important` and without touching the
+ * authenticated app, which is outside `.auth-page` and keeps the product violet.
+ *
+ * Palette is the landing's: #4285f4 accent, #364655 headings, white canvas.
+ * Load AFTER aria.css and BEFORE the page's own <style>.
+ */
+
+.auth-page {
+  --sc-prime:        #4285f4;   /* landing accent */
+  --sc-prime-dark:   #2f6fdd;   /* hover/pressed */
+  --sc-prime-soft:   #eef4ff;   /* soft wash: active rows, callouts */
+  --sc-blue:         #2f6fdd;
+  --sc-heading:      #364655;   /* landing heading slate */
+  --sc-text:         #56636f;
+  --sc-muted:        #8b96a1;
+  --sc-border:       #eef1f6;
+  --sc-border-strong:#e1e6ee;
+  --sc-card:         #ffffff;
+  --sc-bg:           #ffffff;
+
+  background: #ffffff;
+}
+
+body {
+  background: #ffffff;
+  margin: 0;
+  font-family: 'Gordita', system-ui, -apple-system, sans-serif;
+  color: #56636f;
+}
+
+/* ── the illustrative left panel ─────────────────────────────────────── */
+
+.auth-left {
+  background: linear-gradient(160deg, #ffffff 0%, #eef4ff 100%);
+}
+
+.auth-left::before {
+  background: linear-gradient(145deg, rgba(66, 133, 244, 0.08) 0%, rgba(47, 111, 221, 0.05) 100%);
+}
+
+.auth-glow-1 { background: radial-gradient(circle, rgba(66, 133, 244, 0.14) 0%, transparent 70%); }
+.auth-glow-2 { background: radial-gradient(circle, rgba(47, 111, 221, 0.10) 0%, transparent 70%); }
+
+.auth-tagline span {
+  background: linear-gradient(90deg, #4285f4, #2f6fdd);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.auth-eyebrow {
+  color: #2f6fdd;
+  background: rgba(66, 133, 244, 0.10);
+}
+
+.auth-feature-dot        { background: #4285f4; box-shadow: 0 0 8px rgba(66, 133, 244, 0.40); }
+.auth-feature-dot.blue   { background: #2f6fdd; box-shadow: 0 0 8px rgba(47, 111, 221, 0.40); }
+.auth-feature-dot.green  { background: #16a34a; box-shadow: 0 0 8px rgba(22, 163, 74, 0.35); }
+
+/* ── aria.css components that hardcode the violet rather than reading a
+      token. Scoped to .auth-page so the authenticated app is untouched. ── */
+
+.auth-page .sc-btn-primary        { box-shadow: 0 1px 2px rgba(66, 133, 244, 0.25); }
+.auth-page .sc-btn-primary:hover  { box-shadow: 0 4px 14px rgba(66, 133, 244, 0.30); }
+
+.auth-page .sc-field input:focus,
+.auth-page .sc-field select:focus,
+.auth-page .sc-field textarea:focus,
+.auth-page select.sc-input:focus {
+  box-shadow: 0 0 0 3px rgba(66, 133, 244, 0.15);
+}
+
+/* signup's step indicator and its approval checklist */
+.auth-page .progress-dot.active {
+  background: linear-gradient(135deg, #4285f4, #2f6fdd);
+  box-shadow: 0 0 8px rgba(66, 133, 244, 0.40);
+}
+
+.auth-page .pending-checklist { border-color: rgba(66, 133, 244, 0.25); }
