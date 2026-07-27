@@ -318,18 +318,18 @@ const Sidebar = {
       <nav class="rail-nav">
         ${link('aria',          '/aria.html',            'bi-stars',         'ARIA Chat', 'aria-link')}
         ${link('brief',         '/dashboard.html',       'bi-broadcast-pin', 'Intelligence Brief')}
+        ${link('dd-reports',    '/dd-reports.html',      'bi-folder2-open',  'DD Reports')}
+        ${link('vetting',       '/vetting.html',         'bi-person-check',  'Vetting')}
+        ${link('watchlist',     '/watchlist.html',       'bi-eye',           'Watchlist')}
         ${link('news',          '/news.html',            'bi-newspaper',     'News Monitor')}
         ${link('opportunities', '/opportunities.html',   'bi-briefcase',     'Opportunities')}
         <div data-gated="/bd-intelligence.html" style="display:none">${link('bd',            '/bd-intelligence.html', 'bi-graph-up',      'BD Intelligence')}</div>
         ${link('network',       '/network.html',         'bi-people',        'Network')}
-        ${link('dd-reports',    '/dd-reports.html',      'bi-folder2-open',  'DD Reports')}
-        ${link('watchlist',     '/watchlist.html',       'bi-eye',           'Watchlist')}
         <div data-gated="/vls-chain.html" style="display:none">${link('vls-chain',     '/vls-chain.html',       'bi-shield-check',  'VLS Chain')}</div>
         <div data-gated="/sources.html" style="display:none">${link('sources',    '/sources.html',    'bi-reception-4', 'Source Health')}</div>
         <div data-gated="/vault.html" style="display:none">${link('vault',      '/vault.html',      'bi-key',         'Signup Vault')}</div>
         <div data-gated="/aria-brain" style="display:none">${link('brain',      '/aria-brain',      'bi-heart-fill',  'ARIA Brain')}</div>
 
-        ${link('vetting',    '/vetting.html',    'bi-person-check',  'Vetting')}
         ${link('model-card', '/model-card.html', 'bi-file-text',   'Model Card')}
         <div data-gated="/leads.html" style="display:none">${link('leads', '/leads.html', 'bi-inbox', 'Inbound Leads')}</div>
         <div data-gated="/design-partners.html" style="display:none">${link('design-partners', '/design-partners.html', '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4"/><path d="m21 3 1 11h-2"/><path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3"/><path d="M3 4h8"/></svg>', 'Design Partners')}</div>
