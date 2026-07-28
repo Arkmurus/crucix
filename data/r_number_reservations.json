@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3367,
+  "next_available": 3368,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27716,6 +27716,16 @@
       "commit_sha": "638b8fa1",
       "notes": null,
       "shipped_at": "2026-07-28T20:43:30Z"
+    },
+    {
+      "r_number": "R-F3367",
+      "title": "multi-hop tool traces where each hop's arguments must be derived from the previous tool output",
+      "claimed_at": "2026-07-28T20:53:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9979cfed",
+      "notes": null,
+      "shipped_at": "2026-07-28T20:59:58Z"
     }
   ]
 }
