@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3384,
+  "next_available": 3387,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27881,6 +27881,33 @@
       "r_number": "R-F3383",
       "title": "corpus ingest has no personal-data gate: PII enters shared RAG unchecked",
       "claimed_at": "2026-07-28T22:46:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3384",
+      "title": "re-ingesting a document duplicates chunks and inflates apparent corroboration",
+      "claimed_at": "2026-07-28T22:52:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3385",
+      "title": "record why per-function wiring analysis is the WRONG granularity (measured)",
+      "claimed_at": "2026-07-28T22:56:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3386",
+      "title": "wire the EE/NO registry adapters' success branch (backlog tranche 1)",
+      "claimed_at": "2026-07-28T22:57:57Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

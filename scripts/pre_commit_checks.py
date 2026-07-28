@@ -297,6 +297,31 @@ def check_wiring_present(files: list[Path]) -> list[str]:
         # Two definitions of "wired" in one repo is the two-writers hazard that
         # has bitten here before, so the alternates are spelled out once, here,
         # next to the rule they enforce.
+        # R-F3385 — WHY THIS CHECK IS PER-MODULE AND NOT PER-FUNCTION.
+        #
+        # The obvious criticism of a textual, per-module check is that a module
+        # decorating SOME entry points and leaving others bare reads as fully
+        # wired. That is true. It was MEASURED before being "fixed", and the fix
+        # would have been worse than the limit:
+        #
+        #   every public async entry point in intel/     1053, of which 562 (53%)
+        #                                                unwired across 157 modules
+        #   narrowed to those with a real failure mode    725, of which 342 (47%)
+        #   (own try/except or external I/O)              unwired across 121 modules
+        #
+        # versus 54 modules from this check. The per-function lists are dominated
+        # by accessors and bookkeeping — absorption_quarantine.list_pending,
+        # api_query_monitor.record_query, audit_log.record — which have no engine
+        # outcome to report. Wiring them would flood the ledgers, which is exactly
+        # why grounding_reward is exempt (R-F2033), and a gate that fires on half
+        # of all functions gets muted, after which it protects nothing.
+        #
+        # §21a is about ENGINE paths, not every callable. Per-module is the
+        # honest granularity for a textual gate; per-function correctness is the
+        # BACKLOG's job (docs/wiring_backlog_2026_07_28.md), decided per module by
+        # someone who knows which entry points are engines. Do not "close" this
+        # limit by widening the gate — it was tried, measured, and rejected.
+        #
         # R-F3382 — @wired is the PREFERRED mechanism and covers BOTH branches.
         # engine_wiring.wired()'s own docstring calls it "the PREFERRED way to
         # wire a module ... guarantees both paths are covered", and the body does

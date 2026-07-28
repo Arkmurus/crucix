@@ -1,41 +1,50 @@
-# §21 brain-wiring backlog — triaged 2026-07-28 (R-F3381, corrected by R-F3382)
+# §21 brain-wiring backlog — triaged 2026-07-28
 
-**56 intel modules** genuinely flagged by `scripts/ci/wiring_audit.py`.
-CI blocks on this by operator decision: honest red until triaged.
+**54 intel modules** flagged by `scripts/ci/wiring_audit.py`. CI blocks on this by
+operator decision: honest red until triaged.
 
-## How the number moved, and why each step was legitimate
+## How the number moved
 
 | stage | modules | what changed |
 |---|---|---|
 | original | 72 | checker matched only the literals `wire_success(` / `wire_failure(` |
-| R-F3381 | 68 | taught it the FAILURE-side §21a sinks (`@fail_wire`, `record_gap`, `brain_hook.absorb`, …) |
-| R-F3382 | 56 | taught it `@wired`, the PREFERRED decorator that covers BOTH branches |
+| R-F3381 | 68 | taught it the FAILURE-side §21a sinks (`@fail_wire`, `record_gap`, …) |
+| R-F3382 | 56 | taught it `@wired`, the PREFERRED decorator covering BOTH branches |
+| R-F3386 | 54 | wired the EE/NO registry adapters for real (tranche 1) |
 
-**Two clamps were attempted and reverted along the way** — recorded so they are not re-attempted:
+Three corrections were attempted and reverted or rejected on measurement — recorded
+so they are not re-attempted:
 
 1. Clearing the half-wired categories on a FAILURE-side sink (72 → 52). `@fail_wire`
-   and `record_gap` say nothing about the SUCCESS branch, which is exactly what
-   those categories check.
-2. Listing the 11 `@wired` modules as real violations (the first version of this
-   file). They are correctly wired the preferred way; the detector could not see it.
+   and `record_gap` say nothing about the SUCCESS branch.
+2. Listing the 11 `@wired` modules as violations (R-F3381's first backlog). They were
+   correctly wired; the detector could not see it.
+3. **Making the gate per-function** (R-F3385). Measured: 562 unwired entry points
+   across 157 modules, or 342/121 when narrowed to those with a real failure mode —
+   dominated by accessors (`list_pending`, `record_query`, `audit_log.record`) that
+   have no engine outcome. It would flood the ledgers and get the gate muted. §21a is
+   about ENGINE paths; per-module is the honest granularity for a textual gate, and
+   per-function correctness is THIS document's job, decided per module.
 
-**Known limit, stated not implied:** this is textual. A module decorating SOME entry
-points with `@wired` and leaving others bare reads as fully wired. Closing that needs
-per-function analysis — the backlog's job, not the gate's.
+## How to work it
+
+Wire with `@wired` where exceptions propagate. Where a module deliberately swallows
+(so an outage cannot crash a DD), add an explicit `wire_success` on the path that
+really got data — carrying a COUNT, so "answered but empty" is distinguishable from
+"errored" and from "nobody asked". R-F3386 does exactly this for `ariregister` and
+`brreg` and is the worked example.
 
 ## Buckets
 
-### ENGINE (45)
+### ENGINE (43)
 
-Real §21 violations — error paths and/or network I/O. **Wire these**, preferably with `@wired`.
+Real §21 violations — error paths and/or network I/O. **Wire these.**
 
 - `intel/sources/ais_gap_detector.py` — no wiring at all (fns=3, try=1, net=n)
-- `intel/ariregister.py` — failure wired, SUCCESS missing (fns=3, try=1, net=Y)
 - `intel/audit_trail.py` — no wiring at all (fns=6, try=4, net=n)
 - `intel/knowledge_packs/balkans_seed.py` — success wired, FAILURE missing (fns=2, try=7, net=n)
 - `intel/behavioural_anomaly.py` — failure wired, SUCCESS missing (fns=12, try=5, net=n)
 - `intel/brain_hook_bg.py` — failure wired, SUCCESS missing (fns=2, try=8, net=n)
-- `intel/brreg.py` — failure wired, SUCCESS missing (fns=8, try=1, net=Y)
 - `intel/calibration_auto_tune.py` — failure wired, SUCCESS missing (fns=3, try=7, net=n)
 - `intel/circuit_breaker.py` — success wired, FAILURE missing (fns=10, try=2, net=n)
 - `intel/citation_verifier.py` — no wiring at all (fns=3, try=1, net=n)
@@ -77,8 +86,8 @@ Real §21 violations — error paths and/or network I/O. **Wire these**, prefera
 
 ### PURE-HELPER (11)
 
-No network, no try/except. **Exemption candidates**, each needing its own justification like
-`grounding_reward` (R-F2033: pure, deterministic, no success/failure branch). Do NOT bulk-exempt.
+No network, no try/except. **Exemption candidates**, each needing its own justification
+like `grounding_reward` (R-F2033). Do NOT bulk-exempt.
 
 - `intel/country_sanctions.py` — failure wired, SUCCESS missing (fns=3, try=0, net=n)
 - `intel/dd_independence_eval.py` — no wiring at all (fns=11, try=0, net=n)

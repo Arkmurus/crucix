@@ -41,7 +41,7 @@ from typing import Any
 
 import httpx
 
-from .engine_wiring import wire_failure
+from .engine_wiring import wire_failure, wire_success
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +165,14 @@ async def search_company(name: str, *, limit: int = 5) -> list[dict[str, Any]]:
     units = ((payload.get("_embedded") or {}).get("enheter")) or []
     out = [_normalise(u) for u in units if isinstance(u, dict) and u.get("navn")]
     logger.info("[brreg] NO registry search '%s' -> %d record(s)", name[:60], len(out))
+    # R-F3386 — see ariregister: the success branch carries the record count so a
+    # registry that answers but has gone empty is distinguishable from one that
+    # errors, and from one nobody queried.
+    wire_success(
+        module="brreg",
+        summary=f"NO registry search returned {len(out)} record(s)",
+        source_id="brreg:search_company",
+    )
     return out
 
 

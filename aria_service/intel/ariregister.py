@@ -39,7 +39,7 @@ from typing import Any
 
 import httpx
 
-from .engine_wiring import wire_failure
+from .engine_wiring import wire_failure, wire_success
 
 logger = logging.getLogger(__name__)
 
@@ -126,4 +126,14 @@ async def search_company(name: str, *, limit: int = 5) -> list[dict[str, Any]]:
     rows = payload.get("data") or []
     out = [r for r in (_normalise(x) for x in rows if isinstance(x, dict)) if r]
     logger.info("[ariregister] EE registry search '%s' -> %d record(s)", name[:60], len(out))
+    # R-F3386 — §21a: the SUCCESS branch must reach the brain too. Failure-only
+    # wiring cannot distinguish "the EE registry errored" from "the EE registry
+    # answered and returned nothing", and the second is what a source going dark
+    # actually looks like. The record count is carried so a collapse to zero is
+    # visible rather than inferred.
+    wire_success(
+        module="ariregister",
+        summary=f"EE registry search returned {len(out)} record(s)",
+        source_id="ariregister:search_company",
+    )
     return out[:limit]
