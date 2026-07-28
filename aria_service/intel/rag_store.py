@@ -2110,47 +2110,77 @@ async def purge_by_keywords(
     counts = {"scanned_docs": 0, "scanned_facts": 0,
               "removed_docs": 0, "removed_facts": 0}
 
-    def _scan_collection(coll, label: str) -> tuple[int, list[str]]:
+    # R-F3389 — PAGE through the collection. The previous version issued one
+    # unbounded `coll.get(include=[...])`, materialising every row in a single
+    # query. On documents (~21k) that survived; on facts (~32k) it exceeded
+    # SQLite's variable limit and threw "too many SQL variables". The except
+    # logged a warning and returned (0, []), so the failure degraded to
+    # "nothing matched" — indistinguishable from "nothing to remove". The purge
+    # that exists to remove fabricated content from ARIA's memory silently did
+    # nothing to one of its two collections, while reporting success.
+    #
+    # Pagination, not a bigger cap: raising a limit only moves the cliff.
+    _PAGE = 500
+
+    def _scan_collection(coll, label: str) -> tuple[int, list[str], str]:
         if coll is None:
-            return 0, []
-        # `get()` with no ids returns ALL entries. Include documents +
-        # metadatas + ids so we can filter and report.
-        try:
-            full = coll.get(include=["documents", "metadatas"])
-        except Exception as e:
-            logger.warning("rag_store.purge_by_keywords: %s.get failed: %s", label, e)
-            return 0, []
-        ids = full.get("ids") or []
-        docs = full.get("documents") or []
-        metas = full.get("metadatas") or []
-        n = len(ids)
+            return 0, [], ""
+        ids_all: list[str] = []
+        docs_all: list[str] = []
+        metas_all: list[dict] = []
+        offset = 0
+        while True:
+            try:
+                page = coll.get(
+                    include=["documents", "metadatas"], limit=_PAGE, offset=offset
+                )
+            except Exception as e:
+                # Report it. "removed 0" must never be ambiguous between
+                # "nothing matched" and "I could not look".
+                logger.warning(
+                    "rag_store.purge_by_keywords: %s.get failed at offset %d: %s",
+                    label, offset, e,
+                )
+                return len(ids_all), [], f"{label}: {str(e)[:160]}"
+            p_ids = page.get("ids") or []
+            ids_all.extend(p_ids)
+            docs_all.extend(page.get("documents") or [])
+            metas_all.extend(page.get("metadatas") or [])
+            if len(p_ids) < _PAGE:
+                break
+            offset += _PAGE
+
+        n = len(ids_all)
         to_delete: list[str] = []
-        for i, doc_id in enumerate(ids):
-            text_lower = (docs[i] if i < len(docs) else "") or ""
+        for i, doc_id in enumerate(ids_all):
+            text_lower = (docs_all[i] if i < len(docs_all) else "") or ""
             text_lower = text_lower.lower()
             hit = next((nd for nd in needles if nd in text_lower), None)
             if hit is None:
                 continue
             to_delete.append(doc_id)
             if len(removed_samples) < 25:
-                m = metas[i] if i < len(metas) else {}
+                m = metas_all[i] if i < len(metas_all) else {}
                 removed_samples.append({
                     "id": doc_id,
                     "collection": label,
                     "matched_keyword": hit,
                     "source": (m.get("source", "") or "")[:120] if isinstance(m, dict) else "",
                     "title": (m.get("title", "") or "")[:120] if isinstance(m, dict) else "",
-                    "preview": (docs[i] if i < len(docs) else "")[:160],
+                    "preview": (docs_all[i] if i < len(docs_all) else "")[:160],
                 })
-        return n, to_delete
+        return n, to_delete, ""
 
     try:
-        scanned_docs, doc_ids_to_del = await _aio.to_thread(
+        scanned_docs, doc_ids_to_del, doc_err = await _aio.to_thread(
             _scan_collection, _documents_collection, "documents"
         )
-        scanned_facts, fact_ids_to_del = await _aio.to_thread(
+        scanned_facts, fact_ids_to_del, fact_err = await _aio.to_thread(
             _scan_collection, _facts_collection, "facts"
         )
+        # R-F3389 — surface any collection we could not read, so a caller can
+        # tell an empty result from a blind one.
+        scan_errors = [e for e in (doc_err, fact_err) if e]
         counts["scanned_docs"] = scanned_docs
         counts["scanned_facts"] = scanned_facts
         counts["removed_docs"] = len(doc_ids_to_del)
@@ -2182,6 +2212,8 @@ async def purge_by_keywords(
         "dry_run": dry_run,
         "keywords_used": needles,
         "removed_samples": removed_samples,
+        # R-F3389 — empty means "nothing matched" ONLY when this is empty too.
+        "scan_errors": scan_errors,
     }
 
 
