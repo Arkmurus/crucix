@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3316,
+  "next_available": 3325,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27209,6 +27209,94 @@
       "commit_sha": "818c6185",
       "notes": null,
       "shipped_at": "2026-07-27T22:48:40Z"
+    },
+    {
+      "r_number": "R-F3316",
+      "title": "a hard-cancelled DD layer must name the stage that consumed its budget",
+      "claimed_at": "2026-07-28T00:34:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9ae9ac28",
+      "notes": null,
+      "shipped_at": "2026-07-28T00:47:44Z"
+    },
+    {
+      "r_number": "R-F3317",
+      "title": "one slow fact-store write blows the whole deep-research budget",
+      "claimed_at": "2026-07-28T01:13:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f3dee483",
+      "notes": null,
+      "shipped_at": "2026-07-28T01:29:58Z"
+    },
+    {
+      "r_number": "R-F3318",
+      "title": "rf2859 reading_session makes a live Semantic Scholar call from a unit test",
+      "claimed_at": "2026-07-28T07:08:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b09b1b24",
+      "notes": null,
+      "shipped_at": "2026-07-28T08:32:27Z"
+    },
+    {
+      "r_number": "R-F3319",
+      "title": "opt-in network guard turns an un-mocked live call from a hang into a named failure",
+      "claimed_at": "2026-07-28T07:13:10Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b09b1b24",
+      "notes": null,
+      "shipped_at": "2026-07-28T08:32:27Z"
+    },
+    {
+      "r_number": "R-F3320",
+      "title": "rf2976 leaves DD-layer tasks pending so asyncio.run cannot close",
+      "claimed_at": "2026-07-28T07:33:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3321",
+      "title": "flusher guard is process-global so a dead loop's task is reused and awaited",
+      "claimed_at": "2026-07-28T07:41:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8c65aad7",
+      "notes": null,
+      "shipped_at": "2026-07-28T08:32:28Z"
+    },
+    {
+      "r_number": "R-F3322",
+      "title": "state_store write worker guard is process-global like the flushers were",
+      "claimed_at": "2026-07-28T07:48:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3323",
+      "title": "test patches the global threading module, not continuous_profiler",
+      "claimed_at": "2026-07-28T07:55:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "97698d13",
+      "notes": null,
+      "shipped_at": "2026-07-28T08:32:28Z"
+    },
+    {
+      "r_number": "R-F3324",
+      "title": "tests append to the tracked coder gold file instead of a temp path",
+      "claimed_at": "2026-07-28T08:12:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c96a1265",
+      "notes": null,
+      "shipped_at": "2026-07-28T08:32:28Z"
     }
   ]
 }
