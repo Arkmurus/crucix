@@ -5,6 +5,37 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
 
+@pytest.fixture(autouse=True)
+def _isolate_llm_pipeline_root(tmp_path_factory, monkeypatch):
+    """R-F3346 — keep LLMTrainingPipeline off the repository's real data/training.
+
+    The mirror of R-F3291's fixture in test_rf1001_transformation, for the class
+    that never got the seam. This file calls _generate_training_script() and
+    full_pipeline() directly, and both write into data/training:
+
+        train_aria_llm.py     <- a hardcoded 74-line template that OVERWRITES
+                                 R-F1941's curated 155-line grounded trainer
+        training_config.json  <- loses dataset_file / dataset_format
+        dataset_<ts>.json     <- litters the tree
+
+    Measured: the trainer was committed restored at defdf2e6, and one full
+    `pytest aria_service/tests/` run later it was the template again. That is
+    also what really happened in June — commit 6fe94c43 did not revert the
+    trainer, it committed a tree this generator had already clobbered.
+
+    autouse so a test added later inherits the isolation rather than having to
+    remember it.
+    """
+    from aria_service.intel import llm_pipeline as _lp
+    tmp = tmp_path_factory.mktemp("llm_pipeline_root")
+    _orig_init = _lp.LLMTrainingPipeline.__init__
+
+    def _patched(self, root=None):
+        _orig_init(self, root=root or tmp)
+
+    monkeypatch.setattr(_lp.LLMTrainingPipeline, "__init__", _patched)
+
+
 class TestLLMTrainingPipeline:
     """Test the LLM training pipeline."""
 

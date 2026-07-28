@@ -29,8 +29,33 @@ class LLMTrainingPipeline:
     7. Monitor performance and drift
     """
 
-    def __init__(self):
-        self.root = pathlib.Path(__file__).parent.parent.parent
+    def __init__(self, root: "pathlib.Path | None" = None):
+        # R-F3346 — `root` is injectable so a test can write somewhere disposable.
+        # This is R-F3291's seam, which LLMBuilder received and this class did not,
+        # and the gap was not cosmetic: EVERY write below lands in the repo's real
+        # data/training when root is hardcoded, and three of them overwrite curated
+        # artefacts —
+        #   _generate_training_script -> train_aria_llm.py   (line ~232)
+        #   _prepare_config           -> training_config.json (line ~151)
+        #   _curate_dataset           -> dataset_<ts>.json    (line ~126)
+        #
+        # Measured, not theorised: R-F1941's 155-line grounded trainer was restored
+        # by R-F3336 and committed at defdf2e6; one full `pytest aria_service/tests/`
+        # run later it was back to this module's hardcoded 74-line template, with
+        # dataset_file/dataset_format stripped from the config. test_rf1011_product
+        # calls _generate_training_script() and full_pipeline() directly.
+        #
+        # That also explains June: commit 6fe94c43's catch-all `git add -A` did not
+        # revert the trainer, it COMMITTED a working tree this generator had already
+        # clobbered. Restoring the file was treating the symptom; this is the writer.
+        #
+        # Per CLAUDE.md §24 the weekly cycle runs on a PAID pod, so a regenerated
+        # toy means a KeyError on cfg["dataset_file"] there, or training the
+        # distillation objective R-F1941 measured as capped at ~0.31 (below
+        # DeepSeek's 0.34) — expensively, and reporting success.
+        #
+        # Default is unchanged: production still uses the repo root.
+        self.root = pathlib.Path(root) if root else pathlib.Path(__file__).parent.parent.parent
         self.data_dir = self.root / "data" / "training"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._training_history: list[dict] = []
