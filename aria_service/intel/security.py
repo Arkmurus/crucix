@@ -236,11 +236,49 @@ def _is_low_value_url(hostname: str, path_lower: str) -> bool:
     return False
 
 
+# R-F3355 — schemes ARIA mints for its OWN records. These are IDENTIFIERS, not
+# locators: `web_search.py` synthesises `memory://<sha1>` for a RAG hit that has
+# no URL purely so the dedupe key stays stable across retrievals. Nothing can
+# fetch one, and nothing should try. Kept here beside `validate_url` because
+# this module already owns URL classification and every fetch path imports it —
+# before R-F3355 the same knowledge was re-implemented ad hoc in at least three
+# places (financial_health.py, dd_orchestrator's _ADVERSE_SELF_SOURCE_MARKERS)
+# and simply MISSING on the researcher fetch path, which is what caused the
+# ledger flood.
+INTERNAL_REF_SCHEMES: tuple[str, ...] = ("memory://", "rag://", "aria://", "brain_hook:")
+
+
+def is_internal_ref(url: object) -> bool:
+    """True when `url` is an ARIA-internal record pointer rather than a locator.
+
+    Total on junk input (None / non-str) so it is safe to call at any boundary.
+    """
+    if not isinstance(url, str):
+        return False
+    return url.strip().lower().startswith(INTERNAL_REF_SCHEMES)
+
+
 def sanitise_url(url: str) -> str | None:
     """Sanitise and validate a URL. Returns clean URL or None if dangerous."""
     safe, reason = validate_url(url)
     if not safe:
-        logger.warning("Blocked URL: %s — %s", url[:100], reason)
+        # R-F3355 — an internal record pointer is REFUSED exactly as before
+        # (returns None); it is just not reported as an anomaly, because it
+        # isn't one. Live 2026-07-28 this single expected rejection held 86-88
+        # of the 200 shared ledger slots (43-44%) and evicted real errors — see
+        # error_streak.py's own note that a warning burst >200 destroys
+        # evidence. The WASTED FETCH is fixed at the boundary
+        # (researcher._fetch_article_text); this only stops the accounting of
+        # an expected outcome as a defect. Genuinely dangerous schemes
+        # (javascript:/file:/data:) still log at WARNING and still reach the
+        # ledger — the guard must not go blind.
+        if is_internal_ref(url):
+            logger.debug(
+                "sanitise_url: internal record ref is not fetchable (expected): %s",
+                url[:100],
+            )
+        else:
+            logger.warning("Blocked URL: %s — %s", url[:100], reason)
         return None
     return url.strip()
 

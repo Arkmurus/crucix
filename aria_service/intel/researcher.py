@@ -1100,7 +1100,24 @@ async def _fetch_article_text(url: str, timeout: float = 0) -> str:
     """
     if timeout <= 0:
         timeout = float(os.getenv("ARIA_FETCH_TIMEOUT", "30.0"))
-    from .security import sanitise_url, scan_content, strip_dangerous_content
+    from .security import (
+        sanitise_url, scan_content, strip_dangerous_content, is_internal_ref,
+    )
+    # R-F3355 — ARIA's OWN memory reaches this fetcher. `_web_search` maps every
+    # SearchResult into the pipeline as `"link": r.url` (researcher.py:1632)
+    # WITHOUT filtering the `memory://<sha1>` pointers `web_search` mints for
+    # RAG hits that have no URL (web_search.py:1188). `research_and_learn` then
+    # fetches that "link" (researcher.py:4079). The fetch can never succeed —
+    # it is an identifier, not a locator — so this is pure waste, and every
+    # attempt logged a WARNING that consumed a slot in the 200-entry error
+    # ledger shared with real errors (43-44% of it, measured live 2026-07-28).
+    # Short-circuit BEFORE sanitise_url so no work and no log happen at all.
+    # Behaviour is unchanged: sanitise_url already returned None for these and
+    # this function already returned "" — and research_and_learn already
+    # handles an empty body by using the item's title + snippet, so the RAG hit
+    # is still processed, just not pointlessly fetched.
+    if is_internal_ref(url):
+        return ""
     url = sanitise_url(url)
     if not url:
         return ""
