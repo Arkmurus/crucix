@@ -70,22 +70,30 @@ _ORGANS: list[tuple[str, str, str, tuple[str, ...]]] = [
       "rca_screening", "crypto_sanctions", "screen", "watchlist", "eliminated_weapons",
       "sdn", "sam_gov", "restricted_party", "denied_party")),
     ("compliance", "Compliance & Export Control", "aria-intel",
-     ("compliance", "export_control", "dual_use", "euc", "end_user", "economic_substance",
+     ("compliance", "export_control", "dual_use", "euc", "end_user", "economic_substance", "regulated_commodity",
       "contract_review", "contract_intelligence", "contract_", "ach_", "analytic_principles",
       "licens", "embargo", "kyc", "aml", "fatf", "fcpa", "typolog", "goods_list", "gaming")),
+    # R-F3350 — the vetting package (BS 7858 screening) is a shipped PRODUCT that had
+    # no organ, so all 18 of its modules rendered inside the "⚠ Unassigned" defect
+    # bucket. Nothing outside the package matches "vetting", so this steals nothing.
+    ("vetting", "Vetting & Screening", "aria-intel",
+     ("vetting",)),
     ("legal", "Legal & Jurisdictions", "aria-intel",
      ("legal", "international_law", "ohada", "jurisdiction", "law_", "regulatory",
-      "statute", "case_law")),
+      "statute", "case_law",
+      "mou_", "clause")),  # R-F3350: mou_clause_gate_analyser
     ("dd", "Due Diligence", "aria-intel",
      ("dd_", "due_diligence", "company_investigator", "investigat", "financial_health",
       "triangulat", "adverse", "officer", "prospector", "vault", "ubo", "sharehold",
       "beneficial", "decision_readiness", "network_", "relationship_graph", "financial_dd", "forensic", "benford", "ghost_detection",
-      "prime_sub")),  # R-F2986: prime/sub contractor mapping
+      "prime_sub",
+      "virtual_office")),  # R-F2986: prime/sub contractor mapping; R-F3350: virtual-office = shell-company red flag
     ("registries", "Company Registries", "aria-intel",
      ("companies_house", "ariregister", "brreg", "ares", "rpo", "zefix", "opencorporat",
       "corporate_registry", "registry_", "corpus_registry", "portal_registry",
       "vendor_registry", "oem_registry", "registry_coverage", "gleif", "edgar",
-      "registration_check", "_romanian_cui", "person_resolver", "name_variants")),  # R-F2986
+      "registration_check", "_romanian_cui", "person_resolver", "name_variants",
+      "fca_register")),  # R-F2986; R-F3350: fca_register
     ("osint", "OSINT & Entities", "aria-intel",
      ("entity", "contact", "conflict_tracker", "counter_intelligence", "deception",
       "evasion", "domain", "behavioural", "chain_correlat", "cross_regional",
@@ -95,12 +103,14 @@ _ORGANS: list[tuple[str, str, str, tuple[str, ...]]] = [
       "pmesii", "nato_standards", "political_risk", "risk_indices", "vision_2030",  # R-F2986
       "weapon_origin", "tbml", "narrative_monitor", "osint_username", "signal_correlator",
       "regional_bright_lines", "regional_navigation", "geoip", "github_search",
-      "gulf_oem", "web_atlas", "provenance_chain")),
+      "gulf_oem", "web_atlas", "provenance_chain",
+      "tech_classifier")),  # R-F3350: extracts structured defence-item data
     ("documents", "Documents & Citations", "aria-intel",
      ("document", "ocr", "content_scan", "citation", "cited_artifact", "claim_grounding",
       "read_document", "upload", "pdf", "ixbrl", "xbrl", "attachment", "file_",
       "report_builder", "weekly_report", "meeting_notes", "voice_transcribe",  # R-F2986
-      "product_page", "assessment_writer", "writer_orchestrator", "anti_corruption", "tech_spec_and")),
+      "product_page", "assessment_writer", "writer_orchestrator", "anti_corruption", "tech_spec_and",
+      "writers")),  # R-F3350: the writers package = document production
     ("commercial", "Commercial & BD", "aria-intel",
      ("deal", "bd_", "engagement", "competitor", "competitive", "pipeline",
       "design_partner", "prospect", "market_intel", "commercial", "tender", "procurement_",
@@ -115,7 +125,8 @@ _ORGANS: list[tuple[str, str, str, tuple[str, ...]]] = [
       "held_out", "contamination_check", "output_harvester", "pair_builder",
       "style_learner", "learning_progress", "learning_controller", "metacognitive_journal",
       "metacognitive.coding", "metacognitive.consciousness", "metacognitive.cycle",
-      "metacognitive.gaps", "bookmarks", "user_model", "predictor")),
+      "metacognitive.gaps", "bookmarks", "user_model", "predictor",
+      "research_tasks")),  # R-F3350: background long-running research ops
     ("brain", "Brain & Memory", "aria-intel",
      ("knowledge", "neural", "rag_", "memory", "brain_hook", "brain_ingest",
       "brain_signal", "semantic", "reasoning", "grounded", "embed", "corroborat",
@@ -139,7 +150,8 @@ _ORGANS: list[tuple[str, str, str, tuple[str, ...]]] = [
      ("web_search", "searxng", "explorer", "crawl", "source_uptime", "fetcher",
       "spider", "trafilatura", "probe", "web_explor", "news", "rss", "brave",
       "scraper", "source_scout", "source_validator", "source_verifier", "ua_rotation",  # R-F2986
-      "headless", "captcha", "web_integrity", "search_index")),
+      "headless", "captcha", "web_integrity", "search_index",
+      "search_doctrine")),  # R-F3350: discipline layer over researcher.web_search
     ("guardian", "Guardian & Honesty", "aria-intel",
      ("guard", "honesty", "adversarial", "verification_gate", "constitutional",
       "hallucinat", "premise", "comprehension", "sovereign", "confidence_footer",
@@ -148,7 +160,9 @@ _ORGANS: list[tuple[str, str, str, tuple[str, ...]]] = [
       "grounding_reward", "counter_intel", "generative",
       "truth_verifier", "response_verifier", "verification_accumulator",  # R-F2986
       "provenance_watermark", "pii_redaction", "log_redaction", "security_protocol",
-      "security_challenge", "protective_reply", "kaspersky")),
+      "security_challenge", "protective_reply", "kaspersky",
+      "security", "self_protection", "intent", "personas")),  # R-F3350: SSRF/injection layer,
+      # output-safety guardrails, "Guardian Layer 3" intent, persona overlays of the constitution
     ("intel_sources", "Intel Sources & Feeds", "aria-intel",
      ("sources", "corpus", "coverage_heatmap", "intel_ledger", "golden", "feed",
       "defence_source", "equipment_specs", "hardware", "world_bank", "acled")),
@@ -164,8 +178,10 @@ _ORGANS: list[tuple[str, str, str, tuple[str, ...]]] = [
       "mistake_ledger", "config", "ecosystem", "reachability", "snapshot_throttle",
       "user_quota", "quota_client", "tenant_namespace", "multi_user", "system_health",  # R-F2986
       "infra_health", "trace_stream", "wiring_monitor", "key_resolver", "operator_pending",
-      "performance_optimizer", "scratchpad", "public_api", "operating_modes")),
-    ("cli", "CLI & Ingest", "aria-intel", ("cli.", "ingest", "admin")),
+      "performance_optimizer", "scratchpad", "public_api", "operating_modes",
+      "wire", "self_infra", "r_number", "integrations", "utils.")),  # R-F3350: brain failure-wire
+      # decorator, self-infra detector, R-number registry, external syncs, shared utils
+    ("cli", "CLI & Ingest", "aria-intel", ("cli.", "ingest", "admin", "aria_client")),  # R-F3350
     ("routes", "API & Routes", "aria-intel", ("routes.", "route", "api_", "middleware", "autonomy_surface")),
 ]
 
@@ -202,6 +218,26 @@ _ORGAN_OVERRIDES: dict[str, str] = {
     # ── REHOMED: victims of a substring accident the token rule now rejects ──
     "aria_service.intel.precall_brief": "commercial",        # was brain via "recall" inside "pRECALLbrief"; a pre-call brief is BD
     "aria_service.metacognitive.identity": "learning",       # was osint via "entity" inside "idENTITY"
+    # ── R-F3350: named modules no keyword should have to guess at ──
+    "aria_service.main": "routes",   # the FastAPI app + GET /phase/gates (CLAUDE.md §1); no keyword
+                                     # should match a name this generic, so it is declared instead
+    "aria_service.cli": "cli",       # package root; the "cli." keyword needs the trailing dot, and
+                                     # widening it to "cli" would swallow every *_client module
+    # R-F3350 package ROOTS. Deliberately NOT keywords: a bare "learning" /
+    # "metacognitive" / "utils" matches the whole SUBPACKAGE PATH, and since those
+    # organs are declared early it silently stole learning.deepseek_clients from
+    # llm and learning.verification_gate from guardian — the exact broad-prefix
+    # mistake R-F2986 warned against, caught by R-F3349's shadow audit.
+    "aria_service.learning": "learning",
+    "aria_service.metacognitive": "learning",
+    "aria_service.utils": "infra",
+    # R-F3350 PRESERVATIONS. The new "vetting" / "writers" keywords would otherwise
+    # re-bucket modules that were already correctly filed, and this fix is a rescue
+    # of ORPHANS — it is not a licence to reorganise assignments that already worked.
+    "aria_service.routes.vetting": "routes",          # every routes.* module stays in API & Routes,
+    "aria_service.routes.vetting_portal": "routes",   # exactly as routes.aria does
+    "aria_service.writers._resilient_llm": "llm",     # an LLM client wrapper that happens to live in writers/
+    "aria_service.writers.procurement_paper_writer": "commercial",  # was commercial via "procurement_"
     # ── CONFIRMATIONS: a curated keyword lost, and losing was CORRECT ──
     "aria_service.intel.evasion_typology_detector": "compliance",  # FATF typology work, not OSINT tradecraft (osint "evasion" overruled)
     "aria_service.intel.sanctions_divergence": "sanctions",  # a sanctions signal (learning "divergence" overruled)
