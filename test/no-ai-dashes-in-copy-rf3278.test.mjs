@@ -45,7 +45,7 @@ const ENFORCED = [
   'design-partners.html', 'explorer.html', 'forgot-password.html',
   'index.html', 'leads.html', 'login.html', 'model-card.html',
   'network.html', 'news.html', 'opportunities.html', 'partners.html',
-  'recovery.html', 'signin.html', 'signup.html', 'sources.html',
+  'recovery.html', 'set-password.html', 'signin.html', 'signup.html', 'sources.html',
   'vault.html', 'vetting-portal.html', 'vetting.html', 'vls-chain.html',
   'wa-connections.html', 'watchlist.html',
   // R-F3302 — the legal pages live one directory down, so the top-level readdir

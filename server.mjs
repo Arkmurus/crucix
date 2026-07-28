@@ -75,6 +75,8 @@ import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
 // R-F3328 — approving a design partner issues them a real login (see the module
 // header: before this, approval wrote a status label and nothing else).
 import { provisionDesignPartnerAccess, ACCESS_GRANTING_STATUSES } from './lib/auth/designPartnerAccess.mjs';
+// R-F3332 — an issued temporary credential must be rotated before the account works.
+import { rotationBlocked, rotationClearedFields, ROTATION_REQUIRED_CODE } from './lib/auth/passwordRotation.mjs';
 import { isDisposableEmail, evaluateAutoApproval, MAX_VERIFY_ATTEMPTS } from './lib/auth/onboarding.mjs';
 import { initComplianceAudit, getAuditLog as getComplianceAuditLog, exportAuditLog } from './lib/aria/complianceAudit.mjs';
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
@@ -5235,12 +5237,25 @@ function requireAuth(req, res, next) {
 
   try {
     const payload = verifyToken(token);
+    // R-F3332 — ONE lookup serves both live-record checks below. The JWT is a
+    // login-time snapshot; neither a force-logout nor a pending rotation can be
+    // read from it.
+    const liveUser = findUserById(payload.userId);
     // Token version check — invalidates sessions after force-logout
     if (payload.ver !== undefined) {
-      const user = findUserById(payload.userId);
-      if (user && (user.tokenVersion || 0) !== payload.ver) {
+      if (liveUser && (liveUser.tokenVersion || 0) !== payload.ver) {
         return res.status(401).json({ error: 'Session revoked — please log in again' });
       }
+    }
+    // R-F3332 — an account still holding an ISSUED temporary credential (see
+    // lib/auth/passwordRotation.mjs) can do exactly three things: read /me,
+    // change its password, log out. This is THE enforcement point; the redirect
+    // in app.js is only the UX that follows it.
+    if (rotationBlocked(liveUser, req.method, req.path)) {
+      return res.status(403).json({
+        error: 'Set a new password before continuing — the one you were issued is temporary.',
+        code: ROTATION_REQUIRED_CODE,
+      });
     }
     req.user = payload;
     // R-F2871 — the Bearer is now fully verified (signature + force-logout
@@ -6057,7 +6072,13 @@ app.put('/api/auth/password', requireAuth, (req, res) => {
       return res.status(401).json({ error: 'Current password incorrect' });
     }
 
-    updateUser(req.user.userId, { passwordHash: hashPassword(newPassword) });
+    // R-F3332 — clearing the rotation flag lives with the write that satisfies
+    // it. A gate whose clear path sits somewhere else is how an account gets
+    // locked out permanently.
+    updateUser(req.user.userId, {
+      passwordHash: hashPassword(newPassword),
+      ...rotationClearedFields(),
+    });
     res.json({ message: 'Password updated successfully' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update password' });

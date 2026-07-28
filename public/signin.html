@@ -114,7 +114,7 @@
   </div>
 </div>
 
-<script src="js/app.js?v=9"></script>
+<script src="js/app.js?v=10"></script>
 <script>
 (function() {
   'use strict';
@@ -168,7 +168,11 @@
 
       localStorage.setItem('crucix_token', result.data.token);
       if (result.data.user) localStorage.setItem('crucix_user', JSON.stringify(result.data.user));
-      window.location.href = '/dashboard.html';
+      // R-F3332 - an account still holding an ISSUED temporary password is
+      // refused on every API but three, so send it straight to the page that
+      // fixes that rather than to a dashboard whose every panel would 403.
+      window.location.href = (result.data.user && result.data.user.mustChangePassword)
+        ? '/set-password.html' : '/dashboard.html';
     } catch (e) {
       btn.textContent = 'Sign In'; btn.disabled = false;
       showError('Unexpected error. Please try again.');
@@ -189,7 +193,11 @@
       if (!result.ok) { showError((result.data && result.data.error) ? result.data.error : 'Invalid code.'); return; }
       localStorage.setItem('crucix_token', result.data.token);
       if (result.data.user) localStorage.setItem('crucix_user', JSON.stringify(result.data.user));
-      window.location.href = '/dashboard.html';
+      // R-F3332 - an account still holding an ISSUED temporary password is
+      // refused on every API but three, so send it straight to the page that
+      // fixes that rather than to a dashboard whose every panel would 403.
+      window.location.href = (result.data.user && result.data.user.mustChangePassword)
+        ? '/set-password.html' : '/dashboard.html';
     } catch (e) {
       btn.textContent = 'Verify Code'; btn.disabled = false;
       showError('Unexpected error. Please try again.');

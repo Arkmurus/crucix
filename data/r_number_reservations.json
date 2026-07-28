@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3332,
+  "next_available": 3333,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27367,6 +27367,15 @@
       "commit_sha": "c1f50ce0",
       "notes": null,
       "shipped_at": "2026-07-28T10:45:47Z"
+    },
+    {
+      "r_number": "R-F3332",
+      "title": "force rotation of issued temporary credentials (mustChangePassword gate)",
+      "claimed_at": "2026-07-28T10:49:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

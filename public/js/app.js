@@ -60,11 +60,28 @@ const API = {
     // anonymous: leave the visitor where they are
   },
 
+  // R-F3332 — an account holding an ISSUED temporary password is refused on
+  // every API except /me, logout and the password change itself (the server-side
+  // gate in requireAuth, via lib/auth/passwordRotation.mjs). THAT is the
+  // enforcement; this is the UX that follows it, so the user lands somewhere
+  // they can act instead of on a page of failed panels.
+  //
+  // The pathname guard is not paranoia: set-password.html calls the allowlisted
+  // endpoints only, but a redirect that can target the page it is already on is
+  // one server-side mistake away from a reload loop.
+  _maybeRotate(status, data) {
+    if (status !== 403 || !data || data.code !== 'password_change_required') return false;
+    if (/\/set-password\.html$/.test(window.location.pathname)) return false;
+    window.location.href = '/set-password.html';
+    return true;
+  },
+
   async get(path) {
     try {
       const r = await fetch(this.BASE + path, { headers: this.headers() });
       if (r.status === 401) { this._handle401(); return null; }
       const data = await r.json();
+      if (this._maybeRotate(r.status, data)) return null;   // R-F3332
       // Network OK but body is an error envelope — surface as null.
       if (this._isErrorEnvelope(data)) {
         console.warn('API.get error envelope:', path, data.error);
@@ -95,6 +112,7 @@ const API = {
       const r = await fetch(this.BASE + path, { headers: this.headers(), signal: ctrl.signal });
       let data = null;
       try { data = await r.json(); } catch { data = null; }
+      this._maybeRotate(r.status, data);   // R-F3332
       return { status: r.status, ok: r.ok, data, isErrorEnvelope: this._isErrorEnvelope(data) };
     } catch (e) {
       const timedOut = !!(e && e.name === 'AbortError');
@@ -114,6 +132,7 @@ const API = {
       // Do NOT auto-logout on 401 for POST — login endpoint legitimately returns 401 for wrong credentials
       let data = {};
       try { data = await r.json(); } catch { data = { error: 'Server returned an unexpected response.' }; }
+      this._maybeRotate(r.status, data);   // R-F3332
       return { ok: r.ok, status: r.status, data };
     } catch (e) {
       console.error('API.post error:', path, e);
@@ -131,6 +150,7 @@ const API = {
       if (r.status === 401) { this._handle401(); return { ok: false, data: {} }; }
       let data = {};
       try { data = await r.json(); } catch { data = {}; }
+      this._maybeRotate(r.status, data);   // R-F3332
       return { ok: r.ok, data };
     } catch (e) {
       console.error('API.put error:', path, e);
@@ -147,6 +167,7 @@ const API = {
       if (r.status === 401) { this._handle401(); return { ok: false, data: {} }; }
       let data = {};
       try { data = await r.json(); } catch { data = {}; }
+      this._maybeRotate(r.status, data);   // R-F3332
       return { ok: r.ok, data };
     } catch (e) {
       console.error('API.del error:', path, e);
