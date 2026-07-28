@@ -1,6 +1,6 @@
 # §21 brain-wiring backlog — triaged 2026-07-28
 
-**51 intel modules** flagged by `scripts/ci/wiring_audit.py`. CI blocks on this by
+**50 intel modules** flagged by `scripts/ci/wiring_audit.py`. CI blocks on this by
 operator decision: honest red until triaged.
 
 ## How the number moved
@@ -11,6 +11,7 @@ operator decision: honest red until triaged.
 | R-F3381 | 68 | taught it the FAILURE-side §21a sinks (`@fail_wire`, `record_gap`, …) |
 | R-F3382 | 56 | taught it `@wired`, the PREFERRED decorator covering BOTH branches |
 | R-F3386 | 54 | wired the EE/NO registry adapters for real (tranche 1) |
+| R-F3388 | 50 | dd_independent_verifier (tranche 3) — it failed OPEN on every error path, manufacturing independence |
 | R-F3387 | 51 | verification layer: citation_verifier, claim_grounding, corroboration (tranche 2) — and two of them were reporting CLEAN on crash |
 
 Three corrections were attempted and reverted or rejected on measurement — recorded
@@ -53,7 +54,6 @@ Real §21 violations — error paths and/or network I/O. **Wire these.**
 - `intel/continuous_learner.py` — failure wired, SUCCESS missing (fns=10, try=11, net=Y)
 - `intel/credential_self_destruct.py` — failure wired, SUCCESS missing (fns=8, try=12, net=n)
 - `intel/dd_case_archive.py` — failure wired, SUCCESS missing (fns=7, try=6, net=n)
-- `intel/dd_independent_verifier.py` — no wiring at all (fns=29, try=3, net=n)
 - `intel/deal_pipeline.py` — success wired, FAILURE missing (fns=21, try=15, net=n)
 - `intel/deep_researcher.py` — success wired, FAILURE missing (fns=28, try=43, net=Y)
 - `intel/document_reader.py` — success wired, FAILURE missing (fns=26, try=32, net=Y)

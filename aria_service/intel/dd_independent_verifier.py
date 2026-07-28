@@ -48,6 +48,9 @@ def _is_internal(s: str) -> bool:
     )
 
 
+from .engine_wiring import wire_failure, wire_success  # R-F3388 (§21a)
+
+
 def registrable_domain(host_or_url: str) -> str:
     """Best-effort registrable domain: strip scheme/path/www + subdomains.
 
@@ -77,8 +80,23 @@ def publisher_family(host_or_url: str) -> str:
         for fam, domains in SOURCE_FAMILIES.items():
             if dom in domains or any(registrable_domain(d) == dom for d in domains):
                 return f"pub:{fam}"
-    except Exception:
-        pass
+    except Exception as exc:
+        # R-F3388 — this was `except: pass`, falling through to `pub:<domain>`.
+        # origin_key groups by this value, so an unusable family table gave EVERY
+        # source its own origin: count_independent_origins rose and
+        # is_independently_corroborated said True. That is a manufactured
+        # corroboration, and R-F2666 is explicit that the false-positive rate on
+        # independence MUST be 0 while a conservative undercount is acceptable.
+        #
+        # So collapse to ONE shared key instead of many. Unclassifiable sources
+        # now count as a single origin (undercount), never as several (overcount).
+        wire_failure(
+            module="dd_independent_verifier",
+            detail=f"publisher family table unusable, collapsing to one origin: {type(exc).__name__}: {exc}"[:400],
+            gap_type="engine_failure",
+            source="dd_independent_verifier:publisher_family",
+        )
+        return "pub:__unclassified__"
     return f"pub:{dom}"
 
 
@@ -625,7 +643,34 @@ async def detect_pr_echo(
         if has_own_reporting(a_text) or has_own_reporting(b_text):
             return False, ""  # somebody actually reported — not a pure echo
         sim = await semantic_similarity(a_text, b_text)
-        if sim is not None and sim >= _SAME_STORY_THRESHOLD:
+        if sim is None:
+            # R-F3388 — SIGNAL ONLY; the verdict is deliberately left alone.
+            #
+            # An unavailable similarity falls through to "not an echo", so two
+            # syndications of one press release can count as two INDEPENDENT
+            # origins. I changed this to fail closed (declare an echo) on
+            # R-F2666's rule that the false-positive rate on independence must be
+            # 0 while an undercount is acceptable — and it broke
+            # test_rf2687_pr_echo::test_missing_embedder_does_not_grant_independence,
+            # which asserts the opposite ON PURPOSE: "None from the embedder =
+            # 'no semantic signal', never 'not an echo'", i.e. do not INVENT an
+            # echo without evidence either.
+            #
+            # Both are honest positions and they point opposite ways; R-F2687 is
+            # the newer, explicit ruling on this exact path (its docstring even
+            # records a Pass-2 correction to it), so it stands. What was
+            # genuinely missing is that the blind spot was INVISIBLE — the brain
+            # could not tell a judged pair from an unjudgeable one. That is the
+            # §21a gap, and it is fixed here without moving anyone's verdict.
+            wire_failure(
+                module="dd_independent_verifier",
+                detail=("similarity unavailable for a PR-marked pair — echo undetermined; "
+                        "verdict unchanged per R-F2687, see R-F3388"),
+                gap_type="engine_failure",
+                source="dd_independent_verifier:detect_pr_echo",
+            )
+            return False, ""
+        if sim >= _SAME_STORY_THRESHOLD:
             return True, f"pr_echo_no_own_reporting_{sim:.2f}"
     return False, ""
 
@@ -849,6 +894,16 @@ async def assess_independent_verification(
             "origin": (origin_key({"domain": it["url"], "story": sid}) if counts else None),
         })
     origins = count_independent_origins(verified_sources)
+    # R-F3388 — §21a success branch. Failure-only wiring cannot distinguish "the
+    # independence pass ran and found one origin" from "the pass never ran", and
+    # that difference is the whole C-3 gate. Carry the counts so a collapse in
+    # origins is visible rather than inferred.
+    wire_success(
+        module="dd_independent_verifier",
+        summary=(f"independence pass: {origins} independent press origin(s) "
+                 f"over {len(items)} item(s)"),
+        source_id="dd_independent_verifier:assess_independent_verification",
+    )
     return {
         "press_items": len(items),
         "refetched_ok": sum(1 for v in story_ids.values() if v),
