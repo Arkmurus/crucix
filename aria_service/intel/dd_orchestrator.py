@@ -3608,6 +3608,107 @@ def resolve_jurisdiction_iso2(
     return _infer_jurisdiction(target, name, registration_number)
 
 
+async def _screen_psc_sanctions(report: ARKDDReport) -> bool:
+    """Screen every CURRENT PSC (beneficial owner) against sanctions.
+
+    Returns True if a hard-stop match was found (short-circuits the DD).
+
+    R-F3353 — this loop previously awaited a `screen_entity` attribute on the
+    sanctions module: a function that has NEVER existed there (the real entrypoints
+    are `screen_with_aliases` / `fuzzy_screen` / `screen_with_relationships`;
+    `git log -S` over sanctions.py finds no such definition, ever). Every PSC of
+    every UK DD therefore raised AttributeError into a bare `except` that logged
+    a warning and recorded NOTHING — so a report listing beneficial owners with
+    no sanctions finding and no data gap was indistinguishable from "screened,
+    clean". That is a never-false-clean breach, not merely a dead feature.
+
+    Two STRUCTURAL changes, so the class cannot recur — not one rename:
+
+      1. the call goes to a VERIFIED entrypoint (§3b), declaring
+         `source="registry"` because a PSC name is resolved off the Companies
+         House PSC register. Screening it as untrusted free text would re-run
+         the search-query shape heuristic that produced the R-F3217 false clean.
+
+      2. EVERY non-performed outcome — source unavailable, an `error` key, or
+         any throw — appends the `SANCTIONS_SOURCE_UNVERIFIED` marker that the
+         synthesis gate already keys off to force the headline GREEN→AMBER_LIGHT.
+         So a screen that did not run can never again read as a clean one,
+         *including* if someone renames the entrypoint a second time: the
+         failure then lands in the report instead of in a swallowed log line.
+
+    Extracted from `_run_identity` so it is directly drivable by a capability
+    test, the same pattern `_check_domain_ownership` uses (R-F1836) — the full
+    identity layer needs live Companies House + sanctions to reach this code.
+    """
+    psc_list = report.identity.shareholders or []
+    if not psc_list:
+        return False
+
+    from . import sanctions as _san
+    from ._sanctions_classify import classify_matches as _cm_psc, SEVERITY_RANK
+
+    hard_stop = False
+    for psc_member in psc_list[:10]:            # cap at 10 to control cost
+        psc_name = (psc_member.get("name") or "").strip()
+        if not psc_name or len(psc_name) < 3:
+            continue
+        if psc_member.get("ceased_on"):
+            continue                            # skip former PSCs
+        try:
+            screen = await _san.screen_with_aliases(psc_name, source="registry") or {}
+            report.identity.meta.subcalls += 1
+            # R-F1696: an empty match list is a CLEARANCE only when the screen
+            # actually reached the source. `screened=False` (or any error) means
+            # it did not run, and an unperformed screen is not a clean one.
+            if not (screen.get("screened") and not screen.get("error")):
+                _reason = str(screen.get("error") or "source unavailable")[:80]
+                report.identity.data_gaps.append(
+                    f"PSC sanctions screen '{psc_name}': SANCTIONS_SOURCE_UNVERIFIED "
+                    f"— {_reason}, NOT screened (re-screen required, not a clearance)"
+                )
+                logger.warning(
+                    "dd_orchestrator: PSC sanctions screen NOT performed for %s: %s",
+                    psc_name, _reason,
+                )
+                continue
+
+            psc_matches = screen.get("matches") or []
+            if not psc_matches:
+                continue                        # screened and genuinely clean
+
+            psc_classified = _cm_psc(psc_matches, query_name=psc_name)
+            psc_worst = psc_classified["worst_severity"]
+            if SEVERITY_RANK.get(psc_worst, 0) >= SEVERITY_RANK.get("amber", 1):
+                natures = ", ".join(psc_member.get("natures_of_control") or [])[:120]
+                report.identity.findings.append(Finding(
+                    severity=psc_worst,
+                    title=f"PSC (beneficial owner) {psc_name} flagged: {psc_worst}",
+                    detail=(
+                        f"Person of Significant Control '{psc_name}' "
+                        f"(control: {natures or 'not specified'}) "
+                        f"matched: {psc_classified['summary'][:300]}"
+                    ),
+                    source="sanctions.psc_reverse",
+                    confidence="PROBABLE",
+                ))
+                if psc_worst == "hard_stop":
+                    hard_stop = True
+        except Exception as _psc_e:
+            # R-F3353 — the original defect swallowed AttributeError HERE and
+            # left no trace in the report. A throw is now evidence, never silence.
+            report.identity.data_gaps.append(
+                f"PSC sanctions screen '{psc_name}': SANCTIONS_SOURCE_UNVERIFIED "
+                f"— screen raised {type(_psc_e).__name__}: {str(_psc_e)[:100]}, "
+                f"NOT screened (re-screen required, not a clearance)"
+            )
+            logger.warning(
+                "R-F886 PSC (ownership) screen failed for %s: %s "
+                "(R-F3353: recorded as a data gap, not a silent clean)",
+                psc_name, _psc_e,
+            )
+    return hard_stop
+
+
 async def _run_identity(
     target: dict,
     report: ARKDDReport,
@@ -4750,39 +4851,12 @@ async def _run_identity(
                     # ── PSC-reverse: screen each beneficial owner against sanctions ──
                     # 2026-04-12: "Which people control this company, and are any of
                     # them sanctioned?" Surfaces hidden risk from beneficial owners.
-                    psc_list = report.identity.shareholders
-                    if psc_list:
-                        from . import sanctions as _san
-                        from ._sanctions_classify import classify_matches as _cm_psc, SEVERITY_RANK
-                        for psc_member in psc_list[:10]:  # cap at 10 to control cost
-                            psc_name = psc_member.get("name") or ""
-                            if not psc_name or len(psc_name) < 3:
-                                continue
-                            if psc_member.get("ceased_on"):
-                                continue  # skip former PSCs
-                            try:
-                                psc_matches = await _san.screen_entity(psc_name)
-                                report.identity.meta.subcalls += 1
-                                if psc_matches:
-                                    psc_classified = _cm_psc(psc_matches, query_name=psc_name)
-                                    psc_worst = psc_classified["worst_severity"]
-                                    if SEVERITY_RANK.get(psc_worst, 0) >= SEVERITY_RANK.get("amber", 1):
-                                        natures = ", ".join(psc_member.get("natures_of_control") or [])[:120]
-                                        report.identity.findings.append(Finding(
-                                            severity=psc_worst,
-                                            title=f"PSC (beneficial owner) {psc_name} flagged: {psc_worst}",
-                                            detail=(
-                                                f"Person of Significant Control '{psc_name}' "
-                                                f"(control: {natures or 'not specified'}) "
-                                                f"matched: {psc_classified['summary'][:300]}"
-                                            ),
-                                            source="sanctions.psc_reverse",
-                                            confidence="PROBABLE",
-                                        ))
-                                        if psc_worst == "hard_stop":
-                                            hard_stop = True
-                            except Exception as _psc_e:
-                                logger.warning("R-F886 PSC (ownership) screen failed for %s: %s", psc_name, _psc_e)
+                    # R-F3353 — extracted to `_screen_psc_sanctions` so the screen is
+                    # drivable by a capability test and so every failure path leaves a
+                    # data_gap instead of a swallowed warning. See that docstring: this
+                    # loop had never actually run (it called a phantom entrypoint).
+                    if await _screen_psc_sanctions(report):
+                        hard_stop = True
         except Exception as e:
             logger.warning("Identity: companies_house lookup failed: %s", e)
             report.identity.data_gaps.append(f"companies_house lookup failed: {str(e)[:120]}")
