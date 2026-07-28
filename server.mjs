@@ -7851,6 +7851,24 @@ async function start() {
     const add = (u) => { if (u) set.add(u.replace(/\/$/, '')); };
     add(process.env.APP_URL);
     add('https://imaria.io');         // R-F2655: sole canonical production host.
+    // R-F3343 — www SERVES THE APP, so its origin has to be trusted.
+    //
+    // R-F2655 narrowed this list to the apex as "the sole canonical production
+    // host". That is only safe if www redirects to the apex, and it does not:
+    // probed live 2026-07-28, https://www.imaria.io/ returns 200 with NO
+    // redirect, while https://intel.imaria.io/ does not resolve at all (000).
+    // So a browser genuinely can be sitting on www, and its socket handshake
+    // carries Origin: https://www.imaria.io — which this allowlist rejected with
+    // `cb(new Error(...))` a few lines below. Real-time chat was dead there, with
+    // no server-side error a user could see: the connection is simply refused.
+    //
+    // The tree was in an incoherent middle state — www serves, the allowlist
+    // excludes it — and there are two coherent ends: redirect www to the apex, or
+    // trust the origin we actually serve from. Redirecting changes user-visible
+    // URLs and is an operator call about canonicalisation, so this takes the
+    // narrow, reversible half: trust what we serve. If www is later redirected,
+    // this entry becomes harmless and can go with that change.
+    add('https://www.imaria.io');
     add('https://aria-web.fly.dev');
     add('http://localhost:3117');
     add(`http://localhost:${port}`);
