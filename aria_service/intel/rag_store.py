@@ -943,19 +943,15 @@ async def ingest_document(
         content_hashes.append(chash)
 
     # R-F225: drop chunks whose content_hash already exists in RAG.
-    # chromadb's get(where={"content_hash": {"$in": [...]}}) returns
-    # any rows matching the hash; we skip those indices.
+    # R-F3384: "in RAG" means hot AND cold. The lookup moved into
+    # `_existing_content_hashes` — this comment used to describe a single
+    # `_documents_collection.get(...)`, which is precisely the hot-only bug that
+    # let offloaded chunks re-duplicate.
     try:
         if content_hashes:
-            existing = await _aio.to_thread(
-                _documents_collection.get,
-                where={"content_hash": {"$in": content_hashes}},
-                include=["metadatas"],
-            )
-            existing_hashes: set[str] = set()
-            for m in (existing.get("metadatas") or []):
-                if isinstance(m, dict) and m.get("content_hash"):
-                    existing_hashes.add(m["content_hash"])
+            # R-F3384 — ask BOTH collections. Querying hot alone let every
+            # offloaded chunk re-duplicate on re-ingest (see the helper).
+            existing_hashes: set[str] = await _existing_content_hashes(content_hashes)
             if existing_hashes:
                 keep_ids, keep_metas, keep_docs = [], [], []
                 skipped_dup = 0
@@ -1086,6 +1082,48 @@ async def ingest_document(
 # just moved. Cold-add precedes hot-delete so a failure between the
 # two leaves duplicates (operator can reconcile) instead of gaps.
 RAG_COLD_OFFLOAD_FRACTION = 0.10
+
+
+async def _existing_content_hashes(content_hashes: list[str]) -> set[str]:
+    """Which of `content_hashes` are ALREADY stored — across hot AND cold.
+
+    R-F3384 — the R-F225 dedup queried `_documents_collection` only. But
+    `_offload_oldest_to_cold` MOVES chunks: it adds them to the cold collection
+    and removes them from hot. Once offloaded, a chunk's hash was invisible to
+    the dedup, so re-ingesting the same document wrote a fresh copy into hot.
+
+    That is the R-F257 class again — that fix found `search()` reading only hot,
+    leaving "every offloaded chunk invisible to retrieval". The identical
+    oversight survived here.
+
+    It matters beyond tidiness: two copies of one passage are two retrieval hits,
+    and ARIA's verification posture (the C-3 independence gate, the corroboration
+    rule that refuses to call one source two) assumes distinct hits mean distinct
+    evidence. A duplicate makes a document corroborate itself.
+
+    Fails SOFT per collection — a cold outage degrades to hot-only rather than to
+    nothing, because failing open on both would silently re-duplicate everything.
+    Dedup must never break ingest.
+    """
+    if not content_hashes:
+        return set()
+    import asyncio as _aio_h
+    found: set[str] = set()
+    for coll in (_documents_collection, _documents_cold_collection):
+        if coll is None:
+            continue
+        try:
+            rows = await _aio_h.to_thread(
+                coll.get,
+                where={"content_hash": {"$in": list(content_hashes)}},
+                include=["metadatas"],
+            )
+            for m in (rows.get("metadatas") or []):
+                if isinstance(m, dict) and m.get("content_hash"):
+                    found.add(m["content_hash"])
+        except Exception as e:                      # noqa: BLE001
+            logger.debug("R-F3384 dedup probe failed on one collection: %s", e)
+    return found
 
 
 async def _offload_oldest_to_cold(current_total: int) -> dict:
