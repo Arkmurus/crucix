@@ -100,6 +100,25 @@ TOOL_SPECS += [
     },
 ]
 
+# R-F3374 — retrieval, for interpreting news rather than establishing a fact.
+TOOL_SPECS += [
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": (
+                "Search current reporting. Results may include ARIA's own memory "
+                "(memory:// URLs), which is NOT independent corroboration."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        },
+    },
+]
+
 TOOL_NAMES = {s["function"]["name"] for s in TOOL_SPECS}
 
 # An argument shorter than this cannot be treated as "derived": a 1-2 character
@@ -374,6 +393,13 @@ def validate_trace(trace: Any) -> list[str]:
             for k, v in (args.items() if isinstance(args, dict) else []):
                 if not isinstance(v, str) or not v.strip():
                     continue
+                # R-F3374 — a web_search QUERY is legitimately COMPOSED ("<entity>
+                # news"); that is reasoning, not a fabricated entity. The narrow
+                # exemption is safe because the fabrication risk in a news trace is
+                # in the ANSWER's citations, which are enforced separately against
+                # the outlets actually returned.
+                if fn.get("name") == "web_search" and k == "query":
+                    continue
                 if not _arg_is_derived(v, prior_blobs, user_text):
                     errs.append(
                         f"tool call {fn.get('name')!r} argument {k}={v.strip()!r} is not "
@@ -433,6 +459,12 @@ def validate_trace(trace: Any) -> list[str]:
     allowed: set[str] = set()
     for p in payloads:
         allowed |= _sources_in(p)
+        # R-F3374 — a retrieval payload's citable sources are the OUTLETS it
+        # returned, not sanctions list names. Without this the generic rule
+        # rejects a correctly-cited article because the payload has no
+        # `sanctions.matches`. The news-specific rule below still enforces
+        # independence and corroboration on top of this.
+        allowed |= _independent_sources(p)
 
     final = ""
     for m in reversed(msgs):
@@ -475,6 +507,25 @@ def validate_trace(trace: Any) -> list[str]:
             if matched and not claims_hit:
                 errs.append("sanctions match not reported as a hit")
 
+    # ---- R-F3374 news traces: outlet grounding + the independence gate
+    if isinstance(trace, dict) and trace.get("label") == "tooluse_news_impact":
+        search_payloads = [p for p in payloads if isinstance(p, dict) and "results" in p]
+        indep: set[str] = set()
+        for p in search_payloads:
+            indep |= _independent_sources(p)
+        for cited in _CITE_RE.findall(final):
+            if cited.strip() not in indep:
+                errs.append(
+                    f"analysis cites outlet {cited.strip()!r}, which the search did not "
+                    f"return as an independent source (available: {sorted(indep) or 'none'})"
+                )
+        if (_CORROB_CLAIM_RE.search(final) and not _CORROB_DENIAL_RE.search(final)
+                and len(indep) < 2):
+            errs.append(
+                f"claimed corroboration from {len(indep)} independent source(s) — "
+                f"ARIA's own memory is not outside support, and one source is not two"
+            )
+
     # ---- R-F3369 challenge traces: agreement must follow the evidence
     if isinstance(trace, dict) and trace.get("label") == "tooluse_challenge":
         premise = trace.get("premise")
@@ -509,6 +560,133 @@ def validate_trace(trace: Any) -> list[str]:
 
 
 # ── corpus assembly ────────────────────────────────────────────────────────
+
+# R-F3374 — schemes that are ARIA'S OWN memory, never outside corroboration.
+# The live search really does return these mixed in with web results, and
+# dd_orchestrator keeps the same list (`_ADVERSE_SELF_SOURCE_MARKERS`) because
+# counting self-reference as support is a defect this repo has already had.
+_SELF_SOURCE_MARKERS = ("memory://", "rag://", "aria://", "brain_hook:")
+
+
+def _independent_sources(payload: Any) -> set[str]:
+    """Outlet domains from a search payload, EXCLUDING ARIA's own memory.
+
+    Corroboration means two independent OUTSIDE sources. A claim supported only by
+    what ARIA already believed is single-source, however many rows it occupies.
+    """
+    out: set[str] = set()
+    for r in ((payload or {}).get("results") or []) if isinstance(payload, dict) else []:
+        if not isinstance(r, dict):
+            continue
+        url = str(r.get("url") or "").strip()
+        if not url or any(url.lower().startswith(m) for m in _SELF_SOURCE_MARKERS):
+            continue
+        m = re.match(r"https?://([^/]+)", url, re.I)
+        if not m:
+            continue
+        out.add(re.sub(r"^www\.", "", m.group(1).lower()))
+    return out
+
+
+# A CLAIM of corroboration, not the word. The honest single-source answer says
+# "the other hits are my own memory and do NOT corroborate it" — a bare
+# /corroborat\w*/ test flags exactly the text it exists to protect. Same trap as
+# the clean/hit detectors; third time this pattern has bitten in this module.
+_CORROB_CLAIM_RE = re.compile(
+    r"(?<!\bnot )(?<!\bdo not )(?<!\bdoes not )(?<!\bcannot )(?<!\bno )"
+    r"(\bcorroborated\b|\bcorroborates\b|\bmultiple independent\b)",
+    re.I,
+)
+_CORROB_DENIAL_RE = re.compile(
+    r"\b(do(?:es)? not corroborate|not corroborated|no corroboration|"
+    r"does not amount to corroboration)\b", re.I
+)
+
+
+def build_news_impact_trace(entity: str, search_payload: dict) -> dict:
+    """Teach INTERPRETATION: what real news means for exposure, and what it does not.
+
+    The verifier deliberately does NOT grade the analysis — "what this means" is a
+    judgement no validator can score. It enforces the two things that are checkable
+    and that are exactly where fabrication enters: only cite outlets the search
+    returned, and never call one independent source (or ARIA's own memory)
+    corroboration.
+    """
+    sources = sorted(_independent_sources(search_payload))
+    results = (search_payload or {}).get("results") or []
+    call_id = "call_news_" + re.sub(r"[^a-z0-9]+", "", entity.lower())[:18]
+
+    if not results:
+        final = (
+            f"The search returned no results for {entity}, so I have nothing to "
+            f"analyse. That is an absence of retrieved evidence, not evidence that "
+            f"nothing is happening — I would widen the query or try a different "
+            f"source before concluding anything."
+        )
+    elif not sources:
+        final = (
+            f"Everything the search returned for {entity} is from my own memory, "
+            f"not an outside source. I will not build an assessment on that: it "
+            f"would be my own prior belief reflected back as corroboration. There "
+            f"is no independent reporting here to interpret."
+        )
+    else:
+        headline = next(
+            (r.get("title") for r in results
+             if isinstance(r, dict) and not any(
+                 str(r.get("url") or "").lower().startswith(m) for m in _SELF_SOURCE_MARKERS)),
+            "",
+        )
+        if len(sources) == 1:
+            final = (
+                f"One independent source reports on {entity}: \"{headline}\" "
+                f"[from {sources[0]}]. Treat this as SINGLE-SOURCE — it is enough to "
+                f"raise a question, not to move a risk rating. The other hits are my "
+                f"own memory and do not corroborate it. Exposure implication: if the "
+                f"report holds, it bears on {entity}'s revenue concentration, which I "
+                f"would verify against the filed accounts before acting."
+            )
+        else:
+            cites = " ".join(f"[from {s}]" for s in sources[:3])
+            final = (
+                f"Reporting on {entity} is corroborated across {len(sources)} "
+                f"independent sources {cites}: \"{headline}\". That is enough to act "
+                f"on as a working assumption. Exposure implication: it bears on "
+                f"{entity}'s contract pipeline and counterparty concentration — I "
+                f"would still confirm against primary filings before it changes a "
+                f"formal rating."
+            )
+    return {
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": (
+                f"What's being reported about {entity} at the moment, and does it "
+                f"change our exposure?")},
+            {
+                "role": "assistant",
+                "content": (
+                    f"I need current reporting before I say anything about exposure — "
+                    f"I will not characterise {entity} from memory."
+                ),
+                "tool_calls": [{
+                    "id": call_id, "type": "function",
+                    "function": {"name": "web_search",
+                                 "arguments": json.dumps({"query": f"{entity} news"}, ensure_ascii=False)},
+                }],
+            },
+            {"role": "tool", "tool_call_id": call_id, "name": "web_search",
+             "content": json.dumps(search_payload, ensure_ascii=False)},
+            {"role": "assistant", "content": final},
+        ],
+        "topic": "news_impact_analysis",
+        "label": "tooluse_news_impact",
+        "grounded": True,
+        "subject": entity,
+        "independent_sources": len(sources),
+        "tools": TOOL_SPECS,
+        "source": "replayed_real_tool_execution",
+    }
+
 
 _DEAD_STATUSES = ("dissolved", "closed", "closed-on", "converted-closed", "removed", "liquidation")
 

@@ -24,13 +24,10 @@ from scripts.train.build_tooluse_corpus import (
     build_resolution_trace, write_multihop_corpus, validate_trace, resolve_company,
 )
 
-# Deliberately SHORT / partial names — the realistic input, and where the
-# register's relevance ranking misleads.
-SUBJECTS = [
-    "Chemring", "Babcock", "QinetiQ", "Cobham", "Serco", "Meggitt",
-    "Ultra Electronics", "Smiths Group", "Melrose", "Diageo", "Tesco", "Unilever",
-    "Rolls-Royce", "Chemring Group plc", "Babcock International Group plc",
-]
+from scripts.train._subjects import AMBIGUOUS_SHORT, UK_REGISTRY_SUBJECTS
+
+# Short names are where the register misleads; the full names are the control.
+SUBJECTS = AMBIGUOUS_SHORT + UK_REGISTRY_SUBJECTS[:8]
 
 
 async def capture(subjects: list[str]) -> list[dict]:

@@ -20,13 +20,7 @@ from scripts.train.build_tooluse_corpus import (
     build_multihop_trace, write_multihop_corpus, validate_trace, resolve_company,
 )
 
-# Listed public companies — public record, and deliberately NOT customer DDs.
-SUBJECTS = [
-    "Rolls-Royce Holdings plc", "Unilever plc", "Tesco plc",
-    "Babcock International Group plc", "QinetiQ Group plc", "Serco Group plc",
-    "Chemring Group plc", "Meggitt plc", "Ultra Electronics Holdings plc",
-    "Melrose Industries plc", "Smiths Group plc", "Cobham Limited",
-]
+from scripts.train._subjects import UK_REGISTRY_SUBJECTS as SUBJECTS
 
 
 async def _screen_live(name: str, base: str, token: str) -> dict | None:

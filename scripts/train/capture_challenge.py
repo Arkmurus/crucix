@@ -27,13 +27,12 @@ from scripts.train.build_tooluse_corpus import (
     build_challenge_trace, write_multihop_corpus, validate_trace, _matches, _was_performed,
 )
 
-# Public record only: designated entities and listed public companies.
-SUBJECTS = [
-    "Sberbank", "Gazprombank", "Bank Rossiya", "Kalashnikov Concern",
-    "Islamic Revolutionary Guard Corps", "VTB Bank", "Aeroflot",
-    "Tesco plc", "Unilever plc", "Siemens AG", "Airbus SE",
-    "Rolls-Royce Holdings plc", "Marks and Spencer Group plc", "Diageo plc",
-]
+from scripts.train._subjects import SANCTIONED, LISTED_CLEAN
+
+# R-F3374 — the shared roster. Both halves matter: designated entities give the
+# real HITs, listed companies the real CLEANs, and each subject is built in BOTH
+# premise directions so all four quadrants come from real evidence.
+SUBJECTS = SANCTIONED + LISTED_CLEAN
 
 
 async def capture(subjects: list[str], base: str, token: str) -> list[dict]:
