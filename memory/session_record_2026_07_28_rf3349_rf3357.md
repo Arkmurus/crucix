@@ -223,6 +223,40 @@ build CONTAINS.** It is not. A commit now contributes its own R-number, and only
 if it changes a file that reaches the image. Measured before/after on the live
 range: `R-F3347+…+R-F3368+…` → `R-F3365+R-F3366+R-F3367+R-F3369+R-F3370`.
 
+## R-F3373 — the background-kill item, root-analysed and closed
+
+**Concluded by elimination, not assertion:**
+
+| Hypothesis | Evidence | Verdict |
+|---|---|---|
+| Background execution unreliable | a minimal 25-min heartbeat ran to completion, **exit 0** — 3× pytest's best | ❌ ruled out |
+| Blanket time limit | an earlier full-suite background run survived **1h20m** | ❌ ruled out |
+| Antivirus | Kaspersky log **empty** in the window; Defender routine only | ❌ ruled out |
+| Process crash | **zero** Windows Error Reporting entries for python | ❌ terminated, not faulted |
+| OS resource exhaustion | no System event 2004; 5.6 GB virtual headroom | ❌ not supported |
+
+→ **The kill tracks the WORKLOAD.** The suite loads torch/chromadb and spawns an
+encode-offload child (R-F3347) on a 7.7 GB box with ~0.5 GB free. ⚠️**This
+remains a HYPOTHESIS and is labelled as such** — the experiment that would settle
+it (a heavy run under a memory sampler) was **deferred, not guessed**, because a
+deliberately memory-exhausting run risked destabilising the second agent's eval
+work on the same machine. Re-run it when the box is quiet.
+
+**★THE DEEPER ROOT, and the reason the symptom mattered:** `conftest.py` (R-F927)
+states that CI runs **ONLY** `test_imports.py` + `test_lifespan_smoke.py` with a
+minimal dep set (no torch/sentence-transformers) — **deploys are not gated on the
+full suite at all.** So §16 ("new R-numbers must not add to the failing count")
+had no machine anywhere: the baseline was whatever someone last measured by hand,
+which is exactly how CLAUDE.md's figure sat ~3x stale for two months.
+
+**R-F3373 ships `scripts/admin/suite_baseline.py`** — foreground segments (immune
+to the kill), diffing the **failure SET** against `docs/suite_baseline.json` (a
+flat count hides one test breaking as another is fixed), exit 1 on any new
+failure. 🔑A partial/resumed run **suppresses the "fixed" list** with the reason
+printed: every un-executed test would otherwise read as fixed — the same class of
+false win this whole session removed. New-failure detection stays live, because a
+test that failed really did fail.
+
 ## Open / handoff
 
 - ⚠️ **Suite wedge #5, not investigated.**
