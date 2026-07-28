@@ -1631,7 +1631,8 @@ def _subject_is_person(report) -> bool:
         return False
 
 
-async def _bounded_dd_op(coro, timeout_s: float, layer, op_name: str, default=None):
+async def _bounded_dd_op(coro, timeout_s: float, layer, op_name: str, default=None,
+                         progress: dict | None = None):
     """R-F2977 — await `coro` under a hard per-op timeout. On timeout: record a
     data_gap on `layer` and return `default` so the layer KEEPS GOING and completes
     (status OK) instead of the whole layer being cancelled → ERROR. Any OTHER
@@ -1666,14 +1667,35 @@ async def _bounded_dd_op(coro, timeout_s: float, layer, op_name: str, default=No
     try:
         return await asyncio.wait_for(coro, timeout=timeout_s)
     except asyncio.TimeoutError:
+        # R-F3316 — a hard cancel destroys the callee's stack, so it can report
+        # NOTHING about where its budget went. Three consecutive attempts at the
+        # deep-research timeout (R-F3258, R-F3300, R-F3306) were therefore
+        # hypotheses rather than diagnoses: the gap said only "did not complete
+        # within 300s", which is true and useless.
+        #
+        # `progress` is owned by the CALLER, so writes into it survive the
+        # cancellation that discards everything else. A module-level global would
+        # be clobbered by concurrent DDs; a dict per call is not.
+        _where = ""
+        try:
+            if isinstance(progress, dict) and progress.get("stage"):
+                _detail = ", ".join(
+                    f"{k}={v}" for k, v in progress.items()
+                    if k != "stage" and v not in (None, "")
+                )
+                _where = f", last stage: {progress['stage']}"
+                if _detail:
+                    _where += f" ({_detail})"
+        except Exception:
+            _where = ""
         try:
             layer.data_gaps.append(
-                f"{op_name} did not complete within {int(timeout_s)}s (bounded) "
-                f"— partial result, NOT a clean check")
+                f"{op_name} did not complete within {int(timeout_s)}s (bounded)"
+                f"{_where}. Partial result, NOT a clean check")
         except Exception:
             pass
-        logger.warning("[R-F2977] DD op '%s' exceeded %ss — bounded, layer continues",
-                       op_name, timeout_s)
+        logger.warning("[R-F2977] DD op '%s' exceeded %ss (bounded, layer continues)%s",
+                       op_name, timeout_s, _where)
         return default
 DEEP_RESEARCH_ENABLED = (os.getenv("ARIA_DD_DEEP_RESEARCH", "1") or "1").strip() not in ("0", "false", "no", "off")
 ORCHESTRATOR_ENABLED = (os.getenv("ARIA_DD_ORCHESTRATOR_ENABLED", "1") or "1").strip() not in ("0", "false", "no", "off")
@@ -6695,10 +6717,17 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
             # returns what it gathered (R-F3018).
             _dr_op_budget = _OP_T_DEEPRESEARCH_DEEP if _mode_is_deep else _OP_T_DEEPRESEARCH
             _dr_deadline = max(5.0, _dr_op_budget - 3.0)
+            # R-F3316 — this dict is OURS. investigate() writes its current stage
+            # into it, so when the wait_for backstop cancels the call (destroying
+            # its stack and returning {}), the report can still name the stage that
+            # consumed the budget instead of only "did not complete within 300s".
+            _dr_progress: dict = {}
             dr = await _bounded_dd_op(deep_researcher.investigate(
                 llm, name, depth=dr_depth, investigate_people=_dd_people,
-                seed_people=_seed or None, deadline_s=_dr_deadline),
-                _dr_op_budget, report.digital, "deep research", default={})
+                seed_people=_seed or None, deadline_s=_dr_deadline,
+                progress=_dr_progress),
+                _dr_op_budget, report.digital, "deep research", default={},
+                progress=_dr_progress)
             if isinstance(dr, dict) and dr.get("partial"):
                 # Honest, specific, and — unlike the old wording — TRUE: name what
                 # was gathered before the cut, not just that a timer expired.

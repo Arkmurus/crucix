@@ -884,6 +884,7 @@ async def investigate(
     investigate_people: int | None = None,  # R-F1812: recursive person drill-down cap
     seed_people: list | None = None,  # R-F1823: caller-known names (registry/contacts) to investigate
     deadline_s: float | None = None,  # R-F3018: cooperative wall-clock budget
+    progress: dict | None = None,     # R-F3316: caller-owned, survives cancellation
 ) -> dict:
     """
     Deep multi-source investigation on a topic.
@@ -974,6 +975,25 @@ async def investigate(
             _partial, _stopped_after = True, stage
             logger.info("[R-F3018] deep research bounded at %.0fs — stopping after %s, "
                         "returning partial results", deadline_s or 0, stage)
+
+    def _stage(name: str, **detail) -> None:
+        """R-F3316 — publish where we are into the CALLER's dict.
+
+        A cooperative stop returns `stopped_after`, but a HARD cancel
+        (dd_orchestrator's wait_for backstop) destroys this frame and returns
+        nothing, so the report could only say "did not complete within 300s".
+        Three attempts at that timeout were hypotheses for exactly this reason.
+        Writes here land in the caller's object and outlive the cancellation.
+        Never raises: a diagnostic must not be able to break the thing it watches.
+        """
+        if progress is None:
+            return
+        try:
+            progress["stage"] = name
+            for k, v in detail.items():
+                progress[k] = v
+        except Exception:
+            pass
 
     logger.info(f"ARIA investigating: '{topic}' (depth={depth}, {max_searches} search angles)")
 
@@ -1169,6 +1189,7 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
             logger.debug("web_search failed for %r: %s", query, _e)
             continue
         _queries_run += 1
+        _stage("search fan-out", angles_run=_queries_run)
         # R-F1594: space sequential searches to avoid DDG rate limiting
         await asyncio.sleep(0.5)
         unread = [a for a in results if a.get("link") not in read_urls]
@@ -1270,10 +1291,12 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
             if article.get("link"):
                 await _mark_read(article["link"])
             articles_read += 1
+            _stage("fact retention", retained=articles_read)
 
     # R-F3018 — harvest what FINISHES inside the budget instead of discarding
     # everything. `gather` is all-or-nothing under an outer cancel; `wait` with a
     # timeout hands back the completed set and lets us cancel the stragglers.
+    _stage("article read", jobs=len(article_jobs))
     _article_budget = _remaining() - _synth_reserve_s
     if _t_deadline is not None and _article_budget <= 0:
         _mark_partial("article read (no budget left to analyse articles)")
@@ -1306,6 +1329,7 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
                 except Exception as _e:
                     logger.debug("article task failed: %s", _e)
             parallel_results.extend(_batch)
+            _stage("article read", analysed=len(parallel_results), jobs=len(_tasks))
             # Retain NOW, while there is still budget, not after it is gone.
             await _retain(_batch)
         for _t in _left:
