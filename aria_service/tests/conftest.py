@@ -7,11 +7,21 @@ the embedder lock inside the index-queue worker thread, racing the in-flight
 request → deadlock; pytest-timeout's thread method then `os._exit()`s the whole
 run so the suite never completes).
 
-NOTE: this hang is LOCAL-DEV ONLY. CI's "Test ARIA Python service" workflow runs
-ONLY test_imports.py + test_lifespan_smoke.py with a MINIMAL dep set (no torch /
-sentence-transformers), so it never hits this path — deploys are NOT gated on
-the full suite. This conftest exists so a developer can run the full suite to
-completion locally (and so the §16 baseline is measurable).
+NOTE: this hang is LOCAL-DEV ONLY. CI's "Test ARIA Python service" workflow
+(test-aria.yml) runs ONLY test_imports.py + test_lifespan_smoke.py with a MINIMAL
+dep set (no torch / sentence-transformers), so it never hits this path — deploys
+are NOT gated on the full suite. This conftest exists so a developer can run the
+full suite to completion locally (and so the §16 baseline is measurable).
+
+R-F3378 CORRECTION: the paragraph above says "CI", and a reader (this one) took
+it to mean CI never runs the suite at all. ci.yml is a SECOND workflow and it
+does invoke `pytest aria_service/tests/` — but with the same minimal dep set, so
+most of the suite errors on import there, and its result was piped into `tail`,
+which discarded the exit code. That step is now explicitly ADVISORY. Separately,
+ci.yml had been structurally invalid since R-F1073 (2026-05-29) — column-0 python
+inside a YAML block scalar — so it failed in 0s on every push for two months and
+ran nothing at all. Both are fixed; neither makes the full suite a deploy gate.
+The suite's real gate is scripts/admin/suite_baseline.py (R-F3373).
 
 Fixes:
 1. HuggingFace OFFLINE — the embedder load uses the local cache or fails fast to

@@ -42,74 +42,47 @@ jobs:
       - name: Wiring audit (structural guard)
         run: |
           echo "Checking ALL intel modules for brain wiring..."
-          python -c "
-import sys
-from pathlib import Path
-sys.path.insert(0, 'scripts')
-from pre_commit_checks import check_wiring_present
-files = list(Path('aria_service/intel').rglob('*.py'))
-issues = check_wiring_present(files)
-if issues:
-    print('WIRING AUDIT FAILED:')
-    for i in issues:
-        print(i)
-    sys.exit(1)
-print('All intel modules have brain wiring.')
-"
+          python scripts/ci/wiring_audit.py
 
       - name: Windows compatibility check
         run: |
           echo "Checking for Windows-incompatible patterns..."
-          python -c "
-import sys
-from pathlib import Path
-sys.path.insert(0, 'scripts')
-from pre_commit_checks import check_windows_compat
-files = list(Path('aria_service').rglob('*.py'))
-issues = check_windows_compat(files)
-if issues:
-    print('WINDOWS COMPATIBILITY ISSUES:')
-    for i in issues:
-        print(i)
-    # Don't fail CI on Windows compat (Linux CI can't fully validate)
-    print('Warning: Windows compatibility issues found (non-fatal on Linux CI).')
-else:
-    print('No Windows compatibility issues found.')
-"
+          python scripts/ci/windows_compat_check.py
 
       - name: Ecosystem audit
         run: |
           echo "Running ecosystem audit..."
           python scripts/ecosystem_audit.py
 
-      - name: Run tests
+      # R-F3378 — this step ran `pytest ... 2>&1 | tail -50`. A bash pipeline
+      # exits with the status of its LAST command, so `tail` (always 0) decided
+      # the outcome: no test failure could ever fail this step. It read as "CI
+      # runs the suite" while structurally being unable to report anything.
+      #
+      # It also cannot pass honestly as written: the deps installed above are
+      # pytest/pytest-asyncio/httpx plus requirements-dev.txt, which carries only
+      # pytest, pytest-asyncio, pytest-timeout and pyflakes — no torch, no
+      # chromadb, not even fastapi. Most of the suite errors on import here.
+      #
+      # So the swallow is removed (the real result is now visible in the log
+      # rather than truncated to the last 50 lines) and the step is DECLARED
+      # advisory instead of accidentally so. Making it blocking today would turn
+      # CI red on missing dependencies, not on real regressions — that needs the
+      # full dep set, which is an infra/cost decision for the operator.
+      #
+      # The suite's real gate is scripts/admin/suite_baseline.py (R-F3373): it
+      # runs foreground segments and fails only on failures NEW since
+      # docs/suite_baseline.json. Point this step at that once CI installs the
+      # full deps.
+      - name: Run tests (ADVISORY — see R-F3378; not a gate)
+        continue-on-error: true
         run: |
-          python -m pytest aria_service/tests/ -v --tb=short -q 2>&1 | tail -50
+          python -m pytest aria_service/tests/ -v --tb=short -q
 
       - name: Check for syntax errors
         run: |
           echo "Checking syntax of all Python files..."
-          python -c "
-import ast, sys, os
-errors = []
-for root, dirs, files in os.walk('aria_service'):
-    if 'tests' in root or '__pycache__' in root:
-        continue
-    for f in files:
-        if not f.endswith('.py'):
-            continue
-        path = os.path.join(root, f)
-        try:
-            with open(path, 'r', encoding='utf-8') as fh:
-                ast.parse(fh.read())
-        except SyntaxError as e:
-            errors.append(f'{path}: {e}')
-if errors:
-    for e in errors:
-        print(e)
-    sys.exit(1)
-print('All files pass syntax check.')
-"
+          python scripts/ci/syntax_check.py
 
   # R-F1794 (2026-06-23) — aria-web supply-chain + Node-test gate (audit #13/#1).
   # The Node tier was entirely outside CI: no npm audit, and 77 test/*.test.mjs
