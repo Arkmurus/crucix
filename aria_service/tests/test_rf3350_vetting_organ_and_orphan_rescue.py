@@ -81,8 +81,20 @@ def test_rf3350_orphan_alert_stays_meaningful_never_clamped():
     # These span organs by nature and must NOT be forced into one.
     assert "aria_service" in orphans
     assert "aria_service.intel" in orphans
-    # A test file living in the production tree stays VISIBLE rather than excluded.
-    assert "aria_service.intel.auto.test_rf1191_new" in orphans
+    # R-F3380 UPDATE — this used to assert that `intel.auto.test_rf1191_new`
+    # stayed a VISIBLE orphan, on the reading that a stray test file in the
+    # production tree should not be hidden to flatter the denominator. That was
+    # right about the principle and wrong about the file: it was not a stray
+    # test, it was an ARTEFACT test_rf855 wrote into the tree on every run
+    # (proven by deleting it and re-running that test). The file is gone and the
+    # writer is fixed, so the orphan it created is gone with it.
+    #
+    # The principle is what this test should pin, so it now asserts the map still
+    # surfaces genuinely unassignable modules rather than naming one that a bug
+    # happened to create.
+    assert "aria_service.intel.auto" in orphans, (
+        "a namespace package that spans organs must stay honestly unassigned"
+    )
 
 
 def test_rf3350_orphans_materially_reduced():

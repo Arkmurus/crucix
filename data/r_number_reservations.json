@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3380,
+  "next_available": 3382,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27841,6 +27841,24 @@
       "r_number": "R-F3379",
       "title": "enforce rights at retrieval: may_quote_verbatim had no caller so licensed text could still be quoted",
       "claimed_at": "2026-07-28T22:16:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3380",
+      "title": "test_rf855 writes an artifact into the production tree on every run",
+      "claimed_at": "2026-07-28T22:31:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3381",
+      "title": "CI gates mislabel: dead-code ignores test refs, wiring checker ignores most §21a sinks",
+      "claimed_at": "2026-07-28T22:31:28Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

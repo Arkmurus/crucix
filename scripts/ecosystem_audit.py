@@ -22,6 +22,16 @@ sys.path.insert(0, str(REPO_ROOT))
 # ── Configuration ──────────────────────────────────────────────────────
 
 SKIP_DIRS = {"__pycache__", ".git", ".venv", "node_modules", "data"}
+
+# R-F3381 — modules that are unreferenced BY DESIGN, each with the reason.
+# An entry here is a standing exemption, so it must name why; a bare list of
+# names is how a gate quietly stops meaning anything.
+DEAD_CODE_EXEMPT = {
+    # R-F1859: a controlled, reproducible bug for the autonomous coder to fix
+    # end-to-end. Its own docstring says "imported by NOTHING in production" and
+    # "Remove after first gold is verified" — deliberate, not rot.
+    "seeded_defect",
+}
 SKIP_FILES = {"__init__.py", "conftest.py"}
 ARIA_SERVICE = REPO_ROOT / "aria_service"
 
@@ -240,10 +250,33 @@ def check_dead_code(modules: list[Path]) -> list[str]:
         except Exception:
             continue
 
+    # R-F3381 — TESTS COUNT AS REFERENCES, and declared fixtures are not dead.
+    #
+    # This scanned only non-test modules (scan_modules skips tests/), so anything
+    # used exclusively by the test suite read as "dead". Measured 2026-07-28, the
+    # gate reported 3 dead modules and NONE of them was dead code:
+    #   intel/dd_independence_eval.py  — a scoring harness imported by FOUR tests
+    #   coder_demo/seeded_defect.py    — documented in its own docstring as
+    #                                    "imported by NOTHING in production",
+    #                                    a deliberate target for the autonomous
+    #                                    coder (R-F1859)
+    #   intel/auto/test_rf1191_new.py  — not a module at all: test_rf855 WROTE it
+    #                                    into the production tree on every run
+    #                                    (fixed by R-F3380)
+    # A gate that is 0-for-3 on its own subject gets muted, and then it protects
+    # nothing — the failure mode CLAUDE.md keeps returning to.
+    for tf in scan_test_files():
+        try:
+            all_source += _read_file(tf) + "\n"
+        except Exception:
+            continue
+
     dead = []
     for mod in modules:
         mod_name = mod.stem
         if mod_name.startswith("_") or mod_name in ("main", "config"):
+            continue
+        if mod_name in DEAD_CODE_EXEMPT:
             continue
         if mod_name not in all_source:
             dead.append(str(mod.relative_to(ARIA_SERVICE)))

@@ -280,9 +280,45 @@ def check_wiring_present(files: list[Path]) -> list[str]:
         except Exception:
             continue
 
-        # Check for wire_success or wire_failure calls
+        # R-F3381 — §21a defines a wired path as one emitting ANY of
+        # brain_hook.absorb / capability_gaps.record_gap / mistake_ledger.record /
+        # a metric / a brain signal. This checked ONLY the literal strings
+        # `wire_success(` / `wire_failure(`, so it measured one IMPLEMENTATION of
+        # wiring rather than wiring, and reported modules that do reach a sink.
+        #
+        # Measured on the live tree: of 42 modules flagged "NO brain wiring
+        # found", 3 reach a §21a sink another way — ecosystem_map.py (@fail_wire,
+        # brain_hook, record_gap AND a brain signal), brain_ingest_queue.py,
+        # regional_drift_monitor.py. The other 39 are genuinely dark, so this is a
+        # precision fix, NOT a way to make the backlog disappear: the count goes
+        # 42 -> 39, and the remaining 39 are real §21 violations.
+        #
+        # scripts/ecosystem_audit.py already carries the canonical token list.
+        # Two definitions of "wired" in one repo is the two-writers hazard that
+        # has bitten here before, so the alternates are spelled out once, here,
+        # next to the rule they enforce.
         has_wire_success = "wire_success(" in content
         has_wire_failure = "wire_failure(" in content
+        # Decorator/other sinks cover BOTH branches by construction: @fail_wire
+        # wraps the callable so any unhandled exception reaches the brain, and a
+        # record_gap/absorb call is a sink in its own right.
+        has_other_sink = any(tok in content for tok in (
+            "@fail_wire",
+            "brain_hook.absorb", "brain_hook.observe_self_event",
+            "capability_gaps.record_gap", "record_gap(",
+            "mistake_ledger.record",
+            "brain_signal", "/api/aria/brain/signal",
+        ))
+        # IMPORTANT — this clears ONLY the "no wiring at all" verdict. The first
+        # cut of this fix did `if has_other_sink: continue`, which also cleared
+        # the HALF-WIRED categories and took the report from 72 modules to 52. It
+        # looked like a better fix and was a clamp: @fail_wire and record_gap are
+        # FAILURE-side sinks, so they say nothing about whether the SUCCESS branch
+        # reaches the brain — which is the half of §21a those categories exist to
+        # check. Measured, the honest correction is 42 -> 39 in this category and
+        # the 30 half-wired modules stay flagged.
+        if has_other_sink and not has_wire_success and not has_wire_failure:
+            continue
 
         if not has_wire_success and not has_wire_failure:
             issues.append(
