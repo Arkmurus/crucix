@@ -29,6 +29,8 @@ import asyncio
 import time
 from unittest.mock import patch
 
+from aria_service.intel import learning_progress as _real_lp
+
 
 # Sample data — small enough for unit test, structured like prod.
 _SAMPLE_FACTS = [
@@ -95,7 +97,16 @@ def test_build_heatmap_returns_expected_shape():
     async def _fake_get_all_domains():
         return []
 
-    fake_lp = type("LP", (), {"get_all_domains": staticmethod(_fake_get_all_domains)})()
+    fake_lp = type("LP", (), {
+        "get_all_domains": staticmethod(_fake_get_all_domains),
+        # R-F3327: coverage_heatmap.py:658 calls _lp._max_staleness_for(d).
+        # The real learning_progress module has it (learning_progress.py:113);
+        # this fake MODULE predates that call site, so every test using it died
+        # with AttributeError. Delegate to the REAL function rather than
+        # hardcoding a number, so a staleness-policy change surfaces here
+        # instead of being masked by a stale stub.
+        "_max_staleness_for": staticmethod(_real_lp._max_staleness_for),
+    })()
 
     async def _run():
         with patch.dict("sys.modules", {
@@ -145,7 +156,16 @@ def test_build_heatmap_runs_matrix_compute_in_to_thread():
     async def _fake_get_all_domains():
         return []
 
-    fake_lp = type("LP", (), {"get_all_domains": staticmethod(_fake_get_all_domains)})()
+    fake_lp = type("LP", (), {
+        "get_all_domains": staticmethod(_fake_get_all_domains),
+        # R-F3327: coverage_heatmap.py:658 calls _lp._max_staleness_for(d).
+        # The real learning_progress module has it (learning_progress.py:113);
+        # this fake MODULE predates that call site, so every test using it died
+        # with AttributeError. Delegate to the REAL function rather than
+        # hardcoding a number, so a staleness-policy change surfaces here
+        # instead of being masked by a stale stub.
+        "_max_staleness_for": staticmethod(_real_lp._max_staleness_for),
+    })()
 
     to_thread_calls: list[str] = []
     real_to_thread = asyncio.to_thread
@@ -216,7 +236,16 @@ def test_rf928_yields_gil_during_compute():
     async def _fake_get_all_domains():
         return []
 
-    fake_lp = type("LP", (), {"get_all_domains": staticmethod(_fake_get_all_domains)})()
+    fake_lp = type("LP", (), {
+        "get_all_domains": staticmethod(_fake_get_all_domains),
+        # R-F3327: coverage_heatmap.py:658 calls _lp._max_staleness_for(d).
+        # The real learning_progress module has it (learning_progress.py:113);
+        # this fake MODULE predates that call site, so every test using it died
+        # with AttributeError. Delegate to the REAL function rather than
+        # hardcoding a number, so a staleness-policy change surfaces here
+        # instead of being masked by a stale stub.
+        "_max_staleness_for": staticmethod(_real_lp._max_staleness_for),
+    })()
 
     zero_sleeps = {"n": 0}
     real_sleep = time.sleep
@@ -274,7 +303,16 @@ def test_rf931_inverted_index_matches_legacy_counts():
     async def _fake_get_all_domains():
         return []
 
-    fake_lp = type("LP", (), {"get_all_domains": staticmethod(_fake_get_all_domains)})()
+    fake_lp = type("LP", (), {
+        "get_all_domains": staticmethod(_fake_get_all_domains),
+        # R-F3327: coverage_heatmap.py:658 calls _lp._max_staleness_for(d).
+        # The real learning_progress module has it (learning_progress.py:113);
+        # this fake MODULE predates that call site, so every test using it died
+        # with AttributeError. Delegate to the REAL function rather than
+        # hardcoding a number, so a staleness-policy change surfaces here
+        # instead of being masked by a stale stub.
+        "_max_staleness_for": staticmethod(_real_lp._max_staleness_for),
+    })()
 
     async def _run():
         with patch.dict("sys.modules", {
