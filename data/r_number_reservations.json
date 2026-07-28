@@ -27782,9 +27782,10 @@
       "title": "make the section-16 baseline mechanically checkable: segmented runner + failure-set diff",
       "claimed_at": "2026-07-28T21:23:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "00e486c3",
+      "notes": null,
+      "shipped_at": "2026-07-28T21:46:10Z"
     },
     {
       "r_number": "R-F3374",
