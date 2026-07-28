@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3331,
+  "next_available": 3332,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27357,6 +27357,15 @@
       "commit_sha": "047449be",
       "notes": null,
       "shipped_at": "2026-07-28T10:39:20Z"
+    },
+    {
+      "r_number": "R-F3331",
+      "title": "force-exit cancels tests registered after a module-scope await; fix rf2986 + guard the shape",
+      "claimed_at": "2026-07-28T10:40:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

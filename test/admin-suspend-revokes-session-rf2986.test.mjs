@@ -19,6 +19,25 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
+// Isolate the users store + pin a valid JWT secret before importing users.mjs.
+//
+// R-F3331 — this block and the import below used to sit BELOW the first test().
+// `npm test` runs node --test with --test-force-exit, and a test registered
+// after a module-scope `await` can miss the runner's drain window: the three
+// tests under that await were reported "Promise resolution is still pending but
+// the event loop has already resolved" on every suite run, while the file passed
+// alone under a bare `node --test`. Nothing about R-F2986 was broken. Keep every
+// module-scope await ABOVE the first test() call — enforced by
+// test/no-late-module-await-rf3331.test.mjs.
+process.env.USERS_FILE_OVERRIDE = path.join(
+  mkdtempSync(path.join(tmpdir(), 'users-rf2986-')), 'users.json',
+);
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-rf2986-at-least-32-characters-long';
+
+const {
+  createUser, createToken, updateUser, revokeTokens, findUserById,
+} = await import('../lib/auth/users.mjs');
+
 // Source-read regression lock (repo convention, cf. web-security-rf2094): assert
 // the ACTUAL PUT /api/admin/users/:id handler in server.mjs wires revokeTokens on
 // a role change or a suspend. This is the fail-before/pass-after signal against
@@ -33,16 +52,6 @@ test('R-F2986: server.mjs wires revokeTokens into the admin user-update handler'
   assert.ok(/revokeTokens\(req\.params\.id\)/.test(body),
     'handler must call revokeTokens(req.params.id) on role-change/suspend');
 });
-
-// Isolate the users store + pin a valid JWT secret before importing users.mjs.
-process.env.USERS_FILE_OVERRIDE = path.join(
-  mkdtempSync(path.join(tmpdir(), 'users-rf2986-')), 'users.json',
-);
-process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-rf2986-at-least-32-characters-long';
-
-const {
-  createUser, createToken, updateUser, revokeTokens, findUserById,
-} = await import('../lib/auth/users.mjs');
 
 // requireAuth's session-validity check (server.mjs:4805-4809), verbatim:
 // a token is still live iff its baked-in ver matches the user's live tokenVersion.
