@@ -22,6 +22,8 @@ from __future__ import annotations
 import asyncio
 import types
 
+import types as _types
+
 import pytest
 
 
@@ -155,7 +157,15 @@ def test_rf3065_repeat_start_does_not_spawn_a_second_sampler(monkeypatch):
         def is_alive(self):
             return self._alive
 
-    monkeypatch.setattr(cp.threading, "Thread", _CountingThread)
+    # R-F3323 — patch continuous_profiler's REFERENCE, not the threading module.
+    # `cp.threading` IS the global threading module, so setattr on it replaced
+    # threading.Thread PROCESS-WIDE for the duration of this test, and
+    # _CountingThread.start() deliberately never starts anything. Any component
+    # that created a worker thread in that window got one that never ran, and
+    # anything waiting on it waited forever. continuous_profiler uses exactly one
+    # name from threading (Thread, line ~227), so a module-local shim is
+    # equivalent for this test and cannot leak.
+    monkeypatch.setattr(cp, "threading", _types.SimpleNamespace(Thread=_CountingThread))
     monkeypatch.setitem(cp._state, "running", False)
     monkeypatch.setitem(cp._state, "sampler_thread", None)
 
@@ -203,7 +213,15 @@ def test_rf3065_stop_then_start_works_again(monkeypatch):
         def is_alive(self):
             return self._alive
 
-    monkeypatch.setattr(cp.threading, "Thread", _CountingThread)
+    # R-F3323 — patch continuous_profiler's REFERENCE, not the threading module.
+    # `cp.threading` IS the global threading module, so setattr on it replaced
+    # threading.Thread PROCESS-WIDE for the duration of this test, and
+    # _CountingThread.start() deliberately never starts anything. Any component
+    # that created a worker thread in that window got one that never ran, and
+    # anything waiting on it waited forever. continuous_profiler uses exactly one
+    # name from threading (Thread, line ~227), so a module-local shim is
+    # equivalent for this test and cannot leak.
+    monkeypatch.setattr(cp, "threading", _types.SimpleNamespace(Thread=_CountingThread))
     monkeypatch.setitem(cp._state, "running", False)
     monkeypatch.setitem(cp._state, "sampler_thread", None)
 
