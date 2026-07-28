@@ -133,6 +133,48 @@ def detect_restricted_markings(text: str) -> list[str]:
     return found
 
 
+# ── R-F3383: the personal-data gate ────────────────────────────────────────
+#
+# R-F3376 gated WHO may hold a document; neither it nor R-F3379 asked what is IN
+# it. A DD pack, vetting file or email export put live emails, phones, IBANs,
+# cards and API keys into a corpus every later query can retrieve — in a system
+# with a documented cross-tenant leak history.
+#
+# Two risks, two answers: credentials are REFUSED (no legitimate reason for a key
+# to be in a retrieval corpus), direct identifiers are REDACTED (refusing would
+# break the product — real DD documents contain contact details, and RAG is a
+# reasoning surface, not the system of record).
+_PII_PLACEHOLDERS = ("EMAIL", "PHONE", "CARD", "IBAN", "ID_NUMBER", "SECRET")
+# Credentials. No override: there is no document that legitimately needs one.
+_PII_REFUSE = ("SECRET",)
+
+
+def detect_pii(text: Any) -> dict[str, int]:
+    """Count personal-data shapes in `text`, by type.
+
+    Derived from `pii_redaction.redact_pii` — the canonical, already-proven
+    pattern set — rather than a second set of regexes that would drift from it.
+    That module deliberately omits a proper-name regex, so a director's name
+    survives: naming people is the POINT of a due-diligence document.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return {}
+    try:
+        from .pii_redaction import redact_pii
+    except Exception:
+        return {}
+    redacted = redact_pii(text)
+    if redacted == text:
+        return {}
+    counts: dict[str, int] = {}
+    for name in _PII_PLACEHOLDERS:
+        token = f"[{name}]"
+        delta = redacted.count(token) - text.count(token)
+        if delta > 0:
+            counts[name] = delta
+    return counts
+
+
 def may_quote_verbatim(meta: Any) -> bool:
     """True only when the stored rights permit reproducing the text.
 
@@ -335,6 +377,27 @@ async def ingest_corpus_document(
                 f"rights='licensed' with a note; otherwise it must not be stored."
             )
 
+    # ── R-F3383 personal-data gate — refuse credentials, redact identifiers ──
+    _pii = detect_pii(text)
+    _refused = [k for k in _pii if k in _PII_REFUSE]
+    if _refused:
+        raise ValueError(
+            f"refusing to ingest {filename!r}: it contains what looks like a "
+            f"credential ({', '.join(_refused)}). Secrets must never enter a "
+            f"retrieval corpus — remove it from the document and re-ingest."
+        )
+    if _pii:
+        # Redact rather than refuse: real DD and vetting documents legitimately
+        # contain contact details, and RAG is a reasoning surface, not the system
+        # of record (the DD vault holds the actual report). Replacing an IBAN with
+        # [IBAN] keeps the document's meaning and removes the leak vector.
+        from .pii_redaction import redact_pii as _redact
+        text = _redact(text)
+        logger.info(
+            "corpus_ingest: redacted %s from %s before storage",
+            ", ".join(f"{v}x{k}" for k, v in sorted(_pii.items())), filename,
+        )
+
     from . import rag_store
 
     meta: dict[str, Any] = {
@@ -352,6 +415,10 @@ async def ingest_corpus_document(
         meta["notes"] = notes[:300]
     if rights_note:
         meta["rights_note"] = rights_note[:300]
+    if _pii:
+        # R-F3383 — what was removed must be auditable later. A control whose
+        # effect leaves no trace cannot be verified after the fact.
+        meta["pii_redacted"] = ",".join(f"{k}:{v}" for k, v in sorted(_pii.items()))[:200]
     if extra_metadata:
         for k, v in extra_metadata.items():
             if isinstance(v, (str, int, float, bool)):
@@ -368,6 +435,7 @@ async def ingest_corpus_document(
     result["tier"] = tier
     result["source_class"] = source_class
     result["rights"] = rights
+    result["pii_redacted"] = _pii
 
     # R-F996 — wire to brain
     wire_success(

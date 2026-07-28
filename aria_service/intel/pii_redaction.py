@@ -74,6 +74,17 @@ _PII_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
         ),
         "[ID_NUMBER]",
     ),
+    # R-F3383 — UK National Insurance number, UNLABELLED. The pattern above only
+    # fires when a label ("passport", "national id", …) precedes the digits, so a
+    # bare `QQ123456C` on a vetting form passed straight through — and an NI
+    # number is exactly what BS 7858 screening handles, so this is the single
+    # most likely identifier to appear in this product's documents.
+    #
+    # Structural, not label-dependent: two capitals, six digits, an A-D suffix.
+    # Case-sensitive on purpose (lowercase hex like `a1b2c3d4e5` must not match)
+    # and the trailing [A-D] is what keeps company numbers out — SC237472 and
+    # NI123456 have no suffix letter, and BS 7858 has only four digits.
+    (re.compile(r"\b[A-Z]{2}\s?\d{6}\s?[A-D]\b"), "[ID_NUMBER]"),
     # ── Emails ─────────────────────────────────────────────────────────
     (re.compile(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}\b"), "[EMAIL]"),
     # ── IBAN-like banking runs — before CARD/NUM ───────────────────────
