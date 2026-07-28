@@ -28,6 +28,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .engine_wiring import wire_failure, wire_success
+
 # Figures that represent specific factual assertions (a fabricated one is dangerous).
 _FIGURE_RE = re.compile(
     r"(?:[$£€]\s?\d[\d,]*\.?\d*\s?(?:bn|billion|m|million|k|thousand|tn|trillion)?)"  # currency
@@ -142,11 +144,26 @@ def ground_claims(answer: str, context: str, *, message: str = "", mode: str = "
             out_parts.append(sent)
         # Rejoin with single spaces (measure mode returns the ORIGINAL text unchanged).
         cleaned = answer if mode == "measure" else " ".join(out_parts)
+        wire_success(
+            module="claim_grounding",
+            summary=f"claim grounding: {n_ung} ungrounded-figure sentence(s)",
+            source_id="claim_grounding:ground_claims",
+        )
         return {
             "answer": cleaned,
             "ungrounded_sentences": n_ung,
             "ungrounded_figures": ungrounded_figs,
             "clean": n_ung == 0,
         }
-    except Exception:
-        return {"answer": answer, "ungrounded_sentences": 0, "ungrounded_figures": [], "clean": True}
+    except Exception as exc:
+        # R-F3387 — this returned clean=True. A grounding check that crashed has
+        # checked NOTHING, so "no ungrounded figures" is a false clean. Fail
+        # closed; the degrade contract (return the answer, never raise) is
+        # unchanged so model_router.py:527 cannot be broken by it.
+        wire_failure(
+            module="claim_grounding",
+            detail=f"claim grounding failed, reporting NOT-clean: {type(exc).__name__}: {exc}"[:400],
+            gap_type="engine_failure",
+            source="claim_grounding:ground_claims",
+        )
+        return {"answer": answer, "ungrounded_sentences": 0, "ungrounded_figures": [], "clean": False}

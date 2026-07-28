@@ -1,6 +1,6 @@
 # §21 brain-wiring backlog — triaged 2026-07-28
 
-**54 intel modules** flagged by `scripts/ci/wiring_audit.py`. CI blocks on this by
+**51 intel modules** flagged by `scripts/ci/wiring_audit.py`. CI blocks on this by
 operator decision: honest red until triaged.
 
 ## How the number moved
@@ -11,6 +11,7 @@ operator decision: honest red until triaged.
 | R-F3381 | 68 | taught it the FAILURE-side §21a sinks (`@fail_wire`, `record_gap`, …) |
 | R-F3382 | 56 | taught it `@wired`, the PREFERRED decorator covering BOTH branches |
 | R-F3386 | 54 | wired the EE/NO registry adapters for real (tranche 1) |
+| R-F3387 | 51 | verification layer: citation_verifier, claim_grounding, corroboration (tranche 2) — and two of them were reporting CLEAN on crash |
 
 Three corrections were attempted and reverted or rejected on measurement — recorded
 so they are not re-attempted:
@@ -36,7 +37,7 @@ really got data — carrying a COUNT, so "answered but empty" is distinguishable
 
 ## Buckets
 
-### ENGINE (43)
+### ENGINE (40)
 
 Real §21 violations — error paths and/or network I/O. **Wire these.**
 
@@ -47,12 +48,9 @@ Real §21 violations — error paths and/or network I/O. **Wire these.**
 - `intel/brain_hook_bg.py` — failure wired, SUCCESS missing (fns=2, try=8, net=n)
 - `intel/calibration_auto_tune.py` — failure wired, SUCCESS missing (fns=3, try=7, net=n)
 - `intel/circuit_breaker.py` — success wired, FAILURE missing (fns=10, try=2, net=n)
-- `intel/citation_verifier.py` — no wiring at all (fns=3, try=1, net=n)
-- `intel/claim_grounding.py` — no wiring at all (fns=4, try=1, net=n)
 - `intel/compliance_workflow.py` — failure wired, SUCCESS missing (fns=12, try=1, net=n)
 - `intel/content_scanner.py` — failure wired, SUCCESS missing (fns=11, try=8, net=Y)
 - `intel/continuous_learner.py` — failure wired, SUCCESS missing (fns=10, try=11, net=Y)
-- `intel/corroboration.py` — no wiring at all (fns=8, try=3, net=n)
 - `intel/credential_self_destruct.py` — failure wired, SUCCESS missing (fns=8, try=12, net=n)
 - `intel/dd_case_archive.py` — failure wired, SUCCESS missing (fns=7, try=6, net=n)
 - `intel/dd_independent_verifier.py` — no wiring at all (fns=29, try=3, net=n)

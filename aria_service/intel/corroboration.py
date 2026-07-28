@@ -58,6 +58,8 @@ from urllib.parse import urlparse
 
 from .verified_intel import SourceIndependenceChecker, SourceRecord, SourceTier
 
+from .engine_wiring import wire_failure, wire_success
+
 logger = logging.getLogger("aria.corroboration")
 
 # Two stories corroborate only if published within this window. Conflict reporting
@@ -237,6 +239,17 @@ def corroborate(signals: Iterable[dict]) -> list[dict]:
         try:
             n = int(checker.get_independent_count(records))
         except Exception as e:
+            # R-F3387 — the SEMANTICS here were already right (fail closed, never
+            # invent corroboration). The gap was that the failure was DARK: a
+            # logger.warning is not a brain sink (§21a), so a permanently broken
+            # independence checker looked identical to "nothing needed
+            # corroborating". Signal it; behaviour is unchanged.
+            wire_failure(
+                module="corroboration",
+                detail=f"independence count failed, failing closed: {type(e).__name__}: {e}"[:400],
+                gap_type="engine_failure",
+                source="corroboration:corroborate",
+            )
             logger.warning("[corroboration] independence count failed: %s — failing closed", e)
             continue                                       # never invent corroboration
 
@@ -253,4 +266,12 @@ def corroborate(signals: Iterable[dict]) -> list[dict]:
             len(cluster), n, str(cluster[0].get("title"))[:70],
         )
 
+    # R-F3387 — §21a success branch: a completed corroboration pass is telemetry
+    # the brain needs, so "the corroborator ran and found nothing" is
+    # distinguishable from "the corroborator never ran".
+    wire_success(
+        module="corroboration",
+        summary=f"corroboration pass over {len(items)} signal(s)",
+        source_id="corroboration:corroborate",
+    )
     return items

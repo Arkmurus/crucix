@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .engine_wiring import wire_failure, wire_success
+
 from . import grounding_reward as gr
 
 
@@ -44,6 +46,11 @@ def verify_and_clean(answer: str, context: str, *, mode: str = "flag") -> dict[s
             return "[unverified]" if mode == "flag" else ""
 
         cleaned = gr._CITE_RE.sub(_repl, text)
+        wire_success(
+            module="citation_verifier",
+            summary=f"citation verify: {len(kept)} kept, {len(dropped)} unverified",
+            source_id="citation_verifier:verify_and_clean",
+        )
         return {
             "answer": cleaned,
             "dropped": dropped,
@@ -51,9 +58,24 @@ def verify_and_clean(answer: str, context: str, *, mode: str = "flag") -> dict[s
             "fabricated_removed": len(dropped),
             "clean": len(dropped) == 0,
         }
-    except Exception:
+    except Exception as exc:
+        # R-F3387 — this returned clean=True. A verifier that fell over has
+        # verified NOTHING, so claiming "every citation verifies against the
+        # evidence" is a false clean, the exact failure this repo fights in
+        # sanctions, DD reports and the C-3 independence gate. Fail closed.
+        #
+        # The DEGRADE contract is unchanged and load-bearing: the caller still
+        # gets its text back and this never raises, so a broken verifier cannot
+        # break the answer path (aria_engine.py:2109/:5449, routes/aria.py:3215,
+        # report_builder.py:503, model_router.py:509). Only the CLAIM changes.
+        wire_failure(
+            module="citation_verifier",
+            detail=f"citation verify failed, reporting NOT-clean: {type(exc).__name__}: {exc}"[:400],
+            gap_type="engine_failure",
+            source="citation_verifier:verify_and_clean",
+        )
         return {"answer": answer, "dropped": [], "kept": [],
-                "fabricated_removed": 0, "clean": True}
+                "fabricated_removed": 0, "clean": False}
 
 
 def is_clean(answer: str, context: str) -> bool:
