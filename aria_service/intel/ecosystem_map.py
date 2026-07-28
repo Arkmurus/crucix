@@ -255,6 +255,129 @@ _ORGAN_OVERRIDES: dict[str, str] = {
 }
 
 
+# ── R-F3358 — the NODE tiers (aria-web, aria-wa) ────────────────────────────
+#
+# R-F3352 declared that this map saw only aria-intel: scan_modules() globs
+# aria_service/**/*.py, every organ above is hardcoded to aria-intel, and the
+# other two services were T0 cards with ZERO modules. 127 modules were invisible
+# — the tier holding auth, billing, Stripe, the UI and the WhatsApp limb — which
+# CLAUDE.md §21b says is not acceptable ("observability is not Python-only").
+#
+# ★ For the Node tier the DIRECTORY IS THE ORGAN. Python needs keyword inference
+# because intel/ is a flat bag of ~400 modules; lib/auth/, lib/billing/ and
+# lib/telegram/ are ALREADY the subsystem boundary. So this side matches on PATH
+# and infers nothing, which makes it structurally immune to the substring
+# accidents R-F3349 had to remove from the Python side (a YAML linter filed under
+# anti-money-laundering because "aml" appears inside "yaml").
+_REPO_ROOT = _ARIA_SERVICE.parent
+
+# The scan roots, per service. Stated explicitly so "100% by construction" means
+# something checkable on this tier too: the node set IS this scan.
+_NODE_ROOTS: dict[str, tuple[str, ...]] = {
+    "aria-web": ("server.mjs", "lib", "public/js"),
+    "aria-wa": ("services/wa-listener",),
+}
+_NODE_TAG = {"aria-web": "web", "aria-wa": "wa"}
+_NODE_SKIP_DIRS = {"node_modules", "vendor", "__pycache__", ".git"}
+_NODE_EXTS = {".mjs", ".js"}
+
+# A prefix ending in "/" matches a directory; anything else is an exact file.
+# The trailing slash is what keeps "lib/source/" from swallowing "lib/sources/".
+_NODE_ORGANS: list[tuple[str, str, str, tuple[str, ...]]] = [
+    ("web_auth", "Web Auth & Access", "aria-web", ("lib/auth/", "lib/api_keys/")),
+    ("web_billing", "Billing & Compliance", "aria-web", ("lib/billing/", "lib/compliance/")),
+    ("web_aria", "ARIA Bridge (web)", "aria-web",
+     ("lib/aria/", "lib/mcp/", "lib/orchestrator/", "lib/aria_sse_delivery.mjs")),
+    ("web_llm", "LLM (web)", "aria-web", ("lib/llm/",)),
+    ("web_channels", "Channels & Alerts", "aria-web",
+     ("lib/telegram/", "lib/whatsapp/", "lib/push/", "lib/alerts/", "lib/messages.mjs")),
+    ("web_intel", "Intel & Search (web)", "aria-web",
+     ("lib/intel/", "lib/sources/", "lib/source/", "lib/search/", "lib/linkedin/", "lib/delta/")),
+    ("web_ops", "Ops & Health (web)", "aria-web",
+     ("lib/health/", "lib/status/", "lib/observability/", "lib/persist/", "lib/util/",
+      "lib/self/", "lib/i18n.mjs")),
+    ("web_reports", "Reports (web)", "aria-web", ("lib/reports/",)),
+    ("web_ui", "Browser UI", "aria-web", ("public/js/",)),
+    ("web_server", "HTTP Server", "aria-web", ("server.mjs",)),
+    ("wa_listener", "WhatsApp Listener", "aria-wa", ("services/wa-listener/",)),
+]
+
+_ESM_IMPORT_RE = re.compile(r"""(?:from|import)\s+['"]([^'"]+)['"]""")
+
+
+def _is_node_test_file(name: str) -> bool:
+    return name.startswith("test_") or ".test." in name
+
+
+def scan_node_modules() -> list[tuple[str, str]]:
+    """Every non-test Node module, as (service, repo-relative posix path).
+
+    The Node counterpart of scan_modules(): this IS the denominator for the Node
+    tiers, so a module cannot be silently absent from the map.
+    """
+    out: list[tuple[str, str]] = []
+    for service, roots in _NODE_ROOTS.items():
+        for root in roots:
+            base = _REPO_ROOT / root
+            if base.is_file():
+                if base.suffix in _NODE_EXTS and not _is_node_test_file(base.name):
+                    out.append((service, root))
+                continue
+            if not base.is_dir():
+                continue
+            for path in base.rglob("*"):
+                if path.suffix not in _NODE_EXTS or not path.is_file():
+                    continue
+                if any(part in _NODE_SKIP_DIRS for part in path.parts):
+                    continue
+                if _is_node_test_file(path.name):
+                    continue
+                out.append((service, path.relative_to(_REPO_ROOT).as_posix()))
+    return sorted(set(out))
+
+
+def _node_module_id(service: str, rel: str) -> str:
+    """`web:lib/auth/roles.mjs` — the tag makes a Node id unmistakable, so no
+    Python keyword rule or health sensor can cross the tiers by accident."""
+    return f"{_NODE_TAG[service]}:{rel}"
+
+
+def _assign_node_organ(service: str, rel: str) -> str | None:
+    """Path match only — no inference. None is an honest orphan, same as Python."""
+    for oid, _label, svc, prefixes in _NODE_ORGANS:
+        if svc != service:
+            continue
+        for p in prefixes:
+            if (rel.startswith(p) if p.endswith("/") else rel == p):
+                return oid
+    return None
+
+
+def _resolve_node_import(spec: str, src_rel: str, valid: set[str]) -> str | None:
+    """Resolve a RELATIVE ESM specifier to a module id in `valid`.
+
+    Bare specifiers ('fs', 'node:test', 'redis') are external by definition and
+    are counted by the caller rather than dropped.
+    """
+    if not spec.startswith("."):
+        return None
+    base = (Path(src_rel).parent / spec).as_posix()
+    parts: list[str] = []
+    for seg in base.split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(seg)
+    target = "/".join(parts)
+    for cand in (target, f"{target}.mjs", f"{target}.js", f"{target}/index.mjs"):
+        if cand in valid:
+            return cand
+    return None
+
+
 # ── Module inventory (the completeness DENOMINATOR) ─────────────────────────
 def scan_modules() -> list[Path]:
     """Every non-test aria_service .py file. Mirrors scripts/ecosystem_audit.scan_modules
@@ -460,6 +583,35 @@ def _build_structure_sync() -> dict[str, Any]:
                     if (raw and raw.startswith("aria_service")) or (n.level and n.level > 0):
                         unresolved_intra += 1
 
+    # ── R-F3358: the Node tiers, scanned and resolved independently ──
+    node_mods = scan_node_modules()
+    node_valid = {rel for _svc, rel in node_mods}
+    node_organ_of: dict[str, str] = {}
+    node_orphans: list[str] = []
+    node_rnums: dict[str, list[str]] = {}
+    node_import_edges: set[tuple[str, str]] = set()
+    external_node_specifiers = 0
+    _rel_to_id = {rel: _node_module_id(svc, rel) for svc, rel in node_mods}
+    for svc, rel in node_mods:
+        nid = _rel_to_id[rel]
+        org = _assign_node_organ(svc, rel)
+        if org:
+            node_organ_of[nid] = org
+        else:
+            node_orphans.append(nid)
+        try:
+            src = _read(_REPO_ROOT / rel)
+        except Exception:
+            node_rnums[nid] = []
+            continue
+        node_rnums[nid] = sorted(set(_RNUM_RE.findall(src)))
+        for spec in _ESM_IMPORT_RE.findall(src):
+            target = _resolve_node_import(spec, rel, node_valid)
+            if target and target != rel:
+                node_import_edges.add((nid, _rel_to_id[target]))
+            elif not spec.startswith("."):
+                external_node_specifiers += 1
+
     # Organ assignment + orphans
     organ_of: dict[str, str] = {}
     orphans: list[str] = []
@@ -486,29 +638,57 @@ def _build_structure_sync() -> dict[str, Any]:
                       "tier": 1, "category": oid, "parent": svc,
                       "size": min(24, 8 + cnt // 4), "module_count": cnt, "r_numbers": []})
     # orphan bucket organ (only if any) — RED completeness alert node
-    if orphans:
-        nodes.append({"id": "organ:unassigned", "label": f"⚠ Unassigned ({len(orphans)})",
+    # R-F3358: the bucket now covers BOTH tiers — a Node path nobody declared must
+    # raise the same completeness alert a Python module does, or the new tier would
+    # arrive with the exemption the old one never had.
+    _all_orphans = len(orphans) + len(node_orphans)
+    if _all_orphans:
+        nodes.append({"id": "organ:unassigned", "label": f"⚠ Unassigned ({_all_orphans})",
                       "type": "organ", "tier": 1, "category": "unassigned",
-                      "parent": "aria-intel", "size": min(24, 8 + len(orphans) // 4),
-                      "module_count": len(orphans), "orphan_alert": True, "r_numbers": []})
+                      "parent": "aria-intel", "size": min(24, 8 + _all_orphans // 4),
+                      "module_count": _all_orphans, "orphan_alert": True, "r_numbers": []})
     for mid, path in id_to_path.items():
         org = organ_of.get(mid, "unassigned")
         nodes.append({"id": f"mod:{mid}", "label": mid.split(".")[-1], "type": "module",
                       "tier": 2, "category": org, "parent": f"organ:{org}",
-                      "size": 8, "module_id": mid, "r_numbers": rnums_by_mod.get(mid, [])})
+                      "size": 8, "module_id": mid, "r_numbers": rnums_by_mod.get(mid, []),
+                      "tier_service": "aria-intel"})
+    # R-F3358 — the Node tiers. Kept in their own organ table and their own id
+    # namespace so this cannot perturb the Python assignment above.
+    for oid, label, svc, _prefixes in _NODE_ORGANS:
+        cnt = sum(1 for (s, r) in node_mods if _assign_node_organ(s, r) == oid)
+        nodes.append({"id": f"organ:{oid}", "label": label, "type": "organ",
+                      "tier": 1, "category": oid, "parent": svc,
+                      "size": min(24, 8 + cnt // 4), "module_count": cnt, "r_numbers": []})
+    for svc, rel in node_mods:
+        nid = _node_module_id(svc, rel)
+        org = node_organ_of.get(nid) or "unassigned"
+        nodes.append({"id": f"mod:{nid}", "label": rel.split("/")[-1], "type": "module",
+                      "tier": 2, "category": org, "parent": f"organ:{org}",
+                      "size": 8, "module_id": nid, "r_numbers": node_rnums.get(nid, []),
+                      "tier_service": svc, "path": rel})
 
     # ── Build edges ──
     edges: list[dict[str, Any]] = []
     # containment: organ→service, module→organ (hierarchy "tracks")
     for oid, _label, svc, _keys in _ORGANS:
         edges.append({"source": f"organ:{oid}", "target": svc, "type": "contains", "weight": 1})
-    if orphans:
+    if _all_orphans:  # R-F3358: bucket spans both tiers
         edges.append({"source": "organ:unassigned", "target": "aria-intel", "type": "contains", "weight": 1})
     for mid in id_to_path:
         org = organ_of.get(mid, "unassigned")
         edges.append({"source": f"mod:{mid}", "target": f"organ:{org}", "type": "contains", "weight": 1})
     # import edges: module→module (dependency "vessels")
     for src, tgt in sorted(import_edges):
+        edges.append({"source": f"mod:{src}", "target": f"mod:{tgt}", "type": "import", "weight": 1})
+    # R-F3358 — Node containment + ESM import edges
+    for oid, _label, svc, _prefixes in _NODE_ORGANS:
+        edges.append({"source": f"organ:{oid}", "target": svc, "type": "contains", "weight": 1})
+    for svc, rel in node_mods:
+        nid = _rel_to_id[rel]
+        org = node_organ_of.get(nid) or "unassigned"
+        edges.append({"source": f"mod:{nid}", "target": f"organ:{org}", "type": "contains", "weight": 1})
+    for src, tgt in sorted(node_import_edges):
         edges.append({"source": f"mod:{src}", "target": f"mod:{tgt}", "type": "import", "weight": 1})
 
     build_ms = int((time.time() - t0) * 1000)
@@ -524,6 +704,13 @@ def _build_structure_sync() -> dict[str, Any]:
             "orphan_count": len(orphans),
             "orphans": sorted(orphans),
             "unresolved_intra_imports": unresolved_intra,
+            # R-F3358 — the Node tiers, counted separately so the Python figures
+            # above keep meaning exactly what they meant before this landed.
+            "node_module_count": len(node_mods),
+            "node_import_edge_count": len(node_import_edges),
+            "node_orphan_count": len(node_orphans),
+            "node_orphans": sorted(node_orphans),
+            "external_node_specifiers": external_node_specifiers,
         },
     }
 
@@ -1164,14 +1351,26 @@ async def get_coverage() -> dict[str, Any]:
         # later this corrects itself instead of going quietly stale.
         "services": {
             "declared": sorted(_SERVICES),
-            "mapped": sorted({svc for _oid, _l, svc, _k in _ORGANS}),
-            "unmapped": sorted(set(_SERVICES) - {svc for _oid, _l, svc, _k in _ORGANS}),
-            "note": "module scan covers aria_service/**/*.py only; services with no organ "
-                    "have no module nodes and their code is NOT represented in any count above",
+            # R-F3358: both organ tables now contribute, so this closes by itself.
+            "mapped": sorted({svc for _o, _l, svc, _k in _ORGANS}
+                             | {svc for _o, _l, svc, _k in _NODE_ORGANS}),
+            "unmapped": sorted(set(_SERVICES)
+                               - {svc for _o, _l, svc, _k in _ORGANS}
+                               - {svc for _o, _l, svc, _k in _NODE_ORGANS}),
+            "node_modules": m["node_module_count"],
+            "node_orphans": m["node_orphan_count"],
+            "node_scan_roots": {s: list(r) for s, r in _NODE_ROOTS.items()},
+            "note": "aria-intel is scanned as aria_service/**/*.py; the Node tiers are scanned "
+                    "at node_scan_roots (.mjs/.js, excluding node_modules, vendor and tests). "
+                    "Any service with no organ has no module nodes and is NOT in the counts above",
         },
         "import_edges": {
             "resolved_intra_repo": m["import_edge_count"],
             "unresolved_intra_repo": m["unresolved_intra_imports"],  # R-F2980 F4: renamed — includes relative-import misses
+            "node_resolved": m["node_import_edge_count"],            # R-F3358
+            # npm packages and node: builtins are external by definition. Counted,
+            # never silently dropped — the same contract as the Python side.
+            "external_node_specifiers": m["external_node_specifiers"],
             "note": "100% of statically-resolvable intra-repo imports resolved; the rest (dynamic/getattr/late) are counted here, not hidden",
         },
         "call_edges": {

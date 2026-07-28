@@ -18,10 +18,22 @@ def test_rf2969_module_tier_equals_scan_modules():
     node on the map — the node set is exactly scan_modules(). Nothing can be missed."""
     disk_ids = {em._module_id(p) for p in em.scan_modules()}
     data = asyncio.run(em.build_structure(force=True))
-    map_ids = {n["module_id"] for n in data["nodes"] if n["type"] == "module"}
+    # R-F3358 — the map now carries the Node tiers too, so this property is
+    # checked PER TIER rather than relaxed. Weakening it to a subset check would
+    # trade the nothing-missed guarantee for a passing test.
+    map_ids = {n["module_id"] for n in data["nodes"]
+               if n["type"] == "module" and n.get("tier_service") == "aria-intel"}
     assert map_ids == disk_ids, (
         f"map modules != filesystem; missing={disk_ids - map_ids}, extra={map_ids - disk_ids}")
     assert data["meta"]["module_count"] == len(disk_ids)
+
+    node_disk = {em._node_module_id(s, r) for s, r in em.scan_node_modules()}
+    node_mapped = {n["module_id"] for n in data["nodes"]
+                   if n["type"] == "module" and n.get("tier_service") in ("aria-web", "aria-wa")}
+    assert node_mapped == node_disk, (
+        f"Node tier != filesystem; missing={sorted(node_disk - node_mapped)[:10]}, "
+        f"extra={sorted(node_mapped - node_disk)[:10]}")
+    assert data["meta"]["node_module_count"] == len(node_disk)
 
 
 def test_rf2969_import_edges_intra_repo_only():

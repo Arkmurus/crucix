@@ -16,13 +16,29 @@ from aria_service.intel import ecosystem_map as em
 def test_rf2979_map_module_set_is_exactly_the_filesystem():
     """The nothing-missed gate: every non-test module on disk is on the map, and the
     map invents no module that isn't on disk."""
-    disk = {em._module_id(p) for p in em.scan_modules()}
+    # R-F3358 — the gate now spans BOTH tiers. It is deliberately checked per
+    # tier and not softened to "the Python set is a subset of the map": a subset
+    # check would still pass if the Node scan silently returned nothing, which is
+    # precisely the blind spot R-F3352 had to declare in the first place.
     data = asyncio.run(em.build_structure(force=True))
-    mapped = {n["module_id"] for n in data["nodes"] if n["type"] == "module"}
-    missing = disk - mapped
-    extra = mapped - disk
-    assert not missing, f"modules on disk but MISSING from the map (nothing-missed VIOLATED): {sorted(missing)[:20]}"
-    assert not extra, f"map invented modules not on disk: {sorted(extra)[:20]}"
+    tiers = {
+        "aria-intel": (
+            {em._module_id(p) for p in em.scan_modules()},
+            {n["module_id"] for n in data["nodes"]
+             if n["type"] == "module" and n.get("tier_service") == "aria-intel"},
+        ),
+        "node": (
+            {em._node_module_id(s, r) for s, r in em.scan_node_modules()},
+            {n["module_id"] for n in data["nodes"]
+             if n["type"] == "module" and n.get("tier_service") in ("aria-web", "aria-wa")},
+        ),
+    }
+    for tier, (disk, mapped) in tiers.items():
+        assert disk, f"{tier}: the scan itself returned nothing — the gate would pass vacuously"
+        missing = disk - mapped
+        extra = mapped - disk
+        assert not missing, f"{tier}: on disk but MISSING from the map (nothing-missed VIOLATED): {sorted(missing)[:20]}"
+        assert not extra, f"{tier}: map invented modules not on disk: {sorted(extra)[:20]}"
 
 
 def test_rf2979_coverage_reports_100pct_modules():

@@ -27,34 +27,58 @@ from aria_service.intel import ecosystem_map as em
 
 
 def test_rf3352_coverage_names_the_services_it_cannot_see():
+    """R-F3358 UPDATE — the gap this test was written to expose is now CLOSED, so
+    it asserts the PROPERTY it always meant rather than the 2026-07-28 snapshot
+    ("unmapped == {aria-web, aria-wa}"). Pinning the snapshot would have made this
+    test fail for the good reason and pushed a future reader to delete it."""
     cov = asyncio.run(em.get_coverage())
     svc = cov.get("services")
     assert svc, "coverage must report service scope"
-
     assert set(svc["declared"]) == set(em._SERVICES), "declared services must be the full T0 set"
-    assert svc["mapped"] == ["aria-intel"], (
-        f"every organ is currently aria-intel; got mapped={svc['mapped']}"
-    )
-    assert set(svc["unmapped"]) == {"aria-web", "aria-wa"}, (
-        f"the Node tiers must be declared unmapped, got {svc['unmapped']}"
-    )
-    assert "not represented" in svc["note"].lower() or "no module nodes" in svc["note"].lower()
+
+    # unmapped must be EXACTLY the declared services no organ table claims —
+    # neither over- nor under-stated.
+    organ_services = ({s for _o, _l, s, _k in em._ORGANS}
+                      | {s for _o, _l, s, _k in em._NODE_ORGANS})
+    assert set(svc["mapped"]) == organ_services & set(em._SERVICES)
+    assert set(svc["unmapped"]) == set(em._SERVICES) - organ_services
+    assert "not in the counts" in svc["note"].lower() or "no module nodes" in svc["note"].lower()
+
+
+def test_rf3352_every_declared_service_actually_carries_modules():
+    """A service can be 'mapped' by an organ table that matches nothing — which
+    would restore the original lie in a new shape. Require real modules."""
+    full = asyncio.run(em.build_structure())
+    per_service: dict[str, int] = {}
+    for n in full["nodes"]:
+        if n["type"] == "module":
+            per_service[n.get("tier_service") or "?"] = per_service.get(n.get("tier_service") or "?", 0) + 1
+    for service in em._SERVICES:
+        assert per_service.get(service, 0) > 0, (
+            f"{service} is declared and 'mapped' but has ZERO module nodes — "
+            f"an empty organ table is not coverage"
+        )
 
 
 def test_rf3352_unmapped_is_derived_from_the_organ_table_not_hardcoded():
     """If a Node organ is ever added, the warning must retire itself. Proven by
     injecting one rather than by reading the source."""
-    original = list(em._ORGANS)
+    # R-F3358 UPDATE: with both tiers mapped there is no live gap left to observe,
+    # so the derivation is proven by REMOVING a service's organs and watching the
+    # warning come back — the same property, driven from the other direction.
+    original_node = list(em._NODE_ORGANS)
     try:
-        em._ORGANS.append(("node_web", "Web Tier", "aria-web", ("__never_matches__",)))
+        em._NODE_ORGANS[:] = [o for o in original_node if o[2] != "aria-wa"]
         cov = asyncio.run(em.get_coverage())
-        assert "aria-web" in cov["services"]["mapped"], "a mapped service must leave the unmapped list"
-        assert "aria-web" not in cov["services"]["unmapped"]
-        assert "aria-wa" in cov["services"]["unmapped"], "the still-unmapped tier must remain declared"
+        assert "aria-wa" in cov["services"]["unmapped"], (
+            "dropping a service's organs must re-raise the unmapped warning — if it "
+            "does not, the list is hardcoded rather than derived"
+        )
+        assert "aria-wa" not in cov["services"]["mapped"]
+        assert "aria-web" in cov["services"]["mapped"], "unrelated services must be unaffected"
     finally:
-        em._ORGANS[:] = original
-    # and the real payload is restored
-    assert set(asyncio.run(em.get_coverage())["services"]["unmapped"]) == {"aria-web", "aria-wa"}
+        em._NODE_ORGANS[:] = original_node
+    assert asyncio.run(em.get_coverage())["services"]["unmapped"] == [], "state not restored"
 
 
 def test_rf3352_delivery_keywords_prove_the_node_tier_is_missing():

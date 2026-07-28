@@ -1500,7 +1500,12 @@ async function loadEcosystem(root){
     commercial:'bi-graph-up-arrow', learning:'bi-mortarboard', brain:'bi-cpu', llm:'bi-chat-square-dots',
     autonomous:'bi-robot', delivery:'bi-send', search:'bi-globe2', guardian:'bi-shield-check',
     intel_sources:'bi-rss', phase:'bi-speedometer2', infra:'bi-hdd-stack', cli:'bi-terminal',
-    routes:'bi-signpost-split', unassigned:'bi-exclamation-triangle' };
+    routes:'bi-signpost-split', unassigned:'bi-exclamation-triangle',
+    // R-F3358 — the Node tiers (aria-web, aria-wa) are on the map now
+    web_auth:'bi-key', web_billing:'bi-credit-card', web_aria:'bi-plug',
+    web_llm:'bi-chat-square-dots', web_channels:'bi-send', web_intel:'bi-binoculars',
+    web_ops:'bi-activity', web_reports:'bi-file-earmark-bar-graph', web_ui:'bi-window',
+    web_server:'bi-hdd-network', wa_listener:'bi-whatsapp' };
   const _ecoIcon = (n) => _ECO_ICON[n.category] || (n.type==='service'?'bi-hdd-network':(n.type==='function'?'bi-braces':'bi-file-earmark-code'));
   // R-F3351 — the orphan bucket is a COMPLETENESS alert and outranks health. It is
   // the ONE node that can never receive a sensor: every sensor path resolves organs
