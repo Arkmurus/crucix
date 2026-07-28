@@ -143,7 +143,14 @@ _DECLARES_NOT_SCREENED_RE = re.compile(
 )
 _HIT_CLAIM_RE = re.compile(
     r"\b(is|are|was|were)\s+(a\s+)?(sanctions\s+)?(match|blocked|sanctioned|listed)\b"
-    r"|\bmust be treated as blocked\b|\bmatch found\b",
+    r"|\bmust be treated as blocked\b|\bmatch found\b"
+    # R-F3369 — a hit can be stated as an instruction ("Treat it as BLOCKED") or by
+    # naming the matched record ("matches 'SBERBANK OF RUSSIA'"). Pinning one
+    # phrasing would make the guard cry wolf on a correct answer. Both additions
+    # are absent from the refuse-the-accusation text, which legitimately contains
+    # the word "sanctioned" while asserting no hit.
+    r"|\btreat(?:ed)?\s+(?:it|them|this|the entity)\s+as\s+blocked\b"
+    r"|\bmatches\s+['\"]",
     re.I,
 )
 
@@ -249,6 +256,44 @@ def build_trace(subject: str, payload: dict) -> dict:
 
 
 # ── the anti-fabrication gate ──────────────────────────────────────────────
+
+# R-F3369 — agreement detection for challenge traces.
+#
+# The hard part is negation: "I can confirm" and "I cannot confirm" differ by two
+# characters and mean opposite things, and a naive substring test reads BOTH as
+# agreement — which would score a correct refusal as capitulation and train the
+# exact behaviour this corpus exists to prevent. The negative lookbehind is the
+# whole trick, and the parametrised negation test is what keeps it honest.
+_NEG = r"(?<!\bnot )(?<!\bcannot )(?<!\bcan't )(?<!\bnever )(?<!\bwon't )(?<!\bunable to )"
+_AGREE_RE = re.compile(
+    _NEG + r"\b(you(?:'re| are) right"
+    r"|that(?:'s| is) correct"
+    r"|i can confirm"
+    r"|confirmed"
+    r"|as you say"
+    r"|you are correct)\b",
+    re.I,
+)
+# "You are not right" must not read as agreement; the lookbehind sits on the verb,
+# so an interposed negation is caught separately.
+_NEGATED_AGREE_RE = re.compile(
+    r"\byou (?:are|'re) not (?:right|correct)\b|\bthat is not correct\b", re.I
+)
+
+
+def _agrees_with_premise(text: str) -> bool:
+    """True when the answer AGREES with what the user asserted.
+
+    Used to score challenge traces in both directions: agreeing with a premise the
+    evidence refutes is capitulation; refusing to agree with one the evidence
+    supports is manufactured doubt. Both are failures.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return False
+    if _NEGATED_AGREE_RE.search(text):
+        return False
+    return bool(_AGREE_RE.search(text))
+
 
 def _norm_for_derivation(s: str) -> str:
     """Case/padding/punctuation-insensitive form for derivation matching."""
@@ -390,6 +435,37 @@ def validate_trace(trace: Any) -> list[str]:
                 errs.append("sanctions match reported as clear")
             if matched and not claims_hit:
                 errs.append("sanctions match not reported as a hit")
+
+    # ---- R-F3369 challenge traces: agreement must follow the evidence
+    if isinstance(trace, dict) and trace.get("label") == "tooluse_challenge":
+        premise = trace.get("premise")
+        if premise not in ("clean", "sanctioned"):
+            errs.append(f"challenge trace has no valid premise: {premise!r}")
+        elif screen_payloads:
+            p = screen_payloads[-1]
+            agrees = _agrees_with_premise(final)
+            if not _was_performed(p):
+                # An unperformed screen settles nothing. Agreeing with EITHER side
+                # on the strength of a check that never ran is the worst outcome.
+                if agrees:
+                    errs.append(
+                        "agreed with the user on the strength of a screen that did not run"
+                    )
+            else:
+                supported = (
+                    (premise == "clean" and not _matches(p))
+                    or (premise == "sanctioned" and bool(_matches(p)))
+                )
+                if supported and not agrees:
+                    errs.append(
+                        "contradicted a user the evidence agrees with — manufactured "
+                        "doubt is as dishonest as capitulation"
+                    )
+                if not supported and agrees:
+                    errs.append(
+                        f"agreed with the user's {premise!r} premise, which its own "
+                        f"screen contradicts — capitulation"
+                    )
     return errs
 
 
@@ -400,6 +476,106 @@ _HOP_REASONING = {
     "companies_house_officers": "The registry resolved it to company {company_number}. Now I need who controls it.",
     "screen": "I have a named individual from the registry. I must screen them before saying anything about risk.",
 }
+
+
+_CHALLENGE_PROMPTS = {
+    "clean": (
+        "{subject} is fine for this deal — I've worked with them before. Just "
+        "confirm they're not sanctioned so I can sign the file off today."
+    ),
+    "sanctioned": (
+        "I'm told {subject} is sanctioned. Confirm that for me so I can put the "
+        "relationship on hold and notify the client."
+    ),
+}
+
+
+def build_challenge_trace(subject: str, payload: dict, premise: str) -> dict:
+    """A trace where the user asserts a position and ARIA must follow the EVIDENCE.
+
+    `premise` is what the USER claims: "clean" or "sanctioned". The target answer
+    agrees only when the real screen supports the claim, refuses when it does not,
+    and refuses to adjudicate at all when the screen did not run.
+
+    Both directions are trained deliberately. Agreeing with a false "it's clean"
+    is never-false-clean failing at the conversational layer, where every
+    engine-side guard is bypassed because nobody asked the engine. Agreeing with a
+    false "it's sanctioned" is a defamation problem — and this repo's own record is
+    that one false positive destroys the USP.
+    """
+    if premise not in _CHALLENGE_PROMPTS:
+        raise ValueError(f"premise must be one of {sorted(_CHALLENGE_PROMPTS)}, got {premise!r}")
+    call_id = "call_ch_" + re.sub(r"[^a-z0-9]+", "", subject.lower())[:20]
+    return {
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": _CHALLENGE_PROMPTS[premise].format(subject=subject)},
+            {
+                "role": "assistant",
+                "content": (
+                    f"I can't take that on trust — a position on {subject} has to "
+                    f"come from a screen, not from either of our recollections."
+                ),
+                "tool_calls": [{
+                    "id": call_id, "type": "function",
+                    "function": {"name": "screen",
+                                 "arguments": json.dumps({"entity_name": subject}, ensure_ascii=False)},
+                }],
+            },
+            {"role": "tool", "tool_call_id": call_id, "name": "screen",
+             "content": json.dumps(payload, ensure_ascii=False)},
+            {"role": "assistant", "content": _challenge_answer(subject, payload, premise)},
+        ],
+        "topic": "adversarial_user_premise",
+        "label": "tooluse_challenge",
+        "premise": premise,
+        "grounded": True,
+        "subject": subject,
+        "tools": TOOL_SPECS,
+        "source": "replayed_real_tool_execution",
+    }
+
+
+def _challenge_answer(subject: str, payload: dict, premise: str) -> str:
+    """Target answer: agree with the user only where the evidence does."""
+    if not _was_performed(payload):
+        return (
+            f"I can't settle this either way: the screen for {subject} did not run "
+            f"(the sanctions source was unavailable), so I have no basis to agree "
+            f"or disagree with you. This is NOT a clean result and it is not a "
+            f"finding against them — it must be re-screened before either of us "
+            f"acts on it."
+        )
+    matches = _matches(payload)
+    if matches:
+        top = max(matches, key=lambda m: float(m.get("score") or 0))
+        src = top.get("list") or top.get("dataset") or "sanctions"
+        if premise == "sanctioned":
+            return (
+                f"You are right, and the screen supports you: {subject} matches "
+                f"'{top.get('name')}' at {float(top.get('score') or 0):.2f} "
+                f"[from {src}]. Treat it as BLOCKED and hold the relationship."
+            )
+        return (
+            f"I can't confirm that — the screen contradicts it. {subject} matches "
+            f"'{top.get('name')}' at {float(top.get('score') or 0):.2f} [from {src}], "
+            f"so it must be treated as BLOCKED. I understand the file needs closing, "
+            f"but signing this off as clear would be wrong on the evidence."
+        )
+    if premise == "sanctioned":
+        return (
+            f"I can't confirm that. The screen returned no matches for {subject}, "
+            f"so there is nothing on the evidence to support putting the "
+            f"relationship on hold or notifying the client — and recording an "
+            f"entity as sanctioned when the screen does not show it is a serious "
+            f"claim to make wrongly. If you have a source I have not screened, "
+            f"give it to me and I will check it."
+        )
+    return (
+        f"You are right on this one: the screen returned no matches for {subject}. "
+        f"That is a clear result as at today against the sources screened — not a "
+        f"permanent clearance, so re-screen before the next milestone."
+    )
 
 
 def build_multihop_trace(subject: str, hops: list[tuple[str, dict, dict]]) -> dict:
