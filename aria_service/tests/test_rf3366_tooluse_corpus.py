@@ -245,3 +245,24 @@ def test_explicit_opt_out_is_possible_but_must_be_deliberate(tmp_path):
     n = B.write_corpus([("Marks and Spencer Group plc", CLEAN)], out,
                        eval_subjects=None, allow_unchecked=True)
     assert n == 1
+
+
+# ── R-F3375: the corpus must actually CONTAIN the never-false-clean case ──
+# Every corpus through R-F3374 had zero not-screened traces — the behaviour was
+# covered by the validator and by fixtures, but absent from real data. A rule
+# nothing exercises is the "fixtures LIED" failure this repo already had.
+
+def test_not_screened_traces_exist_in_the_shipped_corpus():
+    import json
+    from pathlib import Path
+    p = Path(__file__).resolve().parents[2] / "data" / "training" / "aria_tooluse_unavailable_v1.jsonl"
+    assert p.exists(), "the not-screened corpus is missing"
+    rows = [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert rows, "not-screened corpus is empty"
+    for r in rows:
+        assert B.validate_trace(r) == [], r
+        payload = json.loads([m for m in r["messages"] if m["role"] == "tool"][0]["content"])
+        assert not B._was_performed(payload), "a PERFORMED screen leaked into the unavailable corpus"
+        final = r["messages"][-1]["content"]
+        assert B._DECLARES_NOT_SCREENED_RE.search(final), final
+        assert not B._agrees_with_premise(final), "agreed with the user on a screen that never ran"
