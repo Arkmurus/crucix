@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from aria_service.routes.aria import require_aria_token
+from aria_service.routes.aria import _PUBLIC_AUTH_BYPASS_PATHS, require_aria_token
 
 
 def _req(path="/api/aria/dd/run", auth=None):
@@ -58,10 +58,49 @@ def test_token_set_enforces_everywhere(monkeypatch):
 
 
 def test_public_bypass_still_open_in_prod(monkeypatch):
+    """R-F3330 — assert the bypass PROPERTY, over the real set.
+
+    This named "/api/aria/agents" as its example public path and had been red
+    ever since R-F2140 (2026-06-29) removed that path from the allowlist,
+    deliberately, as an agent-registry leak. Live-probed: an unauthenticated
+    GET /api/aria/agents returns 401 in production, so the CODE is right and
+    the test was pinning a fact it had copied instead of read.
+
+    Reading the set at test time means the next legitimate change to the
+    allowlist cannot make this test wrong again — and it now covers every
+    member rather than one hand-picked example.
+    """
     _clear_tokens(monkeypatch)
     monkeypatch.setenv("FLY_APP_NAME", "aria-intel")
-    # a public-bypass path must still be reachable (it returns before the gate)
-    assert require_aria_token(_req(path="/api/aria/agents")) is None
+    assert _PUBLIC_AUTH_BYPASS_PATHS, (
+        "the allowlist is empty — this test would pass vacuously"
+    )
+    for path in sorted(_PUBLIC_AUTH_BYPASS_PATHS):
+        # returns before the gate, so no token is needed even in production
+        assert require_aria_token(_req(path=path)) is None, path
+
+
+def test_rf3330_paths_removed_from_the_bypass_are_really_gated():
+    """The other direction: a path REMOVED from the allowlist stays removed.
+
+    R-F2140 took /agents, /capability-gaps, /vault and the mistake-ledger reads
+    out of the bypass because each leaks operational posture (what ARIA knows
+    she cannot do, the agent registry, vault contents) to anyone. Nothing
+    asserted the removal, so the only trace it ever happened was a commented-out
+    line in the allowlist and a test failing for seven weeks with no explanation
+    attached. Re-adding any of these now fails here.
+    """
+    for path in ("/api/aria/agents",
+                 "/api/aria/capability-gaps",
+                 "/api/aria/capability-gaps/summary",
+                 "/api/aria/self/mistakes/stats",
+                 "/api/aria/self/mistakes/recent",
+                 "/api/aria/vault",
+                 "/api/aria/vault/stats"):
+        assert path not in _PUBLIC_AUTH_BYPASS_PATHS, (
+            f"{path} was removed from the public bypass by R-F2140 (operational "
+            f"posture leak) and must not be public again"
+        )
 
 
 if __name__ == "__main__":

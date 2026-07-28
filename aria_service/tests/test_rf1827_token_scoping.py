@@ -2,9 +2,21 @@
 
 Authorization review H1 (HIGH, architectural): ONE shared token grants full brain
 control (autonomous/destructive) + the WA/web tiers hold it — a WA compromise = total
-control. Staged fix: control/destructive routes require an OPERATOR token when
-ARIA_TOKEN_SCOPING=1; the service token (WA/web) keeps chat/read/telemetry. OFF by
-default (no behavior change until the flag + ARIA_OPERATOR_TOKEN secret are set).
+control. Fix: control/destructive routes require an OPERATOR token; the service
+token (WA/web) keeps chat/read/telemetry.
+
+R-F3330 — this header used to end "OFF by default (no behavior change until the
+flag + ARIA_OPERATOR_TOKEN secret are set)", and `test_scoping_off_is_backcompat`
+asserted exactly that. Both were superseded by R-F2139, which flipped scoping ON
+by default whenever ARIA_OPERATOR_TOKEN is set (routes/aria.py:485; the opt-OUT
+is now ARIA_TOKEN_SCOPING=0). That test had been red ever since, asserting the
+negation of the live security posture — verified against production, where
+ARIA_OPERATOR_TOKEN is Deployed on aria-intel and distinct from the service
+token, so scoping IS active. It is removed rather than repaired: the property it
+wanted (explicit opt-out still works) is already pinned by
+test_rf2139_scoping_disabled_via_env, so repairing it would have created a second
+place to maintain one fact. A stale test that contradicts a live security
+default is worse than no test — it argues, in the suite, for reopening the hole.
 
 Capability test drives the REAL router auth dep (require_aria_token).
 """
@@ -23,16 +35,13 @@ def _req(path, token):
     )
 
 
-def test_scoping_off_is_backcompat(monkeypatch):
-    monkeypatch.delenv("ARIA_TOKEN_SCOPING", raising=False)
-    monkeypatch.setenv("ARIA_API_TOKEN", "svc")
-    monkeypatch.setenv("ARIA_OPERATOR_TOKEN", "op")
-    # OFF: service token works on a control path (current behavior preserved)
-    A.require_aria_token(_req("/api/aria/autonomous/pause", "svc"))  # no raise
-
-
 def test_scoping_on_blocks_service_token_on_control_plane(monkeypatch):
-    monkeypatch.setenv("ARIA_TOKEN_SCOPING", "1")
+    # R-F3330: ARIA_TOKEN_SCOPING is deliberately NOT set here any more. It used
+    # to be forced to "1", which meant this test would still pass if the R-F2139
+    # default were flipped back to opt-in — it pinned the path list but not the
+    # posture. Unset, it now asserts BOTH: that these paths are operator-only,
+    # and that they are so by DEFAULT, which is what production runs.
+    monkeypatch.delenv("ARIA_TOKEN_SCOPING", raising=False)
     monkeypatch.setenv("ARIA_SERVICE_TOKEN", "svc")
     monkeypatch.setenv("ARIA_OPERATOR_TOKEN", "op")
     monkeypatch.delenv("ARIA_API_TOKEN", raising=False)
