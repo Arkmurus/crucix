@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3329,
+  "next_available": 3330,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27332,6 +27332,16 @@
       "r_number": "R-F3328",
       "title": "design-partner approval provisions an account + issues credentials",
       "claimed_at": "2026-07-28T09:43:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5d04fc78",
+      "notes": null,
+      "shipped_at": "2026-07-28T10:08:26Z"
+    },
+    {
+      "r_number": "R-F3329",
+      "title": "rf1241 client-endpoint tests predated R-F1347 auth; pin the public/authed boundary",
+      "claimed_at": "2026-07-28T10:26:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
