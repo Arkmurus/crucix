@@ -97,6 +97,37 @@ while shipping R-F3351 and R-F3352. Deploying two apps from one commit is the no
 case here. R-F3357 fixes the condition in both writers. Known remaining limit, stated
 rather than fixed: `deploy-*` tags are global, not per-app.
 
+## R-F3358 — the root fix R-F3352 deferred (committed, NOT deployed)
+
+`@2a78486b`. The map now scans the Node tiers, so all three services are real:
+**578 Python + 127 Node modules** (122 aria-web, 5 aria-wa), 2791 + 203 import
+edges, 153 external npm/builtin specifiers counted rather than dropped, 0 Node
+orphans, and the R-F3352 unmapped-tier warning retires itself because that list
+is derived.
+
+**The design point: for the Node tier the directory IS the organ.** Python needs
+keyword inference because `intel/` is a flat bag of ~400 modules; `lib/auth/`,
+`lib/billing/` and `lib/telegram/` are already the subsystem boundary. So the Node
+side matches on path and infers nothing — structurally immune to the substring
+accidents R-F3349 had to remove from the Python side.
+
+**The load-bearing guard is not the Node count — it is that adding a tier does not
+perturb the first.** Measured against HEAD: **zero** Python modules changed organ,
+Python orphans stayed at 4.
+
+Two completeness enforcers (`test_rf2969_module_tier_equals_scan_modules`,
+`test_rf2979_map_module_set_is_exactly_the_filesystem`) had to be **extended, not
+relaxed** — they now check the property per tier, and each asserts its own scan is
+non-empty so neither can pass vacuously. Softening either to "the Python set is a
+subset of the map" would still pass if the Node scan silently returned nothing,
+which is exactly the blind spot R-F3352 existed to declare.
+
+⚠️ **NOT DEPLOYED and deliberately NOT ship-marked** (§11 forbids marking shipped
+before live). `deploy.ps1` requires `HEAD == origin/main`, and origin contains the
+other agent's R-F3353/R-F3355, which the operator instructed must not be deployed —
+so any deploy from HEAD would carry them. The live surface stays truthful meanwhile
+because R-F3352 already narrowed the claim.
+
 ## Open / handoff
 
 - ⚠️ **Suite wedge #5, not investigated.**
