@@ -68,7 +68,28 @@ def _test_files() -> list[pathlib.Path]:
     return sorted(TESTS.glob("test_*.py"))
 
 
-def _run_segment(files: list[pathlib.Path], timeout_s: int) -> tuple[int, int, list[str], bool]:
+def _normalise(node_id: str, tests_dir: pathlib.Path) -> str:
+    """`<path>::<test>` -> tests-dir-relative, forward slashes.
+
+    pytest prints paths relative to ROOTDIR, so for the real suite they already
+    arrive as `aria_service/tests/x.py::t`; for a tests dir OUTSIDE the repo it
+    prints absolute. Stripping one hardcoded prefix only worked for the former,
+    which meant the ids could silently stop matching the baseline — and a gate
+    whose ids do not match reports every known failure as fixed and every
+    observed one as new.
+    """
+    path, sep, rest = node_id.partition("::")
+    try:
+        path = pathlib.Path(path).resolve().relative_to(tests_dir.resolve()).as_posix()
+    except (ValueError, OSError):
+        path = path.replace("\\", "/")
+        marker = "aria_service/tests/"
+        if marker in path:
+            path = path.split(marker, 1)[1]
+    return f"{path}{sep}{rest}"
+
+
+def _run_segment(files: list[pathlib.Path], timeout_s: int, tests_dir: pathlib.Path) -> tuple[int, int, list[str], bool]:
     """Run one segment in the FOREGROUND. Returns (failed, passed, failures, hung)."""
     proc = subprocess.run(
         [sys.executable, "-m", "pytest", *[str(f) for f in files],
@@ -82,13 +103,28 @@ def _run_segment(files: list[pathlib.Path], timeout_s: int) -> tuple[int, int, l
             failed = int(n)
         elif kind == "passed":
             passed = int(n)
-    failures = [
-        line[len("FAILED "):].split(" ")[0].replace("aria_service/tests/", "").replace("\\", "/")
-        for line in out.splitlines() if line.startswith("FAILED ")
-    ]
+    failures = [_normalise(line[len("FAILED "):].split(" ")[0], tests_dir)
+                for line in out.splitlines() if line.startswith("FAILED ")]
     # A hung segment is the wedge signature: no summary, a pytest-timeout dump.
     hung = "Timeout ++" in out or ("passed" not in out and "failed" not in out)
     return failed, passed, failures, hung
+
+
+def compare(observed: list[str], known: set[str], complete: bool) -> tuple[list[str], list[str] | None]:
+    """R-F3377 — the §16 gate itself, extracted so it can be PROVEN to fire.
+
+    Returns (new_failures, fixed_or_None). `fixed` is None for a partial or
+    hung run: every test that did not execute would otherwise read as fixed,
+    which is a false win. New failures stay valid either way — a test that
+    failed really did fail — so the gate is never silently disabled.
+
+    This lived inside main() and was therefore only reachable by running the
+    whole suite, which meant the one behaviour that matters had never been
+    exercised. R-F3373 shipped a gate nobody had seen fire.
+    """
+    new = sorted(set(observed) - known)
+    fixed = sorted(known - set(observed)) if complete else None
+    return new, fixed
 
 
 def main() -> int:
@@ -98,10 +134,21 @@ def main() -> int:
     ap.add_argument("--timeout", type=int, default=180, help="per-test timeout seconds")
     ap.add_argument("--resume-from", type=int, default=0, help="0-based segment index to start at")
     ap.add_argument("--record", action="store_true", help="rewrite docs/suite_baseline.json")
+    ap.add_argument("--max-segments", type=int, default=0,
+                    help="stop after N segments. For SMOKE-TESTING the gate only — "
+                         "it makes the run partial, so the 'fixed' list is suppressed "
+                         "and the result must never be --record'ed as a baseline")
+    ap.add_argument("--tests-dir", type=pathlib.Path, default=TESTS,
+                    help="directory to collect test_*.py from (tests point this at a fixture "
+                         "so the GATE itself can be exercised without running the real suite)")
+    ap.add_argument("--baseline", type=pathlib.Path, default=BASELINE,
+                    help="baseline file to compare against (tests point this at a fixture)")
     args = ap.parse_args()
 
-    files = _test_files()
+    files = sorted(args.tests_dir.glob("test_*.py"))
     segments = [files[i:i + args.segment_size] for i in range(0, len(files), args.segment_size)]
+    if args.max_segments:
+        segments = segments[:args.max_segments]
     print(f"{len(files)} test files -> {len(segments)} segments of {args.segment_size}")
 
     total_f = total_p = 0
@@ -110,7 +157,7 @@ def main() -> int:
     for idx, seg in enumerate(segments):
         if idx < args.resume_from:
             continue
-        f, p, fails, hung = _run_segment(seg, args.timeout)
+        f, p, fails, hung = _run_segment(seg, args.timeout, args.tests_dir)
         total_f += f
         total_p += p
         all_failures.extend(fails)
@@ -125,6 +172,10 @@ def main() -> int:
     if hung_segments:
         print(f"WEDGE: segments {hung_segments} produced no summary — a test is hanging the run.")
 
+    if args.record and args.max_segments:
+        print("refusing --record on a truncated run: it would erase every failure "
+              "in the segments that never ran")
+        return 2
     if args.record:
         BASELINE.write_text(json.dumps({
             "recorded_at": subprocess.run(["git", "log", "-1", "--date=short", "--pretty=%ad"],
@@ -141,26 +192,22 @@ def main() -> int:
         print(f"recorded -> {BASELINE.relative_to(ROOT)}")
         return 0
 
-    if not BASELINE.exists():
-        print(f"no baseline at {BASELINE.relative_to(ROOT)} — run with --record first")
+    if not args.baseline.exists():
+        print(f"no baseline at {args.baseline} — run with --record first")
         return 0
 
-    known = set(json.loads(BASELINE.read_text(encoding="utf-8"))["failures"])
-    new = sorted(set(observed) - known)
+    known = set(json.loads(args.baseline.read_text(encoding="utf-8"))["failures"])
+    complete = args.resume_from == 0 and not hung_segments and not args.max_segments
+    new, fixed = compare(observed, known, complete)
 
-    # A PARTIAL run cannot speak to what is fixed: every test it did not execute
-    # looks like it stopped failing. NEW failures are still valid (a test that
-    # failed here really did fail), so the section-16 gate still applies — but the
-    # FIXED list is suppressed rather than printed as a false win.
-    complete = args.resume_from == 0 and not hung_segments
-    if complete:
-        fixed = sorted(known - set(observed))
-        if fixed:
-            print(f"\nFIXED since the baseline ({len(fixed)}):")
-            for t in fixed:
-                print(f"  + {t}")
-    else:
-        reason = "resumed mid-run" if args.resume_from else "a segment hung, so its tests never ran"
+    if fixed:
+        print(f"\nFIXED since the baseline ({len(fixed)}):")
+        for t in fixed:
+            print(f"  + {t}")
+    elif fixed is None:
+        reason = ("resumed mid-run" if args.resume_from
+                  else "truncated by --max-segments" if args.max_segments
+                  else "a segment hung, so its tests never ran")
         print(f"\n(FIXED list suppressed: {reason} — untested tests would look fixed.)")
     if new:
         print(f"\nNEW FAILURES ({len(new)}) — CLAUDE.md section 16: an R-number must not add to these:")
