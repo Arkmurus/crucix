@@ -56,3 +56,63 @@ os.environ.setdefault("ARIA_STATE_BACKEND", "memory")
 import tempfile as _tf
 _rag_tmp = _tf.mkdtemp(prefix="aria_rag_test_")
 os.environ.setdefault("ARIA_RAG_PATH", _rag_tmp)
+
+# ── R-F3319: turn an un-mocked live network call from a HANG into a named failure
+#
+# Four separate suite blockers have now been diagnosed the hard way, and all four
+# were the same defect: a unit test performing real network I/O it never intended.
+#   R-F2812  un-mocked auto_register_all reaching live gov portals
+#   R-F3298  a portal-DIGEST test driving live registration on 24 portals
+#   R-F3307  a wrong diagnosis of this same family (reverted by R-F3314)
+#   R-F3318  reading_session awaiting a live Semantic Scholar search
+#
+# Each cost hours, for one reason: the failure mode is a HANG, not an error.
+# R-F3318's stack showed the block inside ssl.create_default_context() loading
+# the Windows certificate store, which is why a request `timeout=` cannot save
+# you: the block happens while the client is being CONSTRUCTED, before any
+# request timeout applies. A hang looks identical to a slow test until
+# pytest-timeout kills the whole process without printing a summary.
+#
+# OFF BY DEFAULT, deliberately. Enabling it globally would change the outcome of
+# any test that currently reaches the network, and the first full-suite baseline
+# (11,534 passed / 149 failed, 2026-07-28) was measured without it. Turning it on
+# is a diagnostic action, not a silent policy change:
+#
+#     ARIA_TEST_BLOCK_NETWORK=1 python -m pytest aria_service/tests/... -q
+#
+# Loopback stays open so a local fixture server still works.
+if (os.getenv("ARIA_TEST_BLOCK_NETWORK", "") or "").strip() in ("1", "true", "yes", "on"):
+    import socket as _socket
+
+    _real_connect = _socket.socket.connect
+    _real_connect_ex = _socket.socket.connect_ex
+
+    def _is_local(addr) -> bool:
+        try:
+            host = addr[0] if isinstance(addr, tuple) else str(addr)
+        except Exception:
+            return False
+        return str(host) in ("127.0.0.1", "::1", "localhost", "0.0.0.0", "")
+
+    class LiveNetworkBlocked(RuntimeError):
+        """An un-mocked outbound connection was attempted from a test."""
+
+    def _blocked_connect(self, addr, *a, **kw):
+        if _is_local(addr):
+            return _real_connect(self, addr, *a, **kw)
+        raise LiveNetworkBlocked(
+            f"[R-F3319] a test attempted a LIVE outbound connection to {addr!r}. "
+            "Unit tests must not do real network I/O: it hangs the run rather "
+            "than failing it. Stub the call at its boundary "
+            "(see R-F3298 and R-F3318 for the pattern)."
+        )
+
+    def _blocked_connect_ex(self, addr, *a, **kw):
+        if _is_local(addr):
+            return _real_connect_ex(self, addr, *a, **kw)
+        raise LiveNetworkBlocked(
+            f"[R-F3319] a test attempted a LIVE outbound connection to {addr!r}."
+        )
+
+    _socket.socket.connect = _blocked_connect
+    _socket.socket.connect_ex = _blocked_connect_ex

@@ -71,6 +71,45 @@ def _install(monkeypatch, *, grade, grade_calls: list, topics=None, regions=None
 
     monkeypatch.setattr(researcher, "_fetch_rss", _fake_rss, raising=False)
     monkeypatch.setattr(researcher, "_fetch_article_text", _fake_article, raising=False)
+
+    # R-F3318 — close the LAST live-network hole in this test.
+    #
+    # reading_session's starved-tag branch (student.py:1839) awaits
+    # researcher.web_search, which reaches web_search.py -> sources/academic.py
+    # search_all -> search_semantic_scholar and opens a real HTTPS connection.
+    # pytest-timeout's stack dump caught it blocked in ssl.create_default_context
+    # loading the Windows certificate store:
+    #
+    #   sources/academic.py:142  search_semantic_scholar
+    #     httpx ... create_ssl_context
+    #     ssl.py:717  create_default_context   <-- BLOCKED
+    #
+    # web_search's own `timeout=15.0` CANNOT save it: the block is in synchronous
+    # SSL-context construction while the client is being built, before any request
+    # timeout applies.
+    #
+    # This is why the second suite wedge looked "cumulative" and was not. Whether
+    # it blocks depends on network and cert-store state, not on how many files ran
+    # first, so the same set was clean in one run and wedged in the next, the
+    # victim moved between runs, and this file eventually hung ALONE. Fourth
+    # instance of the class behind R-F2812 and R-F3298.
+    #
+    # Both branches are stubbed: web_explorer.explore is tried first
+    # (student.py:1811) and web_search is its fallback, so stubbing only one
+    # leaves the other reachable.
+    async def _no_live_search(*a, **kw):
+        return {"results": []}
+
+    monkeypatch.setattr(researcher, "web_search", _no_live_search, raising=False)
+    try:
+        from aria_service.intel import web_explorer as _we_mod
+
+        async def _no_live_explore(*a, **kw):
+            return {"findings": [], "sources": []}
+
+        monkeypatch.setattr(_we_mod, "explore", _no_live_explore, raising=False)
+    except Exception:
+        pass
     monkeypatch.setattr(student, "detect_topics",
                         lambda *_a, **_k: list(topics if topics is not None else ["procurement"]))
     monkeypatch.setattr(student, "detect_regions",
