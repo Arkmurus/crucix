@@ -1,0 +1,5 @@
+# entity names present in the frozen 500-Q eval set (measured in-box 2026-07-28)
+# regenerate in-box: see build_tooluse_corpus.py docstring
+Rosoboronexport
+Wagner Group
+BAE Systems plc
