@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3334,
+  "next_available": 3335,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27382,6 +27382,16 @@
       "r_number": "R-F3333",
       "title": "rf1082's hand-rolled Toolbox stub drifted behind Agent's constructor",
       "claimed_at": "2026-07-28T11:07:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "daac22f2",
+      "notes": null,
+      "shipped_at": "2026-07-28T11:10:25Z"
+    },
+    {
+      "r_number": "R-F3334",
+      "title": "rf371 neural guard tests asserted a storage layout R-F699 replaced, and wrote to the real store",
+      "claimed_at": "2026-07-28T11:12:02Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
