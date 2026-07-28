@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3375,
+  "next_available": 3376,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27795,6 +27795,15 @@
       "commit_sha": "62528312",
       "notes": null,
       "shipped_at": "2026-07-28T21:38:46Z"
+    },
+    {
+      "r_number": "R-F3375",
+      "title": "capture real source-unavailable screens so the never-false-clean case exists in the corpus",
+      "claimed_at": "2026-07-28T21:42:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
