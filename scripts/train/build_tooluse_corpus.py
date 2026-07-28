@@ -68,7 +68,44 @@ TOOL_SPECS: list[dict] = [
         },
     },
 ]
+# R-F3367 — the registry hops. Multi-hop is where the REASONING is: one call has
+# no decision in it; choosing the next tool from what the last one returned does.
+TOOL_SPECS += [
+    {
+        "type": "function",
+        "function": {
+            "name": "companies_house_search",
+            "description": "Resolve a company name to its official registry entry and company number.",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "companies_house_officers",
+            "description": (
+                "List the officers of a company. Requires a company_number, which "
+                "must come from a prior registry lookup — never guessed."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"company_number": {"type": "string"}},
+                "required": ["company_number"],
+            },
+        },
+    },
+]
+
 TOOL_NAMES = {s["function"]["name"] for s in TOOL_SPECS}
+
+# An argument shorter than this cannot be treated as "derived": a 1-2 character
+# string substring-matches almost any payload, which would make the derivation
+# guard pass on anything (the blind-guard failure mode).
+_MIN_DERIVABLE_LEN = 3
 
 SYSTEM_PROMPT = (
     "You are ARIA. You answer from EVIDENCE you have gathered with tools, never "
@@ -213,6 +250,28 @@ def build_trace(subject: str, payload: dict) -> dict:
 
 # ── the anti-fabrication gate ──────────────────────────────────────────────
 
+def _norm_for_derivation(s: str) -> str:
+    """Case/padding/punctuation-insensitive form for derivation matching."""
+    return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+
+def _arg_is_derived(value: str, prior_blobs: list[str], user_text: str) -> bool:
+    """True when `value` can be traced to prior tool output or the user's question.
+
+    R-F3367 — this is the anti-entity-fabrication rule. `07524813` cannot be known
+    before the registry returns it; an officer name cannot be known before the
+    officer list does. A model that invents either then screens a company or a
+    person who does not exist and reports on them with full confidence — worse
+    than a wrong answer, because it is a confident answer about nothing.
+    """
+    v = _norm_for_derivation(value)
+    if len(v) < _MIN_DERIVABLE_LEN:
+        return False
+    if v in _norm_for_derivation(user_text):
+        return True
+    return any(v in b for b in prior_blobs)
+
+
 def validate_trace(trace: Any) -> list[str]:
     """Return a list of reasons this trace must NOT be trained on. Empty == good.
 
@@ -248,6 +307,37 @@ def validate_trace(trace: Any) -> list[str]:
             if m.get("name") not in TOOL_NAMES:
                 errs.append(f"tool turn names an unknown tool: {m.get('name')!r}")
 
+    # ---- R-F3367 derivation: each hop's arguments must be traceable to prior
+    # output (or, for the first hop, to the user's own question).
+    user_text = " ".join(
+        m.get("content") or "" for m in msgs
+        if isinstance(m, dict) and m.get("role") == "user"
+    )
+    prior_blobs: list[str] = []
+    for m in msgs:
+        if not isinstance(m, dict):
+            continue
+        for c in (m.get("tool_calls") or []):
+            if not isinstance(c, dict):
+                continue
+            fn = (c.get("function") or {})
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except (ValueError, TypeError):
+                errs.append(f"tool call {fn.get('name')!r} has unparseable arguments")
+                continue
+            for k, v in (args.items() if isinstance(args, dict) else []):
+                if not isinstance(v, str) or not v.strip():
+                    continue
+                if not _arg_is_derived(v, prior_blobs, user_text):
+                    errs.append(
+                        f"tool call {fn.get('name')!r} argument {k}={v.strip()!r} is not "
+                        f"derived from any prior tool output or the question — a "
+                        f"fabricated entity"
+                    )
+        if m.get("role") == "tool":
+            prior_blobs.append(_norm_for_derivation(m.get("content") or ""))
+
     # ---- citation grounding: the final answer may cite ONLY what a tool returned
     payloads: list[dict] = []
     for m in msgs:
@@ -273,8 +363,13 @@ def validate_trace(trace: Any) -> list[str]:
             )
 
     # ---- verdict must match the evidence
-    if payloads:
-        p = payloads[-1]
+    # R-F3367 — verdict rules apply to the SCREEN result. In a multi-hop chain the
+    # last payload may be a registry lookup, which carries no sanctions verdict;
+    # judging it as an unperformed screen would demand a "not screened" disclaimer
+    # on a trace that never claimed to screen anything.
+    screen_payloads = [p for p in payloads if isinstance(p, dict) and p.get("sanctions") is not None]
+    if screen_payloads:
+        p = screen_payloads[-1]
         performed, matched = _was_performed(p), bool(_matches(p))
         claims_clean = bool(_CLEAN_CLAIM_RE.search(final))
         declares_unscreened = bool(_DECLARES_NOT_SCREENED_RE.search(final))
@@ -299,6 +394,133 @@ def validate_trace(trace: Any) -> list[str]:
 
 
 # ── corpus assembly ────────────────────────────────────────────────────────
+
+_HOP_REASONING = {
+    "companies_house_search": "First I need the official registry entry for {subject} — I will not assume its identity.",
+    "companies_house_officers": "The registry resolved it to company {company_number}. Now I need who controls it.",
+    "screen": "I have a named individual from the registry. I must screen them before saying anything about risk.",
+}
+
+
+def build_multihop_trace(subject: str, hops: list[tuple[str, dict, dict]]) -> dict:
+    """Assemble a MULTI-HOP trace from REAL payloads.
+
+    `hops` is an ordered list of (tool_name, arguments, real_payload). Each hop
+    gets its own reasoning turn, its own tool_call and its own tool result, so
+    the model sees the decision — choosing the next tool from the last result —
+    not just the lookups.
+    """
+    messages: list[dict] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": (
+            f"I'm running due diligence on {subject}. Confirm the entity, find who "
+            f"controls it, and tell me whether any of them are sanctioned."
+        )},
+    ]
+    for i, (tool, args, payload) in enumerate(hops):
+        call_id = f"call_{i+1}_{re.sub(r'[^a-z0-9]+', '', tool)[:18]}"
+        reason = _HOP_REASONING.get(tool, "Next I need to establish this with a tool.")
+        try:
+            reason = reason.format(subject=subject, **{k: str(v) for k, v in args.items()})
+        except (KeyError, IndexError):
+            pass
+        messages.append({
+            "role": "assistant",
+            "content": reason,
+            "tool_calls": [{
+                "id": call_id, "type": "function",
+                "function": {"name": tool, "arguments": json.dumps(args, ensure_ascii=False)},
+            }],
+        })
+        messages.append({
+            "role": "tool", "tool_call_id": call_id, "name": tool,
+            "content": json.dumps(payload, ensure_ascii=False),
+        })
+    messages.append({"role": "assistant", "content": _multihop_answer(subject, hops)})
+    return {
+        "messages": messages,
+        "topic": "dd_entity_to_officer_screening",
+        "label": "tooluse_multihop",
+        "grounded": True,
+        "hops": len(hops),
+        "subject": subject,
+        "tools": TOOL_SPECS,
+        "source": "replayed_real_tool_execution",
+    }
+
+
+def _multihop_answer(subject: str, hops: list[tuple[str, dict, dict]]) -> str:
+    """The target answer — every claim traceable to a hop that actually ran."""
+    parts: list[str] = []
+    number = title = None
+    officers: list[dict] = []
+    screen: dict | None = None
+    for tool, _args, payload in hops:
+        if tool == "companies_house_search":
+            res = (payload or {}).get("results") or []
+            if res:
+                number, title = res[0].get("company_number"), res[0].get("title")
+        elif tool == "companies_house_officers":
+            officers = (payload or {}).get("officers") or []
+        elif tool == "screen":
+            screen = payload
+    if title and number:
+        parts.append(f"The registry resolves {subject} to {title}, company number {number}.")
+    if officers:
+        parts.append(
+            f"It has {len(officers)} officer(s) on record; I screened "
+            f"{officers[0].get('name')}."
+        )
+    if screen is not None:
+        if not _was_performed(screen):
+            parts.append(
+                "That screen did not run — the sanctions source was unavailable, so "
+                "this is NOT a clean result and must be repeated."
+            )
+        elif _matches(screen):
+            top = max(_matches(screen), key=lambda m: float(m.get("score") or 0))
+            src = top.get("list") or top.get("dataset") or "sanctions"
+            parts.append(
+                f"That officer is a sanctions match — '{top.get('name')}' "
+                f"[from {src}] — so the entity must be treated as BLOCKED."
+            )
+        else:
+            parts.append(
+                "That officer returned no sanctions matches, so on the evidence "
+                "gathered there is no sanctions block as at today. Only the officer "
+                "screened above was checked — the remaining officers are unscreened."
+            )
+    return " ".join(parts)
+
+
+def write_multihop_corpus(
+    traces: Iterable[dict],
+    out: Path,
+    eval_subjects: Iterable[str] | None = None,
+    allow_unchecked: bool = False,
+) -> int:
+    """Write validated multi-hop traces, dropping contaminated or invalid ones."""
+    if eval_subjects is None and not allow_unchecked:
+        raise ValueError("refusing to build without an eval blocklist (see write_corpus)")
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    kept: list[dict] = []
+    for t in traces:
+        subject = t.get("subject") or ""
+        if eval_subjects is not None and is_eval_contaminated(subject, eval_subjects):
+            print(f"  DROP {subject}: present in the frozen eval set (contamination)", file=sys.stderr)
+            continue
+        errs = validate_trace(t)
+        if errs:
+            print(f"  DROP {subject}: {errs[0]}", file=sys.stderr)
+            continue
+        kept.append(t)
+    out.write_text(
+        "\n".join(json.dumps(r, ensure_ascii=False) for r in kept) + ("\n" if kept else ""),
+        encoding="utf-8",
+    )
+    return len(kept)
+
 
 _CORP_SUFFIXES = (
     " plc", " ltd", " limited", " se", " ag", " nv", " sa", " inc", " corp",
