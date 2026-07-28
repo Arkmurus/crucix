@@ -216,7 +216,27 @@ Write-Host ""
 # Registry bookkeeping is excluded by SUBJECT PREFIX, narrowly: a 'chore:' that
 # does real work still counts, and 'test:'/'docs:' R-numbers are real shipped
 # changes (e.g. "test: R-F3236 - fix blocking-dialog string false positive").
-$LAST_TAG = git tag --list 'deploy-*' --sort=-version:refname | Select-Object -First 1
+# R-F3357 — pick the newest deploy tag that is STRICTLY BEHIND HEAD.
+#
+# R-F3247 named the UNDER-CLAIM above but only renamed its symptom: "no-r-tag"
+# became "no-new-r-numbers", which reads the same way ("this build ships
+# nothing") on a build containing everything. The CONDITION was untouched, and
+# its own guard asserts the new string is present rather than that the banner
+# names the build's contents — a wording assertion, so the rename passed as a fix.
+#
+# Reproduced live 2026-07-28: deploying intel then web from one commit tagged
+# HEAD during the FIRST deploy, so the second saw `$LAST_TAG..HEAD` empty and
+# aria-web served "521e32d2ce03 - no-new-r-numbers" while actually shipping
+# R-F3351 and R-F3352. Anyone probing /api/health to learn what is live on web
+# would have been told nothing shipped.
+#
+# Taking the newest tag with at least one commit before HEAD reports what this
+# build introduced since the last DISTINCT deploy point, which is the question
+# the banner exists to answer.
+$LAST_TAG = $null
+foreach ($_t in @(git tag --list 'deploy-*' --sort=-version:refname)) {
+    if ([int](git rev-list --count "$_t..HEAD") -gt 0) { $LAST_TAG = $_t; break }
+}
 $_SUBJECTS = if ($LAST_TAG) { git log "$LAST_TAG..HEAD" --pretty=%s } else { git log --pretty=%s }
 $_SHIPPED  = $_SUBJECTS | Where-Object { $_ -notmatch '^chore:\s*(reserve|mark|ship)' }
 $R_NUMBERS = $_SHIPPED | Select-String -Pattern 'R-F[0-9]+' -AllMatches | ForEach-Object { $_.Matches.Value } | Sort-Object -Unique

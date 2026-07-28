@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3357,
+  "next_available": 3358,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27615,6 +27615,15 @@
       "commit_sha": "521e32d2",
       "notes": null,
       "shipped_at": "2026-07-28T17:36:31Z"
+    },
+    {
+      "r_number": "R-F3357",
+      "title": "deploy banner under-claim: a tag AT HEAD empties the range (R-F3247 renamed the string, not the condition)",
+      "claimed_at": "2026-07-28T17:38:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

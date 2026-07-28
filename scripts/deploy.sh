@@ -84,7 +84,18 @@ if [[ -n "$MISSING" ]]; then
 fi
 echo "  ✅ tree integrity: no tracked file is missing"
 
-LAST_TAG=$(git tag --list 'deploy-*' --sort=-version:refname | head -1 || echo "")
+# R-F3357 - the newest deploy tag STRICTLY BEHIND HEAD. R-F3247 renamed the
+# under-claim's symptom ("no-r-tag" -> "no-new-r-numbers") without changing the
+# condition, so a tag sitting AT HEAD still empties the range. Measured live
+# 2026-07-28: intel deployed first and tagged the commit, so the web deploy
+# minutes later served "no-new-r-numbers" while shipping R-F3351 + R-F3352.
+# See deploy.ps1 for the full note; both writers must carry this.
+LAST_TAG=""
+for _t in $(git tag --list 'deploy-*' --sort=-version:refname); do
+    if [ "$(git rev-list --count "${_t}..HEAD" 2>/dev/null || echo 0)" -gt 0 ]; then
+        LAST_TAG="$_t"; break
+    fi
+done
 if [[ -n "$LAST_TAG" ]]; then
     # R-F3247 - exclude registry bookkeeping; see deploy.ps1 for the two
     # measured defects (a reserve commit claiming an unshipped R-number, and an
