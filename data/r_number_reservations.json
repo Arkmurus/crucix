@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3339,
+  "next_available": 3340,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27432,6 +27432,16 @@
       "r_number": "R-F3338",
       "title": "cap_terminal_ui pinned renderer glyphs R-F1260 changed",
       "claimed_at": "2026-07-28T11:46:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b2616b4e",
+      "notes": null,
+      "shipped_at": "2026-07-28T11:48:15Z"
+    },
+    {
+      "r_number": "R-F3339",
+      "title": "rf805 fix_gap calls predate the R-F3064 consent gate",
+      "claimed_at": "2026-07-28T11:49:28Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -408,6 +408,28 @@ class TestBuildDiff:
 # ARIACoder integration — fix_gap behaviour under each verdict
 # ════════════════════════════════════════════════════════════════════════════
 
+# R-F3339 — the three fix_gap tests below pass operator_initiated=True.
+#
+# They had been failing with failure_reason='coder_disabled' since R-F3064 moved
+# the ARIA_CODER_ENABLED check to fix_gap itself. That gate is right and was
+# added for a measured reason: the flag previously gated only the loop STARTER,
+# so every other caller of fix_gap ran with the switch off — observed live with
+# ARIA_CODER_ENABLED=0, repeatedly, including two fix_ids inside one second. An
+# operator who sets it to 0 has withdrawn consent for the autonomous lane.
+#
+# These tests are about the REVIEWER's effect on fix_gap, not about the
+# enablement policy, so they take the exemption the gate documents for exactly
+# this case: operator_initiated=True is a human asking for this fix now (R-F824),
+# which is consent rather than the autonomous lane. Deliberately NOT
+# monkeypatching ARIA_CODER_ENABLED=1: the coder is currently OFF by operator
+# decision, and a test should not need the live policy to be flipped to run. This
+# way these keep passing whether the lane is on or off.
+#
+# The gate itself is pinned separately by
+# test_rf3064_3065_coder_gate_and_profiler_idempotence.py — checked before
+# writing this, so nothing here needs to re-assert it.
+
+
 def _make_coder():
     """Construct an ARIACoder with stubs that allow fix_gap to reach
     the Claude-review step (steps 1-6 all succeed)."""
@@ -507,7 +529,7 @@ class TestFixGapClaudeIntegration:
             }
 
             async def body():
-                return await coder.fix_gap(_make_gap())
+                return await coder.fix_gap(_make_gap(), operator_initiated=True)
 
             result = _run(body())
             assert result.success
@@ -538,7 +560,7 @@ class TestFixGapClaudeIntegration:
             )
 
             async def body():
-                return await coder.fix_gap(_make_gap())
+                return await coder.fix_gap(_make_gap(), operator_initiated=True)
 
             result = _run(body())
             assert not result.success
@@ -584,7 +606,7 @@ class TestFixGapClaudeIntegration:
             }
 
             async def body():
-                return await coder.fix_gap(_make_gap())
+                return await coder.fix_gap(_make_gap(), operator_initiated=True)
 
             result = _run(body())
             assert result.success

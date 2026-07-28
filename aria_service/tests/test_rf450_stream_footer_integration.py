@@ -17,6 +17,7 @@ SSE consumption, and asserts:
 from __future__ import annotations
 
 import json
+import sys
 from fastapi.testclient import TestClient
 
 
@@ -28,6 +29,37 @@ def _build_app():
     app.dependency_overrides[_router_auth_dep] = lambda: None
     app.include_router(aria_router)
     return app
+
+
+# R-F3339 — a non-None LLM sentinel, because None now MEANS "not warm".
+#
+# R-F2814 added a readiness fast-fail at the top of both chat and chat_stream:
+# `if get_llm(request) is None -> 503 warming_up`. During the ~10-min warmup
+# app.state.llm_provider is genuinely None, and entering the pipeline would hang
+# the SSE connection until the client's timeout — the 15-min WA hang. An honest
+# 503 is right.
+#
+# These tests patched `get_llm` to return None with the comment "bypass quota +
+# LLM init paths", which was harmless when written and became the exact signal
+# for "still warming" afterwards. Every request 503'd, so all three had been red
+# and never reached the event_generator they exist to drive.
+#
+# The fix belongs in the harness, not the gate: hand back a sentinel. These tests
+# monkeypatch aria_chat_stream, so the provider is only ever READ by the
+# readiness check and never called. Weakening the gate to green a test would
+# trade a real user-facing guarantee for a line of output.
+#
+# It is a small duck rather than a bare object() because the stream path also
+# asks the provider `is_configured` before tool detection (routes/aria.py:12466,
+# 12573). A bare sentinel got past the readiness gate and then raised
+# AttributeError inside the generator — a sentinel must satisfy every attribute
+# the path under test READS, not just the first one.
+class _WarmLLM:
+    """The smallest provider the stream path will accept: warm and configured."""
+    is_configured = True
+
+
+_WARM_LLM = _WarmLLM()
 
 
 def _parse_sse_events(stream_text: str) -> list[dict]:
@@ -55,7 +87,8 @@ def test_rf450_stream_footer_arrives_before_done_via_endpoint(monkeypatch):
 
     # Mock aria_chat_stream to emit a fake LLM response with a
     # confidence tag so the footer builder has something to work with.
-    async def _fake_chat_stream(message, session_id, llm, intel, *, user_id="", persona=""):
+    async def _fake_chat_stream(message, session_id, llm, intel=None, *, user_id="",
+                                persona="", keep_history=None):
         # NOTE: confidence_footer.build_footer returns "" for replies
         # < 80 chars (don't decorate short answers). Pad the fake LLM
         # stream above that floor so the footer logic actually fires —
@@ -73,7 +106,7 @@ def test_rf450_stream_footer_arrives_before_done_via_endpoint(monkeypatch):
     monkeypatch.setattr(aria_routes, "aria_chat_stream", _fake_chat_stream)
 
     # Bypass quota + LLM init paths
-    monkeypatch.setattr(aria_routes, "get_llm", lambda _r: None)
+    monkeypatch.setattr(aria_routes, "get_llm", lambda _r: _WARM_LLM)  # R-F3339
     monkeypatch.setattr(aria_routes, "get_intel_data", lambda _r: None)
 
     async def _allow_quota(_user):
@@ -126,13 +159,14 @@ def test_rf450_stream_footer_arrives_before_done_via_endpoint(monkeypatch):
 def test_rf450_stream_done_emitted_exactly_once(monkeypatch):
     """The deferred-done logic must emit `done` exactly once — not
     zero times (client hang), not twice (double-close)."""
-    async def _fake_chat_stream(message, session_id, llm, intel, *, user_id="", persona=""):
+    async def _fake_chat_stream(message, session_id, llm, intel=None, *, user_id="",
+                                persona="", keep_history=None):
         yield {"type": "chunk", "text": "Reply with no tags."}
         yield {"type": "done", "session_id": session_id}
 
     from aria_service.routes import aria as aria_routes
     monkeypatch.setattr(aria_routes, "aria_chat_stream", _fake_chat_stream)
-    monkeypatch.setattr(aria_routes, "get_llm", lambda _r: None)
+    monkeypatch.setattr(aria_routes, "get_llm", lambda _r: _WARM_LLM)  # R-F3339
     monkeypatch.setattr(aria_routes, "get_intel_data", lambda _r: None)
     from aria_service.intel import user_quota
     async def _allow(_u): return True, ""
@@ -159,13 +193,14 @@ def test_rf450_stream_synthetic_done_when_chat_stream_omits_one(monkeypatch):
     """If aria_chat_stream never emits a done event (broken impl),
     the orchestrator must synthesise one so SSE clients don't hang.
     Pin the fallback path."""
-    async def _fake_chat_stream(message, session_id, llm, intel, *, user_id="", persona=""):
+    async def _fake_chat_stream(message, session_id, llm, intel=None, *, user_id="",
+                                persona="", keep_history=None):
         yield {"type": "chunk", "text": "No done coming."}
         # Intentionally no done event
 
     from aria_service.routes import aria as aria_routes
     monkeypatch.setattr(aria_routes, "aria_chat_stream", _fake_chat_stream)
-    monkeypatch.setattr(aria_routes, "get_llm", lambda _r: None)
+    monkeypatch.setattr(aria_routes, "get_llm", lambda _r: _WARM_LLM)  # R-F3339
     monkeypatch.setattr(aria_routes, "get_intel_data", lambda _r: None)
     from aria_service.intel import user_quota
     async def _allow(_u): return True, ""
@@ -188,3 +223,39 @@ def test_rf450_stream_synthetic_done_when_chat_stream_omits_one(monkeypatch):
         f"Events: {events}"
     )
     assert done_events[0].get("session_id") == "test-r450-synth"
+
+
+def test_rf3339_the_stream_doubles_match_the_real_signature():
+    """A test double that drifts behind the function it replaces fails OPAQUELY.
+
+    The endpoint calls aria_chat_stream(..., keep_history=...), a parameter added
+    after these fakes were written. The fakes did not accept it, so the call
+    raised TypeError INSIDE the SSE generator: the stream emitted an `error`
+    event and no footer, and the test reported "R-F450 REGRESSION: no footer
+    chunk in stream" — pointing at the feature under test rather than at the
+    double. That was hidden behind the 503 until R-F3339 fixed the readiness
+    stub, so one drift was masking another.
+
+    Binding the real signature's parameters against each fake turns the next
+    such drift into a message that names the cause.
+    """
+    import inspect
+    from aria_service.routes import aria as aria_routes
+
+    real = inspect.signature(aria_routes.aria_chat_stream).parameters
+    module = sys.modules[__name__]
+    fakes = [obj for name, obj in vars(module).items()
+             if name.startswith("test_rf450") and callable(obj)]
+    assert fakes, "sanity: the stream tests exist"
+
+    # The doubles are defined inside their tests, so check the shared shape:
+    # every parameter the real function exposes must be one a double accepts.
+    expected = {"message", "session_id", "llm", "intel_data", "user_id",
+                "persona", "keep_history"}
+    missing = set(real) - expected
+    assert not missing, (
+        f"aria_chat_stream grew {sorted(missing)}. Add it to the _fake_chat_stream "
+        f"signatures in this file (and to `expected` here), or the endpoint's call "
+        f"will TypeError inside the generator and surface as a phantom "
+        f"'no footer' regression."
+    )
