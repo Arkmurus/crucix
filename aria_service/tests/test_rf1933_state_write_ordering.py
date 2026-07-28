@@ -8,6 +8,12 @@ the key. Fix: each immediate op flushes the write queue FIRST, so prior queued
 writes land in program order before it runs.
 
 These drive the REAL state_store against a temp sqlite DB and assert the race is gone.
+
+R-F3337 — the calls were `store.set(...)`, which R-F2133 renamed to `set_key()`
+so it stopped shadowing the builtin. All three tests had been dying with
+AttributeError ("module has no attribute 'set'. Did you mean: 'get'?") in the
+first line of the body, so the ordering race they exist to catch has been
+unguarded ever since. The rename is right; the calls were stale.
 """
 from __future__ import annotations
 
@@ -37,19 +43,19 @@ async def store(monkeypatch):
 
 
 async def test_set_then_delete_does_not_resurrect(store):
-    await store.set("m4:k", "v1")          # enqueued
+    await store.set_key("m4:k", "v1")          # enqueued
     await store.delete("m4:k")             # must flush the set, THEN delete
     assert await store.get("m4:k") is None, "a queued set() must not resurrect after delete()"
 
 
 async def test_set_then_incr_operates_on_the_queued_value(store):
-    await store.set("m4:c", "10")          # enqueued
+    await store.set_key("m4:c", "10")          # enqueued
     await store.incr("m4:c", 5)            # must flush set (10) first, then +5
     assert await store.get("m4:c") == "15", "incr must see the queued set value, not a stale row"
 
 
 async def test_set_then_expire_then_delete_consistent(store):
-    await store.set("m4:e", "x")           # enqueued
+    await store.set_key("m4:e", "x")           # enqueued
     await store.expire("m4:e", 1000)       # flush-first: applies to the real row
     assert await store.get("m4:e") == "x"
     await store.delete("m4:e")
