@@ -6,6 +6,19 @@
 // than acknowledged and lost.
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
+// R-F3348 — one test here boots an isolated express app on 127.0.0.1 and fetches
+// it, and net_guard (R-F2731) blocked that as a "LIVE network" call, so the test
+// had been failing on its own fixture rather than on billing behaviour.
+//
+// The guard is right and needs no change: R-F2739 already built the exact hatch
+// for this case ("local capability tests deliberately boot an isolated server"),
+// and this file simply never opted in. allowLoopbackNetwork, NOT allowRealNetwork
+// — the loopback variant can reach neither production nor the LAN, so the
+// property the guard exists for (a test must never touch a real service) still
+// holds for every line in this file.
+import { allowLoopbackNetwork } from './helpers/net_guard.mjs';
+
+allowLoopbackNetwork();
 import { readFileSync } from 'node:fs';
 import express from 'express';
 
