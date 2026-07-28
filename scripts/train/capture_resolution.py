@@ -1,0 +1,81 @@
+"""R-F3372 — capture ENTITY-RESOLUTION traces from real registry ambiguity.
+
+Short names are what operators actually type, and the register's ranking is
+dangerous for them: "Chemring" ranks the DISSOLVED Chemring Limited first and the
+live Chemring Group plc fourth; "Babcock" ranks a dissolved company first;
+"QinetiQ" puts an unrelated PAWSTOPURR LTD second.
+
+Each trace teaches the model to resolve the subject BEFORE any downstream hop,
+and to ask rather than guess when the register does not answer confidently. The
+ambiguity is real registry data — none of it is authored.
+
+    python -m scripts.train.capture_resolution --out data/training/aria_tooluse_resolution_v1.jsonl \
+        --eval-blocklist data/training/_eval_blocklist_v1.txt
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import os
+import sys
+from pathlib import Path
+
+from scripts.train.build_tooluse_corpus import (
+    build_resolution_trace, write_multihop_corpus, validate_trace, resolve_company,
+)
+
+# Deliberately SHORT / partial names — the realistic input, and where the
+# register's relevance ranking misleads.
+SUBJECTS = [
+    "Chemring", "Babcock", "QinetiQ", "Cobham", "Serco", "Meggitt",
+    "Ultra Electronics", "Smiths Group", "Melrose", "Diageo", "Tesco", "Unilever",
+    "Rolls-Royce", "Chemring Group plc", "Babcock International Group plc",
+]
+
+
+async def capture(subjects: list[str]) -> list[dict]:
+    from aria_service.intel import companies_house as ch
+    traces: list[dict] = []
+    for s in subjects:
+        try:
+            results = await ch.search_companies(s, limit=5)
+            if not results:
+                print(f"  SKIP {s}: no registry results", file=sys.stderr)
+                continue
+            payload = {"results": results[:5]}
+            trace = build_resolution_trace(s, payload)
+            errs = validate_trace(trace)
+            if errs:
+                print(f"  SKIP {s}: {errs[0]}", file=sys.stderr)
+                continue
+            chosen, reason, ambiguous = resolve_company(s, results[:5])
+            verdict = ("ASK" if (chosen is None or ambiguous)
+                       else f"-> {chosen.get('company_number')}")
+            traces.append(trace)
+            print(f"  captured {s:<34} {verdict}", file=sys.stderr)
+        except Exception as e:                              # noqa: BLE001
+            print(f"  SKIP {s}: {type(e).__name__}: {e}", file=sys.stderr)
+    return traces
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument("--eval-blocklist", type=Path)
+    ap.add_argument("--allow-unchecked-contamination", action="store_true")
+    a = ap.parse_args()
+
+    blocklist = None
+    if a.eval_blocklist:
+        blocklist = [ln.strip() for ln in a.eval_blocklist.read_text(encoding="utf-8").splitlines()
+                     if ln.strip() and not ln.startswith("#")]
+
+    traces = asyncio.run(capture(SUBJECTS))
+    n = write_multihop_corpus(traces, a.out, eval_subjects=blocklist,
+                              allow_unchecked=a.allow_unchecked_contamination)
+    print(f"wrote {n} validated resolution traces -> {a.out} (from {len(traces)} built)")
+    return 0 if n else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

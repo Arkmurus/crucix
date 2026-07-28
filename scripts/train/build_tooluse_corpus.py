@@ -383,6 +383,45 @@ def validate_trace(trace: Any) -> list[str]:
         if m.get("role") == "tool":
             prior_blobs.append(_norm_for_derivation(m.get("content") or ""))
 
+    # ---- R-F3372 selection: the company carried forward must be the one the
+    # resolver picks. Derivation (R-F3367) only proves the number was PRESENT in a
+    # payload — `results[0]` always is. That is exactly how a chain can run due
+    # diligence on a dissolved shell while every other guard stays green.
+    _search_results: list[dict] = []
+    _subject = (trace.get("subject") or "") if isinstance(trace, dict) else ""
+    for m in msgs:
+        if not isinstance(m, dict):
+            continue
+        if m.get("role") == "tool" and m.get("name") == "companies_house_search":
+            try:
+                _search_results = (json.loads(m.get("content") or "{}").get("results") or [])
+            except (ValueError, TypeError):
+                _search_results = []
+        for c in (m.get("tool_calls") or []):
+            if not isinstance(c, dict):
+                continue
+            fn = c.get("function") or {}
+            if fn.get("name") != "companies_house_officers" or not _search_results:
+                continue
+            try:
+                used = str((json.loads(fn.get("arguments") or "{}") or {}).get("company_number") or "").strip()
+            except (ValueError, TypeError):
+                continue
+            chosen, reason, ambiguous = resolve_company(_subject, _search_results)
+            if chosen is None:
+                errs.append(
+                    f"carried company_number {used!r} forward when the subject could not "
+                    f"be resolved ({reason}) — due diligence on a guess"
+                )
+            elif ambiguous:
+                errs.append(f"carried {used!r} forward while the subject was ambiguous ({reason})")
+            elif used and used != str(chosen.get("company_number")):
+                errs.append(
+                    f"selected company_number {used!r}, but {_subject or 'the subject'} resolves to "
+                    f"{chosen.get('company_number')!r} ({chosen.get('title')}). "
+                    f"A number present in the payload is not the same as the RIGHT one."
+                )
+
     # ---- citation grounding: the final answer may cite ONLY what a tool returned
     payloads: list[dict] = []
     for m in msgs:
@@ -470,6 +509,139 @@ def validate_trace(trace: Any) -> list[str]:
 
 
 # ── corpus assembly ────────────────────────────────────────────────────────
+
+_DEAD_STATUSES = ("dissolved", "closed", "closed-on", "converted-closed", "removed", "liquidation")
+
+
+def resolve_company(subject: str, results: Any) -> tuple[dict | None, str, bool]:
+    """Choose the company a subject refers to. Returns (chosen, reason, ambiguous).
+
+    R-F3372 — `capture_multihop` used to take `results[0]`, trusting the registry's
+    relevance ranking. Against the real register that is dangerous for the short
+    names operators actually type: "Chemring" ranks the DISSOLVED CHEMRING LIMITED
+    first and the live CHEMRING GROUP PLC fourth; "Babcock" ranks a dissolved
+    BABCOCK LTD first; "QinetiQ" puts an unrelated PAWSTOPURR LTD second. Running
+    DD against a dissolved shell makes every downstream hop — officers, PSC,
+    sanctions — about the wrong company, asserted with full confidence.
+
+    The rule is deliberately NOT exact-title matching: `Meggitt plc` legitimately
+    resolves to MEGGITT LIMITED and `Ultra Electronics Holdings plc` to
+    ULTRA ELECTRONICS HOLDINGS LIMITED after going private. Equality would reject
+    correct answers. So: compare NAME CORES (suffixes stripped), require a live
+    status, and when two live candidates are equally good, say it is ambiguous
+    rather than pick one.
+    """
+    if not isinstance(results, list) or not results:
+        return None, "the registry returned no candidates", False
+    core = _norm_subject(subject)
+    if not core:
+        return None, "no usable subject name", False
+
+    # R-F3372 tier 1 — an EXACT full-title match wins outright. Found by running
+    # the real capture: "Babcock International Group plc" was scored ambiguous
+    # against BABCOCK INTERNATIONAL LIMITED because suffix-stripping collapses
+    # "Group plc" and "Limited" to the same core — yet the subject matches one
+    # title exactly. Tier 2 (core matching) remains the fallback that lets
+    # "Meggitt plc" still resolve to MEGGITT LIMITED after its re-registration.
+    full = _norm_for_derivation(subject)
+    tier1 = [
+        r for r in results
+        if isinstance(r, dict) and isinstance(r.get("title"), str)
+        and _norm_for_derivation(r["title"]) == full
+        and not any(d in str(r.get("company_status") or "").lower() for d in _DEAD_STATUSES)
+    ]
+    if len(tier1) == 1:
+        c = tier1[0]
+        return c, (f"{c.get('title')} ({c.get('company_number')}) is an exact, active "
+                   f"name match for {subject}"), False
+
+    exact_live: list[dict] = []
+    exact_dead: list[dict] = []
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        title = r.get("title")
+        if not isinstance(title, str) or not title.strip():
+            continue
+        if _norm_subject(title) != core:
+            continue                     # not the same entity, whatever its rank
+        status = str(r.get("company_status") or "").lower()
+        (exact_dead if any(d in status for d in _DEAD_STATUSES) else exact_live).append(r)
+
+    if not exact_live:
+        if exact_dead:
+            return None, (
+                f"the only name match is {exact_dead[0].get('title')} "
+                f"({exact_dead[0].get('company_status')}) — a dissolved entity is not "
+                f"a safe subject for due diligence"
+            ), False
+        return None, f"no candidate's name resolves to {subject!r}", False
+
+    if len(exact_live) > 1:
+        names = ", ".join(str(c.get("title")) for c in exact_live[:3])
+        return exact_live[0], f"more than one live company matches: {names}", True
+
+    chosen = exact_live[0]
+    dropped = ""
+    if exact_dead:
+        dropped = (f"; rejected {exact_dead[0].get('title')} as "
+                   f"{exact_dead[0].get('company_status')}")
+    return chosen, (
+        f"{chosen.get('title')} ({chosen.get('company_number')}) is the active "
+        f"company whose name resolves to {subject}{dropped}"
+    ), False
+
+
+def build_resolution_trace(subject: str, search_payload: dict) -> dict:
+    """A trace teaching ENTITY RESOLUTION: verify which company this is, and ask
+    when the register does not answer it confidently."""
+    results = (search_payload or {}).get("results") or []
+    chosen, reason, ambiguous = resolve_company(subject, results)
+    call_id = "call_res_" + re.sub(r"[^a-z0-9]+", "", subject.lower())[:18]
+
+    if chosen is not None and not ambiguous:
+        final = (
+            f"{reason}. I will proceed on company number "
+            f"{chosen.get('company_number')}."
+        )
+    else:
+        listed = "; ".join(
+            f"{r.get('title')} ({r.get('company_status')}, {r.get('company_number')})"
+            for r in results[:4] if isinstance(r, dict)
+        )
+        final = (
+            f"I cannot safely say which company you mean by {subject}. {reason}. "
+            f"The register returned: {listed}. Which of these is the subject? I am "
+            f"not going to run due diligence on a guess — every later finding would "
+            f"inherit the error."
+        )
+    return {
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Run due diligence on {subject}."},
+            {
+                "role": "assistant",
+                "content": f"First I have to establish which registered company {subject} is.",
+                "tool_calls": [{
+                    "id": call_id, "type": "function",
+                    "function": {"name": "companies_house_search",
+                                 "arguments": json.dumps({"query": subject}, ensure_ascii=False)},
+                }],
+            },
+            {"role": "tool", "tool_call_id": call_id, "name": "companies_house_search",
+             "content": json.dumps(search_payload, ensure_ascii=False)},
+            {"role": "assistant", "content": final},
+        ],
+        "topic": "entity_resolution",
+        "label": "tooluse_resolution",
+        "grounded": True,
+        "subject": subject,
+        "resolved": None if chosen is None else chosen.get("company_number"),
+        "ambiguous": ambiguous,
+        "tools": TOOL_SPECS,
+        "source": "replayed_real_tool_execution",
+    }
+
 
 _HOP_REASONING = {
     "companies_house_search": "First I need the official registry entry for {subject} — I will not assume its identity.",

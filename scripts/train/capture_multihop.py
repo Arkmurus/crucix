@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 from scripts.train.build_tooluse_corpus import (
-    build_multihop_trace, write_multihop_corpus, validate_trace,
+    build_multihop_trace, write_multihop_corpus, validate_trace, resolve_company,
 )
 
 # Listed public companies — public record, and deliberately NOT customer DDs.
@@ -47,7 +47,15 @@ async def capture(subjects: list[str], base: str, token: str) -> list[dict]:
             if not search:
                 print(f"  SKIP {subject}: no registry match", file=sys.stderr)
                 continue
-            top = search[0]
+            # R-F3372 — do NOT trust the registry's ranking. Against the real
+            # register "Chemring" ranks the DISSOLVED Chemring Limited first and
+            # the live Chemring Group plc fourth; "Babcock" ranks a dissolved
+            # company first. Capturing results[0] would mint traces that run due
+            # diligence on a shell, and every later hop would inherit the error.
+            top, reason, ambiguous = resolve_company(subject, search)
+            if top is None or ambiguous:
+                print(f"  SKIP {subject}: unresolved ({reason})", file=sys.stderr)
+                continue
             number = str(top.get("company_number") or "").strip()
             if not number:
                 print(f"  SKIP {subject}: no company_number", file=sys.stderr)
