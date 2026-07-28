@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3325,
+  "next_available": 3326,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27297,6 +27297,16 @@
       "commit_sha": "c96a1265",
       "notes": null,
       "shipped_at": "2026-07-28T08:32:28Z"
+    },
+    {
+      "r_number": "R-F3325",
+      "title": "rf1036 tests call TestRunner._parse with the pre-R-F1235 signature",
+      "claimed_at": "2026-07-28T08:42:43Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "11b9dca5",
+      "notes": null,
+      "shipped_at": "2026-07-28T08:58:04Z"
     }
   ]
 }
