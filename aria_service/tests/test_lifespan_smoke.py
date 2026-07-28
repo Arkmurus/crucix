@@ -18,6 +18,10 @@ Memory note: `lifespan_smoke_test_required.md`.
 from __future__ import annotations
 
 import asyncio
+import pathlib
+import subprocess
+import tempfile
+import sys
 
 
 def test_lifespan_pre_yield_top_level_awaits_are_bounded():
@@ -115,17 +119,69 @@ def test_lifespan_starts_and_shuts_down_cleanly():
         import pytest
         pytest.skip("SKIP_LIFESPAN_SMOKE=1")
 
-    from aria_service.main import lifespan, app
+    # R-F3347 — run the lifespan in a SUBPROCESS. It used to run in-process via
+    # asyncio.run(), and that poisoned the whole suite.
+    #
+    # Measured: after `async with lifespan(app)` exits and asyncio.run() closes
+    # the loop, FIVE threads survive in the parent —
+    #     rf704-wedge-watchdog · Thread-8 (_patched_worker) · Thread-9 ·
+    #     QueueFeederThread · continuous-profiler
+    # plus an encode-offload CHILD PROCESS ("R-F1890 encode-offload worker warmed
+    # (model loaded in child process)"). They are bound to a loop that no longer
+    # exists.
+    #
+    # The next test that does asyncio.run() and reaches the embedder then waits
+    # forever. Bisected to exactly that: test_rf1401_held_out_split_eval:209 ->
+    # asyncio.run(run_eval(...)) -> eval_runner.py:588
+    # `await asyncio.to_thread(_cosine_score, ...)` -> model.encode() ->
+    # windows_events._poll -> GetQueuedCompletionStatus, in an executor thread
+    # named asyncio_4, killed by pytest-timeout. THIS FILE plus that one is a
+    # two-file reproduction; either alone passes. It killed the full-suite run at
+    # ~31%, so no complete baseline could be measured at all.
+    #
+    # Cleaning up the known globals afterwards would be whack-a-mole: the next
+    # subsystem the lifespan starts leaks again, silently, and the symptom
+    # reappears somewhere unrelated. A subprocess contains ANY of them by
+    # construction, and the contract this file exists for (CLAUDE.md §9: enter the
+    # real lifespan, exit it, fail on anything that raises) is unchanged —
+    # a boot-path UnboundLocalError still fails this test, which is the F28 case.
+    driver = (
+        "import asyncio, sys\n"
+        "from aria_service.main import lifespan, app\n"
+        "async def _run():\n"
+        "    async with lifespan(app):\n"
+        "        return True\n"
+        "assert asyncio.run(_run()) is True\n"
+        "print('LIFESPAN_OK')\n"
+    )
+    repo_root = str(pathlib.Path(__file__).resolve().parents[2])
 
-    async def _run():
-        async with lifespan(app):
-            # If we get here, startup succeeded. We don't need to test
-            # anything else inside the context — the act of entering and
-            # exiting cleanly is the contract.
-            return True
+    # Output goes to FILES, not pipes. capture_output=True was the first cut and
+    # it hung IN-SUITE at this very line: subprocess.run waits for EOF on the
+    # pipes, and the lifespan spawns its own encode-offload GRANDCHILD (R-F1890)
+    # which inherits those handles and holds them open after the direct child has
+    # exited. Running this file alone hid it. Files have no EOF dependency, so the
+    # wait ends when the direct child ends, whatever it left running.
+    with tempfile.TemporaryDirectory() as td:
+        out_path = pathlib.Path(td) / "out.txt"
+        err_path = pathlib.Path(td) / "err.txt"
+        with open(out_path, "w", encoding="utf-8") as out_f, \
+             open(err_path, "w", encoding="utf-8") as err_f:
+            proc = subprocess.run(
+                [sys.executable, "-c", driver],
+                cwd=repo_root, stdout=out_f, stderr=err_f, timeout=600,
+            )
+        out = out_path.read_text(encoding="utf-8", errors="replace")
+        err = err_path.read_text(encoding="utf-8", errors="replace")
 
-    result = asyncio.run(_run())
-    assert result is True, "lifespan context exited without yielding True"
+    assert "LIFESPAN_OK" in out, (
+        "lifespan did not start and shut down cleanly.\n"
+        f"exit={proc.returncode}\n--- stdout tail ---\n{out[-2000:]}\n"
+        f"--- stderr tail ---\n{err[-4000:]}"
+    )
+    assert proc.returncode == 0, (
+        f"lifespan subprocess exited {proc.returncode}\n{err[-4000:]}"
+    )
 
 
 def test_module_level_os_alias_not_shadowed_in_lifespan():
