@@ -1426,14 +1426,10 @@ async function loadCompounding() {
 // (no graph lib / no CDN). P1: subsystem-hue "metro lines"; live green/amber/red
 // health overlay lands in P2. Drill: service → organ → module → import neighbours.
 let _ecoStack = [];  // breadcrumb drill path: [{id,label}]
-function _ecoHue(s){ let h=0; for(const c of (s||'x')) h=(h*31+c.charCodeAt(0))%360; return h; }
-const _ECO_HCOL = {green:'var(--green)', amber:'var(--yellow)', red:'var(--red)', grey:'#5a6470'};
-// P2: node FILL = live health; ring STROKE = organ "line" hue. Grey = no live sensor (never faked green).
-function _ecoFill(n){
-  if(n.orphan_alert) return 'var(--red)';                 // unassigned bucket = red completeness alert
-  return _ECO_HCOL[n.health] || '#5a6470';                // grey when unmeasured
-}
-function _ecoStroke(n){ return n.type==='service' ? '#4aa3ff' : `hsl(${_ecoHue(n.category)},50%,45%)`; }
+// R-F3351 — _ecoHue/_ECO_HCOL/_ecoFill/_ecoStroke lived here and were all DEAD:
+// leftovers of the SVG graph R-F2984 replaced with card tiles. _ecoFill held the
+// `if(n.orphan_alert) return red` completeness alert, so deleting the SVG silently
+// deleted the alert. The live colour rule is _h() below — one function, no fork.
 async function loadEcosystem(root){
   const el = document.getElementById('ecosystem-map');
   if(!el) return;
@@ -1487,12 +1483,21 @@ async function loadEcosystem(root){
     intel_sources:'bi-rss', phase:'bi-speedometer2', infra:'bi-hdd-stack', cli:'bi-terminal',
     routes:'bi-signpost-split', unassigned:'bi-exclamation-triangle' };
   const _ecoIcon = (n) => _ECO_ICON[n.category] || (n.type==='service'?'bi-hdd-network':(n.type==='function'?'bi-braces':'bi-file-earmark-code'));
-  const _h = (n) => ['green','amber','red'].includes(n.health) ? n.health : 'grey';
+  // R-F3351 — the orphan bucket is a COMPLETENESS alert and outranks health. It is
+  // the ONE node that can never receive a sensor: every sensor path resolves organs
+  // through _assign_organ, which returns null (not "unassigned") for an unmatched
+  // name, so nothing ever targets organ:unassigned. Without this branch it is grey
+  // forever — and the unmapped-module gap is the single thing this map exists to prove.
+  const _h = (n) => n.orphan_alert ? 'red'
+    : (['green','amber','red'].includes(n.health) ? n.health : 'grey');
   const _card = (n) => {
     const nm = (n.label||''), rn = n.r_numbers||[];
     const ct = n.type==='organ' ? (n.module_count!=null?n.module_count:'')
       : (n.type==='function' ? (n.wired?'wired':'') : (rn.length?rn[rn.length-1]:''));
+    // R-F3351: red on this card is a COMPLETENESS claim ("these modules match no
+    // organ"), not a health one ("this organ is failing"). Say which, or the colour lies.
     const tip = `${nm} (${n.type})`
+      + (n.orphan_alert ? ` · COMPLETENESS ALERT: ${n.module_count} module(s) match no organ — the map is declaring its own gap, not reporting a fault` : '')
       + (n.sensor ? ` · [${n.health||'grey'}] ${n.sensor}${n.sensor_value!=null?(' = '+n.sensor_value):''}` : '')
       + (rn.length ? ` · audit ${rn.slice(-4).reverse().join(', ')}` : '');
     const drill = n.type!=='function';
@@ -1518,7 +1523,7 @@ async function loadEcosystem(root){
     + _grid(functions.length ? 'CONNECTED MODULES (imports)' : 'MODULES', modules);
   html += `<div style="margin-top:9px;font-size:9px;color:#9b968c;display:flex;gap:13px;flex-wrap:wrap;align-items:center">`
     + `<span style="color:#16a34a">● healthy</span><span style="color:#ca8a04">● degraded</span>`
-    + `<span style="color:#dc2626">● broken</span><span style="color:#c2bcae">● no sensor (grey ≠ green)</span>`
+    + `<span style="color:#dc2626">● broken / unmapped</span><span style="color:#c2bcae">● no sensor (grey ≠ green)</span>`
     + `<span>· click a card to drill in, hover for its sensor + R-numbers</span></div>`;
   el.classList.remove('loading'); el.innerHTML = html;
 }
