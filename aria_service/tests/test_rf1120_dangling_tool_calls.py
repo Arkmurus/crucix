@@ -14,19 +14,26 @@ from __future__ import annotations
 import types
 
 from aria_cli.agent import Agent, AgentUI
-from aria_cli.tools import ToolResult
+from aria_cli.safety import WriteGuard
+from aria_cli.tools import Toolbox
 
 
-class _Tb:
-    """Minimal toolbox: a read-only list_dir + no bridge."""
-    bridge_base = None
+def _agent(llm, tmp_path):
+    """R-F3336 — build the REAL Toolbox, as cli.py:1900 does.
 
-    def list_dir(self, **kwargs) -> ToolResult:
-        return ToolResult("ok")
+    This used to pass a hand-rolled `_Tb` stub carrying `bridge_base` and a canned
+    `list_dir`. It drifted behind Agent's constructor when R-F1143 added
+    `CoderToolbox(toolbox)`, which reads `toolbox.root`, and all three tests died
+    with AttributeError in setup — the identical failure R-F3333 fixed in
+    test_rf1082. Two instances of one class is the argument for removing the
+    class, not for adding `.root` to a second stub.
 
-
-def _agent(llm):
-    a = Agent(llm=llm, toolbox=_Tb(), system_prompt="sys", ui=AgentUI(), auto_approve=True)
+    Nothing here depends on what list_dir RETURNS: every assertion is about the
+    tool_call/tool-message structure of the history, which is what the wedge
+    corrupted. A real Toolbox rooted at tmp_path gives that with no drift.
+    """
+    toolbox = Toolbox(root=tmp_path, guard=WriteGuard(self_mode=False), bridge_base=None)
+    a = Agent(llm=llm, toolbox=toolbox, system_prompt="sys", ui=AgentUI(), auto_approve=True)
     a.retry_backoff = 0
     return a
 
@@ -36,8 +43,8 @@ def _tc(tcid: str):
             "function": {"name": "list_dir", "arguments": "{}"}}
 
 
-def test_repair_inserts_for_dangling_tool_call():
-    a = _agent(llm=None)
+def test_repair_inserts_for_dangling_tool_call(tmp_path):
+    a = _agent(llm=None, tmp_path=tmp_path)
     # assistant asks for TWO tool calls but only ONE got a response — dangling.
     a.messages = [
         {"role": "system", "content": "sys"},
@@ -54,8 +61,8 @@ def test_repair_inserts_for_dangling_tool_call():
     assert a._repair_dangling_tool_calls() == 0
 
 
-def test_repair_noop_on_clean_history():
-    a = _agent(llm=None)
+def test_repair_noop_on_clean_history(tmp_path):
+    a = _agent(llm=None, tmp_path=tmp_path)
     a.messages = [
         {"role": "system", "content": "sys"},
         {"role": "assistant", "content": "", "tool_calls": [_tc("c1")]},
@@ -77,9 +84,9 @@ class _LoopLLM:
             raw_message={"role": "assistant", "content": "", "tool_calls": [tc]})
 
 
-def test_loop_guard_abort_leaves_history_valid():
+def test_loop_guard_abort_leaves_history_valid(tmp_path):
     """A real loop-guard abort must NOT leave a dangling tool_call (the wedge)."""
-    a = _agent(llm=_LoopLLM())
+    a = _agent(llm=_LoopLLM(), tmp_path=tmp_path)
     result = a.run_turn("list the dir over and over")
     assert result.aborted  # the loop guard fired
     # THE KEY ASSERTION: the history has zero dangling tool_calls, so the next

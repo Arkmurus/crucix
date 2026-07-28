@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3336,
+  "next_available": 3337,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27402,6 +27402,16 @@
       "r_number": "R-F3335",
       "title": "rf926 pinned CI steps R-F1157 removed; re-arm the decoupling guard conditionally",
       "claimed_at": "2026-07-28T11:24:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c0cd7321",
+      "notes": null,
+      "shipped_at": "2026-07-28T11:26:10Z"
+    },
+    {
+      "r_number": "R-F3336",
+      "title": "rf1120 + rf1941: another toolbox stub drift, and a missing optional training dep",
+      "claimed_at": "2026-07-28T11:27:38Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
