@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3338,
+  "next_available": 3339,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27422,6 +27422,16 @@
       "r_number": "R-F3337",
       "title": "rf1351 + rf1933 pinned state_store internals the R-F1515/R-F2133/R-F2470 rewrites removed",
       "claimed_at": "2026-07-28T11:42:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ddb007b3",
+      "notes": null,
+      "shipped_at": "2026-07-28T11:45:55Z"
+    },
+    {
+      "r_number": "R-F3338",
+      "title": "cap_terminal_ui pinned renderer glyphs R-F1260 changed",
+      "claimed_at": "2026-07-28T11:46:48Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

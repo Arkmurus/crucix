@@ -13,6 +13,7 @@ Tests that:
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -297,11 +298,19 @@ class TestTerminalUI:
         assert "world" in captured.out
 
     def test_tool_call_run(self, ui, capsys):
-        """tool_call for run shows the command."""
+        """tool_call for run shows WHICH command is running.
+
+        R-F3338: this asserted a literal "$" prompt glyph. R-F1260 reformatted
+        the line to `● run(pytest -v)`, so the test failed on decoration while
+        the information it exists to protect — the operator can see what is about
+        to execute — was never lost. The command and the tool are the property;
+        the glyphs around them are a style decision that may change without a
+        test failing.
+        """
         ui.tool_call("run", {"command": "pytest -v"})
-        captured = capsys.readouterr()
-        assert "$" in captured.out
-        assert "pytest" in captured.out
+        out = capsys.readouterr().out
+        assert "pytest -v" in out, f"the command being run must be visible: {out!r}"
+        assert "run" in out, f"the tool must be identifiable: {out!r}"
 
     def test_tool_call_other(self, ui, capsys):
         """tool_call for other tools shows the name."""
@@ -328,8 +337,19 @@ class TestTerminalUI:
         lines = [f"line{i}" for i in range(10)]
         result = ToolResult("exit code: 0\n" + "\n".join(lines))
         ui.tool_result("run", result)
-        captured = capsys.readouterr()
-        assert "more lines" in captured.out
+        out = capsys.readouterr().out
+
+        # R-F3338: this asserted the literal phrase "more lines"; the renderer
+        # now says "… +8 lines". Both halves of the real property are asserted
+        # instead of the wording: the output IS shortened, and the amount hidden
+        # is stated as a number. A truncation that silently drops lines would
+        # pass a phrase-match and fails here.
+        assert not all(f"line{i}" in out for i in range(10)), (
+            f"10 lines were printed in full — nothing was truncated: {out!r}"
+        )
+        assert re.search(r"\d+\s*(more\s+)?lines", out), (
+            f"truncation must state HOW MANY lines were hidden: {out!r}"
+        )
 
     def test_tool_result_write_file(self, ui, capsys):
         """tool_result for write_file shows mutation."""
@@ -375,7 +395,11 @@ class TestTerminalUI:
         """_step_prefix returns formatted string when steps > 0."""
         ui.set_step_context(2, 5)
         prefix = ui._step_prefix()
-        assert "Step 2/5" in prefix
+        # R-F3338: asserted the literal "Step 2/5"; R-F1260 shortened it to
+        # "[2/5]". Position-in-run is the information; the word "Step" was not.
+        assert re.search(r"\b2\b\D+\b5\b", prefix), (
+            f"the prefix must show current-of-total, in that order: {prefix!r}"
+        )
 
     def test_step_prefix_empty(self, ui):
         """_step_prefix returns empty string when no steps."""
