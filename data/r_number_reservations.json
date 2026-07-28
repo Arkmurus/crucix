@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3359,
+  "next_available": 3365,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27633,9 +27633,70 @@
       "title": "ecosystem map: scan the Node tiers so all three services are real",
       "claimed_at": "2026-07-28T17:49:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "eb83d195",
+      "notes": null,
+      "shipped_at": "2026-07-28T18:17:41Z"
+    },
+    {
+      "r_number": "R-F3359",
+      "title": "dd/health recorder skips dict-shaped layers so 4 of 11 read empty forever",
+      "claimed_at": "2026-07-28T18:05:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e2d4f9e6",
+      "notes": null,
+      "shipped_at": "2026-07-28T19:00:11Z"
+    },
+    {
+      "r_number": "R-F3360",
+      "title": "R-F704 wedge writer never prunes so the 50-file retention cap never applies",
+      "claimed_at": "2026-07-28T18:05:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e2d4f9e6",
+      "notes": null,
+      "shipped_at": "2026-07-28T19:00:11Z"
+    },
+    {
+      "r_number": "R-F3361",
+      "title": "SearXNG zero-result warning cannot tell a crawler-blocked site: query from an engine outage",
+      "claimed_at": "2026-07-28T18:06:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e2d4f9e6",
+      "notes": null,
+      "shipped_at": "2026-07-28T19:00:12Z"
+    },
+    {
+      "r_number": "R-F3362",
+      "title": "operational-gaps surface serves months-old entries as current",
+      "claimed_at": "2026-07-28T18:06:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e2d4f9e6",
+      "notes": null,
+      "shipped_at": "2026-07-28T19:00:12Z"
+    },
+    {
+      "r_number": "R-F3363",
+      "title": "the lock error that resets gate 3 logs no diagnostics so it can never be root-caused",
+      "claimed_at": "2026-07-28T18:28:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e2d4f9e6",
+      "notes": null,
+      "shipped_at": "2026-07-28T19:00:13Z"
+    },
+    {
+      "r_number": "R-F3364",
+      "title": "dd/health claims a 7-day window but the refreshed TTL makes its counters all-time",
+      "claimed_at": "2026-07-28T18:31:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e2d4f9e6",
+      "notes": null,
+      "shipped_at": "2026-07-28T19:00:13Z"
     }
   ]
 }
