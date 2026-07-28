@@ -27343,9 +27343,10 @@
       "title": "rf1241 client-endpoint tests predated R-F1347 auth; pin the public/authed boundary",
       "claimed_at": "2026-07-28T10:26:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ab139655",
+      "notes": null,
+      "shipped_at": "2026-07-28T10:29:51Z"
     }
   ]
 }
