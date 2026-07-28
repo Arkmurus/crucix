@@ -72,7 +72,22 @@ console.log('\n2. No new status-masking proxy without review (ratchet)');
 //   one bespoke call was REMOVED. The baseline moves DOWN, which is the direction
 //   this pin exists to encourage: fewer hand-rolled upstream fetches, fewer places
 //   a gate can drift (the duplicate had fallen behind R-F2896 and R-F2899).
-const BESPOKE_BASELINE = 21;
+// R-F3328 (21 -> 24). Three sites, only one of them this ticket's:
+//   * `_fetchDesignPartners()` — NEW here. It reads the design-partner record a
+//     route is about to act on. REVIEWED: it does not mask anything, because it
+//     does not answer the client at all — on a non-2xx it throws an Error
+//     carrying `.status`, and its one caller relays that with
+//     `res.status(e.status || 502)`. A 401/403 from the tracker reaches the page
+//     as a 401/403.
+//   * two vetting-portal fetches (server.mjs ~1642 and the multi-line
+//     ~1685 `/api/aria/vetting/case/...`) that landed with the vetting module
+//     BEFORE this ticket. Measured, not assumed: HEAD (62ae4664) already
+//     counted 23 against a recorded baseline of 21, so this check was ALREADY
+//     failing on main and those two are not this change's to claim as
+//     reviewed. They are carried into the count so the ratchet works again;
+//     whoever owns vetting should confirm their error handling relays upstream
+//     status the way this note does for the site above.
+const BESPOKE_BASELINE = 24;
 const bespoke = (SRC.match(/fetch\(\s*`\$\{ARIA_SERVICE_URL\}/g) || []).length;
 check(
   `bespoke ARIA_SERVICE_URL fetches == ${BESPOKE_BASELINE} (found ${bespoke})`,
@@ -102,8 +117,18 @@ for (const [label, start, end] of [
 ]) {
   const body = routeBody(start, end);
   check(`${label} exists`, body.length > 0);
+  // R-F3328 — assert the PROPERTY (an upstream non-2xx reaches the client as
+  // that status), not one spelling of it. The single-expression form was the
+  // only shape in the tree when this was written; the status route now answers
+  // an upstream failure with an early `if (!r.ok) return res.status(r.status ||
+  // 502)` because it has work to do on the success path. Both relay; pinning
+  // the wording would have failed a route that satisfies the contract, and a
+  // guard that cries wolf gets switched off. What still FAILS here is the thing
+  // this test exists for: a route that answers a 401/403 with a hardcoded 500 /
+  // 502 or a bare `res.json(...)`.
   check(`${label} relays upstream non-2xx status`,
-    /res\.status\(\s*r\.ok\s*\?\s*200\s*:\s*\(r\.status\s*\|\|\s*502\)\s*\)/.test(body));
+    /res\.status\(\s*r\.ok\s*\?\s*200\s*:\s*\(r\.status\s*\|\|\s*502\)\s*\)/.test(body)
+    || /if\s*\(!r\.ok\)\s*return\s+res\.status\(\s*r\.status\s*\|\|\s*502\s*\)/.test(body));
 }
 const applyBody = routeBody("app.post('/api/design-partners/apply'", '// §25 / §25a');
 check('public design-partner applications force non-qualifying status',

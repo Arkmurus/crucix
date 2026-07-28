@@ -72,6 +72,9 @@ import { DEFAULT_TIER } from './lib/billing/tiers.mjs';
 import { initIncidentsStore } from './lib/status/store.mjs';
 import { sendVerificationEmail, sendVerificationSuccessEmail, sendPasswordResetEmail, sendPasswordChangedNotification, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail, isConfigured as smtpIsConfigured } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
+// R-F3328 — approving a design partner issues them a real login (see the module
+// header: before this, approval wrote a status label and nothing else).
+import { provisionDesignPartnerAccess, ACCESS_GRANTING_STATUSES } from './lib/auth/designPartnerAccess.mjs';
 import { isDisposableEmail, evaluateAutoApproval, MAX_VERIFY_ATTEMPTS } from './lib/auth/onboarding.mjs';
 import { initComplianceAudit, getAuditLog as getComplianceAuditLog, exportAuditLog } from './lib/aria/complianceAudit.mjs';
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
@@ -2750,11 +2753,43 @@ app.get('/api/leads', requireAdmin, async (req, res) => {
 // Admin-only (real prospect contact details); proxies to the aria-intel tracker
 // so /design-partners.html can list + add without a raw curl. GET lists +
 // returns gate stats; POST logs one conversation.
+// R-F3328 — fetch the tracker's records so a route can read the entry it is
+// about to act on. The design-partner API addresses records BY INDEX, and the
+// contact email must come from the stored record, never from the request body:
+// the record is what the operator approved.
+async function _fetchDesignPartners() {
+  const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/admin/design-partners`, { headers: _ariaHeaders() });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    // Carry the upstream status so the caller can RELAY it (R-F2581 contract:
+    // a 401/403 from the tracker must not reach the page as a generic 502).
+    const err = new Error(`the design-partner service returned HTTP ${r.status}`);
+    err.status = r.status;
+    throw err;
+  }
+  return Array.isArray(data.entries) ? data.entries : [];
+}
+
 app.get('/api/design-partners', requireAdmin, async (req, res) => {
   try {
     if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'aria service unavailable' });
     const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/admin/design-partners`, { headers: _ariaHeaders() });
     const data = await r.json().catch(() => ({}));
+    // R-F3328 — tell the page whether each approved partner can actually SIGN
+    // IN. The tracker (aria-intel) has no idea accounts exist; without this the
+    // UI can only show "engaged ✓", which is exactly the false-reassurance that
+    // let an approved partner sit for hours with no login. has_account is read
+    // from the real user store, so an empty account is visible as one.
+    if (r.ok && Array.isArray(data.entries)) {
+      data.entries = data.entries.map((e) => {
+        let account = null;
+        try {
+          const u = e && e.contact ? findUserByEmail(String(e.contact)) : null;
+          if (u) account = { status: u.status, tier: u.tier || DEFAULT_TIER, credentialIssuedAt: u.credentialIssuedAt || null };
+        } catch { /* a lookup failure must not blank the list */ }
+        return { ...e, has_account: !!account, account };
+      });
+    }
     return res.status(r.ok ? 200 : (r.status || 502)).json(data);
   } catch (e) {
     return res.status(502).json({ error: 'Could not reach the design-partner service.' });
@@ -2794,9 +2829,104 @@ app.post('/api/design-partners/:index/status', requireAdmin, async (req, res) =>
       body: JSON.stringify(patch),
     });
     const data = await r.json().catch(() => ({}));
-    return res.status(r.ok ? 200 : (r.status || 502)).json(data);
+    if (!r.ok) return res.status(r.status || 502).json(data);
+
+    // R-F3328 — THE FIX. Moving a record to an access-granting status is the
+    // approval decision, so it must also give the human a way in. Before this,
+    // the response above was the end of the chain: the label changed and the
+    // partner got nothing (verified live — Ray Ingram, approved 2026-07-28
+    // 10:35, no account existed). Provisioning runs AFTER the status write so a
+    // provisioning failure can never lose the operator's decision, and its
+    // outcome is returned rather than swallowed (§19e/§22): the page shows the
+    // credential when SMTP could not deliver it.
+    if (ACCESS_GRANTING_STATUSES.includes(patch.status)) {
+      const entry = (data && data.updated) || null;
+      if (entry) {
+        try {
+          const provisioning = await provisionDesignPartnerAccess(entry);
+          if (provisioning.provisioned || provisioning.outcome === 'existing_account') {
+            errorTracker.recordSuccess('design_partner_provision');
+            const admin = findUserById(req.user.userId);
+            logAudit({
+              adminId: req.user.userId, adminEmail: admin?.email || '',
+              action: 'design_partner_access_granted',
+              targetId: provisioning.userId || '', targetEmail: provisioning.email || '',
+              targetName: entry.name || '',
+              notes: `status=${patch.status} outcome=${provisioning.outcome} email_sent=${provisioning.emailSent}`,
+            });
+          } else {
+            // §21a — a partner approved but NOT provisioned is a gap the brain
+            // must know about; it is the exact silence this ticket closes.
+            errorTracker.record('design_partner_provision', provisioning.outcome, null, null,
+              { email: provisioning.email || '', reason: provisioning.reason });
+          }
+          return res.json({ ...data, provisioning });
+        } catch (provErr) {
+          errorTracker.record('design_partner_provision', 'handler_error', provErr);
+          return res.json({
+            ...data,
+            provisioning: {
+              provisioned: false, outcome: 'error',
+              reason: `Status saved, but issuing the login failed: ${provErr.message}. Use "Issue login" to retry.`,
+              emailSent: false, emailReason: 'not attempted',
+            },
+          });
+        }
+      }
+    }
+    return res.json(data);
   } catch (e) {
     return res.status(502).json({ error: 'Could not reach the design-partner service.' });
+  }
+});
+
+// R-F3328 — issue (or re-check) a partner's login on demand, addressed by the
+// same index the tracker uses. Two reasons this exists rather than only running
+// inside the status change: partners approved BEFORE this shipped are already
+// sitting at status=engaged with no account (nothing would re-fire for them),
+// and the credential is shown once, so the operator needs a way to retry a send
+// that failed. Idempotent — provisionDesignPartnerAccess never touches an
+// existing account, so pressing it twice cannot reset anyone's password.
+app.post('/api/design-partners/:index/provision', requireAdmin, async (req, res) => {
+  try {
+    if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'aria service unavailable' });
+    const index = parseInt(req.params.index, 10);
+    if (!Number.isInteger(index) || index < 0) return res.status(400).json({ error: 'invalid index' });
+    let entries;
+    try {
+      entries = await _fetchDesignPartners();
+    } catch (e) {
+      return res.status(e.status || 502).json({ error: `Could not read the design-partner record: ${e.message}` });
+    }
+    const entry = entries[index];
+    if (!entry) return res.status(404).json({ error: `No design-partner record at index ${index}` });
+    // Access follows the approval decision, so an un-approved record cannot be
+    // provisioned by calling this route directly.
+    if (!ACCESS_GRANTING_STATUSES.includes(entry.status)) {
+      return res.status(400).json({
+        error: `${entry.name || 'This partner'} is "${entry.status}". Approve them first `
+             + `(${ACCESS_GRANTING_STATUSES.join(' or ')}) : access follows approval.`,
+      });
+    }
+    const provisioning = await provisionDesignPartnerAccess(entry);
+    if (provisioning.provisioned || provisioning.outcome === 'existing_account') {
+      errorTracker.recordSuccess('design_partner_provision');
+      const admin = findUserById(req.user.userId);
+      logAudit({
+        adminId: req.user.userId, adminEmail: admin?.email || '',
+        action: 'design_partner_access_granted',
+        targetId: provisioning.userId || '', targetEmail: provisioning.email || '',
+        targetName: entry.name || '',
+        notes: `manual issue · outcome=${provisioning.outcome} email_sent=${provisioning.emailSent}`,
+      });
+    } else {
+      errorTracker.record('design_partner_provision', provisioning.outcome, null, null,
+        { email: provisioning.email || '', reason: provisioning.reason });
+    }
+    return res.json({ provisioning });
+  } catch (e) {
+    try { errorTracker.record('design_partner_provision', 'handler_error', e); } catch { /* best-effort */ }
+    return res.status(500).json({ error: e.message || 'Failed to issue the login' });
   }
 });
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3328,
+  "next_available": 3329,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27327,6 +27327,15 @@
       "commit_sha": "98f9aa6f",
       "notes": null,
       "shipped_at": "2026-07-28T09:11:26Z"
+    },
+    {
+      "r_number": "R-F3328",
+      "title": "design-partner approval provisions an account + issues credentials",
+      "claimed_at": "2026-07-28T09:43:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -18,10 +18,15 @@
 <main id="app-main">
   <div class="sc-page-header">
     <h1 class="sc-page-title"><i class="bi bi-people"></i> Design Partners</h1>
-    <p class="sc-page-sub">Real prospective users you're working with. Phase A gate #7 closes at 4+ <strong>qualified</strong> partners. Admin-only (contact details). Public applications from <a href="/partners.html" target="_blank" style="color:var(--sc-prime)">partners.html</a> arrive here as <em>applied</em>, and they do <strong>not</strong> count toward the gate until you approve them. Only genuine, operator-vouched conversations count.</p>
+    <p class="sc-page-sub">Real prospective users you're working with. Phase A gate #7 closes at 4+ <strong>qualified</strong> partners. Admin-only (contact details). Public applications from <a href="/partners.html" target="_blank" style="color:var(--sc-prime)">partners.html</a> arrive here as <em>applied</em>, and they do <strong>not</strong> count toward the gate until you approve them. Only genuine, operator-vouched conversations count. Approving a partner (or moving one to <em>engaged</em> / <em>onboarded</em>) now <strong>creates their account and issues a sign-in</strong>. The <em>Access</em> column shows whether they can actually log in.</p>
   </div>
 
   <div id="dp-progress" style="margin-bottom:16px"></div>
+
+  <!-- R-F3328 — where an issued credential is shown. A temporary password is
+       returned ONCE, and live SMTP may not be able to deliver it, so it has to
+       land somewhere the operator can copy it from rather than in a toast. -->
+  <div id="dp-creds" style="display:none;margin-bottom:18px"></div>
 
   <div id="dp-form-card" class="sc-card" style="display:none;margin-bottom:18px;padding:16px">
     <h2 style="font-size:15px;margin:0 0 12px">Log a design-partner conversation</h2>
@@ -46,7 +51,7 @@
   <div id="dp-content" style="display:none">
     <div style="overflow-x:auto">
       <table class="sc-table">
-        <thead><tr><th>Added</th><th>Name / org</th><th>Contact</th><th>Source</th><th>Status</th><th>Notes</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Added</th><th>Name / org</th><th>Contact</th><th>Source</th><th>Status</th><th>Access</th><th>Notes</th><th>Actions</th></tr></thead>
         <tbody id="dp-tbody"></tbody>
       </table>
     </div>
@@ -115,8 +120,9 @@ async function load(){
       '<td>'+esc(e.contact)+'</td>'+
       '<td>'+(src==='public'?'<span style="font-size:11px;background:#e3f2fd;color:#1565c0;padding:2px 7px;border-radius:10px">public</span>':'<span style="font-size:12px;color:var(--sc-muted,#666)">operator</span>')+'</td>'+
       '<td>'+statusBadge(st)+'</td>'+
+      '<td style="white-space:nowrap">'+accessCell(e,st)+'</td>'+
       '<td style="max-width:280px">'+esc(e.notes||'—')+'</td>'+
-      '<td style="white-space:nowrap">'+actionsCell(idx,st,isApplied)+'</td>'+
+      '<td style="white-space:nowrap">'+actionsCell(idx,st,isApplied,e)+'</td>'+
     '</tr>';
   }).join('');
   stateEl.style.display='none';
@@ -131,7 +137,22 @@ function statusBadge(st){
   return '<span style="font-size:11px;font-weight:600;color:'+color+';background:'+bg+';padding:2px 8px;border-radius:10px">'+esc(st)+
     (counts?' ✓':'')+'</span>';
 }
-function actionsCell(idx,st,isApplied){
+// R-F3328 — approving a partner used to change a label and nothing else: no
+// account, no credential, no email. These two cells make the thing that was
+// invisible visible — whether the human can actually SIGN IN — and give the
+// operator a way to issue (or re-issue) the login for partners approved before
+// the fix shipped.
+var ACCESS_STATUSES=['engaged','onboarded'];
+function accessCell(e,st){
+  if(ACCESS_STATUSES.indexOf(st)<0) return '<span style="font-size:12px;color:var(--sc-muted,#999)">—</span>';
+  if(e.has_account){
+    var acct=e.account||{};
+    var when=acct.credentialIssuedAt?('<br><span style="font-size:11px;color:var(--sc-muted,#666)">'+fmtDate(acct.credentialIssuedAt)+'</span>'):'';
+    return '<span style="font-size:11px;font-weight:600;color:#2e7d32;background:#e6f4ea;padding:2px 8px;border-radius:10px">login active</span>'+when;
+  }
+  return '<span style="font-size:11px;font-weight:600;color:#b71c1c;background:#ffebee;padding:2px 8px;border-radius:10px">no login</span>';
+}
+function actionsCell(idx,st,isApplied,e){
   if(isApplied){
     return '<button class="sc-btn sc-btn-primary" style="padding:4px 10px;font-size:12px" data-approve="'+idx+'">Approve</button> '+
            '<button class="sc-btn sc-btn-outline" style="padding:4px 10px;font-size:12px" data-decline="'+idx+'">Decline</button>';
@@ -139,18 +160,72 @@ function actionsCell(idx,st,isApplied){
   var opts=['contacted','engaged','onboarded','declined'].map(function(s){
     return '<option value="'+s+'"'+(s===st?' selected':'')+'>'+s+'</option>';
   }).join('');
-  return '<select data-setstatus="'+idx+'" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--sc-border,#d5d8de)">'+opts+'</select>';
+  var sel='<select data-setstatus="'+idx+'" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--sc-border,#d5d8de)">'+opts+'</select>';
+  if(ACCESS_STATUSES.indexOf(st)>=0 && e && !e.has_account){
+    sel+=' <button class="sc-btn sc-btn-primary" style="padding:4px 10px;font-size:12px" data-provision="'+idx+'">Issue login</button>';
+  }
+  return sel;
+}
+
+function renderProvisioning(p){
+  var box=document.getElementById('dp-creds');
+  if(!p){box.style.display='none';box.innerHTML='';return;}
+  var good=p.provisioned||p.outcome==='existing_account';
+  var head=p.provisioned?'Login issued':(p.outcome==='existing_account'?'Already has an account':'No login was issued');
+  var html='<div class="sc-card" style="padding:16px;border-left:4px solid '+(good?'#2e7d32':'#c62828')+'">'+
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">'+
+      '<strong style="font-size:15px">'+esc(head)+(p.email?' — '+esc(p.email):'')+'</strong>'+
+      '<button id="dp-creds-close" class="sc-btn sc-btn-outline" style="padding:2px 9px;font-size:12px">Dismiss</button>'+
+    '</div>'+
+    '<p style="margin:8px 0 0;font-size:13px;color:var(--sc-muted,#555);line-height:1.6">'+esc(p.reason||'')+'</p>';
+  if(p.tempPassword){
+    // Shown once — it is not stored anywhere readable, only its hash is.
+    html+='<div style="margin-top:12px;background:var(--sc-bg-soft,#f6f5f1);border:1px solid var(--sc-border,#d5d8de);border-radius:8px;padding:12px 14px">'+
+      '<div style="font-size:12px;color:var(--sc-muted,#666)">Email</div>'+
+      '<div style="font-family:monospace;font-size:14px;margin-bottom:8px">'+esc(p.email)+'</div>'+
+      '<div style="font-size:12px;color:var(--sc-muted,#666)">Temporary password (shown once)</div>'+
+      '<div style="font-family:monospace;font-size:17px;font-weight:700;letter-spacing:.5px">'+esc(p.tempPassword)+'</div>'+
+      '<button id="dp-creds-copy" class="sc-btn sc-btn-outline" style="margin-top:10px;padding:4px 10px;font-size:12px">Copy sign-in details</button>'+
+      '<span id="dp-creds-copied" style="margin-left:10px;font-size:12px;color:#2e7d32"></span>'+
+    '</div>';
+    if(!p.emailSent){
+      html+='<p style="margin:10px 0 0;font-size:12.5px;color:#8a6d00;background:#fff8e1;border:1px solid #ffe1a8;border-radius:6px;padding:8px 10px">'+
+        '<strong>The email did not send</strong> ('+esc(p.emailReason||'unknown reason')+'). Send these details to the partner yourself. This password is not recoverable once you dismiss this panel.</p>';
+    }
+  }
+  html+='</div>';
+  box.innerHTML=html;box.style.display='';
+  box.scrollIntoView({behavior:'smooth',block:'nearest'});
+  var copy=document.getElementById('dp-creds-copy');
+  if(copy){copy.addEventListener('click',function(){
+    var text='ARIA sign-in\nURL: '+location.origin+'/signin.html\nEmail: '+p.email+'\nTemporary password: '+p.tempPassword;
+    (navigator.clipboard?navigator.clipboard.writeText(text):Promise.reject()).then(function(){
+      document.getElementById('dp-creds-copied').textContent='Copied ✓';
+    }).catch(function(){document.getElementById('dp-creds-copied').textContent='Copy failed: select the text above';});
+  });}
+  var close=document.getElementById('dp-creds-close');
+  if(close){close.addEventListener('click',function(){renderProvisioning(null);});}
 }
 
 async function setStatus(idx,status){
   var res=await API.post('/api/design-partners/'+idx+'/status',{status:status});
-  if(res.ok){ load(); }
+  if(res.ok){ if(res.data&&res.data.provisioning) renderProvisioning(res.data.provisioning); load(); }
   else{ alert((res.data&&(res.data.detail||res.data.error))||('Failed to update (HTTP '+res.status+')')); }
+}
+async function issueLogin(idx,btn){
+  if(btn){btn.disabled=true;btn.textContent='Issuing…';}
+  var res=await API.post('/api/design-partners/'+idx+'/provision',{});
+  if(res.ok&&res.data&&res.data.provisioning){ renderProvisioning(res.data.provisioning); load(); }
+  else{
+    if(btn){btn.disabled=false;btn.textContent='Issue login';}
+    alert((res.data&&(res.data.detail||res.data.error))||('Failed to issue the login (HTTP '+res.status+')'));
+  }
 }
 document.addEventListener('click',function(ev){
   var t=ev.target; if(!t)return;
   if(t.getAttribute&&t.getAttribute('data-approve')!=null){ setStatus(t.getAttribute('data-approve'),'engaged'); }
   else if(t.getAttribute&&t.getAttribute('data-decline')!=null){ setStatus(t.getAttribute('data-decline'),'declined'); }
+  else if(t.getAttribute&&t.getAttribute('data-provision')!=null){ issueLogin(t.getAttribute('data-provision'),t); }
 });
 document.addEventListener('change',function(ev){
   var t=ev.target; if(t&&t.getAttribute&&t.getAttribute('data-setstatus')!=null){ setStatus(t.getAttribute('data-setstatus'),t.value); }
