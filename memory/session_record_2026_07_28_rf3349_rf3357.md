@@ -166,6 +166,30 @@ of the very files it had just fixed, because prose explaining the banned pattern
 counted as the banned pattern. Rewritten as an AST walk, then tamper-tested:
 re-introducing the pattern fails it, removing it passes.
 
+### Wedge #5 proof, and the baseline that still could not be measured
+
+**Proven over 88 files in one process:** the range that used to wedge (files
+253–340, containing both the poisoner `rf1231` at #271 and the victim `rf1401` at
+#337) now runs to completion — **4 failed, 746 passed in 3:14, zero timeouts**,
+`rf1401` neither hung nor failed. The four failures are pre-existing state_store
+connection tests (`rf1352` read self-heal, `rf1388` dead-connection upsert ×2,
+`rf1261` token endpoint HTML), none of them in anything this session touched.
+
+⚠️ **The full single-process baseline STILL could not be measured — for a second,
+unrelated reason.** Four consecutive BACKGROUND runs were killed by something
+outside the session: they reached 3%, 19%, 11%, then 0 bytes (killed before
+emitting output). No summary, no `EXIT` marker, no surviving processes.
+- Not a time limit — the progression is non-monotonic (19% then 11%).
+- Not this session's concurrency — the third kill happened while completely idle.
+- Cause unidentified; needs whoever administers the machine.
+
+**Foreground runs are unaffected** (the 88-file slice above completed normally),
+so baselines can be built from foreground segments — with the standing caveat that
+segmented runs cannot see order-dependent failures (149 segmented vs 165
+single-process = 16 invisible). §16's "new R-numbers must not add to the failing
+count" presumes a suite that can finish; this is now the second independent reason
+this repo has never had one.
+
 ## Open / handoff
 
 - ⚠️ **Suite wedge #5, not investigated.**
