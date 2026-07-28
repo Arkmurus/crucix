@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3326,
+  "next_available": 3327,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27307,6 +27307,16 @@
       "commit_sha": "11b9dca5",
       "notes": null,
       "shipped_at": "2026-07-28T08:58:04Z"
+    },
+    {
+      "r_number": "R-F3326",
+      "title": "rf1251 tests predate R-F1347 auth on the brain-write endpoint",
+      "claimed_at": "2026-07-28T09:01:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e862619f",
+      "notes": null,
+      "shipped_at": "2026-07-28T09:04:18Z"
     }
   ]
 }
