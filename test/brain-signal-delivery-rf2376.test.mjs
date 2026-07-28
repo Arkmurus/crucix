@@ -47,13 +47,24 @@ test('R-F2376: pushSignalsToBrain posts selected sweep signals to brain/signal',
 
     assert.deepEqual(result, { delivered: 1, failed: 0 });
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, 'https://aria-intel.example/api/aria/brain/signal');
+    // R-F3345 — the endpoint and the payload shape both moved. R-F2505 replaced
+    // N CONCURRENT posts to /brain/signal with ONE bulk post to
+    // /brain/signal/bulk: aria-intel has a single SQLite writer, and the
+    // concurrent burst was serialised so badly that only 5 of 31 signals were
+    // delivered under load. The bulk endpoint drains them sequentially in one
+    // task with writer breathing room. Verified live before touching this test —
+    // both endpoints answer 401 (auth), not 404, so the bulk route genuinely
+    // exists on aria-intel.
+    assert.equal(calls[0].url, 'https://aria-intel.example/api/aria/brain/signal/bulk');
     assert.equal(calls[0].options.method, 'POST');
     assert.equal(calls[0].options.headers.Authorization, 'Bearer test-token');
-    assert.equal(calls[0].body.signal_type, 'crucix_briefing_signal');
-    assert.equal(calls[0].body.source, 'briefing:ProcurementTenders');
-    assert.match(calls[0].body.content, /Defence tender opened/);
-    assert.equal(calls[0].body.metadata.market, 'Angola');
+    assert.ok(Array.isArray(calls[0].body.signals), 'bulk payload carries a signals array');
+    assert.equal(calls[0].body.signals.length, 1);
+    const sig = calls[0].body.signals[0];
+    assert.equal(sig.signal_type, 'crucix_briefing_signal');
+    assert.equal(sig.source, 'briefing:ProcurementTenders');
+    assert.match(sig.content, /Defence tender opened/);
+    assert.equal(sig.metadata.market, 'Angola');
   } finally {
     if (oldUrl === undefined) delete process.env.ARIA_SERVICE_URL;
     else process.env.ARIA_SERVICE_URL = oldUrl;
@@ -145,17 +156,83 @@ test('R-F2396: degraded source health is posted to brain even without user-facin
 
     assert.deepEqual(result, { delivered: 1, failed: 0, healthQueued: true });
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, 'https://aria-intel.example/api/aria/brain/signal');
-    assert.equal(calls[0].body.signal_type, 'crucix_source_health');
-    assert.equal(calls[0].body.source, 'briefing:source_health');
-    assert.match(calls[0].body.content, /Intel source health is degraded/);
-    assert.match(calls[0].body.content, /Lusophone=partial/);
-    assert.equal(calls[0].body.metadata.source_health.partial, 1);
+    assert.equal(calls[0].url, 'https://aria-intel.example/api/aria/brain/signal/bulk');
+    const health = calls[0].body.signals[0];   // R-F3345: bulk payload
+    assert.equal(health.signal_type, 'crucix_source_health');
+    assert.equal(health.source, 'briefing:source_health');
+    assert.match(health.content, /Intel source health is degraded/);
+    assert.match(health.content, /Lusophone=partial/);
+    assert.equal(health.metadata.source_health.partial, 1);
   } finally {
     if (oldUrl === undefined) delete process.env.ARIA_SERVICE_URL;
     else process.env.ARIA_SERVICE_URL = oldUrl;
     if (oldBrainUrl === undefined) delete process.env.ARIA_BRAIN_URL;
     else process.env.ARIA_BRAIN_URL = oldBrainUrl;
+    globalThis.fetch = oldFetch;
+  }
+});
+
+// ── R-F3345: the fallback R-F2505 documents but nothing tested ───────────────
+//
+// R-F2505's own comment says the bulk path "falls back to the per-signal
+// concurrency path if the bulk endpoint 404s (older aria-intel not yet
+// deployed)". That branch is the one that matters most: if it is broken, a
+// web tier talking to an aria-intel without /brain/signal/bulk drops EVERY
+// sweep signal, and the only symptom is a brain that stops learning — the
+// §21a dark-path failure, with no error anyone sees.
+//
+// The whole point of the fallback is that it fires on a 404 specifically, so
+// the stub answers 404 to /bulk and 200 to the per-signal sink.
+test('R-F3345: a 404 on the bulk endpoint falls back to per-signal posts', async () => {
+  const oldUrl = process.env.ARIA_SERVICE_URL;
+  const oldBrainUrl = process.env.ARIA_BRAIN_URL;
+  const oldToken = process.env.ARIA_INTERNAL_TOKEN;
+  const oldFetch = globalThis.fetch;
+  const calls = [];
+
+  process.env.ARIA_SERVICE_URL = 'https://aria-intel.example';
+  delete process.env.ARIA_BRAIN_URL;
+  process.env.ARIA_INTERNAL_TOKEN = 'test-token';
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), options, body: JSON.parse(options.body) });
+    if (String(url).endsWith('/brain/signal/bulk')) return { ok: false, status: 404 };
+    return { ok: true, status: 200 };
+  };
+
+  try {
+    const result = await pushSignalsToBrain({
+      sources: {
+        ProcurementTenders: {
+          updates: [{
+            title: 'Defence tender opened',
+            description: 'Armoured vehicle support package',
+            url: 'https://example.test/tender',
+            market: 'Angola',
+            priority: 'high',
+            tags: ['defence'],
+          }],
+        },
+      },
+    });
+
+    const bulk = calls.filter((c) => c.url.endsWith('/brain/signal/bulk'));
+    const single = calls.filter((c) => c.url.endsWith('/brain/signal'));
+
+    assert.equal(bulk.length, 1, 'bulk is tried first');
+    assert.ok(single.length >= 1,
+      'a 404 on bulk must fall back to the per-signal sink, not drop the signals');
+    assert.equal(single[0].body.signal_type, 'crucix_briefing_signal',
+      'the fallback posts the per-signal shape, not the bulk envelope');
+    assert.equal(result.delivered, 1,
+      'the caller is told the signal was delivered by the fallback, not that it failed');
+    assert.equal(result.failed, 0);
+  } finally {
+    if (oldUrl === undefined) delete process.env.ARIA_SERVICE_URL;
+    else process.env.ARIA_SERVICE_URL = oldUrl;
+    if (oldBrainUrl === undefined) delete process.env.ARIA_BRAIN_URL;
+    else process.env.ARIA_BRAIN_URL = oldBrainUrl;
+    if (oldToken === undefined) delete process.env.ARIA_INTERNAL_TOKEN;
+    else process.env.ARIA_INTERNAL_TOKEN = oldToken;
     globalThis.fetch = oldFetch;
   }
 });
