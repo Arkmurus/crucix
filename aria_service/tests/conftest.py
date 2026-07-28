@@ -57,6 +57,27 @@ import tempfile as _tf
 _rag_tmp = _tf.mkdtemp(prefix="aria_rag_test_")
 os.environ.setdefault("ARIA_RAG_PATH", _rag_tmp)
 
+# R-F3324: send the coder's verifiable-gold appends to a temp file.
+#
+# self_coder.py:1353 appends a training record per fix attempt, resolving
+# ARIA_CODER_GOLD_PATH or falling back to data/aria_training/coder_verifiable_gold.jsonl
+# — a TRACKED file. So every suite run dirtied the working tree with 7 synthetic
+# records ("Fix gap: End-to-end test gap / A simulated bug for pipeline testing").
+#
+# Why that is not cosmetic:
+#   * it silently poisons a TRAINING corpus with simulated fixtures, and this repo
+#     trains on that data (§24 requires a pre-flight review of dataset quality, and
+#     a cycle that would train on contaminated data is cancelled, not run)
+#   * a permanently dirty tree makes `git status` useless for spotting real WIP,
+#     and deploy.ps1 builds from the WORKING TREE, so test residue can reach an image
+#   * it defeats test_rf3284_registry_must_be_committed-style cleanliness checks
+#
+# Same mechanism the RAG path above already uses (R-F1534), and setdefault so a
+# deliberate integration run can still point it somewhere real.
+_gold_tmp = _tf.mkdtemp(prefix="aria_coder_gold_test_")
+os.environ.setdefault("ARIA_CODER_GOLD_PATH",
+                      os.path.join(_gold_tmp, "coder_verifiable_gold.jsonl"))
+
 # ── R-F3319: turn an un-mocked live network call from a HANG into a named failure
 #
 # Four separate suite blockers have now been diagnosed the hard way, and all four
