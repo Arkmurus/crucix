@@ -27762,9 +27762,10 @@
       "title": "deploy banner: a docs-only commit ships nothing and must not claim R-numbers",
       "claimed_at": "2026-07-28T21:12:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4a54271e",
+      "notes": null,
+      "shipped_at": "2026-07-28T21:15:22Z"
     }
   ]
 }
