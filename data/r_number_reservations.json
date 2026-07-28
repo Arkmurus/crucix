@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3388,
+  "next_available": 3389,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27882,18 +27882,20 @@
       "title": "corpus ingest has no personal-data gate: PII enters shared RAG unchecked",
       "claimed_at": "2026-07-28T22:46:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f02e4854",
+      "notes": null,
+      "shipped_at": "2026-07-28T23:16:05Z"
     },
     {
       "r_number": "R-F3384",
       "title": "re-ingesting a document duplicates chunks and inflates apparent corroboration",
       "claimed_at": "2026-07-28T22:52:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f02e4854",
+      "notes": null,
+      "shipped_at": "2026-07-28T23:16:05Z"
     },
     {
       "r_number": "R-F3385",
@@ -27919,6 +27921,15 @@
       "r_number": "R-F3387",
       "title": "verification layer: two verifiers report clean:True when they crash, and none reports failure to the brain",
       "claimed_at": "2026-07-28T23:05:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3388",
+      "title": "dd_independent_verifier fails OPEN on every error path, manufacturing independence",
+      "claimed_at": "2026-07-28T23:15:45Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
