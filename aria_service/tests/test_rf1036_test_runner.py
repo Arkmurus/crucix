@@ -30,7 +30,7 @@ class TestParse:
 
     def test_all_passed(self):
         stdout = "=== 100 passed in 12.5s ===\n"
-        result = self.runner._parse(stdout, "", 0)
+        result = self.runner._parse(stdout, "", 0, safe_mode=True)
         assert result.all_green
         assert result.passed == 100
         assert result.failed == 0
@@ -38,7 +38,7 @@ class TestParse:
 
     def test_some_failed(self):
         stdout = "=== 5 failed, 95 passed in 15.0s ===\n"
-        result = self.runner._parse(stdout, "", 1)
+        result = self.runner._parse(stdout, "", 1, safe_mode=True)
         assert not result.all_green
         assert result.passed == 95
         assert result.failed == 5
@@ -46,7 +46,7 @@ class TestParse:
 
     def test_errors_counted(self):
         stdout = "=== 2 errors, 50 passed in 8.0s ===\n"
-        result = self.runner._parse(stdout, "", 1)
+        result = self.runner._parse(stdout, "", 1, safe_mode=True)
         assert not result.all_green
         assert result.passed == 50
         assert result.failed == 0
@@ -54,14 +54,14 @@ class TestParse:
 
     def test_all_three_categories(self):
         stdout = "=== 3 errors, 2 failed, 45 passed in 10.0s ===\n"
-        result = self.runner._parse(stdout, "", 1)
+        result = self.runner._parse(stdout, "", 1, safe_mode=True)
         assert not result.all_green
         assert result.passed == 45
         assert result.failed == 2
         assert result.errors == 3
 
     def test_empty_output(self):
-        result = self.runner._parse("", "", 0)
+        result = self.runner._parse("", "", 0, safe_mode=True)
         assert result.all_green
         assert result.passed == 0
         assert result.failed == 0
@@ -72,20 +72,20 @@ class TestParse:
             "tests/test_x.py::test_bar FAILED\n"
             "=== 2 failed, 3 passed in 1.0s ===\n"
         )
-        result = self.runner._parse(stdout, "", 1)
+        result = self.runner._parse(stdout, "", 1, safe_mode=True)
         assert not result.all_green
         assert "FAILED" in result.failure_summary
 
     def test_returncode_zero_with_failures_still_not_green(self):
         """returncode can be 0 even with failures if pytest-xdist is used."""
         stdout = "=== 1 failed, 10 passed in 2.0s ===\n"
-        result = self.runner._parse(stdout, "", 0)
+        result = self.runner._parse(stdout, "", 0, safe_mode=True)
         assert not result.all_green  # failed > 0 → not green
         assert result.failed == 1
 
     def test_output_tail_contains_last_3k_chars(self):
         stdout = "a" * 5000
-        result = self.runner._parse(stdout, "", 0)
+        result = self.runner._parse(stdout, "", 0, safe_mode=True)
         combined = stdout + "\n" + ""
         assert len(result.output_tail) <= 3000
         assert result.output_tail == combined[-3000:]
@@ -142,7 +142,7 @@ FAILED tests/test_foo.py::test_b
 ERROR tests/test_foo.py::test_c
 === 1 failed, 1 passed, 1 error in 0.32s ===
 """
-    result = runner._parse(stdout, "", 1)
+    result = runner._parse(stdout, "", 1, safe_mode=True)
     assert not result.all_green
     assert result.passed == 1
     assert result.failed == 1
