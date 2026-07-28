@@ -442,21 +442,77 @@ async def _store_operational_gap(gap: dict) -> dict:
     }
 
 
-async def get_operational_gaps(limit: int = 30) -> list[dict]:
-    """Return recent operational gap signals."""
+# R-F3362 — a gap older than this is not a live work item. The queue is a
+# capped list, so "the newest N entries" stays populated long after the last
+# real signal; without an age the surface asserts a recency it never measured.
+OPERATIONAL_GAP_STALE_DAYS = 30
+
+
+def _gap_age_days(gap: dict) -> float | None:
+    """Age of a gap in days, or None when it cannot be established.
+
+    Unknown age is NEVER reported as fresh — absent is not false.
+    """
+    raw = (gap or {}).get("detected_at")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return max(0.0, (datetime.now(timezone.utc) - ts).total_seconds() / 86400.0)
+
+
+async def get_operational_gaps(limit: int = 30, max_age_days: float | None = None) -> list[dict]:
+    """Return operational gap signals, each annotated with its true age.
+
+    R-F3362 — this used to return the newest `limit` entries and call them
+    "recent". They are only recent if something has been written recently: live
+    2026-07-28 the top three were 68, 69 and 74 days old, served with no age to
+    an operator and an autonomous coder that both read this as a live queue.
+
+    Nothing is filtered unless the caller asks (`max_age_days`), because
+    silently dropping a still-open gap would trade one dishonesty for another.
+    A gap whose age cannot be established survives any window and reports
+    `age_days: None` / `stale: None`.
+    """
     raw = await rs.lrange(_OPERATIONAL_GAPS_LIST, 0, limit - 1)
-    return _safe_json_list(raw)
+    out: list[dict] = []
+    for gap in _safe_json_list(raw):
+        if not isinstance(gap, dict):
+            continue
+        age = _gap_age_days(gap)
+        gap = dict(gap)
+        gap["age_days"] = round(age, 2) if age is not None else None
+        gap["stale"] = None if age is None else age > OPERATIONAL_GAP_STALE_DAYS
+        # Unknown age is never dropped by a freshness filter — that would
+        # delete evidence on the strength of a missing field.
+        if max_age_days is not None and age is not None and age > max_age_days:
+            continue
+        out.append(gap)
+    return out
 
 
 async def get_operational_gap_summary() -> dict:
-    """Aggregate summary of operational gaps by type."""
+    """Aggregate summary of operational gaps by type, with staleness.
+
+    R-F3362 — `total` alone cannot distinguish a busy queue from a dead one.
+    """
     gaps = await get_operational_gaps(limit=200)
     by_type: dict[str, int] = {}
     for g in gaps:
         t = g.get("type", "UNKNOWN")
         by_type[t] = by_type.get(t, 0) + 1
+    ages = [g["age_days"] for g in gaps if g.get("age_days") is not None]
+    stale_count = sum(1 for g in gaps if g.get("stale") is True)
     return {
         "total": len(gaps),
         "by_type": by_type,
         "most_recent": gaps[0] if gaps else None,
+        "stale_count": stale_count,
+        "stale_threshold_days": OPERATIONAL_GAP_STALE_DAYS,
+        "newest_age_days": min(ages) if ages else None,
+        "all_stale": bool(gaps) and stale_count == len(gaps),
     }

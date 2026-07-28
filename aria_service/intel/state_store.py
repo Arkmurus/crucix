@@ -747,7 +747,32 @@ async def _flush_write_queue(max_items: int | None = None) -> int:
             # settled → watchdog os._exit loop → boot FLAP. The watchdog arms only after
             # the boot-settle window and escalates once per unhealthy streak.
         except Exception as e:
-            logger.error("state_store: flush failed (%d writes): %s", len(batch), e)
+            # R-F3363 — capture the lock state AT THE MOMENT OF FAILURE.
+            #
+            # This is the single error class holding Phase-A gate #3 open: one
+            # `database is locked` restarts the 7-day clean clock, and live on
+            # 2026-07-28 it had fired exactly once in 23h. Rare is what makes it
+            # expensive — by the time anyone looks, the causing state is gone,
+            # and the handler threw away the only moment it was observable.
+            #
+            # No cause is asserted here. `busy_timeout` is already 120s on both
+            # connections and the hot/cold stores are separate files, so the
+            # obvious explanations are already excluded; one unreproduced event
+            # is not evidence for a mechanism, and naming one would be the
+            # fabricated diagnosis §22 exists to prevent. get_lock_diagnostics()
+            # (R-F1334) reports the RMW holder + acquire stack and is safe from
+            # any thread — the blackout wedge dumper already relies on it. Now
+            # the NEXT occurrence arrives with the holder attached.
+            #
+            # The probe is wrapped: instrumentation must never eat the signal it
+            # exists to explain.
+            try:
+                _diag = f" | lock={str(get_lock_diagnostics())[:400]}"
+            except Exception as _de:
+                _diag = f" | lock diagnostics unavailable: {str(_de)[:80]}"
+            logger.error(
+                "state_store: flush failed (%d writes): %s%s", len(batch), e, _diag
+            )
             _schedule_reconnect_if_dead(e)
     return flushed
 

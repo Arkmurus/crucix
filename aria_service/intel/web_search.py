@@ -614,6 +614,20 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en",
 
 # ── Backend: SearXNG (free meta-search) ─────────────────────────────────────
 
+def _zero_results_is_expected(query: object) -> bool:
+    """R-F3361 — True when a zero-result response says nothing about engine health.
+
+    A `site:`-restricted query narrows the result space to a single domain, and
+    for the domains ARIA actually restricts to (x/twitter, linkedin, facebook)
+    the upstream engines hold no index at all — so zero is the ORDINARY outcome,
+    not evidence that search is blocked. Matches the `site:` OPERATOR only, so
+    the word "site" in ordinary prose does not disarm the real alarm.
+    """
+    if not isinstance(query, str):
+        return False
+    return "site:" in query.lower()
+
+
 async def _search_searxng(query: str, max_results: int = 10, language: str = "en") -> list[SearchResult]:
     """SearXNG — free meta-search engine, tries multiple instances.
     Circuit breaker per instance — skips instances that are DOWN.
@@ -663,23 +677,43 @@ async def _search_searxng(query: str, max_results: int = 10, language: str = "en
             # upstream engines CAPTCHA/rate-limited), not that the world
             # has no answer. Wire a failure so the brain knows.
             if res.get("ok") and res.get("configured") and not res.get("results"):
-                _sx_cb.record_failure(reason="rate_limit")  # R-F1790: 0 results = upstream blocked
-                logger.warning(
-                    "SearXNG returned 0 results — all upstream engines likely blocked "
-                    "(query=%r, backend=%s)",
-                    query[:60], res.get("backend", "searxng"),
-                )
-                try:
-                    from .engine_wiring import wire_failure as _wf1657
-                    _wf1657(
-                        module="web_search",
-                        detail=f"SearXNG 0 results: configured instance returned empty "
-                               f"for query={query[:80]} — all upstream engines blocked",
-                        gap_type="search_all_engines_blocked",
-                        source="web_search:_search_searxng",
+                # R-F3361 — zero results is only EVIDENCE about engine health
+                # when the query could plausibly have matched something. A
+                # `site:`-restricted query against a crawler-hostile domain
+                # (twitter/x, linkedin — which ARIA generates itself in
+                # company_investigator.py:733-734 and deep_researcher.py:707)
+                # returns 0 every time, by construction. Treating that as proof
+                # that "all upstream engines are blocked" did three harmful
+                # things: recorded a false failure on the breaker for ARIA'S
+                # PRIMARY SEARCH BACKEND, asserted a cause never established
+                # (§22), and wired a false `search_all_engines_blocked` gap to
+                # the brain and the coder. Six of nine zero-result events in the
+                # live 2026-07-28 ledger window were exactly this. Open-web
+                # queries returning zero still raise all three, loudly — that is
+                # the real signal R-F1657 was built for and it is untouched.
+                if _zero_results_is_expected(query):
+                    logger.debug(
+                        "SearXNG 0 results for a site:-restricted query — expected, "
+                        "not an engine-health signal (query=%r)", str(query)[:60],
                     )
-                except Exception:
-                    pass
+                else:
+                    _sx_cb.record_failure(reason="rate_limit")  # R-F1790: 0 results = upstream blocked
+                    logger.warning(
+                        "SearXNG returned 0 results — all upstream engines likely blocked "
+                        "(query=%r, backend=%s)",
+                        query[:60], res.get("backend", "searxng"),
+                    )
+                    try:
+                        from .engine_wiring import wire_failure as _wf1657
+                        _wf1657(
+                            module="web_search",
+                            detail=f"SearXNG 0 results: configured instance returned empty "
+                                   f"for query={query[:80]} — all upstream engines blocked",
+                            gap_type="search_all_engines_blocked",
+                            source="web_search:_search_searxng",
+                        )
+                    except Exception:
+                        pass
             # If self-host returned no results / error, fall through to
             # the legacy public-instance loop (currently empty); the path
             # is harmless and lets us add public instances later.

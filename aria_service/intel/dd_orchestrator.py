@@ -50,7 +50,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from .dd_schema import (
@@ -10470,6 +10470,83 @@ _DD_LAYER_ATTR_ALIAS: dict[str, str] = {
     "sweep_intelligence": "sweep_data",
 }
 
+# R-F3359 — the canonical DD layer vocabulary, owned by the PRODUCER.
+#
+# `routes/aria.py::/dd/health` previously re-typed this list by hand, and it had
+# drifted from reality in both directions: it listed `extensions` (a dict of
+# module payloads that is never a layer and never reaches `layers_run`) and
+# omitted `forensic` and `deterministic_primitives`, which run on every DD. A
+# layer missing from the surface's list is unobservable no matter how correctly
+# it is recorded, so the list has to live where the layers are actually run.
+# A regression test derives this set from the `layer_name = "..."` assignments
+# and literal `layers_run.append("...")` calls in this module and fails if the
+# two ever diverge again.
+# R-F3364 — the layer-stats counters are DAY-BUCKETED so the window is real.
+#
+# The previous scheme wrote `hincrby(crucix:dd:layer_stats:{layer}, status)` and
+# then `expire(key, 7d)` on EVERY write, which refreshes the TTL — so while DDs
+# keep running the key is renewed forever and the "7-day" counter is actually
+# all-time. That is how the digital layer still showed 49 error / 45 ok (52%)
+# three days AFTER R-F3059/R-F3066 fixed the cause: pre-fix failures can never
+# age out. The worse half is that a NEW regression is diluted into a growing
+# historical denominator, so the alarm gets blinder the longer it runs.
+#
+# Day buckets give both properties back: old days fall out of the window on
+# their own, and a repair becomes visible the next day. The TTL now outlives the
+# window instead of being reset by traffic, and the old flat keys stop being
+# written so they expire by themselves — the migration cleans itself up.
+DD_LAYER_STATS_WINDOW_DAYS = 7
+DD_LAYER_STATS_TTL_S = 86400 * (DD_LAYER_STATS_WINDOW_DAYS + 2)
+
+
+def _layer_stats_key(layer_name: str, day: "datetime | None" = None) -> str:
+    """Day-bucketed stats key for one layer (UTC day)."""
+    d = day or datetime.now(timezone.utc)
+    return f"crucix:dd:layer_stats:{layer_name}:{d.strftime('%Y-%m-%d')}"
+
+
+async def get_layer_stats_window(
+    layer_name: str, days: int = DD_LAYER_STATS_WINDOW_DAYS
+) -> dict[str, int]:
+    """Sum one layer's status counts over the last `days` UTC day-buckets.
+
+    Returns {} when the layer has no history in the window — which is honestly
+    "no data", not "healthy".
+    """
+    from . import redis_store as _rs
+    now = datetime.now(timezone.utc)
+    totals: dict[str, int] = {}
+    for offset in range(max(1, int(days))):
+        key = _layer_stats_key(layer_name, day=now - timedelta(days=offset))
+        try:
+            raw = await _rs.hgetall(key)
+        except Exception:
+            continue
+        for k, v in (raw or {}).items():
+            k = k.decode() if isinstance(k, bytes) else str(k)
+            v = v.decode() if isinstance(v, bytes) else v
+            try:
+                totals[k] = totals.get(k, 0) + int(v)
+            except (TypeError, ValueError):
+                continue          # junk value: never fabricate a count
+    return totals
+
+
+DD_LAYER_NAMES: tuple[str, ...] = (
+    "identity",
+    "network",
+    "compliance",
+    "digital",
+    "forensic",
+    "deterministic_primitives",
+    "sweep_intelligence",
+    "commercial_coherence",
+    "counter_intelligence",
+    "sanctions_divergence",
+    "verification",
+    "synthesis",
+)
+
 
 def _dd_layer_state(report: "ARKDDReport", layer_name: str) -> str:
     """R-F3061 — one layer's honest state: 'ok' | 'error' | 'unobservable'.
@@ -10625,17 +10702,27 @@ async def _finalize_dd_run(report: "ARKDDReport", hard_deadline_hit: bool = Fals
             pass  # production-outcome wire is best-effort; never crash the finalizer
 
         # Record per-layer stats to Redis for the DD health endpoint (R-F1914)
+        # R-F3359 — use the CANONICAL layer-state measure. This loop used to do
+        # its own shape-guessing (`getattr(layer, 'meta')`, `continue` if absent),
+        # which understood exactly ONE of the three shapes a DD layer can take.
+        # R-F3061 had already discovered that and built `_dd_layer_state` to
+        # handle all three — plain dicts (counter_intelligence,
+        # sanctions_divergence), aliased attributes (sweep_intelligence →
+        # sweep_data) and layers that store nothing at all (forensic,
+        # deterministic_primitives) — but only migrated the other consumer, so
+        # this fork survived and five layers that RUN on every DD recorded
+        # nothing for the entire 7-day window. `/dd/health` then rendered them as
+        # `{}`, which reads as "healthy, nothing to report" on the very surface
+        # whose job is to reveal silently-failing layers. Two measures of one
+        # thing is how that happens; there is one now.
         try:
             for layer_name in report.layers_run:
-                layer_obj = getattr(report, layer_name, None)
-                if layer_obj is None:
-                    continue
-                meta = getattr(layer_obj, 'meta', None)
-                if meta is None:
-                    continue
-                status = getattr(meta, 'status', 'unknown') or 'unknown'
-                await _rs.hincrby(f'crucix:dd:layer_stats:{layer_name}', status, 1)
-                await _rs.expire(f'crucix:dd:layer_stats:{layer_name}', 86400 * 7)
+                status = _dd_layer_state(report, layer_name)
+                # R-F3364 — day-bucketed, so the window is real and a repair can
+                # become visible instead of being averaged against all history.
+                _key = _layer_stats_key(layer_name)
+                await _rs.hincrby(_key, status, 1)
+                await _rs.expire(_key, DD_LAYER_STATS_TTL_S)
         except Exception:
             pass  # stats recording is best-effort
 

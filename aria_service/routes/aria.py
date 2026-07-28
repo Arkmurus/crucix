@@ -2023,26 +2023,26 @@ async def dd_health_ep():
     """
     from ..intel import redis_store as rs
 
-    _DD_LAYER_NAMES = [
-        "identity", "network", "compliance", "digital",
-        "sweep_intelligence", "commercial_coherence",
-        "counter_intelligence", "sanctions_divergence",
-        "extensions", "verification", "synthesis",
-    ]
+    # R-F3359 — the layer vocabulary is owned by the PRODUCER
+    # (dd_orchestrator.DD_LAYER_NAMES). This list used to be re-typed here and
+    # had drifted both ways: it carried `extensions` (never a layer) and was
+    # missing `forensic` + `deterministic_primitives` (which run on every DD),
+    # so two real layers could not appear on this surface at all.
+    from ..intel.dd_orchestrator import (
+        DD_LAYER_NAMES as _DD_LAYER_NAMES,
+        DD_LAYER_STATS_WINDOW_DAYS as _DD_WINDOW_DAYS,
+        get_layer_stats_window as _layer_window,
+    )
 
+    # R-F3364 — sum the day-buckets so "last 7 days" is a MEASURED window. The
+    # old flat key had its TTL refreshed on every write, so it never expired and
+    # this surface reported all-time totals under a 7-day label: the digital
+    # layer still read 52% error three days after R-F3059/R-F3066 fixed the
+    # cause, and any new regression would have been diluted by that history.
     layers = {}
     for layer_name in _DD_LAYER_NAMES:
-        key = f"crucix:dd:layer_stats:{layer_name}"
         try:
-            raw = await rs.hgetall(key)
-            if raw:
-                layers[layer_name] = {
-                    k.decode() if isinstance(k, bytes) else k:
-                    int(v) if isinstance(v, (bytes, str)) and str(v).isdigit() else v
-                    for k, v in raw.items()
-                }
-            else:
-                layers[layer_name] = {}
+            layers[layer_name] = await _layer_window(layer_name)
         except Exception:
             layers[layer_name] = {"error": "unreachable"}
 
@@ -2059,6 +2059,9 @@ async def dd_health_ep():
         "total_runs": total_runs,
         "total_errors": total_errors,
         "error_rate_pct": round(total_errors / total_runs * 100, 1) if total_runs > 0 else 0,
+        # R-F3364 — state the window that was actually measured. The previous
+        # payload implied "7 days" in its docstring while serving all-time counts.
+        "window_days": _DD_WINDOW_DAYS,
     }
 
 

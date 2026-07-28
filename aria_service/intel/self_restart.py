@@ -392,6 +392,17 @@ def _prune_wedge_dir(wedge_dir: str) -> None:
         pass  # Best-effort
 
 
+# R-F3360 — public alias. The retention budget above was reachable from exactly
+# one place (save_blackout_wedge, i.e. only the self-restart blackout path), but
+# the writer that actually FILLS the directory is the R-F704 stall detector in
+# main.py, which opens a new `wedge_<pid>_<epoch>.log` on every boot and never
+# pruned. Live 2026-07-28: 513 files, oldest seven weeks old, against a cap of
+# 50 that had existed the whole time — the guard written after /data filled on
+# 2026-06-07 was not on the path that fills /data. Exposed publicly so the boot
+# path can enforce the budget without reaching into a private.
+prune_wedge_dir = _prune_wedge_dir
+
+
 def _write_wedge_dump(agent_id: str, stale: float, wedge_dir: str | None = None) -> str | None:
     """R-F1334: write a blackout wedge dump and return its path (None on failure).
 

@@ -1557,6 +1557,19 @@ async def lifespan(app: FastAPI):
         _os.makedirs(_wedge_dir, exist_ok=True)
     except Exception:
         logger.warning("R-F672: wedge dir creation failed")
+    # R-F3360 — enforce the R-F1435 retention budget (<=50 files, <=200MB) HERE.
+    # It existed since the 2026-06-07 /data-full incident but had a single
+    # caller — save_blackout_wedge — so it only ran on the self-restart blackout
+    # path. This detector is the writer that actually fills the directory: it
+    # opens a NEW file every boot and never cleaned up, leaving 513 files (oldest
+    # seven weeks old) against that cap of 50 when measured live on 2026-07-28.
+    # Boot is the right moment to charge the budget, because boot is when a file
+    # is added; it runs once, off the hot path, and is best-effort by contract.
+    try:
+        from .intel.self_restart import prune_wedge_dir as _prune_wedges
+        _prune_wedges(_wedge_dir)
+    except Exception as _pexc:
+        logger.warning("[R-F3360] wedge-dir prune skipped (non-fatal): %s", _pexc)
     _wedge_log_path = _os.path.join(
         _wedge_dir, f"wedge_{_os.getpid()}_{int(_time.time())}.log"
     )
