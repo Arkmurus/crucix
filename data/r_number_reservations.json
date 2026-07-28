@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3368,
+  "next_available": 3369,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27726,6 +27726,15 @@
       "commit_sha": "9979cfed",
       "notes": null,
       "shipped_at": "2026-07-28T20:59:58Z"
+    },
+    {
+      "r_number": "R-F3368",
+      "title": "record the measured suite baseline; CLAUDE.md section 16 figures are 3x stale",
+      "claimed_at": "2026-07-28T21:03:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
