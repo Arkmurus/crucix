@@ -20,12 +20,26 @@ for (const marker of [
   'renderGoldenIntel',
   'why_it_matters',
   'recommended_action',
-  'quality_label',
+  // R-F3344 — was 'quality_label', a free-text muted badge ("decision-grade
+  // single-source"). R-F2890..R-F2896 replaced it with a two-value grade whose
+  // meaning is stated: GRADE A is official primary evidence or independent
+  // corroboration; GRADE B is explicitly single-source awaiting corroboration.
+  // Free text let a signal describe its own quality; the grade does not.
+  'intelGradeBadge',
+  'intel_grade',
   'confidence_rationale',
   'action_horizon',
   'corroboration',
-  'customerValueScore',
-  'customerValueHardRejections',
+  // R-F3344 — were 'customerValueScore' / 'customerValueHardRejections', a
+  // numeric heuristic (>= 70 wins, a reject list loses). R-F2890..R-F2896
+  // replaced it with a STRUCTURAL gate: an item is customer-visible only if it
+  // has a grade, an allowed signal type, a decision summary, why_it_matters, a
+  // recommended action and a real evidence URL, and is not backfilled. A score
+  // can be met by an item missing the fields that make it actionable; requiring
+  // the fields cannot.
+  'isCustomerVisibleIntel',
+  'GOLDEN_DISTRIBUTION_TYPES',
+  'signalEvidenceUrl',
 ]) {
   assert.ok(HTML.includes(marker), `dashboard must include ${marker}`);
 }
@@ -37,11 +51,24 @@ const CODE = scripts[scripts.length - 1];
 
 const INTEL = {
   schema_version: 'rf2385.v1',
+  // R-F3344 — the FEED-level verdict, required since R-F2554/R-F2896: a stale or
+  // fully backfilled feed publishes nothing, so both grade columns render empty
+  // regardless of the signals. Omitting it (as this fixture did) left the header
+  // saying "Customer-visible changes: 1" beside two empty columns, which is what
+  // made this look like a renderer regression.
+  freshness: { publishable: true, stale: false, backfilled: false },
   signals: [{
     signal_type: 'active_tender',
     priority: 'HIGH',
     confidence: 'HIGH',
-    quality_label: 'decision-grade single-source',
+    // R-F3344 — the fixture now carries the shape the CURRENT gate reads.
+    // `quality_label` (free text) became `intel_grade` A/B, and the evidence URL
+    // moved into an `evidence` object that signalEvidenceUrl() validates as an
+    // http(s) URL. A fixture describing a signal the pipeline no longer produces
+    // tests nothing: isCustomerVisibleIntel() rejected it, so the renderer had
+    // nothing to render and the assertion blamed the renderer.
+    intel_grade: 'B',
+    evidence: { url: 'https://example.com/angola-tender', source_tier: 'tier_1b' },
     confidence_rationale: 'high-trust source tier; actionable active tender pattern; named entity extracted; single-source',
     action_horizon: '0-72h',
     corroboration: 'single-source',
@@ -153,7 +180,10 @@ assert.match(html, /HIGH/);
 assert.match(html, /HIGH confidence/);
 assert.match(html, /Procurement activity may create a near-term commercial window/);
 assert.match(html, /Qualify opportunity/);
-assert.match(html, /decision-grade single-source/);
+// R-F3344 — was /decision-grade single-source/, the free-text quality_label.
+// The two-value grade replaced it: a signal can no longer describe its own
+// quality in prose.
+assert.match(html, /GRADE B · SINGLE SOURCE/);
 assert.match(html, /Horizon:/);
 assert.match(html, /0-72h/);
 assert.match(html, /Evidence:/);
@@ -161,6 +191,11 @@ assert.match(html, /single-source/);
 assert.match(html, /high-trust source tier/);
 assert.match(html, /Evidence/);
 assert.match(html, /tier_1b/);
-assert.match(html, /Customer value 75/);
+// R-F3344 — was /Customer value 75/. The numeric customer-value score was
+// removed with the heuristic that produced it (R-F2890..R-F2896); the gate is
+// now structural. Asserted ABSENT so the score cannot quietly return as a
+// user-facing number without the gate behind it.
+assert.ok(!/Customer value \d/.test(html),
+  'the removed customer-value score must not reappear in the rendered item');
 
 console.log('PASS');

@@ -42,7 +42,16 @@ for (const gone of ['id="kpi-vix"', 'id="kpi-brent"', 'id="kpi-direction"', 'id=
   ok(!HTML.includes(gone), `removed: ${gone}`);
 }
 for (const present of ['id="kpi-critical"', 'id="kpi-conflict"', 'id="kpi-tenders"', 'id="kpi-srchealth"',
-                       'Critical Alerts', 'Conflict Signals', 'Active Tenders', 'Source Health']) {
+                       // R-F3344 — 'Critical Alerts' became 'High Correlations', and that is a
+                       // claim being withdrawn, not a rename. The tile is unchanged
+                       // otherwise: same id="kpi-critical", same red octagon, same
+                       // source (correlations with severity==='critical'). What changed
+                       // is what it CLAIMS: dashboard.html:738 now reads "High
+                       // correlations - early research indicators, not customer alerts",
+                       // and the tooltip says "N high-scoring research correlation(s)".
+                       // Labelling a research indicator a "Critical Alert" tells an
+                       // operator to act on a signal that has not earned it.
+                       'High Correlations', 'Conflict Signals', 'Active Tenders', 'Source Health']) {
   ok(HTML.includes(present), `present: ${present}`);
 }
 

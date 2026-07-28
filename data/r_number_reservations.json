@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3344,
+  "next_available": 3345,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27487,6 +27487,15 @@
       "commit_sha": "e2e71399",
       "notes": null,
       "shipped_at": "2026-07-28T12:21:14Z"
+    },
+    {
+      "r_number": "R-F3344",
+      "title": "rf2385/rf2411 pin dashboard markers the R-F2890 Golden Intel rework replaced",
+      "claimed_at": "2026-07-28T12:42:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
