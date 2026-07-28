@@ -27900,18 +27900,20 @@
       "title": "record why per-function wiring analysis is the WRONG granularity (measured)",
       "claimed_at": "2026-07-28T22:56:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4a994565",
+      "notes": null,
+      "shipped_at": "2026-07-28T23:00:57Z"
     },
     {
       "r_number": "R-F3386",
       "title": "wire the EE/NO registry adapters' success branch (backlog tranche 1)",
       "claimed_at": "2026-07-28T22:57:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4a994565",
+      "notes": null,
+      "shipped_at": "2026-07-28T23:00:58Z"
     }
   ]
 }
