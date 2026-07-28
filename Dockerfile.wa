@@ -27,8 +27,15 @@ WORKDIR /app
 #   /app/lib/aria/complianceAudit.mjs                  (cross-module dep)
 
 # Listener's OWN package.json + node_modules (separate dep tree)
+# R-F3391 — `npm install` against `"baileys": "latest"` with no lockfile meant
+# every build resolved the dependency afresh. Production ended up on
+# 7.0.0-rc13 — a RELEASE CANDIDATE nobody chose or reviewed — while the dev tree
+# sat on 6.7.23, so local testing did not reflect production at all. `npm ci`
+# installs exactly what the lockfile records, which is what makes a build
+# reproducible and an upgrade a deliberate act.
 COPY services/wa-listener/package.json ./services/wa-listener/package.json
-RUN cd services/wa-listener && npm install --omit=dev
+COPY services/wa-listener/package-lock.json ./services/wa-listener/package-lock.json
+RUN cd services/wa-listener && npm ci --omit=dev
 
 # WA listener source
 COPY services/wa-listener/aria_wa_listener.mjs ./services/wa-listener/aria_wa_listener.mjs
