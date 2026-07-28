@@ -1277,7 +1277,41 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
             parsed = r.get("parsed")
             article = r.get("article", {})
             if parsed:
-                fl, hg = await _process_analysis(parsed, f"investigation:{topic[:30]}", hypotheses)
+                # R-F3317 — bound the SINGLE call, not just the loop.
+                #
+                # PROVEN by the R-F3316 diagnostic on its first live run
+                # (dd_cd7e7adc36e9): "last stage: fact retention (angles_run=11,
+                # jobs=33, analysed=33, retained=14)". All 33 articles were read
+                # and 14 were banked, then the caller's hard cancel landed DURING
+                # retention and threw all 14 away.
+                #
+                # The loop already checks the budget before every item, so the
+                # only way to overshoot is for ONE item to run longer than the
+                # whole remaining budget. _process_analysis writes facts to the
+                # knowledge store, and a slow store write does exactly that.
+                # Checking before an unbounded await cannot bound it.
+                #
+                # Capped at what is left minus the synthesis reserve, so the call
+                # can never eat the margin the caller needs to return normally. A
+                # write that exceeds it is abandoned and the run stops here with
+                # everything retained so far INTACT, which is strictly better
+                # than being cancelled and losing all of it.
+                try:
+                    if _t_deadline is None:
+                        fl, hg = await _process_analysis(
+                            parsed, f"investigation:{topic[:30]}", hypotheses)
+                    else:
+                        fl, hg = await _aio.wait_for(
+                            _process_analysis(parsed, f"investigation:{topic[:30]}", hypotheses),
+                            timeout=max(1.0, _remaining() - _synth_reserve_s),
+                        )
+                except (_aio.TimeoutError, TimeoutError):
+                    _mark_partial(
+                        f"fact retention ({articles_read} of {len(parallel_results)} "
+                        "analysed articles retained; a fact-store write exceeded "
+                        "the remaining budget)"
+                    )
+                    return
                 total_facts += fl
                 total_hyp += hg
                 # R-F1812 — attach the source URL to each fact so findings are
