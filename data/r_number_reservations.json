@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3340,
+  "next_available": 3342,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27447,6 +27447,24 @@
       "commit_sha": "c449e5e6",
       "notes": null,
       "shipped_at": "2026-07-28T11:59:14Z"
+    },
+    {
+      "r_number": "R-F3340",
+      "title": "rf981 read the frontend/ tree R-F2624 deleted; derive the dead-domain scan from the real tree",
+      "claimed_at": "2026-07-28T12:03:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3341",
+      "title": "rf2430 asserts the caption claim R-F2990/R-F2997 measured false",
+      "claimed_at": "2026-07-28T12:06:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

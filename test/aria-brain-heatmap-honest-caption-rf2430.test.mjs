@@ -1,9 +1,29 @@
 // test/aria-brain-heatmap-honest-caption-rf2430.test.mjs
 //
 // Capability test for R-F2430 — the mastery heatmap panel prepends an honest
-// caption so a near-50% region cell reads as "not measured for that region
-// yet" (gate #2 region-signal starvation), NOT as low competence. Topic
-// mastery is a separate, strong measurement.
+// caption, so an operator does not read a low region cell as low competence.
+// Topic mastery is a separate, strong measurement.
+//
+// R-F3341 — this asserted the caption's ORIGINAL claim: that a near-50% cell
+// means "not been measured for that region yet", and that N/N cells are "still
+// at the ~50% initial scaffold". That claim was MEASURED FALSE and deliberately
+// removed:
+//
+//   R-F2990 replaced the score-near-0.50 proxy with the authoritative
+//   samples-based count (a cell with <=1 observation). The proxy had been
+//   mislabeling measured-weak cells — graded far below 0.50 by real failing
+//   recalls, the very cells in the Weak-cells list — as "unmeasured scaffold",
+//   which is self-contradictory.
+//
+//   R-F2997 then fixed the framing the proxy had justified: only ~4/189 cells
+//   are actually unmeasured; the rest ARE measured and sitting low. So a low
+//   cell is a MEASURED regional coverage gap, not an unmeasured one.
+//
+// A stale test arguing for the restoration of a claim the data disproved is
+// worse than no test: it makes the honest version look like the regression.
+// These now pin the CURRENT contract, including the part that matters most —
+// counts come from the backend's cell_coverage when present, so reverting to
+// the score proxy fails here.
 //
 // Drives the REAL loadHeatmap() extracted from public/aria-brain.html.
 //
@@ -48,18 +68,34 @@ async function main() {
   // 1) live-shaped fixture: 1 region, 9 cells all ~0.50
   let h = await render({ heatmap: nine, weak_cells: [{ topic: 'compliance', region: 'balkans', score: 0.507 }] });
   ok(/Region-specific coverage/.test(h), 'caption present');
-  ok(/not been measured for that region yet/.test(h), 'caption explains near-50% = unmeasured, not incompetence');
+  ok(/measured regional coverage gap/.test(h),
+     'R-F2997: a low cell is a MEASURED coverage gap, not "unmeasured"');
+  ok(!/not been measured for that region yet/.test(h),
+     'the disproven blanket claim must NOT come back (R-F2990 measured ~4/189 truly unmeasured)');
+  ok(/not a statement about ARIA's subject competence/.test(h),
+     'caption still separates coverage from competence — the reason it exists');
   ok(/Mastery panel/.test(h), 'caption points to the separate topic-mastery panel');
-  ok(/1 region has regional samples so far/.test(h), 'counts regions correctly (1)');
-  ok(/9\/9 cells still at the ~50% initial scaffold/.test(h), 'counts near-initial cells (9/9)');
+  ok(/1 region sampled/.test(h), 'counts regions correctly (1)');
   ok(h.indexOf('Region-specific coverage') < h.indexOf('<table'), 'caption is PREPENDED before the grid');
   ok(/balkans/.test(h) && /compliance/.test(h), 'the grid itself still renders (no regression)');
 
-  // 2) mixed: 2 regions, one measured cell (0.82) + two near-initial
+  // 2) plural region count
   const mixed = { compliance: { balkans: 0.507, east_africa: 0.82 }, osint: { balkans: 0.51 } };
   h = await render({ heatmap: mixed });
-  ok(/2 regions have regional samples so far/.test(h), 'plural region count (2)');
-  ok(/2\/3 cells still at the ~50% initial scaffold/.test(h), 'near-initial excludes the measured 0.82 cell (2/3)');
+  ok(/2 regions sampled/.test(h), 'plural region count (2)');
+
+  // 2b) R-F3341 — THE GUARD THAT MATTERS: the split comes from the backend's
+  // authoritative samples-based cell_coverage, not from a score band. Scores are
+  // chosen to be indistinguishable to the old proxy (all near 0.50) while the
+  // backend reports something different; only a cell_coverage reader can be right.
+  h = await render({
+    heatmap: { compliance: { balkans: 0.507, east_africa: 0.51 }, osint: { balkans: 0.5 } },
+    cell_coverage: { sampled_cells: 3, scaffold_cells: 1, measured_weak_cells: 2 },
+  });
+  ok(/of 3 cells, 1 not yet measured/.test(h),
+     'the unmeasured count comes from cell_coverage (1), not from the score proxy (would say 3)');
+  ok(/2 measured-weak/.test(h),
+     'measured-weak cells are named as the real gate-#2 gaps, not relabelled unmeasured');
 
   // 3) empty heatmap → unchanged "No regional data yet", no caption/crash
   h = await render({ heatmap: {} });

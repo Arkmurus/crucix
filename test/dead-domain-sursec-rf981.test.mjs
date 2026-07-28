@@ -14,7 +14,7 @@
 //
 // Run: node test/dead-domain-sursec-rf981.test.mjs
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -42,9 +42,46 @@ check('ariaWhatsApp.mjs has no reference to the dead domain', !WA.includes(DEAD)
 check('ariaWhatsApp.mjs webhook_url points at the live host',
   WA.includes(`webhook_url: 'https://${LIVE}/api/whatsapp/incoming'`));
 
-const NG = read('frontend', 'src', 'app', 'dashboard', 'bd-intelligence', 'bd-intelligence.component.ts');
-check('Angular bd-intelligence source has no reference to the dead domain', !NG.includes(DEAD));
-check('Angular bd-intelligence source uses the live host', NG.includes(LIVE));
+// R-F3340 — the two checks that used to live here read
+//   frontend/src/app/dashboard/bd-intelligence/bd-intelligence.component.ts
+// and had been throwing ENOENT ever since R-F2624 deleted frontend/ ("dead
+// Seenode-era Angular SPA"). The tree is gone by decision, so asserting its
+// contents asserts a structure that no longer exists — and the throw took the
+// two checks ABOVE down with it, which are still live and still matter.
+//
+// Replaced with a SWEEP rather than another hardcoded path list. Naming three
+// files was always the weak part of this guard: it could not see a fourth file
+// introducing the dead host, and it broke the moment one of the three moved.
+// Scanning what is actually on disk catches both.
+//
+// Comments are exempt, per this file's own header: historical mentions in
+// server.mjs / learning_store.mjs are deliberate architecture history. Only
+// FUNCTIONAL references count, so line and block comments are stripped first.
+
+function stripComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')          // block comments
+    .replace(/^\s*\/\/.*$/gm, '')               // whole-line // comments
+    .replace(/<!--[\s\S]*?-->/g, '');            // html comments
+}
+
+function sweep(dir, exts, out = []) {
+  for (const entry of readdirSync(join(__dirname, '..', dir), { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+    const rel = join(dir, entry.name);
+    if (entry.isDirectory()) sweep(rel, exts, out);
+    else if (exts.some((e) => entry.name.endsWith(e))) out.push(rel);
+  }
+  return out;
+}
+
+const SCANNED = [...sweep('lib', ['.mjs', '.js']), ...sweep('public', ['.html', '.js'])];
+const offenders = SCANNED.filter((f) => stripComments(read(f)).includes(DEAD));
+
+check(`no functional reference to the dead domain in lib/ or public/ (${SCANNED.length} files scanned)`,
+  offenders.length === 0);
+if (offenders.length) console.log('    offenders: ' + offenders.join(', '));
+check('the sweep actually reached files (not a vacuous pass)', SCANNED.length > 20);
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} — ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);
