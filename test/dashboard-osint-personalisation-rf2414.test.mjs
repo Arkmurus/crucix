@@ -91,9 +91,26 @@ try {
 
 // ── Unit: provenanceBadge ────────────────────────────────────────────────────
 console.log('unit — provenanceBadge:');
-ok(/corroborated/.test(ctx.provenanceBadge(4)) && ctx.provenanceBadge(4).includes('4 sources'), 'sourceCount 4 → corroborated · 4 sources');
-ok(/single-source/.test(ctx.provenanceBadge(1)), 'sourceCount 1 → single-source');
-ok(/single-source/.test(ctx.provenanceBadge(0)), 'sourceCount 0 → single-source');
+// R-F3342 — these asserted "corroborated · 4 sources". R-F2890..R-F2896
+// deliberately dropped that wording: N publishers carrying the same wire story
+// are NOT independent, so a publisher COUNT cannot establish corroboration. The
+// badge now states the measurable fact ("4 publishers/channels", "single
+// publisher/channel") and the word "corroborated" moved to the Grade A/B badge,
+// where it means official primary evidence or genuinely independent
+// corroboration. Same correction family as R-F2997 on the heatmap caption: an
+// overclaim replaced by what was actually measured.
+//
+// So the assertions pin the PROPERTY — multi is distinguishable from single and
+// the count is shown — plus the overclaim guard, which is the half that matters:
+// re-introducing "corroborated" on a raw publisher count fails here.
+const multi = ctx.provenanceBadge(4);
+const single = ctx.provenanceBadge(1);
+ok(multi.includes('4'), 'sourceCount 4 → the count is shown');
+ok(multi !== single, 'multi-publisher is visually distinguishable from single');
+ok(!/corroborat/i.test(multi),
+   'a publisher COUNT must not claim corroboration — publishers are not independent sources');
+ok(/single/i.test(single), 'sourceCount 1 → labelled single');
+ok(/single/i.test(ctx.provenanceBadge(0)), 'sourceCount 0 → labelled single');
 
 // ── Unit: buildWatchlistMatcher ──────────────────────────────────────────────
 console.log('unit — buildWatchlistMatcher:');
@@ -114,8 +131,12 @@ const osint = getEl('osint-list').innerHTML;
 ok(osint.includes('⭐') && osint.includes('Acme Corporation'), 'the matching Telegram post is flagged ⭐');
 ok((osint.match(/⭐/g) || []).length === 1, 'only the matching post is flagged (not the unrelated one)');
 const corr = getEl('correlations-list').innerHTML;
-ok(/corroborated/.test(corr) && corr.includes('4 sources'), 'the 4-source correlation shows corroborated');
-ok(/single-source/.test(corr), 'the 1-source correlation shows single-source');
+// R-F3342 — same correction as the unit block above: the rendered correlation
+// shows the publisher COUNT, not a corroboration claim.
+ok(corr.includes('4'), 'the 4-publisher correlation shows its count');
+ok(/single/i.test(corr), 'the 1-publisher correlation is labelled single');
+ok(!/corroborat/i.test(corr),
+   'the rendered list must not claim corroboration from a publisher count either');
 
 console.log(failures === 0 ? '\nPASS' : `\nFAIL (${failures})`);
 process.exit(failures === 0 ? 0 : 1);
