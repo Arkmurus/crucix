@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3327,
+  "next_available": 3328,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27317,6 +27317,16 @@
       "commit_sha": "e862619f",
       "notes": null,
       "shipped_at": "2026-07-28T09:04:18Z"
+    },
+    {
+      "r_number": "R-F3327",
+      "title": "rf728 fake learning_progress module lacks _max_staleness_for",
+      "claimed_at": "2026-07-28T09:10:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "98f9aa6f",
+      "notes": null,
+      "shipped_at": "2026-07-28T09:11:26Z"
     }
   ]
 }
