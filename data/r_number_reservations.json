@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3382,
+  "next_available": 3384,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27866,6 +27866,24 @@
       "commit_sha": "b4b33a7a",
       "notes": null,
       "shipped_at": "2026-07-28T22:40:40Z"
+    },
+    {
+      "r_number": "R-F3382",
+      "title": "wiring checker misses @wired, the PREFERRED both-branch decorator",
+      "claimed_at": "2026-07-28T22:45:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3383",
+      "title": "corpus ingest has no personal-data gate: PII enters shared RAG unchecked",
+      "claimed_at": "2026-07-28T22:46:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

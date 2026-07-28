@@ -297,6 +297,23 @@ def check_wiring_present(files: list[Path]) -> list[str]:
         # Two definitions of "wired" in one repo is the two-writers hazard that
         # has bitten here before, so the alternates are spelled out once, here,
         # next to the rule they enforce.
+        # R-F3382 — @wired is the PREFERRED mechanism and covers BOTH branches.
+        # engine_wiring.wired()'s own docstring calls it "the PREFERRED way to
+        # wire a module ... guarantees both paths are covered", and the body does
+        # exactly that: wire_failure() in the `except`, wire_success() on the
+        # success path (plus a falsy-success check). A module using it has
+        # NEITHER literal in its source, so R-F3381's fix — which recognised the
+        # failure-side sinks — still flagged 11 correctly-wired modules:
+        # academic, acled, cert_transparency, court_records, fcdo_sanctions,
+        # sec_edgar, un_sc_sanctions and the worldbank_* family. Every one of
+        # them had been written into the R-F3381 backlog as a real violation.
+        #
+        # Unlike @fail_wire/record_gap (failure-side only, so they may clear only
+        # the "no wiring at all" verdict), @wired satisfies both categories by
+        # construction and therefore clears the module outright.
+        if re.search(r"@wired\b", content):
+            continue
+
         has_wire_success = "wire_success(" in content
         has_wire_failure = "wire_failure(" in content
         # Decorator/other sinks cover BOTH branches by construction: @fail_wire
