@@ -121,6 +121,7 @@ _dirty: bool = False
 _dirty_since_snapshot: bool = False
 _flush_task: asyncio.Task | None = None
 _flusher_started: bool = False
+_flusher_loop: object | None = None  # R-F3321: the loop _flush_task belongs to
 _flusher_stop = False
 FLUSH_DEBOUNCE_S = 2.0
 SNAPSHOT_INTERVAL_S = 600.0  # 10 min — Redis off-host backup cadence
@@ -752,15 +753,48 @@ def _ensure_flusher() -> None:
     """Start the debounced flusher if a running loop exists. No-op in
     sync test contexts (no loop) — those should call flush() explicitly
     if they need persistence."""
-    global _flush_task, _flusher_started
-    if _flusher_started:
-        return
+
+# R-F3321 - the flusher guard must be PER-LOOP, not per-process.
+#
+# `_flusher_started` was a module global that nothing ever reset, so:
+#   loop A: _ensure_flusher() creates _flush_task on A, sets _flusher_started=True
+#   loop A closes, taking its task with it
+#   loop B: _ensure_flusher() returns EARLY (the flag is still True) -> no flusher,
+#           while _flush_task still points at a task bound to the DEAD loop A
+#
+# shutdown() then does `await _flush_task` on that stale handle. Awaiting a task
+# from another (closed) loop NEVER completes, so the awaiting task never finishes
+# cancelling and asyncio.run()'s Runner.close() blocks forever.
+#
+# That is the third suite wedge, isolated to the deterministic pair
+# test_rf2976_dd_jurisdiction_uk_gb + test_rf3064_3065_coder_gate_and_profiler,
+# where either file passes ALONE. Found by inspecting a manual loop instead of
+# asyncio.run(), which showed exactly one survivor: a pending _flush_loop task.
+# Three earlier hypotheses were disproven by measurement first: thread
+# accumulation (only MainThread alive), a live network call (the R-F3319 guard
+# caught nothing), and orphaned tasks in the poisoner's own loop (draining them
+# changed nothing, so that attempt was reverted rather than kept).
+#
+# state_store already solved this class for its lock (_reset_lock, "Each test's
+# asyncio.run() resets _conn ... binds it to the new loop"). These two modules
+# never got the same treatment.
+#
+# In production there is ONE long-lived loop, so this costs nothing there; it is
+# correctness for every multi-loop context, which is what the test suite is.
+    global _flush_task, _flusher_started, _flusher_loop
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return
+    if (_flusher_started and _flusher_loop is loop
+            and _flush_task is not None and not _flush_task.done()):
+        return
+    if _flusher_loop is not None and _flusher_loop is not loop:
+        # Stale handle from a previous loop. DROP it, never await it.
+        _flush_task = None
     _flush_task = loop.create_task(_flush_loop())
     _flusher_started = True
+    _flusher_loop = loop
 
 
 async def _load() -> dict:
@@ -855,15 +889,24 @@ async def flush() -> None:
 @fail_wire(module="knowledge", gap_type="engine_failure")
 async def shutdown() -> None:
     """Stop the background flusher and write any pending changes."""
-    global _flusher_stop, _flush_task
+    global _flusher_stop, _flush_task, _flusher_loop, _flusher_started
     _flusher_stop = True
     if _flush_task:
-        _flush_task.cancel()
+        # R-F3321: only ever await a task belonging to the RUNNING loop. Awaiting
+        # one from a closed loop never returns and hangs Runner.close() forever.
         try:
-            await _flush_task
-        except (asyncio.CancelledError, Exception):
-            pass
+            _running = asyncio.get_running_loop()
+        except RuntimeError:
+            _running = None
+        _flush_task.cancel()
+        if _flusher_loop is _running and _running is not None:
+            try:
+                await _flush_task
+            except (asyncio.CancelledError, Exception):
+                pass
         _flush_task = None
+        _flusher_loop = None
+        _flusher_started = False
     await _flush_to_disk()
 
 
