@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3335,
+  "next_available": 3336,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27397,6 +27397,15 @@
       "commit_sha": "9e23977b",
       "notes": null,
       "shipped_at": "2026-07-28T11:13:51Z"
+    },
+    {
+      "r_number": "R-F3335",
+      "title": "rf926 pinned CI steps R-F1157 removed; re-arm the decoupling guard conditionally",
+      "claimed_at": "2026-07-28T11:24:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
