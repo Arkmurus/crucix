@@ -65,7 +65,15 @@ def test_rf3358_python_assignments_are_untouched():
     ids = _py_ids()
     assert len(ids) >= 570, "the Python scan itself changed size"
     orphans = [m for m in ids if em._assign_organ(m) is None]
-    assert len(orphans) == 4, f"Python orphan count moved from 4 to {len(orphans)}: {orphans}"
+    # R-F3380 UPDATE: was 4. The fourth was `intel.auto.test_rf1191_new`, which
+    # turned out not to be a module at all — test_rf855 wrote it into the
+    # production tree on every run. Removing the artefact and fixing the writer
+    # removed the orphan with it, so 3 is the honest count. The three that remain
+    # are namespace roots that genuinely span organs.
+    assert len(orphans) == 3, f"Python orphan count moved from 3 to {len(orphans)}: {orphans}"
+    assert set(orphans) == {"aria_service", "aria_service.intel", "aria_service.intel.auto"}, (
+        f"the orphan SET changed, not just the count: {sorted(orphans)}"
+    )
     anchors = {
         "aria_service.intel.run_quarantine": "phase",          # R-F3349
         "aria_service.intel.reasoning_router": "llm",          # R-F3349
