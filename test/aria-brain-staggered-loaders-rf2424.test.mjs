@@ -28,7 +28,13 @@ ok(/await runStaggered\(/.test(HTML), 'refreshAll uses runStaggered');
 ok(!/await Promise\.all\(\[\s*\n\s*loadHealth\(\)/.test(HTML), 'the old 21-wide Promise.all is gone');
 
 // extract the REAL runStaggered (self-contained; closing brace at column 0)
-const m = HTML.match(/async function runStaggered[\s\S]*?\n\}\n/);
+// R-F3354: the terminator was /\n\}\n/, which requires LF. core.autocrlf=true is
+// set system-wide here, so a git checkout on Windows writes CRLF and this match
+// returned null — the test then died on m[0] and reported "runStaggered() extracted
+// from the page" as the failure, which names the symptom, not the cause. It passed
+// only while a working copy happened to carry stray LFs from prior edits; a stash
+// round-trip re-normalised the file and exposed it. Accept either terminator.
+const m = HTML.match(/async function runStaggered[\s\S]*?\r?\n\}\r?\n/);
 ok(!!m, 'runStaggered() extracted from the page');
 const sb = { Promise, setTimeout, Array, console };
 vm.createContext(sb);
