@@ -1452,10 +1452,29 @@ async function loadEcosystem(root){
     const oc = c.orphans>0 ? 'warn' : 'good';
     const hs = cov.health_sensors || {};
     const bc = hs.by_color || {};
+    // R-F3352 — this read "sensors 30/602 10/18/2": five bare numbers, no labels and
+    // no tooltips. Decoded, it said only 30 of 602 nodes have ANY live sensor, and of
+    // those 30, 18 are degraded and 2 broken — i.e. two thirds of everything ARIA can
+    // actually measure about itself is not green. That was the smallest text on the card.
     const sens = hs.pct_live_sensor!=null
-      ? ` · sensors ${hs.with_live_sensor}/${hs.total_nodes} <span class="good">${bc.green||0}</span>/<span class="warn">${bc.amber||0}</span>/<span style="color:var(--red)">${bc.red||0}</span>` : '';
-    cvEl.innerHTML = `<span title="100% by construction: node set == filesystem">${c.on_map} modules</span> · `
-      + `<span class="${oc}">${c.orphans} unassigned</span> · ${ie.resolved_intra_repo} imports · call-graph partial${sens}`;
+      ? ` · <span title="${hs.grey_no_sensor||0} nodes have no live sensor at all. Grey is 'not measured', never 'healthy'.">sensors ${hs.with_live_sensor}/${hs.total_nodes}</span>`
+        + ` <span class="good">${bc.green||0} healthy</span>`
+        + ` · <span class="warn"><strong>${bc.amber||0} degraded</strong></span>`
+        + ` · <span style="color:var(--red)"><strong>${bc.red||0} broken</strong></span>` : '';
+    // R-F3352 — the scope is aria-intel, and the header must say so. The old tooltip
+    // ("node set == filesystem") is true of aria_service/ and reads as the ecosystem.
+    const svc = cov.services || {};
+    const unmappedSvc = svc.unmapped || [];
+    const unmapped = unmappedSvc.length
+      ? `<div class="warn" style="margin-top:3px">⚠ ${unmappedSvc.join(' + ')}: not scanned — their code is in no count above</div>` : '';
+    // Both the scope label and the tooltip are DERIVED, so when the Node tiers are
+    // mapped this stops claiming they are missing instead of becoming a stale lie.
+    const scope = (svc.mapped||[]).length ? svc.mapped.join(' + ') : 'aria-intel';
+    const modTip = '100% by construction WITHIN aria_service/: the node set IS that filesystem scan.'
+      + (unmappedSvc.length ? ` ${unmappedSvc.join(' + ')} are NOT scanned.` : '');
+    cvEl.innerHTML = `<strong>${scope}</strong> · `
+      + `<span title="${modTip}">${c.on_map} modules</span> · `
+      + `<span class="${oc}">${c.orphans} unassigned</span> · ${ie.resolved_intra_repo} imports · call-graph partial${sens}${unmapped}`;
   } else if(cvEl && root && root.startsWith('mod:')){
     // module drill → show its audit R-numbers (with titles) + function wired/dark (T3)
     try {
@@ -1492,7 +1511,9 @@ async function loadEcosystem(root){
     : (['green','amber','red'].includes(n.health) ? n.health : 'grey');
   const _card = (n) => {
     const nm = (n.label||''), rn = n.r_numbers||[];
-    const ct = n.type==='organ' ? (n.module_count!=null?n.module_count:'')
+    // R-F3352: the orphan label already carries its count ("⚠ Unassigned (4)"), so
+    // the count column repeated it — 4 printed twice on the same card.
+    const ct = n.type==='organ' ? (n.orphan_alert ? '' : (n.module_count!=null?n.module_count:''))
       : (n.type==='function' ? (n.wired?'wired':'') : (rn.length?rn[rn.length-1]:''));
     // R-F3351: red on this card is a COMPLETENESS claim ("these modules match no
     // organ"), not a health one ("this organ is failing"). Say which, or the colour lies.
@@ -1523,7 +1544,7 @@ async function loadEcosystem(root){
     + _grid(functions.length ? 'CONNECTED MODULES (imports)' : 'MODULES', modules);
   html += `<div style="margin-top:9px;font-size:9px;color:#9b968c;display:flex;gap:13px;flex-wrap:wrap;align-items:center">`
     + `<span style="color:#16a34a">● healthy</span><span style="color:#ca8a04">● degraded</span>`
-    + `<span style="color:#dc2626">● broken / unmapped</span><span style="color:#c2bcae">● no sensor (grey ≠ green)</span>`
+    + `<span style="color:#dc2626">● broken / unmapped</span><span style="color:#b5b0a4">● no sensor (grey ≠ green)</span>`
     + `<span>· click a card to drill in, hover for its sensor + R-numbers</span></div>`;
   el.classList.remove('loading'); el.innerHTML = html;
 }

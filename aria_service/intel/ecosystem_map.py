@@ -1152,6 +1152,23 @@ async def get_coverage() -> dict[str, Any]:
             "scope": "all non-test aria_service .py incl package __init__.py",
             "excluded": "conftest.py (pytest infra); tests/, __pycache__/, data/ dirs",
         },
+        # R-F3352 — the map declares THREE services but scan_modules() globs
+        # aria_service/**/*.py only, and every organ is hardcoded to aria-intel, so
+        # aria-web and aria-wa are T0 cards with zero modules beneath them. The
+        # header "578 modules" therefore describes the Python brain, not the
+        # ecosystem — while the tooltip said "100% by construction: node set ==
+        # filesystem", which reads as all of it. §21b is explicit that observability
+        # is not Python-only, so the gap is DECLARED here rather than implied away.
+        #
+        # Derived from the organ table, never hardcoded: if a Node organ is added
+        # later this corrects itself instead of going quietly stale.
+        "services": {
+            "declared": sorted(_SERVICES),
+            "mapped": sorted({svc for _oid, _l, svc, _k in _ORGANS}),
+            "unmapped": sorted(set(_SERVICES) - {svc for _oid, _l, svc, _k in _ORGANS}),
+            "note": "module scan covers aria_service/**/*.py only; services with no organ "
+                    "have no module nodes and their code is NOT represented in any count above",
+        },
         "import_edges": {
             "resolved_intra_repo": m["import_edge_count"],
             "unresolved_intra_repo": m["unresolved_intra_imports"],  # R-F2980 F4: renamed — includes relative-import misses
