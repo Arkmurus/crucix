@@ -27393,9 +27393,10 @@
       "title": "rf371 neural guard tests asserted a storage layout R-F699 replaced, and wrote to the real store",
       "claimed_at": "2026-07-28T11:12:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9e23977b",
+      "notes": null,
+      "shipped_at": "2026-07-28T11:13:51Z"
     }
   ]
 }
