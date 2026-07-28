@@ -128,6 +128,44 @@ other agent's R-F3353/R-F3355, which the operator instructed must not be deploye
 so any deploy from HEAD would carry them. The live surface stays truthful meanwhile
 because R-F3352 already narrowed the claim.
 
+## R-F3365 — wedge #5: R-F3347 fixed one lifespan entry, not the class
+
+`with TestClient(app)` on `aria_service.main` **enters the real lifespan**,
+starting ARIA's background subsystems inside the pytest process. They outlive the
+block — bound to a loop that is then closed — and the next test that calls
+`asyncio.run()` and reaches the embedder waits forever.
+
+R-F3347 diagnosed this exact mechanism and named this exact victim
+(`rf1401:209 → run_eval → to_thread(_cosine_score) → model.encode() →
+GetQueuedCompletionStatus`). It fixed **one** entry point — `test_lifespan_smoke.py`,
+via subprocess — and did not sweep the others. **The wedge never closed; it moved.**
+
+Bisected over the 336 files collected before `rf1401`, halving to a single class:
+`test_rf1231_agent_signup_vault.py::TestVaultAPI`. The pytest-timeout dump showed
+the leak directly — eight `asyncio_N` threads, six `rf704-wedge-watchdog`,
+`continuous-profiler`, a `_patched_worker` — all surviving into a test that never
+started them. Two-file reproduction: **hung before, 36 passed in 12s after.**
+
+| File | Sites | Action |
+|---|---|---|
+| `test_rf1231` | 1 | client without the context manager — 25 passed, 2.1s (was booting the whole brain) |
+| `test_rf1411` | 3 | same via a local `_client()` helper — 11 passed |
+| `test_rf2379` | 11 | **declared exception, deliberately NOT fixed** |
+| `test_rf3365` | — | the guard R-F3347 lacked |
+
+⚠️ **`rf2379` genuinely needs the started app**: without the lifespan its DD routes
+fail closed with 401. Measured both ways — **44 passed with, 11 failed without** —
+so removing it would change what the test exercises rather than fix a leak. It
+sorts after `rf1401`, so it is not this poisoner, but it IS a real hazard for tests
+following it. It sits on an allowlist with its measured reason and the remedy it
+should take (subprocess, like `test_lifespan_smoke.py`), and a second test asserts
+the allowlist cannot outlive its reason.
+
+**The guard's first draft was itself wrong** — a regex that flagged the docstrings
+of the very files it had just fixed, because prose explaining the banned pattern
+counted as the banned pattern. Rewritten as an AST walk, then tamper-tested:
+re-introducing the pattern fails it, removing it passes.
+
 ## Open / handoff
 
 - ⚠️ **Suite wedge #5, not investigated.**
