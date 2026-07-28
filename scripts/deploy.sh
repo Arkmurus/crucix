@@ -96,14 +96,22 @@ for _t in $(git tag --list 'deploy-*' --sort=-version:refname); do
         LAST_TAG="$_t"; break
     fi
 done
-if [[ -n "$LAST_TAG" ]]; then
-    # R-F3247 - exclude registry bookkeeping; see deploy.ps1 for the two
-    # measured defects (a reserve commit claiming an unshipped R-number, and an
-    # empty range rendering as "no-r-tag" on a build containing everything).
-    R_NUMBERS=$(git log "$LAST_TAG..HEAD" --pretty=%s | grep -vE '^chore:[[:space:]]*(reserve|mark|ship)' | grep -oE 'R-F[0-9]+' | sort -u | tr '\n' '+' | sed 's/+$//')
-else
-    R_NUMBERS=$(git log --pretty=%s | grep -vE '^chore:[[:space:]]*(reserve|mark|ship)' | grep -oE 'R-F[0-9]+' | sort -u | tr '\n' '+' | sed 's/+$//')
-fi
+# R-F3371 - a commit contributes its OWN R-number, and only if it ships
+# something. Two over-claims measured live: a code commit CITING an older
+# R-number put it in the banner, and a docs-only commit announced an R-number for
+# a build it changed nothing in. See deploy.ps1 for the full note; both writers
+# must carry this (R-F3247, R-F3357 are the same family).
+_SHIPS_NOTHING='^(docs/|memory/|[^/]*\.md$|data/r_number_reservations\.json$)'
+if [[ -n "$LAST_TAG" ]]; then _RANGE="$LAST_TAG..HEAD"; else _RANGE="HEAD"; fi
+R_NUMBERS=$(
+    for _c in $(git log "$_RANGE" --pretty=%H); do
+        _subj=$(git log -1 --pretty=%s "$_c")
+        echo "$_subj" | grep -qE '^chore:[[:space:]]*(reserve|mark|ship)' && continue
+        _files=$(git diff-tree --no-commit-id --name-only -r "$_c")
+        [ -z "$(echo "$_files" | grep -vE "$_SHIPS_NOTHING" | head -1)" ] && continue
+        echo "$_subj" | grep -oE 'R-F[0-9]+' | head -1
+    done | sort -u | tr '\n' '+' | sed 's/+$//'
+)
 # R-F3247 - "no-r-tag" reads as "this build ships nothing"; when a deploy tag
 # exists the honest statement is that nothing is NEW since it.
 if [ -n "${R_NUMBERS}" ]; then R_TAG="${R_NUMBERS}"

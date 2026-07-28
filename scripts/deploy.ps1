@@ -237,9 +237,35 @@ $LAST_TAG = $null
 foreach ($_t in @(git tag --list 'deploy-*' --sort=-version:refname)) {
     if ([int](git rev-list --count "$_t..HEAD") -gt 0) { $LAST_TAG = $_t; break }
 }
-$_SUBJECTS = if ($LAST_TAG) { git log "$LAST_TAG..HEAD" --pretty=%s } else { git log --pretty=%s }
-$_SHIPPED  = $_SUBJECTS | Where-Object { $_ -notmatch '^chore:\s*(reserve|mark|ship)' }
-$R_NUMBERS = $_SHIPPED | Select-String -Pattern 'R-F[0-9]+' -AllMatches | ForEach-Object { $_.Matches.Value } | Sort-Object -Unique
+# R-F3371 — the banner states what the build CONTAINS, so a commit contributes
+# its OWN R-number and only if it actually ships something. Two over-claims were
+# measured live on 2026-07-28, both from taking every R-number in every subject:
+#
+#   MENTIONED-NOT-SHIPPED. "fix: R-F3365 - wedge #5: R-F3347 fixed one lifespan
+#   entry, not the class" put R-F3347 in the banner. R-F3347 shipped days
+#   earlier; the commit only cites it. Subjects here are "<type>: R-F#### - ...",
+#   so the FIRST R-number is the one the commit ships and the rest are prose.
+#
+#   SHIPS-NOTHING. "docs: R-F3368 - record the measured suite baseline" put
+#   R-F3368 in the banner for a commit touching only docs/, CLAUDE.md and the
+#   R-number registry — none of which is in the image. Session records did the
+#   same, re-announcing R-numbers that were already live.
+#
+# R-F3247 removed the reservation-commit case and R-F3357 the empty-range case;
+# this is the same family, and the same rule underneath: the banner is a claim
+# about the BUILD, not a summary of what people wrote in commit messages.
+$_RANGE = if ($LAST_TAG) { "$LAST_TAG..HEAD" } else { "HEAD" }
+$_SHIPS_NOTHING = '^(docs/|memory/|[^/]*\.md$|data/r_number_reservations\.json$)'
+$_OWN = @()
+foreach ($_c in @(git log $_RANGE --pretty=%H)) {
+    $_subj = (git log -1 --pretty=%s $_c)
+    if ($_subj -match '^chore:\s*(reserve|mark|ship)') { continue }   # R-F3247
+    $_files = @(git diff-tree --no-commit-id --name-only -r $_c)
+    if (-not ($_files | Where-Object { $_ -notmatch $_SHIPS_NOTHING })) { continue }
+    $_m = [regex]::Match($_subj, 'R-F[0-9]+')
+    if ($_m.Success) { $_OWN += $_m.Value }
+}
+$R_NUMBERS = $_OWN | Sort-Object -Unique
 $R_TAG = if ($R_NUMBERS) { ($R_NUMBERS -join '+') }
          elseif ($LAST_TAG) { "no-new-r-numbers" }
          else { "no-r-tag" }
