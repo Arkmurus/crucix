@@ -1520,6 +1520,12 @@ async def search(
                     "market": meta.get("market", "") if isinstance(meta, dict) else "",
                     "ingested_at": meta.get("ingested_at", "") if isinstance(meta, dict) else "",
                     "credibility_tier": _cred_tier,
+                    # R-F3379 — CARRY the rights marking. This selected-field list
+                    # previously dropped it, so the R-F3376 ingest gate wrote a
+                    # marking no consumer could ever see: `may_quote_verbatim` had
+                    # nothing to read. A marking that does not survive the
+                    # retrieval boundary is not a control.
+                    "rights": meta.get("rights", "") if isinstance(meta, dict) else "",
                     "collection": name,
                 })
         except Exception as e:
@@ -1695,6 +1701,57 @@ async def get_rag_context_with_sources(
     return (text, sources)
 
 
+def _rights_marker(result: dict) -> str:
+    """DO-NOT-QUOTE marker for a chunk whose rights do not permit reproduction.
+
+    Delegates to `corpus_ingest.may_quote_verbatim` — the canonical predicate —
+    rather than re-implementing the rule here. Two measures of one thing is how
+    they drift apart (the Phase-A gate lesson).
+    """
+    try:
+        from .corpus_ingest import may_quote_verbatim
+    except Exception:
+        return ""                      # never break retrieval over a marker
+    if not isinstance(result, dict):
+        return ""
+    rights = str(result.get("rights") or "")
+    if may_quote_verbatim({"rights": rights}):
+        return ""
+    if rights:
+        return f" ⛔ DO NOT QUOTE ({rights} — summarise only)"
+    # Pre-R-F3376 chunks carry no rights at all. Unknown provenance is exactly
+    # the condition this gate exists for, so it is marked, not waved through.
+    return " ⛔ DO NOT QUOTE (provenance unrecorded — summarise only)"
+
+
+def rights_gate_stats(results: list[dict]) -> dict:
+    """How much of a result set the gate marks, and why.
+
+    Makes the migration surface measurable: every chunk ingested before R-F3376
+    is `unrecorded`, and re-ingesting it with a declared rights value is what
+    moves it back to quotable.
+    """
+    total = quotable = marked = unrecorded = 0
+    for r in results or []:
+        if not isinstance(r, dict):
+            continue
+        total += 1
+        rights = str(r.get("rights") or "")
+        try:
+            from .corpus_ingest import may_quote_verbatim
+            ok = may_quote_verbatim({"rights": rights})
+        except Exception:
+            ok = False
+        if ok:
+            quotable += 1
+        else:
+            marked += 1
+            if not rights:
+                unrecorded += 1
+    return {"total": total, "quotable": quotable, "marked": marked,
+            "unrecorded": unrecorded}
+
+
 def _format_rag_context(results: list[dict], max_chars: int) -> str:
     """Build the formatted prompt-injection context block. Extracted so
     both get_rag_context (back-compat) and get_rag_context_with_sources
@@ -1717,7 +1774,22 @@ def _format_rag_context(results: list[dict], max_chars: int) -> str:
             return ""
         return ""
 
+    # R-F3379 — the rights gate, at the ONE renderer both context functions share
+    # (get_rag_context and get_rag_context_with_sources). Non-quotable chunks are
+    # still retrieved and still inform the answer; they are MARKED so the model
+    # summarises instead of reproducing. Removing them would destroy the value of
+    # licensed material we legitimately hold, and this renderer already marks
+    # rather than drops for staleness.
+    _gate_on = (os.getenv("ARIA_RAG_RIGHTS_GATE", "1") or "1").strip() not in (
+        "0", "false", "no", "off")
+
     lines = ["\n\n[RAG RETRIEVED — proprietary intelligence indexed from your sources. Respect ⚠ STALE markers — do not present stale chunks as current fact.]"]
+    if _gate_on:
+        lines.append(
+            "[RIGHTS — a chunk marked ⛔ DO NOT QUOTE may be used to reason and may "
+            "be summarised in your own words, but its text must NOT be reproduced "
+            "verbatim or quoted to the user.]"
+        )
     total = 0
     for r in results:
         cite_parts = []
@@ -1726,7 +1798,8 @@ def _format_rag_context(results: list[dict], max_chars: int) -> str:
         if r.get("ingested_at"): cite_parts.append(r["ingested_at"][:10])
         cite = " | ".join(cite_parts) if cite_parts else "unknown source"
         stale = _staleness_marker(r.get("ingested_at", ""))
-        body = f"\n• [{r['score']:.2f}]{stale} {r['text'][:600]}\n  ↳ source: {cite}"
+        rights_mark = _rights_marker(r) if _gate_on else ""
+        body = f"\n• [{r['score']:.2f}]{stale}{rights_mark} {r['text'][:600]}\n  ↳ source: {cite}"
         if total + len(body) > max_chars:
             break
         lines.append(body)
