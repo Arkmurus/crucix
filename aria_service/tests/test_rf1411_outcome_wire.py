@@ -10,6 +10,26 @@ Tests the full loop:
 """
 from __future__ import annotations
 
+def _client():
+    """R-F3365 — TestClient WITHOUT entering the real lifespan.
+
+    `with TestClient(app)` enters aria_service.main's REAL lifespan, starting
+    ARIA's background subsystems inside the pytest process. They outlive the
+    block (bound to a loop that is then closed), and the next test that calls
+    asyncio.run() and reaches the embedder waits forever — measured as
+    test_rf1401_held_out_split_eval hanging in GetQueuedCompletionStatus.
+
+    R-F3347 fixed this mechanism for test_lifespan_smoke.py via a subprocess but
+    did not sweep the other in-process entries, so the wedge moved rather than
+    closed. nullcontext keeps the `with` shape (no indentation churn) while
+    running no lifespan; the routes are still mounted and still answer.
+    """
+    from contextlib import nullcontext
+    from fastapi.testclient import TestClient
+    from aria_service.main import app
+    return nullcontext(TestClient(app))
+
+
 import json
 import time
 from datetime import datetime, timezone
@@ -284,7 +304,7 @@ async def test_outcome_endpoint_via_testclient(mock_redis, mock_brain_hook, mock
     from fastapi.testclient import TestClient
     from aria_service.main import app
 
-    with TestClient(app) as client:
+    with _client() as client:
         # Set auth token for the test
         import os
         os.environ["ARIA_INTERNAL_TOKEN"] = "test-token-12345"
@@ -314,7 +334,7 @@ async def test_outcome_endpoint_validation(mock_redis, mock_brain_hook, mock_cap
     from fastapi.testclient import TestClient
     from aria_service.main import app
 
-    with TestClient(app) as client:
+    with _client() as client:
         import os
         os.environ["ARIA_INTERNAL_TOKEN"] = "test-token-12345"
 
@@ -361,7 +381,7 @@ async def test_outcome_health_endpoint(mock_redis, mock_brain_hook, mock_capabil
         mock_brain_hook.reset_mock()
         mock_capability_gaps.reset_mock()
 
-    with TestClient(app) as client:
+    with _client() as client:
         import os
         os.environ["ARIA_INTERNAL_TOKEN"] = "test-token-12345"
 

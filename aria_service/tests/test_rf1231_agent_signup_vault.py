@@ -326,12 +326,30 @@ class TestVaultAPI:
 
     @pytest.fixture
     def client(self):
-        """Create a test client with the vault routes."""
+        """Create a test client with the vault routes.
+
+        R-F3365 — deliberately NOT `with TestClient(app)`. The context manager
+        enters the REAL aria_service.main lifespan, which starts ARIA's
+        background subsystems inside the pytest process. They outlive the
+        fixture (they are bound to a loop that is then closed), and the next
+        test that calls asyncio.run() and reaches the embedder waits forever.
+
+        Measured: this class poisons test_rf1401_held_out_split_eval:209
+        (asyncio.run(run_eval(...)) -> eval_runner -> asyncio.to_thread(
+        _cosine_score) -> model.encode() -> GetQueuedCompletionStatus). Either
+        file alone passes; together they hang and kill the run with no summary.
+
+        R-F3347 already found and fixed this exact mechanism for
+        test_lifespan_smoke.py by moving the lifespan into a SUBPROCESS. It did
+        not sweep the other in-process entries, so the wedge simply moved.
+
+        Without the context manager the routes are still mounted and still
+        answer — which is all this class asserts — and no lifespan runs.
+        """
         from fastapi.testclient import TestClient
         from aria_service.main import app
 
-        with TestClient(app) as c:
-            yield c
+        yield TestClient(app)
 
     def test_vault_list_endpoint(self, client):
         """GET /api/aria/vault should return a list of entries."""
