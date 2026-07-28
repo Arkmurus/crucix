@@ -257,6 +257,49 @@ printed: every un-executed test would otherwise read as fixed — the same class
 false win this whole session removed. New-failure detection stays live, because a
 test that failed really did fail.
 
+## R-F3378 — CI had been structurally dead for two months
+
+`.github/workflows/ci.yml` failed **in 0 seconds on every push since 2026-05-29**.
+Zero seconds = it died at workflow *parse*; nothing ran. GitHub's annotation:
+"This run likely failed because of a workflow file issue", and `gh workflow list`
+showed it by **path** rather than name — what GitHub renders when it cannot read
+a file.
+
+**Root, bisected:** R-F1073 (`64fd5e4f`) replaced indented inline python with
+**column-0 python** inside `run: |` block scalars. Column-0 content terminates the
+scalar. Proven version-by-version: `20e069f1` VALID → `64fd5e4f` INVALID → all
+since INVALID. 🔑The irony is exact — R-F1073's own header reads *"Each step FAILS
+THE BUILD on error"*, and it is the commit that stopped every step from running.
+
+Indenting back would fix the YAML and break the Python, so the three blocks are
+now real files under `scripts/ci/`. Second defect found alongside: the test step
+piped `pytest` into `tail -50`, and **a bash pipeline exits with its LAST
+command's status** — so no test failure could ever fail it. Removed; step declared
+advisory; a guard now fails if any workflow pipes pytest again.
+
+⚠️**I nearly fixed the wrong thing.** PyYAML flagged every recent version invalid,
+so I suspected my instrument — but the known-good May version parsed cleanly.
+PyYAML was right; my *sample* was entirely post-break. And `conftest.py`'s "CI runs
+ONLY test_imports + test_lifespan_smoke" describes `test-aria.yml`, not all of CI —
+I believed it until I checked. Corrected in place.
+
+**★WHAT THE REVIVED CI IMMEDIATELY FOUND — a CRITICAL RCE hidden for 2 months.**
+`npm audit --omit=dev --audit-level=critical` fails: **protobufjs 6.8.8, arbitrary
+code execution** (GHSA-xq3m-2v4x-88gg) via `baileys → libsignal → protobufjs`,
+plus sharp (high, libvips CVEs) and uuid/node-cron.
+🔑**Severity scoped by evidence, not assumed:** `aria-web` ships the package but has
+**no `WA_LISTENER_*` secrets**, so `mountWAListener` returns early and no socket
+opens — not reachable at runtime there. **`aria-wa` has `WA_LISTENER_ENABLED`
+deployed** and is the tier parsing untrusted WhatsApp data — that is the live
+exposure, and §16's isolation limits the blast radius.
+⚠️**No safe fix today:** `npm audit fix` does NOT resolve it (protobufjs is pinned
+by libsignal — still listed after a dry run); patched line is 7.6.3+/8.x; baileys
+latest is **7.0.0-rc13, a release candidate**. Forcing an override across a major
+would likely break libsignal — and [[aria_web_ux_deep_review_rf3070_3079_2026_07_25]]
+records two dependency bumps that already broke auth + rate limiting silently
+here. Left as an operator risk-decision with the options written down, NOT
+auto-bumped.
+
 ## Open / handoff
 
 - ⚠️ **Suite wedge #5, not investigated.**
