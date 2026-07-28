@@ -27373,9 +27373,10 @@
       "title": "force rotation of issued temporary credentials (mustChangePassword gate)",
       "claimed_at": "2026-07-28T10:49:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7e824b69",
+      "notes": null,
+      "shipped_at": "2026-07-28T10:58:14Z"
     }
   ]
 }
