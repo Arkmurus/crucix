@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3372,
+  "next_available": 3374,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27766,6 +27766,25 @@
       "commit_sha": "4a54271e",
       "notes": null,
       "shipped_at": "2026-07-28T21:15:22Z"
+    },
+    {
+      "r_number": "R-F3372",
+      "title": "entity resolution: the chosen company must be justified by the payload, not merely present in it",
+      "claimed_at": "2026-07-28T21:16:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e10ad6c4",
+      "notes": null,
+      "shipped_at": "2026-07-28T21:24:31Z"
+    },
+    {
+      "r_number": "R-F3373",
+      "title": "make the section-16 baseline mechanically checkable: segmented runner + failure-set diff",
+      "claimed_at": "2026-07-28T21:23:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
