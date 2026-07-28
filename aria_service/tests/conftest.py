@@ -81,6 +81,16 @@ os.environ.setdefault("ARIA_RAG_PATH", _rag_tmp)
 #     ARIA_TEST_BLOCK_NETWORK=1 python -m pytest aria_service/tests/... -q
 #
 # Loopback stays open so a local fixture server still works.
+#
+# KNOWN LIMIT, stated so nobody trusts a green run further than it deserves.
+# This hooks socket.connect, so it catches a live REQUEST. It does NOT catch
+# R-F3318's own block, which happened in ssl.create_default_context() while the
+# httpx client was being CONSTRUCTED, before any connect(). Guarding that would
+# mean intercepting SSL-context creation, which legitimate tests do when they
+# build a client around a mock transport, so it is deliberately not done here.
+# Verified honestly: the guard fires on a real connect to
+# ("api.semanticscholar.org", 443) and allows loopback; it would NOT have caught
+# R-F3318 unaided. Treat a clean run as "no live request", not "no live I/O".
 if (os.getenv("ARIA_TEST_BLOCK_NETWORK", "") or "").strip() in ("1", "true", "yes", "on"):
     import socket as _socket
 
