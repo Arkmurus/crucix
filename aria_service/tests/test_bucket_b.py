@@ -206,12 +206,16 @@ class TestSipriIngest:
 
         ingested_rows: list[dict] = []
 
+        # R-F3376 — ingest now REQUIRES a rights declaration. The stub must accept
+        # it or every row TypeErrors into sipri's try/except and `ingested` is 0.
         async def fake_ingest_corpus_document(text, *, filename, tier, source_class,
                                               region="", cplp_relevant=False,
                                               confidence="", publication_date="",
-                                              notes="", extra_metadata=None):
+                                              notes="", rights="", rights_note="",
+                                              extra_metadata=None):
+            assert rights, "sipri_ingest must declare rights (R-F3376)"
             ingested_rows.append({
-                "text": text, "filename": filename, "tier": tier,
+                "text": text, "filename": filename, "tier": tier, "rights": rights,
                 "source_class": source_class, "region": region,
                 "cplp_relevant": cplp_relevant,
                 "extra_metadata": extra_metadata or {},

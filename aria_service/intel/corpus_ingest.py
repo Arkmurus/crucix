@@ -63,6 +63,86 @@ logger = logging.getLogger("aria.corpus_ingest")
 # and F (private military companies / non-state armed actors).
 VALID_TIERS = {"A", "A+", "B", "B+", "C", "C+", "D", "E", "F", "unknown"}
 
+# ── R-F3376: the rights gate ───────────────────────────────────────────────
+#
+# Before this, ingest validated `tier` and nothing else. The docstring promised
+# "full provenance metadata", but provenance meant WHO PUBLISHED it — never
+# whether ARIA is allowed to HOLD or REPEAT it. ARIA's retrieved text reaches
+# customer-facing output, so two classes must never be stored verbatim:
+#   - third-party copyright (the vetting module already binds us to "clause
+#     numbers ONLY — never store the standard's text (BSI copyright)"), and
+#   - protectively marked material, which in defence/security work arrives
+#     stamped OFFICIAL-SENSITIVE or "not for onward distribution".
+#
+# `rights` is REQUIRED: absent is not permissive. The two refused values have no
+# override flag on purpose — `licensed` is the legitimate route for material we
+# have paid for, so an absolute refusal cannot be argued around under deadline.
+RIGHTS_VALUES = {
+    "owned",                  # the operator owns it outright
+    "public_domain",          # no rights subsist
+    "open_licence",           # OGL / CC-BY / equivalent permitting storage + quotation
+    "licensed",               # third-party, held under a licence — store, do not quote verbatim
+    # Factual records ARIA composed from a third-party dataset's FIELDS (e.g.
+    # sipri_ingest turns CSV columns into a sentence). Facts are not protected
+    # and the expression is ours, so this is quotable — but it is labelled
+    # distinctly rather than as `owned`, which would overstate our claim to the
+    # underlying data.
+    "derived_facts",
+    "third_party_copyright",  # REFUSED
+    "restricted",             # REFUSED — protective marking / confidential
+}
+REFUSED_RIGHTS = {"third_party_copyright", "restricted"}
+# Verbatim quotation is safe only where rights permit reproduction. `licensed`
+# material may be held and reasoned over but must be summarised, not quoted.
+QUOTABLE_RIGHTS = {"owned", "public_domain", "open_licence", "derived_facts"}
+
+# A declared label is a CLAIM. These patterns are EVIDENCE, and they override the
+# claim: a document stamped "© BSI" or "OFFICIAL-SENSITIVE" is refused even when
+# the uploader ticked "owned". Deliberately narrow — each pattern is a formal
+# marking, not an ordinary English word, so normal prose about a "confidential
+# investor briefing" does not trip it.
+_MARKING_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"©\s*BSI|\bBSI\s+copyright|\bBRITISH\s+STANDARD\b|\bBS\s?\d{4,5}(?:[-:]\d{4})?\b",
+     "BSI / British Standard copyright notice"),
+    (r"\bISO/IEC\s+\d+|\b©\s*ISO\b", "ISO copyright notice"),
+    (r"\bOFFICIAL[-\s]SENSITIVE\b", "OFFICIAL-SENSITIVE marking"),
+    (r"\b(TOP\s+SECRET|SECRET|NATO\s+RESTRICTED|NATO\s+CONFIDENTIAL)\b",
+     "national security marking"),
+    (r"\bnot\s+for\s+(onward\s+)?distribution\b", "distribution restriction"),
+    (r"\bis\s+CONFIDENTIAL\b|\bSTRICTLY\s+CONFIDENTIAL\b", "confidentiality marking"),
+    (r"\ball\s+rights\s+reserved\b", "all-rights-reserved notice"),
+)
+
+
+def detect_restricted_markings(text: str) -> list[str]:
+    """Formal copyright / protective markings found in `text`.
+
+    Evidence that contradicts a permissive declaration. Empty list means nothing
+    was found — which is not proof the document is clear, only that the obvious
+    stamps are absent.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return []
+    import re as _re
+    found: list[str] = []
+    head = text[:20000]          # markings live on the cover/footer, not page 400
+    for pattern, label in _MARKING_PATTERNS:
+        m = _re.search(pattern, head, _re.I)
+        if m:
+            found.append(f"{label} ({m.group(0).strip()[:60]})")
+    return found
+
+
+def may_quote_verbatim(meta: Any) -> bool:
+    """True only when the stored rights permit reproducing the text.
+
+    Fail-closed: unknown, missing or malformed metadata is NOT quotable. Consumers
+    that render citations should call this before emitting source text.
+    """
+    if not isinstance(meta, dict):
+        return False
+    return str(meta.get("rights") or "") in QUOTABLE_RIGHTS
+
 # Sentinel for "we tried every extractor and got nothing useful"
 class ExtractError(ValueError):
     """Raised when no extractor produces usable text from the input bytes."""
@@ -182,6 +262,8 @@ async def ingest_corpus_document(
     confidence: str = "",
     publication_date: str = "",
     notes: str = "",
+    rights: str = "",
+    rights_note: str = "",
     extra_metadata: dict | None = None,
 ) -> dict:
     """Push a corpus document into the RAG store with full provenance metadata.
@@ -219,9 +301,44 @@ async def ingest_corpus_document(
     if tier not in VALID_TIERS:
         raise ValueError(f"invalid tier {tier!r} — must be one of {sorted(VALID_TIERS)}")
 
+    # ── R-F3376 rights gate — refuse BEFORE anything is written ────────────
+    if not rights:
+        raise ValueError(
+            "rights is required — declare one of "
+            f"{sorted(RIGHTS_VALUES)}. An unstated rights position is not a "
+            "permissive one: ARIA's retrieved text reaches customer output."
+        )
+    if rights not in RIGHTS_VALUES:
+        raise ValueError(f"invalid rights {rights!r} — must be one of {sorted(RIGHTS_VALUES)}")
+    if rights in REFUSED_RIGHTS:
+        raise ValueError(
+            f"refusing to ingest {filename!r}: rights={rights!r}. Third-party "
+            "copyright and restricted material must not be stored verbatim — the "
+            "vetting module's rule is 'clause numbers ONLY, never the standard's "
+            "text'. If a licence is held, declare rights='licensed' with a note."
+        )
+    if rights == "licensed" and not rights_note.strip():
+        raise ValueError(
+            "rights='licensed' requires rights_note saying under WHAT licence — "
+            "an unnamed licence cannot be audited later."
+        )
+    # A declared label is a claim; a marking in the text is evidence. Evidence
+    # wins, EXCEPT for 'licensed', where a copyright notice is exactly what a
+    # licensed document is expected to carry.
+    if rights != "licensed":
+        markings = detect_restricted_markings(text)
+        if markings:
+            raise ValueError(
+                f"refusing to ingest {filename!r}: declared rights={rights!r} but the "
+                f"document carries {len(markings)} restrictive marking(s): "
+                f"{'; '.join(markings[:3])}. If this is held under licence, declare "
+                f"rights='licensed' with a note; otherwise it must not be stored."
+            )
+
     from . import rag_store
 
     meta: dict[str, Any] = {
+        "rights": rights,          # R-F3376 — carried to retrieval; see may_quote_verbatim
         "tier": tier,
         "source_class": source_class[:100],
         "region": region[:100],
@@ -233,6 +350,8 @@ async def ingest_corpus_document(
         meta["publication_date"] = publication_date[:30]
     if notes:
         meta["notes"] = notes[:300]
+    if rights_note:
+        meta["rights_note"] = rights_note[:300]
     if extra_metadata:
         for k, v in extra_metadata.items():
             if isinstance(v, (str, int, float, bool)):
@@ -240,7 +359,7 @@ async def ingest_corpus_document(
 
     result = await rag_store.ingest_document(
         text=text,
-        source=f"corpus:{tier}:{source_class}:{filename}"[:300],
+        source=f"corpus:{tier}:{rights}:{source_class}:{filename}"[:300],
         source_type="corpus",
         title=filename,
         market=region,
@@ -248,6 +367,7 @@ async def ingest_corpus_document(
     )
     result["tier"] = tier
     result["source_class"] = source_class
+    result["rights"] = rights
 
     # R-F996 — wire to brain
     wire_success(

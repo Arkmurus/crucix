@@ -171,6 +171,12 @@ async def ingest_csv_bytes(raw: bytes, *, since_year: Optional[int] = None,
                 region=recipient,
                 cplp_relevant=_cplp_relevant(recipient),
                 confidence="CONFIRMED",
+                # R-F3376 — this text is a sentence ARIA composes from SIPRI's CSV
+                # FIELDS, not SIPRI prose. The facts are not protected and the
+                # expression is ours; labelling it `owned` would overstate our
+                # claim to the underlying dataset.
+                rights="derived_facts",
+                rights_note="composed from SIPRI Arms Transfers CSV fields",
                 publication_date=str(year_int) if year_int else "",
                 notes=f"supplier={supplier}; category={category_tag}",
                 extra_metadata={

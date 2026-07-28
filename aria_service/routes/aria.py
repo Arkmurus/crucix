@@ -15542,12 +15542,26 @@ async def corpus_ingest_ep(request: Request):
         raise HTTPException(status_code=400, detail="no usable text (min 20 chars)")
 
     from ..intel import corpus_ingest as _ci
+    # R-F3376 — the rights gate is not optional on the HTTP path either. An
+    # unstated rights position is not a permissive one: whatever is ingested here
+    # is retrievable into customer-facing output.
+    _rights = (body.get("rights") or "").strip()
+    if not _rights:
+        raise HTTPException(
+            status_code=400,
+            detail=("rights required — one of "
+                    f"{sorted(_ci.RIGHTS_VALUES)}. Third-party copyright and "
+                    "restricted material are refused; use 'licensed' with a "
+                    "rights_note if a licence is held."),
+        )
     try:
         result = await _ci.ingest_corpus_document(
             text,
             filename=filename,
             tier=tier,
             source_class=source_class,
+            rights=_rights,
+            rights_note=body.get("rights_note", ""),
             region=body.get("region", ""),
             cplp_relevant=bool(body.get("cplp_relevant", False)),
             confidence=body.get("confidence", ""),
