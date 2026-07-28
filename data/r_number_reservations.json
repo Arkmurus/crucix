@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3358,
+  "next_available": 3359,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27583,9 +27583,10 @@
       "title": "PSC beneficial-owner sanctions screen called a function that never existed",
       "claimed_at": "2026-07-28T17:00:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c3821325",
+      "notes": null,
+      "shipped_at": "2026-07-28T17:51:24Z"
     },
     {
       "r_number": "R-F3354",
@@ -27602,9 +27603,10 @@
       "title": "internal memory:// RAG pointers routed to the external article fetcher flood the error ledger",
       "claimed_at": "2026-07-28T17:15:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c3821325",
+      "notes": null,
+      "shipped_at": "2026-07-28T17:51:25Z"
     },
     {
       "r_number": "R-F3356",
@@ -27625,6 +27627,15 @@
       "commit_sha": "3f3fd1f7",
       "notes": null,
       "shipped_at": "2026-07-28T17:40:30Z"
+    },
+    {
+      "r_number": "R-F3358",
+      "title": "ecosystem map: scan the Node tiers so all three services are real",
+      "claimed_at": "2026-07-28T17:49:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
