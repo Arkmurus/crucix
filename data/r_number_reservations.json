@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3349,
+  "next_available": 3353,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27537,6 +27537,42 @@
       "commit_sha": "44a43d34",
       "notes": null,
       "shipped_at": "2026-07-28T14:43:17Z"
+    },
+    {
+      "r_number": "R-F3349",
+      "title": "ecosystem organ assignment: longest-match-wins kills 13 shadowed keywords",
+      "claimed_at": "2026-07-28T16:47:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3350",
+      "title": "ecosystem: Vetting organ + honest dead-keyword self-report",
+      "claimed_at": "2026-07-28T16:47:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3351",
+      "title": "aria-brain: the RED orphan completeness alert never rendered",
+      "claimed_at": "2026-07-28T16:47:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3352",
+      "title": "aria-brain: label the sensor triple + declare the unmapped Node tiers",
+      "claimed_at": "2026-07-28T16:47:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

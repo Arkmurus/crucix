@@ -170,6 +170,55 @@ _ORGANS: list[tuple[str, str, str, tuple[str, ...]]] = [
 ]
 
 
+# R-F3349 — EXPLICIT organ decisions, applied BEFORE keyword matching.
+#
+# The keyword table above is ordered specific→generic and resolves first-match-wins.
+# That is fine for the ~97% of modules only one organ claims, but where several
+# organs match, order decided it — so a deliberately-curated keyword in a LATER
+# organ could never fire, and nobody could see that it had been overruled. This is
+# the same lesson R-F3047 learned on circuit-breaker names ("semantic_scholar" hit
+# the brain organ's "semantic" and painted 56 modules RED off an external paper
+# API): a node's organ is a CURATION DECISION, not a string coincidence, so where
+# strings disagree the decision is DECLARED here rather than inferred from ordering.
+#
+# Deliberately NOT "longest keyword wins" — measured on the live tree that rule
+# fixes these but breaks ~8 others (intel.sources.ofac_sdn → intel_sources, gutting
+# Sanctions; uk_ofsi_ingest → cli; sanctions_divergence → learning). Keyword length
+# is not a specificity metric.
+#
+# Every entry is a decision. A no-op entry CONFIRMS the keyword winner against a
+# curated keyword that lost — silence there would be indistinguishable from the
+# accident this fix removes. `audit_organ_table()` fails the build if any conflict
+# lacks a line here, so this table cannot quietly go stale.
+_ORGAN_OVERRIDES: dict[str, str] = {
+    # ── CORRECTIONS: the curated keyword was right and lost ──
+    "aria_service.intel.run_quarantine": "phase",            # phase declares "run_quarantine"; CLAUDE.md §1 calls it the gate #4 closer
+    "aria_service.intel.reasoning_router": "llm",            # llm declares "reasoning_router"; lost to brain's "reasoning"
+    "aria_service.intel.content_scanner": "guardian",        # guardian declares "content_scanner"; lost to documents' "content_scan"
+    "aria_service.intel.engine_wiring": "infra",             # infra declares "engine_wiring"; lost to autonomous' "engine"
+    "aria_service.intel.deception_detection": "guardian",    # guardian declares "deception_detection"; lost to osint's "deception"
+    "aria_service.intel.autonomy_surface": "routes",         # routes declares "autonomy_surface"; lost to delivery's "surface"
+    "aria_service.intel.scraper.playwright_engine": "search",  # a scraper engine, not self-coding machinery
+    # ── REHOMED: victims of a substring accident the token rule now rejects ──
+    "aria_service.intel.precall_brief": "commercial",        # was brain via "recall" inside "pRECALLbrief"; a pre-call brief is BD
+    "aria_service.metacognitive.identity": "learning",       # was osint via "entity" inside "idENTITY"
+    # ── CONFIRMATIONS: a curated keyword lost, and losing was CORRECT ──
+    "aria_service.intel.evasion_typology_detector": "compliance",  # FATF typology work, not OSINT tradecraft (osint "evasion" overruled)
+    "aria_service.intel.sanctions_divergence": "sanctions",  # a sanctions signal (learning "divergence" overruled)
+    "aria_service.intel.counter_intelligence": "osint",      # an OSINT discipline (guardian "counter_intel" overruled)
+    "aria_service.intel.brier_drift_monitor": "learning",    # calibration drift is a learning signal (phase "brier" overruled)
+    "aria_service.intel.reasoning_library": "learning",      # learning declares "reasoning_library"; brain's "reasoning" overruled.
+                                                             # Surfaced by the audit only AFTER reasoning_router moved to llm above —
+                                                             # that left brain's "reasoning" winning nothing, which is the guard working.
+    "aria_service.learning.knowledge_spider": "brain",       # feeds knowledge; lives in learning (search "spider" overruled)
+    "aria_service.autonomous.sovereign_llm": "llm",          # an LLM surface (guardian "sovereign" overruled)
+    "aria_service.autonomous.autonomous_deploy": "autonomous",  # ARIA's SELF-deploy machinery, not operator infra
+    "aria_service.autonomous.deploy_verifier": "autonomous",     # (infra "deploy" overruled for all four)
+    "aria_service.autonomous.fly_deployer": "autonomous",
+    "aria_service.autonomous.machines_deployer": "autonomous",
+}
+
+
 # ── Module inventory (the completeness DENOMINATOR) ─────────────────────────
 def scan_modules() -> list[Path]:
     """Every non-test aria_service .py file. Mirrors scripts/ecosystem_audit.scan_modules
@@ -204,13 +253,113 @@ def _read(path: Path) -> str:
         return path.read_text(encoding="latin-1")
 
 
+def _kw_matches(keyword: str, low_id: str) -> bool:
+    """R-F3349 — does `keyword` occur in `low_id` at a TOKEN BOUNDARY?
+
+    The old test was `keyword in low_id`, a naked substring, which filed
+    `yaml_reviewer` under anti-money-laundering ("aml" inside "y-AML-"),
+    `precall_brief` under Brain & Memory ("recall" inside "p-RECALL-") and
+    `metacognitive.identity` under OSINT ("entity" inside "id-ENTITY"). Same
+    defect class R-F3047 removed from circuit-breaker names; module paths are the
+    other caller of the same keyword table and never got the fix.
+
+    A match must START on a token boundary (string start, `.` or `_`). It need NOT
+    end on one, because many keywords are deliberate STEMS — "sanction" has to
+    match "sanctions", "investigat" has to match "company_investigator", "crawl"
+    has to match "crawler". Requiring a trailing boundary would break those; the
+    accidents are all mid-token STARTS, so anchoring the start is exactly enough.
+    """
+    start = 0
+    while True:
+        i = low_id.find(keyword, start)
+        if i < 0:
+            return False
+        if i == 0 or low_id[i - 1] in "._":
+            return True
+        start = i + 1
+
+
 def _assign_organ(mod_id: str) -> str | None:
+    """Module (or internal agent/gap name) → organ id, or None for an orphan.
+
+    R-F3349: an explicit decision in _ORGAN_OVERRIDES wins over any keyword; then
+    keywords resolve first-match-wins in the declared specific→generic order,
+    matching at token boundaries only.
+    """
+    override = _ORGAN_OVERRIDES.get(mod_id)
+    if override:
+        return override
     low = mod_id.lower()
     for oid, _label, _svc, keys in _ORGANS:
-        if any(k in low for k in keys):
+        if any(_kw_matches(k, low) for k in keys):
             return oid
         # first-match wins → ordered specific→generic above
     return None
+
+
+_ORGAN_AUDIT_CACHE: dict[str, Any] = {"key": None, "data": None}
+
+
+def audit_organ_table(module_ids: list[str] | None = None) -> dict[str, Any]:
+    """R-F3349 — the CURATED layer's self-audit, surfaced in /ecosystem/coverage.
+
+    Modules, imports and call-graph coverage all declare their own limits. The
+    organ table was the one layer that did not, so its drift was invisible:
+    measured on 578 live modules, 60 of its keywords matched NOTHING (stale after
+    renames/deletions — "ubo", "whois", "xbrl", "curriculum", "telegram") and 13
+    matched modules they never won. Both are reported here rather than hidden,
+    which is the same discipline this module applies to orphans and to colour.
+
+    A DEAD keyword is not automatically a bug — several are aspirational, held for
+    a module that does not exist yet, and deleting them would orphan that module on
+    arrival. So dead keywords are REPORTED, never auto-pruned.
+
+    A SHADOWED keyword — one whose organ loses the module to another organ — IS a
+    bug unless a human decided it, which is why `declared` is tracked and why the
+    R-F3349 test fails on any undeclared one.
+
+    Measured at ~100ms over 578 modules × ~600 keywords, which is small but is
+    SYNCHRONOUS, and get_coverage() sits on the /api/aria/health path that R-F3062
+    already had to rescue from a blown budget. So callers pass the module ids
+    build_structure() has already produced (no second filesystem walk), and the
+    result is memoised against that id set — the organ table is static, so the
+    audit can only change when the module set does.
+    """
+    ids = list(module_ids) if module_ids is not None else [_module_id(p) for p in scan_modules()]
+    key = hashlib.sha1("\n".join(sorted(ids)).encode()).hexdigest()
+    if _ORGAN_AUDIT_CACHE["key"] == key and _ORGAN_AUDIT_CACHE["data"] is not None:
+        return _ORGAN_AUDIT_CACHE["data"]
+    live = set(ids)
+    assigned = {mid: _assign_organ(mid) for mid in ids}
+
+    dead: list[dict[str, str]] = []
+    shadowed: list[dict[str, Any]] = []
+    for oid, _label, _svc, keys in _ORGANS:
+        for k in keys:
+            hits = [m for m in ids if _kw_matches(k, m.lower())]
+            if not hits:
+                dead.append({"organ": oid, "keyword": k})
+                continue
+            lost = [m for m in hits if assigned[m] != oid]
+            if len(lost) == len(hits):  # this keyword never wins a module for its organ
+                for m in lost:
+                    shadowed.append({
+                        "keyword": k,
+                        "intended_organ": oid,
+                        "actual_organ": assigned[m],
+                        "module": m,
+                        "declared": m in _ORGAN_OVERRIDES,
+                    })
+    out = {
+        "dead_keywords": sorted(dead, key=lambda d: (d["organ"], d["keyword"])),
+        "shadowed_keywords": shadowed,
+        "stale_overrides": sorted(m for m in _ORGAN_OVERRIDES if m not in live),
+        "override_count": len(_ORGAN_OVERRIDES),
+        "note": "dead keywords may be aspirational and are reported, never auto-pruned; "
+                "a shadowed keyword must carry an explicit _ORGAN_OVERRIDES decision",
+    }
+    _ORGAN_AUDIT_CACHE["key"], _ORGAN_AUDIT_CACHE["data"] = key, out
+    return out
 
 
 def _resolve_import_targets(node: ast.AST, src_id: str, valid: set[str]) -> list[str]:
@@ -976,6 +1125,13 @@ async def get_coverage() -> dict[str, Any]:
             "status": "declared_partial",
             "reason": "function-call graph is statically undecidable in Python (dynamic dispatch/getattr/late imports)",
         },
+        # R-F3349 — the organ table is the ONLY curated layer, so it must declare its
+        # own drift the way every other layer here does. Dead keywords are stale or
+        # aspirational; shadowed ones are keywords their organ never wins. Fed the ids
+        # build_structure already resolved so this adds no second filesystem walk.
+        "organ_table": audit_organ_table(
+            [n["module_id"] for n in full["nodes"] if n["type"] == "module"]
+        ),
         "health_sensors": await _health_coverage(full),
         "meta": {"generated_at": m["generated_at"], "build_ms": m["build_ms"]},
     }
