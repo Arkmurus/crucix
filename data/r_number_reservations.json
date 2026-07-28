@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3366,
+  "next_available": 3367,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27706,6 +27706,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3366",
+      "title": "multi-turn tool-use corpus replayed from real DD runs so the model learns to reason not recite",
+      "claimed_at": "2026-07-28T20:31:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "638b8fa1",
+      "notes": null,
+      "shipped_at": "2026-07-28T20:43:30Z"
     }
   ]
 }
