@@ -1,6 +1,22 @@
-"""R-F1251 — Tests for the ARIA client learning sync endpoints."""
+"""R-F1251 — Tests for the ARIA client learning sync endpoints.
+
+R-F3326 — these called /learning/sync UNAUTHENTICATED and had been failing 401
+ever since R-F1347 (2026-06-05) put `Depends(require_aria_token)` on it. That was
+deliberate security hardening: R-F1251 had made an unauthenticated brain WRITE
+endpoint public, and R-F1347 removed it from the public bypass (see the comment at
+routes/aria.py:392).
+
+So the ENDPOINT is right and these tests were wrong. Making them green by dropping
+the dependency would have reopened the hole - the reason to check which side is
+actually wrong before touching either. No production caller exists outside the
+route, so nothing was broken live.
+
+The auth requirement is now asserted explicitly below, so a future change that
+makes this endpoint public again fails here instead of shipping.
+"""
 from __future__ import annotations
 
+import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -10,6 +26,29 @@ from aria_service.main import app
 
 
 client = TestClient(app)
+
+
+_TEST_TOKEN = "rf3326-test-token"
+
+
+@pytest.fixture(autouse=True)
+def _token(monkeypatch):
+    """Give require_aria_token something to accept.
+
+    _accepted_tokens() (routes/aria.py:349) reads the token env vars at CALL time
+    and keeps only truthy ones, so an unset environment accepts nothing and every
+    request is 401.
+
+    monkeypatch, NOT os.environ at module scope: a module-level env write is a
+    process-global mutation no fixture undoes, which is the R-F2801 anti-pattern
+    documented in test_rf1498's header (it leaked into every later test in the run).
+    """
+    monkeypatch.setenv("ARIA_API_TOKEN", _TEST_TOKEN)
+
+
+def _auth() -> dict:
+    """Match require_aria_token."""
+    return {"Authorization": f"Bearer {_TEST_TOKEN}"}
 
 
 def test_learning_sync_accepts_interactions():
@@ -27,7 +66,7 @@ def test_learning_sync_accepts_interactions():
         ],
         "client_id": "test_client_001",
         "client_version": "2.0.0",
-    })
+    }, headers=_auth())
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "ok"
@@ -40,7 +79,7 @@ def test_learning_sync_empty_interactions():
         "interactions": [],
         "client_id": "test_client_001",
         "client_version": "2.0.0",
-    })
+    }, headers=_auth())
     assert resp.status_code == 200
     data = resp.json()
     assert data["received"] == 0
@@ -50,7 +89,7 @@ def test_learning_sync_no_interactions_key():
     """POST /api/aria/learning/sync should handle missing interactions key."""
     resp = client.post("/api/aria/learning/sync", json={
         "client_id": "test_client_001",
-    })
+    }, headers=_auth())
     assert resp.status_code == 200
     data = resp.json()
     assert data["received"] == 0
@@ -61,7 +100,7 @@ def test_learning_updates_returns_patterns():
     resp = client.get("/api/aria/learning/updates", params={
         "client_id": "test_client_001",
         "client_version": "2.0.0",
-    })
+    }, headers=_auth())
     assert resp.status_code == 200
     data = resp.json()
     assert "patterns" in data
@@ -72,7 +111,7 @@ def test_learning_updates_returns_patterns():
 
 def test_learning_updates_no_params():
     """GET /api/aria/learning/updates should work without params."""
-    resp = client.get("/api/aria/learning/updates")
+    resp = client.get("/api/aria/learning/updates", headers=_auth())
     assert resp.status_code == 200
     data = resp.json()
     assert "patterns" in data
@@ -96,7 +135,7 @@ def test_client_chat_via_client_endpoint():
         resp = client.post("/api/aria/client/chat", json={
             "message": "Research quantum computing",
             "user": "test",
-        })
+        }, headers=_auth())
         assert resp.status_code == 200
         data = resp.json()
         assert data["response"] == "ARIA intelligence at work!"
@@ -115,8 +154,21 @@ def test_client_analyse_via_client_endpoint():
     with patch("aria_service.routes.aria.chat_ep", new=AsyncMock(return_value=mock_response)):
         resp = client.post("/api/aria/client/analyse", json={
             "code": "def foo():\n    return 1/0\n",
-        })
+        }, headers=_auth())
         assert resp.status_code == 200
         data = resp.json()
         assert "analysis" in data
         assert "fixes" in data
+
+
+def test_rf3326_the_endpoint_still_requires_auth():
+    """R-F1347's property, pinned. /learning/sync is a brain WRITE.
+
+    It was public under R-F1251 and R-F1347 closed that. If a future change makes
+    it unauthenticated again, this fails rather than silently shipping an open
+    write path into the brain.
+    """
+    resp = client.post("/api/aria/learning/sync", json={"interactions": []})
+    assert resp.status_code == 401, (
+        f"/learning/sync must reject unauthenticated writes; got {resp.status_code}"
+    )
