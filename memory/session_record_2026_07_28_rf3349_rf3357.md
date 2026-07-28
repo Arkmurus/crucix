@@ -153,13 +153,21 @@ started them. Two-file reproduction: **hung before, 36 passed in 12s after.**
 | `test_rf2379` | 11 | **declared exception, deliberately NOT fixed** |
 | `test_rf3365` | — | the guard R-F3347 lacked |
 
-⚠️ **`rf2379` genuinely needs the started app**: without the lifespan its DD routes
-fail closed with 401. Measured both ways — **44 passed with, 11 failed without** —
-so removing it would change what the test exercises rather than fix a leak. It
-sorts after `rf1401`, so it is not this poisoner, but it IS a real hazard for tests
-following it. It sits on an allowlist with its measured reason and the remedy it
-should take (subprocess, like `test_lifespan_smoke.py`), and a second test asserts
-the allowlist cannot outlive its reason.
+❌ **CORRECTED by R-F3370 — the `rf2379` allowlist entry was WRONG.** I recorded
+that it "genuinely needs the started app (44 passed with lifespan vs 11 failed
+without)". The measurement was real; the interpretation was not. **`rf2379`
+defines its own `app` FIXTURE** (a bare FastAPI with the DD router and auth
+overridden) and all 11 of its `with TestClient(app)` sites take *that* app — its
+single `from aria_service.main import app` is in an unrelated helper that only
+reads `app.routes`. **It never entered a lifespan at all.** The 11 failures came
+from my own fix attempt swapping in the REAL app, so real auth returned 401.
+
+The guard had matched any `with TestClient(app)` in a file that *mentioned*
+`aria_service.main` anywhere — a coincidence, not a resolution — and I then wrote
+the false positive into an allowlist with a confident justification. 🔑**A guard
+that cannot resolve its own subject manufactures exceptions to itself.** R-F3370
+resolves the name (a parameter called `app` is fixture injection and shadows the
+module import), and **the allowlist is now EMPTY, which is the honest state.**
 
 **The guard's first draft was itself wrong** — a regex that flagged the docstrings
 of the very files it had just fixed, because prose explaining the banned pattern
@@ -189,6 +197,31 @@ segmented runs cannot see order-dependent failures (149 segmented vs 165
 single-process = 16 invisible). §16's "new R-numbers must not add to the failing
 count" presumes a suite that can finish; this is now the second independent reason
 this repo has never had one.
+
+## R-F3368 / R-F3370 / R-F3371 — the closing sweep
+
+**R-F3368 — the floor document was ~3x stale.** CLAUDE.md §16 had carried
+*"3647 tests / 72 failing"* since May. Measured at HEAD: **94 failed / 11,673
+passed / 11,767 tests**, all 1472 files, zero gaps, zero timeouts — recorded with
+the full failing-test SET in `docs/suite_baseline_2026_07_28.md`, because this
+repo judges by failure-set diff and a count cannot support that. **None of the 94
+is in any file this session touched.** Two caveats sit *with* the number: it was
+built from 13 foreground segments (background pytest is killed externally here),
+and segmented runs cannot see order-dependent failures, so **94 is a FLOOR**.
+
+**R-F3370 — corrected my own shipped guard** (see above). The lesson is the one
+this whole session keeps producing: verify the instrument before trusting its
+verdict, and an allowlist entry is a standing exemption that must be *earned*.
+
+**R-F3371 — the banner claimed R-numbers the build did not ship.** Two measured
+over-claims: a code commit *citing* an older R-number put it in the banner
+(R-F3347), and a docs-only commit announced one for a build it changed nothing in
+(R-F3368). This is the **third** instalment of one family — R-F3247 removed
+reservation commits, R-F3357 removed the empty-range case — and both predecessors
+left the real assumption intact: **that a commit MESSAGE is evidence of what a
+build CONTAINS.** It is not. A commit now contributes its own R-number, and only
+if it changes a file that reaches the image. Measured before/after on the live
+range: `R-F3347+…+R-F3368+…` → `R-F3365+R-F3366+R-F3367+R-F3369+R-F3370`.
 
 ## Open / handoff
 
