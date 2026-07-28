@@ -27821,9 +27821,10 @@
       "title": "the R-F3373 section-16 gate was never proven to fire",
       "claimed_at": "2026-07-28T21:54:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d42da583",
+      "notes": null,
+      "shipped_at": "2026-07-28T22:05:21Z"
     }
   ]
 }
