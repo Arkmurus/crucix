@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3378,
+  "next_available": 3379,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27812,9 +27812,10 @@
       "title": "corpus ingest has no provenance gate: copyrighted or restricted material can enter RAG unchecked",
       "claimed_at": "2026-07-28T21:50:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "12eb6fbd",
+      "notes": null,
+      "shipped_at": "2026-07-28T22:14:04Z"
     },
     {
       "r_number": "R-F3377",
@@ -27825,6 +27826,15 @@
       "commit_sha": "d42da583",
       "notes": null,
       "shipped_at": "2026-07-28T22:05:21Z"
+    },
+    {
+      "r_number": "R-F3378",
+      "title": "ci.yml pipes pytest into tail, so test failures can never fail CI",
+      "claimed_at": "2026-07-28T22:10:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
