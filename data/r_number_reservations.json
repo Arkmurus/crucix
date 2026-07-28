@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3333,
+  "next_available": 3334,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27377,6 +27377,15 @@
       "commit_sha": "7e824b69",
       "notes": null,
       "shipped_at": "2026-07-28T10:58:14Z"
+    },
+    {
+      "r_number": "R-F3333",
+      "title": "rf1082's hand-rolled Toolbox stub drifted behind Agent's constructor",
+      "claimed_at": "2026-07-28T11:07:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
