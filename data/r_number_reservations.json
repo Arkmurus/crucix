@@ -28149,18 +28149,20 @@
       "title": "wire the DD Standard into the report and retire the discipline_coverage proxy",
       "claimed_at": "2026-07-29T11:03:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4575a26f",
+      "notes": null,
+      "shipped_at": "2026-07-29T13:32:40Z"
     },
     {
       "r_number": "R-F3411",
       "title": "DD scope reaches the engine: a waived section is not searched, an elected one is",
       "claimed_at": "2026-07-29T11:03:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4575a26f",
+      "notes": null,
+      "shipped_at": "2026-07-29T13:32:40Z"
     },
     {
       "r_number": "R-F3412",
@@ -28237,9 +28239,10 @@
       "title": "three long-red guards: assert the property, not the wording",
       "claimed_at": "2026-07-29T12:35:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4575a26f",
+      "notes": null,
+      "shipped_at": "2026-07-29T13:32:40Z"
     },
     {
       "r_number": "R-F3420",
