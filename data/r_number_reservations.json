@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3418,
+  "next_available": 3419,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28221,6 +28221,16 @@
       "commit_sha": "fb6e7274",
       "notes": null,
       "shipped_at": "2026-07-29T12:04:21Z"
+    },
+    {
+      "r_number": "R-F3418",
+      "title": "validator still not standalone: import-time roster + a capability test that simulated one missing module, not the pod",
+      "claimed_at": "2026-07-29T12:11:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a09fef7e",
+      "notes": null,
+      "shipped_at": "2026-07-29T12:18:20Z"
     }
   ]
 }
