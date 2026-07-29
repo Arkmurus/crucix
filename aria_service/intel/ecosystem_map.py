@@ -976,10 +976,33 @@ from functools import lru_cache as _lru_cache  # R-F3421 — token-matcher cache
 # from every pool keeps today's behaviour (its breaker colour reaches the organ
 # unchanged), so this can only ever SOFTEN a false red, never hide a real one — and only
 # while a sibling is provably still serving.
+#
+# R-F3423 — THE DECLARATION WAS INCOMPLETE, AND TWO NAMES MATCHED NOTHING.
+#
+# R-F3421 declared the WEB-search pool and shipped. The live banner then showed
+# organ:search RED again from `circuit_breaker[openalex]` — a different backend of the
+# same shape. Measured against the registry at that moment:
+#     in _SENSOR_ORGAN->search but UNPOOLED: academic, archive_is, crossref, gnews_api,
+#                                            openalex, searxng-selfhost, semantic_scholar,
+#                                            wayback
+#     pooled but NOT a registry key:         brave_search, gnews
+# So the fix covered the case I had watched fail and missed its siblings, and two of my
+# own names were typos — `gnews` is spelled `gnews_api` in the registry, so the real
+# backend was never pooled at all while a phantom one was.
+#
+# A typo here is silent and dangerous: an unknown member simply never appears in
+# `_open_now`, so the pool looks permanently healthy and the cap applies when it should
+# not. `test_rf3423` now asserts every member resolves to a real `_SENSOR_ORGAN` key,
+# which turns that class from invisible into a failing build.
 _BACKEND_POOLS: dict[str, tuple[str, ...]] = {}
 for _pool in (
-    # Web search: any one of these can answer a query; Brave is primary (R-F2318).
-    ("duckduckgo", "searxng", "google_news", "bing_news", "gnews", "brave", "brave_search"),
+    # Web search: any one can answer a query; Brave is primary (R-F2318).
+    ("duckduckgo", "searxng", "searxng-selfhost", "google_news", "bing_news",
+     "gnews_api", "brave"),
+    # Academic lookup: interchangeable for "find the paper/author".
+    ("academic", "semantic_scholar", "openalex", "crossref"),
+    # Web archive: either can serve a historical snapshot.
+    ("wayback", "archive_is"),
 ):
     for _member in _pool:
         _BACKEND_POOLS[_member] = _pool

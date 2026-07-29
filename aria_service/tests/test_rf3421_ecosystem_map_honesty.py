@@ -86,6 +86,51 @@ def test_pool_membership_is_declared_not_inferred():
         assert member in em._BACKEND_POOLS[member]
 
 
+# ── R-F3423 — the declaration must be COMPLETE and must not contain typos ────
+
+def test_every_pool_member_is_a_real_registry_key():
+    """A member that matches no `_SENSOR_ORGAN` key is a SILENT defect: it never
+    appears in `_open_now`, so the pool looks permanently healthy and the amber cap
+    applies when it should not.
+
+    R-F3421 shipped with two: `brave_search` (the key is `brave`) and `gnews`
+    (the key is `gnews_api`), so the real gnews backend was never pooled while a
+    phantom one was. Invisible until this assertion existed.
+    """
+    unknown = sorted(m for m in em._BACKEND_POOLS if m not in em._SENSOR_ORGAN)
+    assert not unknown, (
+        f"pool members that are not registry keys: {unknown} — these can never trip, "
+        f"so the pool is silently over-healthy"
+    )
+
+
+def test_every_search_backend_belongs_to_a_pool():
+    """R-F3423's live lesson: organ:search went red again from `openalex`, a backend of
+    exactly the same shape as the one R-F3421 fixed. Any search backend outside a pool
+    can still condemn the organ single-handed."""
+    search_backends = {k for k, v in em._SENSOR_ORGAN.items() if v == "search"}
+    unpooled = sorted(search_backends - set(em._BACKEND_POOLS))
+    assert not unpooled, (
+        f"search backends that can still paint the organ RED alone: {unpooled}"
+    )
+
+
+def test_the_pools_are_distinct_capability_groups():
+    """Membership means 'these are interchangeable for a purpose'. Lumping every search
+    backend into one pool would mean an academic outage is masked by a web-search
+    backend that cannot answer the same question."""
+    assert em._BACKEND_POOLS["openalex"] != em._BACKEND_POOLS["duckduckgo"]
+    assert em._BACKEND_POOLS["wayback"] != em._BACKEND_POOLS["duckduckgo"]
+    assert "semantic_scholar" in em._BACKEND_POOLS["openalex"]
+
+
+def test_an_academic_backend_alone_no_longer_condemns_search():
+    """The exact live reading that reopened this: circuit_breaker[openalex] OPEN."""
+    h = _health({"breakers": [_breaker("openalex")]}, _nodes("organ:search"))
+    assert h["organ:search"]["color"] == "amber"
+    assert "still serving" in h["organ:search"]["value"]
+
+
 def test_half_open_member_is_still_amber():
     h = _health({"breakers": [_breaker("search:duckduckgo", state="HALF_OPEN")]},
                 _nodes("organ:search"))
