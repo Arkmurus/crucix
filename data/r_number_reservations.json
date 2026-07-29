@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3396,
+  "next_available": 3398,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28006,6 +28006,25 @@
       "commit_sha": "4208b2e7",
       "notes": null,
       "shipped_at": "2026-07-29T08:42:37Z"
+    },
+    {
+      "r_number": "R-F3396",
+      "title": "scale the tool-use corpus: rebalance the thin axes and widen the subject roster",
+      "claimed_at": "2026-07-29T08:43:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "307cc6f9",
+      "notes": null,
+      "shipped_at": "2026-07-29T09:02:33Z"
+    },
+    {
+      "r_number": "R-F3397",
+      "title": "officer sanctions screen ran before the registry produced any officers",
+      "claimed_at": "2026-07-29T08:57:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
