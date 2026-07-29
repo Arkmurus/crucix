@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3393,
+  "next_available": 3395,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27976,6 +27976,26 @@
       "commit_sha": "0278c1e3",
       "notes": null,
       "shipped_at": "2026-07-29T08:04:51Z"
+    },
+    {
+      "r_number": "R-F3393",
+      "title": "sft_train default base model contradicts the agreed Mistral-7B base every cycle script uses",
+      "claimed_at": "2026-07-29T08:17:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6116eaa3",
+      "notes": null,
+      "shipped_at": "2026-07-29T08:21:48Z"
+    },
+    {
+      "r_number": "R-F3394",
+      "title": "tool-use corpus has no held-out split; splitting by row would leak entities across train and eval",
+      "claimed_at": "2026-07-29T08:17:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c4ef5c09",
+      "notes": null,
+      "shipped_at": "2026-07-29T08:27:07Z"
     }
   ]
 }
