@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3399,
+  "next_available": 3400,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28022,9 +28022,10 @@
       "title": "officer sanctions screen ran before the registry produced any officers",
       "claimed_at": "2026-07-29T08:57:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c110b07f",
+      "notes": null,
+      "shipped_at": "2026-07-29T09:28:07Z"
     },
     {
       "r_number": "R-F3398",
@@ -28035,6 +28036,15 @@
       "commit_sha": "bc0d996b",
       "notes": null,
       "shipped_at": "2026-07-29T09:23:22Z"
+    },
+    {
+      "r_number": "R-F3399",
+      "title": "align ARIA privacy and terms with Arkmurus Limited",
+      "claimed_at": "2026-07-29T09:26:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
