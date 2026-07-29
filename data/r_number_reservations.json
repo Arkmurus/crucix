@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3398,
+  "next_available": 3399,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28021,6 +28021,15 @@
       "r_number": "R-F3397",
       "title": "officer sanctions screen ran before the registry produced any officers",
       "claimed_at": "2026-07-29T08:57:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3398",
+      "title": "training tooling loads the project env natively; a missing credential must never read as a data finding",
+      "claimed_at": "2026-07-29T09:07:55Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

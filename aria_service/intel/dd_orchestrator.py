@@ -3709,6 +3709,199 @@ async def _screen_psc_sanctions(report: ARKDDReport) -> bool:
     return hard_stop
 
 
+def _officer_screen_candidates(report: ARKDDReport, target: dict) -> list[dict]:
+    """Every natural person who must be screened as an officeholder, de-duplicated.
+
+    Two provenances, and the distinction is load-bearing rather than cosmetic:
+    `registry` names came off a company register, `operator` names were typed into
+    the DD request. Both are trusted (`sanctions._TRUSTED_NAME_SOURCES`), so both
+    skip the R-F3228 search-query shape heuristic — but they are different claims
+    about where a name came from, and the finding says which.
+
+    Registry officers come FIRST so that when the cap bites it truncates the
+    caller's guesses, never the register's record.
+    """
+    seen: set[str] = set()
+    out: list[dict] = []
+
+    def _add(name: str, role: str, provenance: str) -> None:
+        nm = " ".join(str(name or "").split()).strip()
+        if len(nm) < 4:
+            return
+        key = nm.casefold()
+        if key in seen:
+            return          # the same person on both lists costs one API call
+        seen.add(key)
+        out.append({"name": nm, "role": role or "Officer", "provenance": provenance})
+
+    # 1. Registry-discovered officers. This is the set the DEFECT could not see:
+    #    `report.identity.directors` is written by the Companies House block and by
+    #    `_apply_registry_result`, both of which run AFTER the old inline screen.
+    for _o in (report.identity.directors or []):
+        if isinstance(_o, str):
+            _add(_o, "Officer", "registry")
+            continue
+        if not isinstance(_o, dict):
+            continue
+        # A resigned officer is not a current control relationship. Mirrors the
+        # PSC screen's `ceased_on` skip so the two paths agree on what "current"
+        # means and neither burns quota on history.
+        if _o.get("resigned_on"):
+            continue
+        _add(_o.get("name") or "", _o.get("officer_role") or _o.get("role") or "Officer",
+             "registry")
+
+    # 2. Caller-supplied directors / representatives, and names derivable from the
+    #    contact details. Preserved verbatim from the block this replaces so the
+    #    supplied path is not lost in the move.
+    for _d in (target.get("directors") or []):
+        if isinstance(_d, str):
+            _add(_d, "Director (supplied)", "operator")
+        elif isinstance(_d, dict):
+            _add(_d.get("name") or "", _d.get("role") or "Director (supplied)", "operator")
+    for _email_field in ("email", "contact_email"):
+        _em = target.get(_email_field) or ""
+        if "@" in str(_em):
+            _local = str(_em).split("@")[0]
+            # firstname.lastname or firstname_lastname patterns
+            _parts = re.split(r"[._\-]", _local)
+            if len(_parts) >= 2:
+                _add(" ".join(p.capitalize() for p in _parts if len(p) > 1),
+                     "Contact (from email)", "operator")
+    for _cn_field in ("contact_name", "contact", "representative"):
+        _add((target.get(_cn_field) or "").strip(), "Contact", "operator")
+
+    return out
+
+
+#: Cost bound carried over from the inline block this replaces. Truncation is
+#: DISCLOSED (see below) rather than silent — an unscreened officer nobody
+#: mentions is indistinguishable from a screened clean one.
+_OFFICER_SCREEN_CAP = 8
+
+
+async def _screen_officer_sanctions(report: ARKDDReport, target: dict) -> bool:
+    """Screen every CURRENT officeholder against sanctions. True on a hard stop.
+
+    R-F3397 — this replaces an inline block in `_run_identity` that carried three
+    faults, all of which the PSC sibling had already been given a fix for:
+
+      1. POSITION. It ran at :4503 over `target["directors"]` alone, while the
+         registry does not write `report.identity.directors` until :4765. A DD
+         launched by company name screened ZERO officers and said nothing about it.
+
+      2. It never checked `screened`/`error`, so an unreachable source returned
+         `matches: []` and the block emitted "<role> <name> — sanctions screen
+         CLEAN" at confidence CONFIRMED. A screen that reached no list, certifying
+         a named human being clean.
+
+      3. It passed no `source=`, so register-sourced names went through the
+         free-text shape heuristic that produced the R-F3217 false clean.
+
+    Extracted (rather than moved) for the R-F3353/R-F1836 reason: the full identity
+    layer needs live Companies House + sanctions to reach this code, so an inline
+    loop is not drivable by a capability test and its honesty rules cannot be
+    asserted. Callers: `_run_identity`, once, after every registry write.
+    """
+    candidates = _officer_screen_candidates(report, target)
+    if not candidates:
+        return False
+
+    from . import sanctions as _san
+    from ._sanctions_classify import classify_matches as _cm_off
+
+    hard_stop = False
+    _screened = candidates[:_OFFICER_SCREEN_CAP]
+    if len(candidates) > _OFFICER_SCREEN_CAP:
+        # Never a silent truncation: the report states who was NOT reached.
+        _unscreened = [c["name"] for c in candidates[_OFFICER_SCREEN_CAP:]]
+        report.identity.data_gaps.append(
+            f"Officer sanctions screen capped at {_OFFICER_SCREEN_CAP} of "
+            f"{len(candidates)} officeholders — SANCTIONS_SOURCE_UNVERIFIED for "
+            f"{', '.join(_unscreened[:6])}"
+            f"{f' and {len(_unscreened) - 6} more' if len(_unscreened) > 6 else ''} "
+            f"(not screened, not a clearance)"
+        )
+
+    for _c in _screened:
+        _nm, _role = _c["name"], _c["role"]
+        _src = "registry" if _c["provenance"] == "registry" else "operator"
+        try:
+            screen = await _san.screen_with_aliases(_nm, source=_src) or {}
+            report.identity.meta.subcalls += 1
+            # R-F1696: an empty match list is a CLEARANCE only when the screen
+            # actually reached the source.
+            if not (screen.get("screened") and not screen.get("error")):
+                _reason = str(screen.get("error") or "source unavailable")[:80]
+                report.identity.data_gaps.append(
+                    f"Officer sanctions screen '{_nm}': SANCTIONS_SOURCE_UNVERIFIED "
+                    f"— {_reason}, NOT screened (re-screen required, not a clearance)"
+                )
+                logger.warning(
+                    "dd_orchestrator: officer sanctions screen NOT performed for %s: %s",
+                    _nm, _reason,
+                )
+                continue
+
+            _cls = _cm_off(screen.get("matches") or [], query_name=_nm)
+            _worst = _cls["worst_severity"]
+            # `source` stays "sanctions.director_screen" — two consumers key off
+            # that exact string (the SAR cross-board trigger and the ACH shell
+            # hypothesis). Both were starved by the defect and are fed for the
+            # first time by this fix; renaming it would re-starve them.
+            if _worst == "hard_stop":
+                report.identity.findings.append(Finding(
+                    severity="hard_stop",
+                    title=f"{_role} {_nm} on active sanctions list",
+                    detail=_cls["summary"],
+                    source="sanctions.director_screen",
+                    confidence="CONFIRMED",
+                ))
+                hard_stop = True
+            elif _worst == "red":
+                report.identity.findings.append(Finding(
+                    severity="red",
+                    title=f"{_role} {_nm} linked to crime/debarment list",
+                    detail=_cls["summary"],
+                    source="sanctions.director_screen",
+                    confidence="PROBABLE",
+                ))
+            elif _worst == "amber":
+                report.identity.findings.append(Finding(
+                    severity="amber",
+                    title=f"{_role} {_nm} on PEP / adverse-media list",
+                    detail=_cls["summary"] + " — enhanced DD required on individual.",
+                    source="sanctions.director_screen",
+                    confidence="ASSESSED",
+                ))
+            else:
+                report.identity.findings.append(Finding(
+                    severity="info",
+                    title=f"{_role} {_nm} — sanctions screen CLEAN",
+                    detail=(
+                        f"No matches for {_nm} across the sanctions/PEP datasets "
+                        f"reached by this screen. Name resolved from "
+                        f"{'the company register' if _src == 'registry' else 'the DD request'}."
+                    ),
+                    source="sanctions.director_screen",
+                    confidence="CONFIRMED",
+                ))
+        except Exception as _off_e:
+            # A throw is evidence, never silence — the R-F3353 rule, applied to the
+            # path that never received it.
+            report.identity.data_gaps.append(
+                f"Officer sanctions screen '{_nm}': SANCTIONS_SOURCE_UNVERIFIED "
+                f"— screen raised {type(_off_e).__name__}: {str(_off_e)[:100]}, "
+                f"NOT screened (re-screen required, not a clearance)"
+            )
+            logger.warning(
+                "R-F3397 officer sanctions screen failed for %s: %s "
+                "(recorded as a data gap, not a silent clean)",
+                _nm, _off_e,
+            )
+    return hard_stop
+
+
 async def _run_identity(
     target: dict,
     report: ARKDDReport,
@@ -4469,84 +4662,16 @@ async def _run_identity(
     except Exception as e:
         logger.debug("Identity: vault-source consult skipped: %s", e)
 
-    # ── 1a2. Extract contact names from email / phone / explicit fields ──
-    # When the user provides emails like branislav.takac@btg.sk or
-    # explicit contact_name / contact fields, extract person names and
-    # add them to the director screening list.
-    _directors_in = list(target.get("directors") or [])
-    _contact_names_extracted = set()
-    for _email_field in ("email", "contact_email"):
-        _em = target.get(_email_field) or ""
-        if "@" in _em:
-            _local = _em.split("@")[0]
-            # firstname.lastname or firstname_lastname patterns
-            _parts = re.split(r'[._\-]', _local)
-            if len(_parts) >= 2:
-                _extracted = " ".join(p.capitalize() for p in _parts if len(p) > 1)
-                if len(_extracted) > 4 and _extracted not in _contact_names_extracted:
-                    _contact_names_extracted.add(_extracted)
-                    _directors_in.append({"name": _extracted, "role": "Contact (from email)"})
-    for _cn_field in ("contact_name", "contact", "representative"):
-        _cn = (target.get(_cn_field) or "").strip()
-        if _cn and len(_cn) > 3 and _cn not in _contact_names_extracted:
-            _contact_names_extracted.add(_cn)
-            _directors_in.append({"name": _cn, "role": "Contact"})
-
-    # ── Named-officeholder sanctions screen ──
-    # When the caller supplies directors / beneficial owners / named
-    # representatives, each individual is sanctions-screened separately.
-    if _directors_in:
-        try:
-            from . import sanctions as _sanc
-            from ._sanctions_classify import classify_matches as _cm
-            _screen_fn = getattr(_sanc, "screen_with_aliases", None) or getattr(_sanc, "fuzzy_screen", None)
-            for _d in _directors_in[:8]:  # hard cap — don't hammer the API
-                _nm = (_d.get("name") or "").strip()
-                if not _nm or len(_nm) < 4:
-                    continue
-                try:
-                    _dscreen = await _screen_fn(_nm) if _screen_fn else {"matches": []}
-                    _dcls = _cm(_dscreen.get("matches") or [], query_name=_nm)
-                    _role = _d.get("role") or "Officer"
-                    report.identity.meta.subcalls += 1
-                    if _dcls["worst_severity"] == "hard_stop":
-                        report.identity.findings.append(Finding(
-                            severity="hard_stop",
-                            title=f"{_role} {_nm} on active sanctions list",
-                            detail=_dcls["summary"],
-                            source="sanctions.director_screen",
-                            confidence="CONFIRMED",
-                        ))
-                        hard_stop = True
-                    elif _dcls["worst_severity"] == "red":
-                        report.identity.findings.append(Finding(
-                            severity="red",
-                            title=f"{_role} {_nm} linked to crime/debarment list",
-                            detail=_dcls["summary"],
-                            source="sanctions.director_screen",
-                            confidence="PROBABLE",
-                        ))
-                    elif _dcls["worst_severity"] == "amber":
-                        report.identity.findings.append(Finding(
-                            severity="amber",
-                            title=f"{_role} {_nm} on PEP / adverse-media list",
-                            detail=_dcls["summary"] + " — enhanced DD required on individual.",
-                            source="sanctions.director_screen",
-                            confidence="ASSESSED",
-                        ))
-                    else:
-                        report.identity.findings.append(Finding(
-                            severity="info",
-                            title=f"{_role} {_nm} — sanctions screen CLEAN",
-                            detail=f"No matches for {_nm} across OFAC / UK OFSI / EU / UN / OpenSanctions datasets.",
-                            source="sanctions.director_screen",
-                            confidence="CONFIRMED",
-                        ))
-                except Exception as _e:
-                    logger.warning("Director screen failed for %s: %s", _nm, _e)
-                    report.identity.data_gaps.append(f"director sanctions screen failed for {_nm}")
-        except Exception as e:
-            logger.warning("Identity: director screen block failed: %s", e)
+    # ── 1a2. Named-officeholder sanctions screen — MOVED, see below ──
+    # R-F3397: this is where the officer screen used to run, over
+    # `target["directors"]` only. `report.identity.directors` is not populated
+    # until the Companies House block (~260 lines below) and
+    # `_apply_registry_result`, so every officer the DD itself DISCOVERED was
+    # invisible to it: a run launched with just a company name screened nobody.
+    # The screen is now `_screen_officer_sanctions`, called once after every
+    # registry write (search this file for it). Do not re-add a screen here —
+    # at this point in the layer there is nothing to screen but the caller's
+    # own input, and a second screening site is a second aggregator.
 
     # ── 1b. Companies House lookup (UK COMPANIES only) ──
     #
@@ -5230,6 +5355,24 @@ async def _run_identity(
     except Exception as e:
         logger.warning("Identity: ghost scoring failed: %s", e)
         report.identity.data_gaps.append(f"ghost score failed: {str(e)[:120]}")
+
+    # ── R-F3397 — officeholder sanctions screen, AFTER every registry write ──
+    # Placed here, not inside the GB/Companies-House branch, because
+    # `report.identity.directors` is also written by `_apply_registry_result`
+    # for the ~30 non-GB adapters and by the R-F1636 enrichment above. Screening
+    # inside the CH branch would leave every non-GB DD screening nobody — the
+    # same shape as the defect this fix closes, one jurisdiction over.
+    try:
+        if await _screen_officer_sanctions(report, target):
+            hard_stop = True
+    except Exception as _off_block_e:
+        # The screen owns its own per-name gaps; this catches only a failure of
+        # the loop itself, which must still leave evidence rather than silence.
+        logger.warning("Identity: officer screen block failed: %s", _off_block_e)
+        report.identity.data_gaps.append(
+            f"Officer sanctions screen: SANCTIONS_SOURCE_UNVERIFIED — block raised "
+            f"{type(_off_block_e).__name__}, officers NOT screened (not a clearance)"
+        )
 
     # R-F1836 — domain-ownership (RDAP) as a Layer 1 signal (moved from digital,
     # which is skipped in quick mode / on hard-stop). Non-fatal, guarded.
