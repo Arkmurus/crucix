@@ -3714,6 +3714,165 @@ def _record_waived_screen(report: ARKDDReport, waiver: dict, *, what: str) -> No
     logger.info("[R-F3411] %s waived by %s (%s) on %s", what, _by, _why[:60], report.run_id)
 
 
+async def _run_ch_free_registers(report: ARKDDReport, profile: dict | None) -> None:
+    """R-F3422 — run the three free Companies House registers and put the result in the
+    report: CHARGES (#12), INSOLVENCY (#11) and DISQUALIFIED OFFICERS (#16).
+
+    All three are free on the key already deployed and none had ever been consulted by a
+    DD. Before this, charges and insolvency were answerable only from two BOOLEANS on
+    the company profile — `has_charges` / `has_insolvency_history` — which cannot tell a
+    buyer whether a debenture sits over the assets they are about to pay for, who holds
+    it, when an insolvency happened or what kind it was. Disqualification was not
+    checked at all: `disqualified-directors` appeared exactly once in the tree, as a
+    domain fragment in an adverse-media allowlist.
+
+    THE RULE THIS FUNCTION EXISTS TO KEEP. For every one of these an EMPTY result is a
+    real finding — no charges, no insolvency, no disqualification — and an empty result
+    is only a finding when the register actually ANSWERED. R-F3404's adapters carry
+    `checked: bool` for exactly that reason, so a register we could not reach becomes a
+    data gap, never a clean line.
+
+    Never raises: a register that fails must cost the DD its answer, never the report.
+    """
+    number = str((profile or {}).get("company_number") or
+                 report.identity.registration_number or "").strip()
+    if not number:
+        return
+    from . import companies_house as _ch
+
+    # ── #12 charges ──────────────────────────────────────────────────────────
+    try:
+        ch_res = await _ch.get_charges(number)
+        report.identity.meta.subcalls += 1
+        if not ch_res.get("checked"):
+            report.identity.data_gaps.append(
+                f"Charges register NOT checked — {ch_res.get('reason', 'unavailable')} "
+                f"(no view of security over the assets; not a clear result)"
+            )
+        elif ch_res.get("outstanding_count"):
+            _holders = sorted({h for c in ch_res.get("items", [])
+                               for h in (c.get("persons_entitled") or []) if h})
+            report.identity.findings.append(Finding(
+                severity="amber",
+                title=(f"{ch_res['outstanding_count']} outstanding charge(s) registered "
+                       f"over the company's assets"),
+                detail=(
+                    f"Companies House records {ch_res['outstanding_count']} outstanding or "
+                    f"part-satisfied charge(s) of {ch_res.get('total_count')} total. "
+                    + (f"Secured party/parties: {', '.join(_holders[:6])}. " if _holders else "")
+                    + "A charge is a prior claim over the assets: it does not imply "
+                      "distress, but it ranks ahead of an unsecured counterparty and "
+                      "belongs in any payment or security decision."
+                ),
+                source="companies_house.charges",
+                confidence="CONFIRMED",
+                url=ch_res.get("source_url"),
+                source_tier="OFFICIAL",
+            ))
+        else:
+            report.identity.findings.append(Finding(
+                severity="info",
+                title="No outstanding charges registered",
+                detail=(f"The Companies House charges register was consulted and records "
+                        f"{ch_res.get('total_count', 0)} charge(s), none outstanding."),
+                source="companies_house.charges",
+                confidence="CONFIRMED",
+                url=ch_res.get("source_url"),
+                source_tier="OFFICIAL",
+            ))
+    except Exception as exc:
+        report.identity.data_gaps.append(
+            f"Charges register raised {type(exc).__name__} — NOT checked (not a clear result)")
+
+    # ── #11 insolvency ───────────────────────────────────────────────────────
+    try:
+        ins = await _ch.get_insolvency(number)
+        report.identity.meta.subcalls += 1
+        if not ins.get("checked"):
+            report.identity.data_gaps.append(
+                f"Insolvency register NOT checked — {ins.get('reason', 'unavailable')} "
+                f"(not a clear result)"
+            )
+        elif ins.get("case_count"):
+            _kinds = sorted({str(c.get("type") or "case").replace("-", " ")
+                             for c in ins.get("cases", [])})
+            report.identity.findings.append(Finding(
+                severity="red",
+                title=f"{ins['case_count']} insolvency case(s) on the register",
+                detail=(
+                    f"Companies House records {ins['case_count']} insolvency case(s): "
+                    f"{', '.join(_kinds[:5])}. This is a formal proceeding against the "
+                    f"company itself, not an inference from filings."
+                ),
+                source="companies_house.insolvency",
+                confidence="CONFIRMED",
+                url=ins.get("source_url"),
+                source_tier="OFFICIAL",
+            ))
+        else:
+            report.identity.findings.append(Finding(
+                severity="info",
+                title="No insolvency case on the register",
+                detail=ins.get("detail") or "The insolvency register was consulted and is empty.",
+                source="companies_house.insolvency",
+                confidence="CONFIRMED",
+                source_tier="OFFICIAL",
+            ))
+    except Exception as exc:
+        report.identity.data_gaps.append(
+            f"Insolvency register raised {type(exc).__name__} — NOT checked (not a clear result)")
+
+    # ── #16 disqualified officers ────────────────────────────────────────────
+    #
+    # NAME-MATCH DISCIPLINE. This register matches on NAME ALONE, so a hit is a
+    # CANDIDATE and never an identification — the R-F3089 name-coincidence class, about a
+    # named human being. The finding says so in its own text, carries the candidate's
+    # DOB/address so a reader can discriminate, and is capped at amber: an accusation
+    # dressed as a red is exactly the false positive that destroys the USP.
+    _officers = [o for o in (report.identity.directors or []) if isinstance(o, dict)]
+    for _o in _officers[:8]:                     # same cost bound as the officer screen
+        _nm = str(_o.get("name") or "").strip()
+        if len(_nm) < 4 or _o.get("resigned_on"):
+            continue
+        try:
+            dq = await _ch.search_disqualified_officers(_nm, limit=5)
+            report.identity.meta.subcalls += 1
+            if not dq.get("checked"):
+                report.identity.data_gaps.append(
+                    f"Disqualification check '{_nm}' NOT performed — "
+                    f"{dq.get('reason', 'unavailable')} (not a clear result)")
+                continue
+            if not dq.get("total_results"):
+                continue                          # answered, genuinely nothing on file
+            _cands = dq.get("candidates") or []
+            report.identity.findings.append(Finding(
+                severity="amber",
+                title=(f"Officer {_nm}: {dq['total_results']} NAME MATCH(ES) on the "
+                       f"disqualified-directors register — identity NOT confirmed"),
+                detail=(
+                    f"The Companies House register of disqualifications returns "
+                    f"{dq['total_results']} entr(ies) matching the name {_nm!r}. "
+                    f"{dq.get('corroboration_required', '')} "
+                    + "Candidates: "
+                    + "; ".join(
+                        f"{c.get('title')}"
+                        + (f" ({c.get('address_snippet')})" if c.get("address_snippet") else "")
+                        for c in _cands[:3]
+                    )
+                    + ". This is a name match, not a determination that this officer is "
+                      "that person."
+                ),
+                source="companies_house.disqualified_officers",
+                confidence="ASSESSED",
+                url=dq.get("source_url"),
+                source_tier="OFFICIAL",
+            ))
+        except Exception as exc:
+            report.identity.data_gaps.append(
+                f"Disqualification check '{_nm}' raised {type(exc).__name__} — "
+                f"NOT performed (not a clear result)")
+
+
 async def _screen_psc_sanctions(report: ARKDDReport) -> bool:
     """Screen every CURRENT PSC (beneficial owner) against sanctions.
 
@@ -5130,6 +5289,9 @@ async def _run_identity(
                     # loop had never actually run (it called a phantom entrypoint).
                     if await _screen_psc_sanctions(report):
                         hard_stop = True
+
+                    # ── R-F3422 — three free registers the DD has never consulted ──
+                    await _run_ch_free_registers(report, profile)
         except Exception as e:
             logger.warning("Identity: companies_house lookup failed: %s", e)
             report.identity.data_gaps.append(f"companies_house lookup failed: {str(e)[:120]}")
