@@ -166,3 +166,32 @@ def test_the_run_log_is_pulled_before_any_result_file(name):
     assert min(logs) == min(pulls), (
         f"{name}: a result file is pulled before the run log; the log is what a "
         f"FAILED cycle leaves behind")
+
+
+def test_an_unstarted_pod_is_retried_not_fatal(driver):
+    """R-F3417 — created-but-never-RUNNING is a capacity failure, not a dead end.
+
+    RunPod returned an id, assigned a machineId, then never attached a GPU
+    (gpuTypeId null, no publicIp, no portMappings). The old driver retried only
+    REJECTED creates and treated a dead-on-arrival pod as FATAL, so a transient
+    shortage ended the run instead of moving to the next host.
+
+    Asserted as STRUCTURE: the wait for RUNNING must sit INSIDE the create-retry
+    loop, and an unstarted pod must be released rather than abandoned.
+    """
+    src = "\n".join(driver)
+    assert "FATAL: pod never reached RUNNING" not in src, (
+        "an unstarted pod must be retried, not fatal")
+    create = _first(driver, "_create_v04_pod.py")
+    wait = _first(driver, "$ST\" = \"RUNNING\"")
+    give_up = _first(driver, "GAVE UP")
+    assert create < wait < give_up, (
+        "the RUNNING wait must sit inside the create-retry loop")
+    assert "never provisioned" in src, "the release path must say what happened"
+
+
+def test_the_stop_trap_is_armed_before_any_pod_can_leak(driver):
+    """With create inside a loop, the trap must not depend on a single POD_ID."""
+    trap = _first(driver, "trap stop_pod EXIT")
+    create = _first(driver, "_create_v04_pod.py")
+    assert trap < create, "the EXIT trap must be armed before the first create"

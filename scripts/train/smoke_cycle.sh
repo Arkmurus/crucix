@@ -51,26 +51,36 @@ SSH="ssh -i $KEYF -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliv
 TSSH(){ timeout 75 $SSH "$@"; }
 
 # ---- 2. create (volume-free, any DC with capacity) -------------------------
+# R-F3417 — CREATE AND START ARE ONE STEP. A pod created and then never
+# provisioned is the SAME capacity failure as a rejected create: RunPod returns
+# an id, assigns a machineId, then never attaches a GPU. Retrying only REJECTED
+# creates and treating a dead-on-arrival pod as FATAL ends the run on a
+# transient shortage instead of moving to the next host. The wait is unchanged —
+# what changes is that an unstarted pod is RELEASED and another is requested.
 POD_ID=""
-for i in $(seq 1 "$MAX_TRIES"); do
-  POD_ID=$("$PYBIN" scripts/train/_create_v04_pod.py 2>/dev/null | head -1 | tr -d '[:space:]')
-  [ -n "$POD_ID" ] && { log "CREATED pod $POD_ID (try $i/$MAX_TRIES)"; break; }
-  log "[try $i/$MAX_TRIES] no capacity — retry ${RETRY_SECS}s"; sleep "$RETRY_SECS"
-done
-[ -n "$POD_ID" ] || { log "GAVE UP: no capacity across all GPU types."; exit 2; }
-
-stop_pod(){ log "stopping pod $POD_ID"; curl -s -X POST "$API/pods/$POD_ID/stop" -H "Authorization: Bearer $KEY" >/dev/null 2>&1 || true; }
+stop_pod(){ [ -n "$POD_ID" ] && { log "stopping pod $POD_ID"; curl -s -X POST "$API/pods/$POD_ID/stop" -H "Authorization: Bearer $KEY" >/dev/null 2>&1; }; return 0; }
 trap stop_pod EXIT
 
-# ---- 3. wait RUNNING + stable SSH ------------------------------------------
 HOST=""; PORT=""
-for j in $(seq 1 40); do
-  PD=$(curl -s "$API/pods/$POD_ID" -H "Authorization: Bearer $KEY")
-  ST=$(echo "$PD" | jget desiredStatus); HOST=$(echo "$PD" | jget publicIp); PORT=$(echo "$PD" | pmget)
-  [ "$ST" = "RUNNING" ] && [ -n "$HOST" ] && [ -n "$PORT" ] && { log "RUNNING $HOST:$PORT"; break; }
-  sleep 10
+for i in $(seq 1 "$MAX_TRIES"); do
+  POD_ID=$("$PYBIN" scripts/train/_create_v04_pod.py 2>/dev/null | head -1 | tr -d '[:space:]')
+  if [ -z "$POD_ID" ]; then
+    log "[try $i/$MAX_TRIES] create rejected (no capacity) — retry ${RETRY_SECS}s"
+    sleep "$RETRY_SECS"; continue
+  fi
+  log "CREATED pod $POD_ID (try $i/$MAX_TRIES) — waiting for RUNNING…"
+  HOST=""; PORT=""
+  for j in $(seq 1 "${START_WAIT_TICKS:-40}"); do
+    PD=$(curl -s "$API/pods/$POD_ID" -H "Authorization: Bearer $KEY")
+    ST=$(echo "$PD" | jget desiredStatus); HOST=$(echo "$PD" | jget publicIp); PORT=$(echo "$PD" | pmget)
+    [ "$ST" = "RUNNING" ] && [ -n "$HOST" ] && [ -n "$PORT" ] && break
+    sleep 10
+  done
+  [ -n "$HOST" ] && [ -n "$PORT" ] && { log "RUNNING $HOST:$PORT"; break; }
+  log "[try $i/$MAX_TRIES] pod $POD_ID never provisioned — releasing it and asking for another"
+  stop_pod; POD_ID=""; sleep "$RETRY_SECS"
 done
-[ -n "$HOST" ] && [ -n "$PORT" ] || { log "FATAL: pod never reached RUNNING"; exit 1; }
+[ -n "$POD_ID" ] && [ -n "$HOST" ] && [ -n "$PORT" ]   || { log "GAVE UP: no pod reached RUNNING in $MAX_TRIES attempts."; exit 2; }
 
 ok=0; for j in $(seq 1 40); do
   if TSSH -p "$PORT" root@"$HOST" "echo ok" 2>/dev/null | grep -q ok; then ok=$((ok+1)); else ok=0; fi
