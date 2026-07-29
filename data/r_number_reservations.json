@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3421,
+  "next_available": 3422,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28253,6 +28253,15 @@
       "commit_sha": "123df29d",
       "notes": null,
       "shipped_at": "2026-07-29T13:23:55Z"
+    },
+    {
+      "r_number": "R-F3421",
+      "title": "ecosystem map honesty: one component must not condemn an organ, and mapped must mean found",
+      "claimed_at": "2026-07-29T13:35:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -965,6 +965,60 @@ def _agent_color(age: float | None) -> str:
     return "red"
 
 
+from functools import lru_cache as _lru_cache  # R-F3421 — token-matcher cache
+
+
+# ── R-F3421 — REDUNDANT BACKEND POOLS ───────────────────────────────────────
+#
+# DECLARED, never inferred — the same discipline `_SENSOR_ORGAN` applies to organ
+# attribution. Membership is a curation decision: "these backends serve the same
+# purpose, so losing one degrades the organ rather than breaking it". A backend absent
+# from every pool keeps today's behaviour (its breaker colour reaches the organ
+# unchanged), so this can only ever SOFTEN a false red, never hide a real one — and only
+# while a sibling is provably still serving.
+_BACKEND_POOLS: dict[str, tuple[str, ...]] = {}
+for _pool in (
+    # Web search: any one of these can answer a query; Brave is primary (R-F2318).
+    ("duckduckgo", "searxng", "google_news", "bing_news", "gnews", "brave", "brave_search"),
+):
+    for _member in _pool:
+        _BACKEND_POOLS[_member] = _pool
+del _pool, _member
+
+# Modules that RECORD gaps on behalf of the whole system. A gap whose `source` is one of
+# these says nothing about that module's own health, so it must not colour its organ.
+# `brain_hook` is the live case: it is the generic sink, so every subsystem's failure
+# routed through it was landing on Brain & Memory.
+_GENERIC_GAP_SINKS: frozenset[str] = frozenset({
+    "brain_hook", "engine_wiring", "wire", "capability_gaps", "gap_detector",
+})
+
+
+def _organ_for_gap_subject(detail: str) -> str | None:
+    """R-F3421 — the organ of the thing a gap is ABOUT, from its detail text.
+
+    Only resolves against the explicit `_SENSOR_ORGAN` registry, and only on a token
+    boundary, so this cannot reintroduce the substring guessing R-F3047 removed. Returns
+    None whenever the subject is not a declared backend — the caller then falls back to
+    the reporter, or to nothing.
+    """
+    if not detail:
+        return None
+    low = detail.lower()
+    for base, organ in _SENSOR_ORGAN.items():
+        if not base:
+            continue
+        if _re_gap_subject(base).search(low):
+            return f"organ:{organ}"
+    return None
+
+
+@_lru_cache(maxsize=256)
+def _re_gap_subject(base: str):
+    """Token-boundary matcher for a declared backend name inside free text."""
+    return re.compile(rf"(?<![a-z0-9_]){re.escape(base)}(?![a-z0-9_])")
+
+
 def _build_health_map(signals: dict[str, Any], node_ids: set[str], organ_of: dict[str, str]) -> dict[str, dict]:
     """Return {node_id: {color, sensor, value, read_at}} for nodes with a live
     sensor. Worst-wins; positive signals turn grey→green, negative → amber/red."""
@@ -1039,9 +1093,40 @@ def _build_health_map(signals: dict[str, Any], node_ids: set[str], organ_of: dic
     # aria-intel brain is answering THIS request → alive (honest positive signal)
     _apply("aria-intel", "green", "brain process (this request served)", "alive")
 
-    # (1) breakers → the organ (and any matching module) the backend belongs to.
-    # A grey breaker (unproven) applies NOTHING — grey is the absence-default, not a
-    # sensor reading, so it must not enter the health map / inflate sensor coverage.
+    # ── R-F3421 — ONE MEMBER OF A POOL DOES NOT CONDEMN THE ORGAN ───────────
+    #
+    # MEASURED 2026-07-29: `circuit_breaker[search:duckduckgo] OPEN/rate_limit` painted
+    # organ:search RED — "broken" — and that single node was one of the two reds behind
+    # the ecosystem DEGRADED banner. At the same moment `/api/aria/search/health`
+    # reported EVERY backend up: searxng, google_news, bing_news, duckduckgo itself, and
+    # Brave (the primary, `available_for_scoped_user_search: true`).
+    #
+    # Search is a REDUNDANT POOL. One member tripping is exactly what redundancy is for:
+    # the organ degrades, it does not break. Painting it RED is the same over-claim
+    # R-F3047 fixed for attribution, in the severity dimension instead of the organ one.
+    #
+    # So: a breaker on a pool member caps the ORGAN at amber while any sibling is still
+    # serving, and only reaches red when the WHOLE pool is open. The backend's own
+    # module node keeps the true red — that backend really is down — so nothing is
+    # hidden; only the blast radius is corrected. Pools are DECLARED, never inferred,
+    # the same discipline `_SENSOR_ORGAN` already applies.
+    _open_now = {
+        str(b.get("name", "")).lower().split(":")[-1].strip()
+        for b in signals.get("breakers", [])
+        if _breaker_color(b) == "red"
+    }
+
+    def _cap_for_pool(backend: str, color: str) -> tuple[str, str]:
+        """(organ_colour, note) — caps a pool member's ORGAN colour at amber unless
+        every declared sibling is also open."""
+        pool = _BACKEND_POOLS.get(backend)
+        if not pool or color != "red":
+            return color, ""
+        alive = [m for m in pool if m not in _open_now]
+        if not alive:
+            return "red", " (whole pool open)"
+        return "amber", f" ({len(alive)}/{len(pool)} of the pool still serving)"
+
     for b in signals.get("breakers", []):
         name = b.get("name", "")
         color = _breaker_color(b)
@@ -1050,7 +1135,9 @@ def _build_health_map(signals: dict[str, Any], node_ids: set[str], organ_of: dic
         val = f"{b.get('state')}" + (f"/{b['last_failure_reason']}" if b.get("last_failure_reason") else "")
         org = _organ_for_backend(name)   # R-F3047 — explicit registry, not keywords
         if org:
-            _apply(org, color, f"circuit_breaker[{name}]", val)
+            _base = name.lower().split(":")[-1].strip()
+            _ocolor, _note = _cap_for_pool(_base, color)
+            _apply(org, _ocolor, f"circuit_breaker[{name}]", val + _note)
         for nid in node_ids:
             if nid.startswith("mod:") and _module_name_matches(name, nid):
                 _apply(nid, color, f"circuit_breaker[{name}]", val)
@@ -1113,12 +1200,38 @@ def _build_health_map(signals: dict[str, Any], node_ids: set[str], organ_of: dic
         _apply("organ:delivery", color, f"outcome[{sname}]", f"success {round(rate*100)}% (n={total})")
 
     # (5) open gaps → the organ (NEGATIVE only — never turns a node green)
+    #
+    # ── R-F3421 — ATTRIBUTE TO THE SUBJECT, NOT THE REPORTER ────────────────
+    #
+    # MEASURED 2026-07-29, the live gap that painted Brain & Memory amber:
+    #     type   : "rate_limited"
+    #     detail : "Backend search:duckduckgo rate-limited — set API key ..."
+    #     source : "brain_hook:circuit_breaker"
+    #
+    # `_organ_for_name` substring-matched `brain_hook` and filed it under organ:brain —
+    # correctly by its own rule, and wrong in fact. `source` here is the module that
+    # RECORDED the gap, not the thing that failed, and `brain_hook` is ARIA's generic
+    # gap sink: every subsystem's failure routed through it lands on Brain & Memory.
+    #
+    # Same family as R-F3047 (wrong organ from a name) but a different mechanism — not a
+    # substring coincidence, a reporter/subject confusion. R-F3047 hardened the BREAKER
+    # path with an explicit registry and left this one on keywords.
+    #
+    # Order of attribution, most specific first:
+    #   1. the SUBJECT named in the detail, resolved through the same explicit
+    #      `_SENSOR_ORGAN` registry the breaker path uses;
+    #   2. the reporting module — but ONLY when it is not a generic sink;
+    #   3. nothing. Grey. A gap we cannot attribute must not blame a bystander, which
+    #      is this module's standing rule for colour: absence of proof is never a claim.
     for g in signals.get("gaps", []):
         sev = str(g.get("severity", "")).upper()
         color = "red" if sev in ("HIGH", "CRITICAL", "4", "5") else "amber"
         gtype = g.get("type") or g.get("gap_type") or "gap"  # record_gap stores under "type"
         src = g.get("source") or gtype or ""
-        org = _organ_for_name(src)
+        org = _organ_for_gap_subject(str(g.get("detail") or ""))
+        if org is None:
+            _reporter = str(src).lower().split(":")[0].strip()
+            org = None if _reporter in _GENERIC_GAP_SINKS else _organ_for_name(src)
         if org and org in node_ids:
             cur = health.get(org)
             # gaps only escalate; never override a red, never create green
@@ -1325,6 +1438,14 @@ async def get_coverage() -> dict[str, Any]:
     m = full["meta"]
     total_mods = m["module_count"]
     mapped = total_mods - m["orphan_count"]
+    # R-F3421 — services for which MODULES WERE ACTUALLY FOUND, read off the built node
+    # set rather than off the organ tables. This is the evidence behind `mapped` below;
+    # `with_organs_declared` keeps the intention, separately.
+    _svc_with_modules: set[str] = {
+        str(n.get("tier_service"))
+        for n in full["nodes"]
+        if n.get("type") == "module" and n.get("tier_service")
+    }
     return {
         "modules": {
             "total_on_disk": total_mods,
@@ -1349,20 +1470,65 @@ async def get_coverage() -> dict[str, Any]:
         #
         # Derived from the organ table, never hardcoded: if a Node organ is added
         # later this corrects itself instead of going quietly stale.
+        # ── R-F3421 — `mapped` MUST MEAN MODULES WERE FOUND ─────────────────
+        #
+        # It meant "this service has organs declared in the table". MEASURED live
+        # 2026-07-29: mapped=[aria-intel, aria-wa, aria-web], unmapped=[], and in the
+        # same payload node_modules=0. The map asserted all three tiers mapped and
+        # nothing outstanding, while two of them contributed no modules at all — every
+        # web organ card on /aria-brain reads 0.
+        #
+        # ROOT CAUSE of the zero, found by construction: the Node scan walks the
+        # FILESYSTEM at `_NODE_ROOTS` (server.mjs, lib, public/js,
+        # services/wa-listener), and `aria_service/Dockerfile` copies only
+        # aria_service/, scripts/, .git/{HEAD,refs,packed-refs} and one data file. None
+        # of those Node paths exist inside the aria-intel container, so `base.is_dir()`
+        # is False for every root and the scan can only ever return empty. It works in
+        # dev, where the whole repo is on disk, and fails only in production — which is
+        # why no local test caught it.
+        #
+        # Declaring an organ is an INTENTION; finding modules is the EVIDENCE. Reporting
+        # the intention as the evidence is the certify-by-declaration shape this file
+        # already refuses elsewhere ("absence of proof is grey, never a claim"), so the
+        # two are now separate fields and `mapped` carries the evidence.
         "services": {
             "declared": sorted(_SERVICES),
-            # R-F3358: both organ tables now contribute, so this closes by itself.
+            # R-F3352 CONTRACT, UNCHANGED. These answer "does an organ table claim this
+            # service?" — a real question with its own tests, and NOT mine to redefine.
+            # R-F3421 adds the evidence question alongside rather than overwriting it.
             "mapped": sorted({svc for _o, _l, svc, _k in _ORGANS}
                              | {svc for _o, _l, svc, _k in _NODE_ORGANS}),
             "unmapped": sorted(set(_SERVICES)
                                - {svc for _o, _l, svc, _k in _ORGANS}
                                - {svc for _o, _l, svc, _k in _NODE_ORGANS}),
+            # R-F3421 — the EVIDENCE. Declaring an organ is an intention; finding
+            # modules is proof. Live 2026-07-29 the payload read mapped=[all three],
+            # unmapped=[] with node_modules=0 — every web organ card on /aria-brain
+            # showing 0 while the summary implied full coverage. The two questions now
+            # have two answers instead of one answer doing both jobs badly.
+            "with_modules_found": sorted(_svc_with_modules),
+            "declared_but_no_modules_found": sorted(
+                ({svc for _o, _l, svc, _k in _ORGANS}
+                 | {svc for _o, _l, svc, _k in _NODE_ORGANS}) - _svc_with_modules),
             "node_modules": m["node_module_count"],
             "node_orphans": m["node_orphan_count"],
             "node_scan_roots": {s: list(r) for s, r in _NODE_ROOTS.items()},
+            # R-F3421 — can the scan even SEE the tier here? The Node scan walks the
+            # filesystem, and aria_service/Dockerfile copies only aria_service/,
+            # scripts/, .git/* and one data file — so inside the container these roots
+            # do not exist and the scan can only return empty. Empty here means "not
+            # shipped in this container", which is a different fact from "no modules".
+            "node_scan_roots_present_on_disk": {
+                s: [r for r in roots if (_REPO_ROOT / r).exists()]
+                for s, roots in _NODE_ROOTS.items()
+            },
             "note": "aria-intel is scanned as aria_service/**/*.py; the Node tiers are scanned "
                     "at node_scan_roots (.mjs/.js, excluding node_modules, vendor and tests). "
-                    "Any service with no organ has no module nodes and is NOT in the counts above",
+                    "Any service with no organ has no module nodes and is NOT in the counts "
+                    "above. `mapped`/`unmapped` describe the ORGAN TABLE (intention); "
+                    "`with_modules_found` describes what the scan actually FOUND (evidence), "
+                    "and node_scan_roots_present_on_disk says whether the scan could see the "
+                    "tier at all — empty means it is not shipped in this container",
         },
         "import_edges": {
             "resolved_intra_repo": m["import_edge_count"],
