@@ -43,6 +43,31 @@ def _gap_fingerprint(gap_type: str, detail: str) -> str:
     return hashlib.md5(f"{gap_type}|{detail[:200]}".encode("utf-8"), usedforsecurity=False).hexdigest()
 
 VALID_GAP_TYPES = frozenset({
+    # ── R-F3428 — three types already EMITTED in production but unregistered ──
+    #
+    # `test_rf2644` (gap-type registry drift) had been red on all three. An
+    # unregistered type is not cosmetic: `record_gap` warns "Unknown gap type" and the
+    # signal lands in the ledger under a name nothing filters on, so the gap is
+    # recorded and effectively unreadable — the §21b "dark" condition reached by a
+    # different route.
+    #
+    # Each names a distinct failure domain that no existing type covers, and each was
+    # read at its emit site before being registered here rather than rubber-stamped:
+    "data_integrity",                  # dd_evidence_store.read_artifact — evidence is
+                                       # recorded as RETAINED but its artifact is
+                                       # missing from disk. An append-only evidence
+                                       # store that has lost a payload is a distinct
+                                       # class from an engine that threw.
+    "data_protection_violation",       # vetting.extract_document — personal data may
+                                       # have left an approved processor boundary.
+                                       # Deliberately NOT folded into engine_failure:
+                                       # this is a GDPR-severity signal and collapsing
+                                       # it into a generic type would bury a
+                                       # regulatory obligation in ordinary noise.
+    "onboarding_failed",               # portal_onboarding — a portal registration
+                                       # attempt failed. Distinct from source_failure,
+                                       # which is a fetch against an ALREADY onboarded
+                                       # source.
     "file_parse",
     "registry_lookup",
     "api_missing",

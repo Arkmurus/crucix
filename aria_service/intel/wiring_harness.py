@@ -105,6 +105,31 @@ MODULE_GAP_TYPES: dict[str, str] = {
     # Routes (R-F1800) — routes/aria.py handler internal failures. HTTPException
     # 4xx is control flow (R-F1784 allowlist), so only real handler failures gap.
     "aria": "engine_failure",
+    # ── R-F3428 — the other two ROUTE modules, which were never registered ──
+    #
+    # GATE B reported ~60 violations across routes/vetting.py and
+    # routes/vetting_portal.py, every one of the form
+    #     "@fail_wire on 'vetting_assess_ep()' gap_type='engine_failure'
+    #      but module 'vetting' requires 'agent_cycle_failure'"
+    # Sixty findings, ONE cause: neither module has an entry here, so both fall to
+    # `_default`. And `_default` is `agent_cycle_failure`, which is right for the
+    # autonomous loops it was chosen for (see the note below) and wrong for an HTTP
+    # handler — a vetting endpoint failing is an engine failure in a request, not a
+    # cycle failure in an agent.
+    #
+    # THE DECORATORS WERE ALREADY CORRECT. They declare `engine_failure`, matching
+    # their sibling `aria` on the line above; the REGISTRY was incomplete. Fixing this
+    # by editing sixty decorators would have made the code agree with a default that
+    # does not describe it — the tail wagging the dog, and it would have mis-filed
+    # every future vetting gap under the autonomous loop's failure domain.
+    "vetting": "engine_failure",
+    "vetting_portal": "engine_failure",
+    # R-F3428 — and my own: R-F3402 added dd_standard.py with
+    # @fail_wire(gap_type="engine_failure") and did not register the module here, so it
+    # fell to `_default` and GATE B flagged it. The gate caught my omission the same way
+    # it caught the vetting one; `assess()` is a pure evaluation over a report, so an
+    # engine failure is the accurate domain.
+    "dd_standard": "engine_failure",
     # R-F1808 — llm/ provider layer (per-provider failures; streams HARD_EXEMPT;
     # ProviderError is per-provider control flow handled by fallback)
     "anthropic": "engine_failure", "gemini": "engine_failure",

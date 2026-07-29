@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3428,
+  "next_available": 3429,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28326,6 +28326,15 @@
       "commit_sha": "e53cc295",
       "notes": null,
       "shipped_at": "2026-07-29T15:07:33Z"
+    },
+    {
+      "r_number": "R-F3428",
+      "title": "close the GATE B gap_type drift and register the three unregistered types",
+      "claimed_at": "2026-07-29T15:17:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
