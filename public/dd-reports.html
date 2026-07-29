@@ -518,6 +518,17 @@
             </div>
             <input id="dd-r-mode" type="hidden" value="standard">
           </div>
+          <!-- R-F3437 — metered / licence-gated sources, chosen BEFORE the run.
+               Populated from GET /api/aria/dd/scope-options, which derives which of
+               these THIS subject actually needs. Selecting one ELECTS the questions it
+               unlocks and the run is held to it; declining records a WAIVER that stays
+               in the denominator and can never improve a score. -->
+          <div class="sc-mod-field" id="dd-r-scope-wrap" style="display:none">
+            <label>Paid &amp; gated sources
+              <span class="opt">(select before running: a selected source is searched, a declined one is recorded as waived)</span>
+            </label>
+            <div id="dd-r-scope" style="display:flex;flex-direction:column;gap:8px"></div>
+          </div>
         </div>
         <div class="sc-mod-foot">
           <button type="button" class="sc-btn sc-btn-outline" id="dd-run-cancel">Cancel</button>
@@ -1930,6 +1941,98 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
     document.getElementById('dd-r-mode').value = mode;
     document.querySelectorAll('#dd-run-modal .sc-optcard').forEach(c =>
       c.classList.toggle('active', c.getAttribute('data-mode') === mode));
+    loadScopeOptions();          // R-F3437 — depth changes which questions are in scope
+  }
+
+  // ── R-F3437 — gated-source selection ──────────────────────────────────────
+  // The backend has had elections/waivers since R-F3406/R-F3408/R-F3411, and this form
+  // sent NONE of it, so the operator could not actually choose anything. Everything
+  // rendered here is derived server-side: which sources this subject needs, whether each
+  // is usable right now, and which questions each one unlocks.
+  const DD_TIER_FOR_MODE = { standard: 'STANDARD', deep: 'ENHANCED' };
+  let ddScopeOptions = null;
+
+  async function loadScopeOptions() {
+    const wrap = document.getElementById('dd-r-scope-wrap');
+    const box = document.getElementById('dd-r-scope');
+    if (!wrap || !box) return;
+    const entityType = (document.getElementById('dd-r-type') || {}).value || 'company';
+    const tier = DD_TIER_FOR_MODE[(document.getElementById('dd-r-mode') || {}).value] || 'STANDARD';
+    try {
+      const r = await authed('/api/aria/dd/scope-options?entity_type='
+                             + encodeURIComponent(entityType) + '&tier=' + encodeURIComponent(tier));
+      const d = await r.json();
+      // Fail LOUD. An empty/absent list must never render as a clean "nothing needed" —
+      // that is the false-clean shape the whole DD standard exists to prevent.
+      if (!r.ok || !d || d.ok !== true || !Array.isArray(d.options)) {
+        ddScopeOptions = null;
+        wrap.style.display = '';
+        box.innerHTML = '<div class="dd-section dd-section-warn" style="margin:0">'
+          + '<div class="dd-section-body" style="font-size:12.5px">'
+          + 'Could not load the paid/gated source list, so none can be pre-selected. '
+          + 'The run will proceed with nothing elected and nothing waived.</div></div>';
+        return;
+      }
+      ddScopeOptions = d;
+      if (!d.options.length) { wrap.style.display = 'none'; box.innerHTML = ''; return; }
+      wrap.style.display = '';
+      box.innerHTML = d.options.map(function (o) {
+        const qs = (o.required_for || []).concat(o.enhances || []);
+        const ids = qs.map(function (q) { return escText(q.question_id); }).join(', ');
+        const blocking = o.required && !o.available;
+        const border = blocking ? 'var(--sc-warn, #b45309)'
+                     : (o.required ? 'var(--sc-accent, #2563eb)' : 'var(--sc-border, #333)');
+        // Checked by default only when it is REQUIRED and actually usable: pre-ticking an
+        // unusable source would promise a search that cannot happen.
+        const checked = (o.required && o.available) ? ' checked' : '';
+        const disabled = o.available ? '' : ' disabled';
+        return '<label style="display:flex;gap:10px;align-items:flex-start;padding:10px;'
+          + 'border:1px solid ' + border + ';border-radius:8px;cursor:'
+          + (o.available ? 'pointer' : 'not-allowed') + ';opacity:' + (o.available ? '1' : '.7') + '">'
+          + '<input type="checkbox" class="dd-scope-src" data-source="' + escText(o.source_id) + '"'
+          + checked + disabled + ' style="margin-top:3px">'
+          + '<span style="flex:1;font-size:12.5px;line-height:1.6">'
+          + '<b>' + escText(o.name) + '</b>'
+          + (o.required ? ' <span style="color:' + border + ';font-weight:600">'
+                          + (blocking ? 'REQUIRED, UNAVAILABLE' : 'REQUIRED') + '</span>'
+                        : ' <span style="color:var(--sc-muted)">optional</span>')
+          + '<br><span style="color:var(--sc-muted)">' + escText(o.decision) + '</span>'
+          + (ids ? '<br><span style="color:var(--sc-muted)">Covers: ' + ids + '</span>' : '')
+          + (o.available ? '' : '<br><span style="color:var(--sc-muted)">Blocked: '
+                                + escText(o.unavailable_reason || 'unavailable') + '</span>')
+          + '</span></label>';
+      }).join('');
+    } catch (e) {
+      ddScopeOptions = null;
+      wrap.style.display = '';
+      box.innerHTML = '<div class="dd-section dd-section-warn" style="margin:0">'
+        + '<div class="dd-section-body" style="font-size:12.5px">Could not load the gated-source '
+        + 'list (' + escText(String(e && e.message || e)) + '). Nothing will be elected or waived.</div></div>';
+    }
+  }
+
+  // Turn the ticked/unticked boxes into the scope the orchestrator already understands.
+  // A waiver MUST name who and why or the backend deliberately ignores it and screens
+  // anyway (the safe direction) — so an unticked box is never an anonymous opt-out.
+  function ddBuildScope() {
+    if (!ddScopeOptions || !Array.isArray(ddScopeOptions.options)) return null;
+    // The REAL signed-in user (page-level, R-F2052 era). A waiver has to name a person:
+    // "operator" would be an anonymous opt-out wearing a name.
+    const who = String((typeof _CURRENT_USER !== 'undefined' && _CURRENT_USER.email) || '').trim()
+                || 'operator';
+    const elections = [], waivers = [];
+    document.querySelectorAll('#dd-r-scope .dd-scope-src').forEach(function (cb) {
+      const o = ddScopeOptions.options.find(function (x) { return x.source_id === cb.dataset.source; });
+      if (!o) return;
+      const qs = (o.required_for || []).concat(o.enhances || []);
+      qs.forEach(function (q) {
+        if (cb.checked) elections.push({ question_id: q.question_id, elected_by: who });
+        else waivers.push({ question_id: q.question_id, waived_by: who,
+                            reason: o.available ? (o.name + ' not selected on the New DD form')
+                                                : (o.name + ' unavailable: ' + (o.unavailable_reason || 'not usable')) });
+      });
+    });
+    return { tier: ddScopeOptions.tier, elections: elections, waivers: waivers };
   }
   function openRun(mode) {
     err.style.display = 'none';
@@ -1961,6 +2064,7 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
     document.querySelectorAll('#dd-r-type-seg button').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     document.getElementById('dd-r-type').value = b.getAttribute('data-val');
+    loadScopeOptions();          // R-F3437 — a person and a company need different sources
   });
   // depth option cards
   document.querySelectorAll('#dd-run-modal .sc-optcard').forEach(c =>
@@ -1983,6 +2087,10 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
     if (reg) body.registration_number = reg;
     if (url) body.website_url = url;
     if (prod) body.product_description = prod;
+    // R-F3437 — carry the operator's source selection into the run. orchestrate_dd reads
+    // `dd_scope` straight off the request body (R-F3411), so no new endpoint is needed.
+    const _scope = ddBuildScope();
+    if (_scope) body.dd_scope = _scope;
     body.async_mode = true; // R-F2250: fire-and-poll — a synchronous DD runs minutes and dies at the proxy (~30-60s) → HTTP 500
     const sb = document.getElementById('dd-run-submit');
     const orig = sb.innerHTML;

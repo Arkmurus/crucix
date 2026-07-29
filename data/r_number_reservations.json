@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3437,
+  "next_available": 3438,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28410,6 +28410,15 @@
       "r_number": "R-F3436",
       "title": "pre-run selection of gated DD sources: required is derived, elected-but-unavailable is disclosed",
       "claimed_at": "2026-07-29T17:45:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3437",
+      "title": "New DD form: pre-select gated sources before the run (backend scope was unreachable from the UI)",
+      "claimed_at": "2026-07-29T17:54:35Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

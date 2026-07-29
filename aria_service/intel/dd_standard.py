@@ -1224,13 +1224,13 @@ def gated_source_options(entity_type: str = "company", tier: str = "STANDARD") -
         # What the operator is actually being asked. Stated per row so the UI never has
         # to infer intent from the access enum.
         if r["required"] and not r["available"]:
-            r["decision"] = "BLOCKING — these questions cannot be answered without it"
+            r["decision"] = "BLOCKING: these questions cannot be answered without it"
         elif r["required"] and r["available"]:
-            r["decision"] = "REQUIRED — usable now; select to search, decline to waive"
+            r["decision"] = "REQUIRED: usable now; select to search, decline to waive"
         elif r["available"]:
-            r["decision"] = "OPTIONAL — adds depth; another source already covers these"
+            r["decision"] = "OPTIONAL: adds depth; another source already covers these"
         else:
-            r["decision"] = "OPTIONAL — unavailable, and something else covers these"
+            r["decision"] = "OPTIONAL: unavailable, and something else covers these"
 
     return {
         "entity_type": et,
