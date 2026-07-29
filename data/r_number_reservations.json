@@ -28090,9 +28090,10 @@
       "title": "Companies House charges, insolvency and disqualified-officer endpoints",
       "claimed_at": "2026-07-29T09:46:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2ffd8574",
+      "notes": null,
+      "shipped_at": "2026-07-29T10:43:27Z"
     },
     {
       "r_number": "R-F3405",
@@ -28128,9 +28129,10 @@
       "title": "elected DD sections must actually run - an unfulfilled election is a broken promise",
       "claimed_at": "2026-07-29T10:28:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2ffd8574",
+      "notes": null,
+      "shipped_at": "2026-07-29T10:43:28Z"
     },
     {
       "r_number": "R-F3409",
