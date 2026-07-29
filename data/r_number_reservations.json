@@ -28318,9 +28318,10 @@
       "title": "citation contract: 59% of rows never cite against a prompt that says always - the model learned to cite the tool name",
       "claimed_at": "2026-07-29T14:49:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e53cc295",
+      "notes": null,
+      "shipped_at": "2026-07-29T15:07:33Z"
     }
   ]
 }
