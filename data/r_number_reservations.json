@@ -28137,9 +28137,10 @@
       "title": "corpus axis: person screening - a name match is not an identification",
       "claimed_at": "2026-07-29T10:29:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "16ff7ed1",
+      "notes": null,
+      "shipped_at": "2026-07-29T10:43:08Z"
     }
   ]
 }
