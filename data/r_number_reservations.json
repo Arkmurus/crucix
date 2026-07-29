@@ -27952,9 +27952,10 @@
       "title": "diagnostic reports AMBER forever on deliberately deferred sources so it can never read healthy",
       "claimed_at": "2026-07-28T23:25:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8cba8344",
+      "notes": null,
+      "shipped_at": "2026-07-29T07:48:03Z"
     },
     {
       "r_number": "R-F3391",
