@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3448,
+  "next_available": 3449,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28526,6 +28526,16 @@
       "commit_sha": "a0ee0b99",
       "notes": null,
       "shipped_at": "2026-07-29T22:30:08Z"
+    },
+    {
+      "r_number": "R-F3448",
+      "title": "full-suite baseline with the network guard ON by default: 111 failed / 12556 passed / 28:36",
+      "claimed_at": "2026-07-29T23:01:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "HEAD",
+      "notes": null,
+      "shipped_at": "2026-07-29T23:02:43Z"
     }
   ]
 }
