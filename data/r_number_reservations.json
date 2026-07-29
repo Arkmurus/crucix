@@ -28309,9 +28309,10 @@
       "title": "the checklist must read the evidence the DD now gathers (FS-11/FS-12/IS-16b/IS-17c)",
       "claimed_at": "2026-07-29T14:46:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "693895d8",
+      "notes": null,
+      "shipped_at": "2026-07-29T15:11:25Z"
     },
     {
       "r_number": "R-F3427",
