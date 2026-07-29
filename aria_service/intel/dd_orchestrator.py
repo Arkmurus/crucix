@@ -3608,6 +3608,112 @@ def resolve_jurisdiction_iso2(
     return _infer_jurisdiction(target, name, registration_number)
 
 
+class _ScopeWaived(Exception):
+    """R-F3411 — control-flow signal: the operator declined this check.
+
+    Used only to skip a long inline block without re-indenting it. Every raise has a
+    matching `except _ScopeWaived` placed ABOVE the generic handler, so a declined check
+    is never logged or reported as a failure. It never escapes a layer.
+    """
+
+
+def _dd_scope_from_target(target: dict) -> dict:
+    """R-F3411 — read the run's SCOPE off the DD request.
+
+    `routes/aria.py` passes `target=body`, i.e. the whole request body reaches the
+    orchestrator, so scope needs no new endpoint and no signature change. Two shapes are
+    accepted so the form and the API can each send what is natural:
+
+        {"dd_scope": {"tier": ..., "waivers": [...], "elections": [...]}}
+        {"tier": ..., "waivers": [...], "elections": [...]}      (top level)
+
+    Returns a plain dict, always — a run with no scope is a full-scope run with nothing
+    declined and nothing ordered, which is the correct default. Never raises: a
+    malformed scope must not cost the caller their DD, and because an unparsable waiver
+    is DROPPED rather than honoured, the failure direction is "we screened anyway".
+    """
+    if not isinstance(target, dict):
+        return {}
+    raw = target.get("dd_scope")
+    if not isinstance(raw, dict):
+        raw = target
+    tier = str(raw.get("tier") or target.get("tier") or "STANDARD").strip().upper()
+    if tier not in ("SIMPLIFIED", "STANDARD", "ENHANCED"):
+        tier = "STANDARD"
+
+    def _rows(key: str) -> list[dict]:
+        v = raw.get(key)
+        if v is None:
+            v = target.get(key)
+        out: list[dict] = []
+        for item in (v or []):
+            if isinstance(item, str):
+                out.append({"question_id": item.strip()})
+            elif isinstance(item, dict) and item.get("question_id"):
+                out.append({str(k): v2 for k, v2 in item.items()})
+        return out
+
+    return {"tier": tier, "waivers": _rows("waivers"), "elections": _rows("elections")}
+
+
+def _scope_waived(report: ARKDDReport, question_id: str) -> dict | None:
+    """The waiver for `question_id` on this run, or None.
+
+    A waiver only counts when it names WHO and WHY — the same validity rule
+    `dd_standard.Waiver.is_valid` applies, restated here rather than imported so this
+    gate cannot silently diverge if the module is unavailable. An anonymous opt-out is
+    NOT honoured: the check runs, which is the safe direction.
+
+    An ELECTION for the same question beats the waiver (money changed hands), matching
+    `dd_standard.assess`; otherwise the engine and the checklist would disagree about
+    whether the work should have happened.
+    """
+    try:
+        scope = getattr(report, "dd_scope", None) or {}
+        qid = str(question_id)
+        for e in (scope.get("elections") or []):
+            if isinstance(e, dict) and str(e.get("question_id")) == qid:
+                return None                      # ordered — never skip it
+        for w in (scope.get("waivers") or []):
+            if not isinstance(w, dict) or str(w.get("question_id")) != qid:
+                continue
+            if str(w.get("waived_by") or "").strip() and str(w.get("reason") or "").strip():
+                return w
+        return None
+    except Exception:
+        return None                              # unreadable scope -> run the check
+
+
+def _record_waived_screen(report: ARKDDReport, waiver: dict, *, what: str) -> None:
+    """Record a screen the operator declined, so it is STATED and never merely absent.
+
+    THE OMISSION THIS PREVENTS. If a waived screen simply does not run,
+    `report.identity.sanctions_screen` stays empty — and `render_markdown` gates the
+    whole "Sanctions screen:" line on that dict being truthy, so the report would carry
+    NO sanctions line at all. A reader cannot distinguish a declined screen from a
+    section nobody thought about. `screened: False` also routes through the R-F3229
+    branch, so it can never render as "CLEAN".
+    """
+    _by = str(waiver.get("waived_by") or "?")
+    _why = str(waiver.get("reason") or "")
+    report.identity.sanctions_screen = {
+        "matches": [],
+        "variants_screened": [],
+        "verified_sources": [],
+        "screened": False,
+        "waived": True,
+        "waived_by": _by,
+        "waived_reason": _why,
+        "waived_at": str(waiver.get("waived_at") or ""),
+        "screened_at": None,
+    }
+    report.identity.data_gaps.append(
+        f"{what} WAIVED by {_by}: {_why} — not screened on this run "
+        f"(a declined check is not a clear one)"
+    )
+    logger.info("[R-F3411] %s waived by %s (%s) on %s", what, _by, _why[:60], report.run_id)
+
+
 async def _screen_psc_sanctions(report: ARKDDReport) -> bool:
     """Screen every CURRENT PSC (beneficial owner) against sanctions.
 
@@ -3640,6 +3746,18 @@ async def _screen_psc_sanctions(report: ARKDDReport) -> bool:
     test, the same pattern `_check_domain_ownership` uses (R-F1836) — the full
     identity layer needs live Companies House + sanctions to reach this code.
     """
+    # R-F3411 — beneficial owners are officeholders for scope purposes: declining
+    # IS-13b declines their screen too. Same gate, same wording, so the two paths cannot
+    # drift into disagreeing about what was declined.
+    _w = _scope_waived(report, "IS-13b")
+    if _w is not None:
+        report.identity.data_gaps.append(
+            f"PSC (beneficial owner) sanctions screen WAIVED by {_w.get('waived_by')}: "
+            f"{_w.get('reason')} — beneficial owners not screened on this run "
+            f"(a declined check is not a clear one)"
+        )
+        return False
+
     psc_list = report.identity.shareholders or []
     if not psc_list:
         return False
@@ -3803,6 +3921,17 @@ async def _screen_officer_sanctions(report: ARKDDReport, target: dict) -> bool:
     loop is not drivable by a capability test and its honesty rules cannot be
     asserted. Callers: `_run_identity`, once, after every registry write.
     """
+    # R-F3411 — IS-13b (officeholder screening) may be declined for this run. Checked
+    # before the candidate walk so no name reaches a metered source.
+    _w = _scope_waived(report, "IS-13b")
+    if _w is not None:
+        report.identity.data_gaps.append(
+            f"Officer sanctions screen WAIVED by {_w.get('waived_by')}: "
+            f"{_w.get('reason')} — officers not screened on this run "
+            f"(a declined check is not a clear one)"
+        )
+        return False
+
     candidates = _officer_screen_candidates(report, target)
     if not candidates:
         return False
@@ -4273,7 +4402,21 @@ async def _run_identity(
     # routinely hit at 1.00 against transparency data like `corp.state`
     # (state-owned / strategic industry lists), which is NOT a sanction.
     # See _classify_sanctions_match() for the topic → severity mapping.
+    # R-F3411 — IS-13 (subject sanctions) may be DECLINED for this run. Checked before
+    # the call, not after, because the operational point of declining a metered check is
+    # that the quota is not spent. The report still STATES it (_record_waived_screen),
+    # so a declined screen is visible and can never read as clean.
+    _is13_waiver = _scope_waived(report, "IS-13")
+    if _is13_waiver is not None:
+        _record_waived_screen(report, _is13_waiver, what="Subject sanctions screen")
     try:
+        if _is13_waiver is not None:
+            # Skip the ~90-line screen block without re-indenting it. `_ScopeWaived` is
+            # caught by its OWN handler immediately below, which must stay ABOVE the
+            # generic `except Exception` — otherwise a declined screen would be logged
+            # as "sanctions screen failed" and land in the report as an ERROR rather
+            # than as the operator's decision.
+            raise _ScopeWaived()
         from . import sanctions
         if hasattr(sanctions, "screen_with_aliases"):
             # R-F3228 — this name is the DD subject: operator-supplied or
@@ -4641,6 +4784,11 @@ async def _run_identity(
                 source="sanctions.screen_with_aliases",
                 confidence=_conf,
             ))
+    except _ScopeWaived:
+        # R-F3411 — the operator declined this screen. Already recorded by
+        # `_record_waived_screen` (marker blob + data gap); nothing further to do, and
+        # emphatically NOT an error. This handler must precede `except Exception`.
+        pass
     except Exception as e:
         logger.warning("Identity: sanctions screen failed: %s", e)
         report.identity.findings.append(Finding(
@@ -12950,6 +13098,12 @@ async def _orchestrate_dd_impl(
         or _coerce_entity_text(target.get("query"))
     )
     report.identity.entity_type = target.get("type") or EntityType.UNKNOWN.value
+
+    # R-F3411 — the run's SCOPE, set before any layer runs so a waived section is never
+    # searched (that is what conserves a metered allowance) and an ordered one is always
+    # in scope. Persisted on the report by R-F3410, which is what lets the checklist
+    # distinguish "nobody screened this" from "the operator declined it, by name".
+    report.dd_scope = _dd_scope_from_target(target)
 
     # R-F1628: expose the live report to the hard-deadline wrapper so a budget
     # timeout returns the ACCUMULATED partial (whatever layers completed), not a

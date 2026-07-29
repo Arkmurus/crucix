@@ -861,6 +861,16 @@ class ARKDDReport:
             # sanctions finding was emitted, fell straight through to a tick.
             # R-F3217 removed exactly this shape from three live surfaces; this
             # is the fourth, and the one a customer keeps on disk.
+            # R-F3411 — a DECLINED screen is not the same sentence as a FAILED one.
+            # Both are "not a clearance", but one is the operator's decision with a name
+            # against it and the other is an outage. Reporting a waiver as "NOT
+            # SCREENED" hides who decided and why, which is the whole reason a waiver
+            # carries those fields.
+            elif self.identity.sanctions_screen.get("waived"):
+                _wb = self.identity.sanctions_screen.get("waived_by") or "?"
+                _wr = self.identity.sanctions_screen.get("waived_reason") or ""
+                verdict = (f"WAIVED by {_wb}" + (f" — {_wr}" if _wr else "")
+                           + " (declined for this run; not a clearance)")
             elif self.identity.sanctions_screen.get("screened") is False:
                 verdict = "NOT SCREENED — see data gaps (not a clearance)"
             else:

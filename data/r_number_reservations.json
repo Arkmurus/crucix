@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3420,
+  "next_available": 3421,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28236,6 +28236,15 @@
       "r_number": "R-F3419",
       "title": "three long-red guards: assert the property, not the wording",
       "claimed_at": "2026-07-29T12:35:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3420",
+      "title": "split launch from harvest so a killed local driver cannot strand or waste a pod",
+      "claimed_at": "2026-07-29T13:19:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
