@@ -19,7 +19,25 @@ import aria_service.intel.state_store as SS
 def _make_bloated_wal(db_path):
     """Create a DB whose -wal file is large and un-checkpointed, and keep a
     connection open so the WAL persists on disk (closing the last connection
-    would auto-checkpoint and defeat the setup)."""
+    would auto-checkpoint and defeat the setup).
+
+    R-F3443 — the 20,000 inserts used to run in AUTOCOMMIT (`isolation_level=None`
+    with no explicit transaction), i.e. 20,000 separate commits and 20,000 fsyncs.
+    MEASURED on this machine: 93.9s to build the fixture, which made the whole test
+    100.6s against pytest.ini's 120s timeout — 84% of the budget.
+
+    Why that was a whole-suite hazard and not just a slow test: on Windows
+    pytest-timeout uses the THREAD method, which kills the PROCESS. Any contention
+    (running in-suite, a busy machine — same-day measurements varied 110s-220s on an
+    identical file set) pushed this past 120s, and crossing it took the ENTIRE RUN
+    down with no summary line. The output then names `_do_shutdown`, not this test,
+    so the cost was undiagnosable "the suite hangs" rather than "this test is slow".
+
+    One explicit transaction is 2.3s — a 40x reduction — and still produces an ~83 MB
+    WAL, sixteen times the 5 MB the assertion below requires. Nothing this test
+    proves has changed: the WAL is still large, still un-checkpointed, and k0/k19999
+    are still both present for the lossless check.
+    """
     holder = sqlite3.connect(str(db_path), isolation_level=None)
     holder.execute("PRAGMA journal_mode=WAL")
     holder.execute("PRAGMA wal_autocheckpoint=0")  # never auto-truncate
@@ -28,12 +46,13 @@ def _make_bloated_wal(db_path):
         "kind TEXT NOT NULL DEFAULT 'string', expires_at REAL)"
     )
     blob = "x" * 4000
-    for i in range(20000):
-        holder.execute(
-            "INSERT OR REPLACE INTO state(key,value,kind) VALUES(?,?, 'string')",
-            (f"k{i}", blob),
-        )
-    # committed (autocommit) into the WAL, but NOT checkpointed
+    holder.execute("BEGIN")
+    holder.executemany(
+        "INSERT OR REPLACE INTO state(key,value,kind) VALUES(?,?, 'string')",
+        ((f"k{i}", blob) for i in range(20000)),
+    )
+    holder.execute("COMMIT")
+    # committed into the WAL, but NOT checkpointed
     return holder, blob
 
 
@@ -67,6 +86,39 @@ def test_rf2116_boot_reclaims_bloated_wal_losslessly(tmp_path, monkeypatch):
         assert vlast == blob, "data lost during boot WAL checkpoint"
     finally:
         holder.close()
+
+
+def test_rf3443_the_fixture_leaves_real_headroom_under_the_suite_timeout(tmp_path):
+    """R-F3443 — this test's own cost must stay far below pytest.ini's 120s.
+
+    Asserts HEADROOM, not a specific duration: the threshold is deliberately loose
+    (30s vs the ~2.3s the batched fixture actually takes) so ordinary machine load
+    cannot make it cry wolf, while a regression to the old per-row autocommit — which
+    measured 93.9s here — fails it immediately.
+
+    This matters more than one slow test. On Windows pytest-timeout's thread method
+    kills the PROCESS, so a test that creeps up on the timeout does not fail alone: it
+    takes the whole run down without printing a summary, and the stack dump names the
+    shutdown thread rather than the culprit. Headroom IS the safety property.
+    """
+    import time
+
+    t0 = time.time()
+    holder, _ = _make_bloated_wal(tmp_path / "hdr.db")
+    try:
+        elapsed = time.time() - t0
+        wal = (tmp_path / "hdr.db").with_name("hdr.db-wal")
+        size = wal.stat().st_size if wal.exists() else 0
+    finally:
+        holder.close()
+
+    assert size > 5 * 1024 * 1024, (
+        f"the fixture must still bloat the WAL for the test to mean anything; got {size}")
+    assert elapsed < 30, (
+        f"WAL fixture took {elapsed:.1f}s. pytest.ini's timeout is 120s and exceeding it "
+        f"KILLS THE WHOLE RUN with no summary, so this must keep real headroom. If the "
+        f"inserts went back to per-row autocommit, that is the regression (93.9s measured)."
+    )
 
 
 def test_rf2116_autocheckpoint_is_bounded_after_connect(tmp_path, monkeypatch):

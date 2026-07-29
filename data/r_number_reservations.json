@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3443,
+  "next_available": 3444,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28462,18 +28462,30 @@
       "title": "gated requirements must appear ON THE REPORT as not completed, tied to the user's DD selection",
       "claimed_at": "2026-07-29T19:37:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3068faf3",
+      "notes": null,
+      "shipped_at": "2026-07-29T20:19:39Z"
     },
     {
       "r_number": "R-F3442",
       "title": "build the CCJ (Registry Trust) adapter end to end: elected -> searched -> on the report, env-gated",
       "claimed_at": "2026-07-29T19:40:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3068faf3",
+      "notes": null,
+      "shipped_at": "2026-07-29T20:19:39Z"
+    },
+    {
+      "r_number": "R-F3443",
+      "title": "the WAL test ran at 84% of the 120s timeout, so any load killed the whole run with no summary",
+      "claimed_at": "2026-07-29T20:28:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-07-29T20:39:04Z"
     }
   ]
 }
