@@ -211,3 +211,40 @@ def _reset_auth_internal_contextvar():
     if var is not None:
         var.set(True)          # the declared default; start every test unrestricted
     yield
+
+
+# ── R-F3449: no test may inherit another test's TRIPPED circuit breaker ───────
+#
+# `intel/circuit_breaker.py` keeps a process-global `_breakers` registry. A backend that
+# fails repeatedly during one test leaves its breaker OPEN for the rest of the session, and
+# every guarded call site then SHORT-CIRCUITS instead of running:
+#
+#     _cb = get_breaker("bing_news"); if _cb.is_open(): return []   # web_search.py:1140-43
+#
+# So a later test asserting "a backend error wires a failure to the brain" sees the
+# fail-open [] it expects but NO wire_failure, because httpx was never reached. Measured as
+# two of the fifteen order-dependent failures in the R-F3448 baseline:
+#     test_rf1614_make_loud::test_rf1614_bing_news_backend_error_wires_failure
+#     test_rf1614_make_loud::test_rf1614_google_news_backend_error_wires_failure
+# Both pass alone (fresh breaker, CLOSED) and fail in-suite (inherited OPEN).
+#
+# Reset IN PLACE rather than clearing the registry: some modules capture a breaker
+# reference at import time, and a cleared dict would hand out a NEW object while the old
+# one stayed open behind that reference. Mutating the existing objects fixes both paths.
+#
+# A test that deliberately trips a breaker within itself is unaffected — it trips it during
+# the test. What is no longer possible is INHERITING one.
+@pytest.fixture(autouse=True)
+def _reset_circuit_breakers():
+    import sys as _sys
+
+    cb = _sys.modules.get("aria_service.intel.circuit_breaker")
+    reg = getattr(cb, "_breakers", None) if cb is not None else None
+    if isinstance(reg, dict):
+        for _b in reg.values():
+            try:
+                _b.state = "CLOSED"
+                _b.consecutive_failures = 0
+            except Exception:
+                pass
+    yield

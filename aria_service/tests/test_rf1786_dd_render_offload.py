@@ -15,6 +15,7 @@ the loop stays alive (ticks keep advancing). This asserts the user-visible outco
 — concurrent requests are not starved — not just that a helper was called.
 """
 import asyncio
+import threading   # R-F3449 — thread identity is the load-independent offload proof
 import time
 
 import pytest
@@ -32,8 +33,14 @@ async def test_dd_report_markdown_render_does_not_starve_loop(monkeypatch):
 
     SLEEP = 0.3  # stands in for the cx-132 CPU-bound render
 
+    # R-F3449 — record WHICH THREAD the render ran on. This is the property the test is
+    # really about ("offloaded to a thread"), it is directly observable, and unlike a tick
+    # count it does not depend on how loaded the machine is. See the assertions below.
+    render_thread: dict = {}
+
     class _SlowReport:
         def render_markdown(self, concise=False):
+            render_thread["ident"] = threading.get_ident()
             time.sleep(SLEEP)  # BLOCKING sync work — exactly the wedge pattern
             return "# DD Report\nAcme body"
 
@@ -47,6 +54,7 @@ async def test_dd_report_markdown_render_does_not_starve_loop(monkeypatch):
             await asyncio.sleep(SLEEP / 20)
             ticks["n"] += 1
 
+    loop_thread = threading.get_ident()
     hb = asyncio.create_task(_heartbeat())
     try:
         result = await A.dd_report_ep("run-123", format="markdown")
@@ -56,10 +64,29 @@ async def test_dd_report_markdown_render_does_not_starve_loop(monkeypatch):
     # user-visible output still correct
     assert "DD Report" in result["markdown"]
 
-    # The decisive assertion: if render ran inline, time.sleep(0.3) blocks the
-    # loop and the heartbeat cannot tick (n≈0). Offloaded via to_thread, the
-    # heartbeat keeps advancing through the render window.
-    assert ticks["n"] >= 5, (
-        f"event loop was starved during DD render (heartbeat ticks={ticks['n']}) "
-        f"— render_markdown is NOT offloaded to a thread"
+    # ── The decisive assertion (R-F3449) ──────────────────────────────────────
+    # This USED TO BE `ticks["n"] >= 5`, and it was one of the 15 order-dependent
+    # failures in the R-F3448 baseline: green standalone, red in-suite. It is not state
+    # poisoning — it is a LOAD-SENSITIVE timing measurement. The render is a fixed
+    # time.sleep(0.3) (wall-clock, indifferent to load) while the heartbeat depends on
+    # scheduler responsiveness (highly sensitive to it), so under a full suite the tick
+    # count collapses and the test reports loop starvation that never happened.
+    #
+    # Assert the PROPERTY instead: the render must not execute on the event-loop thread.
+    # Directly observable, deterministic, load-independent — and strictly STRONGER, because
+    # an inline render fails it immediately rather than only when the timing happens to be
+    # measurable. That is the same "assert the property, not the proxy" correction applied
+    # to several long-red guards earlier today.
+    assert render_thread.get("ident") is not None, "render_markdown was never called"
+    assert render_thread["ident"] != loop_thread, (
+        "render_markdown ran ON THE EVENT-LOOP THREAD — it is NOT offloaded, so a real "
+        "CPU-bound render would wedge the loop (the cx-132 wedge this test guards)"
+    )
+
+    # Kept as a SECONDARY signal only, with a threshold that cannot cry wolf under load:
+    # >0 proves the loop drew breath at all during the render window. The thread-identity
+    # assertion above is what actually holds the contract.
+    assert ticks["n"] > 0, (
+        f"the event loop made no progress whatsoever during the DD render "
+        f"(heartbeat ticks={ticks['n']})"
     )

@@ -56,13 +56,21 @@ def test_post_then_get_roundtrip(monkeypatch):
     assert "received_at" in got["result"]
 
 
-def test_get_when_empty_is_honest():
+def test_get_when_empty_is_honest(monkeypatch):
     # No POST yet → present False, result None (don't fabricate a result).
     from aria_service.routes import aria as a
-    import aria_service.routes.aria as _a
-    import types
-    # fresh fake store via monkeypatch-free direct swap
-    _a.rs = _FakeRS()  # type: ignore
+
+    # R-F3449 — this was `_a.rs = _FakeRS()`, a "monkeypatch-free direct swap" with NO
+    # restore, so `routes.aria.rs` stayed a _FakeRS for the REST OF THE SESSION. _FakeRS
+    # implements only set_json/get_json, so every later test calling `rs.get(...)` died
+    # with "'_FakeRS' object has no attribute 'get'". That is two of the fifteen
+    # order-dependent failures in the R-F3448 baseline:
+    #     test_rf2376_live_monitoring_remediation::test_predictor_blocks_health_counter_*
+    # and the failure message named this class outright, which is what identified it.
+    #
+    # monkeypatch.setattr restores it at teardown. The other tests in this file already
+    # used `_wire(monkeypatch)`; only this one bypassed it.
+    monkeypatch.setattr(a, "rs", _FakeRS())
     got = asyncio.run(a.eval_external_result_get_ep())
     assert got["present"] is False and got["result"] is None
 
