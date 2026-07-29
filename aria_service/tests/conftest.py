@@ -174,3 +174,40 @@ if not _truthy("ARIA_TEST_ALLOW_NETWORK"):
 
     _nb.install()
     LiveNetworkBlocked = _nb.LiveNetworkBlocked
+
+
+# ── R-F3449: reset the per-request auth ContextVar between tests ──────────────
+#
+# `routes/aria.py::require_aria_token` records whether the caller authenticated with the
+# INTERNAL or the user-facing token, via `_auth_is_internal_var` (a ContextVar whose
+# declared default is True, i.e. unrestricted — see its comment: "Defaults True
+# (unrestricted) ONLY for callers that bypass auth entirely").
+#
+# THE LEAK. A test that sets ARIA_API_TOKEN and makes an authenticated request drives
+# `_auth_is_internal_var.set(False)`. `monkeypatch` restores the ENV VAR afterwards but
+# knows nothing about a ContextVar, and the value was set in the AMBIENT context rather
+# than a per-request task, so the False outlives the test and every later test inherits it.
+#
+# Measured: `test_rf1566_auth_fail_closed.py` running first turns
+#   test_rf1820_dd_report_ownership::test_dd_report_admin_no_filter_ok
+#   test_rf2097_dd_vault_ownership::test_rf2097_dd_case_cross_tenant_404
+#   test_rf2097_dd_vault_ownership::test_rf2097_dd_vault_search_filtered
+# from green into "404 != 200" and "set() != {company_GB_OWNED}" — three of the fifteen
+# order-dependent failures in the R-F3448 baseline. They pass alone and fail in-suite for
+# exactly this reason.
+#
+# Fixed at the class rather than per test: no authenticating test can leak the flag now.
+# Guarded on sys.modules so this does NOT import the (very large) routes module for tests
+# that never touch it — if it was never imported, there is no ContextVar to leak.
+import pytest  # R-F3449 — conftest had no pytest import; the fixture below needs it
+
+
+@pytest.fixture(autouse=True)
+def _reset_auth_internal_contextvar():
+    import sys as _sys
+
+    mod = _sys.modules.get("aria_service.routes.aria")
+    var = getattr(mod, "_auth_is_internal_var", None) if mod is not None else None
+    if var is not None:
+        var.set(True)          # the declared default; start every test unrestricted
+    yield
