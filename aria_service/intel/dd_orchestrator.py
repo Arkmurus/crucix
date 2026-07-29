@@ -3873,6 +3873,151 @@ async def _run_ch_free_registers(report: ARKDDReport, profile: dict | None) -> N
                 f"NOT performed (not a clear result)")
 
 
+#: R-F3403 — how many natural persons get a personal-insolvency search. Same bound as
+#: the officer sanctions screen, and truncation is DISCLOSED rather than silent.
+_GAZETTE_PERSON_CAP = 6
+
+
+async def _run_gazette_insolvency(report: ARKDDReport) -> None:
+    """R-F3403 — search The Gazette, the UK's statutory publication of record.
+
+    WHY, GIVEN R-F3422 ALREADY WIRED COMPANIES HOUSE /insolvency. That endpoint answers
+    for the COMPANY, while it remains on the register. The Gazette adds the half no
+    company register can hold: PERSONAL insolvency — bankruptcy orders and IVAs against
+    the natural persons who own and run the subject. A DD whose whole discipline is
+    "resolve the chain to real people" cannot ask "is this director bankrupt?" without
+    it. That question was previously unanswerable.
+
+    THE HAZARD, AND WHY THE FINDINGS ARE WORDED AS THEY ARE. The Gazette is a FREE-TEXT
+    search over notice text, so a hit can be a notice that merely MENTIONS the name — an
+    insolvency practitioner's other case, a creditor schedule. Measured live: all 20
+    corporate hits for "Carillion" were titled "Notice of Intended Dividends", i.e. body
+    matches. Reported flatly they read as twenty insolvency notices ABOUT the subject.
+    So findings distinguish title matches from body matches, are capped at AMBER for the
+    company and never assert identity for a person, and every one carries the
+    corroboration requirement. Wrongly attaching a winding-up notice to a solvent
+    counterparty ends a commercial relationship; that is the cost being avoided.
+
+    Never raises. A source that does not answer becomes a data gap, never a clean line —
+    the same rule the CH registers follow, and the reason `outcome` distinguishes
+    `empty` (answered, nothing on file) from `timeout` (never answered).
+    """
+    name = (report.identity.entity_name or "").strip()
+    if len(name) < 3:
+        return
+    from .sources import gazette as _gz
+
+    # ── the company ──────────────────────────────────────────────────────────
+    try:
+        corp = await _gz.search_insolvency(name, personal=False)
+        report.identity.meta.subcalls += 1
+        if not corp.get("ok") and corp.get("outcome") != "skipped":
+            report.identity.data_gaps.append(
+                f"Gazette corporate-insolvency search did not complete "
+                f"({corp.get('error') or corp.get('outcome')}) — no view of the "
+                f"statutory record (not a clear result)"
+            )
+        elif corp.get("hit_count"):
+            _hits = corp.get("hits") or []
+            _titled = [h for h in _hits if h.get("subject_in_title")]
+            # A title match names the subject; a body match merely mentions it. Only
+            # the first is worth an amber, and even that is not a determination.
+            report.identity.findings.append(Finding(
+                severity="amber" if _titled else "info",
+                title=(f"Gazette: {len(_titled)} insolvency notice(s) NAMING "
+                       f"{name} in the title"
+                       if _titled else
+                       f"Gazette: {len(_hits)} insolvency notice(s) mention "
+                       f"{name} in the notice text only"),
+                detail=(
+                    (f"The Gazette, the UK's statutory publication of record, carries "
+                     f"{len(_titled)} corporate-insolvency notice(s) whose title names "
+                     f"this company: "
+                     + "; ".join(h.get("title", "")[:60] for h in _titled[:3]) + ". "
+                     if _titled else
+                     f"{len(_hits)} corporate-insolvency notice(s) contain this name in "
+                     f"their TEXT but not in their title — typically a creditor "
+                     f"schedule or a practitioner's other case, not a proceeding "
+                     f"against this company. ")
+                    + corp.get("corroboration_required", "")
+                ),
+                source="gazette.corporate_insolvency",
+                confidence="ASSESSED",
+                url=corp.get("citation_url"),
+                source_tier="OFFICIAL",
+            ))
+        else:
+            report.identity.findings.append(Finding(
+                severity="info",
+                title="No corporate insolvency notice in The Gazette",
+                detail=("The Gazette's insolvency notices were searched for this "
+                        "company name and returned nothing."),
+                source="gazette.corporate_insolvency",
+                confidence="CONFIRMED",
+                url=corp.get("citation_url"),
+                source_tier="OFFICIAL",
+            ))
+    except Exception as exc:
+        report.identity.data_gaps.append(
+            f"Gazette corporate search raised {type(exc).__name__} — NOT searched "
+            f"(not a clear result)")
+
+    # ── the natural persons ──────────────────────────────────────────────────
+    #
+    # This is the part no company register can answer. Directors and PSCs both, because
+    # a beneficial owner's bankruptcy bears on control just as a director's does.
+    _people: list[str] = []
+    for _src in (report.identity.directors, report.identity.shareholders):
+        for _p in (_src or []):
+            if not isinstance(_p, dict) or _p.get("resigned_on") or _p.get("ceased_on"):
+                continue
+            _nm = " ".join(str(_p.get("name") or "").split()).strip()
+            if len(_nm) >= 4 and _nm.casefold() not in {x.casefold() for x in _people}:
+                _people.append(_nm)
+
+    if len(_people) > _GAZETTE_PERSON_CAP:
+        report.identity.data_gaps.append(
+            f"Personal-insolvency search capped at {_GAZETTE_PERSON_CAP} of "
+            f"{len(_people)} people — {', '.join(_people[_GAZETTE_PERSON_CAP:][:4])} "
+            f"NOT searched (not a clear result)"
+        )
+
+    for _nm in _people[:_GAZETTE_PERSON_CAP]:
+        try:
+            per = await _gz.search_insolvency(_nm, personal=True)
+            report.identity.meta.subcalls += 1
+            if not per.get("ok") and per.get("outcome") != "skipped":
+                report.identity.data_gaps.append(
+                    f"Personal-insolvency search '{_nm}' did not complete "
+                    f"({per.get('error') or per.get('outcome')}) — not a clear result")
+                continue
+            _titled = [h for h in (per.get("hits") or []) if h.get("subject_in_title")]
+            if not _titled:
+                continue          # answered; nothing naming this person
+            report.identity.findings.append(Finding(
+                severity="amber",
+                title=(f"{_nm}: {len(_titled)} personal-insolvency notice(s) matching "
+                       f"this NAME — identity NOT confirmed"),
+                detail=(
+                    f"The Gazette carries {len(_titled)} personal-insolvency notice(s) "
+                    f"(bankruptcy order or IVA) whose title matches the name {_nm!r}: "
+                    + "; ".join(h.get("title", "")[:60] for h in _titled[:3])
+                    + ". Personal names are far less distinctive than company names, so "
+                      "this is a NAME MATCH and not a determination that this "
+                      "officeholder is that person. "
+                    + per.get("corroboration_required", "")
+                ),
+                source="gazette.personal_insolvency",
+                confidence="ASSESSED",
+                url=per.get("citation_url"),
+                source_tier="OFFICIAL",
+            ))
+        except Exception as exc:
+            report.identity.data_gaps.append(
+                f"Personal-insolvency search '{_nm}' raised {type(exc).__name__} — "
+                f"NOT searched (not a clear result)")
+
+
 async def _screen_psc_sanctions(report: ARKDDReport) -> bool:
     """Screen every CURRENT PSC (beneficial owner) against sanctions.
 
@@ -5292,6 +5437,8 @@ async def _run_identity(
 
                     # ── R-F3422 — three free registers the DD has never consulted ──
                     await _run_ch_free_registers(report, profile)
+                    # ── R-F3403 — the statutory record, incl. PERSONAL insolvency ──
+                    await _run_gazette_insolvency(report)
         except Exception as e:
             logger.warning("Identity: companies_house lookup failed: %s", e)
             report.identity.data_gaps.append(f"companies_house lookup failed: {str(e)[:120]}")

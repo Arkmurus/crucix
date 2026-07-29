@@ -28279,9 +28279,10 @@
       "title": "pool declaration was incomplete: academic and archive backends condemn search too",
       "claimed_at": "2026-07-29T14:06:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "51d83526",
+      "notes": null,
+      "shipped_at": "2026-07-29T14:19:47Z"
     }
   ]
 }
