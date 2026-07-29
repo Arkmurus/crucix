@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3417,
+  "next_available": 3418,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28211,6 +28211,16 @@
       "commit_sha": "bcfb1ad1",
       "notes": null,
       "shipped_at": "2026-07-29T11:51:55Z"
+    },
+    {
+      "r_number": "R-F3417",
+      "title": "a pod created but never RUNNING is a capacity failure and must be retried, not fatal",
+      "claimed_at": "2026-07-29T12:01:49Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fb6e7274",
+      "notes": null,
+      "shipped_at": "2026-07-29T12:04:21Z"
     }
   ]
 }
