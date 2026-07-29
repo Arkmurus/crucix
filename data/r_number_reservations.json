@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3392,
+  "next_available": 3393,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27966,6 +27966,16 @@
       "commit_sha": "fbd0e5d4",
       "notes": null,
       "shipped_at": "2026-07-29T00:10:05Z"
+    },
+    {
+      "r_number": "R-F3392",
+      "title": "tool_call ids break the chat template so the corpus cannot be trained",
+      "claimed_at": "2026-07-29T07:59:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0278c1e3",
+      "notes": null,
+      "shipped_at": "2026-07-29T08:04:51Z"
     }
   ]
 }
