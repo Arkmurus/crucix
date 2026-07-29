@@ -28492,9 +28492,10 @@
       "title": "two regressions my own work introduced, caught by the repo's own contract guards",
       "claimed_at": "2026-07-29T21:28:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "44c02874",
+      "notes": null,
+      "shipped_at": "2026-07-29T21:52:23Z"
     },
     {
       "r_number": "R-F3445",
@@ -28511,9 +28512,10 @@
       "title": "flip the live-network test guard to ON by default: full-suite blast radius measured at zero",
       "claimed_at": "2026-07-29T21:45:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "331d9171",
+      "notes": null,
+      "shipped_at": "2026-07-29T21:52:23Z"
     }
   ]
 }
