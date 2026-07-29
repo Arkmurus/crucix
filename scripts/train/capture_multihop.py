@@ -22,7 +22,6 @@ from scripts.train.build_tooluse_corpus import (
 
 from scripts.train._subjects import UK_REGISTRY_SUBJECTS as SUBJECTS
 
-from aria_service.env_bootstrap import load_project_env, require_env
 
 # R-F3398 — the credentials this capture cannot work without. Companies House
 # is the load-bearing one: without a key `search_companies` returns nothing and
@@ -33,6 +32,14 @@ REQUIRED_ENV = ("COMPANIES_HOUSE_API_KEY", "ARIA_INTERNAL_TOKEN")
 
 
 def check_preconditions() -> None:
+    # R-F3416 — imported INSIDE check_preconditions, not at module level.
+    # This module is also the VALIDATOR, and the eval harness imports it on a pod
+    # that only receives scripts/train/*. A module-level `import aria_service` for
+    # a CLI-only concern made the whole file unimportable there, and the first real
+    # cycle died at the baseline eval after paying for a pod, a GPU and a 60s model
+    # load. The dependency is real but it belongs to this one function.
+    from aria_service.env_bootstrap import load_project_env, require_env
+
     """Load the project environment, then refuse to run if anything is missing."""
     load_project_env()
     require_env(REQUIRED_ENV, purpose="capturing registry -> officer -> screen chains")

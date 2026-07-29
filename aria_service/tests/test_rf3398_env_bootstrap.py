@@ -153,7 +153,10 @@ def test_registry_capture_refuses_without_a_key_instead_of_reporting_no_match(mo
     """
     from scripts.train import capture_multihop as C
 
-    monkeypatch.setattr(C, "load_project_env", lambda *a, **k: 0)
+    # R-F3416 — patched at the SOURCE. `load_project_env` is now a local inside
+    # check_preconditions, so patching it as an attribute of the capture module
+    # is a no-op that would make this test pass without testing anything.
+    monkeypatch.setattr(E, "load_project_env", lambda *a, **k: 0)
     monkeypatch.delenv("COMPANIES_HOUSE_API_KEY", raising=False)
     with pytest.raises(E.MissingCredentials) as exc:
         C.check_preconditions()
@@ -163,7 +166,10 @@ def test_registry_capture_refuses_without_a_key_instead_of_reporting_no_match(mo
 def test_registry_capture_precondition_passes_with_a_key(monkeypatch):
     from scripts.train import capture_multihop as C
 
-    monkeypatch.setattr(C, "load_project_env", lambda *a, **k: 0)
+    # R-F3416 — patched at the SOURCE. `load_project_env` is now a local inside
+    # check_preconditions, so patching it as an attribute of the capture module
+    # is a no-op that would make this test pass without testing anything.
+    monkeypatch.setattr(E, "load_project_env", lambda *a, **k: 0)
     monkeypatch.setenv("COMPANIES_HOUSE_API_KEY", "present")
     monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "present")
     C.check_preconditions()
