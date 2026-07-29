@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3410,
+  "next_available": 3413,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28143,6 +28143,34 @@
       "commit_sha": "16ff7ed1",
       "notes": null,
       "shipped_at": "2026-07-29T10:43:08Z"
+    },
+    {
+      "r_number": "R-F3410",
+      "title": "wire the DD Standard into the report and retire the discipline_coverage proxy",
+      "claimed_at": "2026-07-29T11:03:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3411",
+      "title": "DD scope reaches the engine: a waived section is not searched, an elected one is",
+      "claimed_at": "2026-07-29T11:03:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3412",
+      "title": "corpus axis: adverse media - grade the procedural stage, never escalate beyond the evidence",
+      "claimed_at": "2026-07-29T11:04:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cad60ae6",
+      "notes": null,
+      "shipped_at": "2026-07-29T11:16:21Z"
     }
   ]
 }
