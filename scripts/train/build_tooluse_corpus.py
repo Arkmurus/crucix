@@ -777,6 +777,36 @@ def validate_trace(trace: Any) -> list[str]:
 _SELF_SOURCE_MARKERS = ("memory://", "rag://", "aria://", "brain_hook:")
 
 
+def _memory_note(payload: Any) -> str:
+    """Name ARIA's own memory hits and refuse them, rather than dropping them.
+
+    R-F3438. `_independent_sources` already EXCLUDES memory from the citable set,
+    so the builders quietly filtered it out — and 207 of the 211 rows whose
+    payload contained memory said nothing about it. A model shown
+    `memory://d5228fc8` in a result list, beside a target answer that neither
+    cites it nor explains why not, has no reason to treat it differently from
+    reuters.com. It didn't: the trained model produced `[from memory:documents]`
+    and `[from memory:facts]`, presenting ARIA's own prior belief as external
+    corroboration — the single-source failure the verification layer exists to
+    prevent.
+
+    Filtering is not teaching. The count is stated because a bare assertion is
+    boilerplate the model can learn to emit without reading the payload.
+    """
+    results = ((payload or {}).get("results") or []) if isinstance(payload, dict) else []
+    n = sum(1 for r in results
+            if isinstance(r, dict)
+            and any(str(r.get("url") or "").lower().startswith(m)
+                    for m in _SELF_SOURCE_MARKERS))
+    if not n:
+        return ""
+    return (
+        f"\n\n{n} of these results are ARIA's own memory, not outside reporting. "
+        f"They are what I already believed, so they are not independent, they do "
+        f"not corroborate anything, and they are not cited above."
+    )
+
+
 def _independent_sources(payload: Any) -> set[str]:
     """Outlet domains from a search payload, EXCLUDING ARIA's own memory.
 
@@ -1049,7 +1079,7 @@ def build_adverse_media_trace(entity: str, search_payload: dict) -> dict | None:
 
     final = (
         f"Graded by procedural stage rather than counted:\n\n{lines}\n\n{verdict}"
-        f"{cleared_note}\n\n"
+        f"{cleared_note}{_memory_note(search_payload)}\n\n"
         f"Note on counting: several outlets covering one event is ONE matter, not "
         f"several. The number of articles is not the number of risks."
     )
@@ -1216,6 +1246,7 @@ def build_contradiction_trace(
         f"done anything — what exists is coverage that a screen cannot address. "
         f"The next step is to establish whether the reporting concerns this same "
         f"entity, and what came of it."
+        f"{_memory_note(search_payload)}"
     )
 
     return {
@@ -1313,6 +1344,7 @@ def build_news_impact_trace(entity: str, search_payload: dict) -> dict:
                 f"{entity}'s contract pipeline and counterparty concentration — I "
                 f"would still confirm against primary filings before it changes a "
                 f"formal rating."
+                f"{_memory_note(search_payload)}"
             )
     return {
         "messages": [
