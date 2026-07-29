@@ -192,10 +192,19 @@ def test_unbuilt_resolver_does_not_imply_capability():
         )
 
 
-def test_resolver_status_separates_no_adapter_from_no_source():
+def test_resolver_status_separates_no_adapter_from_no_source(monkeypatch):
+    """R-F3442 — registry_trust now HAS an adapter, so `unbuilt` is correctly empty. What
+    must survive is the distinction this test exists for: the CCJ question is still
+    blocked on a COMMERCIAL decision, and that has to be visible whether or not the code
+    is written. `blocked_on` is now keyed on availability rather than build state, which
+    is the only reading that stays true once an adapter lands."""
+    monkeypatch.delenv("REGISTRY_TRUST_DATA_PATH", raising=False)
+    monkeypatch.delenv("REGISTRY_TRUST_API_URL", raising=False)
+    monkeypatch.delenv("REGISTRY_TRUST_API_KEY", raising=False)
+
     ccj = S.resolver_status(S.QUESTIONS_BY_ID["IS-17b"])
     assert ccj["declared"] == ["registry_trust"]
-    assert ccj["unbuilt"] == ["registry_trust"]
+    assert ccj["unbuilt"] == [], "the adapter exists as of R-F3442"
     assert S.Access.PAID_PER_SEARCH.value in ccj["blocked_on"], (
         "a metered source must be flagged as blocked on a commercial decision, not "
         "silently queued for build"

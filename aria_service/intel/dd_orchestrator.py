@@ -3715,6 +3715,37 @@ def _record_waived_screen(report: ARKDDReport, waiver: dict, *, what: str) -> No
     logger.info("[R-F3411] %s waived by %s (%s) on %s", what, _by, _why[:60], report.run_id)
 
 
+def _gated_search_permitted(report: ARKDDReport, question_id: str) -> tuple[bool, str]:
+    """R-F3441 — may a METERED search be spent on this run? Default is NO.
+
+    Operator directive: a paid search is "only carried out when the user select as a
+    requirement on their DD for that specific company or individual." So the permission
+    is per-run and per-question, and the default is refusal — the opposite of the usual
+    scope rule, where an unreadable waiver means "screen anyway" because screening is the
+    safe direction. For metered spend the safe direction is the other way: not spending
+    someone's money is recoverable, spending it is not.
+
+    Every PAID_PER_SEARCH adapter MUST call this before issuing a billable request.
+    Registry Trust has no adapter yet, so today this gates nothing — the seam exists now
+    so that binding one is a two-line change rather than a rediscovery, and
+    test_rf3441_* asserts a paid resolver cannot be wired around it.
+    """
+    try:
+        scope = getattr(report, "dd_scope", None) or {}
+        qid = str(question_id)
+        for e in (scope.get("elections") or []):
+            if isinstance(e, dict) and str(e.get("question_id")) == qid:
+                who = str(e.get("elected_by") or "").strip()
+                if not who:
+                    # An anonymous election cannot authorise spend: there is nobody to
+                    # attribute the charge to, and R-F3406 applies the same rule to waivers.
+                    return (False, f"{qid} elected but no elected_by — cannot authorise spend")
+                return (True, "")
+        return (False, f"{qid} was not selected as a requirement for this subject")
+    except Exception as e:
+        return (False, f"scope unreadable ({type(e).__name__}) — refusing metered spend")
+
+
 def _preflight_elections(report: ARKDDReport) -> None:
     """R-F3436 — say UP FRONT when an ordered section cannot possibly be searched.
 
@@ -3944,6 +3975,170 @@ async def _run_ch_free_registers(report: ARKDDReport, profile: dict | None) -> N
             url="https://find-and-update.company-information.service.gov.uk/register-of-disqualifications",
             source_tier="OFFICIAL",
         ))
+
+
+async def _run_find_case_law(report: ARKDDReport) -> None:
+    """R-F3442 — UK judgments naming the subject as a PARTY (National Archives).
+
+    Gated on the LICENCE, not on an election, because it costs nothing: there is no spend
+    to authorise, only permission to establish (Open Justice Licence — see the module
+    docstring). Silent when unlicensed: this is not a failure to report on every DD, it
+    is a decision the operator has not taken, and the DD form already states it.
+    """
+    from .sources import find_case_law as _fcl
+
+    if not _fcl.is_configured():
+        return
+    name = (report.identity.entity_name or "").strip()
+    if len(name) < 3:
+        return
+
+    try:
+        res = await _fcl.search_by_party(name)
+        report.identity.meta.subcalls += 1
+    except Exception as exc:
+        report.identity.data_gaps.append(
+            f"Find Case Law search raised {type(exc).__name__} — NOT searched "
+            f"(not a clear result)")
+        return
+
+    if not res.get("searched"):
+        report.identity.data_gaps.append(
+            f"Find Case Law was NOT searched ({res.get('reason') or 'unknown'}) — no "
+            f"view of UK judgments naming this subject as a party (not a clear result)")
+        return
+
+    judgments = res.get("judgments") or []
+    if not judgments:
+        report.identity.findings.append(Finding(
+            severity="info",
+            title="No UK judgment naming this subject as a party",
+            detail=("The National Archives' Find Case Law was searched by PARTY name and "
+                    "returned no judgments. This is a party search, not a keyword match, "
+                    "so the result is about this subject rather than about its words."),
+            source="find_case_law.judgments",
+            confidence="ASSESSED",
+            url=res.get("citation_url"),
+            source_tier="OFFICIAL",
+        ))
+        return
+
+    report.identity.findings.append(Finding(
+        # Capped at amber deliberately: being a party to litigation is ordinary for any
+        # trading company and says nothing on its own about which side, or the outcome.
+        # The cases are the finding; the judgement stays with the reader (R-F3412).
+        severity="amber",
+        title=f"{len(judgments)} UK judgment(s) name this subject as a party",
+        detail=("Find Case Law entries: "
+                + "; ".join(j.get("title", "")[:80] for j in judgments[:4])
+                + ". A party appearance does not indicate which side the subject was on "
+                  "or how the matter ended."),
+        source="find_case_law.judgments",
+        confidence="ASSESSED",
+        url=res.get("citation_url"),
+        source_tier="OFFICIAL",
+    ))
+
+
+async def _run_ccj_search(report: ARKDDReport) -> None:
+    """R-F3442 — County Court Judgments, but ONLY when the user ordered them.
+
+    IS-17b's pass condition is the reason this is not optional-by-omission: *"A CCJ is a
+    money judgment: its ABSENCE is a material finding, so an unsearched register is not a
+    clean one."* So there are exactly three honest outcomes and this function must produce
+    the right one every time:
+
+      not elected      -> nothing runs, nothing is spent, and the report SAYS so
+                          (`_gated_requirement_lines`, R-F3441)
+      elected, no key  -> a data gap naming the obstacle. The user asked and we could not
+                          deliver; that is our failure and it must never look like "clean"
+      elected + backed -> the register is read and the answer, including a genuine NIL,
+                          is a finding
+
+    Metered by nature, so the gate is `_gated_search_permitted`: refusal is the default
+    and an election is the only thing that authorises spend.
+    """
+    permitted, why = _gated_search_permitted(report, "IS-17b")
+    if not permitted:
+        return                      # not ordered — R-F3441 states it on the report
+
+    name = (report.identity.entity_name or "").strip()
+    if len(name) < 2:
+        return
+    from .sources import registry_trust as _rt
+
+    if not _rt.is_configured():
+        report.identity.data_gaps.append(
+            f"CCJ search was ORDERED for this subject but could not run: "
+            f"{_rt.configuration_hint()} Not searched — an unsearched judgment register "
+            f"is not a clean one, and this section must not be charged for.")
+        logger.warning("[R-F3442] CCJ ordered on %s but no backend configured", report.run_id)
+        return
+
+    postcode = ""
+    try:
+        addr = getattr(report.identity, "registered_office_address", None) or {}
+        if isinstance(addr, dict):
+            postcode = str(addr.get("postal_code") or addr.get("postcode") or "").strip()
+    except Exception:
+        postcode = ""
+
+    try:
+        res = await _rt.search_judgments(name, postcode=postcode)
+        report.identity.meta.subcalls += 1
+    except Exception as exc:
+        report.identity.data_gaps.append(
+            f"CCJ search raised {type(exc).__name__} — NOT searched (not a clear result)")
+        return
+
+    if not res.get("searched"):
+        report.identity.data_gaps.append(
+            f"CCJ register was NOT searched ({res.get('reason') or 'unknown'}) — "
+            f"no view of County Court Judgments against this subject. An unsearched "
+            f"register is not a clean one.")
+        return
+
+    judgments = res.get("judgments") or []
+    _asof = f" Data as of {res['as_of']}." if res.get("as_of") else ""
+    if not judgments:
+        # A genuine NIL. This is a FINDING, not an absence — it is one of the few places
+        # in this engine where "nothing found" is itself the evidence, because the
+        # register is authoritative and complete for its jurisdiction.
+        report.identity.findings.append(Finding(
+            severity="info",
+            title="No County Court Judgment on record against this subject",
+            detail=(f"The Register of Judgments, Orders and Fines was searched by name"
+                    + (f" and postcode {postcode}" if postcode else "")
+                    + f" and returned no judgments.{_asof}"),
+            source="registry_trust.ccj",
+            confidence="CONFIRMED",
+            source_tier="OFFICIAL",
+        ))
+        return
+
+    unsatisfied = [j for j in judgments
+                   if str(j.get("satisfied", "")).strip().lower() not in ("satisfied", "yes", "true", "1")]
+    _tot = "; ".join(
+        f"{j.get('currency','GBP')} {j.get('amount','?')} on {j.get('judgment_date','?')}"
+        f" ({j.get('court') or 'court not stated'}"
+        + (f", case {j['case_number']}" if j.get("case_number") else "") + ")"
+        for j in judgments[:6])
+    report.identity.findings.append(Finding(
+        # A CCJ is a court's FINAL ruling on a debt, not an allegation, so unsatisfied
+        # judgments are graded red. Satisfied ones are historic and stay amber. This is
+        # the R-F3412 rule applied honestly: grade the procedural stage the evidence has
+        # actually reached — here, judgment given.
+        severity="red" if unsatisfied else "amber",
+        title=(f"{len(judgments)} County Court Judgment(s) on record"
+               + (f", {len(unsatisfied)} UNSATISFIED" if unsatisfied else ", all satisfied")),
+        detail=(f"Register of Judgments, Orders and Fines entries against {name}: {_tot}."
+                + (" An unsatisfied CCJ is a final money judgment the debtor has not paid."
+                   if unsatisfied else " All recorded judgments are marked satisfied.")
+                + _asof),
+        source="registry_trust.ccj",
+        confidence="CONFIRMED",
+        source_tier="OFFICIAL",
+    ))
 
 
 async def _run_employment_tribunal(report: ARKDDReport) -> None:
@@ -5985,6 +6180,23 @@ async def _run_identity(
     # for the ~30 non-GB adapters and by the R-F1636 enrichment above. Screening
     # inside the CH branch would leave every non-GB DD screening nobody — the
     # same shape as the defect this fix closes, one jurisdiction over.
+    # R-F3442 — CCJ search, ordered-only. Placed beside the officer screen for the same
+    # reason (R-F3397): it must run after every registry write and OUTSIDE the GB branch,
+    # because Registry Trust covers UK and Ireland and IS-17b applies to individuals too.
+    # Inside the CH block, every non-GB and every person subject would silently skip it.
+    try:
+        await _run_ccj_search(report)
+    except Exception as _ccj_e:
+        report.identity.data_gaps.append(
+            f"CCJ search failed ({type(_ccj_e).__name__}) — NOT searched (not a clear result)")
+
+    try:
+        await _run_find_case_law(report)
+    except Exception as _fcl_e:
+        report.identity.data_gaps.append(
+            f"Find Case Law search failed ({type(_fcl_e).__name__}) — NOT searched "
+            f"(not a clear result)")
+
     try:
         if await _screen_officer_sanctions(report, target):
             hard_stop = True

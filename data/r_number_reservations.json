@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3441,
+  "next_available": 3443,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28456,6 +28456,24 @@
       "commit_sha": "69b6bc52",
       "notes": null,
       "shipped_at": "2026-07-29T19:28:49Z"
+    },
+    {
+      "r_number": "R-F3441",
+      "title": "gated requirements must appear ON THE REPORT as not completed, tied to the user's DD selection",
+      "claimed_at": "2026-07-29T19:37:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3442",
+      "title": "build the CCJ (Registry Trust) adapter end to end: elected -> searched -> on the report, env-gated",
+      "claimed_at": "2026-07-29T19:40:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

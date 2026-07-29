@@ -118,6 +118,13 @@ _TIER_1A_SOURCE_PREFIXES: tuple[str, ...] = (
     "fca.org.uk", "bafin.de", "cnmv.es",
     # Court records (a court judgment is a single authoritative source)
     "courtlistener", "bailii.org",
+    # R-F3442 — Registry Trust maintains the STATUTORY Register of Judgments, Orders and
+    # Fines for England & Wales on behalf of the Ministry of Justice. A CCJ read from it
+    # is a court's own record, which is the same class as courtlistener/bailii above.
+    # Not a bypass of the R-5005 gate: it is the authority the gate exists to recognise,
+    # and a CCJ finding is only ever emitted when the register was ACTUALLY read
+    # (registry_trust.search_judgments returns searched=False otherwise).
+    "registry_trust",
     # Treaty / multilateral records
     "un.org", "icrc.org", "icj-cij.org",
     # FATF — international AML standard-setter (Tier-1a, R-F601)
@@ -1158,6 +1165,14 @@ class ARKDDReport:
             for u in self.synthesis.residual_unknowns[:4 if concise else 10]:
                 lines.append(f"  • {u}")
         lines.append("")
+
+        # R-F3441 — requirements that could NOT be completed, ON THE REPORT.
+        # The checklist already computed this into structured_view["dd_standard"], but the
+        # markdown/PDF a customer actually reads never rendered it, so a section nothing
+        # could search for simply did not appear. An absent row reads as "not relevant";
+        # only a stated one reads as "not covered".
+        for _gl in _gated_requirement_lines(self):
+            lines.append(_gl)
 
         # Next actions
         if self.next_actions:
@@ -2747,6 +2762,78 @@ def _dd_decision_readiness(r: dict) -> dict:
             "it does not replace the risk verdict."
         ),
     }
+
+
+def _gated_requirement_lines(report) -> list[str]:
+    """R-F3441 — the report must STATE every requirement it could not complete.
+
+    Operator directive: the high-cost items "can appear on the report as not completed
+    because we know it does not have a paid API as yet, as well as ensure it would be only
+    carried out when the user select as a requirement on their DD for that specific
+    company or individual."
+
+    Both halves matter and they are different sentences:
+
+      * ORDERED but not delivered  — the user selected it and we could not run it. That is
+        OUR failure, it is not chargeable, and it must be impossible to miss.
+      * NOT SELECTED               — the user did not ask for it on this subject. Nothing
+        was searched and nothing was spent, which is the correct outcome, but it is still
+        NOT covered and the report must not imply otherwise by silence.
+
+    Only rows with NO usable resolver appear. A question another source can answer is not
+    an unmet requirement, and listing it would train the reader to skim this section.
+
+    Never raises: a report that cannot render is worse than one missing this block.
+    """
+    try:
+        from . import dd_standard as _ddstd
+    except Exception:
+        return []
+    try:
+        scope = getattr(report, "dd_scope", None) or {}
+        tier = str(scope.get("tier") or "STANDARD").strip().upper()
+        entity_type = str(getattr(report.identity, "entity_type", "") or "company")
+        elected = {str(e.get("question_id")) for e in (scope.get("elections") or [])
+                   if isinstance(e, dict) and e.get("question_id")}
+        waived = {str(w.get("question_id")): w for w in (scope.get("waivers") or [])
+                  if isinstance(w, dict) and w.get("question_id")}
+
+        rows: list[str] = []
+        for q in _ddstd.questions_for(tier, entity_type):
+            specs = [_ddstd.RESOLVERS[s] for s in q.resolvers if s in _ddstd.RESOLVERS]
+            if not any(s.access in _ddstd.GATED_ACCESS for s in specs):
+                continue                       # nothing gated here — not this section's job
+            if any(s.availability()[0] for s in specs):
+                continue                       # answerable by something usable right now
+            obstacle = "; ".join(
+                f"{s.name}: {s.availability()[1]}" for s in specs
+            ) or "no resolver is bound"
+
+            if q.id in elected:
+                rows.append(
+                    f"  ✗ **{q.id} — {q.text}: ORDERED BUT NOT COMPLETED.** {obstacle}. "
+                    f"This section was requested for this subject, was not searched, and "
+                    f"must not be charged for.")
+            elif q.id in waived:
+                w = waived[q.id]
+                rows.append(
+                    f"  ○ {q.id} — {q.text}: NOT COMPLETED. Declined by "
+                    f"{w.get('waived_by') or '?'}: {w.get('reason') or 'no reason given'}. "
+                    f"Not searched on this run — a declined check is not a clear one.")
+            else:
+                rows.append(
+                    f"  ○ {q.id} — {q.text}: NOT COMPLETED. Not selected as a requirement "
+                    f"for this subject, so nothing was searched and nothing was spent. "
+                    f"{obstacle}.")
+
+        if not rows:
+            return []
+        return (["*Requirements not completed:*"] + rows
+                + ["  _Selecting one of these on a future run orders it explicitly; an "
+                   "ordered section that cannot run is reported as a failure, never as "
+                   "covered._", ""])
+    except Exception:
+        return []
 
 
 def _dd_standard_assessment(r: dict) -> dict:

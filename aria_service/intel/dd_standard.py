@@ -414,6 +414,11 @@ class ResolverSpec:
     env_vars: tuple[str, ...] = ()
     #: Where the operator goes to unblock this source (signup, licence application).
     decision_url: str = ""
+    #: R-F3442 — (module, callable) that answers "is this usable?" itself. Needed when
+    #: configuration is not a flat AND over env vars: Registry Trust is usable with EITHER
+    #: a licensed dataset path OR a contracted API pair, and `env_vars` cannot express an
+    #: OR. When set, this WINS over env_vars.
+    configured_by: Optional[tuple[str, str]] = None
 
     def is_built(self) -> bool:
         """Is the adapter actually present in this build? DERIVED, never declared.
@@ -445,6 +450,19 @@ class ResolverSpec:
             if self.access == Access.LICENCE_REQUIRED.value:
                 return (False, "no adapter and the licence question is unanswered")
             return (False, "no adapter is bound in this build")
+        if self.configured_by:
+            mod, fn = self.configured_by
+            try:
+                import importlib
+                probe = getattr(importlib.import_module(mod), fn, None)
+                if probe is not None and not probe():
+                    hint = getattr(importlib.import_module(mod), "configuration_hint", None)
+                    return (False, hint() if callable(hint) else "not configured")
+                if probe is not None:
+                    return (True, "")
+            except Exception as e:
+                # A probe that cannot run must not certify the source as usable.
+                return (False, f"availability probe failed: {type(e).__name__}")
         missing = [v for v in self.env_vars if not (_os.getenv(v) or "").strip()]
         if missing:
             return (False, f"credential not set: {', '.join(missing)}")
@@ -536,8 +554,10 @@ RESOLVERS: dict[str, ResolverSpec] = {
         binding=("aria_service.intel.companies_house", "search_disqualified_officers"),
         env_vars=("COMPANIES_HOUSE_API_KEY", )),
     "find_case_law": ResolverSpec(
-        "find_case_law", "Find Case Law (National Archives)", built=False,
+        "find_case_law", "Find Case Law (The National Archives)", built=True,
         access=Access.LICENCE_REQUIRED.value,
+        binding=("aria_service.intel.sources.find_case_law", "search_by_party"),
+        configured_by=("aria_service.intel.sources.find_case_law", "is_configured"),
         endpoint="https://caselaw.nationalarchives.gov.uk/atom.xml?party={name}",
         note="Free, no key, 1000 requests / 5 minutes per IP, and `party` is a full-match "
              "party search. BUT the Open Justice Licence forbids computational analysis "
@@ -549,8 +569,11 @@ RESOLVERS: dict[str, ResolverSpec] = {
         note="US federal via CourtListener; UK via a BAILII RSS proxy.",
         binding=("aria_service.intel.sources.court_records", "search_all")),
     "registry_trust": ResolverSpec(
-        "registry_trust", "Registry Trust / TrustOnline (CCJ register)", built=False,
+        "registry_trust", "Registry Trust (Register of Judgments, Orders and Fines)",
+        built=True,
         access=Access.PAID_PER_SEARCH.value,
+        binding=("aria_service.intel.sources.registry_trust", "search_judgments"),
+        configured_by=("aria_service.intel.sources.registry_trust", "is_configured"),
         note="The ONLY authoritative register of County Court Judgments, for BOTH "
              "companies and individuals. £6 for one part of the register, up to £10 for "
              "all England & Wales plus the other registers; no free tier and no public "
@@ -610,10 +633,17 @@ def resolver_status(question: "Question") -> dict:
         "declared": [s.id for s in specs],
         "built": [s.id for s in specs if s.is_built()],
         "unbuilt": [s.id for s in specs if not s.is_built()],
+        # R-F3442 — keyed on AVAILABILITY, not on build state. This previously read
+        # `not is_built()`, which meant that building the Registry Trust adapter made the
+        # CCJ question stop reporting as blocked on a commercial decision — even though
+        # nothing about the spend decision had changed. "No adapter" and "no contract" are
+        # different blocks with different owners, and only the second one is what this
+        # field is for: a built-but-unpaid source is still blocked, and the form and the
+        # report both need to say so.
         "blocked_on": sorted({
             s.access for s in specs
-            if not s.is_built() and s.access in (Access.PAID_PER_SEARCH.value,
-                                                 Access.LICENCE_REQUIRED.value)
+            if not s.availability()[0] and s.access in (Access.PAID_PER_SEARCH.value,
+                                                        Access.LICENCE_REQUIRED.value)
         }),
     }
 
@@ -912,12 +942,31 @@ _read_tribunal = _register_reader(
     remedy="re-run when gov.uk responds — no view of claims against this employer",
 )
 
+_read_ccj = _register_reader(
+    sources=("registry_trust.ccj",),
+    gap_needles=("ccj search", "ccj register", "county court judgment"),
+    # R-F3442 — this question is ORDERED-ONLY, so NOT_RUN is the correct and common
+    # answer, not a defect. What must never happen is NOT_RUN reading as clean: IS-17b's
+    # own pass condition says a CCJ's ABSENCE is a material finding, so an unsearched
+    # register cannot certify anything.
+    remedy="select the CCJ check on the DD form to order it; it needs a licensed "
+           "Registry Trust backend (REGISTRY_TRUST_DATA_PATH, or the contracted API pair)",
+)
+
 
 def _read_court_judgments(r: dict, q: "Question") -> Resolution:
     """IS-17a — reported judgments. Distinct from the tribunal reader because the
     sources are different bodies with different coverage, and conflating them would let
     a tribunal result answer a question about the courts."""
-    hits = _findings_from(r, "court_records", "courtlistener", "bailii")
+    # R-F3442 — find_case_law added. IS-17a declares it as a resolver, so a reader that
+    # cannot see its findings would leave the question NOT_RUN even after the search
+    # succeeded: the producer/consumer break this codebase has hit repeatedly.
+    # R-F3442 — find_case_law added. NOTE `_findings_from` matches the source string
+    # EXACTLY, so the emitted label "find_case_law.judgments" must be listed in full; the
+    # bare module name silently matches nothing, which would leave IS-17a NOT_RUN after a
+    # successful search — the producer/consumer break, one layer down.
+    hits = _findings_from(r, "court_records", "courtlistener", "bailii",
+                          "find_case_law.judgments")
     if hits:
         return Resolution(q.id, EvidenceState.SINGLE_SOURCE.value,
                           reason=str(hits[0].get("title") or "")[:80],
@@ -1110,7 +1159,7 @@ QUESTIONS: tuple[Question, ...] = (
                       "subject's name and address, and returns the judgments on record "
                       "or confirms none. A CCJ is a money judgment: its ABSENCE is a "
                       "material finding, so an unsearched register is not a clean one",
-       resolvers=("registry_trust",), jurisdiction_weighted=True, reader=None),
+       resolvers=("registry_trust",), jurisdiction_weighted=True, reader=_read_ccj),
     _q(id="IS-17c", fundamental=17, cluster=Cluster.INTEGRITY_SCREENING.value,
        tier=Tier.STANDARD.value, applies_to=AppliesTo.ENTITY.value,
        established_by=EstablishedBy.DATA.value,

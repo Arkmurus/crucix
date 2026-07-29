@@ -56,10 +56,20 @@ def test_is_built_is_false_when_the_binding_is_absent():
     assert spec2.is_built() is False, "a present module with a missing attr is NOT built"
 
 
-def test_genuinely_unbuilt_sources_still_report_unbuilt():
-    """Registry Trust and Find Case Law have no adapter — deriving must not invent one."""
-    for rid in ("registry_trust", "find_case_law", "idv"):
-        assert ds.RESOLVERS[rid].is_built() is False, f"{rid} has no adapter but reports built"
+def test_a_source_with_no_adapter_still_reports_unbuilt():
+    """Deriving must not invent an adapter that does not exist.
+
+    R-F3442 note: this originally listed registry_trust and find_case_law too, and went
+    red the moment those adapters were actually BUILT — which is the correct direction of
+    travel, not a regression. `idv` remains genuinely unbuilt (identity verification is
+    counterparty-supplied, not an API), so it is the honest fixture for "no adapter".
+    The guard that matters is the drift test above, which compares declaration to reality
+    for every BOUND resolver and therefore cannot rot this way.
+    """
+    assert ds.RESOLVERS["idv"].binding is None, (
+        "idv is the fixture for 'nothing to derive from' — if it gained a binding, pick "
+        "another unbuilt source rather than deleting the check")
+    assert ds.RESOLVERS["idv"].is_built() is False
 
 
 def test_built_and_available_are_separate_questions(monkeypatch):
