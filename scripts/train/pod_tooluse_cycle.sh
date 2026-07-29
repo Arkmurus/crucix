@@ -128,7 +128,12 @@ if [ "${GEN_TRAIN:-1}" = "1" ]; then
     sleep 10
   done
   if [ "$gen_ready" = 1 ]; then
-    python /workspace/crucix/scripts/train/eval_tooluse.py       --eval-file "$TRAIN_FILE" --target "http://127.0.0.1:$PORT/v1"       --model aria-tooluse --out "$EVALD/tooluse_train_generations.json" 2>&1 | tail -8
+    # R-F3433 - BOUNDED. Measured 14.6s/row on the trained model, so all 488
+    # train rows would take ~119 min and overrun the cycle deadline mid-pass.
+    # At ~12% failure that still yields ~18 pairs per round, and the pass is
+    # cumulative across cycles. Generating a partial set is fine; overrunning
+    # the deadline would lose the measurement too.
+    python /workspace/crucix/scripts/train/eval_tooluse.py       --eval-file "$TRAIN_FILE" --target "http://127.0.0.1:$PORT/v1"       --limit "${GEN_LIMIT:-150}"       --model aria-tooluse --out "$EVALD/tooluse_train_generations.json" 2>&1 | tail -8
     log "train generations written"
   else
     # NOT fatal: the cycle's measured result stands on its own. A missing

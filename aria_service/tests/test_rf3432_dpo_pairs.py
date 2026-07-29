@@ -197,3 +197,22 @@ def test_a_failed_generation_pass_does_not_fail_the_cycle():
     assert "WARN" in gen and "exit 1" not in gen, (
         "a missing generation pass must warn, not abort a cycle that already "
         "produced its measurement")
+
+
+def test_the_generation_pass_is_bounded_so_it_cannot_overrun_the_deadline():
+    """R-F3434 — measured 14.6s/row; 488 rows is ~119 min on its own.
+
+    The cycle's own bound is 2h and the pass runs LAST, so an unbounded
+    generation would be cut off mid-pass by the watchdog — losing not just the
+    pairs but the run. A partial preference set is fine and accumulates across
+    cycles; overrunning is not.
+    """
+    from pathlib import Path as _P
+
+    src = (_P(__file__).resolve().parents[2] / "scripts" / "train"
+           / "pod_tooluse_cycle.sh").read_text(encoding="utf-8")
+    if "tooluse_train_generations" not in src:
+        pytest.skip("generation pass not present")
+    gen = src[src.index("GENERATE OVER THE TRAIN SPLIT"):]
+    call = gen[gen.index("eval_tooluse.py"):gen.index("tooluse_train_generations.json")]
+    assert "--limit" in call, "an unbounded generation pass overruns the cycle"
