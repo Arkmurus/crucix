@@ -28071,9 +28071,10 @@
       "title": "DD Standard - versioned question catalogue and evidence-state model",
       "claimed_at": "2026-07-29T09:46:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e664254f",
+      "notes": null,
+      "shipped_at": "2026-07-29T10:02:09Z"
     },
     {
       "r_number": "R-F3403",
