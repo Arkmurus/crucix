@@ -28269,9 +28269,10 @@
       "title": "run the free CH registers in the DD: charges, insolvency, disqualified officers",
       "claimed_at": "2026-07-29T13:54:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6420f092",
+      "notes": null,
+      "shipped_at": "2026-07-29T14:11:21Z"
     },
     {
       "r_number": "R-F3423",
