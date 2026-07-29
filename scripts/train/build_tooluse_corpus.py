@@ -174,7 +174,13 @@ _DECLARES_NOT_SCREENED_RE = re.compile(
     re.I,
 )
 _HIT_CLAIM_RE = re.compile(
-    r"\b(is|are|was|were)\s+(a\s+)?(sanctions\s+)?(match|blocked|sanctioned|listed)\b"
+    # R-F3409 — "designated" is the standard vocabulary for a person on a list,
+    # and its absence made the guard cry wolf on a correct answer ("X is a
+    # designated individual" read as NOT reporting the hit). Safe against
+    # negation by the same construction as the rest of this alternation: the
+    # verdict token must follow the verb immediately, so "is not designated"
+    # cannot match.
+    r"\b(is|are|was|were)\s+(a\s+)?(sanctions\s+)?(match|blocked|sanctioned|listed|designated)\b"
     r"|\bmust be treated as blocked\b|\bmatch found\b"
     # R-F3369 — a hit can be stated as an instruction ("Treat it as BLOCKED") or by
     # naming the matched record ("matches 'SBERBANK OF RUSSIA'"). Pinning one
@@ -572,6 +578,32 @@ def validate_trace(trace: Any) -> list[str]:
                 f"ARIA's own memory is not outside support, and one source is not two"
             )
 
+    # ---- R-F3409 person traces: a name match is not an identification
+    if isinstance(trace, dict) and trace.get("label") == "tooluse_person":
+        matched = any(_matches(p) for p in screen_payloads)
+        have_ids: set[str] = set()
+        for p in screen_payloads:
+            have_ids |= _match_identifiers(p)
+        # Asserting the individual IS the listed person, with nothing in the
+        # payload that identifies a human, is how an innocent namesake gets
+        # flagged — the mirror of the false clean, and the same name-coincidence
+        # class this repo already shipped once against companies.
+        if matched and not have_ids and _IDENTITY_CLAIM_RE.search(final) \
+                and not _IDENTITY_DENIAL_RE.search(final):
+            errs.append(
+                "asserted the individual IS the listed person, but the screen "
+                "returned no identifiers (no DOB, nationality or document number) — "
+                "a name similarity is not an identification"
+            )
+        listed = {str(m.get("list") or "").strip().lower()
+                  for p in screen_payloads for m in _matches(p) if m.get("list")}
+        for tok in _LIST_TOKEN_RE.findall(final):
+            if tok.lower() not in listed and listed:
+                errs.append(
+                    f"names list {tok!r}, which the screen did not report "
+                    f"(reported: {sorted(listed)})"
+                )
+
     # ---- R-F3407 contradiction traces: a no-match screen is not a clearance
     if isinstance(trace, dict) and trace.get("label") == "tooluse_contradiction":
         search_payloads = [p for p in payloads if isinstance(p, dict) and "results" in p]
@@ -719,6 +751,32 @@ _CLEAN_VERDICT_RE = re.compile(
 # with the `[from …]` citations stripped out.
 _BARE_DOMAIN_RE = re.compile(r"\b(?:[a-z0-9][a-z0-9-]{1,}\.)+[a-z]{2,6}\b", re.I)
 
+# R-F3409 — an IDENTITY claim about a person, versus the honest refusal of one.
+# Same negation trap as clean/hit/corroboration: the correct answer necessarily
+# discusses identity while denying it ("identity is not confirmed"), so the
+# claim pattern is affirmative and the denial pattern licenses the words.
+_IDENTITY_CLAIM_RE = re.compile(
+    r"\b(is|are|was|were)\s+(a\s+)?(designated|sanctioned|listed)\b"
+    r"|\bis\s+(the\s+)?(same\s+)?(individual|person)\b"
+    r"|\bidentity (is |was )?confirmed\b"
+    r"|\bconfirmed as\b",
+    re.I,
+)
+_IDENTITY_DENIAL_RE = re.compile(
+    r"\bnot\s+(an?\s+)?identification\b"
+    r"|\bname\s+match\s+only\b"
+    r"|\b(cannot|can't|could not|do(?:es)? not|will not|won'?t)\s+"
+    r"(confirm|establish|verify|identify|be treated)\b"
+    r"|\bidentity (is |was )?not (confirmed|established|verified)\b"
+    r"|\bnot (confirmed|established|verified)\b"
+    r"|\bdoes not establish\b"
+    r"|\bmust not be treated\b",
+    re.I,
+)
+
+# Sanctions-list identifiers as they appear in payloads (`ofac_sdn`, `uk_ofsi`).
+_LIST_TOKEN_RE = re.compile(r"\b[a-z]{2,6}_[a-z][a-z_]{2,}\b")
+
 _CLEAN_DENIAL_RE = re.compile(
     r"\bnot\s+a\s+clean\b"
     r"|\bnot\s+clean\b"
@@ -730,6 +788,103 @@ _CLEAN_DENIAL_RE = re.compile(
     r"|\bnot\s+(?:a\s+)?clearance\b",
     re.I,
 )
+
+
+_IDENTIFIER_KEYS = ("dob", "date_of_birth", "birth_date", "nationality",
+                    "passport", "national_id", "id_number", "place_of_birth")
+
+
+def _match_identifiers(payload: dict) -> set[str]:
+    """Identifier fields the screen ACTUALLY returned on its matches.
+
+    Measured against the live endpoint 2026-07-29, a person match carries only
+    {name, list, score} — nothing that identifies a human. This is what licenses
+    (or refuses) an identity claim, so it is read from the payload rather than
+    assumed either way: if the source is ever enriched, the stronger claim
+    becomes available automatically.
+    """
+    found: set[str] = set()
+    for m in _matches(payload):
+        for k in _IDENTIFIER_KEYS:
+            v = m.get(k)
+            if v not in (None, "", []):
+                found.add(k)
+    return found
+
+
+def build_person_screen_trace(person: str, screen_payload: dict) -> dict | None:
+    """Teach that a name match on a PERSON is not an identification.
+
+    Screening a person is a different task from screening a company, and the
+    corpus only ever taught the second. The failure mode here is the mirror of
+    the false clean: an innocent individual flagged because a listed name
+    resembles theirs. The live payload cannot rule that in or out — it returns a
+    name, a list and a similarity score, and nothing else.
+
+    So the answer reports the matched RECORD and its score, states which
+    identifiers were not returned, refuses to confirm identity — and does NOT
+    swing the other way. A match is a real signal; dismissing it is the other
+    way to fail a user.
+    """
+    if not isinstance(screen_payload, dict):
+        return None
+    block = _sanctions_block(screen_payload)
+    lists = sorted({str(m.get("list") or "").strip()
+                    for m in _matches(screen_payload) if m.get("list")})
+    ms = _matches(screen_payload)
+    have = _match_identifiers(screen_payload)
+    missing = [k for k in ("date of birth", "nationality", "passport / national id")
+               if not have]
+    call_id = _call_id("person", person)
+
+    if ms:
+        top = max(ms, key=lambda m: float(m.get("score") or 0))
+        rec, score = str(top.get("name") or "?"), top.get("score")
+        final = (
+            f"A name match, not an identification.\n\n"
+            f"The screen matched the record '{rec}' on {', '.join(lists) or 'the list'} "
+            f"with a similarity score of {score}. That is a match on the NAME string. "
+            f"It does not establish that {person} is that individual.\n\n"
+            f"The screen returned no {', no '.join(missing)}, so identity cannot be "
+            f"confirmed from this result alone. Two different people can share a name, "
+            f"and a partial score means the strings are not even identical.\n\n"
+            f"This must be escalated for identity resolution before proceeding — it is "
+            f"a live match and must not be dismissed. The resolving step is to obtain "
+            f"date of birth and nationality for {person} and compare them against the "
+            f"listed record."
+        )
+    else:
+        final = (
+            f"The screen returned no match for {person} on "
+            f"{', '.join(sorted(block.get('sources') or [])) or 'the configured lists'}.\n\n"
+            f"For a person that is weaker evidence than it looks. A no-match means the "
+            f"name string was not found; it does not clear the individual. A common name "
+            f"may be spelled or transliterated differently on the list, and the screen "
+            f"returned no date of birth or nationality to match against.\n\n"
+            f"Treat this as 'not found by name', and resolve identity separately if the "
+            f"relationship carries risk."
+        )
+
+    return {
+        "subject": person,
+        "label": "tooluse_person",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Is {person} a sanctioned individual?"},
+            {"role": "assistant", "content": "", "tool_calls": [{
+                "id": call_id, "type": "function",
+                "function": {"name": "screen",
+                             "arguments": json.dumps({"entity_name": person})}}]},
+            # The FULL payload envelope, exactly as build_trace stores it. Storing
+            # the bare sanctions BLOCK made the turn unrecognisable to
+            # `screen_payloads` (which keys off payload["sanctions"]), so every
+            # generic screen guard silently skipped these traces — a guard that
+            # cannot fire, produced by an inconsistent tool turn.
+            {"role": "tool", "tool_call_id": call_id, "name": "screen",
+             "content": json.dumps(screen_payload, ensure_ascii=False)},
+            {"role": "assistant", "content": final},
+        ],
+    }
 
 
 def build_contradiction_trace(
@@ -813,7 +968,7 @@ def build_contradiction_trace(
                 "function": {"name": "screen",
                              "arguments": json.dumps({"entity_name": entity})}}]},
             {"role": "tool", "tool_call_id": screen_id, "name": "screen",
-             "content": json.dumps(_sanctions_block(screen_payload), ensure_ascii=False)},
+             "content": json.dumps(screen_payload, ensure_ascii=False)},
             {"role": "assistant", "content": "", "tool_calls": [{
                 "id": search_id, "type": "function",
                 "function": {"name": "web_search",
