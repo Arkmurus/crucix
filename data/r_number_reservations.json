@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3449,
+  "next_available": 3450,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28536,6 +28536,15 @@
       "commit_sha": "9f294612",
       "notes": null,
       "shipped_at": "2026-07-29T23:02:47Z"
+    },
+    {
+      "r_number": "R-F3449",
+      "title": "close the 15 order-dependent test failures: shared state leaking between tests",
+      "claimed_at": "2026-07-29T23:05:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

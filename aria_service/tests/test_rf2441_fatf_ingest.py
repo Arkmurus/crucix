@@ -24,11 +24,24 @@ def test_fatf_ingest():
                          "confidence": confidence, **kw})
         return {"action": "stored"}
 
+    # R-F3449 — these three were assigned PERMANENTLY, with no restore. This file sorts
+    # before test_rf2620_*, test_rf3109_*, test_rf772_* and test_store_fact_skip_rag.py, so
+    # in full-suite order every one of those then ran against a mocked `store_fact` and
+    # no-op `wire_success`/`wire_failure` — which is why they passed standalone and failed
+    # in-suite. `wire_*` are the §21 brain-wiring functions used by nearly every module, so
+    # silencing them for the remainder of the session is the widest possible leak.
+    #
+    # try/finally rather than the `monkeypatch` fixture on purpose: this file keeps a
+    # `__main__` block that calls the test directly, and a fixture parameter would break
+    # running it as a script.
+    _orig = (kb.store_fact, ew.wire_success, ew.wire_failure)
     kb.store_fact = fake_store
     ew.wire_success = lambda **k: None
     ew.wire_failure = lambda **k: None
-
-    res = asyncio.run(ft.ingest_to_corpus())
+    try:
+        res = asyncio.run(ft.ingest_to_corpus())
+    finally:
+        kb.store_fact, ew.wire_success, ew.wire_failure = _orig
 
     fails = []
     ok = lambda c, m: (print(f"  {'✓' if c else '✗'} {m}"), fails.append(m) if not c else None)
