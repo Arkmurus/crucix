@@ -21,6 +21,7 @@ from __future__ import annotations
 import builtins
 import importlib
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -93,3 +94,112 @@ def test_the_guard_passes_when_the_credential_is_present(monkeypatch):
     monkeypatch.setattr(E, "load_project_env", lambda *a, **k: 0)
     monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "present")
     B.check_preconditions()
+
+
+# --------------------------------------------------------------------------
+# R-F3418 — simulate the POD'S ACTUAL FILE SET, not one missing module
+# --------------------------------------------------------------------------
+
+def _pod_pushed_modules() -> set[str]:
+    """The scripts.train modules the driver actually copies to the pod.
+
+    DERIVED FROM THE DRIVER, never hardcoded: a hand-written list is exactly
+    what let this class recur. R-F3416 blocked only `aria_service`, so the test
+    modelled ONE missing module while the pod is missing everything that is not
+    on this list — and the next cycle died on `scripts.train._subjects`, which
+    the validator imports at module scope to build DEFAULT_SUBJECTS.
+    """
+    drv = Path(__file__).resolve().parents[2] / "scripts" / "train" / "tooluse_cycle.sh"
+    mods = set()
+    for line in drv.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("RSCP scripts/train/"):
+            continue
+        name = line.split("RSCP scripts/train/")[1].split()[0]
+        if name.endswith(".py"):
+            mods.add("scripts.train." + name[:-3])
+    return mods
+
+
+def _import_as_pod(modname: str):
+    """Import `modname` with every non-pushed scripts.train module unavailable."""
+    allowed = _pod_pushed_modules() | {"scripts.train", "scripts"}
+    real_import = builtins.__import__
+
+    def blocked(name, *a, **kw):
+        if name == "aria_service" or name.startswith("aria_service."):
+            raise ModuleNotFoundError("No module named 'aria_service'")
+        if name.startswith("scripts.train.") and name not in allowed:
+            raise ModuleNotFoundError(f"No module named {name!r}")
+        return real_import(name, *a, **kw)
+
+    saved = {k: v for k, v in sys.modules.items() if k.startswith("scripts.train")}
+    for k in list(sys.modules):
+        if k.startswith("scripts.train.") and k not in allowed:
+            del sys.modules[k]
+    sys.modules.pop(modname, None)
+    builtins.__import__ = blocked
+    try:
+        return importlib.import_module(modname)
+    finally:
+        builtins.__import__ = real_import
+        sys.modules.update(saved)
+
+
+def test_the_pushed_set_is_actually_derived():
+    mods = _pod_pushed_modules()
+    assert "scripts.train.build_tooluse_corpus" in mods
+    assert "scripts.train.eval_tooluse" in mods
+    assert "scripts.train._subjects" not in mods, (
+        "the roster is NOT pushed — that is the condition under test")
+
+
+@pytest.mark.parametrize("mod", [
+    "scripts.train.build_tooluse_corpus",
+    "scripts.train.eval_tooluse",
+])
+def test_pod_side_modules_import_with_only_what_the_pod_has(mod):
+    """The condition that killed two cycles, asserted for free."""
+    m = _import_as_pod(mod)
+    assert m is not None
+
+
+def test_the_validator_still_grades_under_pod_conditions():
+    m = _import_as_pod("scripts.train.build_tooluse_corpus")
+    payload = {"status": "OK", "entity": "Acme",
+               "sanctions": {"screened": True, "sources": ["ofac_sdn"], "matches": []}}
+    assert m.validate_trace(m.build_trace("Acme", payload)) == []
+
+
+def test_the_capture_roster_still_resolves_when_it_IS_available():
+    """Making it lazy must not break the capture path that needs it."""
+    from scripts.train import build_tooluse_corpus as B
+
+    subs = B.default_subjects()
+    assert isinstance(subs, list) and len(subs) > 50
+
+
+def test_no_bare_DEFAULT_SUBJECTS_lookup_remains_inside_the_module():
+    """PEP 562 __getattr__ does NOT cover the module's own global lookups.
+
+    `DEFAULT_SUBJECTS` resolves for importers but NameErrors inside the module
+    itself, so the one CLI path that needed the roster would have died at
+    runtime — a lazy-import fix that moved the failure rather than removing it.
+
+    Checked with `ast`, not text: a docstring mentioning the name is fine, a
+    load of it as a variable is not.
+    """
+    import ast
+
+    src = (Path(__file__).resolve().parents[2] / "scripts" / "train"
+           / "build_tooluse_corpus.py").read_text(encoding="utf-8")
+    loads = [n.lineno for n in ast.walk(ast.parse(src))
+             if isinstance(n, ast.Name) and n.id == "DEFAULT_SUBJECTS"
+             and isinstance(n.ctx, ast.Load)]
+    assert not loads, f"bare internal load of DEFAULT_SUBJECTS at lines {loads}"
+
+
+def test_the_capture_cli_path_can_build_its_subject_list():
+    from scripts.train import build_tooluse_corpus as B
+
+    subs = B.default_subjects()
+    assert subs[:3] and len(subs) == len(set(subs))

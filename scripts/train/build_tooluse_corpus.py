@@ -1795,20 +1795,35 @@ def write_corpus(
 
 # ── live capture (public-record subjects only) ─────────────────────────────
 
-def _default_subjects() -> list[str]:
+def default_subjects() -> list[str]:
     """R-F3396 — the shared roster, not a private copy of one.
 
-    This axis used to hold its own fourteen-name list here. A second roster in
-    a second file is a drift surface: widening `_subjects.py` would silently
-    leave the base skill training on the original fourteen. Imported lazily so
-    the module keeps importing in environments without the roster present.
+    R-F3418: CALLED, never evaluated at import. This used to be
+    `DEFAULT_SUBJECTS = _default_subjects()` at module scope, which made the
+    import of this module depend on `scripts/train/_subjects.py`. That file is
+    not pushed to the pod, and this module is also the VALIDATOR imported by the
+    eval harness — so a roster needed only by the capture CLI made the validator
+    unimportable and killed a cycle at the baseline eval, after paying for a pod
+    and a model load.
+
+    The lazy import inside the function was already right; evaluating it at
+    module scope defeated it entirely. Import-time work inherits every
+    dependency of the thing it calls.
     """
     from scripts.train._subjects import single_hop_roster
 
     return single_hop_roster()
 
 
-DEFAULT_SUBJECTS: list[str] = _default_subjects()
+def __getattr__(name: str):
+    """`DEFAULT_SUBJECTS` on demand, so `from ... import DEFAULT_SUBJECTS` still works.
+
+    PEP 562 module-level __getattr__: existing callers keep the constant they
+    expect, and the roster is only loaded when something actually asks for it.
+    """
+    if name == "DEFAULT_SUBJECTS":
+        return default_subjects()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 async def capture_live(subjects: list[str], base: str, token: str) -> list[tuple[str, dict]]:
@@ -1873,7 +1888,11 @@ def main() -> int:
         if not token:
             print("ARIA_INTERNAL_TOKEN not set", file=sys.stderr)
             return 2
-        subs = DEFAULT_SUBJECTS[: args.limit] if args.limit else DEFAULT_SUBJECTS
+        # default_subjects(), not the module attribute: PEP 562 __getattr__ only
+        # fires for access from OUTSIDE the module, so a bare global lookup here
+        # would NameError at runtime on the one path that needs the roster.
+        _subs = default_subjects()
+        subs = _subs[: args.limit] if args.limit else _subs
         captured = asyncio.run(capture_live(subs, args.base.rstrip("/"), token))
         if args.capture_to:
             Path(args.capture_to).parent.mkdir(parents=True, exist_ok=True)
