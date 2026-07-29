@@ -56,26 +56,26 @@
 
   <div class="legal-eyebrow">Legal</div>
   <h1 class="legal-title">Privacy Policy</h1>
-  <div class="legal-meta">Effective date: <strong>To be determined upon legal review.</strong> Operator: Arkmurus Limited.</div>
+  <div class="legal-meta">Effective date: <strong>29 July 2026.</strong> Last updated: 29 July 2026. Operator and controller: Arkmurus Limited.</div>
 
   <div class="draft-banner">
-    <strong>DRAFT: pending legal counsel review</strong>
-    This document is a working draft. It describes ARIA's actual data flows as implemented in the codebase, but it has not yet been reviewed or approved by external counsel. Do not rely on it for compliance decisions. Email <a href="mailto:support@imaria.io">support@imaria.io</a> with any questions while the final policy is being prepared.
+    <strong>Important privacy information</strong>
+    This notice explains how Arkmurus Limited handles personal data through ARIA. It is not a substitute for a customer-specific data processing agreement where Arkmurus Limited processes personal data on a customer's documented instructions.
   </div>
 
   <h2>1. Who we are</h2>
-  <p>ARIA is operated by <strong>Arkmurus Limited</strong>, a company registered in England &amp; Wales. ARIA is a domain-specialised AI assistant for security and defence due-diligence work. See <a href="/model-card.html">the model card</a> for the capability statement.</p>
-  <p>Contact for any privacy enquiry, data subject access request (DSAR), or data deletion request: <a href="mailto:support@imaria.io">support@imaria.io</a> (alias of <code>support@imaria.io</code> until a dedicated mailbox is provisioned).</p>
+  <p>ARIA is operated by <strong>Arkmurus Limited</strong> (company number <strong>16028039</strong>), registered in England and Wales, whose registered office is 71-75 Shelton Street, Covent Garden, London, WC2H 9JQ, United Kingdom. Arkmurus Limited is the data controller for account administration, service operation, security, billing, communications and its own product improvement. ARIA is a domain-specialised AI assistant for security and defence due-diligence work. See <a href="/model-card.html">the model card</a> for the capability statement.</p>
+  <p>Contact us about privacy, access, correction, deletion or any other data-protection right at <a href="mailto:support@imaria.io">support@imaria.io</a>, or by post at the registered office above, marked “Data Protection”. We have not appointed a data protection officer; privacy enquiries are handled by Arkmurus Limited.</p>
 
   <h2>2. What this policy covers</h2>
   <p>This policy covers personal data we process when you:</p>
   <ul>
     <li>Sign up for or use the ARIA web product, WhatsApp interface, or the (forthcoming) public API.</li>
     <li>Submit a registration request that requires admin approval.</li>
-    <li>Send us an email at any address we operate (<code>support@imaria.io</code>, <code>support@imaria.io</code>, <code>aria@imaria.io</code>).</li>
+    <li>Send us an email at an address we operate, including <code>support@imaria.io</code> or <code>aria@imaria.io</code>.</li>
     <li>Receive a daily intelligence briefing or watchlist alert from us.</li>
   </ul>
-  <p>It does <strong>not</strong> cover personal data about <em>third parties</em> that you ask ARIA to research (e.g. counterparty due-diligence subjects). That content is processed under your instructions; you are the controller of that data and we act as your processor (see §10).</p>
+  <p>For personal data about third parties that a business customer submits for due diligence or employment vetting, the customer will normally be the controller and Arkmurus Limited will act as processor under the applicable agreement (see §10). Arkmurus Limited may remain an independent controller for limited purposes required by law or necessary to protect the service, such as security logging and responding to lawful requests.</p>
 
   <h2>3. What personal data we collect</h2>
 
@@ -90,6 +90,7 @@
       <tr><td><strong>Document uploads</strong></td><td>PDFs, DOCX, XLSX, images you upload for analysis</td><td>Generated when you upload</td></tr>
       <tr><td><strong>Communication preferences</strong></td><td>Notification toggles (digest, flash, push, Telegram), Telegram username</td><td>Optional</td></tr>
       <tr><td><strong>Billing identifiers</strong></td><td>Stripe customer ID + subscription ID once you subscribe (no card data; Stripe holds those)</td><td>Optional / generated on subscribe</td></tr>
+      <tr><td><strong>Support and business communications</strong></td><td>Your correspondence with us, enquiries, feedback and request history</td><td>Generated when you contact us</td></tr>
     </tbody>
   </table>
 
@@ -101,65 +102,73 @@
       <tr><td><strong>Audit-log entries</strong></td><td>Each material claim ARIA produces with timestamp, source citations, confidence tag, source-tier breakdown: hash-chained and HMAC-signed (see model card §7)</td></tr>
       <tr><td><strong>Cost telemetry</strong></td><td>Per-call LLM cost (provider, model, input/output tokens, latency), used for the monthly cap enforcement</td></tr>
       <tr><td><strong>Server logs</strong></td><td>HTTP request method / path / status / IP address / user-agent for the duration the host (fly.io) retains them</td></tr>
+      <tr><td><strong>Device storage</strong></td><td>Strictly necessary authentication, security and preference data stored in cookies or browser storage</td></tr>
     </tbody>
   </table>
 
   <h2>4. Why we process this data (legal bases)</h2>
-  <ol>
-    <li><strong>Performance of contract</strong> (UK GDPR Art. 6(1)(b)): we process account identifiers, conversation content, and document uploads to provide ARIA's service to you.</li>
-    <li><strong>Legitimate interests</strong> (Art. 6(1)(f)): we process telemetry, audit-log entries, and cost data to operate, secure, and improve the service. Our legitimate interest is balanced against your privacy by quota caps, audit-log access controls, and minimisation (see §6).</li>
-    <li><strong>Legal obligation</strong> (Art. 6(1)(c)): we retain audit-log entries to support compliance audits that you (or your customer's compliance officer) may need to evidence.</li>
-    <li><strong>Consent</strong> (Art. 6(1)(a)): for optional fields (organisation context, use-case context, communication preferences) and for marketing communications. You may withdraw consent at any time via <a href="mailto:support@imaria.io">support@imaria.io</a> or the in-product settings.</li>
-  </ol>
+  <table class="legal-table">
+    <thead><tr><th>Purpose</th><th>Data</th><th>UK GDPR lawful basis</th></tr></thead>
+    <tbody>
+      <tr><td>Register users, authenticate accounts, provide requested chat, document analysis, alerts and support</td><td>Account, organisation and use-case details; conversations; uploads; preferences; support communications</td><td><strong>Contract</strong> (Art. 6(1)(b)) where you contract personally; otherwise our <strong>legitimate interests</strong> (Art. 6(1)(f)) in providing and administering the service to your organisation</td></tr>
+      <tr><td>Operate quotas, maintain auditability, diagnose faults, prevent fraud and secure ARIA</td><td>Usage, cost and audit telemetry; server and security logs</td><td><strong>Legitimate interests</strong> (Art. 6(1)(f)) in reliable, secure and accountable service operation</td></tr>
+      <tr><td>Administer subscriptions, invoices, tax and financial records</td><td>Account, transaction and billing identifiers</td><td><strong>Contract</strong> (Art. 6(1)(b)) and <strong>legal obligation</strong> (Art. 6(1)(c))</td></tr>
+      <tr><td>Send requested operational messages and service notices</td><td>Contact details and communication preferences</td><td><strong>Contract</strong> (Art. 6(1)(b)) or <strong>legitimate interests</strong> (Art. 6(1)(f))</td></tr>
+      <tr><td>Send optional electronic marketing</td><td>Contact details, preferences and engagement</td><td><strong>Consent</strong> (Art. 6(1)(a)) where PECR requires it; otherwise legitimate interests where law permits. You may unsubscribe at any time.</td></tr>
+      <tr><td>Comply with binding law, court orders and regulatory requirements, and establish or defend legal claims</td><td>Relevant records</td><td><strong>Legal obligation</strong> (Art. 6(1)(c)) or <strong>legitimate interests</strong> (Art. 6(1)(f)), as applicable</td></tr>
+    </tbody>
+  </table>
+  <p>Where we rely on legitimate interests, we assess necessity and balance those interests against the person's rights. You may object as explained in §7. We do not rely on consent merely because a profile field is optional. If we ask for consent, refusing or withdrawing it will not affect processing already carried out lawfully or prevent use of unrelated service features.</p>
+  <p>Please do not submit special-category data (such as health, biometric, political-opinion or religious data) unless it is necessary, lawful and expressly supported by the relevant ARIA workflow. Criminal-offence data is subject to the additional controls in §10b.</p>
 
   <h2>5. Who we share data with</h2>
-  <p>We use the following third-party processors. Each receives the minimum data necessary to perform its function:</p>
+  <p>We use suppliers and sub-processors to operate ARIA. A supplier receives only the information needed for the relevant function and is subject to appropriate contractual and security controls. The providers actually used depend on the enabled feature and current configuration:</p>
   <table class="legal-table">
     <thead><tr><th>Processor</th><th>Purpose</th><th>What's shared</th></tr></thead>
     <tbody>
-      <tr><td><strong>DeepSeek</strong></td><td>Primary LLM provider for chat reasoning</td><td>Conversation content + system prompt, sent at request time. Subject to DeepSeek's terms.</td></tr>
-      <tr><td><strong>Anthropic, OpenAI, Mistral, Groq, OpenRouter</strong></td><td>Fallback LLM providers (used only when configured / invoked)</td><td>Same as the primary provider when a fallback is invoked.</td></tr>
-      <tr><td><strong>OpenSanctions</strong></td><td>Sanctions screening</td><td>Counterparty entity names submitted via DD orchestrator.</td></tr>
-      <tr><td><strong>Companies House (UK)</strong></td><td>Corporate registry lookup</td><td>UK company numbers / names submitted during DD.</td></tr>
+      <tr><td><strong>Approved production LLM providers</strong>, which may include Anthropic, OpenAI, Mistral, Groq or OpenRouter</td><td>AI reasoning, used only when the provider is configured, contractually approved and invoked</td><td>Conversation content, relevant document extracts and system instructions needed to answer the request.</td></tr>
+      <tr><td><strong>Sanctions and corporate-data sources</strong>, which may include OpenSanctions and Companies House</td><td>Requested screening and registry searches; a public authority such as Companies House is not necessarily our processor</td><td>Search terms such as entity names or company numbers</td></tr>
       <tr><td><strong>Stripe</strong></td><td>Subscription billing (when activated)</td><td>Email + name (for the Stripe customer object); Stripe stores card data directly.</td></tr>
-      <tr><td><strong>Fly.io</strong> (LHR region)</td><td>Hosting the Python brain + persistent volume</td><td>All your data at rest.</td></tr>
-      <tr><td><strong>Fly.io</strong> (LHR region)</td><td>Hosting the Node front-end + sweep + WhatsApp listener</td><td>All your data at rest.</td></tr>
-      <tr><td><strong>Baileys</strong> (WhatsApp)</td><td>WhatsApp message transport (when WA channel is active)</td><td>Your messages and our replies; subject to Meta's WhatsApp Business terms.</td></tr>
+      <tr><td><strong>Fly.io</strong> (London region where configured)</td><td>Application hosting, networking and persistent storage</td><td>Data processed or stored through the hosted service</td></tr>
+      <tr><td><strong>Meta / WhatsApp</strong></td><td>WhatsApp message transport when that channel is active</td><td>Your account identifiers, messages and our replies; Meta may act as an independent controller for its own purposes under its terms</td></tr>
       <tr><td><strong>Email providers</strong> (operator's IMAP/SMTP)</td><td>Inbound email ingestion + transactional email</td><td>Email content sent to <code>aria@imaria.io</code>; outbound notifications.</td></tr>
     </tbody>
   </table>
-  <p>We do <strong>not</strong> sell personal data. We do not use your conversation content to train external LLMs (we have no agreement to send training data to providers; the chat round-trip alone is in scope).</p>
+  <p>We may also disclose relevant data to professional advisers, auditors, insurers, courts, regulators, law-enforcement bodies, a purchaser or investor in a corporate transaction, or another person where you direct us or the law permits or requires it. We do <strong>not</strong> sell personal data. We do not use customer conversation content to train external providers' general-purpose models; provider handling remains governed by our applicable service agreement with that provider.</p>
 
   <h2>6. How long we keep data</h2>
   <table class="legal-table">
     <thead><tr><th>Data type</th><th>Retention</th></tr></thead>
     <tbody>
       <tr><td>Conversation history</td><td>Until you delete it (per-conversation delete via <code>DELETE /api/aria/conversations/:id</code>) or you close your account.</td></tr>
-      <tr><td>Account record</td><td>Until you close your account; then 30 days for backup before deletion.</td></tr>
+      <tr><td>Account record</td><td>For the account term, then normally deleted or anonymised within 30 days, except records required for tax, fraud prevention, dispute resolution or legal claims.</td></tr>
       <tr><td>Document uploads</td><td>Bound to the conversation that ingested them; deleted when that conversation is deleted.</td></tr>
-      <tr><td>Audit-log entries</td><td>Retained as long as the account exists for evidentiary integrity (these are the hash-chained entries; deleting them would break the chain). On account closure, your audit-log entries are retained in pseudonymised form (user_id only, no email) for 6 years to satisfy potential compliance/legal hold periods.</td></tr>
+      <tr><td>Audit-log entries</td><td>For the account term. On closure, entries needed to establish, exercise or defend legal claims may be retained in pseudonymised form for up to 6 years, subject to earlier deletion where they are no longer necessary. Integrity design does not override a valid data-protection right.</td></tr>
       <tr><td>Telemetry counters</td><td>Daily counters keyed by UTC date with TTL of 36 hours; monthly counters with 35-day TTL.</td></tr>
-      <tr><td>Server logs</td><td>Per host retention (fly.io default; typically 7-30 days).</td></tr>
+      <tr><td>Server and security logs</td><td>Normally up to 30 days, unless a security incident or legal hold requires longer retention.</td></tr>
       <tr><td>Backup snapshots</td><td>Off-host email backups retained per <code>ARIA_BACKUP_RETENTION_DAYS</code> (default 30 days).</td></tr>
     </tbody>
   </table>
 
   <h2>7. Your rights</h2>
-  <p>Under UK GDPR / EU GDPR you have the right to:</p>
+  <p>Depending on the circumstances and lawful basis, UK data-protection law gives you rights to:</p>
   <ul>
     <li><strong>Access</strong> your personal data: request a copy via <a href="mailto:support@imaria.io">support@imaria.io</a>.</li>
     <li><strong>Rectify</strong> inaccurate data: most fields are editable in the account page (<code>/account.html</code>). Others can be corrected via the same email.</li>
-    <li><strong>Erase</strong> your data: close your account by emailing <a href="mailto:support@imaria.io">support@imaria.io</a>. We will delete your account record + conversations + uploads within 30 days; audit-log entries pseudonymise on the same schedule.</li>
-    <li><strong>Restrict</strong> processing: pause specific processing categories (e.g. opt out of telemetry) by contacting us.</li>
-    <li><strong>Portability:</strong> receive your data in a machine-readable format (JSON) within 30 days of request.</li>
-    <li><strong>Object:</strong> object to processing based on legitimate interests; we will weigh and respond.</li>
+    <li><strong>Erasure</strong> in applicable circumstances. This right is not absolute; we may retain information where lawfully required or needed for legal claims.</li>
+    <li><strong>Restriction</strong> of processing in applicable circumstances.</li>
+    <li><strong>Portability:</strong> receive data you provided in a structured, commonly used, machine-readable format where processing is automated and based on consent or contract.</li>
+    <li><strong>Object:</strong> <strong>you have the right to object at any time to direct marketing and, on grounds relating to your situation, to processing based on legitimate interests.</strong></li>
     <li><strong>Withdraw consent:</strong> for any processing based on consent.</li>
     <li><strong>Lodge a complaint:</strong> with the UK ICO (<a href="https://ico.org.uk/">ico.org.uk</a>) or your local supervisory authority.</li>
   </ul>
+  <p>We normally respond within one month after receiving a valid request. We may ask for information needed to verify your identity and may extend the response period by up to two further months for a complex or numerous request, explaining why. Rights may be limited by law. If we process third-party data solely for a customer, we may refer the request to that customer as controller.</p>
 
   <h2>8. International transfers</h2>
-  <p>Our primary infrastructure is in the United Kingdom (fly.io LHR region). LLM provider calls may transfer your conversation content outside the UK/EU depending on the configured provider: the current primary provider is <strong>DeepSeek</strong> (processing may occur in China, which is <strong>not</strong> covered by a UK/EU adequacy decision); fail-over providers, when enabled, include Anthropic and OpenAI (United States), Mistral (EU) and Groq (Singapore). Where available, transfers rely on the UK / EU Standard Contractual Clauses (SCCs) or the applicable adequacy regulations. <em>This international-transfer analysis, in particular the lawful-transfer basis for the DeepSeek (China) data plane, is pending confirmation in legal review.</em></p>
-  <p><strong>Employment-vetting data is carved out of the above.</strong> Personal data in a vetting case (identity documents, career evidence and criminal-conviction information) is never sent to the general LLM chain. Vetting document classification uses an explicitly approved processor list only (currently Anthropic, United States), and the system <strong>fails closed</strong>: where no approved processor is available, no extraction takes place and the document is routed to a human instead. No vetting personal data is transmitted to DeepSeek or to any provider outside that approved list.</p>
+  <p>Our primary application infrastructure is configured in the United Kingdom. Supplier processing may involve countries outside the UK, including the United States, European Economic Area and Singapore, depending on the production provider selected for a request. Where a restricted transfer is not covered by UK adequacy regulations, Arkmurus Limited must put an applicable safeguard in place before the transfer, such as the UK International Data Transfer Agreement or UK Addendum to EU Standard Contractual Clauses, and complete any required transfer risk assessment. You may request information about the applicable safeguard at <a href="mailto:support@imaria.io">support@imaria.io</a>.</p>
+  <p><strong>DeepSeek is not an ARIA production sub-processor.</strong> It may be used in isolated development or evaluation environments before launch, but it must be discontinued for the live service and must not receive production customer prompts, documents, account data or other personal data.</p>
+  <p><strong>Operational restriction:</strong> no provider may receive production personal data unless Arkmurus Limited has verified and documented appropriate contractual terms, security controls and, for a restricted transfer, a lawful transfer mechanism and any required transfer risk assessment.</p>
+  <p><strong>Employment-vetting data is carved out of the above.</strong> Personal data in a vetting case (identity documents, career evidence and criminal-conviction information) is never sent to the general LLM chain. Vetting document classification uses an explicitly approved processor list only (currently Anthropic, United States), and the system <strong>fails closed</strong>: where no approved processor is available, no extraction takes place and the document is routed to a human instead. No vetting personal data is transmitted to any provider outside that approved list.</p>
 
   <h2>9. Security</h2>
   <ul>
@@ -170,7 +179,7 @@
     <li>2FA (TOTP) is available on every account.</li>
     <li>We monitor for sustained authentication failures + signal-bridge misconfiguration via boot self-checks (R-F45) and surface them at <a href="/api/status">/api/status</a>.</li>
   </ul>
-  <p>No system is unbreachable. If we discover a breach affecting your data, we will notify you within 72 hours of becoming aware, in line with UK GDPR Art. 33.</p>
+  <p>No system is completely secure. Where a personal-data breach is notifiable, we will notify the ICO without undue delay and, where feasible, within 72 hours after becoming aware of it. Where a breach is likely to result in a high risk to an individual's rights and freedoms, we will also notify affected individuals without undue delay, unless a lawful exception applies.</p>
 
   <h2>10. Counterparty data (you-as-controller)</h2>
   <p>When you ask ARIA to investigate a third-party entity (a company, a director, a beneficial owner), ARIA processes that personal data <strong>under your instructions</strong>. In legal terms, you are the data controller for that processing and we act as your processor.</p>
@@ -206,13 +215,19 @@
   <h2>11. Children</h2>
   <p>ARIA is a defence-industry tool intended for professional adults. We do not knowingly collect personal data from anyone under 18. If you believe a minor has registered, contact <a href="mailto:support@imaria.io">support@imaria.io</a> and we will delete the account.</p>
 
-  <h2>12. Changes to this policy</h2>
+  <h2>12. Cookies and browser storage</h2>
+  <p>ARIA uses cookies or browser storage that are strictly necessary for authentication, security, session continuity and user-requested preferences. These technologies do not require consent where the PECR strictly-necessary exemption applies, but we still describe them here. Arkmurus Limited must not set analytics, advertising or other non-essential cookies or similar technologies before obtaining valid consent through a clear choice mechanism. If non-essential technologies are introduced, this notice and the consent control will identify their provider, purpose and duration.</p>
+
+  <h2>13. Automated processing and AI</h2>
+  <p>ARIA generates research, screening indicators and recommendations using automated processing. Arkmurus Limited does not intend ARIA itself to make solely automated decisions that produce legal or similarly significant effects about individuals. Customers must provide meaningful human review and must not use ARIA output as the sole basis for employment, access, credit, legal or similarly significant decisions. If this practice changes, we will identify the logic, significance, likely consequences, lawful condition and safeguards, including routes to human intervention and challenge, before carrying out that processing.</p>
+
+  <h2>14. Changes to this policy</h2>
   <p>We will publish material changes here and notify registered users by email at least 30 days before they take effect. Non-material changes (clarifications, formatting) take effect on publication.</p>
 
   <div class="legal-footer">
     Companion documents: <a href="/about/terms.html">Terms of service</a> · <a href="/model-card.html">Model card</a> · <a href="/api/status">Service status</a>
     <br><br>
-    Operator: Arkmurus Limited, England &amp; Wales · Privacy contact: <a href="mailto:support@imaria.io">support@imaria.io</a>
+    Operator and controller: Arkmurus Limited · Company no. 16028039 · Registered office: 71-75 Shelton Street, Covent Garden, London, WC2H 9JQ, United Kingdom · Privacy contact: <a href="mailto:support@imaria.io">support@imaria.io</a>
   </div>
 </div>
 </body>

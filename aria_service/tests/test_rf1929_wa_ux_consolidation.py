@@ -3,9 +3,9 @@
 The model card had a primitive, duplicated copy of the connection workflow:
 prompt() for the name, then innerHTML-swap + location.reload() (which blew away
 the whole page on connect). The dedicated wa-connections.html already has the good
-UX (styled input, account cards, QR modal, live polling, no reload). This guard
-keeps the model card READ-ONLY (status + a link into the manager) so the primitive
-patterns can't creep back and the logic stays in one place.
+UX (styled input, account cards, QR modal, live polling, no reload). R-F3405
+removed even the read-only status from the public model card: connection inventory
+is operational information and belongs only on the authenticated manager.
 """
 from __future__ import annotations
 
@@ -21,9 +21,10 @@ def test_model_card_has_no_primitive_wa_flow():
     assert 'data-action="createAccount"' not in MODEL_CARD, "the inline create widget must be gone"
 
 
-def test_model_card_links_to_the_dedicated_manager():
-    assert "/wa-connections.html" in MODEL_CARD, \
-        "model-card must link to the dedicated WhatsApp connection manager"
+def test_public_model_card_exposes_no_wa_inventory_or_manager_link():
+    assert "/api/wa-listener/accounts" not in MODEL_CARD
+    assert 'id="wa-accounts"' not in MODEL_CARD
+    assert "/wa-connections.html" not in MODEL_CARD
 
 
 def test_dedicated_manager_still_present_and_polished():

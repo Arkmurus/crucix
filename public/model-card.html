@@ -68,6 +68,13 @@
 
     .mc-footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--sc-border); font-size: 12px; color: var(--sc-muted); }
     .mc-footer a { color: var(--sc-prime); }
+    body.public-document #app-main { margin-left: 0; padding: 0; }
+    .mc-public-nav { margin-bottom: 34px; }
+    .mc-public-nav a {
+      display: inline-flex; align-items: center; gap: 7px;
+      color: var(--sc-prime-dark); text-decoration: none; font-size: 13px; font-weight: 600;
+    }
+    .mc-public-nav a:hover { text-decoration: underline; }
 
     /* R-F2329 — reference tables (fixed-width th columns) overflow the ~342px
        content box on phones; let them scroll horizontally instead of clipping. */
@@ -76,14 +83,13 @@
     }
   </style>
 </head>
-<body>
-<!-- R-F106 (2026-05-09): shared sidebar/header — was orphaned before.
-     Pages are public so anonymous viewers see decorative sidebar with
-     placeholder user info; logged-in operators get full nav. -->
-<div id="sidebar-placeholder"></div>
-<div id="header-placeholder"></div>
+<body class="public-document">
 <main id="app-main">
 <div class="mc-shell">
+
+  <nav class="mc-public-nav" aria-label="Public website navigation">
+    <a href="/"><span aria-hidden="true">←</span> Back to imaria.io</a>
+  </nav>
 
   <div class="mc-eyebrow">Model card</div>
   <h1 class="mc-title">ARIA: Capability &amp; Limitations Statement</h1>
@@ -92,7 +98,7 @@
   <div class="mc-meta">
     <div class="mc-meta-cell">
       <div class="mc-meta-cell-label">Operator</div>
-      <div class="mc-meta-cell-value">Arkmurus Limited</div>
+      <div class="mc-meta-cell-value">Arkmurus Limited (16028039)</div>
     </div>
     <div class="mc-meta-cell">
       <div class="mc-meta-cell-label">Hosting region</div>
@@ -107,19 +113,22 @@
       <div class="mc-meta-cell-value" id="mc-audit-fingerprint" style="font-family:monospace;font-size:11.5px">loading…</div>
     </div>
   </div>
+  <div class="mc-callout amber">
+    <p><strong>Scope of this document.</strong> This model card is a transparency statement about intended use, implemented controls and known limitations. It is not a certification, warranty, legal opinion, accuracy guarantee or substitute for customer due diligence. Statements describing controls explain system design; they do not mean that errors, provider failures, incomplete data or guard bypasses are impossible. Time-sensitive status and evaluation figures are loaded from live endpoints where available and otherwise shown as unavailable.</p>
+  </div>
 
   <h2 class="mc-h2" id="what-aria-is">1. What ARIA is</h2>
-  <p>ARIA is a domain-specialised AI assistant for security and defence due-diligence work. It combines reasoning from large language models (currently DeepSeek, with a provider-failover architecture that can route to Anthropic Claude, OpenAI and others when configured) with a constrained domain layer: live sanctions data, corporate registries, defence procurement signals, intel ledger, and a <span id="mc-cc-inline">37</span>-clause behavioural constitution that governs every response.</p>
+  <p>ARIA is a domain-specialised AI assistant for security and defence due-diligence work operated by Arkmurus Limited. It combines reasoning from contractually approved large-language-model providers, when configured, with domain data sources, retrieval systems and a <span id="mc-cc-inline">37</span>-clause behavioural constitution. DeepSeek is not a production sub-processor and must not receive live customer personal data.</p>
   <p>It is built for: defence brokers, OEM export-control officers, compliance teams at defence buyers, government acquisition cells, and the banking / insurance functions that screen defence-sector counterparties. It is <strong>not</strong> a general-purpose chatbot, an investment-advice tool, or a substitute for licensed legal advice.</p>
 
   <h2 class="mc-h2" id="what-aria-does-well">2. What ARIA does well</h2>
   <ul>
-    <li><strong>Counterparty due-diligence:</strong> multi-source pipeline (registries → sanctions lists → media → adverse coverage → beneficial-ownership inference) producing a structured assessment with confidence tagging on every claim.</li>
-    <li><strong>Sanctions screening:</strong> live integration with OpenSanctions, OFAC SDN, UK OFSI, EU consolidated, UN Security Council, Swiss SECO, Canadian SEMA, and other consolidated lists. Daily sanctions-diff against a customer's watchlist.</li>
+    <li><strong>Counterparty due-diligence:</strong> a multi-source workflow can query configured registries, sanctions sources and media, then produce a structured assessment. Coverage and freshness vary by jurisdiction, source availability and request.</li>
+    <li><strong>Sanctions screening:</strong> configured connectors can query or ingest official and consolidated sanctions sources. A result is a research aid, not proof that a person is or is not sanctioned; users must verify consequential decisions against the current official list and applicable matching rules.</li>
     <li><strong>Document review:</strong> contract / RFQ / EUC parsing with clause-library comparison, deviation detection, and explicit partial-extraction discipline (a clause cannot be claimed missing if the parser truncated the document past it).</li>
-    <li><strong>Procurement &amp; tender intelligence:</strong> autonomous monitoring of TED (EU), SAM.gov (US), GESPI (Portugal), and 15+ regional portals; tender comparator on demand.</li>
-    <li><strong>Audit-grade output:</strong> replies are signed into a hash-chained audit log (HMAC-SHA256, production fingerprint published below) on a best-effort basis. Tool-derived material claims are required to carry inline citations to their source, and the verifier flags ungrounded output. Reports can be exported as PDF with a verifiable signature when the report-signing key is configured.</li>
-    <li><strong>Multi-language source coverage:</strong> Portuguese, French, Spanish, Arabic, Russian, Mandarin sources searched in their native language, not just English translations.</li>
+    <li><strong>Procurement &amp; tender intelligence:</strong> configured monitors can collect notices from supported procurement portals, including TED and SAM.gov, and compare retrieved tenders. Portal access, completeness and update frequency are not guaranteed.</li>
+    <li><strong>Traceability controls:</strong> eligible outputs may be recorded in a hash-chained, HMAC-authenticated audit log on a best-effort basis. Citation and grounding checks can flag unsupported material. Reports can carry a service-verifiable signature when the report-signing key is configured. “Audit-grade” is not a regulatory certification.</li>
+    <li><strong>Multi-language research:</strong> the system can formulate and process searches in several languages, subject to provider capability and source availability. Language coverage has not been certified as complete or equivalent across languages.</li>
   </ul>
 
   <h2 class="mc-h2" id="what-aria-does-not-do">3. What ARIA does NOT do</h2>
@@ -128,7 +137,7 @@
   </div>
   <ul>
     <li><strong>ARIA does not provide legal advice.</strong> Outputs identifying compliance issues are <em>indicators</em>, not legal opinions. Final legal classification belongs to a licensed counsel in the relevant jurisdiction.</li>
-    <li><strong>ARIA does not invent verifiable facts.</strong> Company registration numbers, addresses, NACE/SIC codes, director names, contract values, treaty article numbers: when these aren't found in a tool result or document, ARIA refuses to fill the gap. (Constitution clause 14.)</li>
+    <li><strong>ARIA is instructed not to invent verifiable facts.</strong> Guards are designed to require grounding for company numbers, addresses, industry codes, director names, contract values and legal citations, but no guard eliminates hallucination risk. Users must check consequential facts against the cited primary source.</li>
     <li><strong>ARIA does not profile entities with no data.</strong> When a tool returns zero usable data on an entity, ARIA replies that it has no information; it does not infer from URL slugs, names, or family suffixes. (Clause 9.)</li>
     <li><strong>ARIA does not promote propaganda-tier sources to confirmed.</strong> Telegram channels and state-aligned media are monitored but their content cannot reach <code>[CONFIRMED]</code>. (Clause 13b.)</li>
     <li><strong>ARIA does not claim actions it did not perform.</strong> If a slash command did not execute in the current turn, ARIA does not claim it ran. (Clause 11.)</li>
@@ -137,7 +146,7 @@
   </ul>
 
   <h2 class="mc-h2" id="confidence-taxonomy">4. Confidence taxonomy</h2>
-  <p>Every material claim ARIA produces is tagged with one of five confidence levels:</p>
+  <p>ARIA is designed to use the following confidence vocabulary for material analytical claims. Tagging may be incomplete or incorrect and is not a probability, assurance level or substitute for checking the cited evidence:</p>
   <table class="mc-table">
     <thead>
       <tr><th style="width:160px">Tag</th><th>Meaning</th></tr>
@@ -173,21 +182,21 @@
     <li><strong>Constitution clause 14:</strong> verifiable facts (registration numbers, addresses, NACE codes, court citations, EIN/VAT, contract values, names of directors) cannot be stated unless quoted verbatim from a tool result, attached document, or RAG retrieval. Refusal is the safe fallback.</li>
     <li><strong>Constitution clause 12:</strong> document review requires actual extracted text in context. A truncated PDF carries a <code>[!PARTIAL EXTRACTION]</code> banner; ARIA cannot claim a clause is absent from a section it never saw.</li>
     <li><strong>Constitution clause 15:</strong> every tool-derived fact must carry an inline citation. The verifier flags ungrounded outputs as <code>no_citations</code>.</li>
-    <li><strong>Verification gate:</strong> replies tagged CRITICAL by classification logic are blocked from streaming until the verifier confirms grounded citations on every material claim.</li>
-    <li><strong>Output guards:</strong> officeholder, commitment, tool-claim, propaganda, and ground-truth guards run on every reply. Officeholder guard rejects unverified named appointments; commitment guard catches false promises ("I will deliver X by 4 AM"); tool-claim guard catches false action claims ("I have updated the watchlist").</li>
-    <li><strong>Adversarial test suite:</strong> 11 attack templates covering false-premise injection, authority spoofing, identity-spoof attacks, and gradual context manipulation. Run on every release; baseline reported alongside each launch.</li>
+    <li><strong>Verification gate:</strong> selected high-risk replies may be held for citation and grounding checks. Classification or verification errors remain possible, and this control does not establish factual correctness.</li>
+    <li><strong>Output guards:</strong> supported response paths apply guards for named officeholders, commitments, tool-action claims, source quality and grounded facts. Coverage is tested but should not be assumed universal across every feature or integration.</li>
+    <li><strong>Adversarial evaluation:</strong> maintained tests exercise false premises, authority and identity spoofing, and context manipulation. The current measured baseline, sample size and run date should be read from the live evaluation status; a test pass does not prove safety against unseen attacks.</li>
   </ul>
 
   <h2 class="mc-h2" id="audit-log">7. Audit log specification</h2>
-  <p>Every output ARIA produces is appended to a hash-chained audit log:</p>
+  <p>Where audit capture is enabled and succeeds, eligible output records are appended to a hash-chained audit log. Capture can fail, and the absence of a record must not be interpreted as proof that no output or event occurred:</p>
   <ul>
     <li>Each entry is a JSON object containing <code>{ ts, subject, claim, sources, confidence, tier_breakdown, prev_hash, hash }</code>.</li>
     <li>Each entry's <code>hash</code> is <code>SHA-256(prev_hash || canonical(entry))</code>, forming a tamper-evident chain.</li>
-    <li>The chain is HMAC-signed; the active signing-key fingerprint is <strong><code id="mc-signing-fingerprint">loading…</code></strong> (first 16 hex of <code>SHA-256(key)</code>; the key itself is never exposed). A verifier uses this to confirm an entry was signed by the expected key. <span id="mc-signing-mode"></span></li>
-    <li>Audit-grade PDF exports (R-F43) carry a derived HMAC signature of <code>(content_sha256 || user_id || session_id || message_index || generated_at)</code>. Third-party verification is via the public <code>POST /api/reports/verify</code> endpoint. A counterparty's compliance officer can confirm a forwarded PDF without an account.</li>
+    <li>The chain is HMAC-authenticated; the active signing-key fingerprint is <strong><code id="mc-signing-fingerprint">loading…</code></strong> (first 16 hex characters of <code>SHA-256(key)</code>; the key is not exposed). The fingerprint identifies the expected service key but does not allow independent HMAC verification without access to that secret. <span id="mc-signing-mode"></span></li>
+    <li>Signed PDF exports carry a derived HMAC over selected report metadata and content hash when signing is enabled. The public <code>POST /api/reports/verify</code> endpoint can ask the ARIA service to validate a forwarded report; this is service-mediated verification, not an independent digital signature or third-party trust service.</li>
   </ul>
   <div class="mc-callout green">
-    <p><strong>Verifiable independently.</strong> A buyer's compliance team can extract any claim ARIA made, recompute its SHA-256, and confirm the chain. They can hold ARIA's output to the same standard they hold their own internal documents.</p>
+    <p><strong>Tamper evidence, not truth certification.</strong> A content hash can demonstrate whether bytes changed, and the ARIA verification service can check an HMAC produced by its key. Neither proves that the original content was factually correct, complete, legally compliant or generated without error.</p>
   </div>
 
   <h2 class="mc-h2" id="constitution">8. Constitution (foundational clauses)</h2>
@@ -223,16 +232,16 @@
   <ul>
     <li><strong>Hosting region:</strong> United Kingdom (fly.io London region).</li>
     <li><strong>Persistence:</strong> chromadb RAG store and intel ledger live on a fly.io persistent volume mounted at <code>/data</code>. Daily off-host backups to operator email, with configurable retention.</li>
-    <li><strong>LLM processing:</strong> requests are routed through the configured LLM provider (currently DeepSeek); the architecture supports failover to Anthropic, OpenAI and other providers, and provider terms govern that data plane.</li>
+    <li><strong>LLM processing:</strong> production requests may be routed only to providers approved by Arkmurus Limited for the relevant data and covered by appropriate contractual, security and international-transfer safeguards. DeepSeek is excluded from production personal-data processing.</li>
     <li><strong>Customer chats:</strong> stored under the customer's user id; deletable by the user via <code>DELETE /api/aria/conversations/:id</code>.</li>
-    <li><strong>Audit log:</strong> persisted on the fly.io volume; not exported to third parties.</li>
+    <li><strong>Audit log:</strong> persisted on application infrastructure and disclosed only as described in the <a href="/about/privacy.html">privacy policy</a>, applicable customer agreement, or law.</li>
   </ul>
 
   <h2 class="mc-h2" id="known-limitations">10. Known limitations &amp; open work</h2>
   <ul>
     <li>Adversarial baseline <span id="mc-adversarial-baseline">loading…</span>. Target ≥95% before public launch.</li>
     <li>Single-machine fly.io deployment trades HA for data coherence: re-architecture before higher-tier customers.</li>
-    <li>RU/ZH source coverage at floor; PT/ES/FR/AR are deep.</li>
+    <li>Source and language coverage is uneven and can change as sources become unavailable; no language or jurisdiction should be treated as complete.</li>
     <li>SOC 2 / ISO 27001 not yet certified; in roadmap.</li>
     <li>Equipment ↔ ECCN/Wassenaar mapping currently prompt-augmented, not lookup-driven; in roadmap.</li>
   </ul>
@@ -243,90 +252,21 @@
     <li>Email <code>support@imaria.io</code> with the conversation session id (visible in the chat URL or via <code>/api/aria/conversations</code>).</li>
     <li>Or use the in-product <code>/feedback</code> command in the chat.</li>
   </ul>
-  <p>Every report is added to the mistake ledger and used to harden the corresponding constitution clause. The audit log makes the failure replayable.</p>
+  <p>Reports are reviewed and may be added to an internal issue or mistake ledger to support investigation and improvement. Do not include unnecessary personal or classified information in a report. See the privacy policy for how personal data is handled.</p>
 
-  <h2 class="mc-h2" id="whatsapp-connections">12. WhatsApp Connections</h2>
-  <p>ARIA connects to WhatsApp groups via linked devices: each connection is a separate phone number and Baileys session. Link a device, check status, or remove a connection in the connection manager.</p>
-
-  <div id="wa-accounts">
-    <div style="text-align:center;padding:28px;color:var(--sc-muted);font-size:14px;">
-      <p>Loading WhatsApp status…</p>
-    </div>
-  </div>
+  <h2 class="mc-h2" id="channel-limitations">12. Channel limitations</h2>
+  <p>When optional messaging channels such as WhatsApp are enabled, the channel provider processes message and account metadata under its own terms and privacy arrangements. Channel transport can introduce additional availability, confidentiality and retention risks. Users should not submit classified information, export-controlled technical data, credentials or unnecessary sensitive personal data through a messaging channel. Connection details and operational status are available only through authenticated administration surfaces, not this public model card.</p>
 
   <div class="mc-footer">
-    Model card last revised: 2026-05-11 (R-F284 added Clause 24, confidence-tag decay; R-F277 + R-F287 + R-5005 closed the EBANO false-positive false-confirm path). Operator: Arkmurus Limited. Contact <a href="mailto:support@imaria.io">support@imaria.io</a>.
+    Model card last revised: 29 July 2026 (R-F3405 evidence and disclosure review). Operator: Arkmurus Limited, company number 16028039. Contact <a href="mailto:support@imaria.io">support@imaria.io</a>.
     <br>
     Companion documents: <a href="/about/privacy.html">Privacy policy</a> · <a href="/about/terms.html">Terms of service</a> · <a href="/api/status">Service status</a> · <a href="/account.html">Account &amp; billing</a>
   </div>
 </div>
 
-  <script>
-  // R-F1929: the model card shows a READ-ONLY status summary + a link into the
-  // dedicated manager (wa-connections.html). The interactive add/QR/remove flow
-  // lives in ONE place now — the old inline name-prompt + innerHTML-swap +
-  // full-page-reload (which blew away the whole section on connect) is gone.
-  (async function () {
-    var container = document.getElementById('wa-accounts');
-    var token = localStorage.getItem('crucix_token') || '';
-    function manageBtn(label) {
-      return '<a href="/wa-connections.html" style="display:inline-block;background:#7c3aed;'
-        + 'color:#fff;text-decoration:none;padding:9px 22px;border-radius:6px;font-size:13px;'
-        + 'font-weight:600;">' + (label || 'Manage connections') + ' →</a>';
-    }
-    function wrap(inner) {
-      return '<div style="text-align:center;padding:24px;color:var(--sc-text);font-size:14px;">'
-        + inner + '</div>';
-    }
-    try {
-      var r = await fetch('/api/wa-listener/accounts', {
-        headers: { 'Accept': 'application/json', 'Authorization': 'Bearer ' + token },
-      });
-      if (!r.ok) {
-        if (r.status === 401) {
-          container.innerHTML = wrap('<p>Sign in to manage WhatsApp connections.</p>'
-            + '<p style="margin-top:10px"><a href="/signin" style="color:var(--sc-prime);">Sign in →</a></p>');
-          return;
-        }
-        container.innerHTML = wrap('<p>Connection manager temporarily unavailable.</p>'
-          + '<p style="margin-top:12px">' + manageBtn('Open manager') + '</p>');
-        return;
-      }
-      var data = await r.json();
-      var accounts = data.accounts || [];
-      var connected = accounts.filter(function (a) { return a.connected; }).length;
-      var pending = accounts.length - connected;
-      var summary;
-      if (accounts.length === 0) {
-        summary = '<p>No WhatsApp connections yet.</p>';
-      } else {
-        summary = '<p style="font-size:15px;color:var(--sc-heading);">'
-          + '<span style="color:#16a34a;font-weight:600;">' + connected + ' connected</span>'
-          + (pending > 0
-              ? ' &nbsp;·&nbsp; <span style="color:#d97706;font-weight:600;">' + pending + ' pending</span>'
-              : '')
-          + '</p>';
-      }
-      container.innerHTML = wrap(summary + '<p style="margin-top:14px">' + manageBtn() + '</p>');
-    } catch (e) {
-      container.innerHTML = wrap('<p>Could not load WhatsApp status.</p>'
-        + '<p style="margin-top:12px">' + manageBtn('Open manager') + '</p>');
-    }
-  })();
-  </script>
 </main>
 
-<!-- R-F106: load shared sidebar+header. Sidebar.init() is safe to call
-     for anonymous viewers — it gracefully handles missing user info. -->
-<script src="js/app.js?v=10"></script>
-<script src="js/sidebar.js?v=12"></script>
 <script>
-  // Public page — no Auth.requireAuth(). Sidebar shows placeholder
-  // user info (?) for anonymous viewers; full info for logged-in.
-  if (typeof Sidebar !== 'undefined' && Sidebar.init) {
-    try { Sidebar.init('model-card'); } catch (e) { console.warn('Sidebar init failed:', e); }
-  }
-
   // R-F221 (2026-05-11) — hydrate the three previously-hardcoded fields
   // from live endpoints. Pre-R-F221: "v23 — 23 clauses", audit-log
   // fingerprint, and "90.9% adversarial baseline" were all literals.
@@ -416,9 +356,14 @@
           const last = d.last_run || {};
           const score = last.overall_score;
           const runAt = (last.run_at || '').slice(0, 10);
+          const passed = Number.isInteger(last.passed) ? last.passed : null;
+          const total = Number.isInteger(last.total_attacks) ? last.total_attacks : null;
           if (score != null && runAt) {
             const pct = Math.round(score * 1000) / 10;
-            el.textContent = `${pct}% (last measured ${runAt})`;
+            const sample = passed != null && total != null
+              ? `; ${passed}/${total} attacks passed`
+              : '; sample size unavailable';
+            el.textContent = `${pct}% (last measured ${runAt}${sample})`;
           } else {
             el.textContent = 'no recent run';
           }

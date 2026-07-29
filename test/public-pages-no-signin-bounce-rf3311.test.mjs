@@ -136,30 +136,23 @@ test('R-F3311 Auth.me() does not even ask the server when there is no session', 
     `Auth.me() called ${fetches.join(', ')} while logged out — that 401 is what triggered the bounce`);
 });
 
-test('R-F3311 the chain that broke is still the chain, so this guard still covers it', () => {
-  // If model-card.html stops loading the shell, or the shell stops calling
-  // Auth.me(), the tests above would keep passing while covering nothing.
-  assert.match(MODEL_CARD, /Sidebar\.init\(/, 'the model card still loads the shared shell');
-  // strip comments: the page documents its public status with the words
-  // "no Auth.requireAuth()", which a naive scan reads as the call itself.
+test('R-F3425 the public model card has no authenticated account shell', () => {
   const mcCode = MODEL_CARD.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   assert.doesNotMatch(mcCode, /Auth\.requireAuth\(\)/, 'the model card must stay public');
-  assert.match(SIDEBAR_JS, /Auth\.me\(\)/, 'the shell still resolves the current user');
-  assert.match(APP_JS, /API\.get\('\/api\/auth\/me'\)/, 'Auth.me still goes through API.get');
-  // and the landing still sends people there
-  assert.match(INDEX, /href="\/model-card\.html/);
+  assert.doesNotMatch(MODEL_CARD, /Sidebar\.init\(|js\/sidebar\.js|js\/app\.js/,
+    'a public assurance document must not render an account menu');
+  assert.doesNotMatch(MODEL_CARD, /btn-logout|Sign Out|nav-avatar|nav-role/,
+    'the model card invented an anonymous Account/analyst identity');
+  assert.match(MODEL_CARD, /href="\/"[^>]*>[\s\S]*?Back to imaria\.io/,
+    'the public document needs an ordinary route back to the landing page');
+  const directLinks = [...INDEX.matchAll(/href="\/model-card\.html(?:#[^"]*)?"/g)];
+  assert.ok(directLinks.length >= 2,
+    'both the landing CTA and footer must link directly to the public model card');
 });
 
-test('R-F3311 the app.js cache-buster moved, or returning visitors keep the broken copy', () => {
-  const versions = new Set([...INDEX.matchAll(/js\/app\.js\?v=(\d+)/g)].map((m) => m[1]));
-  const pageVersions = new Set(
-    [...readFileSync(join('public', 'model-card.html'), 'utf8')
-      .matchAll(/js\/app\.js\?v=(\d+)/g)].map((m) => m[1]),
-  );
-  for (const v of pageVersions) {
-    assert.ok(Number(v) >= 9, `model-card.html still requests app.js?v=${v}; the fix ships in v9+`);
-  }
-  assert.ok(versions.size <= 1, 'the landing should not request two different app.js builds');
+test('R-F3425 the public-document layout does not reserve space for the removed account rail', () => {
+  assert.match(MODEL_CARD, /body\.public-document #app-main\s*\{[^}]*margin-left:\s*0/,
+    'removing the sidebar without removing its reserved margin leaves a broken page');
 });
 
 test('R-F3309 the landing offers a design-partner route, and it reaches the public application', () => {
