@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3389,
+  "next_available": 3392,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27912,28 +27912,59 @@
       "title": "wire the EE/NO registry adapters' success branch (backlog tranche 1)",
       "claimed_at": "2026-07-28T22:57:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
+      "status": "shipped",
+      "commit_sha": "fbd0e5d4",
       "notes": "committed at 4a994565 but NOT deployed: a deploy from HEAD would also carry the other agent's R-F3383, which the operator has excluded. Ship-mark withdrawn per CLAUDE.md section 11 (never mark shipped before live). Re-ship after an intel deploy is verified.",
-      "shipped_at": "2026-07-28T23:00:58Z"
+      "shipped_at": "2026-07-29T00:10:19Z"
     },
     {
       "r_number": "R-F3387",
       "title": "verification layer: two verifiers report clean:True when they crash, and none reports failure to the brain",
       "claimed_at": "2026-07-28T23:05:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fbd0e5d4",
+      "notes": null,
+      "shipped_at": "2026-07-29T00:10:19Z"
     },
     {
       "r_number": "R-F3388",
       "title": "dd_independent_verifier fails OPEN on every error path, manufacturing independence",
       "claimed_at": "2026-07-28T23:15:45Z",
       "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fbd0e5d4",
+      "notes": null,
+      "shipped_at": "2026-07-29T00:10:19Z"
+    },
+    {
+      "r_number": "R-F3389",
+      "title": "purge_by_keywords cannot scan the facts collection so bad data survives a successful purge",
+      "claimed_at": "2026-07-28T23:25:13Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fbd0e5d4",
+      "notes": null,
+      "shipped_at": "2026-07-29T00:10:04Z"
+    },
+    {
+      "r_number": "R-F3390",
+      "title": "diagnostic reports AMBER forever on deliberately deferred sources so it can never read healthy",
+      "claimed_at": "2026-07-28T23:25:14Z",
+      "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3391",
+      "title": "CRITICAL protobufjs RCE reachable via baileys parsing untrusted WhatsApp protocol messages",
+      "claimed_at": "2026-07-28T23:36:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fbd0e5d4",
+      "notes": null,
+      "shipped_at": "2026-07-29T00:10:05Z"
     }
   ]
 }
