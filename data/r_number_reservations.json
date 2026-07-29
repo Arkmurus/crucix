@@ -28031,9 +28031,10 @@
       "title": "training tooling loads the project env natively; a missing credential must never read as a data finding",
       "claimed_at": "2026-07-29T09:07:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bc0d996b",
+      "notes": null,
+      "shipped_at": "2026-07-29T09:23:22Z"
     }
   ]
 }
