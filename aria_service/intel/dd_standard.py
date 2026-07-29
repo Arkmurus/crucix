@@ -48,6 +48,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import lru_cache          # R-F3435 — _binding_present caches its probe
 from typing import Any, Callable, Optional
 
 from .wire import fail_wire  # R-F1789 §21 brain-wiring
@@ -396,12 +397,84 @@ class Access(str, Enum):
 class ResolverSpec:
     id: str
     name: str
-    #: Is an adapter present in THIS build? False = declared, not yet bound.
+    #: DECLARED build state. Kept as the fallback for resolvers that have nothing to
+    #: derive from (no adapter exists at all). `is_built()` is the authoritative answer
+    #: — see R-F3435 below for why a hand-maintained flag cannot be trusted here.
     built: bool
     access: str
     endpoint: str = ""
     #: What it costs and what it constrains. Shown to the operator verbatim.
     note: str = ""
+    #: R-F3435 — (module, attribute) that MUST exist for this resolver to be real.
+    #: Presence of the binding is what `is_built()` measures. None = nothing to derive
+    #: from, so the declaration stands (genuinely unbuilt sources like registry_trust).
+    binding: Optional[tuple[str, str]] = None
+    #: Environment variables that must be set for this resolver to be USABLE. Built and
+    #: available are different questions: an adapter can exist and still have no key.
+    env_vars: tuple[str, ...] = ()
+    #: Where the operator goes to unblock this source (signup, licence application).
+    decision_url: str = ""
+
+    def is_built(self) -> bool:
+        """Is the adapter actually present in this build? DERIVED, never declared.
+
+        R-F3435 — the declared flag drifted inside a single session: gazette, ch_charges,
+        ch_insolvency, ch_disqualified and employment_tribunal were all still `built=False`
+        here AFTER R-F3403/R-F3404/R-F3422/R-F3424 shipped and wired them into every DD.
+        A pre-run selection screen reading the declaration would have told the operator
+        that live, running sources did not exist — and the operator's requirement is that
+        this screen be ACCURATE, so the flag has to measure something rather than assert it.
+        """
+        if not self.binding:
+            return self.built
+        module, attr = self.binding
+        return _binding_present(module, attr)
+
+    def availability(self) -> tuple[bool, str]:
+        """(usable_now, reason). BUILT and AVAILABLE are deliberately separate.
+
+        An adapter can be present and still unusable (no credential, no licence, no
+        subscription). Reporting either one alone would mislead: "built" invites the
+        operator to expect data, "unavailable" invites them to think it needs coding.
+        """
+        import os as _os
+
+        if not self.is_built():
+            if self.access == Access.PAID_PER_SEARCH.value:
+                return (False, "no adapter and metered spend not approved")
+            if self.access == Access.LICENCE_REQUIRED.value:
+                return (False, "no adapter and the licence question is unanswered")
+            return (False, "no adapter is bound in this build")
+        missing = [v for v in self.env_vars if not (_os.getenv(v) or "").strip()]
+        if missing:
+            return (False, f"credential not set: {', '.join(missing)}")
+        if self.access == Access.SUPPLIED.value:
+            return (False, "counterparty-supplied — not an API")
+        return (True, "")
+
+
+@lru_cache(maxsize=None)
+def _binding_present(module: str, attr: str) -> bool:
+    """Does `module.attr` exist? Import errors mean NOT built — never an exception.
+
+    Uses find_spec first so a missing module costs no import. The attribute check needs
+    a real import, which is why the result is cached: this runs per resolver per request
+    on the scope-options endpoint.
+    """
+    import importlib
+    import importlib.util
+
+    try:
+        if importlib.util.find_spec(module) is None:
+            return False
+    except (ImportError, ValueError, ModuleNotFoundError):
+        return False
+    if not attr:
+        return True
+    try:
+        return hasattr(importlib.import_module(module), attr)
+    except Exception:
+        return False
 
 
 RESOLVERS: dict[str, ResolverSpec] = {
@@ -410,7 +483,9 @@ RESOLVERS: dict[str, ResolverSpec] = {
         endpoint="https://api.company-information.service.gov.uk",
         note="Free with a registered key, which is already deployed. Profile, officers, "
              "PSC, filing history and accounts are bound; /charges, /insolvency and "
-             "/search/disqualified-officers are PROBED-WORKING but not yet bound."),
+             "/search/disqualified-officers are PROBED-WORKING but not yet bound.",
+        binding=("aria_service.intel.companies_house", "is_enabled"),
+        env_vars=("COMPANIES_HOUSE_API_KEY", )),
     "registry_adapters": ResolverSpec(
         "registry_adapters", "Non-UK company registers", built=True,
         access=Access.FREE.value, note="~30 jurisdiction adapters."),
@@ -418,48 +493,61 @@ RESOLVERS: dict[str, ResolverSpec] = {
         "gleif", "GLEIF LEI", built=True, access=Access.FREE.value,
         endpoint="https://api.gleif.org/api/v1/lei-records",
         note="Level 1 only. Level 2 (direct/ultimate parent) is NOT bound, which is why "
-             "OC-7 has no built resolver."),
+             "OC-7 has no built resolver.",
+        binding=("aria_service.intel.gleif", "search_lei")),
     "sanctions": ResolverSpec(
         "sanctions", "OpenSanctions consolidated screening", built=True,
         access=Access.QUOTA_LIMITED.value,
         note="Monthly allowance. VERIFIED EXHAUSTED 2026-07-29 (HTTP 429: 'This API key "
              "has exceeded its rate limit for the month'), which is the operational "
-             "reason scope selection exists — see Waiver."),
+             "reason scope selection exists — see Waiver.",
+        binding=("aria_service.intel.sanctions", "screen_with_aliases"),
+        decision_url="https://www.opensanctions.org/api/"),
     "gazette": ResolverSpec(
-        "gazette", "The Gazette (official public record)", built=False,
+        "gazette", "The Gazette (official public record)", built=True,
         access=Access.FREE.value,
         endpoint="https://www.thegazette.co.uk/{service}/notice/data.json",
         note="No key. service=insolvency constrains to Corporate Insolvency (24) and "
              "Personal Insolvency (25); free-text parameter is `text`. Probed live: "
-             "returns winding-up resolutions and liquidator appointments by name."),
+             "returns winding-up resolutions and liquidator appointments by name.",
+        binding=("aria_service.intel.sources.gazette", "search_all")),
     "ch_charges": ResolverSpec(
-        "ch_charges", "Companies House charges register", built=False,
+        "ch_charges", "Companies House charges register", built=True,
         access=Access.KEYED_FREE.value,
         endpoint="/company/{number}/charges",
         note="Probed live: HTTP 200 with total_count/unfiltered_count. Replaces the "
-             "has_charges boolean, which cannot say what is secured over what."),
+             "has_charges boolean, which cannot say what is secured over what.",
+        binding=("aria_service.intel.companies_house", "get_charges"),
+        env_vars=("COMPANIES_HOUSE_API_KEY", )),
     "ch_insolvency": ResolverSpec(
-        "ch_insolvency", "Companies House insolvency register", built=False,
+        "ch_insolvency", "Companies House insolvency register", built=True,
         access=Access.KEYED_FREE.value,
         endpoint="/company/{number}/insolvency",
         note="Probed live: returns 404 for a SOLVENT company. 404 means 'no cases', NOT "
-             "an error — an adapter that treats it as a failure creates a false gap."),
+             "an error — an adapter that treats it as a failure creates a false gap.",
+        binding=("aria_service.intel.companies_house", "get_insolvency"),
+        env_vars=("COMPANIES_HOUSE_API_KEY", )),
     "ch_disqualified": ResolverSpec(
-        "ch_disqualified", "Companies House disqualified officers", built=False,
+        "ch_disqualified", "Companies House disqualified officers", built=True,
         access=Access.KEYED_FREE.value,
         endpoint="/search/disqualified-officers?q={name}",
         note="Probed live: 67 results for q=Smith. Free on the key we already hold, and "
-             "never yet consulted by any DD."),
+             "never yet consulted by any DD.",
+        binding=("aria_service.intel.companies_house", "search_disqualified_officers"),
+        env_vars=("COMPANIES_HOUSE_API_KEY", )),
     "find_case_law": ResolverSpec(
         "find_case_law", "Find Case Law (National Archives)", built=False,
         access=Access.LICENCE_REQUIRED.value,
         endpoint="https://caselaw.nationalarchives.gov.uk/atom.xml?party={name}",
         note="Free, no key, 1000 requests / 5 minutes per IP, and `party` is a full-match "
              "party search. BUT the Open Justice Licence forbids computational analysis "
-             "without a separate application — an operator legal decision before binding."),
+             "without a separate application — an operator legal decision before binding.",
+        env_vars=("FIND_CASE_LAW_LICENCE_GRANTED", ),
+        decision_url="https://caselaw.nationalarchives.gov.uk/open-justice-licence"),
     "court_records": ResolverSpec(
         "court_records", "CourtListener + BAILII", built=True, access=Access.FREE.value,
-        note="US federal via CourtListener; UK via a BAILII RSS proxy."),
+        note="US federal via CourtListener; UK via a BAILII RSS proxy.",
+        binding=("aria_service.intel.sources.court_records", "search_all")),
     "registry_trust": ResolverSpec(
         "registry_trust", "Registry Trust / TrustOnline (CCJ register)", built=False,
         access=Access.PAID_PER_SEARCH.value,
@@ -467,33 +555,43 @@ RESOLVERS: dict[str, ResolverSpec] = {
              "companies and individuals. £6 for one part of the register, up to £10 for "
              "all England & Wales plus the other registers; no free tier and no public "
              "API. A search leaves no footprint and needs no subject consent. Metered "
-             "spend — requires explicit operator approval before binding (§6/§17)."),
+             "spend — requires explicit operator approval before binding (§6/§17).",
+        env_vars=("REGISTRY_TRUST_API_KEY", ),
+        decision_url="https://www.trustonline.org.uk/"),
     "employment_tribunal": ResolverSpec(
-        "employment_tribunal", "UK Employment Tribunal decisions", built=False,
+        "employment_tribunal", "UK Employment Tribunal decisions", built=True,
         access=Access.FREE.value,
         endpoint="https://www.gov.uk/api/search.json?filter_format="
                  "employment_tribunal_decision&q={name}",
         note="No key. Probed live: 503 decisions for q=Mitie, each with the case number "
              "and both parties in the title. Directly answers employment litigation "
-             "exposure for UK employers."),
+             "exposure for UK employers.",
+        binding=("aria_service.intel.sources.employment_tribunal", "search_decisions")),
     "network_walker": ResolverSpec(
         "network_walker", "UBO / officer chain traversal", built=True,
         access=Access.KEYED_FREE.value,
         note="walk_network() traverses registry-anchored control edges. Rides whatever "
              "register answers, so its reach is the register's reach — an unanchored "
-             "corporate controller cannot be walked (R-F3027)."),
+             "corporate controller cannot be walked (R-F3027).",
+        binding=("aria_service.intel.network_walker", "walk_network"),
+        env_vars=("COMPANIES_HOUSE_API_KEY", )),
     "web_search": ResolverSpec(
-        "web_search", "Multi-backend media search", built=True, access=Access.FREE.value),
+        "web_search", "Multi-backend media search", built=True, access=Access.FREE.value,
+        binding=("aria_service.intel.web_search", "search")),
     "rca_screening": ResolverSpec(
         "rca_screening", "PEP relatives and close associates", built=True,
-        access=Access.QUOTA_LIMITED.value, note="Rides the same OpenSanctions allowance."),
+        access=Access.QUOTA_LIMITED.value, note="Rides the same OpenSanctions allowance.",
+        binding=("aria_service.intel.rca_screening", "screen_with_relatives")),
     "sec_edgar": ResolverSpec(
-        "sec_edgar", "SEC EDGAR XBRL", built=True, access=Access.FREE.value),
+        "sec_edgar", "SEC EDGAR XBRL", built=True, access=Access.FREE.value,
+        binding=("aria_service.intel.sources.sec_edgar", "lookup")),
     "fca_register": ResolverSpec(
-        "fca_register", "FCA Register + Directory", built=True, access=Access.KEYED_FREE.value),
+        "fca_register", "FCA Register + Directory", built=True, access=Access.KEYED_FREE.value,
+        binding=("aria_service.intel.fca_register", "lookup_firm")),
     "domain_ownership_verifier": ResolverSpec(
         "domain_ownership_verifier", "RDAP domain ownership", built=True,
-        access=Access.FREE.value),
+        access=Access.FREE.value,
+        binding=("aria_service.intel.domain_ownership_verifier", "verify_domain")),
     "idv": ResolverSpec(
         "idv", "Identity verification / document collection", built=False,
         access=Access.SUPPLIED.value,
@@ -506,14 +604,16 @@ def resolver_status(question: "Question") -> dict:
     """What would it take to answer this question? Separates 'no adapter yet' from
     'no source exists', because they are different asks of the operator."""
     specs = [RESOLVERS[r] for r in question.resolvers if r in RESOLVERS]
+    # R-F3435 — is_built() is DERIVED from the adapter's presence. Reading the declared
+    # `.built` here is what let five live sources report as unbuilt for a whole session.
     return {
         "declared": [s.id for s in specs],
-        "built": [s.id for s in specs if s.built],
-        "unbuilt": [s.id for s in specs if not s.built],
+        "built": [s.id for s in specs if s.is_built()],
+        "unbuilt": [s.id for s in specs if not s.is_built()],
         "blocked_on": sorted({
             s.access for s in specs
-            if not s.built and s.access in (Access.PAID_PER_SEARCH.value,
-                                            Access.LICENCE_REQUIRED.value)
+            if not s.is_built() and s.access in (Access.PAID_PER_SEARCH.value,
+                                                 Access.LICENCE_REQUIRED.value)
         }),
     }
 
@@ -1048,6 +1148,101 @@ def questions_for(tier: str, entity_type: str = "company") -> list[Question]:
     """The catalogue slice a run of `tier` on `entity_type` must answer."""
     tiers = _TIER_INCLUDES.get((tier or "").strip().upper(), _TIER_INCLUDES[Tier.STANDARD.value])
     return [q for q in QUESTIONS if q.tier in tiers and q.applicable_to(entity_type)]
+
+
+#: Sources the operator must DECIDE about before a run: they cost money, burn a finite
+#: allowance, or are legally gated. FREE/KEYED_FREE sources simply run and need no choice.
+GATED_ACCESS = (
+    Access.PAID_PER_SEARCH.value,
+    Access.QUOTA_LIMITED.value,
+    Access.LICENCE_REQUIRED.value,
+)
+
+
+@fail_wire(module="dd_standard", gap_type="engine_failure")
+def gated_source_options(entity_type: str = "company", tier: str = "STANDARD") -> dict:
+    """R-F3436 — the PRE-RUN selection screen: which metered/gated sources does THIS
+    subject need, which are usable right now, and what does each one buy?
+
+    The operator's requirement, in their words: a paid section must be selectable before
+    the DD runs, the run must actually search what was selected, and the screen must be
+    accurate. Two distinctions carry that:
+
+    * REQUIRED vs OPTIONAL is DERIVED from the catalogue, never hardcoded. A gated source
+      is REQUIRED for a question when it is the only thing that could answer it — IS-17b
+      (CCJs) declares `resolvers=("registry_trust",)` and nothing else, so without Registry
+      Trust that question cannot be answered by any means. It is OPTIONAL when the question
+      has another resolver that is usable now — IS-17a can fall back to court_records.
+      This is why the answer changes per subject: a person and a company do not have the
+      same questions in scope, so they do not need the same sources.
+
+    * BUILT vs AVAILABLE stay separate (see ResolverSpec.availability). "No adapter" is a
+      coding task; "no credential" is an operator task; "quota exhausted" is a spend
+      decision. Collapsing them into one 'unavailable' would tell the operator nothing
+      about what to actually do.
+
+    Selecting a source here produces an ELECTION on the questions it unlocks, which
+    `assess` then holds the run to: an elected question that did not run comes back
+    `fulfilled: False` and `billable: False` (R-F3408). Declining produces a WAIVER, which
+    stays in the denominator and can never improve a score (R-F3406).
+    """
+    et = (entity_type or "company").strip().lower()
+    tier_norm = (tier or "STANDARD").strip().upper()
+    in_scope = questions_for(tier_norm, et)
+
+    rows: dict[str, dict] = {}
+    for q in in_scope:
+        specs = [RESOLVERS[r] for r in q.resolvers if r in RESOLVERS]
+        if not specs:
+            continue
+        usable_now = [s for s in specs if s.availability()[0]]
+        for s in specs:
+            if s.access not in GATED_ACCESS:
+                continue
+            avail, why = s.availability()
+            row = rows.setdefault(s.id, {
+                "source_id": s.id,
+                "name": s.name,
+                "access": s.access,
+                "available": avail,
+                "unavailable_reason": why,
+                "built": s.is_built(),
+                "cost_note": s.note,
+                "decision_url": s.decision_url,
+                "required_for": [],
+                "enhances": [],
+            })
+            # The question can be answered some other way right now -> this source only
+            # ENHANCES it. Nothing else can answer it -> this source is REQUIRED.
+            other_available = [u for u in usable_now if u.id != s.id]
+            entry = {"question_id": q.id, "fundamental": q.fundamental, "text": q.text}
+            (row["enhances"] if other_available else row["required_for"]).append(entry)
+
+    options = sorted(rows.values(), key=lambda r: (not r["required_for"], r["source_id"]))
+    for r in options:
+        r["required"] = bool(r["required_for"])
+        # What the operator is actually being asked. Stated per row so the UI never has
+        # to infer intent from the access enum.
+        if r["required"] and not r["available"]:
+            r["decision"] = "BLOCKING — these questions cannot be answered without it"
+        elif r["required"] and r["available"]:
+            r["decision"] = "REQUIRED — usable now; select to search, decline to waive"
+        elif r["available"]:
+            r["decision"] = "OPTIONAL — adds depth; another source already covers these"
+        else:
+            r["decision"] = "OPTIONAL — unavailable, and something else covers these"
+
+    return {
+        "entity_type": et,
+        "tier": tier_norm,
+        "standard_version": STANDARD_VERSION,
+        "questions_in_scope": len(in_scope),
+        "options": options,
+        # A run that selects nothing is legitimate; it is not a run that searched nothing.
+        "note": ("Selecting a source ELECTS the questions it unlocks and the run is held "
+                 "to it. Declining is a WAIVER: it is recorded with who and why, stays in "
+                 "the denominator, and can never improve a score."),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════

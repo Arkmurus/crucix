@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3435,
+  "next_available": 3437,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28382,9 +28382,10 @@
       "title": "block live-network egress from the test suite (root of the intermittent hang)",
       "claimed_at": "2026-07-29T16:45:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8ff59968",
+      "notes": null,
+      "shipped_at": "2026-07-29T17:31:40Z"
     },
     {
       "r_number": "R-F3434",
@@ -28395,6 +28396,24 @@
       "commit_sha": "b4f731e6",
       "notes": null,
       "shipped_at": "2026-07-29T16:49:35Z"
+    },
+    {
+      "r_number": "R-F3435",
+      "title": "resolver 'built' is a hand-declared flag that drifted; derive it and add live availability",
+      "claimed_at": "2026-07-29T17:39:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3436",
+      "title": "pre-run selection of gated DD sources: required is derived, elected-but-unavailable is disclosed",
+      "claimed_at": "2026-07-29T17:45:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

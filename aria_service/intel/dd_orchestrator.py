@@ -3715,6 +3715,48 @@ def _record_waived_screen(report: ARKDDReport, waiver: dict, *, what: str) -> No
     logger.info("[R-F3411] %s waived by %s (%s) on %s", what, _by, _why[:60], report.run_id)
 
 
+def _preflight_elections(report: ARKDDReport) -> None:
+    """R-F3436 — say UP FRONT when an ordered section cannot possibly be searched.
+
+    The operator's requirement is that a selected paid section is actually searched. When
+    it can't be — no adapter, no credential, allowance spent — the only honest thing is to
+    say so at the START of the run rather than let the reader discover a silent hole.
+
+    `assess` already catches this after the fact (R-F3408 marks the election unfulfilled
+    and non-billable), and that stays the enforcement. This is the disclosure: an election
+    made against an unusable source is recorded as a data gap immediately, so the failure
+    is visible even if the run is cut short before the checklist is ever computed — which
+    is exactly the case where a silent hole would otherwise survive into a delivered report.
+
+    Never raises: a pre-flight that could kill the run would be worse than the gap.
+    """
+    try:
+        from .dd_standard import QUESTIONS_BY_ID, RESOLVERS
+
+        scope = getattr(report, "dd_scope", None) or {}
+        for el in (scope.get("elections") or []):
+            if not isinstance(el, dict):
+                continue
+            qid = str(el.get("question_id") or "").strip()
+            q = QUESTIONS_BY_ID.get(qid)
+            if q is None:
+                report.identity.data_gaps.append(
+                    f"ORDERED SECTION {qid!r} is not a question in this Standard — "
+                    f"nothing was searched for it and it must not be charged for")
+                continue
+            specs = [RESOLVERS[r] for r in q.resolvers if r in RESOLVERS]
+            usable = [s for s in specs if s.availability()[0]]
+            if usable:
+                continue
+            why = "; ".join(f"{s.name}: {s.availability()[1]}" for s in specs) or "no resolver declared"
+            report.identity.data_gaps.append(
+                f"ORDERED SECTION {qid} ({q.text}) CANNOT BE SEARCHED on this run — {why}. "
+                f"It is not covered and must not be charged for")
+            logger.warning("[R-F3436] elected %s is unfulfillable on %s: %s", qid, report.run_id, why[:120])
+    except Exception as e:                                   # never cost the caller their DD
+        logger.debug("[R-F3436] election pre-flight skipped: %s", e)
+
+
 async def _run_ch_free_registers(report: ARKDDReport, profile: dict | None) -> None:
     """R-F3422 — run the three free Companies House registers and put the result in the
     report: CHARGES (#12), INSOLVENCY (#11) and DISQUALIFIED OFFICERS (#16).
@@ -13546,6 +13588,7 @@ async def _orchestrate_dd_impl(
     # in scope. Persisted on the report by R-F3410, which is what lets the checklist
     # distinguish "nobody screened this" from "the operator declined it, by name".
     report.dd_scope = _dd_scope_from_target(target)
+    _preflight_elections(report)
 
     # R-F1628: expose the live report to the hard-deadline wrapper so a budget
     # timeout returns the ACCUMULATED partial (whatever layers completed), not a

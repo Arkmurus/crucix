@@ -25857,6 +25857,32 @@ async def health_cross_ep():
     }
 
 
+@router.get("/dd/scope-options")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def dd_scope_options_ep(entity_type: str = "company", tier: str = "STANDARD"):
+    """R-F3436 — what the New DD form must show BEFORE a run: the metered/gated sources
+    this subject needs, whether each is usable right now, and which questions each unlocks.
+
+    Distinct from /dd/sources, which is the whole vendor inventory with live pings. This
+    is the per-subject DECISION list: only sources that cost money, burn a finite
+    allowance, or are legally gated appear, because those are the only ones the operator
+    has a choice about. A source marked `required: true` is one WITHOUT which specific
+    questions cannot be answered by any other means — that is the highlight the operator
+    asked for, and it is derived from the question catalogue rather than hardcoded, so it
+    stays correct as resolvers are added.
+
+    Selecting a row sends `elections` on the DD request; declining sends a `waiver` naming
+    who and why. The run is then held to both (R-F3406/R-F3408/R-F3411).
+    """
+    try:
+        from ..intel.dd_standard import gated_source_options
+        return {"ok": True, **gated_source_options(entity_type, tier)}
+    except Exception as e:
+        # Never fail the form open: a broken options call must not silently render an
+        # EMPTY selection list, which would read as "nothing is needed".
+        return {"ok": False, "error": f"{type(e).__name__}: {e}", "options": None}
+
+
 @router.get("/dd/sources")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def dd_sources_ep():
