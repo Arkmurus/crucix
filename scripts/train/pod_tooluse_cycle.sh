@@ -111,6 +111,33 @@ log "adapter written"
 serve_and_eval "$OUT_DIR" "$EVALD/tooluse_eval_trained.json" "trained" \
   || { log "FATAL trained eval failed"; exit 1; }
 
+# ---- 3b. GENERATE OVER THE TRAIN SPLIT, for preference pairs ---------------
+# R-F3432. DPO needs the model's OWN fabrications as the rejected side, and they
+# must come from the TRAIN split: pairs built from eval failures would train on
+# the held-out set and destroy the only honest measure - invisibly, because the
+# score would improve. This reuses the already-trained adapter, so it costs one
+# generation pass rather than another train.
+if [ "${GEN_TRAIN:-1}" = "1" ]; then
+  log "generating over the TRAIN split for preference pairs..."
+  BASE_MODEL="$BASE_MODEL" ADAPTER="$OUT_DIR" MODEL_NAME="aria-tooluse" PORT="$PORT"     python /workspace/crucix/scripts/train/serve_eval_shim.py >"$LOGS/shim_gen.log" 2>&1 &
+  SHIM_PID=$!
+  gen_ready=0
+  for i in $(seq 1 90); do
+    curl -sf "http://127.0.0.1:$PORT/v1/models" >/dev/null 2>&1 && { gen_ready=1; break; }
+    kill -0 "$SHIM_PID" 2>/dev/null || break
+    sleep 10
+  done
+  if [ "$gen_ready" = 1 ]; then
+    python /workspace/crucix/scripts/train/eval_tooluse.py       --eval-file "$TRAIN_FILE" --target "http://127.0.0.1:$PORT/v1"       --model aria-tooluse --out "$EVALD/tooluse_train_generations.json" 2>&1 | tail -8
+    log "train generations written"
+  else
+    # NOT fatal: the cycle's measured result stands on its own. A missing
+    # generation pass means no NEW pairs this round, not a failed cycle.
+    log "WARN: generation shim never became ready - no preference pairs this round"
+  fi
+  stop_shim
+fi
+
 # ---- 4. the comparison, computed here so the driver cannot fudge it --------
 python - "$EVALD/tooluse_eval_base.json" "$EVALD/tooluse_eval_trained.json" \
         > "$EVALD/tooluse_cycle_result.json" <<'PY'

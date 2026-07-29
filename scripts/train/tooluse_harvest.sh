@@ -65,6 +65,7 @@ PULL /workspace/logs/sft.log           data/eval_reports/aria_tooluse_cycle_sft.
 PULL /workspace/eval/tooluse_cycle_result.json data/eval_reports/aria_tooluse_cycle_result.json || log "(result json not pulled)"
 PULL /workspace/eval/tooluse_eval_base.json    data/eval_reports/aria_tooluse_eval_base.json    || log "(base report not pulled)"
 PULL /workspace/eval/tooluse_eval_trained.json data/eval_reports/aria_tooluse_eval_trained.json || log "(trained report not pulled)"
+PULL /workspace/eval/tooluse_train_generations.json data/eval_reports/aria_tooluse_train_generations.json || log "(train generations not pulled - no preference pairs this round)"
 
 if [ -z "$RC" ]; then
   log "--- run log tail (cycle still in progress) ---"
