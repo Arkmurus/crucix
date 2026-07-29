@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3408,
+  "next_available": 3410,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28108,9 +28108,10 @@
       "title": "DD scope selection: opting out of a baseline check is a WAIVER, never a toggle",
       "claimed_at": "2026-07-29T10:03:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "572b055e",
+      "notes": null,
+      "shipped_at": "2026-07-29T10:28:58Z"
     },
     {
       "r_number": "R-F3407",
@@ -28121,6 +28122,24 @@
       "commit_sha": "ca7d7fe5",
       "notes": null,
       "shipped_at": "2026-07-29T10:27:16Z"
+    },
+    {
+      "r_number": "R-F3408",
+      "title": "elected DD sections must actually run - an unfulfilled election is a broken promise",
+      "claimed_at": "2026-07-29T10:28:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3409",
+      "title": "corpus axis: person screening - a name match is not an identification",
+      "claimed_at": "2026-07-29T10:29:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

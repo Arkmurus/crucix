@@ -128,20 +128,50 @@ def extract_company_number(text: str) -> str | None:
 
 # ── API calls ──────────────────────────────────────────────────────────────
 
-async def _get(path: str, _attempt: int = 0) -> dict | None:
-    """GET from Companies House API. Returns parsed JSON, or None on genuine 404 /
-    persistent failure. R-F2511 — 429 (rate-limit) and timeouts are TRANSIENT and are
-    RETRIED with backoff (respecting Retry-After) rather than silently returning empty;
-    on persistent failure `_mark_unavailable` flags the async context so the caller can
-    surface a data-gap (never-false-clean). Only a real 404 returns None-as-not-found."""
+# ── R-F3404 — WHY the request returned nothing ───────────────────────────────
+#
+# `_get` collapses five different outcomes into `None`: a genuine 404, an exhausted
+# rate-limit, a timeout, a non-200, and any exception. For most callers that is fine —
+# they treat absence as "not found" and the `_mark_unavailable` flag carries the
+# never-false-clean signal separately.
+#
+# It is NOT fine for /company/{n}/insolvency, where **404 is the answer**: Companies
+# House returns 404 for a company with no insolvency history (PROBED 2026-07-29 against
+# 04300718, a solvent company). An adapter built on `_get` alone would report "no
+# insolvency" identically for a clean company and for a rate-limited request — a false
+# clean manufactured at the transport layer, before any DD logic runs.
+#
+# So the outcome travels back as a value. The vocabulary deliberately mirrors
+# `dd_evidence_standard.RetrievalOutcome`, where SUCCESS / ZERO_RESULTS / NO_MATCH are
+# ANSWERS and TIMEOUT / RATE_LIMITED / SOURCE_UNAVAILABLE are not — rather than inventing
+# a second spelling of the same distinction.
+OUTCOME_OK = "ok"                      # 200, parsed
+OUTCOME_NOT_FOUND = "not_found"        # genuine 404 — an ANSWER, not a failure
+OUTCOME_RATE_LIMITED = "rate_limited"  # 429, retries exhausted — NOT an answer
+OUTCOME_TIMEOUT = "timeout"            # network/timeout, retries exhausted — NOT an answer
+OUTCOME_HTTP_ERROR = "http_error"      # any other non-200 — NOT an answer
+OUTCOME_ERROR = "error"                # unexpected exception — NOT an answer
+OUTCOME_DISABLED = "disabled"          # no API key configured — NOT an answer
+
+#: Outcomes that mean the register ANSWERED. Anything else must surface as a data gap.
+ANSWERED_OUTCOMES: frozenset[str] = frozenset({OUTCOME_OK, OUTCOME_NOT_FOUND})
+
+
+async def _get_outcome(path: str, _attempt: int = 0) -> tuple[dict | None, str]:
+    """GET from Companies House, returning (parsed_json_or_None, outcome).
+
+    This is the single HTTP path — `_get` delegates to it, so there is one retry policy
+    and one place where an outcome is decided. Forking it would recreate the
+    two-aggregators-disagreeing shape this codebase keeps paying for.
+    """
     if not is_enabled():
-        return None
+        return None, OUTCOME_DISABLED
     url = f"{_BASE_URL}{path}"
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:  # no-breaker: Companies House is a free authoritative source; breaker belongs at the caller (DD pipeline)
             resp = await client.get(url, headers=_headers())
             if resp.status_code == 404:
-                return None
+                return None, OUTCOME_NOT_FOUND
             if resp.status_code == 429:
                 if _attempt < _MAX_RETRIES:
                     _ra = (resp.headers.get("Retry-After") or "").strip()
@@ -149,25 +179,40 @@ async def _get(path: str, _attempt: int = 0) -> dict | None:
                     logger.warning("Companies House rate limited (429) — retry %d/%d after %.1fs (%s)",
                                    _attempt + 1, _MAX_RETRIES, _wait, path)
                     await asyncio.sleep(_wait)
-                    return await _get(path, _attempt + 1)
+                    return await _get_outcome(path, _attempt + 1)
                 logger.warning("Companies House rate limited (429) — exhausted %d retries (%s)", _MAX_RETRIES, path)
                 _mark_unavailable("rate_limited")
-                return None
+                return None, OUTCOME_RATE_LIMITED
             if resp.status_code != 200:
                 logger.debug("CH API %s returned %d", path, resp.status_code)
-                return None
-            return resp.json()
+                return None, OUTCOME_HTTP_ERROR
+            return resp.json(), OUTCOME_OK
     except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as e:
         # Transient network/timeout — retry with backoff before giving up.
         if _attempt < _MAX_RETRIES:
             await asyncio.sleep(_BACKOFF_BASE * (_attempt + 1))
-            return await _get(path, _attempt + 1)
+            return await _get_outcome(path, _attempt + 1)
         logger.debug("CH API request failed after %d retries: %s", _MAX_RETRIES, e)
         _mark_unavailable("timeout")
-        return None
+        return None, OUTCOME_TIMEOUT
     except Exception as e:
         logger.debug("CH API request failed: %s", e)
-        return None
+        return None, OUTCOME_ERROR
+
+
+async def _get(path: str, _attempt: int = 0) -> dict | None:
+    """GET from Companies House API. Returns parsed JSON, or None on genuine 404 /
+    persistent failure. R-F2511 — 429 (rate-limit) and timeouts are TRANSIENT and are
+    RETRIED with backoff (respecting Retry-After) rather than silently returning empty;
+    on persistent failure `_mark_unavailable` flags the async context so the caller can
+    surface a data-gap (never-false-clean). Only a real 404 returns None-as-not-found.
+
+    R-F3404 — now a thin wrapper over `_get_outcome`. Behaviour is byte-for-byte the
+    same for all ~20 existing callers; new callers that must distinguish "the register
+    said no" from "the register did not answer" call `_get_outcome` directly.
+    """
+    data, _outcome = await _get_outcome(path, _attempt)
+    return data
 
 
 @fail_wire(module="companies_house", gap_type="api_missing")
@@ -692,6 +737,179 @@ async def get_psc(company_number: str) -> list[dict]:
             } if _ident else None,
         })
     return out
+
+
+# ── R-F3404 — three free endpoints the DD has never consulted ────────────────
+#
+# All three are on the key already deployed, cost nothing per call, and were PROBED live
+# on 2026-07-29. Each returns a dict carrying `checked: bool` rather than a bare list,
+# because for every one of them an EMPTY result is a meaningful finding — no charges, no
+# insolvency, no disqualification — and an empty result is only a finding when the
+# register actually answered. `checked: False` must never be rendered as clean.
+
+def _unchecked(outcome: str, what: str) -> dict:
+    """The register did not answer. Carries the reason so the DD can name it."""
+    return {
+        "checked": False,
+        "outcome": outcome,
+        "reason": (
+            "Companies House API key not configured" if outcome == OUTCOME_DISABLED
+            else "Companies House rate limit exhausted" if outcome == OUTCOME_RATE_LIMITED
+            else "Companies House timed out" if outcome == OUTCOME_TIMEOUT
+            else f"Companies House returned an error ({outcome})"
+        ),
+        "detail": f"{what} NOT established — re-check required, this is not a clear result",
+    }
+
+
+@fail_wire(module="companies_house", gap_type="api_missing")
+async def get_charges(company_number: str) -> dict:
+    """Charges register — security, liens and prior claims over the company's assets.
+
+    Fundamental #12. The company profile carries only a `has_charges` BOOLEAN, which
+    cannot tell a buyer whether a debenture sits over the assets they are about to pay
+    for, who holds it, or whether it is still outstanding.
+
+    PROBED 2026-07-29 (04300718): HTTP 200 with total_count / unfiltered_count.
+    A 404 here means the company has no charges filed — an answer, not a failure.
+    """
+    number = (company_number or "").strip().upper()
+    if not number:
+        return _unchecked(OUTCOME_ERROR, "Charges")
+    data, outcome = await _get_outcome(f"/company/{number}/charges")
+    if outcome not in ANSWERED_OUTCOMES:
+        return _unchecked(outcome, "Charges")
+    if outcome == OUTCOME_NOT_FOUND or not data:
+        return {"checked": True, "outcome": outcome, "total_count": 0,
+                "outstanding_count": 0, "items": []}
+    items = [c for c in (data.get("items") or []) if isinstance(c, dict)]
+    outstanding = [
+        c for c in items
+        if str(c.get("status") or "").strip().lower() in {"outstanding", "part-satisfied"}
+    ]
+    return {
+        "checked": True,
+        "outcome": outcome,
+        "total_count": int(data.get("total_count") or len(items) or 0),
+        "unfiltered_count": data.get("unfiltered_count"),
+        "outstanding_count": len(outstanding),
+        "items": [
+            {
+                "charge_code": c.get("charge_code"),
+                "status": c.get("status"),
+                "created_on": c.get("created_on"),
+                "satisfied_on": c.get("satisfied_on"),
+                "classification": (c.get("classification") or {}).get("description"),
+                "persons_entitled": [
+                    p.get("name") for p in (c.get("persons_entitled") or [])
+                    if isinstance(p, dict) and p.get("name")
+                ],
+            }
+            for c in items[:50]
+        ],
+        "source_url": f"https://find-and-update.company-information.service.gov.uk/company/{number}/charges",
+    }
+
+
+@fail_wire(module="companies_house", gap_type="api_missing")
+async def get_insolvency(company_number: str) -> dict:
+    """Insolvency register — past or current insolvency proceedings.
+
+    Fundamental #11. The profile carries only `has_insolvency_history`, so "was there an
+    insolvency, when, and of what kind" was unanswerable.
+
+    THE TRAP THIS FUNCTION EXISTS TO AVOID. Companies House returns **404 for a company
+    with no insolvency history** (PROBED 2026-07-29 against solvent 04300718). Through
+    `_get` that 404 is indistinguishable from a rate-limit or a timeout, so an adapter
+    written the obvious way would report "no insolvency" for a company it never managed
+    to check. `_get_outcome` separates the two, and only OUTCOME_NOT_FOUND is allowed to
+    mean "clean".
+    """
+    number = (company_number or "").strip().upper()
+    if not number:
+        return _unchecked(OUTCOME_ERROR, "Insolvency history")
+    data, outcome = await _get_outcome(f"/company/{number}/insolvency")
+    if outcome not in ANSWERED_OUTCOMES:
+        return _unchecked(outcome, "Insolvency history")
+    if outcome == OUTCOME_NOT_FOUND or not data:
+        # The register answered: this company has no insolvency case on file.
+        return {"checked": True, "outcome": outcome, "case_count": 0, "cases": [],
+                "detail": "No insolvency case is recorded at Companies House"}
+    cases = [c for c in (data.get("cases") or []) if isinstance(c, dict)]
+    return {
+        "checked": True,
+        "outcome": outcome,
+        "case_count": len(cases),
+        "cases": [
+            {
+                "type": c.get("type"),
+                "number": c.get("number"),
+                "dates": c.get("dates"),
+                "practitioners": [
+                    p.get("name") for p in (c.get("practitioners") or [])
+                    if isinstance(p, dict) and p.get("name")
+                ],
+            }
+            for c in cases[:25]
+        ],
+        "source_url": f"https://find-and-update.company-information.service.gov.uk/company/{number}/insolvency",
+    }
+
+
+@fail_wire(module="companies_house", gap_type="api_missing")
+async def search_disqualified_officers(name: str, limit: int = 20) -> dict:
+    """Disqualified-directors register.
+
+    Fundamental #16, and a check no ARIA DD has ever performed — `disqualified-directors`
+    appears exactly once in the tree, as a domain fragment in an adverse-media allowlist.
+
+    PROBED 2026-07-29: `/search/disqualified-officers?q=Smith` returns 67 results.
+
+    NAME-MATCH DISCIPLINE. This endpoint matches on NAME ALONE, so a hit is a CANDIDATE,
+    never a determination — the R-F3089 name-coincidence class, about a named human
+    being. Callers must corroborate on date of birth or address before asserting that
+    THIS officer is THAT disqualified person; the returned rows carry the fields needed
+    to do so, and `match_basis` states the limitation so no consumer can forget it.
+    """
+    q = (name or "").strip()
+    if len(q) < 3:
+        return _unchecked(OUTCOME_ERROR, "Disqualification check")
+    from urllib.parse import quote_plus
+    data, outcome = await _get_outcome(
+        f"/search/disqualified-officers?q={quote_plus(q)}&items_per_page={max(1, min(100, limit))}"
+    )
+    if outcome not in ANSWERED_OUTCOMES:
+        return _unchecked(outcome, "Disqualification check")
+    if outcome == OUTCOME_NOT_FOUND or not data:
+        return {"checked": True, "outcome": outcome, "query": q,
+                "total_results": 0, "candidates": [],
+                "match_basis": "name_only",
+                "detail": f"No disqualified officer matching {q!r} is on the register"}
+    items = [i for i in (data.get("items") or []) if isinstance(i, dict)]
+    return {
+        "checked": True,
+        "outcome": outcome,
+        "query": q,
+        "total_results": int(data.get("total_results") or len(items) or 0),
+        # DELIBERATE WORDING: candidates, not matches. A name match is not an identity.
+        "match_basis": "name_only",
+        "corroboration_required": (
+            "Matched on NAME ONLY. Confirm date of birth and address against the "
+            "officer's registry record before treating this as the same person."
+        ),
+        "candidates": [
+            {
+                "title": i.get("title"),
+                "address_snippet": i.get("address_snippet"),
+                "date_of_birth": i.get("date_of_birth"),
+                "disqualification_start_on": (i.get("disqualification_start_on")
+                                              or i.get("appointment_count")),
+                "link": (i.get("links") or {}).get("self"),
+            }
+            for i in items[:limit]
+        ],
+        "source_url": "https://find-and-update.company-information.service.gov.uk/register-of-disqualifications",
+    }
 
 
 @fail_wire(module="companies_house", gap_type="api_missing")

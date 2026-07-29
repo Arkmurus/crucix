@@ -224,6 +224,65 @@ class Waiver:
         )
 
 
+@dataclass(frozen=True)
+class Election:
+    """R-F3408 — the operator explicitly ORDERED this check. The inverse of a Waiver.
+
+    WHY IT IS A SEPARATE CONCEPT. The New DD form offers optional sections, some of them
+    metered (a CCJ search is £6-£10 a time). Selecting one is a purchase, and the
+    operator's requirement is exact: "once those selections are made the DD MUST search
+    those, we cannot have issues."
+
+    An election that silently does not run is WORSE than never offering the section: the
+    buyer believes they have coverage they do not have, and the report contains no row
+    saying otherwise. That is a false clean the customer PAID for.
+
+    So an election creates an obligation the assessment reports on explicitly:
+
+      * it PULLS THE QUESTION INTO SCOPE even when the tier would not include it —
+        otherwise ticking "include CCJ search" on a Simplified run would do nothing at
+        all, which is precisely the failure mode being guarded against;
+      * it BEATS a waiver for the same question (you cannot both order and decline a
+        check), and the contradiction is RECORDED rather than silently resolved;
+      * if it does not end in an answered state the run is NOT honoured, and
+        `elections_honoured` goes False so a caller can refuse to present the report as
+        complete, retry, or refund — rather than shipping a gap the buyer cannot see.
+
+    `unfulfilled` is further split by WHY, because the two failures have different
+    owners: `no_adapter` is ours (we offered something we cannot deliver), while
+    `source_failed` is the register's (tried, did not answer) and is retryable.
+    """
+    question_id: str
+    elected_by: str = ""
+    note: str = ""
+
+    def is_valid(self) -> bool:
+        return bool(str(self.question_id or "").strip())
+
+
+def _coerce_elections(elections: Any) -> dict[str, Election]:
+    """Accept Election objects, dicts, or bare question-id strings (the form path)."""
+    out: dict[str, Election] = {}
+    for e in (elections or []):
+        if isinstance(e, Election):
+            cand = e
+        elif isinstance(e, str):
+            cand = Election(question_id=e.strip())
+        elif isinstance(e, dict):
+            cand = Election(
+                question_id=str(e.get("question_id") or "").strip(),
+                elected_by=str(e.get("elected_by") or "").strip(),
+                note=str(e.get("note") or "").strip(),
+            )
+        else:
+            continue
+        # An election naming a question that does not exist is a form/API bug, and
+        # honouring it silently would let a typo look like a purchased check.
+        if cand.is_valid() and cand.question_id in QUESTIONS_BY_ID:
+            out[cand.question_id] = cand
+    return out
+
+
 def _coerce_waivers(waivers: Any) -> dict[str, Waiver]:
     """Accept Waiver objects or plain dicts (the API/JSON path). Silently ignoring a
     malformed waiver is correct: the question then gets assessed normally, which is the
@@ -870,7 +929,8 @@ def questions_for(tier: str, entity_type: str = "company") -> list[Question]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @fail_wire(module="dd_standard", gap_type="engine_failure")
-def assess(report: dict, *, tier: str = "STANDARD", waivers: Any = None) -> dict:
+def assess(report: dict, *, tier: str = "STANDARD", waivers: Any = None,
+           elections: Any = None) -> dict:
     """Resolve every applicable question against a persisted report dict.
 
     Pure. Never raises on a partial report: a reader that throws yields NOT_RUN with the
@@ -884,6 +944,27 @@ def assess(report: dict, *, tier: str = "STANDARD", waivers: Any = None) -> dict
     entity_type = str(_m(report.get("identity")).get("entity_type") or "company")
     applicable = questions_for(tier, entity_type)
     waiver_map = _coerce_waivers(waivers)
+    election_map = _coerce_elections(elections)
+
+    # R-F3408 — an elected question is IN SCOPE even if the tier excludes it. Without
+    # this, ticking a paid section on a Simplified run would change nothing, which is the
+    # exact "selection that does not search" failure this model exists to prevent.
+    _in_scope = {q.id for q in applicable}
+    for qid in election_map:
+        if qid in _in_scope:
+            continue
+        q = QUESTIONS_BY_ID[qid]
+        # Still never ask a corporate question of a person: an election cannot make an
+        # inapplicable question applicable, it can only widen the tier.
+        if q.applicable_to(entity_type):
+            applicable = applicable + [q]
+            _in_scope.add(qid)
+
+    # An order and a decline for the same check cannot both stand. The order wins —
+    # money changed hands — but the contradiction is recorded, never silently dropped.
+    election_waiver_conflicts = sorted(set(election_map) & set(waiver_map))
+    for qid in election_waiver_conflicts:
+        waiver_map.pop(qid, None)
 
     resolutions: list[Resolution] = []
     for q in applicable:
@@ -952,10 +1033,63 @@ def assess(report: dict, *, tier: str = "STANDARD", waivers: Any = None) -> dict
         key=lambda d: (STATE_ORDER.get(d["state"], 0), d["question_id"]),
     )
 
+    # ── R-F3408 — did every ORDERED check actually run? ─────────────────────
+    #
+    # This is the ledger the operator's requirement turns on. A selected section that
+    # produced nothing must be impossible to miss, so each election is classified and an
+    # unfulfilled one flips `elections_honoured` False for the whole run.
+    elections_out: list[dict] = []
+    for qid, el in sorted(election_map.items()):
+        r = by_id.get(qid)
+        q = QUESTIONS_BY_ID[qid]
+        if r is None:
+            # Elected but not applicable to this subject type — an honest refusal, not a
+            # silent drop, and NOT a broken promise (nothing could have been searched).
+            elections_out.append({
+                "question_id": qid, "fulfilled": False, "failure_kind": "not_applicable",
+                "detail": f"{qid} does not apply to a subject of type {entity_type!r}; "
+                          f"it was not searched and must not be charged for",
+                "elected_by": el.elected_by, "billable": False,
+            })
+            continue
+        fulfilled = r.state in _ANSWERED_STATES
+        if fulfilled:
+            kind, detail = "", f"searched and answered ({r.state})"
+        elif r.state == EvidenceState.ATTEMPTED_INCONCLUSIVE.value:
+            # Ours to retry, theirs to answer.
+            kind, detail = "source_failed", (
+                f"the source was searched and did not answer: {r.reason}")
+        else:
+            # NOT_RUN on an ELECTED question is the worst case in this whole model: a
+            # section was ordered and nothing looked for it.
+            kind, detail = "no_adapter", (
+                f"ORDERED BUT NOT SEARCHED — {r.reason or 'no resolver ran'}. "
+                f"This section must not be presented as covered or charged for.")
+        elections_out.append({
+            "question_id": qid,
+            "fundamental": q.fundamental,
+            "text": q.text,
+            "fulfilled": fulfilled,
+            "state": r.state,
+            "failure_kind": kind,
+            "detail": detail,
+            "elected_by": el.elected_by,
+            # Only a check that actually ran is chargeable. A metered search that never
+            # reached the register must never appear on an invoice.
+            "billable": fulfilled,
+        })
+    unfulfilled = [e for e in elections_out if not e["fulfilled"]]
+
     return {
         "standard_version": STANDARD_VERSION,
         "tier": (tier or "STANDARD").strip().upper(),
         "entity_type": entity_type,
+        "elections": elections_out,
+        "elections_unfulfilled": unfulfilled,
+        #: False when ANY ordered section did not run. A caller must not present the
+        #: report as complete while this is False.
+        "elections_honoured": not unfulfilled,
+        "election_waiver_conflicts": election_waiver_conflicts,
         "required": len(denominator),
         "answered": len(answered),
         "corroborated": len(corroborated),
