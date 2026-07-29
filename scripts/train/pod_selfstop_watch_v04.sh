@@ -9,9 +9,13 @@ set -uo pipefail
 STATUS=/workspace/eval/_cycle_status
 REPORT=${REPORT:-/workspace/eval/aria_llm_v0_4_eval.json}   # override for the DPO cycle (R-F1522)
 VERDICT=${VERDICT:-/workspace/eval/_v0_4_verdict.txt}
+EVALD=/workspace/eval
 LOG=/workspace/logs/_selfstop_v04.log
 DEADLINE=${DEADLINE:-21600}   # absolute cap (6h): stop even if nothing signals
 POLL=${POLL:-30}
+# Bounded window to collect artefacts that already exist when the deadline
+# fires. Long enough for a harvest, short enough that forgetting costs cents.
+COLLECT_GRACE=${COLLECT_GRACE:-900}
 GRACE=${GRACE:-600}
 
 echo "[$(date -u +%H:%M:%S)] v0.4 self-stop armed pod=$POD_ID grace=${GRACE}s" >> "$LOG"
@@ -34,7 +38,24 @@ while [ ! -f "$STATUS" ]; do
   sleep "$POLL"
 done
 if [ "$TIMED_OUT" = 1 ]; then
-  # Nothing is coming: stop NOW, no grace window to wait out.
+  # R-F3445 - COLLECT BEFORE DESTROYING. R-F3400 said "nothing is coming: stop
+  # NOW, no grace window", which is right for a HUNG cycle and wrong for a merely
+  # SLOW one. A trained eval report was written at 21:36:50 and this line stopped
+  # the pod at 21:36:59; container disk is ephemeral, so a 164-minute $4.07 run
+  # produced nothing. The anti-hang property is preserved exactly - with NO
+  # artefacts it still stops instantly - but when output exists the deadline
+  # allows one bounded window to collect it.
+  _have=0
+  for _f in "$EVALD"/*.json /workspace/eval/*.json; do
+    [ -f "$_f" ] && { _have=1; break; }
+  done
+  if [ "$_have" = 1 ]; then
+    echo "[$(date -u +%H:%M:%S)] DEADLINE with output present - COLLECTION window ${COLLECT_GRACE}s before stop" >> "$LOG"
+    sleep "$COLLECT_GRACE"
+    echo "[$(date -u +%H:%M:%S)] collection window closed" >> "$LOG"
+  else
+    echo "[$(date -u +%H:%M:%S)] DEADLINE with no output - nothing to collect, stopping now" >> "$LOG"
+  fi
   curl -s -X POST "https://rest.runpod.io/v1/pods/$POD_ID/stop" -H "Authorization: Bearer $RP_KEY" >> "$LOG" 2>&1
   echo "[$(date -u +%H:%M:%S)] stop issued on DEADLINE — done" >> "$LOG"
   exit 0

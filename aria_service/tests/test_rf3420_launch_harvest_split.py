@@ -106,8 +106,36 @@ def test_the_watchdog_deadline_bounds_one_cycle_not_a_day():
     m = re.search(r"DEADLINE=\$\{DEADLINE:-(\d+)\}", src)
     assert m, "launch must set an explicit watchdog deadline"
     seconds = int(m.group(1))
-    assert seconds <= 7200, f"deadline {seconds}s is too loose to be a backstop"
-    assert seconds >= 3600, f"deadline {seconds}s would kill a legitimate cycle"
+    # R-F3445 - both bounds are now measured rather than assumed. The old 7200
+    # ceiling was itself a guess; the observed envelope is ~110 min (base eval 16
+    # + SFT 12 + trained eval 45 + generation 37), so a 2h cap would truncate a
+    # healthy cycle - which is exactly what happened, at a cost of $4.07.
+    assert seconds <= 10800, f"deadline {seconds}s is too loose to be a backstop"
+    assert seconds >= 6600, (
+        f"deadline {seconds}s is below the measured ~110min envelope and would "
+        f"truncate a healthy cycle")
+
+
+def test_the_deadline_default_shows_its_arithmetic():
+    """A bound set by feel is what cost a run; the derivation must be visible."""
+    src = _src(LAUNCH)
+    i = src.index("DEADLINE=${DEADLINE:-")
+    window = src[max(0, i - 900):i]
+    assert "min" in window and ("110" in window or "envelope" in window), (
+        "the deadline must be derived from measured stage timings, not chosen")
+
+
+def test_the_collection_window_is_passed_to_the_watchdog():
+    """R-F3445 - the watchdog cannot honour a window it was never told about."""
+    # Anchored on the ARMING construct, not the filename: the first occurrence
+    # of the watcher's name is its scp push. Matching that instead of the launch
+    # is a mistake this suite has now made three times.
+    lines = _lines(LAUNCH)
+    arm = next(l for l in lines
+               if "setsid nohup bash /workspace/pod_selfstop_watch_v04.sh" in l)
+    assert "COLLECT_GRACE=" in arm, (
+        "the arming line must pass COLLECT_GRACE through - the watchdog cannot "
+        "honour a window it was never told about")
 
 
 def test_the_watchdog_is_armed_before_the_work_starts():

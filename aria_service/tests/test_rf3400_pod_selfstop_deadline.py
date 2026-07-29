@@ -135,3 +135,55 @@ def test_deadline_has_a_bounded_default(rig, watcher):
     # and the unbounded wait must be gone
     assert "while [ ! -f \"$STATUS\" ]; do sleep 30; done" not in src, (
         f"{watcher} still has the unbounded wait")
+
+
+# --------------------------------------------------------------------------
+# R-F3445 — the deadline must not destroy artefacts that already exist
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("watcher", WATCHERS)
+def test_deadline_gives_a_collection_window_when_reports_exist(rig, watcher):
+    """The nine-second loss.
+
+    A trained eval report was written at 21:36:50; this watcher stopped the pod
+    at 21:36:59 on its deadline; container disk is ephemeral, so the report was
+    gone before it could be pulled. R-F3400's comment said "nothing is coming:
+    stop NOW" - correct for a HUNG cycle, wrong for a merely SLOW one that has
+    already produced collectible output.
+
+    With artefacts present the deadline must allow a bounded collection window
+    instead of stopping instantly.
+    """
+    (rig["tmp"] / "workspace" / "eval" / "tooluse_eval_trained.json").write_text(
+        '{"total": 168}', encoding="utf-8")
+    r = _run(rig, watcher, {"DEADLINE": "2", "GRACE": "0", "POLL": "1",
+                            "COLLECT_GRACE": "6"}, timeout=90)
+    log = "\n".join(p.read_text(encoding="utf-8", errors="replace")
+                    for p in (rig["tmp"] / "workspace" / "logs").glob("*.log"))
+    assert "COLLECT" in log.upper() or "collection" in log, (
+        "the deadline path must announce a collection window when output exists")
+
+
+@pytest.mark.parametrize("watcher", WATCHERS)
+def test_deadline_still_stops_immediately_when_there_is_nothing_to_save(rig, watcher):
+    """The anti-hang property must survive: no artefacts, no waiting."""
+    import time as _t
+
+    t0 = _t.time()
+    _run(rig, watcher, {"DEADLINE": "2", "GRACE": "0", "POLL": "1",
+                        "COLLECT_GRACE": "600"}, timeout=90)
+    elapsed = _t.time() - t0
+    calls = rig["calls"].read_text(encoding="utf-8") if rig["calls"].exists() else ""
+    assert "/stop" in calls, "a hung cycle with no output must still be stopped"
+    assert elapsed < 60, (
+        f"waited {elapsed:.0f}s with nothing to collect - the collection window "
+        f"must not apply when there are no artefacts")
+
+
+@pytest.mark.parametrize("watcher", WATCHERS)
+def test_the_collection_window_is_itself_bounded(rig, watcher):
+    """A window that never closes is the unbounded pod again."""
+    src = (Path(__file__).resolve().parents[2] / "scripts" / "train"
+           / watcher).read_text(encoding="utf-8")
+    assert "COLLECT_GRACE" in src
+    assert "COLLECT_GRACE:-" in src, "the collection window needs a bounded default"

@@ -36,12 +36,23 @@ EPOCHS="${EPOCHS:-3}"
 RETRY_SECS=${RETRY_SECS:-90}
 MAX_TRIES=${MAX_TRIES:-15}
 START_WAIT_TICKS=${START_WAIT_TICKS:-40}
-# One cycle envelope (~40 min observed) plus margin. Bounds an uncollected pod
-# at about $2.20 instead of $9.
-DEADLINE=${DEADLINE:-5400}
+# R-F3445 - DERIVED FROM MEASUREMENT, not from feel. Setting this by intuition
+# cost a run: I extended by 45 min when the work needed 45 min and 9 seconds.
+# The arithmetic, from observed cycles:
+#     base eval   168 rows          ~16 min
+#     SFT         488 rows, 3 ep    ~12 min
+#     trained eval 168 rows         ~45 min  (41 observed; 88 when max_tokens
+#                                             was uncapped - now capped at 700)
+#     generation  150 rows          ~37 min
+#                                   -------
+#                                   ~110 min  + 20% margin = ~132
+DEADLINE=${DEADLINE:-8100}
 # Post-completion idle before the pod stops itself: enough to notice and harvest,
 # short enough that forgetting costs cents rather than dollars.
 GRACE=${GRACE:-900}
+# R-F3445 - window to collect artefacts that already exist when the DEADLINE
+# fires. Without it the deadline destroyed a report nine seconds old.
+COLLECT_GRACE=${COLLECT_GRACE:-900}
 STATE_FILE="${STATE_FILE:-data/eval_reports/.tooluse_pod_state}"
 
 log(){ echo "[$(date -u +%H:%M:%S)] [launch] $*"; }
@@ -110,9 +121,9 @@ RSCP "$TRAIN_LOCAL" /workspace/datasets/aria_tooluse_train.jsonl                
 RSCP "$EVAL_LOCAL"  /workspace/datasets/aria_tooluse_eval.jsonl                                || die "scp eval set"
 
 # ---- arm the watchdog BEFORE the work, and refuse to run unbounded ---------
-log "arming self-stop watchdog (DEADLINE=${DEADLINE}s, GRACE=${GRACE}s)…"
+log "arming self-stop watchdog (DEADLINE=${DEADLINE}s, GRACE=${GRACE}s, COLLECT_GRACE=${COLLECT_GRACE}s)…"
 TSSH -p "$PORT" root@"$HOST" \
-  "POD_ID=$POD_ID RP_KEY='$KEY' GRACE=$GRACE DEADLINE=$DEADLINE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_selfstop.log 2>&1 </dev/null & echo ARMED" \
+  "POD_ID=$POD_ID RP_KEY='$KEY' GRACE=$GRACE DEADLINE=$DEADLINE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_selfstop.log 2>&1 </dev/null & echo ARMED" \
   | grep -q ARMED || die "watchdog did not arm — refusing to start work nothing would bound"
 
 log "starting cycle detached…"

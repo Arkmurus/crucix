@@ -137,14 +137,14 @@ def build_report(rows: list[dict]) -> dict:
 
 
 def _ask(client: Any, target: str, model: str, msgs: list[dict],
-         api_key: str, timeout: float) -> tuple[str | None, str | None]:
+         api_key: str, timeout: float, max_tokens: int = 900) -> tuple[str | None, str | None]:
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     try:
         r = client.post(f"{target.rstrip('/')}/chat/completions", headers=headers,
                         json={"model": model, "messages": msgs,
-                              "temperature": 0.0, "max_tokens": 900},
+                              "temperature": 0.0, "max_tokens": max_tokens},
                         timeout=timeout)
         if r.status_code != 200:
             return None, f"HTTP {r.status_code}"
@@ -164,6 +164,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--timeout", type=float, default=180.0)
+    # R-F3445 - the cycle envelope is only predictable if output length is.
+    # R-F3438 added a paragraph to 213 target answers; the trained model then
+    # emitted longer answers and the eval went 41 -> 88 minutes on the SAME 168
+    # rows, overran its bound and cost the run. Generation cost scales with
+    # output length, so an uncapped max_tokens makes the deadline a guess.
+    ap.add_argument("--max-tokens", type=int, default=700,
+                    help="cap on generated length; keeps the cycle envelope predictable")
     a = ap.parse_args(argv)
 
     import httpx
@@ -179,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     with httpx.Client() as client:                  # no-breaker: offline eval tool
         for i, t in enumerate(traces, 1):
             ans, err = _ask(client, a.target, a.model, prompt_messages(t),
-                            a.api_key, a.timeout)
+                            a.api_key, a.timeout, a.max_tokens)
             row = score_one(t, ans, error=err)
             rows.append(row)
             mark = "ok " if row["honest"] else "FAIL"
