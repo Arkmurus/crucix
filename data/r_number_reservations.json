@@ -28522,9 +28522,10 @@
       "title": "an UNCONFIGURED register reported as 'searched and did not answer' - never attempted is not attempted-and-failed",
       "claimed_at": "2026-07-29T22:08:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a0ee0b99",
+      "notes": null,
+      "shipped_at": "2026-07-29T22:30:08Z"
     }
   ]
 }

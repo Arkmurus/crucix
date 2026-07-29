@@ -803,6 +803,82 @@ full-suite blast-radius measurement naming every test that breaks.
 
 ---
 
+# Part 11 — The live end-to-end test, and the defect only it could find
+
+Run `dd_610b97fc5557` — Babcock International Group PLC, standard mode, under the operator's
+own account (`5834252728d3`), electing **IS-17b (CCJs)**. 12 layers, 20 findings.
+
+Six things were checked, and five passed on the first attempt:
+
+| Check | Result |
+|---|---|
+| Recorded under the operator's user | `user_id 5834252728d3` ✓ |
+| The election reached the engine | `dd_scope.elections: IS-17b` ✓ |
+| Pre-flight disclosure at run start | two gaps, both naming the obstacle ✓ |
+| **Rendered report** states it | `✗ IS-17b … ORDERED BUT NOT COMPLETED` ✓ |
+| Election ledger | `fulfilled: False`, `billable: False`, `elections_honoured: False` ✓ |
+| Visible in the DD reports section | top of the user's list ✓ |
+
+**The sixth revealed a real defect (R-F3447), and it is the reason to run the real path.**
+The checklist ledger reported:
+
+    failure_kind : source_failed
+    detail       : the source was searched and did not answer
+
+There is no Registry Trust contract, so the register was **never contacted**. The states are
+not interchangeable, and the difference is what the reader does about it: `source_failed` is
+the register's fault and says RETRY; unconfigured is ours and structural, so retrying changes
+nothing until a contract exists. Telling a buyer a judgment register "did not answer" when
+nobody asked it is the same class of dishonesty as a clean line on an unsearched register.
+
+Root cause: `_register_reader` treated ANY data gap naming the register as
+attempted-and-failed. True for the always-attempted free registers (Companies House,
+Gazette) — a gap there really does mean the request was made and the API did not answer —
+and false for a gated source. The live gap text contains "County Court Judgments", which
+matched the generic needle and took the wrong branch. Fixed with `unavailable_needles`,
+checked *before* the generic needles, resolving to `NOT_RUN` — which for an elected question
+is exactly R-F3408's "ORDERED BUT NOT SEARCHED, must not be presented as covered or charged
+for".
+
+**The lesson is the one this document keeps arriving at from different directions:** the
+engine was honest on the page and dishonest one layer down. A green unit suite (1,613 passing
+at the time) is not a substitute for running the operator's actual path, because the defect
+lived in the *agreement between two surfaces*, and no single-surface test can see a
+disagreement.
+
+One near-miss worth recording: the first attempt to prove the pre-fix behaviour used a
+TRUNCATED copy of the gap text, which missed the needle and made the defect look
+already-fixed. Reproducing with the **exact** live string was what showed
+`ATTEMPTED_INCONCLUSIVE`. When reproducing from production, copy the data verbatim.
+
+## 11.1 Confirmed live after the fix
+
+Re-run `dd_4e1d54cd8148` (same company, same account, same election) on `a0ee0b99`:
+
+| Field | Before | After |
+|---|---|---|
+| `state` | `ATTEMPTED_INCONCLUSIVE` | `NOT_RUN` |
+| `reason` | "the source was searched and did not answer" | "the register was NOT searched — no configured backend for it" |
+| `failure_kind` | `source_failed` | `no_adapter` |
+| `fulfilled` / `billable` | False / False | False / False |
+| `elections_honoured` | False | False |
+| Rendered report | `ORDERED BUT NOT COMPLETED` | unchanged |
+
+Ledger detail now reads: *"ORDERED BUT NOT SEARCHED — the register was NOT searched — no
+configured backend for it. This section must not be presented as covered or charged for."*
+
+**A second measurement discipline, learned here:** the first read of the re-run reported
+`elections_honoured: True` and no election at all, which looked like the fix had failed. It
+had not — the run was still executing (`layers=0`, `dd_scope=null`), and I had measured a
+half-built report. An in-progress DD is not a negative result. Check `layers_run` before
+drawing any conclusion from a report payload.
+
+Related: `dd_610b97fc5557` disappeared from `GET /dd/reports` once the re-run existed —
+the index keeps one run per entity — but it stays fully retrievable by run_id. A report
+missing from the list has not been deleted.
+
+---
+
 ## Appendix — claims I could not establish
 
 - Whether GLEIF L2 relationship records are reachable without credentials at ARIA's call volume:
