@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3445,
+  "next_available": 3447,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28491,6 +28491,25 @@
       "r_number": "R-F3444",
       "title": "two regressions my own work introduced, caught by the repo's own contract guards",
       "claimed_at": "2026-07-29T21:28:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3445",
+      "title": "the deadline path stops with NO grace, destroying reports that exist and are collectible",
+      "claimed_at": "2026-07-29T21:42:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "67e5ac0f",
+      "notes": null,
+      "shipped_at": "2026-07-29T21:51:50Z"
+    },
+    {
+      "r_number": "R-F3446",
+      "title": "flip the live-network test guard to ON by default: full-suite blast radius measured at zero",
+      "claimed_at": "2026-07-29T21:45:52Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
