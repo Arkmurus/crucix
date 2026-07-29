@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3395,
+  "next_available": 3396,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -27996,6 +27996,16 @@
       "commit_sha": "c4ef5c09",
       "notes": null,
       "shipped_at": "2026-07-29T08:27:07Z"
+    },
+    {
+      "r_number": "R-F3395",
+      "title": "codify the training pre-flight as a gate so a paid cycle cannot start on a dataset that cannot train",
+      "claimed_at": "2026-07-29T08:30:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4208b2e7",
+      "notes": null,
+      "shipped_at": "2026-07-29T08:42:37Z"
     }
   ]
 }
