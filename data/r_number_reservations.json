@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3414,
+  "next_available": 3415,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28181,6 +28181,16 @@
       "commit_sha": "7cf04113",
       "notes": null,
       "shipped_at": "2026-07-29T11:25:30Z"
+    },
+    {
+      "r_number": "R-F3414",
+      "title": "cycle launch hung the SSH channel: a cd-wrapper subshell held stdout open",
+      "claimed_at": "2026-07-29T11:32:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b55ebe7c",
+      "notes": null,
+      "shipped_at": "2026-07-29T11:34:57Z"
     }
   ]
 }
