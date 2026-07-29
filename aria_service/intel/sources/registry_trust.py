@@ -44,6 +44,15 @@ import re
 import time
 from typing import Any, Optional
 
+from ._common import (
+    OUTCOME_EMPTY,
+    OUTCOME_ERROR,
+    OUTCOME_OK,
+    OUTCOME_SKIPPED,
+    OUTCOME_UNAVAILABLE,
+    stamp_outcome,
+)
+
 logger = logging.getLogger(__name__)
 
 #: Cache the parsed dataset; a bulk extract is large and static between refreshes.
@@ -171,15 +180,17 @@ async def search_judgments(name: str, *, postcode: str = "",
     """
     mode = _mode()
     if not mode:
-        return {"searched": False, "backend": "", "judgments": [], "count": 0,
-                "reason": "not_configured", "detail": configuration_hint(),
-                "source": "Registry Trust (Register of Judgments, Orders and Fines)"}
+        return stamp_outcome(
+            {"searched": False, "backend": "", "judgments": [], "count": 0,
+             "reason": "not_configured", "source": "Registry Trust (Register of Judgments, Orders and Fines)"},
+            OUTCOME_SKIPPED, detail=configuration_hint(), module="sources.registry_trust")
 
     key = normalise_name(name)
     if not key:
-        return {"searched": False, "backend": mode, "judgments": [], "count": 0,
-                "reason": "empty_name",
-                "source": "Registry Trust (Register of Judgments, Orders and Fines)"}
+        return stamp_outcome(
+            {"searched": False, "backend": mode, "judgments": [], "count": 0,
+             "reason": "empty_name", "source": "Registry Trust (Register of Judgments, Orders and Fines)"},
+            OUTCOME_SKIPPED, detail="no searchable name on the subject", module="sources.registry_trust")
 
     try:
         if mode == "dataset":
@@ -197,12 +208,12 @@ async def search_judgments(name: str, *, postcode: str = "",
                 "defendant_name": _get(r, "defendant_name", "name", "party", "defendant"),
                 "postcode": _get(r, "postcode", "defendant_postcode", "post_code"),
             } for r in hits]
-            return {
-                "searched": True, "backend": "dataset", "judgments": judgments,
-                "count": len(judgments), "reason": "",
-                "as_of": (os.getenv("REGISTRY_TRUST_DATA_AS_OF") or "").strip(),
-                "source": "Registry Trust (Register of Judgments, Orders and Fines)",
-            }
+            return stamp_outcome(
+                {"searched": True, "backend": "dataset", "judgments": judgments,
+                 "count": len(judgments), "reason": "",
+                 "as_of": (os.getenv("REGISTRY_TRUST_DATA_AS_OF") or "").strip(),
+                 "source": "Registry Trust (Register of Judgments, Orders and Fines)"},
+                OUTCOME_OK if judgments else OUTCOME_EMPTY, module="sources.registry_trust")
 
         # api backend
         import httpx
@@ -215,20 +226,23 @@ async def search_judgments(name: str, *, postcode: str = "",
                          "Accept": "application/json"},
             )
         if resp.status_code != 200:
-            return {"searched": False, "backend": "api", "judgments": [], "count": 0,
-                    "reason": f"http_{resp.status_code}",
-                    "source": "Registry Trust (Register of Judgments, Orders and Fines)"}
+            return stamp_outcome(
+                {"searched": False, "backend": "api", "judgments": [], "count": 0,
+                 "reason": f"http_{resp.status_code}", "source": "Registry Trust (Register of Judgments, Orders and Fines)"},
+                OUTCOME_UNAVAILABLE, detail=f"HTTP {resp.status_code}", module="sources.registry_trust")
         payload = resp.json() or {}
         judgments = list(payload.get("judgments") or payload.get("results") or [])
-        return {"searched": True, "backend": "api", "judgments": judgments,
-                "count": len(judgments), "reason": "",
-                "as_of": str(payload.get("as_of") or ""),
-                "source": "Registry Trust (Register of Judgments, Orders and Fines)"}
+        return stamp_outcome(
+            {"searched": True, "backend": "api", "judgments": judgments,
+             "count": len(judgments), "reason": "",
+             "as_of": str(payload.get("as_of") or ""), "source": "Registry Trust (Register of Judgments, Orders and Fines)"},
+            OUTCOME_OK if judgments else OUTCOME_EMPTY, module="sources.registry_trust")
 
     except Exception as e:
         # A backend that broke is UNSEARCHED, never empty. This is the whole never-
         # false-clean contract for a register whose absence is itself a finding.
         logger.warning("[R-F3442] CCJ search failed (%s): %s", mode, e)
-        return {"searched": False, "backend": mode, "judgments": [], "count": 0,
-                "reason": f"error:{type(e).__name__}", "detail": str(e)[:200],
-                "source": "Registry Trust (Register of Judgments, Orders and Fines)"}
+        return stamp_outcome(
+            {"searched": False, "backend": mode, "judgments": [], "count": 0,
+             "reason": f"error:{type(e).__name__}", "source": "Registry Trust (Register of Judgments, Orders and Fines)"},
+            OUTCOME_ERROR, detail=str(e)[:200], module="sources.registry_trust")

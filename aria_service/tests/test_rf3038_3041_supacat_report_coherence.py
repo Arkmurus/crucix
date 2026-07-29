@@ -31,15 +31,31 @@ def test_rf3038_both_screen_assignment_sites_stamp_a_date():
     # once Companies House resolves a different name from the one supplied. This
     # test's own instruction was "if a third appears, it needs the stamp too", so
     # the count moves and the new site is held to the same rule below.
-    assert src.count("report.identity.sanctions_screen = ") == 3, (
-        "if a fourth appears, it needs the stamp too")
+    # R-F3443 — a FOURTH site appeared (R-F3411's `_record_waived_screen`), and it is the
+    # first one that must NOT stamp a date. The original instruction here was "if a fourth
+    # appears, it needs the stamp too", which was right for every site that represents a
+    # screen that RAN. A waived screen did not run: stamping `screened_at` would assert
+    # that it did, which is precisely the false claim this file exists to prevent. So the
+    # count moves and the new site is held to the OPPOSITE rule, asserted below.
+    assert src.count("report.identity.sanctions_screen = ") == 4, (
+        "if a fifth appears, decide explicitly whether it represents a screen that RAN "
+        "(stamp the date) or one that did not (leave screened_at None) — and assert it here")
     assert '"screened_at": datetime.now(timezone.utc)' in src      # site 1 (R-F3031)
     assert 'screen["screened_at"] = datetime.now(timezone.utc)' in src  # site 2 (R-F3038)
     # site 3 (R-F3219) — stamped before it is assigned, same never-overwrite rule
-    import re as _re
     _rescreen = inspect.getsource(ddo._rescreen_under_registered_name)
     assert 'screen["screened_at"] = datetime.now(timezone.utc)' in _rescreen
     assert 'if not screen.get("screened_at")' in _rescreen
+
+    # site 4 (R-F3411) — the WAIVED screen. It must carry screened_at=None and screened
+    # False, so the R-F3229 branch renders it as declined and it can never read as CLEAN.
+    _waived = inspect.getsource(ddo._record_waived_screen)
+    assert '"screened_at": None' in _waived, (
+        "a waived screen must NOT carry a screen date — a timestamp would claim the "
+        "screen was performed when the operator declined it")
+    assert '"screened": False' in _waived
+    assert 'datetime.now' not in _waived, (
+        "no clock belongs in a screen that never ran")
 
 
 def test_rf3038_existing_stamp_is_never_overwritten():
