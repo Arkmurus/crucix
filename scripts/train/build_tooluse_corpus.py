@@ -176,6 +176,23 @@ _HIT_CLAIM_RE = re.compile(
 
 # ── payload readers (tolerant: real payloads vary) ─────────────────────────
 
+def _call_id(*parts: object) -> str:
+    """A tool_call id the chat template will accept: EXACTLY 9 alphanumerics.
+
+    R-F3392 — Mistral's template raises "Tool call IDs should be alphanumeric
+    strings with length 9!" on anything else, and the failure lands AFTER the
+    paid base-model load (sft_train.py records that exact class in R-F1470). The
+    ids this builder used (`call_1_companieshouses`) made every trace in the
+    corpus untrainable while looking perfectly valid on inspection.
+
+    Deterministic so the corpus stays reproducible; hashed over the caller's
+    parts so ids are unique within a trace.
+    """
+    import hashlib
+    seed = "|".join(str(p) for p in parts)
+    return hashlib.sha1(seed.encode("utf-8"), usedforsecurity=False).hexdigest()[:9]
+
+
 def _sanctions_block(payload: dict) -> dict:
     return (payload or {}).get("sanctions") or {}
 
@@ -237,7 +254,7 @@ def _answer_for(subject: str, payload: dict) -> str:
 
 def build_trace(subject: str, payload: dict) -> dict:
     """Assemble one multi-turn tool-use trace from a REAL tool payload."""
-    call_id = "call_" + re.sub(r"[^a-z0-9]+", "", subject.lower())[:24]
+    call_id = _call_id("screen", subject)
     return {
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -370,6 +387,16 @@ def validate_trace(trace: Any) -> list[str]:
                 errs.append(f"tool result {m.get('tool_call_id')!r} answers no tool_call")
             if m.get("name") not in TOOL_NAMES:
                 errs.append(f"tool turn names an unknown tool: {m.get('name')!r}")
+    # R-F3392 — the chat template requires EXACTLY 9 alphanumerics. This
+    # constraint lives in the CONSUMER, which is why an internally-consistent
+    # trace still could not be trained. Enforced here so an untrainable corpus
+    # cannot be written.
+    for _cid in call_ids:
+        if not (isinstance(_cid, str) and len(_cid) == 9 and _cid.isalnum()):
+            errs.append(
+                f"tool_call id {_cid!r} is not 9 alphanumerics — the chat "
+                f"template will refuse to render this trace"
+            )
 
     # ---- R-F3367 derivation: each hop's arguments must be traceable to prior
     # output (or, for the first hop, to the user's own question).
@@ -614,7 +641,7 @@ def build_news_impact_trace(entity: str, search_payload: dict) -> dict:
     """
     sources = sorted(_independent_sources(search_payload))
     results = (search_payload or {}).get("results") or []
-    call_id = "call_news_" + re.sub(r"[^a-z0-9]+", "", entity.lower())[:18]
+    call_id = _call_id("news", entity)
 
     if not results:
         final = (
@@ -775,7 +802,7 @@ def build_resolution_trace(subject: str, search_payload: dict) -> dict:
     when the register does not answer it confidently."""
     results = (search_payload or {}).get("results") or []
     chosen, reason, ambiguous = resolve_company(subject, results)
-    call_id = "call_res_" + re.sub(r"[^a-z0-9]+", "", subject.lower())[:18]
+    call_id = _call_id("resolution", subject)
 
     if chosen is not None and not ambiguous:
         final = (
@@ -855,7 +882,7 @@ def build_challenge_trace(subject: str, payload: dict, premise: str) -> dict:
     """
     if premise not in _CHALLENGE_PROMPTS:
         raise ValueError(f"premise must be one of {sorted(_CHALLENGE_PROMPTS)}, got {premise!r}")
-    call_id = "call_ch_" + re.sub(r"[^a-z0-9]+", "", subject.lower())[:20]
+    call_id = _call_id("challenge", subject)
     return {
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -944,7 +971,7 @@ def build_multihop_trace(subject: str, hops: list[tuple[str, dict, dict]]) -> di
         )},
     ]
     for i, (tool, args, payload) in enumerate(hops):
-        call_id = f"call_{i+1}_{re.sub(r'[^a-z0-9]+', '', tool)[:18]}"
+        call_id = _call_id("hop", subject, i, tool)
         reason = _HOP_REASONING.get(tool, "Next I need to establish this with a tool.")
         try:
             reason = reason.format(subject=subject, **{k: str(v) for k, v in args.items()})
