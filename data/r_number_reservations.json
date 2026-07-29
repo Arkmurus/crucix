@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3432,
+  "next_available": 3434,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28360,6 +28360,26 @@
       "r_number": "R-F3431",
       "title": "clear the last two baseline reds: duplicate news source and the env_bootstrap orphan",
       "claimed_at": "2026-07-29T16:13:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8b09af3a",
+      "notes": null,
+      "shipped_at": "2026-07-29T16:34:13Z"
+    },
+    {
+      "r_number": "R-F3432",
+      "title": "DPO pairs from the model's OWN fabrications - negative signal SFT cannot give, never sourced from the eval split",
+      "claimed_at": "2026-07-29T16:40:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1fdbeaf4",
+      "notes": null,
+      "shipped_at": "2026-07-29T16:46:32Z"
+    },
+    {
+      "r_number": "R-F3433",
+      "title": "block live-network egress from the test suite (root of the intermittent hang)",
+      "claimed_at": "2026-07-29T16:45:13Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
