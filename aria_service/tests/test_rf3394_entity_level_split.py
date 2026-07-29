@@ -173,3 +173,37 @@ def test_real_corpus_splits_without_leakage():
     assert tr & ev_ == set(), f"real corpus leaks: {sorted(tr & ev_)[:5]}"
     assert len(train) + len(ev) == len(rows)
     assert ev, "eval split is empty"
+
+
+# --------------------------------------------------------------------------
+# R-F3395 — golden-set entities must never enter training
+# --------------------------------------------------------------------------
+
+def _r(subject: str, label: str = "single_hop") -> dict:
+    return {"subject": subject, "label": label,
+            "messages": [{"role": "user", "content": subject}]}
+
+
+def test_golden_entity_is_forced_out_of_training():
+    """Training on what you are graded on inflates gate #6 — the honest gate."""
+    rows = [_r("Almaz-Antey"), _r("Acme Ltd"), _r("Beta Co"), _r("Gamma Plc")]
+    train, ev = S.split_by_entity(rows, eval_fraction=0.2,
+                                golden={"pjsc almaz antey"})
+    assert not any("almaz" in (r["subject"] or "").lower() for r in train)
+    assert any("almaz" in (r["subject"] or "").lower() for r in ev)
+
+
+def test_golden_forcing_survives_the_keep_a_train_side_rule():
+    """The rule that stops a label vanishing must not demote a golden entity."""
+    rows = [_r("Almaz-Antey"), _r("Acme Ltd")]
+    train, ev = S.split_by_entity(rows, eval_fraction=0.9,
+                                golden={"pjsc almaz antey"})
+    assert not any("almaz" in (r["subject"] or "").lower() for r in train)
+
+
+def test_without_a_golden_set_the_split_is_unchanged():
+    """The protection is additive: absent a golden set, behaviour is as before."""
+    rows = [_r("Acme Ltd"), _r("Beta Co"), _r("Gamma Plc")]
+    a = S.split_by_entity(rows, eval_fraction=0.34)
+    b = S.split_by_entity(rows, eval_fraction=0.34, golden=set())
+    assert [r["subject"] for r in a[0]] == [r["subject"] for r in b[0]]

@@ -59,10 +59,52 @@ def _bucket(entity: str, eval_fraction: float) -> bool:
     return (int(h[:8], 16) % 10_000) < int(eval_fraction * 10_000)
 
 
+def golden_entities(path: Path | None) -> set[str]:
+    """Normalised subjects appearing in the frozen 500-Q benchmark.
+
+    Read as TOKEN SETS by the caller: `_norm_subject` strips corporate suffixes,
+    so a golden entry and a corpus subject for one company routinely normalise
+    to different strings ("wagner" vs "wagner group pmc") and an equality
+    compare declares them unrelated.
+    """
+    if path is None or not path.exists():
+        return set()
+    out: set[str] = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+            raw = str(obj.get("subject") or obj.get("entity") or obj.get("question") or "")
+        except json.JSONDecodeError:
+            raw = line
+        if norm := _norm_subject(raw):
+            out.add(norm)
+    return out
+
+
+def _touches_golden(entity: str, golden: set[str]) -> bool:
+    t = set(entity.split())
+    return bool(t) and any(t <= set(g.split()) or set(g.split()) <= t for g in golden)
+
+
 def split_by_entity(
-    rows: Iterable[dict], eval_fraction: float = 0.2
+    rows: Iterable[dict],
+    eval_fraction: float = 0.2,
+    golden: set[str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Split rows into (train, eval) so no entity appears on both sides.
+
+    `golden` — subjects from the frozen 500-Q benchmark. Any entity that also
+    appears there is FORCED to the eval side and can never enter training.
+    Training on an entity you are later graded on inflates Phase-A gate #6, the
+    gate whose whole purpose is to be the honest measure; the live corpus had
+    exactly one such entity (Almaz-Antey, whose golden question is "Run Layer 1
+    on 'PJSC Almaz-Antey'"). Forcing rather than dropping keeps the rows useful
+    — they still measure — and makes the protection structural, so it holds for
+    every subject captured from here on instead of depending on someone
+    remembering to look.
 
     Raises when a split is impossible (no rows, or a single entity), because an
     empty eval set that silently returns is how a meaningless benchmark gets
@@ -87,15 +129,23 @@ def split_by_entity(
     for r in rows:
         by_label[str(r.get("label") or "unlabelled")].add(_entity_of(r))
 
-    eval_entities: set[str] = set()
+    gold = golden or set()
+    forced = {e for e in entities if _touches_golden(e, gold)}
+
+    eval_entities: set[str] = set(forced)
     for _label, ents in by_label.items():
         ordered = sorted(ents)                       # deterministic
-        chosen = {e for e in ordered if _bucket(e, eval_fraction)}
+        chosen = {e for e in ordered if _bucket(e, eval_fraction)} | (ents & forced)
         # Never let a label vanish from either side when it has >1 entity.
         if not chosen and len(ordered) > 1:
             chosen = {ordered[0]}
         if len(chosen) == len(ordered) and len(ordered) > 1:
-            chosen.discard(ordered[-1])
+            # Keep a train side — but never by demoting a golden-forced entity
+            # back into training, which is the one thing this must not do.
+            for cand in reversed(ordered):
+                if cand not in forced:
+                    chosen.discard(cand)
+                    break
         eval_entities |= chosen
 
     train = [r for r in rows if _entity_of(r) not in eval_entities]
@@ -108,13 +158,20 @@ def main() -> int:
     ap.add_argument("--glob", default="data/training/aria_tooluse_*.jsonl")
     ap.add_argument("--out-dir", required=True, type=Path)
     ap.add_argument("--eval-fraction", type=float, default=0.2)
+    ap.add_argument("--golden-set", type=Path,
+                    default=Path("data/eval_frozen/aria_eval_500q.jsonl"),
+                    help="frozen 500-Q set; its entities are forced out of training")
     a = ap.parse_args()
 
     rows: list[dict] = []
     for p in sorted(glob.glob(a.glob)):
         rows += [json.loads(l) for l in Path(p).read_text(encoding="utf-8").splitlines()
                  if l.strip()]
-    train, ev = split_by_entity(rows, eval_fraction=a.eval_fraction)
+    gold = golden_entities(a.golden_set)
+    if not gold:
+        print(f"WARNING: no golden set read from {a.golden_set} — "
+              f"golden entities are NOT being kept out of training")
+    train, ev = split_by_entity(rows, eval_fraction=a.eval_fraction, golden=gold)
 
     a.out_dir.mkdir(parents=True, exist_ok=True)
     for name, part in (("train.jsonl", train), ("eval.jsonl", ev)):
@@ -125,6 +182,8 @@ def main() -> int:
     tr_e = {_entity_of(r) for r in train}
     ev_e = {_entity_of(r) for r in ev}
     assert not (tr_e & ev_e), f"LEAK: {sorted(tr_e & ev_e)[:5]}"
+    leaked = sorted(e for e in tr_e if _touches_golden(e, gold))
+    assert not leaked, f"GOLDEN CONTAMINATION in train: {leaked[:5]}"
     print(f"train {len(train)} rows / {len(tr_e)} entities")
     print(f"eval  {len(ev)} rows / {len(ev_e)} entities")
     print(f"entity overlap: {len(tr_e & ev_e)} (must be 0)")

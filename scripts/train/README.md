@@ -161,3 +161,25 @@ The harvester is always-on, so the corpus grows continuously. Re-fire
 the pipeline whenever you want a fresh adapter — same command, same
 cost, no setup repetition. Old checkpoints are kept under
 `/data/checkpoints/aria_llm_v0_2_*/` etc.
+
+## Pre-flight is mandatory before any paid cycle (R-F3395)
+
+`preflight_cycle.py` runs every check that needs no GPU on the **free side of the
+spend**. Run it, and read the exit code, before starting a pod:
+
+```
+python -m scripts.train.preflight_cycle \
+  --train-file data/training/split_v1/train.jsonl \
+  --eval-file  data/training/split_v1/eval.jsonl \
+  --base-model mistralai/Mistral-7B-Instruct-v0.3 \
+  --golden-set data/eval_frozen/aria_eval_500q.jsonl --strict
+```
+
+It verifies: schema (via the builder's own `validate_trace`), that every row
+carries a subject, train/eval entity disjointness, that no **training** entity
+appears in the frozen 500-Q set, that every row renders through the real chat
+template, that nothing exceeds `--max-seq-len`, and that the base model *is*
+Mistral-7B-Instruct-v0.3 by config signature rather than by name.
+
+`--strict` makes SKIPPED blocking. A check that could not run is never reported
+as a pass.
