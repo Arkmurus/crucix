@@ -3873,6 +3873,97 @@ async def _run_ch_free_registers(report: ARKDDReport, profile: dict | None) -> N
                 f"NOT performed (not a clear result)")
 
 
+async def _run_employment_tribunal(report: ARKDDReport) -> None:
+    """R-F3424 — published employment tribunal decisions naming the subject as employer.
+
+    WHY IT MATTERS TO A DD. Fundamental #17 was answered by CourtListener (US federal)
+    and a BAILII proxy (senior UK courts). Neither carries employment tribunals, which
+    is where a UK services employer — facilities management, security, cleaning — is
+    actually sued. A counterparty can hold a clean High Court record and a long tribunal
+    history, and only the second tells you how they treat the workforce that will
+    deliver your contract.
+
+    THE ONLY HONEST SIGNAL IS `respondent_count`. gov.uk OR-matches query words, so the
+    result total is not about the subject. MEASURED 2026-07-29: "Silverbrook Capital
+    Management" returns 31,098 index matches and a first page of twenty entirely
+    unrelated decisions (an NHS trust, a food manufacturer, a charity) because "Capital"
+    and "Management" match on their own. Reporting a count would have put "31,098
+    employment tribunal results" against a small asset manager.
+
+    So this reads ONLY the decisions whose title places the subject on the RESPONDENT
+    side of the "v" — a claim brought AGAINST them. A claimant-side appearance is a
+    different fact and is not litigation against the subject; a body-only appearance is
+    noise. On that same query respondent_count was zero, which is the correct answer.
+
+    Severity is deliberately capped at AMBER regardless of volume. Employment claims are
+    ordinary for any large employer and most are settled or dismissed; a red here would
+    equate "has staff disputes" with "is a compliance risk", which is exactly the kind
+    of false signal that destroys trust in the report. The COUNT and the case numbers
+    are the finding; the judgement stays with the reader.
+    """
+    name = (report.identity.entity_name or "").strip()
+    if len(name) < 3:
+        return
+    from .sources import employment_tribunal as _et
+
+    try:
+        res = await _et.search_decisions(name, limit=20)
+        report.identity.meta.subcalls += 1
+    except Exception as exc:
+        report.identity.data_gaps.append(
+            f"Employment tribunal search raised {type(exc).__name__} — NOT searched "
+            f"(not a clear result)")
+        return
+
+    if not res.get("ok") and res.get("outcome") != "skipped":
+        report.identity.data_gaps.append(
+            f"Employment tribunal search did not complete "
+            f"({res.get('error') or res.get('outcome')}) — no view of tribunal claims "
+            f"against this employer (not a clear result)")
+        return
+
+    respondent_hits = [h for h in (res.get("hits") or []) if h.get("side") == "respondent"]
+    if not respondent_hits:
+        report.identity.findings.append(Finding(
+            severity="info",
+            title="No employment tribunal decision naming this company as respondent",
+            detail=(
+                "The published employment tribunal decisions were searched and none on "
+                "the first page names this company as the respondent. Note that gov.uk "
+                "matches query words independently, so a raw result count is not a "
+                "signal about this subject."
+            ),
+            source="employment_tribunal.decisions",
+            confidence="ASSESSED",
+            url=res.get("citation_url"),
+            source_tier="OFFICIAL",
+        ))
+        return
+
+    _cases = [h.get("case_number") for h in respondent_hits if h.get("case_number")]
+    _recent = sorted((h.get("decided") or "") for h in respondent_hits if h.get("decided"))
+    report.identity.findings.append(Finding(
+        severity="amber",
+        title=(f"{len(respondent_hits)} employment tribunal decision(s) name this "
+               f"company as RESPONDENT"),
+        detail=(
+            f"Published decisions in which {name} appears as the respondent (the party "
+            f"claimed against): "
+            + "; ".join(h.get("title", "")[:70] for h in respondent_hits[:4])
+            + (f". Case number(s): {', '.join(_cases[:6])}" if _cases else "")
+            + (f". Most recent decision: {_recent[-1]}" if _recent else "")
+            + ". Employment claims are ordinary for any sizeable employer and most are "
+              "settled or dismissed, so this is context on workforce practice rather "
+              "than a compliance finding. "
+            + str(res.get("corroboration_required") or "")
+        ),
+        source="employment_tribunal.decisions",
+        confidence="ASSESSED",
+        url=res.get("citation_url"),
+        source_tier="OFFICIAL",
+    ))
+
+
 #: R-F3403 — how many natural persons get a personal-insolvency search. Same bound as
 #: the officer sanctions screen, and truncation is DISCLOSED rather than silent.
 _GAZETTE_PERSON_CAP = 6
@@ -5439,6 +5530,8 @@ async def _run_identity(
                     await _run_ch_free_registers(report, profile)
                     # ── R-F3403 — the statutory record, incl. PERSONAL insolvency ──
                     await _run_gazette_insolvency(report)
+                    # ── R-F3424 — employment tribunals: where a UK employer is sued ──
+                    await _run_employment_tribunal(report)
         except Exception as e:
             logger.warning("Identity: companies_house lookup failed: %s", e)
             report.identity.data_gaps.append(f"companies_house lookup failed: {str(e)[:120]}")

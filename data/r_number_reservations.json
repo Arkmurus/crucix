@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3424,
+  "next_available": 3425,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28081,9 +28081,10 @@
       "title": "Gazette insolvency notices as a DD resolver (free, no key)",
       "claimed_at": "2026-07-29T09:46:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ef05f7ef",
+      "notes": null,
+      "shipped_at": "2026-07-29T14:34:28Z"
     },
     {
       "r_number": "R-F3404",
@@ -28283,6 +28284,15 @@
       "commit_sha": "51d83526",
       "notes": null,
       "shipped_at": "2026-07-29T14:19:47Z"
+    },
+    {
+      "r_number": "R-F3424",
+      "title": "UK employment tribunal decisions as a DD resolver (free, gov.uk search API)",
+      "claimed_at": "2026-07-29T14:27:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
