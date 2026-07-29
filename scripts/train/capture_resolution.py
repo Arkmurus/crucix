@@ -26,6 +26,19 @@ from scripts.train.build_tooluse_corpus import (
 
 from scripts.train._subjects import AMBIGUOUS_SHORT, UK_REGISTRY_SUBJECTS
 
+from aria_service.env_bootstrap import load_project_env, require_env
+
+# R-F3398 — refuse to run credential-less. Without these the tooling cannot
+# tell "nothing found" from "never looked", and it wrote the second as the
+# first for 44 subjects before this existed.
+REQUIRED_ENV = ("COMPANIES_HOUSE_API_KEY",)
+
+
+def check_preconditions() -> None:
+    load_project_env()
+    require_env(REQUIRED_ENV, purpose="resolving ambiguous short company names against the register")
+
+
 # Short names are where the register misleads; the full names are the control.
 # R-F3396 — the slice was a fixed [:8], so widening the roster could never
 # reach this axis. Take the full registry roster: disambiguation is exactly
@@ -64,6 +77,7 @@ def main() -> int:
     ap.add_argument("--eval-blocklist", type=Path)
     ap.add_argument("--allow-unchecked-contamination", action="store_true")
     a = ap.parse_args()
+    check_preconditions()
 
     blocklist = None
     if a.eval_blocklist:

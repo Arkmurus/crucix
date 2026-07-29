@@ -22,6 +22,21 @@ from scripts.train.build_tooluse_corpus import (
 
 from scripts.train._subjects import UK_REGISTRY_SUBJECTS as SUBJECTS
 
+from aria_service.env_bootstrap import load_project_env, require_env
+
+# R-F3398 — the credentials this capture cannot work without. Companies House
+# is the load-bearing one: without a key `search_companies` returns nothing and
+# every subject SKIPs with "no registry match", which states that we looked and
+# found nothing when in fact we never looked. Checked BEFORE the loop so the
+# run stops at the cause instead of producing 44 false findings.
+REQUIRED_ENV = ("COMPANIES_HOUSE_API_KEY", "ARIA_INTERNAL_TOKEN")
+
+
+def check_preconditions() -> None:
+    """Load the project environment, then refuse to run if anything is missing."""
+    load_project_env()
+    require_env(REQUIRED_ENV, purpose="capturing registry -> officer -> screen chains")
+
 
 async def _screen_live(name: str, base: str, token: str) -> dict | None:
     import httpx
@@ -93,10 +108,8 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0)
     a = ap.parse_args()
 
+    check_preconditions()
     token = os.getenv("ARIA_INTERNAL_TOKEN", "")
-    if not token:
-        print("ARIA_INTERNAL_TOKEN not set", file=sys.stderr)
-        return 2
     blocklist = None
     if a.eval_blocklist:
         blocklist = [ln.strip() for ln in a.eval_blocklist.read_text(encoding="utf-8").splitlines()

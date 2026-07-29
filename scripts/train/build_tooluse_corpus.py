@@ -45,6 +45,19 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable
 
+from aria_service.env_bootstrap import load_project_env, require_env
+
+# R-F3398 — refuse to run credential-less. Without these the tooling cannot
+# tell "nothing found" from "never looked", and it wrote the second as the
+# first for 44 subjects before this existed.
+REQUIRED_ENV = ("ARIA_INTERNAL_TOKEN",)
+
+
+def check_preconditions() -> None:
+    load_project_env()
+    require_env(REQUIRED_ENV, purpose="capturing live screening traces")
+
+
 # ── the tool surface the model must learn to drive ─────────────────────────
 # Names mirror the live vocabulary in routes/aria.py::_execute_tool so a trace
 # trains the model on the SAME tool names production dispatches.
@@ -1261,6 +1274,8 @@ def main() -> int:
         help="build without a blocklist. Only for smoke tests — never for a training run.",
     )
     args = ap.parse_args()
+    if args.live:          # an offline replay needs no credential
+        check_preconditions()
 
     eval_subjects: list[str] | None = None
     if args.eval_blocklist:

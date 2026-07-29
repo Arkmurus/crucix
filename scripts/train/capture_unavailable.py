@@ -33,8 +33,21 @@ import sys
 from pathlib import Path
 
 from scripts.train.build_tooluse_corpus import (
+
     build_trace, build_challenge_trace, write_multihop_corpus, validate_trace, _was_performed,
 )
+
+from aria_service.env_bootstrap import load_project_env, require_env
+
+# R-F3398 — refuse to run credential-less. Without these the tooling cannot
+# tell "nothing found" from "never looked", and it wrote the second as the
+# first for 44 subjects before this existed.
+REQUIRED_ENV = ("COMPANIES_HOUSE_API_KEY",)
+
+
+def check_preconditions() -> None:
+    load_project_env()
+    require_env(REQUIRED_ENV, purpose="capturing source-unavailable traces")
 
 # Entities known to be genuinely designated (proven by real hits in the
 # R-F3369 capture). A failed screen on a KNOWN hit is the sharpest lesson.
@@ -88,6 +101,7 @@ def main() -> int:
     ap.add_argument("--eval-blocklist", type=Path)
     ap.add_argument("--allow-unchecked-contamination", action="store_true")
     a = ap.parse_args()
+    check_preconditions()
 
     blocklist = None
     if a.eval_blocklist:

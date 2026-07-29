@@ -18,8 +18,21 @@ from pathlib import Path
 
 from scripts.train._subjects import NEWS_SUBJECTS
 from scripts.train.build_tooluse_corpus import (
+
     build_news_impact_trace, write_multihop_corpus, validate_trace, _independent_sources,
 )
+
+from aria_service.env_bootstrap import load_project_env, require_env
+
+# R-F3398 — refuse to run credential-less. Without these the tooling cannot
+# tell "nothing found" from "never looked", and it wrote the second as the
+# first for 44 subjects before this existed.
+REQUIRED_ENV = ("ARIA_INTERNAL_TOKEN",)
+
+
+def check_preconditions() -> None:
+    load_project_env()
+    require_env(REQUIRED_ENV, purpose="capturing news -> exposure traces")
 
 
 async def capture(subjects: list[str], base: str, token: str) -> list[dict]:
@@ -57,6 +70,7 @@ def main() -> int:
     ap.add_argument("--base", default=os.getenv("ARIA_SERVICE_URL", "https://aria-intel.fly.dev"))
     ap.add_argument("--limit", type=int, default=0)
     a = ap.parse_args()
+    check_preconditions()
 
     token = os.getenv("ARIA_INTERNAL_TOKEN", "")
     if not token:

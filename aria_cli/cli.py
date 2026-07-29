@@ -670,26 +670,16 @@ def load_dotenv(path: Path) -> int:
     KEY=VALUE lines and set any that aren't already in the environment. Returns
     the count loaded. Used in self-mode so the same .env the server reads also
     feeds the CLI's LLM config — drop your DEEPSEEK_API_KEY there and `aria`
-    just works. Existing env vars always win (never clobbered)."""
-    if not path.is_file():
-        return 0
-    loaded = 0
-    try:
-        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            if line.lower().startswith("export "):
-                line = line[7:].lstrip()
-            key, _, val = line.partition("=")
-            key = key.strip()
-            val = val.strip().strip('"').strip("'")
-            if key and key not in os.environ:
-                os.environ[key] = val
-                loaded += 1
-    except Exception:  # noqa: BLE001 — never let .env parsing break startup
-        return loaded
-    return loaded
+    just works. Existing env vars always win (never clobbered).
+
+    R-F3398 — the implementation now lives in `aria_service.env_bootstrap` so
+    the training tooling can load the same environment without importing this
+    module (and its ~390ms of prompt_toolkit startup). Two copies of a loader
+    drift; this signature is kept because callers pass an explicit path.
+    """
+    from aria_service.env_bootstrap import load_env_file
+
+    return load_env_file(path)
 
 
 def _repo_relative_resolver(repo_root: Path):

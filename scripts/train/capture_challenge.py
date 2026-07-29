@@ -29,6 +29,19 @@ from scripts.train.build_tooluse_corpus import (
 
 from scripts.train._subjects import SANCTIONED, LISTED_CLEAN
 
+from aria_service.env_bootstrap import load_project_env, require_env
+
+# R-F3398 — refuse to run credential-less. Without these the tooling cannot
+# tell "nothing found" from "never looked", and it wrote the second as the
+# first for 44 subjects before this existed.
+REQUIRED_ENV = ("ARIA_INTERNAL_TOKEN",)
+
+
+def check_preconditions() -> None:
+    load_project_env()
+    require_env(REQUIRED_ENV, purpose="capturing challenge-the-premise traces")
+
+
 # R-F3374 — the shared roster. Both halves matter: designated entities give the
 # real HITs, listed companies the real CLEANs, and each subject is built in BOTH
 # premise directions so all four quadrants come from real evidence.
@@ -72,6 +85,7 @@ def main() -> int:
     ap.add_argument("--allow-unchecked-contamination", action="store_true")
     ap.add_argument("--base", default=os.getenv("ARIA_SERVICE_URL", "https://aria-intel.fly.dev"))
     a = ap.parse_args()
+    check_preconditions()
 
     token = os.getenv("ARIA_INTERNAL_TOKEN", "")
     if not token:
