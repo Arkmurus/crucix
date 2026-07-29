@@ -3561,6 +3561,7 @@ async def _consult_vault_sources(name: str, jurisdiction: str, report: "ARKDDRep
 
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 def resolve_jurisdiction_iso2(
     target: dict, name: str, registration_number: str | None = None
 ) -> str | None:
@@ -11228,6 +11229,7 @@ def _layer_stats_key(layer_name: str, day: "datetime | None" = None) -> str:
     return f"crucix:dd:layer_stats:{layer_name}:{d.strftime('%Y-%m-%d')}"
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def get_layer_stats_window(
     layer_name: str, days: int = DD_LAYER_STATS_WINDOW_DAYS
 ) -> dict[str, int]:
@@ -11462,6 +11464,7 @@ async def _finalize_dd_run(report: "ARKDDReport", hard_deadline_hit: bool = Fals
         pass  # finalizer must never crash the caller
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 def dd_production_outcome(all_layers_ok: bool, gate_triggered: bool,
                           reason: str = "") -> tuple[str, str]:
     """R-F1969 (§25a) — classify a finished DD report into a delivery-grade
@@ -12289,6 +12292,7 @@ def _refresh_persisted_decision_readiness(body: dict) -> dict:
 # the question keys `_dd_decision_readiness` emits (dd_schema.py). A restatement of
 # the blocker is not an action: the reader already has the blocker on the scorecard
 # row, and repeating it there taught them the section carried nothing new.
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 def compose_decision_bluf(readiness: dict, name: str) -> dict:
     """R-F3116 — the ONE place that turns a scorecard into the customer's BLUF.
 
@@ -13076,6 +13080,12 @@ def _resolve_dd_llm(llm: Any) -> Any:
         return None
 
 
+# R-F3430 — DDQuotaExceeded is a BUSINESS RULE (the caller is out of DD quota), not an
+# engine fault. Without this exemption every quota rejection would record a capability
+# gap, and the ledger fills with the system working correctly — the noise half of the
+# §21b dark condition. GATE D flagged it the moment this function was wired.
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure",
+           control_flow_exempt=("DDQuotaExceeded",))
 async def orchestrate_dd(
     target: dict,
     *,
@@ -15432,6 +15442,7 @@ async def add_to_watchlist(target: dict, *, requested_by_user: bool = False) -> 
     return {"ok": True, "added": target, "count": len(current)}
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def update_watchlist_schedule(
     name: str,
     review_interval_hours: Any,
@@ -15492,6 +15503,11 @@ PUBLIC_WATCHLIST_ALERTS_KEY = "crucix:dd:watchlist:public:alerts"
 _PUBLIC_WATCHLIST_MAX = 500
 
 
+# R-F3430 — ValueError here is INPUT VALIDATION ("name required", "not a valid entity
+# name"), i.e. a rejected request rather than a broken engine. Same reasoning as the two
+# pre-existing control_flow_exempt=("ValueError",) declarations in this file.
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure",
+           control_flow_exempt=("ValueError",))
 async def add_public_watchlist_entity(name: str, curated_by: str = "operator") -> dict:
     """Operator-only: add a PUBLIC entity to the system watchlist. No tenant fields
     are ever stored on a public entry."""
@@ -15528,11 +15544,13 @@ async def add_public_watchlist_entity(name: str, curated_by: str = "operator") -
     return {"ok": True, "added": name, "count": len(current)}
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def get_public_watchlist() -> list:
     from . import redis_store as rs
     return await rs.get_json(PUBLIC_WATCHLIST_KEY) or []
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def remove_public_watchlist_entity(name: str) -> dict:
     from . import redis_store as rs
     key = (name or "").strip().lower()
@@ -15542,6 +15560,7 @@ async def remove_public_watchlist_entity(name: str) -> dict:
     return {"ok": True, "removed": len(current) - len(kept), "count": len(kept)}
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def get_public_watchlist_alerts(since_hours: int = 168) -> list:
     """Read public-watchlist risk-change alerts (already tenant-free by construction)."""
     from datetime import timedelta as _td
@@ -15566,6 +15585,7 @@ async def get_public_watchlist_alerts(since_hours: int = 168) -> list:
     return out
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def rescreen_public_watchlist() -> dict:
     """Re-screen the operator-curated PUBLIC watchlist and emit public-safe risk-change
     alerts (entity / change_type / status / detail only — NEVER a tenant field).
@@ -15772,6 +15792,7 @@ async def get_watchlist(user_id: str | None = None,
     return out
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def reset_dd_memory(confirm: bool = False) -> dict:
     """R-F2337 — DANGER: wipe ALL DD state for a clean start (clears accumulated test
     data). Deletes every report body, the report index, all VLS proofs + chains, the
@@ -15839,6 +15860,7 @@ async def get_report(run_id: str) -> dict | None:
     return body
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def get_report_owner(run_id: str) -> dict | None:
     """R-F2291 — authoritative ownership for a run_id, from the INDEX entry
     (user_id, user_email_domain, share_to_company) — the SAME source list_reports
@@ -15878,6 +15900,7 @@ async def get_report_owner(run_id: str) -> dict | None:
     return None
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def mark_dd_running(run_id: str, entity_name: str, mode: str = "standard",
                           canonical_entity_id: str | None = None, *,
                           user_id: str | None = None, user_email_lower: str | None = None,
@@ -15968,6 +15991,7 @@ async def mark_dd_running(run_id: str, entity_name: str, mode: str = "standard",
         logger.debug("[R-F2481] mark_dd_running owner capture failed (non-fatal): %s", _own_ms_err)
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def mark_dd_failed(run_id: str, error: str) -> None:
     """R-F2250 — mark an async DD failed under its report key so the poller sees a
     terminal 'failed' status instead of polling 'running' forever on an exception."""
@@ -16037,6 +16061,7 @@ async def _resume_orphaned_dd(run_id: str, target: dict, mode: str,
             pass
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def reconcile_stale_running_dds(max_age_s: float = 1800.0) -> dict:
     """R-F2300 — give orphaned async-DD 'running' placeholders a terminal state.
 
@@ -16375,6 +16400,7 @@ def _dd_legacy_owner_fallback() -> tuple[str | None, str | None]:
     return uid, dom
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def list_reports(
     limit: int = 50,
     *,
@@ -17237,6 +17263,7 @@ async def _release_rescreen_lock(scope: str) -> None:
         logger.debug("[watchlist] rescreen lock release failed (TTL will clear): %s", e)
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def enrich_watchlist_with_observations(entries: list[dict]) -> list[dict]:
     """R-F2750 (finding 5) — attach re-screen observation provenance to each
     watchlist entry so the UI can show "Last re-screen" DISTINCT from "Last DD".

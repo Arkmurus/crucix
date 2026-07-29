@@ -1961,6 +1961,7 @@ async def _scrape_vault_website(name: str, url: str, category: str, lang: str, t
     return {"fetched": 1, "new": 1, "signals_promoted": 1 if promoted else 0}
 
 
+@fail_wire(module="news_monitor", gap_type="source_failure")
 async def poll_feeds(
     categories: Optional[list[str]] = None,
     max_articles_per_feed: int = 10,

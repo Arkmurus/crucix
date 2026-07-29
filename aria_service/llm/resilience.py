@@ -314,6 +314,7 @@ class LLMHealthChecker:
         breaker = self._get_breaker()
         breaker.record_failure(reason=reason)
 
+    @fail_wire(module="resilience", gap_type="engine_failure")
     def record_user_failure(self, reason: str = "server") -> None:
         """R-F1957: a USER-facing call (not the background probe) failed/timed-out.
 

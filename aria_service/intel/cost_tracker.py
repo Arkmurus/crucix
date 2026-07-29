@@ -299,6 +299,7 @@ async def _refresh_day_cache() -> float:
     return total
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def get_day_spend() -> dict:
     """Today's LLM spend + daily cap utilisation (UTC day)."""
     day = _current_day_key()
@@ -529,6 +530,7 @@ async def _record_user_month_spend(user: str, cost_usd: float) -> None:
         logger.debug("cost_tracker per-user month record failed (non-fatal): %s", e)
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def get_user_month_spend(user: str) -> float:
     """User's month-to-date USD spend (max of in-process + Redis mirror)."""
     if not user:
@@ -544,6 +546,7 @@ async def get_user_month_spend(user: str) -> float:
     return max(mem, redis_val)
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def user_month_cap_exceeded(user: str) -> tuple[bool, float, float]:
     """Return (exceeded, spent, cap). Operators on the unlimited allow-list and
     an unset/zero cap are never capped."""
@@ -1247,6 +1250,7 @@ async def _flush_cost_pending(force: bool = False) -> bool:
             return False
 
 
+@fail_wire(module="cost_tracker", gap_type="engine_failure")
 async def flush_pending_cost() -> bool:
     """R-F3006 — public force-flush of the cost buffers (new batch + rollup retries).
     Wired into lifespan shutdown so a graceful restart (deploy) drains the in-memory

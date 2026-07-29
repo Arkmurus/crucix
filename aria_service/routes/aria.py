@@ -3146,6 +3146,7 @@ async def _regenerate_with_stricter_grounding(llm, question: str, framed_context
         return ""
 
 
+@fail_wire(module="aria", gap_type="engine_failure")
 async def maybe_repair_grounding(llm, question: str, tool_context: str, response: str,
                                  *, session_id: str = ""):
     """R-F2406 — LIVE grounding repair for chat_ep + stream (§13-mirror).
@@ -13345,6 +13346,7 @@ def _hold_job_task(task) -> None:
     task.add_done_callback(_ASYNC_JOB_TASKS.discard)
 
 
+@fail_wire(module="aria", gap_type="engine_failure")
 async def recover_orphaned_jobs() -> int:
     """R-F1891 — at boot, FAIL any async chat/read-document job left at
     'processing'. A brain restart loses the in-memory computation, so such a job
@@ -25110,6 +25112,7 @@ def health_ready_ep(request: Request):
 
 
 @router.get("/metrics")
+@fail_wire(module="aria", gap_type="engine_failure")
 async def metrics_ep():
     """Prometheus metrics endpoint."""
     from ..intel import metrics as _metrics

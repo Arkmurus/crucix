@@ -421,6 +421,7 @@ def _accounts_block(accounts: dict | None) -> dict:
     }
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 async def get_company_profile(company_number: str) -> dict | None:
     """Get full company profile."""
     data = await _get(f"/company/{company_number}")
@@ -1186,6 +1187,7 @@ async def _get_document_content(dm_url: str, mime: str) -> str | None:
         return None
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 async def fetch_accounts_figures(company_number: str) -> dict | None:
     """R-F3016 — BALANCE-SHEET figures (current + prior year) from the latest Companies
     House iXBRL accounts. Never raises.

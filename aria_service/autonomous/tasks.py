@@ -2297,6 +2297,7 @@ async def _grade_researched_cell(topic: str, region: str, research_text: str) ->
         return False
 
 
+@fail_wire(module="tasks", gap_type="agent_cycle_failure")
 async def fill_knowledge_gaps(llm, *, dry_run: bool = True, max_cells: int = 5) -> dict:
     """Identify and research the weakest knowledge cells.
 

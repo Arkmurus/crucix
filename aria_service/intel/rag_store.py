@@ -307,6 +307,7 @@ def _quarantine_collection(name: str) -> str:
     return parked
 
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 def diagnose_and_heal_corrupt_collections(
     *, probe_fn=None, quarantine_fn=None, reinit_fn=None, reproduce: int = 2,
 ) -> dict:
@@ -1762,6 +1763,7 @@ def _rights_marker(result: dict) -> str:
     return " ⛔ DO NOT QUOTE (provenance unrecorded — summarise only)"
 
 
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 def rights_gate_stats(results: list[dict]) -> dict:
     """How much of a result set the gate marks, and why.
 

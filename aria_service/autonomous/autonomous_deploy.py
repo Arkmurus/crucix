@@ -692,6 +692,7 @@ class AutonomousDeployEngine:
         if waited:
             logger.info("[R-F3010] DD(s) cleared or wait bound reached — proceeding with deploy")
 
+    @fail_wire(module="autonomous_deploy", gap_type="agent_cycle_failure")
     async def deploy(
         self,
         commit_hash: Optional[str] = None,

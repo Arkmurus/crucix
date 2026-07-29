@@ -431,6 +431,7 @@ async def _maybe_flush_mastery(force: bool = False) -> bool:
         return True
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def flush_mastery() -> bool:
     """R-F2408 — public force-flush of any deferred mastery write. Wire this
     into shutdown / a periodic tick when activating ARIA_MASTERY_COALESCE_SAVE
@@ -2076,6 +2077,7 @@ async def record_divergence_fuel(
         return False
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def compare_local_silently(question: str, cloud_response: str) -> dict:
     """After a cloud LLM responds, run the local stack on the SAME question
     and compare. The cloud's answer is treated as the teacher's; the local
@@ -2344,6 +2346,7 @@ async def _maybe_flush_regional(force: bool = False) -> bool:
         return True
 
 
+@fail_wire(module="student", gap_type="engine_failure")
 async def flush_regional() -> bool:
     """R-F2963 — public force-flush of any deferred regional-mastery write. Wired
     into the reading session + snapshot loop so a quiet period can't leave the

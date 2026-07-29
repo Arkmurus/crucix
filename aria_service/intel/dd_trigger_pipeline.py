@@ -151,6 +151,7 @@ async def _dd_escalate_to_operator(entity_name: str, failed_layer: str, reason: 
         pass
 
 
+@fail_wire(module="dd_trigger_pipeline", gap_type="engine_failure")
 async def get_operator_pending() -> list[dict[str, Any]]:
     """Get all entities escalated to operator_pending by the trigger guard."""
     try:
@@ -168,6 +169,7 @@ async def get_operator_pending() -> list[dict[str, Any]]:
         return []
 
 
+@fail_wire(module="dd_trigger_pipeline", gap_type="engine_failure")
 async def resolve_operator_pending(entity_name: str) -> bool:
     """Mark an operator_pending entity as resolved, clearing its trigger history."""
     try:

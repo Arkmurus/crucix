@@ -1097,6 +1097,7 @@ async def _drain_worker_body(worker_id: int, sem: "asyncio.Semaphore", batch: in
             await asyncio.sleep(2.0)
 
 
+@fail_wire(module="brain_hook", gap_type="engine_failure")
 async def brain_queue_drain_loop() -> None:
     """Brain-ingest drain supervisor (R-F2507 + R-F2564). Started once at boot
     (main.py, one process under WEB_CONCURRENCY=1). No-op unless
@@ -1565,6 +1566,7 @@ def _dec_pending_absorb(_task: "asyncio.Task") -> None:
         logger.error("brain absorption background task failed: %s", error)
 
 
+@fail_wire(module="brain_hook", gap_type="engine_failure")
 async def shutdown_background_tasks() -> int:
     """Cancel and await every in-process brain absorption task.
 

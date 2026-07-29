@@ -337,6 +337,15 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
     "sanctions.py": {
         "split_bracketed_name": "pure string split, total over its input",
     },
+    # R-F3430 — the last two GATE A entries, both pure reads. Everything else in that
+    # backlog got WIRED (46 functions); these two are `return _INFLIGHT_DDS` and
+    # `return bool(self.url)`. A gap record on either would describe nothing.
+    "dd_orchestrator.py": {
+        "dd_inflight_count": "returns a module counter; no I/O, no failure domain",
+    },
+    "dd_schema.py": {
+        "has_provenance": "returns bool(self.url) on a dataclass; pure predicate",
+    },
     "test_runner.py": {
         "coder_tests_enabled": "single env-flag read (R-F2905)",
     },

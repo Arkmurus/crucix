@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3430,
+  "next_available": 3431,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28341,6 +28341,15 @@
       "r_number": "R-F3429",
       "title": "GATE A: wire the real failure paths, exempt the accessors with stated reasons",
       "claimed_at": "2026-07-29T15:28:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3430",
+      "title": "wire the 48 remaining GATE A failure paths",
+      "claimed_at": "2026-07-29T15:45:56Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

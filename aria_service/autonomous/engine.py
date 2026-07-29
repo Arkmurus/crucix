@@ -134,6 +134,7 @@ def is_enabled() -> bool:
     return val in ("1", "true", "yes", "on")
 
 
+@fail_wire(module="engine", gap_type="agent_cycle_failure")
 async def check_engine_liveness(now: float | None = None) -> dict:
     """R-F2006 — assess whether the autonomous engine is actually live AND firing.
 
@@ -201,6 +202,7 @@ async def check_engine_liveness(now: float | None = None) -> dict:
     }
 
 
+@fail_wire(module="engine", gap_type="agent_cycle_failure")
 async def check_feed_liveness() -> list[str]:
     """R-F2959 (B1) — SYMMETRIC feed-liveness for the LEARNING feeds.
 
@@ -347,6 +349,7 @@ async def _mark_desired_enabled() -> None:
         pass
 
 
+@fail_wire(module="engine", gap_type="agent_cycle_failure")
 async def maybe_autorecover_master_switch() -> dict:
     """Re-enable autonomy IFF it is dark because of a LOST flag, not a deliberate
     disable. Conditions (all required):
@@ -527,6 +530,7 @@ def _wire_catchup(fired: int, skipped: dict, deferred: int) -> None:
         pass
 
 
+@fail_wire(module="engine", gap_type="agent_cycle_failure")
 async def catch_up_overdue_tasks(llm) -> int:
     """R-F2013 — on engine startup, fire tasks that MISSED their scheduled cron
     slot while the engine was down/restarting. Bounded + safe:

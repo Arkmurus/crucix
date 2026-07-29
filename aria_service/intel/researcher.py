@@ -4451,6 +4451,7 @@ ADVERSE_SEARCH_TIMEOUT_S = float(os.getenv("ARIA_ADVERSE_SEARCH_TIMEOUT_S", "25.
 
 
 
+@fail_wire(module="researcher", gap_type="source_failure")
 async def run_adverse_media_deep_search(
     entity_name: str,
     *,

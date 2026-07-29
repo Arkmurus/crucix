@@ -493,6 +493,7 @@ _DEDUPE_REPAIR_MAX_ROUNDS = 40  # 20k markers/pass — a backstop, not a budget
 # a sentinel here; see the docstring below for why it was the defect.
 
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def repair_nulled_dedupe_markers() -> dict:
     """R-F2626/R-F2629 — release dedupe markers stranded WITHOUT a TTL by the
     old non-atomic set+expire race.
