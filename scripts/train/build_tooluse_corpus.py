@@ -578,6 +578,50 @@ def validate_trace(trace: Any) -> list[str]:
                 f"ARIA's own memory is not outside support, and one source is not two"
             )
 
+    # ---- R-F3412 adverse-media traces: never escalate beyond the evidence
+    if isinstance(trace, dict) and trace.get("label") == "tooluse_adverse":
+        search_payloads = [p for p in payloads if isinstance(p, dict) and "results" in p]
+        supported = 0
+        cleared_present = False
+        for p in search_payloads:
+            for r in (p.get("results") or []):
+                if not isinstance(r, dict):
+                    continue
+                st = _grade_stage(f"{r.get('title') or ''} {r.get('snippet') or ''}")
+                supported = max(supported, _STAGE_RANK.get(st, 0))
+                cleared_present = cleared_present or st == "resolved_cleared"
+
+        # The honest answer necessarily NAMES the stage it is ruling out ("this
+        # is an allegation, not a conviction"). Grading raw vocabulary would flag
+        # every correct denial — the fifth time this trap appears in this module.
+        # So a stage word is only counted as CLAIMED when it is not negated.
+        claimed = 0
+        for stage, pat in _STAGE_VOCAB:
+            for m in pat.finditer(final):
+                lead = final[max(0, m.start() - 40):m.start()].lower()
+                if _STAGE_NEGATION_RE.search(lead):
+                    continue
+                claimed = max(claimed, _STAGE_RANK[stage])
+        if claimed > supported:
+            errs.append(
+                f"escalated beyond the evidence: the answer claims stage rank "
+                f"{claimed} but the coverage supports only {supported}"
+            )
+        # An allegation reported WITHOUT allegation language is an allegation
+        # stated as fact — and it carries no stage vocabulary at all, so the
+        # escalation check above cannot see it. "Acme overbilled the ministry"
+        # reads as established conduct; the marker is what makes it honest.
+        if supported == _STAGE_RANK["alleged"] and not _ALLEGATION_MARKER_RE.search(final):
+            errs.append(
+                "coverage is at the ALLEGATION stage but the answer states the conduct "
+                "without marking it as alleged — an allegation reported as fact"
+            )
+        if cleared_present and not _CLEARED_MENTION_RE.search(final):
+            errs.append(
+                "a matter the coverage reports as CLEARED is not reported as cleared — "
+                "carrying a closed matter forward as live risk"
+            )
+
     # ---- R-F3409 person traces: a name match is not an identification
     if isinstance(trace, dict) and trace.get("label") == "tooluse_person":
         matched = any(_matches(p) for p in screen_payloads)
@@ -777,6 +821,24 @@ _IDENTITY_DENIAL_RE = re.compile(
 # Sanctions-list identifiers as they appear in payloads (`ofac_sdn`, `uk_ofsi`).
 _LIST_TOKEN_RE = re.compile(r"\b[a-z]{2,6}_[a-z][a-z_]{2,}\b")
 
+# R-F3412 — a stage word appearing under negation is a DENIAL of that stage, not
+# a claim of it. Scanned in the 40 characters before the word, which covers
+# "not a conviction", "has not been convicted", "no charge has been brought".
+_STAGE_NEGATION_RE = re.compile(
+    r"\b(not|never|no|without|nor|rather than|instead of|denies?|denied)\b[^.]{0,40}$",
+    re.I,
+)
+_ALLEGATION_MARKER_RE = re.compile(
+    r"alleg(?:ed|ation|ations|edly)|accus(?:ed|ation|ations)"
+    r"|claims?|reportedly|suspected|not established"
+    r"|unproven|no finding",
+    re.I,
+)
+_CLEARED_MENTION_RE = re.compile(
+    r"\bclear(?:ed)?\b|\bacquitt|\bdismissed\b|\bdropped\b|\bclosed\b|\bexonerated\b",
+    re.I,
+)
+
 _CLEAN_DENIAL_RE = re.compile(
     r"\bnot\s+a\s+clean\b"
     r"|\bnot\s+clean\b"
@@ -810,6 +872,163 @@ def _match_identifiers(payload: dict) -> set[str]:
             if v not in (None, "", []):
                 found.add(k)
     return found
+
+
+# R-F3412 — the procedural ladder. Adverse coverage is not uniform: an
+# allegation is not a charge, a charge is not a conviction, and a matter CLOSED
+# WITHOUT FINDINGS is not a live risk. Flattening them fails the reader (who
+# cannot act on "adverse media") and the subject (who is not what they were
+# accused of).
+#
+# `resolved_cleared` deliberately ranks BELOW `charged`: an entity cleared is
+# less exposed than one under charge, and ranking a clearance as severe adverse
+# is the unfair direction of the same error.
+_STAGE_RANK = {
+    "": 0,
+    "resolved_cleared": 1,
+    "alleged": 2,
+    "investigation": 3,
+    "charged": 4,
+    "resolved_adverse": 5,
+}
+
+# Vocabulary graded from real coverage (measured 2026-07-29 on a live query).
+_STAGE_VOCAB: list[tuple[str, re.Pattern]] = [
+    ("resolved_adverse", re.compile(
+        r"\b(pleaded|pled) guilty\b|\bfound guilty\b|\bconvicted\b|\bconviction\b"
+        r"|\bsentenced\b|\bagreed to (forfeit|pay)\b|\bforfeit\b|\bsettlement\b"
+        r"|\bsettled\b|\bfined\b|\bpenalt(?:y|ies) (?:was |were )?imposed\b", re.I)),
+    ("charged", re.compile(
+        r"\bcharged\b|\bindicted\b|\bindictment\b|\bprosecutors? (?:have )?filed\b"
+        r"|\bbrought charges\b", re.I)),
+    ("investigation", re.compile(
+        r"\binvestigation\b|\binvestigating\b|\bprobe\b|\binquiry\b|\bexamining\b"
+        r"|\braided\b|\bsearch warrant\b", re.I)),
+    ("alleged", re.compile(
+        r"\balleg(?:ed|ation|ations|edly)\b|\baccus(?:ed|ation|ations)\b"
+        r"|\bclaims?\b|\breportedly\b|\bscandal\b|\bsuspected\b", re.I)),
+    ("resolved_cleared", re.compile(
+        r"\bacquitted\b|\bacquittal\b|\bcleared of\b|\bwas cleared\b|\bdismissed\b"
+        r"|\bdropped\b|\bclosed (?:its |the )?investigation\b|\bno (?:findings|case) "
+        r"(?:to answer|was found)\b|\bexonerated\b", re.I)),
+]
+
+
+# WHICH STAGE this is, which is NOT the same question as how severe it is.
+# Conflating the two lost every clearance: "the regulator closed its
+# investigation and Acme was cleared" contains the word "investigation", and
+# grading by SEVERITY made it rank as an open investigation — the stale-risk
+# failure, produced by the grader itself. A resolution decides the stage; the
+# severity rank then decides how bad that stage is, and a clearance is correctly
+# the least severe outcome while being the most decisive one.
+_STAGE_PRECEDENCE = {
+    "": 0, "alleged": 1, "investigation": 2, "charged": 3,
+    "resolved_cleared": 4, "resolved_adverse": 5,
+}
+
+
+def _grade_stage(text: str) -> str:
+    """The stage this text's own words establish, resolutions taking precedence.
+
+    A conviction piece necessarily also mentions the investigation that preceded
+    it, and a clearance necessarily mentions what was closed — so the OUTCOME
+    wins over the process it concluded. "Cleared of the fraud charge" grades as
+    cleared: the charge happened, but it is over, and reporting it as live is
+    the unfair direction of this error.
+    """
+    s = str(text or "")
+    best, best_prec = "", 0
+    for stage, pat in _STAGE_VOCAB:
+        if pat.search(s) and _STAGE_PRECEDENCE[stage] > best_prec:
+            best, best_prec = stage, _STAGE_PRECEDENCE[stage]
+    return best
+
+
+_STAGE_LABEL = {
+    "alleged": "an ALLEGATION", "investigation": "an INVESTIGATION",
+    "charged": "a CHARGE", "resolved_adverse": "a RESOLVED ADVERSE matter",
+    "resolved_cleared": "a matter that was CLEARED",
+}
+
+
+def build_adverse_media_trace(entity: str, search_payload: dict) -> dict | None:
+    """Teach grading, not counting. Every item is graded from its own text.
+
+    An entity-level label is wrong for at least one item almost every time: the
+    same live query returned a guilty plea AND an investigation closed without
+    findings. So each item carries its own stage, and the answer reports the
+    ladder rather than a headcount — five outlets covering one matter is one
+    matter, not five risks.
+    """
+    indep = _independent_sources(search_payload)
+    if not indep:
+        return None
+    items = [r for r in ((search_payload or {}).get("results") or [])
+             if isinstance(r, dict) and _domain_of(r.get("url")) in indep]
+    graded = [(r, _grade_stage(f"{r.get('title') or ''} {r.get('snippet') or ''}"))
+              for r in items]
+    graded = [(r, st) for r, st in graded if st]
+    if not graded:
+        return None
+
+    top = max(_STAGE_RANK[st] for _, st in graded)
+    call_id = _call_id("adverse", entity)
+    lines = "\n".join(
+        f"  - {_STAGE_LABEL[st]}: {str(r.get('title') or '').strip()} "
+        f"[from {_domain_of(r.get('url'))}]"
+        for r, st in sorted(graded, key=lambda g: -_STAGE_RANK[g[1]])[:4]
+    )
+    cleared = [g for g in graded if g[1] == "resolved_cleared"]
+
+    if top >= _STAGE_RANK["resolved_adverse"]:
+        verdict = (f"The most advanced item is a RESOLVED ADVERSE matter — it concluded "
+                   f"against {entity}. That is established, not alleged, and is the one "
+                   f"item here that can be stated as fact.")
+    elif top == _STAGE_RANK["charged"]:
+        verdict = (f"The most advanced item is a CHARGE. A charge is not a conviction: "
+                   f"{entity} has not been shown to have done anything, and stating it as "
+                   f"established would be wrong.")
+    elif top == _STAGE_RANK["investigation"]:
+        verdict = (f"The most advanced item is an INVESTIGATION. No charge has been "
+                   f"brought, so nothing here is established against {entity}.")
+    elif top == _STAGE_RANK["alleged"]:
+        verdict = (f"Everything here is at the ALLEGATION stage. No investigation, charge "
+                   f"or finding is reported, and an allegation must not be reported as fact.")
+    else:
+        verdict = (f"The reporting concerns a matter that was CLEARED. That is not a live "
+                   f"risk and must not be carried forward as one.")
+
+    cleared_note = ""
+    if cleared and top > _STAGE_RANK["resolved_cleared"]:
+        cleared_note = (
+            f"\n\nNote: at least one matter here was CLEARED "
+            f"[from {_domain_of(cleared[0][0].get('url'))}]. That item must not be "
+            f"counted as open exposure."
+        )
+
+    final = (
+        f"Graded by procedural stage rather than counted:\n\n{lines}\n\n{verdict}"
+        f"{cleared_note}\n\n"
+        f"Note on counting: several outlets covering one event is ONE matter, not "
+        f"several. The number of articles is not the number of risks."
+    )
+
+    return {
+        "subject": entity,
+        "label": "tooluse_adverse",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"What adverse media exists on {entity}, and how serious is it?"},
+            {"role": "assistant", "content": "", "tool_calls": [{
+                "id": call_id, "type": "function",
+                "function": {"name": "web_search",
+                             "arguments": json.dumps({"query": f"{entity} investigation OR charges OR fine"})}}]},
+            {"role": "tool", "tool_call_id": call_id, "name": "web_search",
+             "content": json.dumps({"results": (search_payload or {}).get("results") or []},
+                                   ensure_ascii=False)},
+            {"role": "assistant", "content": final},
+        ],
+    }
 
 
 def build_person_screen_trace(person: str, screen_payload: dict) -> dict | None:
