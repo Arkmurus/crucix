@@ -3830,6 +3830,13 @@ async def _run_ch_free_registers(report: ARKDDReport, profile: dict | None) -> N
     # DOB/address so a reader can discriminate, and is capped at amber: an accusation
     # dressed as a red is exactly the false positive that destroys the USP.
     _officers = [o for o in (report.identity.directors or []) if isinstance(o, dict)]
+    # R-F3426 — a CLEAN check must leave a trace. Counting the officers the register
+    # actually answered for, so "checked and nothing found" is distinguishable from
+    # "nobody looked". Without this the silent-clean path produced NO finding and NO
+    # gap, and the DD Standard read IS-16b as NOT_RUN on a run where every officer HAD
+    # been searched — a clean check reported as an unrun one, which is the same
+    # certify-by-absence failure this file keeps closing, inverted.
+    _dq_cleared: list[str] = []
     for _o in _officers[:8]:                     # same cost bound as the officer screen
         _nm = str(_o.get("name") or "").strip()
         if len(_nm) < 4 or _o.get("resigned_on"):
@@ -3843,7 +3850,8 @@ async def _run_ch_free_registers(report: ARKDDReport, profile: dict | None) -> N
                     f"{dq.get('reason', 'unavailable')} (not a clear result)")
                 continue
             if not dq.get("total_results"):
-                continue                          # answered, genuinely nothing on file
+                _dq_cleared.append(_nm)           # answered, genuinely nothing on file
+                continue
             _cands = dq.get("candidates") or []
             report.identity.findings.append(Finding(
                 severity="amber",
@@ -3871,6 +3879,28 @@ async def _run_ch_free_registers(report: ARKDDReport, profile: dict | None) -> N
             report.identity.data_gaps.append(
                 f"Disqualification check '{_nm}' raised {type(exc).__name__} — "
                 f"NOT performed (not a clear result)")
+
+    # R-F3426 — one summary line for the officers the register cleared. ONE finding
+    # rather than N, because a per-officer "nothing found" would bury the report in
+    # non-findings; but SOME finding, because silence is indistinguishable from
+    # never having looked.
+    if _dq_cleared:
+        report.identity.findings.append(Finding(
+            severity="info",
+            title=(f"{len(_dq_cleared)} serving officer(s) checked against the "
+                   f"disqualified-directors register — no match"),
+            detail=(
+                f"The Companies House register of disqualifications was searched for: "
+                f"{', '.join(_dq_cleared[:8])}. No entry matched any of these names. "
+                f"The register matches on name, so this is the absence of a name match "
+                f"rather than proof that no officer has ever been disqualified under "
+                f"another spelling."
+            ),
+            source="companies_house.disqualified_officers",
+            confidence="CONFIRMED",
+            url="https://find-and-update.company-information.service.gov.uk/register-of-disqualifications",
+            source_tier="OFFICIAL",
+        ))
 
 
 async def _run_employment_tribunal(report: ARKDDReport) -> None:

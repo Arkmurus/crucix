@@ -151,11 +151,20 @@ def test_a_disqualification_hit_is_a_candidate_never_a_determination():
     assert f.confidence == "ASSESSED"
 
 
-def test_no_disqualification_hit_stays_silent():
-    """Answered and empty: no finding needed, and emphatically no gap."""
+def test_a_clean_disqualification_check_leaves_a_TRACE_not_silence():
+    """R-F3426 CORRECTION. This test originally asserted the opposite — that a clean
+    check stays SILENT, "no finding needed". That was my own assumption and it was
+    wrong: with no finding and no gap, `dd_standard` read IS-16b as NOT_RUN on a run
+    where every officer HAD been searched. A clean check reported as an unrun one is
+    certify-by-absence inverted, and it understates every honest report.
+
+    So the property is a TRACE, not silence — one summary finding, and still no gap
+    (nothing failed)."""
     r = _drive(_report(directors=[{"name": "Jane Q Public"}]))
-    assert not any("disqualif" in t.lower() for t in _titles(r))
-    assert "Disqualification" not in _gaps(r)
+    assert any("disqualified-directors register" in t for t in _titles(r)), (
+        "a clean check left no trace — indistinguishable from never having looked"
+    )
+    assert "NOT performed" not in _gaps(r), "a successful check must not leave a gap"
 
 
 def test_unreachable_disqualification_check_is_a_gap():

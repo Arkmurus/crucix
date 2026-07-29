@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3425,
+  "next_available": 3428,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28289,6 +28289,34 @@
       "r_number": "R-F3424",
       "title": "UK employment tribunal decisions as a DD resolver (free, gov.uk search API)",
       "claimed_at": "2026-07-29T14:27:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "484b274c",
+      "notes": null,
+      "shipped_at": "2026-07-29T14:51:18Z"
+    },
+    {
+      "r_number": "R-F3425",
+      "title": "keep public model card outside account shell",
+      "claimed_at": "2026-07-29T14:44:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3426",
+      "title": "the checklist must read the evidence the DD now gathers (FS-11/FS-12/IS-16b/IS-17c)",
+      "claimed_at": "2026-07-29T14:46:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3427",
+      "title": "citation contract: 59% of rows never cite against a prompt that says always - the model learned to cite the tool name",
+      "claimed_at": "2026-07-29T14:49:52Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

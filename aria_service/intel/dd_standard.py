@@ -705,6 +705,132 @@ def _read_financial_standing(r: dict, q: "Question") -> Resolution:
     )
 
 
+# ── R-F3426 — read the evidence the DD now actually gathers ─────────────────
+#
+# R-F3422/R-F3403/R-F3424 wired four registers into the run: Companies House charges,
+# CH insolvency, CH disqualified officers, The Gazette (corporate AND personal
+# insolvency) and the employment tribunals. The findings land in the report — and the
+# checklist still said NOT_RUN for every one of them, because these questions were
+# declared with `reader=None`.
+#
+# That is a CONTRADICTION BETWEEN TWO SURFACES of the same report: an insolvency finding
+# in the body beside "insolvency: not run" in the scorecard. It is the same shape as the
+# defects this whole session has been closing (the officer screen, the discipline proxy,
+# the layer-health proxy), and it is worse here because the checklist is the thing a
+# customer is told to rely on.
+#
+# Each reader below resolves from a REAL field — a finding with a known `source`, or a
+# data gap naming the register — and never from the mere fact that a layer ran.
+
+def _findings_from(r: dict, *sources: str) -> list[dict]:
+    """Every finding in the report emitted by any of `sources`."""
+    out: list[dict] = []
+    for section in ("identity", "network", "compliance", "digital"):
+        for f in (_mapping_of(r, section).get("findings") or []):
+            if isinstance(f, dict) and str(f.get("source") or "") in sources:
+                out.append(f)
+    return out
+
+
+def _mapping_of(r: dict, key: str) -> dict:
+    v = (r or {}).get(key)
+    return v if isinstance(v, dict) else {}
+
+
+def _gap_mentions(r: dict, *needles: str) -> bool:
+    """True when a data gap names one of `needles` — i.e. the register was reached for
+    and could not answer. That is ATTEMPTED_INCONCLUSIVE, never NOT_RUN, and never a
+    pass."""
+    for section in ("identity", "network", "compliance", "digital"):
+        for g in (_mapping_of(r, section).get("data_gaps") or []):
+            low = str(g).lower()
+            if any(n.lower() in low for n in needles):
+                return True
+    return False
+
+
+def _register_reader(*, sources: tuple[str, ...], gap_needles: tuple[str, ...],
+                     remedy: str) -> Reader:
+    """Build a reader for a question answered by one or more registers.
+
+    ANSWERED means a register produced a finding — including a finding that says
+    'nothing on file', because an empty register is a real answer. A data gap naming the
+    register means it was tried and did not answer. Neither present means nothing looked.
+    """
+    def _read(r: dict, q: "Question") -> Resolution:
+        hits = _findings_from(r, *sources)
+        if hits:
+            origins = tuple(sorted({str(h.get("source") or "") for h in hits}))
+            state = (EvidenceState.CORROBORATED.value if len(origins) >= 2
+                     else EvidenceState.SINGLE_SOURCE.value)
+            return Resolution(
+                q.id, state,
+                reason="; ".join(str(h.get("title") or "")[:70] for h in hits[:2]),
+                origins=origins,
+            )
+        if _gap_mentions(r, *gap_needles):
+            return Resolution(
+                q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
+                reason="the register was searched and did not answer",
+                remedy=remedy,
+            )
+        return Resolution(
+            q.id, EvidenceState.NOT_RUN.value,
+            reason="no register result is on this report",
+            remedy=remedy,
+        )
+    return _read
+
+
+_read_insolvency = _register_reader(
+    sources=("companies_house.insolvency", "gazette.corporate_insolvency",
+             "gazette.personal_insolvency"),
+    gap_needles=("insolvency register", "gazette corporate", "personal-insolvency"),
+    remedy="re-run when the insolvency registers respond — an unsearched register is "
+           "not a clean one",
+)
+
+_read_charges = _register_reader(
+    sources=("companies_house.charges",),
+    gap_needles=("charges register",),
+    remedy="re-run when the charges register responds; without it there is no view of "
+           "security over the assets",
+)
+
+_read_disqualification = _register_reader(
+    sources=("companies_house.disqualified_officers",),
+    gap_needles=("disqualification check",),
+    # A silent pass is the hazard here: the register answering "nothing for this name"
+    # produces NO finding by design (R-F3422 stays quiet on a clean check), so absence
+    # of a finding cannot mean absence of a check.
+    remedy="re-run the disqualified-directors search for each serving officer",
+)
+
+_read_tribunal = _register_reader(
+    sources=("employment_tribunal.decisions",),
+    gap_needles=("employment tribunal",),
+    remedy="re-run when gov.uk responds — no view of claims against this employer",
+)
+
+
+def _read_court_judgments(r: dict, q: "Question") -> Resolution:
+    """IS-17a — reported judgments. Distinct from the tribunal reader because the
+    sources are different bodies with different coverage, and conflating them would let
+    a tribunal result answer a question about the courts."""
+    hits = _findings_from(r, "court_records", "courtlistener", "bailii")
+    if hits:
+        return Resolution(q.id, EvidenceState.SINGLE_SOURCE.value,
+                          reason=str(hits[0].get("title") or "")[:80],
+                          origins=("court_records",))
+    if _gap_mentions(r, "court record", "courtlistener", "bailii"):
+        return Resolution(q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
+                          reason="the court-record search did not answer",
+                          remedy="re-run the judgment search")
+    return Resolution(q.id, EvidenceState.NOT_RUN.value,
+                      reason="no judgment search result is on this report",
+                      remedy="search a judgment database by PARTY NAME")
+
+
 def _read_regulatory_status(r: dict, q: "Question") -> Resolution:
     for section in ("identity", "compliance"):
         for f in (_m(r.get(section)).get("findings") or []):
@@ -813,7 +939,7 @@ QUESTIONS: tuple[Question, ...] = (
        pass_condition="The insolvency register and the official gazette are both "
                       "consulted and either return notices or confirm none",
        resolvers=("gazette", "ch_insolvency"),
-       jurisdiction_weighted=True, reader=None),
+       jurisdiction_weighted=True, reader=_read_insolvency),
     _q(id="FS-12", fundamental=12, cluster=Cluster.FINANCIAL_STANDING.value,
        tier=Tier.STANDARD.value, applies_to=AppliesTo.ENTITY.value,
        established_by=EstablishedBy.DATA.value,
@@ -821,7 +947,7 @@ QUESTIONS: tuple[Question, ...] = (
        pass_condition="The charges register is consulted and returns the outstanding "
                       "charge count with detail",
        resolvers=("ch_charges",),
-       reader=None),
+       reader=_read_charges),
 
     # ── Integrity screening ─────────────────────────────────────────────────
     _q(id="IS-13", fundamental=13, cluster=Cluster.INTEGRITY_SCREENING.value,
@@ -864,7 +990,7 @@ QUESTIONS: tuple[Question, ...] = (
        text="No officer is a disqualified director",
        pass_condition="The disqualified-directors register is searched for each officer",
        resolvers=("ch_disqualified",),
-       reader=None),
+       reader=_read_disqualification),
     # R-F3406 — litigation DECOMPOSED. "Adverse media, corruption and litigation" was one
     # question over three different evidence bases with three different remedies, which is
     # precisely why a report could look covered while two of the three were never run.
@@ -875,7 +1001,7 @@ QUESTIONS: tuple[Question, ...] = (
        text="Reported court judgments naming the subject as a party",
        pass_condition="A judgment database is searched by PARTY NAME and either returns "
                       "matters or confirms none were found",
-       resolvers=("court_records", "find_case_law"), reader=None),
+       resolvers=("court_records", "find_case_law"), reader=_read_court_judgments),
     _q(id="IS-17b", fundamental=17, cluster=Cluster.INTEGRITY_SCREENING.value,
        tier=Tier.STANDARD.value, applies_to=AppliesTo.BOTH.value,
        established_by=EstablishedBy.DATA.value,
@@ -891,7 +1017,7 @@ QUESTIONS: tuple[Question, ...] = (
        text="Employment tribunal claims decided against the employer",
        pass_condition="The published tribunal decisions are searched by respondent name "
                       "and either return decisions or confirm none",
-       resolvers=("employment_tribunal",), reader=None),
+       resolvers=("employment_tribunal",), reader=_read_tribunal),
 
     # ── Legitimacy & regulation ─────────────────────────────────────────────
     _q(id="LR-18", fundamental=18, cluster=Cluster.LEGITIMACY_REGULATION.value,
