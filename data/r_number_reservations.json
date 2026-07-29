@@ -28042,9 +28042,10 @@
       "title": "align ARIA privacy and terms with Arkmurus Limited",
       "claimed_at": "2026-07-29T09:26:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ef5a4ba1",
+      "notes": null,
+      "shipped_at": "2026-07-29T15:12:09Z"
     },
     {
       "r_number": "R-F3400",
@@ -28101,9 +28102,10 @@
       "title": "make public ARIA model card evidence based",
       "claimed_at": "2026-07-29T09:52:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ef5a4ba1",
+      "notes": null,
+      "shipped_at": "2026-07-29T15:12:09Z"
     },
     {
       "r_number": "R-F3406",
@@ -28300,9 +28302,10 @@
       "title": "keep public model card outside account shell",
       "claimed_at": "2026-07-29T14:44:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ef5a4ba1",
+      "notes": null,
+      "shipped_at": "2026-07-29T15:12:09Z"
     },
     {
       "r_number": "R-F3426",
