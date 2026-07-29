@@ -100,13 +100,60 @@ def test_rf3059_a_fast_op_is_untouched_by_the_clamp():
 
 
 def test_rf3059_every_bounded_layer_publishes_its_deadline():
+    """R-F3419 — assert the PROPERTY (same function), not the SPELLING.
+
+    This test had been RED since the digital budget was refactored from a one-line
+    `_digital_budget = DEFAULT_LAYER_TIMEOUT_S` to a multi-line `_digital_budget = (`.
+    It located the wrapper with `src.index(<that exact string>)`, so the refactor made it
+    raise ValueError: substring not found — permanently, on every run.
+
+    A permanently-red guard protects nothing: it is read as background noise, and it
+    actively hides real breakage. This one also cost a live diagnostic, halting a `-x`
+    bisect before it reached an unrelated suite hang.
+
+    The property being guarded is unchanged: whichever function computes the digital
+    layer's budget must ALSO publish the layer deadline, or `_layer_budget_left()`
+    returns the caller's default and nothing downstream is actually clamped. Asserted
+    over the AST, so reformatting cannot break it and deleting the `.set()` cannot pass.
+    """
+    import ast
     import inspect
+
     src = inspect.getsource(ddo)
     assert src.count("_LAYER_DEADLINE.set(") >= 3, (
         "digital, compliance and network must each publish a deadline")
-    # the digital wrapper is the one that was failing live
-    i = src.index("_digital_budget = DEFAULT_LAYER_TIMEOUT_S")
-    assert "_LAYER_DEADLINE.set(" in src[i:i + 900]
+
+    tree = ast.parse(src)
+    checked = 0
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        assigns = [
+            n for n in ast.walk(node) if isinstance(n, ast.Assign)
+            for t in n.targets if isinstance(t, ast.Name) and t.id == "_digital_budget"
+        ]
+        if not assigns:
+            continue
+        # The innermost wrapper only — the enclosing orchestrator also contains the
+        # assignment via ast.walk, and would pass on a sibling layer's .set().
+        if node.name != "_run_digital_layer":
+            continue
+        sets = [
+            n for n in ast.walk(node) if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute) and n.func.attr == "set"
+            and isinstance(n.func.value, ast.Name) and n.func.value.id == "_LAYER_DEADLINE"
+        ]
+        assert sets, (
+            f"{node.name} computes _digital_budget but never calls _LAYER_DEADLINE.set() "
+            f"— the digital layer would run unclamped and _layer_budget_left() would "
+            f"hand every caller its own default"
+        )
+        checked += 1
+    assert checked == 1, (
+        "guard is blind — expected exactly one _run_digital_layer computing "
+        f"_digital_budget, found {checked}. Re-anchor this test on the wrapper that now "
+        f"owns the digital budget."
+    )
 
 
 # ── R-F3066 — the blocks that were still UNBOUNDED ─────────────────────────

@@ -164,7 +164,22 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
                      "is_configured": "@property — config check"},
     "aria_llm_provider.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
     "fallback.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)",
-                    "is_configured": "@property — config check"},
+                    "is_configured": "@property — config check",
+                    # R-F3419 — arrived with R-F3032..R-F3036 (LLM chain P0) and was
+                    # never registered, so GATE A has reported it as an unexempt
+                    # generator on every run since. It is a @contextlib.contextmanager:
+                    # wrapping it with @fail_wire would return the wrapper's value
+                    # instead of the context manager, breaking every
+                    # `with provider_scope(...)` call site. Exempt by CONSTRUCTION.
+                    "provider_scope": "@contextlib.contextmanager — wrapping replaces "
+                                      "the CM and breaks every `with` call site"},
+    # R-F3419 — model_router.py had NO entry at all, so its generator was permanently
+    # unexempt. `stream_synthesis` yields synthesis tokens directly (4 yields in its own
+    # body, verified by AST); wrapping an async generator consumes//replaces the stream,
+    # which is the §13 stream-bypass class.
+    "model_router.py": {
+        "stream_synthesis": "ASYNC GENERATOR — synthesis token stream (§13)",
+    },
     "local_llm.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
     "metered.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)",
                    "name": "@property accessor",

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3419,
+  "next_available": 3420,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28231,6 +28231,15 @@
       "commit_sha": "a09fef7e",
       "notes": null,
       "shipped_at": "2026-07-29T12:18:20Z"
+    },
+    {
+      "r_number": "R-F3419",
+      "title": "three long-red guards: assert the property, not the wording",
+      "claimed_at": "2026-07-29T12:35:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
