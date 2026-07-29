@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3415,
+  "next_available": 3416,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28191,6 +28191,16 @@
       "commit_sha": "b55ebe7c",
       "notes": null,
       "shipped_at": "2026-07-29T11:34:57Z"
+    },
+    {
+      "r_number": "R-F3415",
+      "title": "cycle driver pulls no diagnostics on failure - the evidence dies with the pod",
+      "claimed_at": "2026-07-29T11:40:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4f2b4392",
+      "notes": null,
+      "shipped_at": "2026-07-29T11:41:25Z"
     }
   ]
 }
