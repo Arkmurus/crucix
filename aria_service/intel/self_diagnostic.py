@@ -936,14 +936,66 @@ async def _check_endpoint(
         return ("WARN", f"probe failed (network?): {err}")
 
 
-def _check_env_var(var: str) -> tuple[str, str]:
+# ── R-F3390: deliberately deferred sources ─────────────────────────────────
+#
+# `overall` was AMBER whenever ANY check warned, and `_check_env_var` warns for
+# any unset variable. Two modules are permanently in that state BY DESIGN, so
+# the health surface reported AMBER 76/2/0 indefinitely and no amount of correct
+# engineering could move it. A gauge that cannot reach green is a gauge people
+# stop reading — the same cry-wolf failure fixed for the SearXNG "all engines
+# blocked" warning (R-F3361).
+#
+# DEFERRED is a distinct state, never a suppression: it must be DECLARED here
+# with a written reason, it is counted and rendered in its own bucket, and it
+# applies ONLY to the expected checks (the missing credential, and the upstream
+# probe that cannot succeed without it). An import error, a missing entry point
+# or a genuine code bug on a deferred module still WARNs — none of those are
+# what was deferred.
+DEFERRED_MODULES: dict[str, str] = {
+    "acled": (
+        "operator-deferred per CLAUDE.md §18 — 'we won't be signing up to it as "
+        "yet until we have the MVP launched'. Re-surface at MVP-launch planning."
+    ),
+    "worldbank_debarred": (
+        "no self-service access exists: the module's own investigation records "
+        "apigwext.worldbank.org returning 403 with no developer portal or signup, "
+        "and OpenSanctions aggregates the same WB debarment signal (dataset "
+        "wb_debarred), so the DD signal is covered — only primary-source citation "
+        "is lost."
+    ),
+}
+
+
+def is_deferred(module_name: str | None) -> bool:
+    """True when this module's unavailability is a declared, accepted state."""
+    return bool(module_name) and module_name in DEFERRED_MODULES
+
+
+def _check_env_var(var: str, module_name: str | None = None) -> tuple[str, str]:
     val = os.getenv(var, "").strip()
     if val and val not in ("0", "false", "no", "off"):
+        # A deferral must NEVER mask a variable that is actually set.
         return ("PASS", f"{var} is set")
+    if is_deferred(module_name):
+        return ("DEFERRED",
+                f"{var} not set — deferred: {DEFERRED_MODULES[module_name]}")
     return ("WARN", f"{var} not set — module is in graceful-degrade mode")
 
 
-async def _check_smoke(mod: Any) -> tuple[str, str]:
+def _compute_overall(critical_fails: list, fail_count: int, warn_count: int,
+                     deferred_count: int = 0) -> str:
+    """Overall health. R-F3390 — deferrals do not count against it.
+
+    GREEN now means "everything working or knowingly parked"; AMBER means
+    "something needs attention". Deferrals can never downgrade a RED, and can
+    never turn a real warning green — they are simply not counted.
+    """
+    if critical_fails:
+        return "RED"
+    return "AMBER" if (fail_count or warn_count) else "GREEN"
+
+
+async def _check_smoke(mod: Any, module_name: str | None = None) -> tuple[str, str]:
     """Source adapters expose an `is_available` coroutine.
 
     Timeout bumped 15→30s on 2026-04-21: ofac_sdn (treasury.gov sdn.xml GET
@@ -967,13 +1019,23 @@ async def _check_smoke(mod: Any) -> tuple[str, str]:
         return ("WARN", "no is_available() exposed")
     try:
         ok = await asyncio.wait_for(mod.is_available(), timeout=30.0)
-        return (
-            "PASS" if ok else "WARN",
-            "upstream reachable" if ok else "upstream unreachable (may need credentials)",
-        )
+        if ok:
+            return ("PASS", "upstream reachable")
+        # R-F3390 — for a DECLARED deferral, an unreachable upstream is the
+        # expected consequence of the missing credential, not news. Note that a
+        # genuine code bug still falls through to the WARN/FAIL branches below:
+        # deferral covers the credential, never a broken module.
+        if is_deferred(module_name):
+            return ("DEFERRED",
+                    f"upstream unavailable as expected — {DEFERRED_MODULES[module_name]}")
+        return ("WARN", "upstream unreachable (may need credentials)")
     except (ConnectionError, TimeoutError, asyncio.TimeoutError, OSError) as e:
         # R-F1626/R-F1627: network-level errors = upstream unreachable.
         # The module is structurally sound; the external feed is down.
+        if is_deferred(module_name):
+            return ("DEFERRED",
+                    f"upstream unreachable as expected ({type(e).__name__}) — "
+                    f"{DEFERRED_MODULES[module_name]}")
         return ("WARN", f"upstream unreachable: {type(e).__name__}: {str(e)[:100]}")
     except Exception as e:
         # R-F1627: code bug in is_available() — must stay FAIL so the
@@ -1026,15 +1088,18 @@ async def _check_module(spec: dict) -> dict:
 
     # 6. Env var credential
     if spec.get("env_var"):
-        ev_status, ev_note = _check_env_var(spec["env_var"])
+        ev_status, ev_note = _check_env_var(spec["env_var"], module_name=spec.get("name"))
         entry_row["checks"].append({"check": "env_var", "status": ev_status, "note": ev_note})
 
     # 7. Smoke test (source adapters — hits upstream)
     if spec.get("smoke_is_available") and mod is not None:
-        sm_status, sm_note = await _check_smoke(mod)
+        sm_status, sm_note = await _check_smoke(mod, module_name=spec.get("name"))
         entry_row["checks"].append({"check": "smoke", "status": sm_status, "note": sm_note})
 
-    rank = {"PASS": 0, "WARN": 1, "FAIL": 2}
+    # R-F3390 — DEFERRED sits above PASS but BELOW WARN, so a deferred module
+    # that ALSO has a genuine warning still rolls up as WARN. Deferral can never
+    # mask a real problem on the same module.
+    rank = {"PASS": 0, "DEFERRED": 1, "WARN": 2, "FAIL": 3}
     worst = max(
         (c["status"] for c in entry_row["checks"]),
         key=lambda s: rank.get(s, 0),
@@ -1067,18 +1132,27 @@ async def run_diagnostic() -> dict:
     pass_count = sum(1 for r in results if r["worst_status"] == "PASS")
     warn_count = sum(1 for r in results if r["worst_status"] == "WARN")
     fail_count = sum(1 for r in results if r["worst_status"] == "FAIL")
+    deferred_count = sum(1 for r in results if r["worst_status"] == "DEFERRED")
     critical_fails = [
         r["name"] for r in results
         if r["worst_status"] == "FAIL" and r.get("critical")
     ]
 
-    overall = "RED" if critical_fails else ("AMBER" if fail_count or warn_count else "GREEN")
+    # R-F3390 — one computation, shared with the tests. Deferrals do not count
+    # against health: GREEN now means "working or knowingly parked", AMBER means
+    # "something needs attention".
+    overall = _compute_overall(critical_fails, fail_count, warn_count, deferred_count)
 
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "duration_ms": int((time.time() - started) * 1000),
         "overall": overall,
-        "counts": {"pass": pass_count, "warn": warn_count, "fail": fail_count},
+        "counts": {"pass": pass_count, "warn": warn_count, "fail": fail_count,
+                   "deferred": deferred_count},
+        # R-F3390 — what is parked and why, so a deferral is visible rather than
+        # merely absent from the warning count.
+        "deferred": {r["name"]: DEFERRED_MODULES.get(r["name"], "")
+                     for r in results if r["worst_status"] == "DEFERRED"},
         "modules_checked": len(results),
         "critical_failures": critical_fails,
         "modules": results,
