@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3416,
+  "next_available": 3417,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28201,6 +28201,16 @@
       "commit_sha": "4f2b4392",
       "notes": null,
       "shipped_at": "2026-07-29T11:41:25Z"
+    },
+    {
+      "r_number": "R-F3416",
+      "title": "the corpus validator cannot be imported without aria_service - a CLI-only dependency at module level",
+      "claimed_at": "2026-07-29T11:46:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bcfb1ad1",
+      "notes": null,
+      "shipped_at": "2026-07-29T11:51:55Z"
     }
   ]
 }
