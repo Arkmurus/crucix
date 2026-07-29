@@ -153,9 +153,13 @@ SYSTEM_PROMPT = (
     "Rules:\n"
     "1. Call the tool that can establish the fact. Do not answer a screening "
     "question without screening.\n"
-    "2. Cite every claim inline as [from <source>], using ONLY sources present in "
-    "the tool output.\n"
-    "3. If the tool did not run, or its source was unavailable, say so plainly. "
+    "2. Cite a claim inline as [from <source>] whenever the tool returned a source "
+    "for it: an outlet domain (reuters.com), a sanctions list (ofac_sdn), or a "
+    "registry record (companies_house:07524813).\n"
+    "3. NEVER cite a tool name. The tool is HOW you looked; it is not a source. "
+    "If the tool returned no source identifier - a clean screen names no lists - "
+    "state what the tool returned and cite nothing, rather than inventing one.\n"
+    "4. If the tool did not run, or its source was unavailable, say so plainly. "
     "An unperformed check is NOT a clean result."
 )
 
@@ -236,6 +240,21 @@ def _sources_in(payload: dict) -> set[str]:
             if isinstance(v, str) and v.strip():
                 out.add(v.strip())
     return out
+
+
+def _registry_cite(number: object) -> str:
+    """R-F3427 — the citation for a registry-derived claim.
+
+    The company NUMBER is present in the payload, so it grounds the citation,
+    and the prefix names which register it belongs to. Before this, the registry
+    axes cited NOTHING — 105 of the 123 rows that had a citable source and used
+    it — while the system prompt promised a citation for every claim. The
+    trained model resolved that contradiction by citing the TOOL's name
+    (`[from company_house_officers]`, 7 occurrences), and news impact, the axis
+    most dependent on real citations, regressed 1.000 -> 0.500.
+    """
+    n = str(number or "").strip()
+    return f" [from companies_house:{n}]" if n else ""
 
 
 def _was_performed(payload: dict) -> bool:
@@ -530,7 +549,22 @@ def validate_trace(trace: Any) -> list[str]:
         if isinstance(m, dict) and m.get("role") == "assistant":
             final = m.get("content") or ""
             break
+    # R-F3427 — a REGISTER RECORD citation (`companies_house:07524813`) is
+    # grounded by the identifier, not by the register's name: the company number
+    # is what the payload actually contains. Without this the registry axes could
+    # not cite at all, which is how 105 rows ended up citing nothing against a
+    # prompt that promised a citation — and how the trained model learned to cite
+    # the TOOL's name instead.
+    _payload_text = " ".join(
+        str(m.get("content") or "") for m in msgs
+        if isinstance(m, dict) and m.get("role") == "tool"
+    )
     for cited in _CITE_RE.findall(final):
+        tok = cited.strip()
+        if ":" in tok:
+            register, _, ident = tok.partition(":")
+            if ident and ident in _payload_text and register in TOOL_NAMES | {"companies_house"}:
+                continue
         if cited.strip() not in allowed:
             errs.append(
                 f"final answer cites {cited.strip()!r}, which no tool result contains "
@@ -1068,7 +1102,8 @@ def build_person_screen_trace(person: str, screen_payload: dict) -> dict | None:
         rec, score = str(top.get("name") or "?"), top.get("score")
         final = (
             f"A name match, not an identification.\n\n"
-            f"The screen matched the record '{rec}' on {', '.join(lists) or 'the list'} "
+            f"The screen matched the record '{rec}' on {', '.join(lists) or 'the list'}"
+            f"{' [from ' + lists[0] + ']' if lists else ''} "
             f"with a similarity score of {score}. That is a match on the NAME string. "
             f"It does not establish that {person} is that individual.\n\n"
             f"The screen returned no {', no '.join(missing)}, so identity cannot be "
@@ -1353,7 +1388,8 @@ def resolve_company(subject: str, results: Any) -> tuple[dict | None, str, bool]
     ]
     if len(tier1) == 1:
         c = tier1[0]
-        return c, (f"{c.get('title')} ({c.get('company_number')}) is an exact, active "
+        return c, (f"{c.get('title')} ({c.get('company_number')})"
+                   f"{_registry_cite(c.get('company_number'))} is an exact, active "
                    f"name match for {subject}"), False
 
     exact_live: list[dict] = []
@@ -1388,7 +1424,8 @@ def resolve_company(subject: str, results: Any) -> tuple[dict | None, str, bool]
         dropped = (f"; rejected {exact_dead[0].get('title')} as "
                    f"{exact_dead[0].get('company_status')}")
     return chosen, (
-        f"{chosen.get('title')} ({chosen.get('company_number')}) is the active "
+        f"{chosen.get('title')} ({chosen.get('company_number')})"
+        f"{_registry_cite(chosen.get('company_number'))} is the active "
         f"company whose name resolves to {subject}{dropped}"
     ), False
 
@@ -1614,11 +1651,12 @@ def _multihop_answer(subject: str, hops: list[tuple[str, dict, dict]]) -> str:
         elif tool == "screen":
             screen = payload
     if title and number:
-        parts.append(f"The registry resolves {subject} to {title}, company number {number}.")
+        parts.append(f"The registry resolves {subject} to {title}, company number "
+                     f"{number}{_registry_cite(number)}.")
     if officers:
         parts.append(
-            f"It has {len(officers)} officer(s) on record; I screened "
-            f"{officers[0].get('name')}."
+            f"It has {len(officers)} officer(s) on record{_registry_cite(number)}; "
+            f"I screened {officers[0].get('name')}."
         )
     if screen is not None:
         if not _was_performed(screen):
