@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3429,
+  "next_available": 3430,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28331,6 +28331,16 @@
       "r_number": "R-F3428",
       "title": "close the GATE B gap_type drift and register the three unregistered types",
       "claimed_at": "2026-07-29T15:17:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "eda13262",
+      "notes": null,
+      "shipped_at": "2026-07-29T15:35:57Z"
+    },
+    {
+      "r_number": "R-F3429",
+      "title": "GATE A: wire the real failure paths, exempt the accessors with stated reasons",
+      "claimed_at": "2026-07-29T15:28:53Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

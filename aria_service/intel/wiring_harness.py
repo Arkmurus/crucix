@@ -88,7 +88,13 @@ MODULE_GAP_TYPES: dict[str, str] = {
     # Research
     "researcher": "source_failure",
     "research_tasks": "source_failure",
-    "deep_researcher": "source_failure",
+    # R-F3429 — the second "deep_researcher" key was REMOVED here; the original is at
+    # the top of this dict (the R-F1777/R-F1779 "already wired" block). Both mapped to
+    # source_failure, so it changed nothing today — and that is exactly what made it
+    # dangerous: a dict literal keeps the LAST duplicate, so editing the visible entry
+    # at the top would have had no effect and the reason why would not have been
+    # obvious. Found by the duplicate-key guard added in the same R-number, which had
+    # just caught me introducing the same shape in HARD_EXEMPT.
     # Portal registry
     "portal_registry": "registry_lookup",
     "portal_coverage_audit": "registry_lookup",
@@ -178,6 +184,18 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
     # cost_tracker.py — SYNC GENERATOR
     "cost_tracker.py": {
         "feature": "SYNC GENERATOR — context manager with yield",
+        # R-F3429 — MERGED here, not given a second "cost_tracker.py" key. My first
+        # attempt did exactly that and the duplicate-key guard caught it: a later
+        # duplicate WINS in a dict literal, so it would have silently un-exempted
+        # `feature` above — a sync generator context manager that must never be
+        # wrapped. The hazard the R-F1785 note in this file already warned about,
+        # reproduced by me while writing the fix for it.
+        "set_user": "returns a contextvars.Token the caller resets with — a wrapper "
+                    "changes the contract",
+        "get_current_user": "ContextVar read",
+        "set_tier": "returns a contextvars.Token the caller resets with — a wrapper "
+                    "changes the contract",
+        "get_current_tier": "ContextVar read",
     },
     # llm/ provider layer — ASYNC GENERATOR stream()s (R-F1785: now in scope).
     # Wrapping an LLM token-stream generator breaks streaming (§13). The
@@ -190,6 +208,17 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
     "aria_llm_provider.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
     "fallback.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)",
                     "is_configured": "@property — config check",
+                    # R-F3429 — accessors, MERGED into this entry rather than given
+                    # their own "fallback.py" key: a duplicate dict key silently keeps
+                    # the LAST one, which would have discarded the stream and
+                    # provider_scope exemptions above. The note further down this file
+                    # records the same hazard from R-F1785.
+                    "get_preferred_provider": "ContextVar read, already guarded",
+                    "preference_only_providers": "env-derived set; pure",
+                    "get_provider_status": "reads config + breaker registry to REPORT "
+                                           "health; wiring the health reporter would "
+                                           "gap on every degraded provider it exists "
+                                           "to describe",
                     # R-F3419 — arrived with R-F3032..R-F3036 (LLM chain P0) and was
                     # never registered, so GATE A has reported it as an unexempt
                     # generator on every run since. It is a @contextlib.contextmanager:
@@ -252,7 +281,12 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
     # llm modules with NO prior HARD_EXEMPT entry are new here:
     "gemini.py": {"is_configured": "@property — config check"},
     "hybrid.py": {"is_configured": "@property — config check"},
-    "openai_compat.py": {"is_configured": "@property — config check"},
+    "openai_compat.py": {
+        "is_configured": "@property — config check",
+        # R-F3429 — merged, not a second key (see the fallback.py note above).
+        "default_deepseek_model": "env read with a literal default",
+        "backup_deepseek_model": "env read with a literal default (R-F3035)",
+    },
     # R-F1792 — @property accessors. Wrapping a property changes its semantics
     # and these are trivial computed accessors, not failure paths (reasoned
     # exemption §21a). The method-aware applicator skips them; GATE A needs this.
@@ -264,6 +298,47 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
         "size": "@property — trivial accessor, not a failure path",
         "embedding_count": "@property — trivial accessor, not a failure path",
         "has_embeddings": "@property — trivial accessor, not a failure path",
+    },
+
+    # ── R-F3429 — GATE A, part 1: the accessors ─────────────────────────────
+    #
+    # GATE A reported 67 public functions with no @fail_wire and no exemption. They are
+    # NOT one problem. Roughly a third are pure accessors — contextvar reads, env reads,
+    # in-place relabels, string parsing — with no failure domain at all. Wrapping those
+    # would do two bad things: flood the gap ledger with non-failures until nobody reads
+    # it (the §21b "dark" condition reached by noise instead of silence), and in two
+    # cases CHANGE THE CONTRACT — `cost_tracker.set_user` / `set_tier` return a
+    # contextvars.Token that callers reset with, and a wrapper that does not return it
+    # verbatim breaks every caller.
+    #
+    # Each entry below was READ at its definition before being exempted, not pattern
+    # matched on its name. The genuine failure paths in GATE A — the async I/O
+    # functions, the orchestrator entry points, the flush/poll/deploy loops — are NOT
+    # here and get wired instead; exempting those would be the false clean this file
+    # exists to prevent.
+    "brain_hook.py": {
+        "seconds_since_interactive": "pure time arithmetic over a module float; no I/O",
+    },
+    "companies_house.py": {
+        "consume_unavailable": "reads+clears a ContextVar; the UNAVAILABILITY it reports "
+                               "is itself the gap signal, so wiring it would record a "
+                               "gap about reading a gap",
+        "missing_key_gap": "returns the data-gap STRING for an unset key; the caller "
+                           "surfaces it — wiring the formatter double-reports",
+        "explain_empty_psc": "pure string composition over already-fetched values",
+    },
+    "web_search.py": {
+        "enable_brave_for_scope": "returns a ContextVar Token for scope restoration "
+                                  "(R-F3087) — a wrapper breaks the reset contract",
+        "reset_brave_scope": "ContextVar reset",
+        "brave_is_enabled": "reads a key + a ContextVar; already exception-guarded",
+        "mask_brave_source": "in-place relabel of a list; no failure domain",
+    },
+    "sanctions.py": {
+        "split_bracketed_name": "pure string split, total over its input",
+    },
+    "test_runner.py": {
+        "coder_tests_enabled": "single env-flag read (R-F2905)",
     },
 }
 
