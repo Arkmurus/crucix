@@ -103,6 +103,34 @@ def test_uninstall_restores_the_real_functions():
     assert socket.socket.connect is real_connect, "uninstall() left connect patched"
 
 
+def test_the_guard_is_ON_BY_DEFAULT():
+    """R-F3446 — the default must stay ON, and the opt-out must stay EXPLICIT.
+
+    It was off by default for a measured reason, and it took a full-suite measurement to
+    retire that: all 1,531 files run with it enabled, every failure diffed against the
+    documented baseline, exactly FOUR tests attributable to the guard (fixed in R-F3440 and
+    R-F3444), so the blast radius is now zero.
+
+    This asserts the POLICY, because an opt-in guard protects only whoever remembers to
+    switch it on — and nobody remembers at the moment a hang actually happens. If a future
+    change makes this opt-in again, that is a decision that needs its own evidence, and
+    this test is where it has to be argued.
+    """
+    import os
+    from pathlib import Path
+
+    src = Path(__file__).with_name("conftest.py").read_text(encoding="utf-8")
+    assert 'if not _truthy("ARIA_TEST_ALLOW_NETWORK")' in src, (
+        "the guard must install UNLESS explicitly opted out; an `if ARIA_TEST_BLOCK_NETWORK`"
+        " gate would make it opt-in again")
+
+    # And it must actually be active in this very session, unless someone opted out.
+    if not (os.getenv("ARIA_TEST_ALLOW_NETWORK") or "").strip():
+        assert _net_block.is_installed(), (
+            "the guard is not installed in a run that did not opt out — the default flip "
+            "is not taking effect")
+
+
 def test_conftest_actually_installs_the_guard():
     """Producer/consumer: _net_block is only worth anything if conftest CALLS it. A
     guard module nobody invokes is the 'wired but never called' defect class — assert

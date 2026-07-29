@@ -57,6 +57,17 @@ def test_rf541_robots_disallow_skips_fetch(monkeypatch):
     from aria_service.crawler import politeness
     monkeypatch.setattr(politeness, "is_allowed", _fake_disallow)
 
+    # R-F3444 — `knowledge_spider._fetch` runs `url_safety.is_safe_url` BEFORE the
+    # politeness check (knowledge_spider.py:309-310), and that resolves the hostname for
+    # real to classify it as public/private. Live DNS on a unit-test path is the failure
+    # class R-F3439 proved is the root of the intermittent suite hang, so pin the
+    # resolution seam. This also makes the test STRONGER: with the SSRF check passing, the
+    # robots short-circuit below is actually exercised, whereas an unresolvable host made
+    # `_fetch` return None early and the assertions passed without reaching the robots
+    # logic at all.
+    from aria_service.intel import url_safety as _us
+    monkeypatch.setattr(_us, "_ips_for_host", lambda h: ["93.184.216.34"])
+
     # Track whether httpx.get is called
     get_calls: list[str] = []
 

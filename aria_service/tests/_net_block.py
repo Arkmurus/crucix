@@ -41,7 +41,19 @@ _state: dict = {}
 
 
 class LiveNetworkBlocked(RuntimeError):
-    """An un-mocked outbound network operation was attempted from a test."""
+    """An un-mocked outbound network operation was attempted from a test.
+
+    R-F3444 — KNOWN PROPERTY, stated so a failure is not misread. This is a RuntimeError,
+    so it ESCAPES code that catches only resolution errors — `url_safety._ips_for_host`
+    catches socket.gaierror/OSError and its caller `is_safe_url` documents "never raises",
+    yet a blocked lookup propagates straight through both. So enabling the guard can turn
+    a would-be graceful degradation into a loud test error.
+
+    That is deliberate. Raising socket.gaierror instead would let every fail-open DNS path
+    swallow it, and the guard's whole purpose is to make an un-mocked live call NAMED and
+    LOUD rather than silent — a hang is what happens when this stays quiet. The fix for a
+    test that trips it is to stub the resolution seam, not to soften the exception.
+    """
 
 
 def _host_of(addr) -> str:

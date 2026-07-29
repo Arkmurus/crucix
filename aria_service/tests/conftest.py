@@ -104,12 +104,40 @@ os.environ.setdefault("ARIA_CODER_GOLD_PATH",
 # request timeout applies. A hang looks identical to a slow test until
 # pytest-timeout kills the whole process without printing a summary.
 #
-# OFF BY DEFAULT, deliberately. Enabling it globally would change the outcome of
-# any test that currently reaches the network, and the first full-suite baseline
-# (11,534 passed / 149 failed, 2026-07-28) was measured without it. Turning it on
-# is a diagnostic action, not a silent policy change:
+# ── R-F3446: NOW ON BY DEFAULT, because the blast radius was finally MEASURED ──
 #
-#     ARIA_TEST_BLOCK_NETWORK=1 python -m pytest aria_service/tests/... -q
+# This was off by default for a stated and correct reason: enabling it globally changes the
+# outcome of any test that reaches the network, and the first full-suite baseline
+# (11,534 passed / 149 failed, 2026-07-28) was measured without it. That reason was
+# evidence-shaped, so it could only be retired with evidence.
+#
+# The measurement (R-F3446): all 1,531 test files were run with the guard ENABLED, in
+# eight segments, and every failure was diffed against the documented baseline rather than
+# counted. EXACTLY FOUR tests were attributable to the guard, and all four were tests
+# genuinely doing live network I/O:
+#
+#     test_cap__extract_entity_from_url::test_extract_entity_from_url_known_site   (R-F3440)
+#     test_rf1010_learning::TestUniversalWebCrawler::test_fetch_page_success       (R-F3440)
+#     test_rf541_spider_robots_txt::test_rf541_robots_disallow_skips_fetch         (R-F3444)
+#     test_security_sprint::test_url_safety_allows_public_urls                     (R-F3444)
+#
+# All four are fixed by stubbing the resolution seam, so the current blast radius is ZERO.
+# Every one of them got STRONGER in the process: the first stopped depending on a third
+# party's page title, the third now actually reaches the robots logic it claims to test,
+# and the fourth stopped depending on four real domains continuing to exist.
+#
+# WHY ON BY DEFAULT IS WORTH IT: R-F3439 proved live DNS is a root cause of the
+# intermittent suite hang — a degraded resolver inflated a jurisdiction-STRING test to
+# 91.68s, and pytest.ini's 120s timeout uses the THREAD method on Windows, which kills the
+# PROCESS and prints no summary. An opt-in guard protects only whoever remembers to switch
+# it on, which is nobody at the moment the hang actually happens.
+#
+# Opt OUT for a deliberately live run (a real smoke test against real endpoints):
+#
+#     ARIA_TEST_ALLOW_NETWORK=1 python -m pytest ...
+#
+# ARIA_TEST_BLOCK_NETWORK=1 still works and is now redundant; it is kept so existing
+# invocations and CI lines do not break.
 #
 # Loopback stays open so a local fixture server still works.
 #
@@ -135,7 +163,13 @@ os.environ.setdefault("ARIA_CODER_GOLD_PATH",
 #
 # The implementation lives in _net_block.py so it can be tested directly rather than
 # only through its own side effects.
-if (os.getenv("ARIA_TEST_BLOCK_NETWORK", "") or "").strip() in ("1", "true", "yes", "on"):
+def _truthy(name: str) -> bool:
+    return (os.getenv(name, "") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+# R-F3446 — default ON. The opt-OUT is explicit and must be the only way to reach the live
+# network from a test, so that doing so is always a deliberate, visible choice.
+if not _truthy("ARIA_TEST_ALLOW_NETWORK"):
     from aria_service.tests import _net_block as _nb
 
     _nb.install()

@@ -21,8 +21,24 @@ import inspect
 # url_safety — positive cases
 # ═══════════════════════════════════════════════════════════════════════
 
-def test_url_safety_allows_public_urls():
+def test_url_safety_allows_public_urls(monkeypatch):
+    """R-F3444 — this resolved FOUR real hostnames live (nato.int, ofac.treasury.gov,
+    example.com, globalsecuralliance.com), so it depended on the network AND on those
+    domains continuing to exist: if globalsecuralliance.com ever lapses, the test goes red
+    for a reason that has nothing to do with ARIA. Live DNS on a unit-test path is also the
+    failure class R-F3439 proved is the root of the intermittent suite hang.
+
+    Stubbing the resolution seam keeps the real classification logic in the path — the
+    parse, the scheme check, the credential check and the private-IP check all still run;
+    only the resolver is pinned. The blocking direction has its own coverage in
+    test_url_safety_blocks_loopback below and in test_rf1851_*, and the DNS-rebinding case
+    (a public name resolving to a private IP) is pinned in
+    test_dd_security_hardening_rf1850_1854.
+    """
+    from aria_service.intel import url_safety as _us
     from aria_service.intel.url_safety import is_safe_url
+
+    monkeypatch.setattr(_us, "_ips_for_host", lambda h: ["93.184.216.34"])
     for url in (
         "https://www.nato.int/",
         "https://ofac.treasury.gov/sanctions-programs",
