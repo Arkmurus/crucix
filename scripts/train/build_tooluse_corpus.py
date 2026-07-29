@@ -286,6 +286,12 @@ def build_trace(subject: str, payload: dict) -> dict:
         "topic": "sanctions_screening",
         "label": "tooluse_trace",
         "grounded": True,
+        # R-F3394 — every other builder records `subject`; this one did not, so
+        # the entity-level splitter had to fall back to parsing the user turn and
+        # these rows grouped under an empty entity. An entity that normalises to
+        # "" collides with every other subjectless row, which is precisely the
+        # leak the split exists to prevent.
+        "subject": subject,
         "tools": TOOL_SPECS,
         "source": "replayed_real_tool_execution",
     }
