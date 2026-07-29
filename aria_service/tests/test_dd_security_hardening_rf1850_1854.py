@@ -32,7 +32,13 @@ def test_rf1850_powershell_endpoint_not_registered():
 
 
 # ── R-F1851 — SSRF guard blocks internal targets on the user-URL fetchers ─────
-def test_rf1851_is_safe_url_blocks_internal():
+def test_rf1851_is_safe_url_blocks_internal(monkeypatch):
+    """R-F3433 — the public-hostname leg used to resolve example.com for real, which
+    made this the one DD test that failed under ARIA_TEST_BLOCK_NETWORK=1 and left the
+    suite with a live-DNS dependency. Stubbing `_ips_for_host` (the resolution seam) is
+    strictly stronger, not weaker: it pins BOTH directions of the resolve-then-classify
+    path, including the DNS-rebinding case below — a public-looking hostname that
+    resolves to a private address, which the live version could never test at all."""
     from aria_service.intel import url_safety as us
 
     for bad in (
@@ -45,8 +51,22 @@ def test_rf1851_is_safe_url_blocks_internal():
         ok, reason = us.is_safe_url(bad)
         assert not ok, f"is_safe_url allowed {bad!r} ({reason})"
 
-    ok, _ = us.is_safe_url("https://example.com/")        # public still allowed
-    assert ok
+    # A hostname resolving to a public IP is still allowed.
+    monkeypatch.setattr(us, "_ips_for_host", lambda h: ["93.184.216.34"])
+    ok, reason = us.is_safe_url("https://example.com/")
+    assert ok, f"public hostname should be allowed, got {reason}"
+
+    # DNS rebinding: the SAME public-looking hostname resolving to a private address
+    # must be rejected. is_safe_url's docstring promises "a name that resolves to ANY
+    # blocked IP is rejected entirely" — this is the leg that proves it.
+    monkeypatch.setattr(us, "_ips_for_host", lambda h: ["93.184.216.34", "10.0.0.5"])
+    ok, reason = us.is_safe_url("https://example.com/")
+    assert not ok, "DNS rebinding to a private IP must be blocked"
+
+    # Resolution failure must fail CLOSED, never default to allow.
+    monkeypatch.setattr(us, "_ips_for_host", lambda h: [])
+    ok, reason = us.is_safe_url("https://example.com/")
+    assert not ok and reason == "dns_fail", f"resolution failure must block, got {reason}"
 
 
 def test_rf1851_detect_content_type_blocks_internal():

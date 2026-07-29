@@ -114,46 +114,29 @@ os.environ.setdefault("ARIA_CODER_GOLD_PATH",
 # Loopback stays open so a local fixture server still works.
 #
 # KNOWN LIMIT, stated so nobody trusts a green run further than it deserves.
-# This hooks socket.connect, so it catches a live REQUEST. It does NOT catch
-# R-F3318's own block, which happened in ssl.create_default_context() while the
-# httpx client was being CONSTRUCTED, before any connect(). Guarding that would
-# mean intercepting SSL-context creation, which legitimate tests do when they
-# build a client around a mock transport, so it is deliberately not done here.
-# Verified honestly: the guard fires on a real connect to
-# ("api.semanticscholar.org", 443) and allows loopback; it would NOT have caught
-# R-F3318 unaided. Treat a clean run as "no live request", not "no live I/O".
+# This hooks socket.connect/connect_ex and (since R-F3433) socket.getaddrinfo, so it
+# catches a live REQUEST and a live RESOLUTION. It does NOT catch R-F3318's own
+# block, which happened in ssl.create_default_context() while the httpx client was
+# being CONSTRUCTED, before any connect(). Guarding that would mean intercepting
+# SSL-context creation, which legitimate tests do when they build a client around a
+# mock transport, so it is deliberately not done here. Verified honestly: the guard
+# fires on a real connect to ("api.semanticscholar.org", 443) and allows loopback; it
+# would NOT have caught R-F3318 unaided.
+#
+# R-F3433 — the DNS half was MISSING and that mattered. Measured over the 140-file DD
+# set with this guard enabled: 25 live DNS lookups to 9 external hosts (OFSI, OFAC,
+# UN, World Bank, SEC, Treasury, api.opensanctions.org, two cloud buckets) and ZERO
+# connects. So the guard reported a clean run while the suite was still talking to
+# the internet — the worst kind of green, because it was being used to rule live I/O
+# OUT while chasing a hang. getaddrinfo is a blocking syscall with no application
+# timeout, which is the same reason a request `timeout=` could not save R-F3318.
+# Blast radius when enabled, measured over the DD set: exactly ONE test, fixed by
+# R-F3433, so the diagnostic now runs clean there.
+#
+# The implementation lives in _net_block.py so it can be tested directly rather than
+# only through its own side effects.
 if (os.getenv("ARIA_TEST_BLOCK_NETWORK", "") or "").strip() in ("1", "true", "yes", "on"):
-    import socket as _socket
+    from aria_service.tests import _net_block as _nb
 
-    _real_connect = _socket.socket.connect
-    _real_connect_ex = _socket.socket.connect_ex
-
-    def _is_local(addr) -> bool:
-        try:
-            host = addr[0] if isinstance(addr, tuple) else str(addr)
-        except Exception:
-            return False
-        return str(host) in ("127.0.0.1", "::1", "localhost", "0.0.0.0", "")
-
-    class LiveNetworkBlocked(RuntimeError):
-        """An un-mocked outbound connection was attempted from a test."""
-
-    def _blocked_connect(self, addr, *a, **kw):
-        if _is_local(addr):
-            return _real_connect(self, addr, *a, **kw)
-        raise LiveNetworkBlocked(
-            f"[R-F3319] a test attempted a LIVE outbound connection to {addr!r}. "
-            "Unit tests must not do real network I/O: it hangs the run rather "
-            "than failing it. Stub the call at its boundary "
-            "(see R-F3298 and R-F3318 for the pattern)."
-        )
-
-    def _blocked_connect_ex(self, addr, *a, **kw):
-        if _is_local(addr):
-            return _real_connect_ex(self, addr, *a, **kw)
-        raise LiveNetworkBlocked(
-            f"[R-F3319] a test attempted a LIVE outbound connection to {addr!r}."
-        )
-
-    _socket.socket.connect = _blocked_connect
-    _socket.socket.connect_ex = _blocked_connect_ex
+    _nb.install()
+    LiveNetworkBlocked = _nb.LiveNetworkBlocked

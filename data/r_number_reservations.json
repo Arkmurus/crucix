@@ -28342,9 +28342,10 @@
       "title": "GATE A: wire the real failure paths, exempt the accessors with stated reasons",
       "claimed_at": "2026-07-29T15:28:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b91f6cb3",
+      "notes": null,
+      "shipped_at": "2026-07-29T17:07:24Z"
     },
     {
       "r_number": "R-F3430",

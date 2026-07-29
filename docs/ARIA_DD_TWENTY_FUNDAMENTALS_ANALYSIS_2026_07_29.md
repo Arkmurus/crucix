@@ -696,12 +696,96 @@ subject type and belongs to its own R-number.
 
 ---
 
+# Part 10 — What actually shipped, and what the evidence supports
+
+Part 8's design and Part 9's single fix were written before the build. This part records what
+landed, because a design document that outlives its own implementation becomes the stale line a
+future session trusts (the failure mode §18 of CLAUDE.md exists to prevent).
+
+## 10.1 The claim-first pipeline, as built
+
+| Step (Part 8) | Shipped as | State |
+|---|---|---|
+| Question catalogue as the unit | **R-F3402** `dd_standard.py` — 24 questions, `STANDARD_VERSION = "1.0.0"` | Built |
+| Evidence state per claim | **R-F3402** seven-state model | Built |
+| Wire the catalogue into the report | **R-F3410** — replaced the `discipline_coverage` proxy with `_FUNDAMENTAL_TO_DISCIPLINES` | Built |
+| Checklist reads real evidence | **R-F3426** — FS-11/FS-12/IS-16b/IS-17c read what the DD now gathers | Built |
+| Scope selection | **R-F3406** (waiver model), **R-F3411** (scope reaches the engine) | Built |
+| Elected sections must run | **R-F3408** — an unfulfilled election is a broken promise, not a silent skip | Built |
+| Conflict resolution / pattern layer | — | **Not built** |
+
+**The two ideas worth restating, because they are the ones that changed behaviour:**
+
+*Declining a check is a waiver, not a toggle.* A waived section records who waived it and why, and
+**stays in the denominator**. It cannot improve a score. This is the direct application of §8's rule
+that absence must be represented, not deleted — the failure mode where opting out of a check makes a
+company look cleaner is precisely the false clean the whole document is about.
+
+*Electing a section creates an obligation.* R-F3408 makes an elected-but-unrun section a **defect**,
+not a gap. This closes the shape the operator named directly: *"once those selections are made the
+DD MUST search those, we cannot have issues."* A paid section that silently no-ops is worse than one
+that was never offered.
+
+## 10.2 The new registers — all free, all keyless or CH-keyed
+
+| Source | R-number | Note |
+|---|---|---|
+| The Gazette (insolvency notices) | **R-F3403** | Free, no key |
+| CH charges / insolvency / disqualified officers | **R-F3404**, wired by **R-F3422** | Existing CH key |
+| UK employment tribunal decisions | **R-F3424** | Free gov.uk search API |
+
+**Three false positives were caught before shipping, and they are the point of the exercise.** A
+tribunal query returned **31,098 "results"** for a small company — the API had OR-matched the search
+terms rather than the company; a Gazette query returned 20 notices of which **only 6 named the
+company**; and disqualification hits match on **name only**, so they are capped at amber and carry
+`match_basis: "name_only"`. Each of these, shipped naively, would have produced exactly the
+name-coincidence fabrication this document argues against. **A new source is a liability until its
+false-positive shape is measured.**
+
+The Gazette adapter also needs its own HTTP client: `_common.http_get_json` sends
+`Accept: application/json`, which makes The Gazette return **HTTP 500**. That is recorded in code
+because it is the kind of fact that costs an hour to rediscover.
+
+## 10.3 Measured effect
+
+Same company, same mode, before and after: **6/19 questions answered (31.6%) → 10/19 (52.6%)**, with
+corroborated claims 2 → 3. The gain is from evidence actually gathered, not from grading changes —
+which is the only kind of improvement this document accepts (cf. the north-star rule that a grade
+improving without new evidence *is* the false clean).
+
+## 10.4 The exposure audit Part 9 left open — now run
+
+Part 9's appendix listed as UNKNOWN whether any delivered report had actually missed officers.
+**Measured: 5 of 5 pre-fix reports, 16 directors never screened, and no report disclosed it.** The
+defect was not theoretical and the reports did not say so. This is the single strongest argument in
+the document for structural enforcement over intent.
+
+## 10.5 Test-suite integrity — R-F3433
+
+The suite's live-network guard (R-F3319) hooked `socket.connect`. Measured over the 140-file DD set
+with the guard **enabled**: **25 live DNS lookups to 9 external hosts and zero connects.** The guard
+reported clean while the suite was still reaching the internet — and it is switched on specifically
+to rule live I/O *out* when diagnosing a hang. R-F3433 extends it to `getaddrinfo` (IP literals stay
+allowed, because `is_safe_url` legitimately resolves them to classify). Blast radius: one test,
+improved rather than exempted — it now pins DNS rebinding and fail-closed resolution, which the live
+version could not test at all.
+
+**Stated honestly:** this removes a proven unbounded external dependency. It is **not** established
+that DNS caused the intermittent suite hang; no stack dump was ever caught mid-hang. The hang
+remains open.
+
+---
+
 ## Appendix — claims I could not establish
 
 - Whether GLEIF L2 relationship records are reachable without credentials at ARIA's call volume:
   **UNKNOWN** (not probed this session).
-- Registry Trust CCJ API commercial terms: **UNKNOWN** (the document lists it as a named API; no
-  pricing verified).
+- ~~Registry Trust CCJ API commercial terms: **UNKNOWN**~~ — **RESOLVED (Part 10):** Registry Trust
+  (TrustOnline) charges **£6–£10 per search**, has **no free tier and no public API**. It is the
+  only authoritative source of CCJ data for England & Wales; there is no free substitute, and a CCJ
+  section cannot be honestly answered without it. **This is an operator spend decision, not an
+  engineering one.** Until it is taken, the CCJ questions must render as a named obstacle
+  (`ATTEMPTED_INCONCLUSIVE` / `NOT_RUN` with the reason), never as a clean line.
 - Whether any customer-facing surface has ever rendered `discipline_coverage`:
   I found no renderer in `dd_schema.py`, `lib/reports/pdf_generator.mjs`, or the structured view.
   I did not exhaustively read `public/`.
@@ -712,7 +796,16 @@ subject type and belongs to its own R-number.
 - Whether GLEIF publishes a machine-readable lineage declaration for its Level-1 records (needed to
   automate the `derives_from` edge in §8.3): **UNKNOWN** — not probed. It can be hand-declared for
   the ~30 known adapters meanwhile.
-- Whether any officer was in fact missed on a delivered customer report because of R-F3397:
-  **UNKNOWN**. The defect is proven in code and by test; I did not audit persisted reports to
-  quantify exposure. **That audit is worth running** — the query is "reports whose
-  `identity.directors` is non-empty and which carry no `sanctions.director_screen` finding".
+- ~~Whether any officer was in fact missed on a delivered customer report because of R-F3397:
+  **UNKNOWN**~~ — **RESOLVED (§10.4): the audit was run. 5 of 5 pre-fix reports were affected,
+  16 directors were never screened, and no report disclosed the omission.**
+
+- **Added by Part 10.** Whether the intermittent suite hang is caused by live DNS: **UNKNOWN**.
+  R-F3433 proves the suite performed live resolution and removes it, but no stack dump was captured
+  mid-hang, so the attribution is unproven. Resist the temptation to close the hang on this — a
+  plausible mechanism that was never observed firing is exactly the certify-by-absence shape this
+  document spends Part 3 on.
+
+- Find Case Law (National Archives) licensing: the data is free, but the **Open Justice Licence bars
+  computational analysis without a separate application**. Whether ARIA's use counts as
+  "computational analysis" is a **legal reading, not a technical one** — operator decision.
