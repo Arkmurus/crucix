@@ -124,6 +124,22 @@ done
 # ---- 7. pull BEFORE stopping (container disk is ephemeral) -----------------
 mkdir -p data/eval_reports
 PULL(){ timeout 120 scp -i "$KEYF" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":"$1" "$2" 2>/dev/null; }
+# R-F3415 — DIAGNOSTICS FIRST, and unconditionally. The previous run exited
+# rc=1 two minutes in, and this block pulled only files that exist on SUCCESS.
+# Container disk is ephemeral (volume-free per R-F1516), so the stop destroyed
+# the only copy of the cycle log: a pod was paid for and produced no evidence,
+# which is the exact opposite of diagnose-from-evidence. The run log is pulled
+# BEFORE the result files and regardless of rc, and its tail is printed when the
+# cycle failed, so a failure is diagnosable without buying another pod.
+mkdir -p data/eval_reports
+PULL /workspace/logs/tooluse_cycle.log data/eval_reports/aria_tooluse_cycle_run.log || log "(run log not pulled)"
+PULL /workspace/logs/shim_base.log     data/eval_reports/aria_tooluse_shim_base.log || true
+PULL /workspace/logs/shim_trained.log  data/eval_reports/aria_tooluse_shim_trained.log || true
+if [ "${RC:-}" != "0" ]; then
+  log "--- cycle log tail (rc=${RC:-<none>}) ---"
+  tail -40 data/eval_reports/aria_tooluse_cycle_run.log 2>/dev/null || log "(no run log to show)"
+  log "--- end cycle log ---"
+fi
 PULL /workspace/eval/tooluse_cycle_result.json data/eval_reports/aria_tooluse_cycle_result.json || log "(result json not pulled)"
 PULL /workspace/eval/tooluse_eval_base.json    data/eval_reports/aria_tooluse_eval_base.json || log "(base report not pulled)"
 PULL /workspace/eval/tooluse_eval_trained.json data/eval_reports/aria_tooluse_eval_trained.json || log "(trained report not pulled)"

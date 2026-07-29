@@ -144,3 +144,25 @@ def test_a_failed_launch_says_why(name):
     if "FATAL launch" in src:
         assert "FATAL launch -" in src or "FATAL launch —" in src, (
             f"{name}: launch failure must name the likely cause")
+
+
+@pytest.mark.parametrize("name", DRIVERS)
+def test_the_run_log_is_pulled_before_any_result_file(name):
+    """R-F3415 — a failure must leave evidence behind.
+
+    Container disk is ephemeral, so the stop destroys the only copy of the run
+    log. A driver that pulls only success artefacts turns every failure into a
+    paid-for pod that produced nothing to diagnose from.
+    """
+    p = Path(__file__).resolve().parents[2] / "scripts" / "train" / name
+    if not p.exists():
+        pytest.skip(f"{name} not present")
+    lines = p.read_text(encoding="utf-8").splitlines()
+    pulls = [i for i, l in enumerate(lines) if l.startswith("PULL ")]
+    if not pulls:
+        pytest.skip(f"{name} has no PULL block")
+    logs = [i for i in pulls if "logs/" in lines[i] and ".log" in lines[i]]
+    assert logs, f"{name}: no log is ever pulled — a failure leaves no evidence"
+    assert min(logs) == min(pulls), (
+        f"{name}: a result file is pulled before the run log; the log is what a "
+        f"FAILED cycle leaves behind")

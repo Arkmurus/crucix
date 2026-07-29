@@ -118,6 +118,10 @@ done
 # ---- 7. pull BEFORE stopping (container disk is ephemeral) -----------------
 mkdir -p data/eval_reports
 PULL(){ timeout 120 scp -i "$KEYF" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":"$1" "$2" 2>/dev/null; }
+# R-F3415 — the run log FIRST and unconditionally: container disk is ephemeral,
+# so the stop destroys the only copy, and a driver that pulls only success
+# artefacts turns every failure into a paid-for pod with nothing to diagnose.
+PULL /workspace/logs/smoke_cycle.log data/eval_reports/aria_tooluse_smoke_run.log || log "(run log not pulled)"
 PULL /workspace/eval/aria_tooluse_smoke.json data/eval_reports/aria_tooluse_smoke.json || log "(result json not pulled)"
 PULL /workspace/logs/smoke_sft.log           data/eval_reports/aria_tooluse_smoke_sft.log || log "(train log not pulled)"
 
