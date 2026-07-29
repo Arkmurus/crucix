@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3401,
+  "next_available": 3402,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28055,6 +28055,16 @@
       "commit_sha": "79c37b19",
       "notes": null,
       "shipped_at": "2026-07-29T09:40:11Z"
+    },
+    {
+      "r_number": "R-F3401",
+      "title": "smoke cycle: prove the tool-use SFT pipeline end to end on a pod, volume-free, self-stopping",
+      "claimed_at": "2026-07-29T09:40:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fd959073",
+      "notes": null,
+      "shipped_at": "2026-07-29T09:44:04Z"
     }
   ]
 }
