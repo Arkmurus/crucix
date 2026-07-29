@@ -28442,18 +28442,20 @@
       "title": "root-cause the suite hang: live DNS + the 120s thread-method timeout kills the run with no summary",
       "claimed_at": "2026-07-29T18:37:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "92984d6f",
+      "notes": null,
+      "shipped_at": "2026-07-29T19:28:48Z"
     },
     {
       "r_number": "R-F3440",
       "title": "two tests reach the live internet; one passes vacuously because the SSRF block returns the value it asserts",
       "claimed_at": "2026-07-29T19:21:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "69b6bc52",
+      "notes": null,
+      "shipped_at": "2026-07-29T19:28:49Z"
     }
   ]
 }
