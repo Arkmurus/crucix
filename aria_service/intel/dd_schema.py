@@ -589,6 +589,25 @@ class ARKDDReport:
     discipline_coverage: dict = field(default_factory=dict)
     adverse_media: dict = field(default_factory=dict)
 
+    # ── R-F3410 — the scope this run was ORDERED under ──────────────────────
+    #
+    # Shape: {tier, waivers: [{question_id, waived_by, reason, waived_at}],
+    #         elections: [{question_id, elected_by, note}]}
+    #
+    # PERSISTED, not derived, and that is the whole point. The DD Standard
+    # assessment itself is recomputed live by `structured_view` (same pattern as
+    # quality_assessment / decision_readiness, so every historical report gains a
+    # checklist without a re-run) — but a WAIVER cannot be recomputed from the
+    # evidence. "Nobody screened this" and "the operator declined the screen, by
+    # name, for this reason" look identical in the output and are completely
+    # different facts. If the scope is not stored at run time it is gone, and the
+    # waiver silently degrades into an unexplained gap.
+    #
+    # Same reasoning for elections: whether a section was ORDERED is not inferable
+    # from whether it produced data, and that inference is exactly the one that
+    # would let a paid-but-unsearched section disappear.
+    dd_scope: dict = field(default_factory=dict)
+
     # ── R-F591 (2026-05-16) — case-file versioning fields ────────────────
     # R-F573 added canonical_entity_id + version_number + previous_run_id
     # + version_diff to the PERSISTED body (the Redis blob) inside
@@ -2720,6 +2739,41 @@ def _dd_decision_readiness(r: dict) -> dict:
     }
 
 
+def _dd_standard_assessment(r: dict) -> dict:
+    """R-F3410 — resolve the report against the DD Standard using its STORED scope.
+
+    Deliberately total: a report that predates R-F3410 has no `dd_scope`, so it is
+    assessed at the default tier with no waivers and no elections — which is the honest
+    reading (nothing was declined, nothing was ordered), not a failure.
+
+    Import is local because `dd_standard` is a leaf module and `dd_schema` is imported by
+    almost everything; keeping the edge one-directional at call time avoids widening the
+    import graph for a function most callers never reach.
+
+    Never raises. A checklist that cannot be built must not cost the operator the report,
+    but it must also never look like a clean one — hence the explicit `error` shape
+    rather than an empty dict that a renderer would read as "no open questions".
+    """
+    try:
+        from . import dd_standard as _ddstd
+    except Exception as exc:                    # module missing/broken — say so
+        return {"error": f"DD Standard unavailable: {type(exc).__name__}",
+                "assessed": False}
+    try:
+        scope = r.get("dd_scope") if isinstance(r, dict) else None
+        scope = scope if isinstance(scope, dict) else {}
+        return _ddstd.assess(
+            r,
+            tier=str(scope.get("tier") or "STANDARD"),
+            waivers=scope.get("waivers"),
+            elections=scope.get("elections"),
+        )
+    except Exception as exc:
+        return {"error": f"DD Standard assessment failed: {type(exc).__name__}: "
+                         f"{str(exc)[:120]}",
+                "assessed": False}
+
+
 @fail_wire(module="dd_schema", gap_type="engine_failure")
 def structured_view(r: dict) -> dict:
     """Build a DECISION-FIRST, evidence-rich render contract from a persisted DD report
@@ -2734,7 +2788,13 @@ def structured_view(r: dict) -> dict:
     comm = r.get("commercial_coherence") or {}
     sweep = r.get("sweep_data") or {}
 
-    is_person = (ident.get("entity_type") or "").lower() == "person"
+    # R-F3410 — `str(...)` because this function's contract is "never raises on a
+    # partial/quick report", and it did: a non-string entity_type (an int from a
+    # malformed API body) raised AttributeError: 'int' object has no attribute 'lower',
+    # taking down the whole render contract rather than degrading one field. Found while
+    # wiring the DD Standard in; pre-existing, one line, fixed here rather than left in a
+    # function this change already touches.
+    is_person = str(ident.get("entity_type") or "").lower() == "person"
     sanc = ident.get("sanctions_screen") or {}
     ghost = ident.get("ghost_score") or {}
     cr = comp.get("country_risk") or {}
@@ -2956,6 +3016,11 @@ def structured_view(r: dict) -> dict:
         "entity_scope": _entity_scope,               # R-F3091
         "quality_assessment": _dd_quality_assessment(r),
         "decision_readiness": _dd_decision_readiness(r),
+        # R-F3410 — the checklist diff, on the surface the online report renders.
+        # Computed live (like the two above) so every report ALREADY PERSISTED gains a
+        # standard assessment without being re-run; the scope it is judged against comes
+        # from the stored `dd_scope`, because a waiver/election cannot be recomputed.
+        "dd_standard": _dd_standard_assessment(r),
         "next_actions": [a for a in (r.get("next_actions") or []) if a],
         "data_gaps_summary": [g for g in (r.get("data_gaps_summary") or []) if g],
         "sections": sections,

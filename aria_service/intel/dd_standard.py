@@ -966,6 +966,28 @@ def assess(report: dict, *, tier: str = "STANDARD", waivers: Any = None,
     for qid in election_waiver_conflicts:
         waiver_map.pop(qid, None)
 
+    # R-F3410 — A WAIVER THAT DOES NOT APPLY MUST STILL BE REPORTED.
+    #
+    # Found by the R-F3410 wiring test: waiving IS-15 (an ENHANCED question) on a
+    # STANDARD run silently did nothing — the question was never in scope, so the waiver
+    # had nothing to attach to and simply evaporated. The operator sees a form that
+    # accepted their instruction and a report that contains no trace of it.
+    #
+    # Unlike an election, an unapplied waiver is NOT a broken promise: nothing was
+    # ordered and nothing is owed. But it IS a silent discrepancy between what was asked
+    # for and what happened, and this module's whole purpose is that such gaps are
+    # stated. Reported, never inflated into a failure.
+    _scope_ids = {q.id for q in applicable}
+    waivers_ignored = [
+        {"question_id": qid,
+         "reason": ("not applicable to a subject of this type"
+                    if qid in QUESTIONS_BY_ID
+                    and not QUESTIONS_BY_ID[qid].applicable_to(entity_type)
+                    else f"not in scope at tier {(tier or 'STANDARD').strip().upper()}"),
+         "waived_by": w.waived_by}
+        for qid, w in sorted(waiver_map.items()) if qid not in _scope_ids
+    ]
+
     resolutions: list[Resolution] = []
     for q in applicable:
         # A question nobody asks of this subject type never reaches a reader.
@@ -1090,6 +1112,9 @@ def assess(report: dict, *, tier: str = "STANDARD", waivers: Any = None,
         #: report as complete while this is False.
         "elections_honoured": not unfulfilled,
         "election_waiver_conflicts": election_waiver_conflicts,
+        #: Waivers the operator supplied that had nothing to attach to. Not a failure —
+        #: nothing was ordered — but never silently dropped either.
+        "waivers_ignored": waivers_ignored,
         "required": len(denominator),
         "answered": len(answered),
         "corroborated": len(corroborated),

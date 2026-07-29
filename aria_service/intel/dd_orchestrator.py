@@ -13906,6 +13906,28 @@ async def _orchestrate_dd_impl(
     # ── BLUF + assembly ──
     await _assemble_bluf(report)
 
+    # ── R-F3410 — fundamentals → the dd_disciplines vocabulary ──────────────
+    # The two frameworks answer different questions: DD_DISCIPLINES holds the
+    # verification procedures and failure modes; the Standard holds what must be
+    # ESTABLISHED. This maps one onto the other so a discipline is marked covered
+    # only when the question behind it was actually answered. Disciplines absent
+    # from this map have no question yet and are honestly never auto-covered.
+    _FUNDAMENTAL_TO_DISCIPLINES: dict[int, tuple[str, ...]] = {
+        1: ("identity_verification",),
+        2: ("identity_verification",),
+        5: ("ubo_chain",),
+        6: ("ubo_chain", "operational_substance"),
+        10: ("financial_soundness",),
+        11: ("financial_soundness",),
+        13: ("sanctions_screening",),
+        14: ("pep_screening",),
+        15: ("adverse_media", "reputational_intelligence"),
+        16: ("regulatory_enforcement", "anti_bribery_corruption"),
+        17: ("litigation_history",),
+        18: ("regulatory_enforcement",),
+        20: ("operational_substance", "jurisdiction_country_risk"),
+    }
+
     # ── R-F157: discipline coverage check (Stage A wiring per ecosystem-audit) ──
     # Per dd_disciplines.py framework — for every entity_type, a defined set
     # of disciplines should be covered by a complete DD. This block surfaces
@@ -13995,34 +14017,64 @@ async def _orchestrate_dd_impl(
 
             return False
 
-        if _section_active(report.identity):
-            _covered.extend(["identity_verification", "sanctions_screening", "ubo_chain"])
-            # PEP screen typically rides on identity sub-calls
-            _covered.append("pep_screening")
-        if _section_active(report.network):
-            _covered.extend(["ubo_chain", "operational_substance"])
-        if _section_active(report.verification):
-            _covered.extend(["adverse_media"])  # partial — Stage B will deepen
-        if _section_active(report.compliance):
-            _covered.extend([
-                "jurisdiction_country_risk", "anti_bribery_corruption",
-                "regulatory_enforcement", "litigation_history",
-            ])
-            # Defence-specific compliance layers (when running defence DD)
-            if _entity_type in ("defence_broker", "defence_oem"):
-                _covered.extend([
-                    "end_use_verification", "reexport_diversion_risk",
-                    "technology_classification",
-                ])
-        if _section_active(report.digital):
-            _covered.extend(["adverse_media", "reputational_intelligence"])
-        # Commercial coherence layer (5c) covers contractual structure when commodity
-        if getattr(report, "commercial_coherence", None) and _section_active(report.commercial_coherence):
-            if _entity_type.startswith("commodity_"):
-                _covered.extend(["contractual_structure", "price_cap_attestation"])
-        if _section_active(report.synthesis):
-            # Synthesis touches financial soundness via aggregation
-            _covered.append("financial_soundness")
+        # ── R-F3410 — THE PROXY IS RETIRED ──────────────────────────────────
+        #
+        # What used to sit here mapped LAYERS THAT RAN onto DISCIPLINES COVERED:
+        #
+        #     if _section_active(report.identity):
+        #         _covered.extend(["identity_verification", "sanctions_screening",
+        #                          "ubo_chain"])
+        #         _covered.append("pep_screening")   # "typically rides on identity"
+        #     if _section_active(report.verification):
+        #         _covered.extend(["adverse_media"]) # a TRIANGULATION layer
+        #     if _section_active(report.synthesis):
+        #         _covered.append("financial_soundness")
+        #
+        # `_section_active` returns True on a populated `directors` list, so a report
+        # asserted `sanctions_screening` COVERED on runs where the screen returned
+        # `screened: False` — the exact state R-F3229 stopped rendering as "CLEAN ✅".
+        # It also could not pass: `defence_broker` requires 21 disciplines and this map
+        # could emit at most 15, so `gate_passes` was identically False. And no renderer
+        # ever read the result.
+        #
+        # Coverage is now MEASURED, not proxied: `dd_standard.assess` resolves each
+        # question against the fields the report actually carries. The disciplines below
+        # are derived FROM that assessment, so there is exactly one measure — keeping
+        # both alive is the two-aggregators-disagreeing failure CLAUDE.md §1 spent three
+        # R-numbers killing on the Phase A gates.
+        _std_assessment: dict = {}
+        try:
+            from . import dd_standard as _ddstd
+            _scope = getattr(report, "dd_scope", None) or {}
+            _std_assessment = _ddstd.assess(
+                report.as_dict(),
+                tier=str(_scope.get("tier") or "STANDARD"),
+                waivers=_scope.get("waivers"),
+                elections=_scope.get("elections"),
+            )
+            # A discipline counts as covered only when the question(s) behind it were
+            # ANSWERED — never because the layer that might have answered them ran.
+            _answered_fundamentals = {
+                _ddstd.QUESTIONS_BY_ID[_r["question_id"]].fundamental
+                for _r in (_std_assessment.get("resolutions") or [])
+                if _r.get("state") in ("CORROBORATED", "SINGLE_SOURCE")
+                and _r.get("question_id") in _ddstd.QUESTIONS_BY_ID
+            }
+            for _fund, _disciplines in _FUNDAMENTAL_TO_DISCIPLINES.items():
+                if _fund in _answered_fundamentals:
+                    _covered.extend(_disciplines)
+        except Exception as _std_err:
+            # A failed assessment must never manufacture coverage.
+            logger.warning("[R-F3410] DD Standard assessment failed: %s", _std_err)
+            _std_assessment = {"error": str(_std_err)[:200], "assessed": False}
+
+        # The remaining layer→discipline branches are gone with the rest of the proxy.
+        # SECTOR disciplines (end_use_verification, reexport_diversion_risk,
+        # technology_classification, contractual_structure, price_cap_attestation) have
+        # no DD Standard question yet, so they now report as NOT covered rather than
+        # being certified because the compliance layer happened to run. Coverage_pct
+        # will DROP for defence/commodity targets: that is the number becoming honest,
+        # not a regression. Give them questions to close them (fundamentals 21+).
 
         # De-dup
         _covered = sorted(set(_covered))
@@ -14031,10 +14083,31 @@ async def _orchestrate_dd_impl(
         # Annotate the report with the coverage result. Use a plain dict
         # attribute since ARKDDReport schema may not have a dedicated field;
         # downstream serialisation includes attributes via __dict__.
+        # R-F3410 — the measured checklist rides on the report. This is what
+        # `structured_view` renders, and what makes an unfulfilled ELECTION visible.
+        try:
+            report.dd_standard = _std_assessment
+        except Exception:
+            pass
+        if _std_assessment.get("elections_unfulfilled"):
+            # An ORDERED section that did not run is not a footnote. Surface it where
+            # the operator already looks, and never let the report read as complete.
+            for _e in _std_assessment["elections_unfulfilled"]:
+                report.data_gaps_summary.append(
+                    f"ORDERED SECTION NOT DELIVERED — {_e.get('question_id')}: "
+                    f"{_e.get('detail', '')[:180]}"
+                )
+            logger.warning(
+                "[R-F3410] %d ordered section(s) unfulfilled on %s: %s",
+                len(_std_assessment["elections_unfulfilled"]), report.run_id,
+                [e.get("question_id") for e in _std_assessment["elections_unfulfilled"]],
+            )
+
         report.discipline_coverage = {
             "entity_type_detected": _entity_type,
             "commodity_classification": _commodity_class if _is_commodity else None,
             "result": _coverage,
+            "derived_from": "dd_standard.assess (R-F3410) — MEASURED, not layer-proxied",
             "framework_version": "dd_disciplines.py R-F152",
             "note": (
                 "Stage A wiring (R-F157) — coverage based on which orchestrator "
