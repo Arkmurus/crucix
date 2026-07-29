@@ -1052,6 +1052,53 @@ def _multihop_answer(subject: str, hops: list[tuple[str, dict, dict]]) -> str:
     return " ".join(parts)
 
 
+def write_rows_guarded(
+    out: Path,
+    rows: list[dict],
+    *,
+    allow_shrink: bool = False,
+) -> int:
+    """Write a corpus, refusing to destroy an existing one with nothing.
+
+    This bit during the R-F3396 capture. The Companies House key was absent from
+    the shell, so every subject SKIPped with "no registry match", the capture
+    printed "wrote 0 validated multi-hop traces", and the writer truncated a
+    populated 23-row corpus to an empty file. Exit status 0, and the message
+    read like a successful run — a broken credential is indistinguishable from a
+    genuine empty result at the point of the write.
+
+    Zero rows into a file that already holds data is therefore refused. Zero
+    rows into a NEW file is fine: a first capture that finds nothing is a real
+    answer. A large shrink is only WARNED about, because contamination drops
+    legitimately remove rows and blocking those would train people to pass
+    --allow-shrink reflexively, which disarms the guard that matters.
+    """
+    out.parent.mkdir(parents=True, exist_ok=True)
+    prior = 0
+    if out.exists():
+        prior = sum(1 for ln in out.read_text(encoding="utf-8").splitlines() if ln.strip())
+
+    if not rows and prior and not allow_shrink:
+        raise ValueError(
+            f"refusing to overwrite {out} ({prior} rows) with 0 rows. A capture "
+            f"that yields nothing usually means a missing credential or an "
+            f"unreachable source, not an empty world. Fix the source, or pass "
+            f"allow_shrink=True if the corpus really should be emptied."
+        )
+    if prior and len(rows) < prior // 2:
+        print(
+            f"  WARNING: {out.name} shrinks {prior} -> {len(rows)} rows",
+            file=sys.stderr,
+        )
+
+    out.write_text(
+        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
+        encoding="utf-8",
+        newline="\n",
+    )
+    return len(rows)
+
+
 def write_multihop_corpus(
     traces: Iterable[dict],
     out: Path,
@@ -1074,11 +1121,7 @@ def write_multihop_corpus(
             print(f"  DROP {subject}: {errs[0]}", file=sys.stderr)
             continue
         kept.append(t)
-    out.write_text(
-        "\n".join(json.dumps(r, ensure_ascii=False) for r in kept) + ("\n" if kept else ""),
-        encoding="utf-8",
-    )
-    return len(kept)
+    return write_rows_guarded(out, kept)
 
 
 _CORP_SUFFIXES = (
@@ -1157,23 +1200,25 @@ def write_corpus(
             print(f"  DROP {subject}: {errs[0]}", file=sys.stderr)
             continue
         kept.append(trace)
-    out.write_text(
-        "\n".join(json.dumps(r, ensure_ascii=False) for r in kept) + ("\n" if kept else ""),
-        encoding="utf-8",
-    )
-    return len(kept)
+    return write_rows_guarded(out, kept)
 
 
 # ── live capture (public-record subjects only) ─────────────────────────────
 
-DEFAULT_SUBJECTS: list[str] = [
-    # sanctions-listed (public record)
-    "Rosoboronexport", "Wagner Group", "Bank Rossiya", "Kalashnikov Concern",
-    "Islamic Revolutionary Guard Corps", "Sberbank", "Gazprombank",
-    # listed public companies expected clean
-    "Marks and Spencer Group plc", "BAE Systems plc", "Rolls-Royce Holdings plc",
-    "Unilever plc", "Tesco plc", "Siemens AG", "Airbus SE",
-]
+def _default_subjects() -> list[str]:
+    """R-F3396 — the shared roster, not a private copy of one.
+
+    This axis used to hold its own fourteen-name list here. A second roster in
+    a second file is a drift surface: widening `_subjects.py` would silently
+    leave the base skill training on the original fourteen. Imported lazily so
+    the module keeps importing in environments without the roster present.
+    """
+    from scripts.train._subjects import single_hop_roster
+
+    return single_hop_roster()
+
+
+DEFAULT_SUBJECTS: list[str] = _default_subjects()
 
 
 async def capture_live(subjects: list[str], base: str, token: str) -> list[tuple[str, dict]]:

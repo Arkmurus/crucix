@@ -27,7 +27,10 @@ from scripts.train.build_tooluse_corpus import (
 from scripts.train._subjects import AMBIGUOUS_SHORT, UK_REGISTRY_SUBJECTS
 
 # Short names are where the register misleads; the full names are the control.
-SUBJECTS = AMBIGUOUS_SHORT + UK_REGISTRY_SUBJECTS[:8]
+# R-F3396 — the slice was a fixed [:8], so widening the roster could never
+# reach this axis. Take the full registry roster: disambiguation is exactly
+# the skill that needs breadth, not a sample of it.
+SUBJECTS = AMBIGUOUS_SHORT + UK_REGISTRY_SUBJECTS
 
 
 async def capture(subjects: list[str]) -> list[dict]:

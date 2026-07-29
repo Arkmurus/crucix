@@ -70,6 +70,13 @@ async def capture(subjects: list[str]) -> list[dict]:
             if errs:
                 print(f"  SKIP {s}/{t['label']}: {errs[0]}", file=sys.stderr)
                 continue
+            # R-F3396 — mark the axis. These reuse the standard builders and so
+            # inherited `tooluse_trace` / `tooluse_challenge`, making them
+            # indistinguishable from ordinary rows. The split stratifies by
+            # label, so the whole "the source is down, say so" axis could land
+            # on one side and the eval would report nothing about the honesty
+            # behaviour that matters most.
+            t["label"] = f"{t['label']}_unavailable"
             traces.append(t)
         print(f"  captured {s:<26} source_unavailable (real)", file=sys.stderr)
     return traces
