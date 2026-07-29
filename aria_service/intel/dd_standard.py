@@ -880,12 +880,26 @@ def _gap_mentions(r: dict, *needles: str) -> bool:
 
 
 def _register_reader(*, sources: tuple[str, ...], gap_needles: tuple[str, ...],
-                     remedy: str) -> Reader:
+                     remedy: str, unavailable_needles: tuple[str, ...] = ()) -> Reader:
     """Build a reader for a question answered by one or more registers.
 
     ANSWERED means a register produced a finding — including a finding that says
     'nothing on file', because an empty register is a real answer. A data gap naming the
     register means it was tried and did not answer. Neither present means nothing looked.
+
+    R-F3447 — `unavailable_needles` separates NEVER ATTEMPTED from ATTEMPTED AND FAILED.
+    Found by a live DD: an elected CCJ search came back `source_failed` with the detail
+    "the source was searched and did not answer" when there is no Registry Trust contract,
+    so the register was never contacted at all. The two are not interchangeable —
+    `source_failed` is the register's fault and tells the reader to RETRY, while an
+    unconfigured source is ours and retrying changes nothing until a contract exists.
+    Telling a buyer a judgment register "did not answer" when nobody asked it is the same
+    class of dishonesty as a clean line on an unsearched register.
+
+    Gaps matching these needles resolve to NOT_RUN, which for an ELECTED question is what
+    R-F3408 renders as "ORDERED BUT NOT SEARCHED — must not be presented as covered or
+    charged for". Checked BEFORE `gap_needles`, since an unavailability gap usually names
+    the register too and would otherwise be swallowed by the generic branch.
     """
     def _read(r: dict, q: "Question") -> Resolution:
         hits = _findings_from(r, *sources)
@@ -897,6 +911,12 @@ def _register_reader(*, sources: tuple[str, ...], gap_needles: tuple[str, ...],
                 q.id, state,
                 reason="; ".join(str(h.get("title") or "")[:70] for h in hits[:2]),
                 origins=origins,
+            )
+        if unavailable_needles and _gap_mentions(r, *unavailable_needles):
+            return Resolution(
+                q.id, EvidenceState.NOT_RUN.value,
+                reason="the register was NOT searched — no configured backend for it",
+                remedy=remedy,
             )
         if _gap_mentions(r, *gap_needles):
             return Resolution(
@@ -945,6 +965,10 @@ _read_tribunal = _register_reader(
 _read_ccj = _register_reader(
     sources=("registry_trust.ccj",),
     gap_needles=("ccj search", "ccj register", "county court judgment"),
+    # R-F3447 — the phrases _run_ccj_search and _preflight_elections emit when the register
+    # was never contacted. Without these, a LIVE DD reported the CCJ question as
+    # "searched and did not answer" while no Registry Trust contract exists.
+    unavailable_needles=("could not run", "cannot be searched", "not configured"),
     # R-F3442 — this question is ORDERED-ONLY, so NOT_RUN is the correct and common
     # answer, not a defect. What must never happen is NOT_RUN reading as clean: IS-17b's
     # own pass condition says a CCJ's ABSENCE is a material finding, so an unsearched

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3447,
+  "next_available": 3448,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28516,6 +28516,15 @@
       "commit_sha": "331d9171",
       "notes": null,
       "shipped_at": "2026-07-29T21:52:23Z"
+    },
+    {
+      "r_number": "R-F3447",
+      "title": "an UNCONFIGURED register reported as 'searched and did not answer' - never attempted is not attempted-and-failed",
+      "claimed_at": "2026-07-29T22:08:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
