@@ -103,7 +103,7 @@ TSSH -p "$PORT" root@"$HOST" \
 log "launching smoke SFT detached…"
 TSSH -p "$PORT" root@"$HOST" \
   "rm -f /workspace/eval/_cycle_status; BASE_MODEL='$BASE_MODEL' setsid nohup bash /workspace/pod_smoke_sft.sh >/workspace/logs/smoke_cycle.log 2>&1 </dev/null & echo STARTED" \
-  | grep -q STARTED || { log "FATAL launch"; exit 1; }
+  | grep -q STARTED || { log "FATAL launch - ssh did not return STARTED (a launch that holds the channel open times out silently)"; exit 1; }
 
 # ---- 6. poll (bounded) -----------------------------------------------------
 log "polling (cap $((POLL_CAP*2)) min)…"; RC=""

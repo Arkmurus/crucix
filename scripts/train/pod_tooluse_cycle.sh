@@ -16,6 +16,16 @@
 # trap entirely.
 set -uo pipefail
 
+# R-F3414 - the runner owns its own working directory. It used to be launched as
+# `cd /workspace/crucix && ... setsid nohup bash ... &`, and that wrapper is what
+# hung the launch: `&` backgrounds the whole `cd && ...` AND-LIST, which bash runs
+# in a SUBSHELL, and only the inner command carried redirects. The subshell held
+# ssh's stdout open, ssh never saw EOF, and the call sat there until the 75s TSSH
+# timeout and was reported as a bare "FATAL launch". Owning the cwd here lets the
+# launch line redirect EVERY fd, which is what allows ssh to return.
+cd /workspace/crucix 2>/dev/null || true
+export PYTHONPATH="/workspace/crucix${PYTHONPATH:+:$PYTHONPATH}"
+
 BASE_MODEL="${BASE_MODEL:-mistralai/Mistral-7B-Instruct-v0.3}"
 TRAIN_FILE="${TRAIN_FILE:-/workspace/datasets/aria_tooluse_train.jsonl}"
 EVAL_FILE="${EVAL_FILE:-/workspace/datasets/aria_tooluse_eval.jsonl}"

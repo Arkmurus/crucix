@@ -98,3 +98,49 @@ def test_runner_refuses_to_claim_success_without_an_adapter():
     src = RUNNER.read_text(encoding="utf-8")
     assert "adapter_config.json" in src and "FATAL" in src, (
         "a cycle that produced no LoRA is a failure, not a pass")
+
+
+# --------------------------------------------------------------------------
+# R-F3414 — a detached launch must not hold the SSH channel open
+# --------------------------------------------------------------------------
+
+DRIVERS = ["smoke_cycle.sh", "tooluse_cycle.sh"]
+
+
+@pytest.mark.parametrize("name", DRIVERS)
+def test_detached_launch_redirects_every_fd(name):
+    """`cd X && ... &` backgrounds an AND-LIST, which bash runs in a SUBSHELL.
+
+    Only the inner command carried redirects, so the subshell kept ssh's stdout
+    open, ssh never saw EOF, and the launch hung for the full 75s TSSH timeout
+    before being reported as a bare "FATAL launch". A pod was created, paid for
+    and thrown away for it.
+
+    The rule: the backgrounded command must carry its own >log 2>&1 </dev/null
+    and must not be wrapped in a `cd ... &&` prefix. A runner that needs a
+    working directory sets it itself.
+    """
+    p = Path(__file__).resolve().parents[2] / "scripts" / "train" / name
+    if not p.exists():
+        pytest.skip(f"{name} not present")
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if "setsid nohup bash" not in line:
+            continue
+        assert ">/workspace/logs/" in line, f"{name}: detached launch without stdout redirect"
+        assert "2>&1" in line, f"{name}: detached launch without stderr redirect"
+        assert "</dev/null" in line, f"{name}: detached launch without stdin redirect"
+        assert "cd " not in line.split("setsid")[0], (
+            f"{name}: `cd ... &&` before a backgrounded launch creates a subshell "
+            f"that holds the ssh channel open")
+
+
+@pytest.mark.parametrize("name", DRIVERS)
+def test_a_failed_launch_says_why(name):
+    """A bare "FATAL launch" cost a diagnosis cycle."""
+    p = Path(__file__).resolve().parents[2] / "scripts" / "train" / name
+    if not p.exists():
+        pytest.skip(f"{name} not present")
+    src = p.read_text(encoding="utf-8")
+    if "FATAL launch" in src:
+        assert "FATAL launch -" in src or "FATAL launch —" in src, (
+            f"{name}: launch failure must name the likely cause")

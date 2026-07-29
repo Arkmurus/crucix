@@ -32,6 +32,7 @@ BASE_MODEL="${BASE_MODEL:-mistralai/Mistral-7B-Instruct-v0.3}"
 PYBIN="${PYBIN:-.venv/Scripts/python.exe}"
 RETRY_SECS=${RETRY_SECS:-90}
 MAX_TRIES=${MAX_TRIES:-15}
+EPOCHS=${EPOCHS:-3}
 POLL_CAP=${POLL_CAP:-90}          # x 120s = 1.5h hard cap on the driver's wait
 DEADLINE=${DEADLINE:-21600}       # 3h absolute cap for the on-pod watcher
 
@@ -107,8 +108,8 @@ TSSH -p "$PORT" root@"$HOST" \
 
 log "launching smoke SFT detached…"
 TSSH -p "$PORT" root@"$HOST" \
-  "rm -f /workspace/eval/_cycle_status; cd /workspace/crucix && BASE_MODEL='$BASE_MODEL' EPOCHS=3 PYTHONPATH=/workspace/crucix setsid nohup bash /workspace/pod_tooluse_cycle.sh >/workspace/logs/tooluse_cycle.log 2>&1 </dev/null & echo STARTED" \
-  | grep -q STARTED || { log "FATAL launch"; exit 1; }
+  "rm -f /workspace/eval/_cycle_status; BASE_MODEL='$BASE_MODEL' EPOCHS=$EPOCHS setsid nohup bash /workspace/pod_tooluse_cycle.sh >/workspace/logs/tooluse_cycle.log 2>&1 </dev/null & echo STARTED" \
+  | grep -q STARTED || { log "FATAL launch - ssh did not return STARTED (a launch that holds the channel open times out silently)"; exit 1; }
 
 # ---- 6. poll (bounded) -----------------------------------------------------
 log "polling (cap $((POLL_CAP*2)) min)…"; RC=""
