@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3438,
+  "next_available": 3439,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28402,27 +28402,40 @@
       "title": "resolver 'built' is a hand-declared flag that drifted; derive it and add live availability",
       "claimed_at": "2026-07-29T17:39:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b5428ee0",
+      "notes": null,
+      "shipped_at": "2026-07-29T18:35:35Z"
     },
     {
       "r_number": "R-F3436",
       "title": "pre-run selection of gated DD sources: required is derived, elected-but-unavailable is disclosed",
       "claimed_at": "2026-07-29T17:45:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b5428ee0",
+      "notes": null,
+      "shipped_at": "2026-07-29T18:35:35Z"
     },
     {
       "r_number": "R-F3437",
       "title": "New DD form: pre-select gated sources before the run (backend scope was unreachable from the UI)",
       "claimed_at": "2026-07-29T17:54:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b5428ee0",
+      "notes": null,
+      "shipped_at": "2026-07-29T18:35:36Z"
+    },
+    {
+      "r_number": "R-F3438",
+      "title": "corpus never demonstrates refusing a memory:// citation - it silently drops them, and silence teaches nothing",
+      "claimed_at": "2026-07-29T18:22:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e3ca6f17",
+      "notes": null,
+      "shipped_at": "2026-07-29T18:37:06Z"
     }
   ]
 }
