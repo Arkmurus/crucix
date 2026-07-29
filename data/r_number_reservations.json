@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3440,
+  "next_available": 3441,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28441,6 +28441,15 @@
       "r_number": "R-F3439",
       "title": "root-cause the suite hang: live DNS + the 120s thread-method timeout kills the run with no summary",
       "claimed_at": "2026-07-29T18:37:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3440",
+      "title": "two tests reach the live internet; one passes vacuously because the SSRF block returns the value it asserts",
+      "claimed_at": "2026-07-29T19:21:14Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

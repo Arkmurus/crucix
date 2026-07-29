@@ -31,9 +31,17 @@ class TestUniversalWebCrawler:
         assert "https://example.com/page1" in page.links
 
     @pytest.mark.asyncio
-    async def test_fetch_page_success(self):
-        """fetch_page should return a CrawledPage on success."""
+    async def test_fetch_page_success(self, monkeypatch):
+        """fetch_page should return a CrawledPage on success.
+
+        R-F3440 — httpx was already mocked correctly, but `_fetch_page` routes through
+        `url_safety.safe_get` (web_crawler.py:109), whose SSRF guard RESOLVES the hostname
+        to classify it. That is real DNS on a unit-test path. Stub the resolution seam so
+        the classification is deterministic and offline.
+        """
+        from aria_service.intel import url_safety as _us
         from aria_service.intel.web_crawler import UniversalWebCrawler
+        monkeypatch.setattr(_us, "_ips_for_host", lambda h: ["93.184.216.34"])
         crawler = UniversalWebCrawler()
         with patch("httpx.AsyncClient") as mock_client:
             mock_response = MagicMock()
@@ -47,10 +55,32 @@ class TestUniversalWebCrawler:
         assert "Content" in page.text
 
     @pytest.mark.asyncio
-    async def test_fetch_page_failure(self):
-        """fetch_page should return None on failure."""
+    async def test_fetch_page_failure(self, monkeypatch):
+        """fetch_page should return None on failure.
+
+        R-F3440 — this passed VACUOUSLY whenever DNS was unavailable: the SSRF guard fails
+        closed and `_fetch_page` returns None, which is exactly what this asserts. So it
+        was green whether or not the mocked failure path worked at all. Pinning the
+        resolver makes the None it observes come from the CONNECTION failure it is testing.
+        """
+        from aria_service.intel import url_safety as _us
         from aria_service.intel.web_crawler import UniversalWebCrawler
+        monkeypatch.setattr(_us, "_ips_for_host", lambda h: ["93.184.216.34"])
         crawler = UniversalWebCrawler()
+
+        # Control: with the SAME resolver stub and no injected failure, the page IS
+        # returned. Without this, "returns None" proves nothing about the failure path.
+        with patch("httpx.AsyncClient") as ok_client:
+            ok_resp = MagicMock()
+            ok_resp.status_code = 200
+            ok_resp.headers = {"content-type": "text/html"}
+            ok_resp.text = "<html><title>T</title><body>C</body></html>"
+            ok_client.return_value.__aenter__.return_value.get = AsyncMock(return_value=ok_resp)
+            control = await crawler._fetch_page("https://example.com", 0)
+        assert control is not None, (
+            "the control must succeed, or this test cannot distinguish a connection "
+            "failure from the SSRF guard blocking the URL")
+
         with patch("httpx.AsyncClient") as mock_client:
             mock_client.return_value.__aenter__.return_value.get = AsyncMock(side_effect=Exception("Connection failed"))
             page = await crawler._fetch_page("https://example.com", 0)
