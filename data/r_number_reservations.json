@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3434,
+  "next_available": 3435,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28384,6 +28384,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3434",
+      "title": "bound the generation pass: 488 rows at the measured 14.6s/row would overrun the cycle deadline",
+      "claimed_at": "2026-07-29T16:48:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b4f731e6",
+      "notes": null,
+      "shipped_at": "2026-07-29T16:49:35Z"
     }
   ]
 }
