@@ -770,9 +770,36 @@ allowed, because `is_safe_url` legitimately resolves them to classify). Blast ra
 improved rather than exempted — it now pins DNS rebinding and fail-closed resolution, which the live
 version could not test at all.
 
-**Stated honestly:** this removes a proven unbounded external dependency. It is **not** established
-that DNS caused the intermittent suite hang; no stack dump was ever caught mid-hang. The hang
-remains open.
+**Update — the hang is now ROOT-CAUSED (R-F3439).** The paragraph that stood here said the DNS
+attribution was unproven, because no stack dump had been caught mid-hang. Rather than keep waiting
+for a ~1-in-3 event, the condition it needs was **reproduced**: a plugin that delays `getaddrinfo`
+for external hostnames, simulating an unhealthy resolver, with every other variable held constant.
+
+| Arm | Condition | Result |
+|---|---|---|
+| Control | degraded resolver, guard OFF | **273.6s**, 6 stalled lookups |
+| Fix | *same* degraded resolver, guard ON | **15.4s**, 0 stalled lookups |
+
+Same file, same six tests. **17.7×.** The file in question tests *jurisdiction-string normalisation*
+and has no business touching a network at all.
+
+On the full DD set the same condition produced the hang signature outright: ordinary tests inflated
+to 45–92s (`test_valid_iso2_is_unchanged`, a string test, reached **91.68s**), only 710 of 1090 tests
+finished, and **no summary line was ever printed**. That last detail is the whole reason this went
+undiagnosed for so long: `pytest.ini` sets `timeout = 120`, and on Windows pytest-timeout uses the
+THREAD method, which kills the process. A test slowed past 120s by a stalling resolver takes the
+whole run down with no summary — indistinguishable from a hang, and impossible to attribute to the
+test that caused it.
+
+Two of my own hypotheses died on evidence first, and both are worth recording because they are the
+obvious ones: there is **no thread leak** (peak 6 threads, final census 3), and it is **not
+order-dependence** (`pytest-randomly` is not installed, so the `-p no:randomly` in this repo's notes
+has always been a no-op).
+
+**The remaining honest gap:** the guard is OFF BY DEFAULT, so it protects whoever switches it on,
+not a default run. Flipping the default is justified by the evidence above but must not be done on
+that evidence alone — the off-by-default choice was itself deliberate and measured, so it needs a
+full-suite blast-radius measurement naming every test that breaks.
 
 ---
 
@@ -800,11 +827,12 @@ remains open.
   **UNKNOWN**~~ — **RESOLVED (§10.4): the audit was run. 5 of 5 pre-fix reports were affected,
   16 directors were never screened, and no report disclosed the omission.**
 
-- **Added by Part 10.** Whether the intermittent suite hang is caused by live DNS: **UNKNOWN**.
-  R-F3433 proves the suite performed live resolution and removes it, but no stack dump was captured
-  mid-hang, so the attribution is unproven. Resist the temptation to close the hang on this — a
-  plausible mechanism that was never observed firing is exactly the certify-by-absence shape this
-  document spends Part 3 on.
+- ~~Whether the intermittent suite hang is caused by live DNS: **UNKNOWN**~~ — **RESOLVED (§10.5):
+  reproduced under a controlled degraded resolver, 273.6s → 15.4s with the guard on, and the full
+  DD set produced the no-summary hang signature.** The lesson worth keeping is the method, not the
+  answer: the event was too rare to wait for, so the CONDITION it needs was manufactured and the
+  fix tested against it. A mechanism you can switch on and off is proven; one you merely observe
+  correlating is not.
 
 - Find Case Law (National Archives) licensing: the data is free, but the **Open Justice Licence bars
   computational analysis without a separate application**. Whether ARIA's use counts as
