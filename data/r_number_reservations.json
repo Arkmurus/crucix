@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3413,
+  "next_available": 3414,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28171,6 +28171,16 @@
       "commit_sha": "cad60ae6",
       "notes": null,
       "shipped_at": "2026-07-29T11:16:21Z"
+    },
+    {
+      "r_number": "R-F3413",
+      "title": "tool-use eval harness: score a served model against the same honesty rules the corpus enforces",
+      "claimed_at": "2026-07-29T11:20:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7cf04113",
+      "notes": null,
+      "shipped_at": "2026-07-29T11:25:30Z"
     }
   ]
 }
