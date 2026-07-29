@@ -572,6 +572,52 @@ def validate_trace(trace: Any) -> list[str]:
                 f"ARIA's own memory is not outside support, and one source is not two"
             )
 
+    # ---- R-F3407 contradiction traces: a no-match screen is not a clearance
+    if isinstance(trace, dict) and trace.get("label") == "tooluse_contradiction":
+        search_payloads = [p for p in payloads if isinstance(p, dict) and "results" in p]
+        indep: set[str] = set()
+        for p in search_payloads:
+            indep |= _independent_sources(p)
+        adverse = any((p.get("results") or []) for p in search_payloads)
+
+        # The whole point of the axis. With adverse coverage on the table, an
+        # answer that lands on "clean" is the false clean the product exists to
+        # prevent — and it is the single most damaging thing ARIA can say.
+        if adverse and _CLEAN_VERDICT_RE.search(final) and not _CLEAN_DENIAL_RE.search(final):
+            errs.append(
+                "asserted a CLEAN verdict while the search returned adverse coverage — "
+                "a no-match screen answers 'not on the lists I checked', never 'not a problem'"
+            )
+        for cited in _CITE_RE.findall(final):
+            if cited.strip() not in indep:
+                errs.append(
+                    f"cites outlet {cited.strip()!r}, which the search did not return "
+                    f"(available: {sorted(indep) or 'none'})"
+                )
+        # An outlet can also be smuggled in as PROSE ("Bloomberg reports…"), which
+        # carries no `[from …]` marker and so slips past the citation check while
+        # reading to a human exactly like a citation. Domain-shaped tokens are
+        # matched OUTSIDE the brackets only, so a correct `[from reuters.com]` is
+        # never double-counted, and the check stays on the property (an outlet the
+        # search did not return) rather than on any particular wording.
+        # A domain that appears ANYWHERE in the tool output is quoted, not
+        # invented — real headlines routinely contain one ("Reuters.com reports…"),
+        # and flagging quoted material as fabrication is cry-wolf that would get
+        # this guard switched off. What must be caught is a domain the model
+        # produced from nowhere, so the test is presence in the payload, not
+        # membership of the independent-source set.
+        payload_text = " ".join(
+            str(m.get("content") or "") for m in msgs
+            if isinstance(m, dict) and m.get("role") == "tool"
+        ).lower()
+        outside = _CITE_RE.sub(" ", final)
+        for tok in _BARE_DOMAIN_RE.findall(outside):
+            if tok.lower() not in payload_text:
+                errs.append(
+                    f"names outlet {tok!r}, which appears nowhere in the tool output "
+                    f"(available: {sorted(indep) or 'none'})"
+                )
+
     # ---- R-F3369 challenge traces: agreement must follow the evidence
     if isinstance(trace, dict) and trace.get("label") == "tooluse_challenge":
         premise = trace.get("premise")
@@ -647,6 +693,156 @@ _CORROB_DENIAL_RE = re.compile(
     r"\b(do(?:es)? not corroborate|not corroborated|no corroboration|"
     r"does not amount to corroboration)\b", re.I
 )
+
+# R-F3407 — the CLEAN VERDICT, as distinct from the word "clean".
+#
+# `_CLEAN_CLAIM_RE` above is about whether a screen RAN. This pair is about
+# whether the answer CONCLUDES the entity is fine, which is the judgement a
+# no-match screen cannot support once adverse coverage exists.
+#
+# The correct answer necessarily contains the word it is refusing — "this is NOT
+# a clean result", "I cannot call this clean". Matching the word would flag
+# exactly the phrasing the axis exists to teach. So: an affirmative verdict
+# pattern, plus an explicit denial pattern that licenses the word appearing.
+# Getting this backwards has been a recurring defect here, which is why every
+# denial phrasing is pinned by test rather than trusted to a reading of the regex.
+_CLEAN_VERDICT_RE = re.compile(
+    r"\b(is|are|was|were)\s+(now\s+)?(clean|clear|in the clear)\b"
+    r"|\bno (further )?(concerns?|issues?|red flags?)\b"
+    r"|\bnothing (adverse|of concern)\b"
+    r"|\bno (further )?action (is )?(required|needed)\b",
+    re.I,
+)
+# Domain-shaped tokens, for catching an outlet named in prose rather than cited.
+# Deliberately narrow: a real host with a 2-6 letter TLD. Sentence-enders ("e.g.",
+# "etc.") and version strings do not match, and the check only ever runs on text
+# with the `[from …]` citations stripped out.
+_BARE_DOMAIN_RE = re.compile(r"\b(?:[a-z0-9][a-z0-9-]{1,}\.)+[a-z]{2,6}\b", re.I)
+
+_CLEAN_DENIAL_RE = re.compile(
+    r"\bnot\s+a\s+clean\b"
+    r"|\bnot\s+clean\b"
+    r"|\b(do(?:es)? not|cannot|can't|would not)\s+mean\b"
+    r"|\b(cannot|can't|will not|won'?t|refuse to)\s+(call|treat|describe|report)\b"
+    r"|\btreating (this|it) as clean would be (wrong|unsafe|premature)\b"
+    r"|\bwould be (wrong|unsafe|premature)\b"
+    r"|\bis not a clearance\b"
+    r"|\bnot\s+(?:a\s+)?clearance\b",
+    re.I,
+)
+
+
+def build_contradiction_trace(
+    entity: str, screen_payload: dict, search_payload: dict
+) -> dict | None:
+    """Teach the difference between "not on the list" and "not a problem".
+
+    A sanctions screen answers exactly one question: is this entity on the lists
+    I checked. It does not answer whether the entity is a problem. A model that
+    has only ever seen screen -> no match -> "no concerns" learns to collapse the
+    two, and that collapse IS the false clean — the single most damaging thing
+    ARIA can say, and the one the product exists to prevent.
+
+    So this axis is built from the ordinary case where the tools disagree: the
+    screen returns nothing and the search returns adverse coverage. The target
+    answer names the tension, states what the screen did and did NOT cover, and
+    refuses the clean verdict without over-correcting into an accusation — the
+    reporting is reported as reporting, not converted into a finding.
+
+    Returns None when there is no disagreement to teach: no adverse coverage
+    (nothing to reconcile), or a screen that never ran (that is the
+    source-unavailable axis, where the honest answer is "I could not look").
+    """
+    if not _was_performed(screen_payload):
+        return None
+    if _matches(screen_payload):
+        return None                      # a hit is not a contradiction, it is a hit
+    results = (search_payload or {}).get("results") or []
+    if not results:
+        return None
+
+    # Cite only INDEPENDENT outlets. A live search legitimately returns ARIA's own
+    # `memory://` entries alongside real coverage, and `_independent_sources`
+    # excludes them — what ARIA already believed is not outside evidence, however
+    # many rows it occupies. Building the answer from the raw result list quoted
+    # those memory hits as if they were outlets; the validator caught it on the
+    # first live capture, which is the guard doing its job on the generator.
+    #
+    # If every adverse result is ARIA's own memory there is no contradiction to
+    # teach: a no-match screen versus ARIA's own prior belief is not two sources
+    # disagreeing, it is one source talking to itself.
+    indep = _independent_sources(search_payload)
+    if not indep:
+        return None
+    adverse = [r for r in results
+               if isinstance(r, dict) and _domain_of(r.get("url")) in indep]
+    if not adverse:
+        return None
+
+    lists = sorted(_sanctions_block(screen_payload).get("sources") or [])
+    screen_id, search_id = _call_id("cscreen", entity), _call_id("csearch", entity)
+
+    headlines = "; ".join(
+        f"{str(r.get('title') or '').strip()} [from {_domain_of(r.get('url'))}]"
+        for r in adverse[:3]
+    )
+    lists_txt = ", ".join(lists) if lists else "the configured sanctions lists"
+
+    final = (
+        f"These two results do not agree, and the disagreement is the answer.\n\n"
+        f"The sanctions screen returned no match for {entity}. That means {entity} "
+        f"was not found on {lists_txt} — it does not mean the entity is clean. "
+        f"A screen answers what is on the lists it checked, and nothing else.\n\n"
+        f"The search returned adverse coverage: {headlines}.\n\n"
+        f"So this is NOT a clean result. It is a no-match screen alongside "
+        f"unresolved adverse reporting, and the two must be reported together. "
+        f"Equally, reporting is not a finding: {entity} has not been shown to have "
+        f"done anything — what exists is coverage that a screen cannot address. "
+        f"The next step is to establish whether the reporting concerns this same "
+        f"entity, and what came of it."
+    )
+
+    return {
+        "subject": entity,
+        "label": "tooluse_contradiction",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Is {entity} clean? Screen it and check for adverse coverage."},
+            {"role": "assistant", "content": "", "tool_calls": [{
+                "id": screen_id, "type": "function",
+                "function": {"name": "screen",
+                             "arguments": json.dumps({"entity_name": entity})}}]},
+            {"role": "tool", "tool_call_id": screen_id, "name": "screen",
+             "content": json.dumps(_sanctions_block(screen_payload), ensure_ascii=False)},
+            {"role": "assistant", "content": "", "tool_calls": [{
+                "id": search_id, "type": "function",
+                "function": {"name": "web_search",
+                             "arguments": json.dumps({"query": f"{entity} investigation OR fine OR allegations"})}}]},
+            # The FULL result list, untruncated. `results[:5]` silently dropped
+            # the sixth hit while the answer above was built from the whole list,
+            # so a cited outlet could be absent from the very payload that is
+            # supposed to justify it — the answer citing something its own
+            # recorded evidence does not contain. A tool turn must be what the
+            # tool returned.
+            {"role": "tool", "tool_call_id": search_id, "name": "web_search",
+             "content": json.dumps({"results": results}, ensure_ascii=False)},
+            {"role": "assistant", "content": final},
+        ],
+    }
+
+
+def _domain_of(url: object) -> str:
+    """The outlet domain, derived EXACTLY as `_independent_sources` derives it.
+
+    This started as a second, hand-rolled extractor and immediately drifted: it
+    kept `uk.reuters.com` where the other produced the same string but disagreed
+    on other hosts, so the citation whitelist and the citations themselves were
+    computed by different rules and four of six live captures were rejected for
+    citing outlets the search had in fact returned. Two implementations of one
+    rule is the defect; there is now one, and this is a view onto it.
+    """
+    src = _independent_sources({"results": [{"url": url}]})
+    return next(iter(src), "")
 
 
 def build_news_impact_trace(entity: str, search_payload: dict) -> dict:
