@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3406,
+  "next_available": 3408,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28098,6 +28098,24 @@
       "r_number": "R-F3405",
       "title": "make public ARIA model card evidence based",
       "claimed_at": "2026-07-29T09:52:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3406",
+      "title": "DD scope selection: opting out of a baseline check is a WAIVER, never a toggle",
+      "claimed_at": "2026-07-29T10:03:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3407",
+      "title": "corpus axis: contradiction traces - a screen with no match plus adverse coverage is NOT a clean verdict",
+      "claimed_at": "2026-07-29T10:11:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

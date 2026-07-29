@@ -178,6 +178,75 @@ class AppliesTo(str, Enum):
 # ═══════════════════════════════════════════════════════════════════════════
 
 @dataclass(frozen=True)
+class Waiver:
+    """R-F3406 — a named person decided not to pursue a question, and said why.
+
+    THE DESIGN PROBLEM. The operator needs to scope a run — not every counterparty
+    warrants a sanctions screen, and the OpenSanctions monthly quota is finite (it was
+    EXHAUSTED on 2026-07-29: HTTP 429 on every screen). The obvious implementation is a
+    tick box, and on a compliance product a tick box is dangerous: an unticked check
+    produces a report with no sanctions section, which reads exactly like a report whose
+    sanctions section found nothing. That is a false clean created by the UI.
+
+    So opting out is modelled as a WAIVER, never a toggle, and the distinction is
+    load-bearing in four places:
+
+      1. It carries WHO and WHY. An auditor asking "why was this not screened?" gets a
+         name and a reason, not silence. Same contract as
+         `vetting.models.RequirementWaiver`, whose docstring states the rule this
+         inherits: "the one thing that must not be possible here is a file that looks
+         complete because someone quietly stopped asking."
+      2. WAIVED stays IN the denominator. NOT_APPLICABLE leaves it (the question was
+         never asked of this subject); WAIVED does not (the question applies and someone
+         declined it). So coverage FALLS when you waive — which is the honest arithmetic.
+      3. WAIVED is never `answered`, so it can never render as clean.
+      4. Waiving a SIMPLIFIED-tier question sets `baseline_waived`, because declining a
+         baseline check is a different statement from declining an enhanced one and
+         belongs in the headline rather than a footnote.
+
+    NEVER conflate a waiver with an outage. "We chose not to screen" and "the source was
+    unreachable" have different remedies and different liability; the second is
+    ATTEMPTED_INCONCLUSIVE and is set by the reader, never by this.
+    """
+    question_id: str
+    waived_by: str
+    reason: str
+    waived_at: str = ""
+
+    def is_valid(self) -> bool:
+        """A waiver with no name or no reason is an anonymous opt-out — the thing this
+        class exists to prevent. Invalid waivers are DISCARDED, so the question falls
+        back to being genuinely assessed rather than silently dropped."""
+        return bool(
+            str(self.question_id or "").strip()
+            and str(self.waived_by or "").strip()
+            and str(self.reason or "").strip()
+        )
+
+
+def _coerce_waivers(waivers: Any) -> dict[str, Waiver]:
+    """Accept Waiver objects or plain dicts (the API/JSON path). Silently ignoring a
+    malformed waiver is correct: the question then gets assessed normally, which is the
+    fail-safe direction."""
+    out: dict[str, Waiver] = {}
+    for w in (waivers or []):
+        if isinstance(w, Waiver):
+            cand = w
+        elif isinstance(w, dict):
+            cand = Waiver(
+                question_id=str(w.get("question_id") or "").strip(),
+                waived_by=str(w.get("waived_by") or "").strip(),
+                reason=str(w.get("reason") or "").strip(),
+                waived_at=str(w.get("waived_at") or "").strip(),
+            )
+        else:
+            continue
+        if cand.is_valid():
+            out[cand.question_id] = cand
+    return out
+
+
+@dataclass(frozen=True)
 class Resolution:
     """One question's terminal answer. `state` is never inferred from absence."""
     question_id: str
@@ -239,6 +308,155 @@ class Question:
         if et == "person":
             return self.applies_to == AppliesTo.INDIVIDUAL.value
         return self.applies_to == AppliesTo.ENTITY.value
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# RESOLVER REGISTRY — R-F3406
+#
+# A question names the sources that MAY answer it; this registry says what each source
+# actually is. The split matters because the catalogue is deliberately written ahead of
+# the adapters: a question can be wired now and bound to an API later, and until then it
+# must report "not established, here is what would establish it" rather than either
+# passing or looking like a capability we have.
+#
+# `access` is the commercial fact, and it is the operator's decision to take, not ours
+# (§6 puts the burden of proof on any new third party; §17 caps spend). Every value below
+# was PROBED on 2026-07-29, not read off documentation.
+# ═══════════════════════════════════════════════════════════════════════════
+
+class Access(str, Enum):
+    FREE = "FREE"                          # no key, no cost
+    KEYED_FREE = "KEYED_FREE"              # key required, no per-call cost
+    PAID_PER_SEARCH = "PAID_PER_SEARCH"    # metered — needs explicit spend approval
+    QUOTA_LIMITED = "QUOTA_LIMITED"        # keyed, finite monthly allowance
+    LICENCE_REQUIRED = "LICENCE_REQUIRED"  # technically open, legally gated
+    SUPPLIED = "SUPPLIED"                  # comes from the counterparty, not an API
+
+
+@dataclass(frozen=True)
+class ResolverSpec:
+    id: str
+    name: str
+    #: Is an adapter present in THIS build? False = declared, not yet bound.
+    built: bool
+    access: str
+    endpoint: str = ""
+    #: What it costs and what it constrains. Shown to the operator verbatim.
+    note: str = ""
+
+
+RESOLVERS: dict[str, ResolverSpec] = {
+    "companies_house": ResolverSpec(
+        "companies_house", "UK Companies House", built=True, access=Access.KEYED_FREE.value,
+        endpoint="https://api.company-information.service.gov.uk",
+        note="Free with a registered key, which is already deployed. Profile, officers, "
+             "PSC, filing history and accounts are bound; /charges, /insolvency and "
+             "/search/disqualified-officers are PROBED-WORKING but not yet bound."),
+    "registry_adapters": ResolverSpec(
+        "registry_adapters", "Non-UK company registers", built=True,
+        access=Access.FREE.value, note="~30 jurisdiction adapters."),
+    "gleif": ResolverSpec(
+        "gleif", "GLEIF LEI", built=True, access=Access.FREE.value,
+        endpoint="https://api.gleif.org/api/v1/lei-records",
+        note="Level 1 only. Level 2 (direct/ultimate parent) is NOT bound, which is why "
+             "OC-7 has no built resolver."),
+    "sanctions": ResolverSpec(
+        "sanctions", "OpenSanctions consolidated screening", built=True,
+        access=Access.QUOTA_LIMITED.value,
+        note="Monthly allowance. VERIFIED EXHAUSTED 2026-07-29 (HTTP 429: 'This API key "
+             "has exceeded its rate limit for the month'), which is the operational "
+             "reason scope selection exists — see Waiver."),
+    "gazette": ResolverSpec(
+        "gazette", "The Gazette (official public record)", built=False,
+        access=Access.FREE.value,
+        endpoint="https://www.thegazette.co.uk/{service}/notice/data.json",
+        note="No key. service=insolvency constrains to Corporate Insolvency (24) and "
+             "Personal Insolvency (25); free-text parameter is `text`. Probed live: "
+             "returns winding-up resolutions and liquidator appointments by name."),
+    "ch_charges": ResolverSpec(
+        "ch_charges", "Companies House charges register", built=False,
+        access=Access.KEYED_FREE.value,
+        endpoint="/company/{number}/charges",
+        note="Probed live: HTTP 200 with total_count/unfiltered_count. Replaces the "
+             "has_charges boolean, which cannot say what is secured over what."),
+    "ch_insolvency": ResolverSpec(
+        "ch_insolvency", "Companies House insolvency register", built=False,
+        access=Access.KEYED_FREE.value,
+        endpoint="/company/{number}/insolvency",
+        note="Probed live: returns 404 for a SOLVENT company. 404 means 'no cases', NOT "
+             "an error — an adapter that treats it as a failure creates a false gap."),
+    "ch_disqualified": ResolverSpec(
+        "ch_disqualified", "Companies House disqualified officers", built=False,
+        access=Access.KEYED_FREE.value,
+        endpoint="/search/disqualified-officers?q={name}",
+        note="Probed live: 67 results for q=Smith. Free on the key we already hold, and "
+             "never yet consulted by any DD."),
+    "find_case_law": ResolverSpec(
+        "find_case_law", "Find Case Law (National Archives)", built=False,
+        access=Access.LICENCE_REQUIRED.value,
+        endpoint="https://caselaw.nationalarchives.gov.uk/atom.xml?party={name}",
+        note="Free, no key, 1000 requests / 5 minutes per IP, and `party` is a full-match "
+             "party search. BUT the Open Justice Licence forbids computational analysis "
+             "without a separate application — an operator legal decision before binding."),
+    "court_records": ResolverSpec(
+        "court_records", "CourtListener + BAILII", built=True, access=Access.FREE.value,
+        note="US federal via CourtListener; UK via a BAILII RSS proxy."),
+    "registry_trust": ResolverSpec(
+        "registry_trust", "Registry Trust / TrustOnline (CCJ register)", built=False,
+        access=Access.PAID_PER_SEARCH.value,
+        note="The ONLY authoritative register of County Court Judgments, for BOTH "
+             "companies and individuals. £6 for one part of the register, up to £10 for "
+             "all England & Wales plus the other registers; no free tier and no public "
+             "API. A search leaves no footprint and needs no subject consent. Metered "
+             "spend — requires explicit operator approval before binding (§6/§17)."),
+    "employment_tribunal": ResolverSpec(
+        "employment_tribunal", "UK Employment Tribunal decisions", built=False,
+        access=Access.FREE.value,
+        endpoint="https://www.gov.uk/api/search.json?filter_format="
+                 "employment_tribunal_decision&q={name}",
+        note="No key. Probed live: 503 decisions for q=Mitie, each with the case number "
+             "and both parties in the title. Directly answers employment litigation "
+             "exposure for UK employers."),
+    "network_walker": ResolverSpec(
+        "network_walker", "UBO / officer chain traversal", built=True,
+        access=Access.KEYED_FREE.value,
+        note="walk_network() traverses registry-anchored control edges. Rides whatever "
+             "register answers, so its reach is the register's reach — an unanchored "
+             "corporate controller cannot be walked (R-F3027)."),
+    "web_search": ResolverSpec(
+        "web_search", "Multi-backend media search", built=True, access=Access.FREE.value),
+    "rca_screening": ResolverSpec(
+        "rca_screening", "PEP relatives and close associates", built=True,
+        access=Access.QUOTA_LIMITED.value, note="Rides the same OpenSanctions allowance."),
+    "sec_edgar": ResolverSpec(
+        "sec_edgar", "SEC EDGAR XBRL", built=True, access=Access.FREE.value),
+    "fca_register": ResolverSpec(
+        "fca_register", "FCA Register + Directory", built=True, access=Access.KEYED_FREE.value),
+    "domain_ownership_verifier": ResolverSpec(
+        "domain_ownership_verifier", "RDAP domain ownership", built=True,
+        access=Access.FREE.value),
+    "idv": ResolverSpec(
+        "idv", "Identity verification / document collection", built=False,
+        access=Access.SUPPLIED.value,
+        note="The product boundary: identity, authority to act, criminal-record checks "
+             "and source of funds are counterparty-supplied, not open data."),
+}
+
+
+def resolver_status(question: "Question") -> dict:
+    """What would it take to answer this question? Separates 'no adapter yet' from
+    'no source exists', because they are different asks of the operator."""
+    specs = [RESOLVERS[r] for r in question.resolvers if r in RESOLVERS]
+    return {
+        "declared": [s.id for s in specs],
+        "built": [s.id for s in specs if s.built],
+        "unbuilt": [s.id for s in specs if not s.built],
+        "blocked_on": sorted({
+            s.access for s in specs
+            if not s.built and s.access in (Access.PAID_PER_SEARCH.value,
+                                            Access.LICENCE_REQUIRED.value)
+        }),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -475,7 +693,7 @@ QUESTIONS: tuple[Question, ...] = (
        established_by=EstablishedBy.SUPPLIED.value,
        text="The individual is who they claim — verified to document and liveness",
        pass_condition="An identity document is verified and bound to a live capture",
-       resolvers=(), reader=None),
+       resolvers=("idv",), reader=None),
     _q(id="EI-4", fundamental=4, cluster=Cluster.EXISTENCE_IDENTITY.value,
        tier=Tier.STANDARD.value, applies_to=AppliesTo.BOTH.value,
        established_by=EstablishedBy.HYBRID.value,
@@ -505,7 +723,7 @@ QUESTIONS: tuple[Question, ...] = (
        text="Parent, subsidiaries, affiliates and ultimate parent",
        pass_condition="A relationship authority returns the direct and ultimate parent, "
                       "or states that none is recorded",
-       resolvers=(),   # GLEIF Level 2 is not wired — /lei-records only
+       resolvers=("gleif",),
        reader=None),
     _q(id="OC-8", fundamental=8, cluster=Cluster.OWNERSHIP_CONTROL.value,
        tier=Tier.STANDARD.value, applies_to=AppliesTo.BOTH.value,
@@ -535,7 +753,7 @@ QUESTIONS: tuple[Question, ...] = (
        text="Past or current insolvency of the entity or its principals",
        pass_condition="The insolvency register and the official gazette are both "
                       "consulted and either return notices or confirm none",
-       resolvers=(),   # R-F3403 binds the Gazette; R-F3404 binds CH /insolvency
+       resolvers=("gazette", "ch_insolvency"),
        jurisdiction_weighted=True, reader=None),
     _q(id="FS-12", fundamental=12, cluster=Cluster.FINANCIAL_STANDING.value,
        tier=Tier.STANDARD.value, applies_to=AppliesTo.ENTITY.value,
@@ -543,7 +761,7 @@ QUESTIONS: tuple[Question, ...] = (
        text="Existing security, liens or prior claims over the assets",
        pass_condition="The charges register is consulted and returns the outstanding "
                       "charge count with detail",
-       resolvers=(),   # R-F3404 binds CH /charges
+       resolvers=("ch_charges",),
        reader=None),
 
     # ── Integrity screening ─────────────────────────────────────────────────
@@ -580,21 +798,41 @@ QUESTIONS: tuple[Question, ...] = (
        text="Fraud, bribery or financial-crime convictions, and regulatory penalties",
        pass_condition="Enforcement registers are consulted; a formal criminal-record "
                       "check is counterparty-supplied",
-       resolvers=(), reader=None),
+       resolvers=("idv", "web_search"), reader=None),
     _q(id="IS-16b", fundamental=16, cluster=Cluster.INTEGRITY_SCREENING.value,
        tier=Tier.SIMPLIFIED.value, applies_to=AppliesTo.ENTITY.value,
        established_by=EstablishedBy.DATA.value,
        text="No officer is a disqualified director",
        pass_condition="The disqualified-directors register is searched for each officer",
-       resolvers=(),   # R-F3404 binds CH /search/disqualified-officers
+       resolvers=("ch_disqualified",),
        reader=None),
-    _q(id="IS-17", fundamental=17, cluster=Cluster.INTEGRITY_SCREENING.value,
+    # R-F3406 — litigation DECOMPOSED. "Adverse media, corruption and litigation" was one
+    # question over three different evidence bases with three different remedies, which is
+    # precisely why a report could look covered while two of the three were never run.
+    # Each row below has its own source, its own access model and its own remedy.
+    _q(id="IS-17a", fundamental=17, cluster=Cluster.INTEGRITY_SCREENING.value,
        tier=Tier.STANDARD.value, applies_to=AppliesTo.BOTH.value,
        established_by=EstablishedBy.DATA.value,
-       text="Material claims and judgments, as claimant or defendant",
-       pass_condition="A court-record source is searched by PARTY NAME and either "
-                      "returns matters or confirms none",
-       resolvers=("court_records",), reader=None),
+       text="Reported court judgments naming the subject as a party",
+       pass_condition="A judgment database is searched by PARTY NAME and either returns "
+                      "matters or confirms none were found",
+       resolvers=("court_records", "find_case_law"), reader=None),
+    _q(id="IS-17b", fundamental=17, cluster=Cluster.INTEGRITY_SCREENING.value,
+       tier=Tier.STANDARD.value, applies_to=AppliesTo.BOTH.value,
+       established_by=EstablishedBy.DATA.value,
+       text="County Court Judgments (CCJs) against the company or the individual",
+       pass_condition="The Register of Judgments, Orders and Fines is searched for the "
+                      "subject's name and address, and returns the judgments on record "
+                      "or confirms none. A CCJ is a money judgment: its ABSENCE is a "
+                      "material finding, so an unsearched register is not a clean one",
+       resolvers=("registry_trust",), jurisdiction_weighted=True, reader=None),
+    _q(id="IS-17c", fundamental=17, cluster=Cluster.INTEGRITY_SCREENING.value,
+       tier=Tier.STANDARD.value, applies_to=AppliesTo.ENTITY.value,
+       established_by=EstablishedBy.DATA.value,
+       text="Employment tribunal claims decided against the employer",
+       pass_condition="The published tribunal decisions are searched by respondent name "
+                      "and either return decisions or confirm none",
+       resolvers=("employment_tribunal",), reader=None),
 
     # ── Legitimacy & regulation ─────────────────────────────────────────────
     _q(id="LR-18", fundamental=18, cluster=Cluster.LEGITIMACY_REGULATION.value,
@@ -608,7 +846,7 @@ QUESTIONS: tuple[Question, ...] = (
        established_by=EstablishedBy.SUPPLIED.value,
        text="Origin of the money in the dealing and of the wealth behind it",
        pass_condition="Counterparty evidence is on file and corroborated",
-       resolvers=(), reader=None),
+       resolvers=("idv",), reader=None),
     _q(id="LR-20", fundamental=20, cluster=Cluster.LEGITIMACY_REGULATION.value,
        tier=Tier.STANDARD.value, applies_to=AppliesTo.BOTH.value,
        established_by=EstablishedBy.HYBRID.value,
@@ -632,15 +870,20 @@ def questions_for(tier: str, entity_type: str = "company") -> list[Question]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @fail_wire(module="dd_standard", gap_type="engine_failure")
-def assess(report: dict, *, tier: str = "STANDARD") -> dict:
+def assess(report: dict, *, tier: str = "STANDARD", waivers: Any = None) -> dict:
     """Resolve every applicable question against a persisted report dict.
 
     Pure. Never raises on a partial report: a reader that throws yields NOT_RUN with the
     exception named, because a reader crash is a failure to establish, never a pass.
+
+    `waivers` is the scope selection (R-F3406): questions the operator has deliberately
+    declined, each carrying a name and a reason. A waiver lowers coverage, never raises
+    it, and can never make a question read as clean.
     """
     report = report if isinstance(report, dict) else {}
     entity_type = str(_m(report.get("identity")).get("entity_type") or "company")
     applicable = questions_for(tier, entity_type)
+    waiver_map = _coerce_waivers(waivers)
 
     resolutions: list[Resolution] = []
     for q in applicable:
@@ -649,6 +892,18 @@ def assess(report: dict, *, tier: str = "STANDARD") -> dict:
             resolutions.append(Resolution(
                 q.id, EvidenceState.NOT_APPLICABLE.value,
                 reason=f"not asked of a subject of type {entity_type!r}"))
+            continue
+        # A waiver is checked BEFORE any reader runs — the point of declining a check is
+        # that it is not performed, so spending the quota anyway would defeat it.
+        wv = waiver_map.get(q.id)
+        if wv is not None:
+            resolutions.append(Resolution(
+                q.id, EvidenceState.WAIVED.value,
+                reason=f"waived by {wv.waived_by}"
+                       + (f" on {wv.waived_at}" if wv.waived_at else "")
+                       + f": {wv.reason}",
+                remedy="remove the waiver and re-run to establish this question — "
+                       "a waived check is not a clear one"))
             continue
         if q.established_by == EstablishedBy.SUPPLIED.value:
             resolutions.append(_awaiting(q))
