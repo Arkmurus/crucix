@@ -175,6 +175,13 @@ _ORGANS: list[tuple[str, str, str, tuple[str, ...]]] = [
       "wedge", "loop_monitor", "self_healing", "self_diagnostic", "metrics",
       "route_audit", "wiring_harness", "capability", "audit", "endpoint_cache",
       "dependency_integrity", "encode_offload", "error_log", "deadlock", "profiler",
+      # R-F3431 — `env_bootstrap` (R-F3398) arrived unassigned and was the FOURTH
+      # Python orphan, holding test_rf3358 red. It loads the project's own .env so
+      # tooling cannot run credential-blind, which is squarely ops/infra. The keyword
+      # is the FULL module name on purpose: R-F3349 measured that broad keywords steal
+      # unrelated modules (a bare "learning" took two), and `env_bootstrap` matches
+      # exactly one module in the tree — verified before adding, not assumed.
+      "env_bootstrap",
       "mistake_ledger", "config", "ecosystem", "reachability", "snapshot_throttle",
       "user_quota", "quota_client", "tenant_namespace", "multi_user", "system_health",  # R-F2986
       "infra_health", "trace_stream", "wiring_monitor", "key_resolver", "operator_pending",

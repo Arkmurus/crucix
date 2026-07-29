@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3431,
+  "next_available": 3432,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28350,6 +28350,16 @@
       "r_number": "R-F3430",
       "title": "wire the 48 remaining GATE A failure paths",
       "claimed_at": "2026-07-29T15:45:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ecda2e2a",
+      "notes": null,
+      "shipped_at": "2026-07-29T16:24:59Z"
+    },
+    {
+      "r_number": "R-F3431",
+      "title": "clear the last two baseline reds: duplicate news source and the env_bootstrap orphan",
+      "claimed_at": "2026-07-29T16:13:14Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
