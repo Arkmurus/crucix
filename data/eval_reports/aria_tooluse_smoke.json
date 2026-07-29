@@ -1,0 +1,7 @@
+{
+  "cycle": "tooluse_sft_smoke",
+  "pipeline_ok": true,
+  "adapter_bytes": 335604696,
+  "train_rows": 338,
+  "note": "pipeline proof only - NOT a capability measurement"
+}

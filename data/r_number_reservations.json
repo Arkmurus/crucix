@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3402,
+  "next_available": 3406,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28065,6 +28065,42 @@
       "commit_sha": "fd959073",
       "notes": null,
       "shipped_at": "2026-07-29T09:44:04Z"
+    },
+    {
+      "r_number": "R-F3402",
+      "title": "DD Standard - versioned question catalogue and evidence-state model",
+      "claimed_at": "2026-07-29T09:46:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3403",
+      "title": "Gazette insolvency notices as a DD resolver (free, no key)",
+      "claimed_at": "2026-07-29T09:46:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3404",
+      "title": "Companies House charges, insolvency and disqualified-officer endpoints",
+      "claimed_at": "2026-07-29T09:46:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3405",
+      "title": "make public ARIA model card evidence based",
+      "claimed_at": "2026-07-29T09:52:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
