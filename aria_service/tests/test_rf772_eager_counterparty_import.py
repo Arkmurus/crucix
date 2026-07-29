@@ -18,11 +18,33 @@ import sys
 
 
 def test_autonomy_surface_eager_imports_counterparty_claim_ledger():
+    # R-F3449 — popping sys.modules ALONE does not force a re-import here, and that made
+    # this one of the fifteen order-dependent failures in the R-F3448 baseline.
+    #
+    # `from . import counterparty_claim_ledger` (the eager import under test) resolves from
+    # the PARENT PACKAGE'S ATTRIBUTE when one exists. `sys.modules.pop` does not remove
+    # `aria_service.intel.counterparty_claim_ledger` as an attribute of the
+    # `aria_service.intel` package object, so once ANY earlier test has imported it the
+    # re-import below binds that stale attribute and never re-registers the module —
+    # leaving sys.modules without it and failing the assertion.
+    #
+    # MEASURED: import both, pop both from sys.modules, and the package still has the
+    # attribute; re-importing autonomy_surface then leaves counterparty_claim_ledger absent
+    # from sys.modules. So standalone this test passed only because nothing had imported it
+    # first — in-suite it was not exercising the eager import at all.
+    #
+    # Clearing the package attributes too makes the import genuinely re-execute, which is
+    # what this regression guard has always claimed to do.
+    import aria_service.intel as _intel_pkg
+
     for mod in (
         "aria_service.intel.autonomy_surface",
         "aria_service.intel.counterparty_claim_ledger",
     ):
         sys.modules.pop(mod, None)
+        attr = mod.rsplit(".", 1)[1]
+        if hasattr(_intel_pkg, attr):
+            delattr(_intel_pkg, attr)
 
     import aria_service.intel.autonomy_surface  # noqa: F401
 

@@ -127,8 +127,24 @@ def test_empty_body_is_invalid_output_not_an_empty_answer():
     assert r.data is None
 
 
-def test_no_provider_is_unavailable_not_invalid():
-    """'Never asked' and 'answered badly' are different failures (R-F3101's lesson)."""
+def test_no_provider_is_unavailable_not_invalid(monkeypatch):
+    """'Never asked' and 'answered badly' are different failures (R-F3101's lesson).
+
+    R-F3449 — this must ESTABLISH the "no provider" precondition, not assume it. With
+    `llm=None`, `resolve_provider` falls back to `main.app.state.llm_provider`
+    (structured.py:180-182), and `main.app` is a module-level SINGLETON whose `.state`
+    persists for the whole session. So once any earlier test boots the lifespan, a real
+    provider is present, the call proceeds, and this returned OUTCOME_ERROR instead of
+    OUTCOME_UNAVAILABLE — one of the fifteen order-dependent failures in the R-F3448
+    baseline ("assert 'error' == 'unavailable'"). Green alone, red in-suite, and the test
+    was silently depending on nothing having booted the app first.
+    """
+    try:
+        from aria_service.main import app as _app
+        monkeypatch.setattr(_app.state, "llm_provider", None, raising=False)
+    except Exception:
+        pass          # main not importable here → resolve_provider already yields None
+
     r = asyncio.run(call_structured("sys", "user", llm=None, caller="test"))
     assert r.outcome == OUTCOME_UNAVAILABLE
     assert r.data is None
