@@ -6,7 +6,10 @@ Dependencies (install on the GPU host):
   pip install transformers trl peft accelerate bitsandbytes datasets
 
 Inputs:
-  --base-model    HuggingFace model id (default: meta-llama/Llama-3.3-70B-Instruct)
+  --base-model    HuggingFace model id - REQUIRED (R-F3393). ARIA_BASE_MODEL
+                  below holds the agreed value. No default: a default is a
+                  decision made when nobody is looking, and the old one
+                  disagreed with every script that actually runs.
   --train-file    JSONL dataset from prepare_sft.py
   --output-dir    where to save the LoRA adapter
   --epochs        default 3
@@ -20,7 +23,7 @@ merge_and_save.py if desired.
 
 Recommended one-shot run for v0.1:
   python sft_train.py \
-    --base-model meta-llama/Llama-3.3-70B-Instruct \
+    --base-model mistralai/Mistral-7B-Instruct-v0.3 \
     --train-file /workspace/datasets/aria_sft_v1.jsonl \
     --output-dir /workspace/checkpoints/aria_llm_v0.1_sft \
     --epochs 3 \
@@ -94,9 +97,24 @@ def _render_text(tokenizer, record: dict) -> str:
     return tokenizer.apply_chat_template(record["messages"], tokenize=False)
 
 
+# R-F3393 — ARIA's agreed base model, recorded in activate_aria_llm_v01.sh,
+# baseline_pod_run.sh ("v0.2 actual base", R-F1454) and the v0.1 activation
+# runbook, and consistent with the north star: "the moat is verification, not
+# the 7B". Exported so cycle scripts and tests reference one value.
+ARIA_BASE_MODEL = "mistralai/Mistral-7B-Instruct-v0.3"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="ARIA-LLM SFT trainer")
-    ap.add_argument("--base-model", default="meta-llama/Llama-3.3-70B-Instruct")
+    # R-F3393 — REQUIRED, not defaulted. This previously defaulted to
+    # a gated 70B model ARIA does not train on and which this HF account cannot
+    # download (403). Every script that actually
+    # runs passes ARIA_BASE_MODEL explicitly; the stale default only mattered to
+    # someone invoking the trainer directly, who would then produce an adapter
+    # bound to the wrong architecture — the exact mismatch baseline_pod_run.sh
+    # guards against. Choosing what ARIA trains on is an explicit act.
+    ap.add_argument("--base-model", required=True,
+                    help=f"HF model id. ARIA's agreed base is {ARIA_BASE_MODEL}.")
     ap.add_argument("--train-file", type=Path, required=True)
     ap.add_argument("--output-dir", type=Path, required=True)
     ap.add_argument("--epochs", type=int, default=3)
