@@ -2835,6 +2835,24 @@ async def _identity_primary_source_screen(
         )
         _src_labels = ["sec_edgar", "ofac_sdn", "uk_ofsi", "un_sc", "wb_debarred", "acled"]
 
+        # R-F3512 — capture the RAW adapter responses when recording is enabled, so a
+        # replayable gold corpus can exist. Off by default; a normal customer DD writes
+        # nothing. Enveloped as personal data (R-F3488) so it is erasable and visible to
+        # retention review rather than becoming an unmanaged store.
+        try:
+            from .dd_evidence_recorder import record_source_results as _rec3512
+            _rec3512(
+                run_id=str(getattr(report, "run_id", "") or "unknown"),
+                subject_name=str(name or ""),
+                subject_key=str(getattr(report.identity, "canonical_entity_id", "")
+                                or getattr(report, "canonical_entity_id", "") or ""),
+                jurisdiction=str(jurisdiction or ""),
+                labels=_src_labels,
+                results=list(_src_results),
+            )
+        except Exception as _rec_e:  # noqa: BLE001 — capture never costs a report
+            logger.debug("[R-F3512] evidence recording skipped: %s", _rec_e)
+
         # R-F2843 — record whether ARIA's OWN snapshot of each primary list was live.
         # This is provenance, never a status change: the aggregate screen and our own
         # adapters are DIFFERENT checks and can disagree about availability (live run

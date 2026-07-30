@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3511,
+  "next_available": 3513,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29142,9 +29142,10 @@
       "title": "wire selective enrichment into the poll loop and cap shallow-evidence confidence",
       "claimed_at": "2026-07-30T16:24:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b5380099",
+      "notes": null,
+      "shipped_at": "2026-07-30T16:42:11Z"
     },
     {
       "r_number": "R-F3510",
@@ -29155,6 +29156,24 @@
       "commit_sha": "b5380099",
       "notes": null,
       "shipped_at": "2026-07-30T16:41:35Z"
+    },
+    {
+      "r_number": "R-F3511",
+      "title": "claim-level absorption: structured claims with provenance, corroboration and supersession",
+      "claimed_at": "2026-07-30T16:45:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3512",
+      "title": "record raw source responses so frozen gold evidence can exist, under the data-subject envelope",
+      "claimed_at": "2026-07-30T16:45:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

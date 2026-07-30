@@ -168,3 +168,8 @@ data/eval_reports/prospector_*/
 data/eval_reports/*.partial.jsonl
 # eval/test capture dumps (_eval_*.out, _rf*.out, ...)
 scripts/_*.out
+
+# R-F3512 — DD evidence recordings contain PERSONAL DATA (officer names, DOBs,
+# sanctions results). A gold corpus is committed deliberately after a human decides
+# the record may be retained, never swept in by an incidental `git add`.
+data/eval/dd_recordings/
