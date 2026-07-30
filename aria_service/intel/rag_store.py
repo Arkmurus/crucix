@@ -2170,8 +2170,67 @@ def jurisdiction_of_region(region: str) -> str:
     return "UK_EEA" if str(region or "").strip().lower() in _UK_EEA_REGIONS else "OTHER"
 
 
+#: R-F3493 — UK statutory retention profile. RESEARCHED AND CITED, OPT-IN, NOT LAW ADVICE.
+#:
+#: Each entry is (days, legal_basis). These are not invented: every period below traces to
+#: a named instrument, and where the instrument sets a duty rather than a ceiling that is
+#: stated. Enable with ARIA_RETENTION_PROFILE=uk_statutory_v1. It is OFF by default because
+#: applying a retention schedule is a controller's decision, and one that depends on facts
+#: this code cannot see (whether a relationship has ended, whether proceedings are in
+#: contemplation).
+#:
+#: NOTE ON THE TRIGGER, which is the part most easily got wrong: MLR 2017 reg 40 runs its
+#: five years from the END OF THE BUSINESS RELATIONSHIP or completion of the transaction —
+#: NOT from the date a document was ingested. `retention_review` measures from
+#: `ingested_at`, so for CDD material it reports the EARLIEST possible due date. Treat a
+#: `due` count as "review these", never as "these are unlawful to hold".
+_RETENTION_PROFILES: dict[str, dict[str, tuple[int, str]]] = {
+    "uk_statutory_v1": {
+        # Money Laundering, Terrorist Financing and Transfer of Funds (Information on the
+        # Payer) Regulations 2017, reg 40: keep 5 years from completion of the transaction
+        # or the end of the business relationship; a 10-year cap applies to transactions
+        # within a relationship. Reg 40 also imposes a DELETION DUTY at the end of that
+        # period, subject to three exceptions (legal requirement/proceedings, consent,
+        # reasonable grounds for anticipated proceedings).
+        "uk:cdd_evidence": (1825, "MLR 2017 reg 40 — 5y from end of relationship; "
+                                  "deletion duty applies, 3 exceptions"),
+        "uk:dd_evidence": (1825, "MLR 2017 reg 40 — treated as CDD material"),
+        # BS 7858:2019 screening: unsuccessful applicants 12 months; retained during
+        # employment; specified records 7 years after employment ends. Encoded as periods
+        # only — no standard text is reproduced (see the R-F3466 assurance review).
+        "uk:vetting_unsuccessful": (365, "BS 7858:2019 — 12 months for unsuccessful "
+                                         "applicants"),
+        "uk:vetting_leaver": (2555, "BS 7858:2019 — 7 years after employment ends"),
+    },
+}
+
+
+def _profile_periods() -> dict[str, int]:
+    """The active statutory profile's periods, or {} when none is enabled."""
+    name = str(os.getenv("ARIA_RETENTION_PROFILE", "") or "").strip().lower()
+    if not name:
+        return {}
+    prof = _RETENTION_PROFILES.get(name)
+    if prof is None:
+        logger.warning("[R-F3493] unknown retention profile %r — ignoring", name)
+        return {}
+    return {k: v[0] for k, v in prof.items()}
+
+
+def retention_bases() -> dict[str, str]:
+    """key -> the legal basis for its period, for display next to any due count.
+
+    A retention number a controller cannot trace to an instrument is a number they
+    cannot defend, so the citation travels with the period rather than living in a
+    comment nobody reads.
+    """
+    name = str(os.getenv("ARIA_RETENTION_PROFILE", "") or "").strip().lower()
+    prof = _RETENTION_PROFILES.get(name) or {}
+    return {k: v[1] for k, v in prof.items()}
+
+
 def _retention_periods() -> dict[str, int]:
-    """R-F3490/R-F3492 — retention period keys, from configuration ONLY.
+    """R-F3490/R-F3492/R-F3493 — retention period keys.
 
     R-F3492 makes the key JURISDICTION-SPECIFIC, because a retention period is a
     function of (data category, jurisdiction) and not of category alone: the same
@@ -2194,7 +2253,9 @@ def _retention_periods() -> dict[str, int]:
     ``uk:dd_evidence=2555,uk:chat_notebook=365,de:chat_notebook=730``.
     """
     raw = str(os.getenv("ARIA_RETENTION_PERIODS_DAYS", "") or "").strip()
-    out: dict[str, int] = {}
+    # R-F3493 — a statutory profile supplies the baseline; explicit env entries OVERRIDE
+    # it. The operator's own decision always wins over a researched default.
+    out: dict[str, int] = dict(_profile_periods())
     for part in raw.split(","):
         if "=" not in part:
             continue
@@ -2357,6 +2418,15 @@ async def retention_review(*, now_iso: str = "") -> dict:
         _reminders.append(
             f"no retention period configured for: {', '.join(sorted(undecided)[:8])} "
             f"— set ARIA_RETENTION_PERIODS_DAYS (jurisdiction:class=days)")
+    _mlr_due = any(k.endswith("cdd_evidence") or k.endswith("dd_evidence")
+                   for k in retention_bases())
+    if totals["due"] and _mlr_due:
+        _reminders.append(
+            "some overdue records fall under MLR 2017 reg 40, which imposes a DELETION "
+            "DUTY (not merely a ceiling) subject to three exceptions — legal "
+            "requirement/proceedings, consent, or reasonable grounds for anticipated "
+            "proceedings. Deciding whether an exception applies is a controller "
+            "decision; ARIA deletes nothing on its own")
     if totals["residency_mismatch"]:
         _reminders.append(
             f"{totals['residency_mismatch']} UK/EU personal record(s) are stored in "
@@ -2379,6 +2449,9 @@ async def retention_review(*, now_iso: str = "") -> dict:
         "available": True,
         "as_of": now.isoformat(),
         "configured_classes": sorted(periods),
+        # R-F3493 — the legal basis travels with the number.
+        "retention_profile": (os.getenv("ARIA_RETENTION_PROFILE", "") or "").strip().lower(),
+        "retention_bases": retention_bases(),
         # R-F3492 — jurisdiction is now first-class in the answer.
         "storage_region": _region,
         "storage_perimeter": _region_perimeter,

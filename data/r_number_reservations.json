@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3493,
+  "next_available": 3495,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28862,9 +28862,10 @@
       "title": "evidence-led relationship intelligence intake",
       "claimed_at": "2026-07-30T13:07:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "89e73217",
+      "notes": null,
+      "shipped_at": "2026-07-30T14:31:03Z"
     },
     {
       "r_number": "R-F3482",
@@ -28921,9 +28922,10 @@
       "title": "news correlation: independent-source gate before corroboration claims",
       "claimed_at": "2026-07-30T13:32:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "89e73217",
+      "notes": null,
+      "shipped_at": "2026-07-30T14:31:03Z"
     },
     {
       "r_number": "R-F3488",
@@ -28974,6 +28976,24 @@
       "commit_sha": "89e73217",
       "notes": null,
       "shipped_at": "2026-07-30T14:30:35Z"
+    },
+    {
+      "r_number": "R-F3493",
+      "title": "UK statutory retention profile with legal citations, opt-in, and the MLR deletion-duty conflict surfaced",
+      "claimed_at": "2026-07-30T14:35:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3494",
+      "title": "classifier replay is archive-wide and resumable, and records what changed",
+      "claimed_at": "2026-07-30T14:35:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
