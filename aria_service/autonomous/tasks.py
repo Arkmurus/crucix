@@ -2263,7 +2263,9 @@ _GAP_FILLER_QUERY_TEMPLATES = {
 }
 
 
-async def _grade_researched_cell(topic: str, region: str, research_text: str) -> bool:
+async def _grade_researched_cell(
+    topic: str, region: str, research_text: str,
+) -> bool | None:
     """Honest mastery grade for a freshly-researched cell (R-F1989, Claude review).
 
     Replaces the old self-grading bridge that credited mastery with
@@ -2276,25 +2278,43 @@ async def _grade_researched_cell(topic: str, region: str, research_text: str) ->
     actually answer AND its answer overlaps the research findings. This CAN fail
     (the knowledge didn't take / isn't usable) — so mastery reflects real recall,
     not the act of researching.
-    """
+
+    R-F3483 — TRI-STATE. Returns True (recalled), False (genuinely could not
+    recall) or **None (could not be measured)**. Every branch below used to
+    return False, so a measurement failure was recorded as ARIA getting the
+    answer wrong, and the caller then drove mastery down for it.
+
+    That matters most for ``answered=False``: reasoning_router documents it as a
+    ROUTING signal meaning "no local source was confident, escalate to the
+    cloud" (reasoning_router.py:220-224), and it is also returned by two
+    deliberate bypasses (Stage 0 self-infra, Stage 0.5 self-capability). None of
+    those is a wrong answer.
+
+    This is the same tri-state R-F2639 codified one layer up for gate reporting:
+    True/False when measured, None when it could not be measured — "could not
+    measure" is not "measured and failed". CLAUDE.md §1 already DESCRIBES this
+    behaviour ("a grader error SKIPS the update"); the code did not implement it.
+
+    A genuine wrong answer still returns False. The gate is not softened.
+    """  # noqa: D205
     from ..intel import reasoning_router, student
     if not research_text:
-        return False
+        return None          # nothing to compare against — not evidence of a miss
     question = (f"What are the most important {topic.replace('_', ' ')} facts and "
                 f"recent developments for {region.replace('_', ' ')}?")
     try:
         local = await reasoning_router.try_local_reasoning(question)
     except Exception:
-        return False
+        return None          # the instrument broke, not the knowledge
     if not local.get("answered"):
-        return False
+        return None          # escalate-to-cloud signal, NOT a wrong answer
     resp = local.get("response") or ""
     if not resp:
-        return False
+        return None
     try:
         return student._quick_similarity(resp, research_text) >= 0.4
     except Exception:
-        return False
+        return None          # scorer failure — unmeasured
 
 
 @fail_wire(module="tasks", gap_type="agent_cycle_failure")
@@ -2405,17 +2425,32 @@ async def fill_knowledge_gaps(llm, *, dry_run: bool = True, max_cells: int = 5) 
                     if response_len > 200:
                         graded_correct = await _grade_researched_cell(
                             topic, region, response_text)
-                        await _student.update_regional_mastery(
-                            topics=[topic], regions=[region],
-                            correct=graded_correct, weight=0.5,
-                        )
-                        results["mastery_tested"] = results.get("mastery_tested", 0) + 1
-                        if graded_correct:
-                            results["mastery_passed"] = results.get("mastery_passed", 0) + 1
-                        logger.info(
-                            "[knowledge gap filler] mastery graded: %s x %s -> %s (%d chars)",
-                            topic, region, "PASS" if graded_correct else "fail", response_len,
-                        )
+                        # R-F3483 — None means COULD NOT MEASURE. Skip the update
+                        # entirely: passing None through would be coerced to a
+                        # wrong answer by the EMA (`obs = 1.0 if correct else
+                        # 0.0`, student.py:2381), which is the exact defect this
+                        # tri-state removes. An unmeasured cell is also not a
+                        # "test", so it must not inflate mastery_tested.
+                        if graded_correct is None:
+                            results["mastery_unmeasured"] = (
+                                results.get("mastery_unmeasured", 0) + 1)
+                            logger.info(
+                                "[knowledge gap filler] mastery UNMEASURED: %s x %s "
+                                "(local stack could not answer — not counted as a "
+                                "miss) (%d chars)", topic, region, response_len,
+                            )
+                        else:
+                            await _student.update_regional_mastery(
+                                topics=[topic], regions=[region],
+                                correct=graded_correct, weight=0.5,
+                            )
+                            results["mastery_tested"] = results.get("mastery_tested", 0) + 1
+                            if graded_correct:
+                                results["mastery_passed"] = results.get("mastery_passed", 0) + 1
+                            logger.info(
+                                "[knowledge gap filler] mastery graded: %s x %s -> %s (%d chars)",
+                                topic, region, "PASS" if graded_correct else "fail", response_len,
+                            )
                 except Exception as bridge_err:
                     logger.debug(
                         "[knowledge gap filler] mastery bridge failed (non-fatal): %s",

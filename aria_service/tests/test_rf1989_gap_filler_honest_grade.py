@@ -27,7 +27,15 @@ def test_grade_false_when_local_cannot_answer():
         try:
             ok = await tasks._grade_researched_cell(
                 "compliance", "west_africa", "rich research findings text " * 20)
-            assert ok is False, "no local answer must NOT credit mastery"
+            # R-F3483 — answered=False is reasoning_router's ESCALATE-TO-CLOUD
+            # signal (reasoning_router.py:220-224), not a wrong answer. It is
+            # also returned by two deliberate bypasses. The load-bearing
+            # property R-F1989 protects is "must NOT credit mastery", and None
+            # preserves it exactly — the caller skips the update entirely.
+            # Recording it as False drove real cells toward 0 for a
+            # measurement failure; live gate #2 floor was 0.003.
+            assert ok is not True, "no local answer must NOT credit mastery"
+            assert ok is None, "unanswerable must be UNMEASURED, not wrong"
         finally:
             _restore(orig)
     asyncio.run(run())
@@ -65,7 +73,15 @@ def test_grade_true_only_when_answered_and_similar():
 
 
 def test_grade_false_on_empty_research():
+    """R-F3483 — empty research is UNMEASURED, not a wrong answer.
+
+    There is nothing to compare a recall against, so the grade carries no
+    information about whether ARIA knows the cell. The property R-F1989 protects
+    (never credit mastery for the mere act of researching) is unchanged: None
+    makes the caller skip the update entirely, so mastery cannot lift.
+    """
     async def run():
         ok = await tasks._grade_researched_cell("compliance", "west_africa", "")
-        assert ok is False
+        assert ok is not True, "empty research must NOT credit mastery"
+        assert ok is None, "empty research is unmeasured, not a recorded miss"
     asyncio.run(run())
