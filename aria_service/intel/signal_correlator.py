@@ -20,7 +20,9 @@ Correlation types:
 from __future__ import annotations
 from .engine_wiring import wire_success, wire_failure
 
+import hashlib
 import logging
+import os
 import time
 from datetime import datetime, timezone, timedelta
 from typing import Any
@@ -87,10 +89,18 @@ async def correlate_signals() -> list[dict]:
                 country_signals.setdefault(country_lower, [])
 
                 sig_type = _classify_signal(sig)
+                # R-F3487 — carry PROVENANCE, not just a source label. Without
+                # the url the independence check can only compare source strings,
+                # and without a story fingerprint it cannot detect syndication at
+                # all (same text, four domains). intel_ledger already persists
+                # the url on every signal, so this costs nothing.
+                _text = sig.get("text", "")
                 country_signals[country_lower].append({
                     "type": sig_type,
-                    "text": sig.get("text", "")[:200],
+                    "text": _text[:200],
                     "source": sig.get("source", ""),
+                    "url": sig.get("url", ""),
+                    "story": _story_fingerprint(_text),
                     "ts": ts,
                     "weight": SIGNAL_WEIGHTS.get(sig_type, 0.5),
                 })
@@ -181,6 +191,22 @@ async def correlate_signals() -> list[dict]:
     return insights
 
 
+def _story_fingerprint(text: str) -> str:
+    """R-F3487 — stable id for the underlying STORY, so syndicated copies of one
+    wire report collapse to a single origin.
+
+    Whitespace-normalised and case-folded, so trivial reformatting between
+    syndication partners does not read as a different story. Mirrors
+    news_archive.content_hash; empty text yields "" so an unfingerprintable
+    signal falls back to publisher-family grouping rather than inventing a
+    unique origin for itself.
+    """
+    norm = " ".join((text or "").split()).casefold()
+    if not norm:
+        return ""
+    return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:32]
+
+
 def _classify_signal(sig: dict) -> str:
     """Classify a ledger signal into a correlation category."""
     text = (sig.get("text", "") + " " + sig.get("type", "")).lower()
@@ -210,8 +236,65 @@ def _classify_signal(sig: dict) -> str:
     return "defence_news"
 
 
+_MIN_INDEPENDENT_ORIGINS = int(os.getenv("ARIA_CORRELATION_MIN_ORIGINS", "2"))
+
+
+def _independent_origins(signals: list[dict]) -> int:
+    """R-F3487 — how many INDEPENDENT sources are behind these signals.
+
+    MARKET_HEATING fired on ``len(signals) >= 4`` alone. Combined with URL-only
+    dedup upstream, four syndicated copies of one wire report — same story, four
+    domains — read as a heating market. Reporting VOLUME is not evidence of
+    real-world CHANGE, and telling a customer a market is heating because Reuters
+    was republished four times is the exact fabrication this product exists to
+    prevent (memory: "single-source = fabrication"; "one false positive destroys
+    the USP").
+
+    This delegates to dd_independent_verifier.count_independent_origins, which is
+    already hardened by live evals: it is a union-find over publisher UNION story,
+    so same-story/different-publisher collapses to one origin (syndication) and
+    same-publisher/different-story also collapses to one (a publisher is not N
+    witnesses). It is conservative by construction — the merge can only REDUCE
+    the count, never inflate it.
+
+    NOT built on intel/corroboration.py: that module has zero production callers
+    and its fixtures were green while it scored 0/20 on real data. The USP gate
+    must not rest on an unproven engine.
+
+    On any failure this returns 1 (single origin), never a higher number:
+    R-F3388's rule is that the false-positive rate on independence MUST be 0,
+    while a conservative undercount is acceptable.
+    """
+    if not signals:
+        return 0
+    try:
+        from .dd_independent_verifier import count_independent_origins
+        sources = []
+        for s in signals:
+            loc = (s.get("url") or "").strip() or (s.get("source") or "").strip()
+            story = (s.get("story") or s.get("content_hash") or "").strip()
+            sources.append({"url": loc, "story": story} if story else {"url": loc})
+        return int(count_independent_origins(sources))
+    except Exception as exc:
+        logger.warning(
+            "[R-F3487] independence count failed — treating as SINGLE origin "
+            "(never inflate): %s", exc)
+        try:
+            wire_failure(
+                module="signal_correlator",
+                detail=f"independent-origin count failed, collapsed to 1: {exc}"[:400],
+                gap_type="engine_failure",
+                source="signal_correlator:_independent_origins")
+        except Exception:
+            pass
+        return 1
+
+
 def _generate_insight(country: str, signals: list[dict], signal_types: set, score: float) -> dict | None:
     """Generate a compound insight from correlated signals."""
+    # R-F3487 — computed once; every branch below reports it so a reader can see
+    # WHY the insight was emitted, not just that it was.
+    _origins = _independent_origins(signals)
     has_budget = "budget_increase" in signal_types
     has_tender = "active_tender" in signal_types or "procurement_signal" in signal_types
     has_minister = "new_minister" in signal_types or "election_transition" in signal_types
@@ -250,12 +333,28 @@ def _generate_insight(country: str, signals: list[dict], signal_types: set, scor
             f"Competitor active in {country.title()} alongside live procurement. "
             f"If we don't engage now, we lose this cycle. Assess our differentiation."
         )
-    elif len(signals) >= 4:
+    elif len(signals) >= 4 and _origins >= _MIN_INDEPENDENT_ORIGINS:
+        # R-F3487 — volume ALONE cannot claim a heating market. This now requires
+        # the signals to span >= _MIN_INDEPENDENT_ORIGINS independent publishers,
+        # so syndicated copies of one wire report can no longer clear the bar.
         insight_type = "MARKET_HEATING"
         emoji = "🟠"
         recommendation = (
-            f"{country.title()} has {len(signals)} signals in {CORRELATION_WINDOW_DAYS} days — "
-            f"market is heating. Review pipeline coverage and contact freshness."
+            f"{country.title()} has {len(signals)} signals from {_origins} independent "
+            f"sources in {CORRELATION_WINDOW_DAYS} days — market is heating. "
+            f"Review pipeline coverage and contact freshness."
+        )
+    elif len(signals) >= 4:
+        # Enough volume, but it traces back to a single origin. Report it
+        # HONESTLY rather than suppressing it or inflating it: the operator still
+        # wants to know the story exists, and must not be told it is corroborated.
+        insight_type = "SINGLE_ORIGIN_REPORTS"
+        emoji = "⚪"
+        recommendation = (
+            f"{country.title()}: multiple reports trace to {_origins or 1} independent "
+            f"source. This is reporting volume, NOT corroborated change — treat as "
+            f"a lead to verify, not as evidence. Seek a second independent source "
+            f"before acting."
         )
     elif "sanctions_change" in signal_types and ("conflict_escalation" in signal_types or has_tender):
         insight_type = "RISK_CONVERGENCE"
@@ -294,6 +393,11 @@ def _generate_insight(country: str, signals: list[dict], signal_types: set, scor
         "emoji": emoji,
         "recommendation": recommendation,
         "signal_count": len(signals),
+        # R-F3487 — the independence evidence, on EVERY insight. signal_count is
+        # how many reports; independent_origins is how many witnesses. Publishing
+        # only the first is what let volume masquerade as corroboration.
+        "independent_origins": _origins,
+        "independently_corroborated": _origins >= _MIN_INDEPENDENT_ORIGINS,
         "signal_types": sorted(signal_types),
         "signals": [{"type": s["type"], "text": s["text"][:150], "source": s["source"]} for s in signals[:10]],
         "generated_at": datetime.now(timezone.utc).isoformat(),
