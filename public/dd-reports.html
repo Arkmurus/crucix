@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DD Reports | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/aria.css?v=16">
+  <link rel="stylesheet" href="css/aria.css?v=17">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -1379,7 +1379,25 @@ async function toggleDetail(row, runId) {
         h += '</div>';
       }
       if (sec.evidence && sec.evidence.length) { h += '<div style="margin-top:9px"><div style="font-size:11px;color:var(--sc-muted);margin-bottom:3px">Cited sources</div>'; for (const ev of sec.evidence) h += '<div style="font-size:12px;margin:2px 0"><a href="'+escAttr(safeHref(ev.url))+'" target="_blank" rel="noopener" style="color:#60a5fa;word-break:break-all">'+escText(ev.source||ev.url)+'</a>'+(ev.tier?' <span style="color:var(--sc-muted)">['+escText(ev.tier)+']</span>':'')+'</div>'; h += '</div>'; }
-      if (sec.data_gaps && sec.data_gaps.length) { h += '<div style="margin-top:9px;font-size:12px;color:#f59e0b"><i class="bi bi-exclamation-triangle"></i> Gaps: '+sec.data_gaps.map(escText).join('; ')+'</div>'; }
+      // R-F3456 — one gap per ROW, not a single semicolon-joined paragraph. A reader has
+      // to act on these individually, and the joined form made an 18-gap section read as
+      // one unbroken 2,000-character sentence. De-duplicated because several producers
+      // legitimately record the same obstacle (the CCJ blocker appeared three times).
+      if (sec.data_gaps && sec.data_gaps.length) {
+        const _seen = new Set(), _gaps = [];
+        for (const g of sec.data_gaps) {
+          const t = String(g == null ? '' : g).trim();
+          if (!t || _seen.has(t)) continue;
+          _seen.add(t); _gaps.push(t);
+        }
+        if (_gaps.length) {
+          h += '<div class="dd-gaps"><div class="dd-gaps-head">'
+             + '<i class="bi bi-exclamation-triangle"></i> Data gaps <span>'
+             + _gaps.length + '</span></div><ul class="dd-gaps-list">'
+             + _gaps.map(function (g) { return '<li>' + escText(g) + '</li>'; }).join('')
+             + '</ul></div>';
+        }
+      }
       h += '</div></div>'; return h;
     };
     const renderDecisionReadiness = (readiness) => {

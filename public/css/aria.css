@@ -751,3 +751,18 @@ body.nav-expanded .nav-dropdown-menu { left: calc(var(--rail-expanded-w) + 8px);
 }
 .dd-src-order { display: block; margin-top: 8px; font-size: 11.5px; line-height: 1.55; color: var(--sc-muted); }
 .dd-src-order b { color: var(--sc-text); font-weight: 600; }
+
+/* ── R-F3456 — DD data gaps: one actionable row each ───────────────────────
+   Was a single semicolon-joined paragraph in 12px amber, so an 18-gap section
+   rendered as one unbroken ~2,000-character sentence with the same officer line
+   repeated eight times. A gap a reader cannot pick out is a gap they cannot act
+   on. */
+.dd-gaps { margin-top: 12px; border-left: 3px solid var(--sc-orange); background: #fffaf2;
+           border-radius: 0 8px 8px 0; padding: 10px 12px; }
+.dd-gaps-head { font-size: 10.5px; font-weight: 700; letter-spacing: .05em;
+                text-transform: uppercase; color: #b45309; display: flex;
+                align-items: center; gap: 6px; margin-bottom: 6px; }
+.dd-gaps-head span { background: #fdf0e3; border-radius: 999px; padding: 1px 7px;
+                     font-size: 10px; }
+.dd-gaps-list { margin: 0; padding-left: 18px; }
+.dd-gaps-list li { font-size: 12px; line-height: 1.6; color: var(--sc-text); margin: 3px 0; }

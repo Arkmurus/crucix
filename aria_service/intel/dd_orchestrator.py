@@ -4625,8 +4625,13 @@ async def _screen_officer_sanctions(report: ARKDDReport, target: dict) -> bool:
             f"{len(candidates)} officeholders — SANCTIONS_SOURCE_UNVERIFIED for "
             f"{', '.join(_unscreened[:6])}"
             f"{f' and {len(_unscreened) - 6} more' if len(_unscreened) > 6 else ''} "
-            f"(not screened, not a clearance)"
+            f"(not screened, not a clearance). WHY: the per-run screening cap bounds "
+            f"cost; it is not a statement about these people. WHAT CLOSES IT: re-run "
+            f"with a raised cap, or screen the remaining officeholders individually."
         )
+
+    # R-F3456 — accumulated across the loop so the group is reported once.
+    _off_unscreened: list[tuple[str, str]] = []
 
     for _c in _screened:
         _nm, _role = _c["name"], _c["role"]
@@ -4638,10 +4643,10 @@ async def _screen_officer_sanctions(report: ARKDDReport, target: dict) -> bool:
             # actually reached the source.
             if not (screen.get("screened") and not screen.get("error")):
                 _reason = str(screen.get("error") or "source unavailable")[:80]
-                report.identity.data_gaps.append(
-                    f"Officer sanctions screen '{_nm}': SANCTIONS_SOURCE_UNVERIFIED "
-                    f"— {_reason}, NOT screened (re-screen required, not a clearance)"
-                )
+                # R-F3456 — COLLECTED, not appended one-per-officer. Eight officeholders
+                # produced eight near-identical 180-character lines carrying the same
+                # reason, which is most of why the gaps block read as a wall of text.
+                _off_unscreened.append((_nm, _reason))
                 logger.warning(
                     "dd_orchestrator: officer sanctions screen NOT performed for %s: %s",
                     _nm, _reason,
@@ -4694,16 +4699,37 @@ async def _screen_officer_sanctions(report: ARKDDReport, target: dict) -> bool:
         except Exception as _off_e:
             # A throw is evidence, never silence — the R-F3353 rule, applied to the
             # path that never received it.
-            report.identity.data_gaps.append(
-                f"Officer sanctions screen '{_nm}': SANCTIONS_SOURCE_UNVERIFIED "
-                f"— screen raised {type(_off_e).__name__}: {str(_off_e)[:100]}, "
-                f"NOT screened (re-screen required, not a clearance)"
-            )
+            _off_unscreened.append(
+                (_nm, f"screen raised {type(_off_e).__name__}: {str(_off_e)[:100]}"))
             logger.warning(
                 "R-F3397 officer sanctions screen failed for %s: %s "
                 "(recorded as a data gap, not a silent clean)",
                 _nm, _off_e,
             )
+
+    # R-F3456 — ONE gap for the whole group, stating who, why, and what closes it.
+    #
+    # CRITICAL: the marker `SANCTIONS_SOURCE_UNVERIFIED` MUST survive here. The synthesis
+    # freshness gate greps identity.data_gaps for that exact substring to force the
+    # headline non-GREEN, so grouping these lines without carrying the marker would
+    # silently remove the AMBER override — a false clearance created by a formatting
+    # change. Distinct reasons are listed rather than collapsed, because "source
+    # unavailable" and "screen raised TimeoutError" call for different actions.
+    if _off_unscreened:
+        _reasons_seen: list[str] = []
+        for _, _r in _off_unscreened:
+            if _r not in _reasons_seen:
+                _reasons_seen.append(_r)
+        _names = ", ".join(n for n, _ in _off_unscreened)
+        report.identity.data_gaps.append(
+            f"Officer sanctions screen: SANCTIONS_SOURCE_UNVERIFIED — "
+            f"{len(_off_unscreened)} officeholder(s) NOT screened "
+            f"({'; '.join(_reasons_seen[:3])}). "
+            f"NOT a clearance: nothing is known about these individuals' sanctions "
+            f"status on this run, and a designated officer would not appear. "
+            f"WHAT CLOSES IT: re-run the screen once the source is reachable. "
+            f"WHO: {_names}"
+        )
     return hard_stop
 
 
