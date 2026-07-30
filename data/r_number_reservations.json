@@ -29351,9 +29351,10 @@
       "title": "coding_rag_indexer fallback builds a SECOND chromadb client on the same path",
       "claimed_at": "2026-07-30T22:16:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "21cc5bf4",
+      "notes": null,
+      "shipped_at": "2026-07-30T22:59:46Z"
     }
   ]
 }
