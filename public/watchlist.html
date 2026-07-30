@@ -614,12 +614,12 @@ async function removeEntry(name, btn) {
     try { payload = await r.clone().json(); } catch (_) { payload = null; }
     const reallyRemoved = !!(payload && payload.ok && Number(payload.removed) > 0);
     if (r.ok && reallyRemoved) {
-      Toast.show('“' + name + '” removed — it will no longer be re-screened', 'success');
+      Toast.show('“' + name + '” removed. It will no longer be re-screened', 'success');
       await loadWatchlist();
     } else if (r.ok) {
       Toast.show((payload && payload.reason)
         ? 'Not removed: ' + payload.reason
-        : '“' + name + '” could not be removed — it is still being monitored',
+        : '“' + name + '” could not be removed. It is still being monitored',
         'error');
       await loadWatchlist();
       btn.disabled = false; btn.innerHTML = orig;

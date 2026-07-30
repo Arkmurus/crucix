@@ -1476,7 +1476,7 @@ async function loadEcosystem(root){
     const svc = cov.services || {};
     const unmappedSvc = svc.unmapped || [];
     const unmapped = unmappedSvc.length
-      ? `<div class="warn" style="margin-top:3px">⚠ ${unmappedSvc.join(' + ')}: not scanned — their code is in no count above</div>` : '';
+      ? `<div class="warn" style="margin-top:3px">⚠ ${unmappedSvc.join(' + ')}: not scanned. Their code is in no count above</div>` : '';
     // Both the scope label and the tooltip are DERIVED, so when the Node tiers are
     // mapped this stops claiming they are missing instead of becoming a stale lie.
     const scope = (svc.mapped||[]).length ? svc.mapped.join(' + ') : 'aria-intel';
@@ -1533,7 +1533,7 @@ async function loadEcosystem(root){
     // R-F3351: red on this card is a COMPLETENESS claim ("these modules match no
     // organ"), not a health one ("this organ is failing"). Say which, or the colour lies.
     const tip = `${nm} (${n.type})`
-      + (n.orphan_alert ? ` · COMPLETENESS ALERT: ${n.module_count} module(s) match no organ — the map is declaring its own gap, not reporting a fault` : '')
+      + (n.orphan_alert ? ` · COMPLETENESS ALERT: ${n.module_count} module(s) match no organ. The map is declaring its own gap, not reporting a fault` : '')
       + (n.sensor ? ` · [${n.health||'grey'}] ${n.sensor}${n.sensor_value!=null?(' = '+n.sensor_value):''}` : '')
       + (rn.length ? ` · audit ${rn.slice(-4).reverse().join(', ')}` : '');
     const drill = n.type!=='function';
