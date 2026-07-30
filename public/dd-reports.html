@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DD Reports | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/aria.css?v=15">
+  <link rel="stylesheet" href="css/aria.css?v=16">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -524,8 +524,11 @@
                unlocks and the run is held to it; declining records a WAIVER that stays
                in the denominator and can never improve a score. -->
           <div class="sc-mod-field" id="dd-r-scope-wrap" style="display:none">
-            <label>Paid &amp; gated sources
-              <span class="opt">(select before running: a selected source is searched, a declined one is recorded as waived)</span>
+            <label>Paid &amp; licence-gated sources
+              <span class="opt">Choose before running. A ticked source is searched and may be
+              chargeable; an unticked one is recorded as declined by you. A source that
+              cannot run yet can still be ordered &mdash; it is reported as a named gap and
+              is never charged.</span>
             </label>
             <div id="dd-r-scope" style="display:flex;flex-direction:column;gap:8px"></div>
           </div>
@@ -1976,30 +1979,45 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
       ddScopeOptions = d;
       if (!d.options.length) { wrap.style.display = 'none'; box.innerHTML = ''; return; }
       wrap.style.display = '';
+      box.className = 'dd-src-list';
       box.innerHTML = d.options.map(function (o) {
         const qs = (o.required_for || []).concat(o.enhances || []);
-        const ids = qs.map(function (q) { return escText(q.question_id); }).join(', ');
-        const blocking = o.required && !o.available;
-        const border = blocking ? 'var(--sc-warn, #b45309)'
-                     : (o.required ? 'var(--sc-accent, #2563eb)' : 'var(--sc-border, #333)');
-        // Checked by default only when it is REQUIRED and actually usable: pre-ticking an
-        // unusable source would promise a search that cannot happen.
-        const checked = (o.required && o.available) ? ' checked' : '';
-        const disabled = o.available ? '' : ' disabled';
-        return '<label style="display:flex;gap:10px;align-items:flex-start;padding:10px;'
-          + 'border:1px solid ' + border + ';border-radius:8px;cursor:'
-          + (o.available ? 'pointer' : 'not-allowed') + ';opacity:' + (o.available ? '1' : '.7') + '">'
+        const chips = qs.map(function (q) {
+          return '<span class="dd-src-chip">' + escText(q.question_id) + '</span>';
+        }).join('');
+        const blocked = !o.available;
+        // R-F3450 — an unusable source stays SELECTABLE. Ordering it is a decision only
+        // the operator can make, and the run already handles it honestly: the section
+        // comes back ORDERED BUT NOT SEARCHED, names the blocker, and is excluded from
+        // anything chargeable (R-F3408/R-F3436). Disabling the box made that decision
+        // FOR them and — worse — banked it as a WAIVER they never gave, which stays in
+        // the denominator and can never improve the score.
+        const cls = 'dd-src' + (blocked ? ' is-blocked' : (o.required ? ' is-required' : ''));
+        const pill = blocked
+          ? '<span class="dd-src-pill blocked">'
+            + (o.required ? 'Required &middot; not yet available' : 'Not yet available') + '</span>'
+          : (o.required ? '<span class="dd-src-pill req">Required</span>'
+                        : '<span class="dd-src-pill opt">Optional</span>');
+        // Pre-ticked only when REQUIRED and usable: pre-ticking an unusable source would
+        // promise a search that cannot happen, and pre-ticking an optional one would
+        // spend money nobody chose to spend.
+        return '<label class="' + cls + '">'
           + '<input type="checkbox" class="dd-scope-src" data-source="' + escText(o.source_id) + '"'
-          + checked + disabled + ' style="margin-top:3px">'
-          + '<span style="flex:1;font-size:12.5px;line-height:1.6">'
-          + '<b>' + escText(o.name) + '</b>'
-          + (o.required ? ' <span style="color:' + border + ';font-weight:600">'
-                          + (blocking ? 'REQUIRED, UNAVAILABLE' : 'REQUIRED') + '</span>'
-                        : ' <span style="color:var(--sc-muted)">optional</span>')
-          + '<br><span style="color:var(--sc-muted)">' + escText(o.decision) + '</span>'
-          + (ids ? '<br><span style="color:var(--sc-muted)">Covers: ' + ids + '</span>' : '')
-          + (o.available ? '' : '<br><span style="color:var(--sc-muted)">Blocked: '
-                                + escText(o.unavailable_reason || 'unavailable') + '</span>')
+          + ((o.required && o.available) ? ' checked' : '') + '>'
+          + '<span>'
+          + '<span class="dd-src-head"><span class="dd-src-name">' + escText(o.name) + '</span>'
+          + pill + '</span>'
+          + '<span class="dd-src-decision">' + escText(o.decision) + '</span>'
+          + (chips ? '<span class="dd-src-covers">'
+                     + '<span class="dd-src-covers-label">Answers</span>' + chips + '</span>' : '')
+          + (blocked
+              ? '<span class="dd-src-note"><b>Why it cannot run yet</b>'
+                + escText(o.unavailable_reason || 'unavailable') + '</span>'
+                + '<span class="dd-src-order">Tick to <b>order it anyway</b>. The report will '
+                + 'record the section as ordered but not searched, name this blocker, and '
+                + 'exclude it from anything chargeable &mdash; an unsearched register is '
+                + 'never reported as a clean one.</span>'
+              : '')
           + '</span></label>';
       }).join('');
     } catch (e) {
@@ -2027,9 +2045,14 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
       const qs = (o.required_for || []).concat(o.enhances || []);
       qs.forEach(function (q) {
         if (cb.checked) elections.push({ question_id: q.question_id, elected_by: who });
+        // R-F3450 — every unticked box is now a REAL decline, because every box can be
+        // ticked. Previously an unavailable source was disabled and therefore always
+        // landed here, recording a waiver the operator never made.
         else waivers.push({ question_id: q.question_id, waived_by: who,
-                            reason: o.available ? (o.name + ' not selected on the New DD form')
-                                                : (o.name + ' unavailable: ' + (o.unavailable_reason || 'not usable')) });
+                            reason: o.available
+                              ? (o.name + ' not selected on the New DD form')
+                              : (o.name + ' not ordered on the New DD form; it is also not '
+                                 + 'usable on this run (' + (o.unavailable_reason || 'not usable') + ')') });
       });
     });
     return { tier: ddScopeOptions.tier, elections: elections, waivers: waivers };

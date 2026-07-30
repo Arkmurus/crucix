@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3450,
+  "next_available": 3454,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28543,9 +28543,45 @@
       "claimed_at": "2026-07-29T23:05:19Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "a5a1e89d",
+      "commit_sha": "b43f7000",
       "notes": null,
-      "shipped_at": "2026-07-30T00:43:27Z"
+      "shipped_at": "2026-07-30T07:48:00Z"
+    },
+    {
+      "r_number": "R-F3450",
+      "title": "DD form: allow electing gated sources that are not yet usable (Registry Trust CCJ, Find Case Law)",
+      "claimed_at": "2026-07-30T08:01:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3451",
+      "title": "DD disqualified-officers: honorific/middle-name tokens produce false name matches against real directors",
+      "claimed_at": "2026-07-30T08:01:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3452",
+      "title": "DD sanctions: screen must not report UNSCREENED when primary lists answered",
+      "claimed_at": "2026-07-30T08:01:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3453",
+      "title": "DD form UX: professionalise and align the New DD panel and gated-source rows",
+      "claimed_at": "2026-07-30T08:08:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

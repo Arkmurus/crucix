@@ -706,3 +706,48 @@ body.nav-expanded .nav-dropdown-menu { left: calc(var(--rail-expanded-w) + 8px);
 .mb-24       { margin-bottom: 24px; }
 .mb-28       { margin-bottom: 28px; }
 .ms-auto     { margin-left: auto; }
+
+/* ── R-F3453 — New DD: paid & licence-gated source selection ───────────────
+   Replaces a block of inline-style string concatenation. Two things the old
+   markup got wrong and this fixes: rows were not aligned (a ragged checkbox
+   column and a <br>-separated run of spans), and the "Blocked:" explanation —
+   the most decision-relevant text on the panel — was rendered as muted body
+   text indistinguishable from the rest of the row. */
+.dd-src-list { display: flex; flex-direction: column; gap: 10px; }
+.dd-src {
+  display: grid; grid-template-columns: 18px 1fr; gap: 12px; align-items: start;
+  padding: 14px 16px; border: 1px solid var(--sc-border); border-radius: 10px;
+  background: #fff; cursor: pointer; transition: border-color .15s, box-shadow .15s;
+}
+.dd-src:hover { border-color: var(--sc-border-strong); }
+.dd-src.is-required { border-color: var(--sc-prime); box-shadow: 0 0 0 1px var(--sc-prime-soft); }
+.dd-src.is-blocked  { border-color: var(--sc-orange); background: #fffdf8; }
+.dd-src > input[type="checkbox"] { width: 16px; height: 16px; margin: 2px 0 0; cursor: pointer; }
+.dd-src-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dd-src-name { font-size: 13.5px; font-weight: 700; color: var(--sc-heading); line-height: 1.3; }
+.dd-src-pill {
+  font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+}
+.dd-src-pill.req     { background: var(--sc-prime-soft); color: var(--sc-prime); }
+.dd-src-pill.opt     { background: #f3f2ee; color: var(--sc-muted); }
+.dd-src-pill.blocked { background: #fdf0e3; color: #b45309; }
+.dd-src-decision { display: block; font-size: 12px; line-height: 1.5; color: var(--sc-muted); margin-top: 5px; }
+.dd-src-covers { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.dd-src-covers-label { font-size: 11px; color: var(--sc-muted); }
+.dd-src-chip {
+  font-size: 10.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #f3f2ee; color: var(--sc-text); padding: 2px 7px; border-radius: 5px;
+}
+.dd-src-note {
+  display: block;
+  margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--sc-orange);
+  background: #fffaf2; border-radius: 0 6px 6px 0;
+  font-size: 11.5px; line-height: 1.6; color: var(--sc-text);
+}
+.dd-src-note > b {
+  display: block; margin-bottom: 3px; font-size: 10.5px; font-weight: 700;
+  letter-spacing: .05em; text-transform: uppercase; color: #b45309;
+}
+.dd-src-order { display: block; margin-top: 8px; font-size: 11.5px; line-height: 1.55; color: var(--sc-muted); }
+.dd-src-order b { color: var(--sc-text); font-weight: 600; }
