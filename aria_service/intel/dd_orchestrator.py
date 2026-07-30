@@ -3933,16 +3933,22 @@ async def _run_ch_free_registers(report: ARKDDReport, profile: dict | None) -> N
                        f"disqualified-directors register — identity NOT confirmed"),
                 detail=(
                     f"The Companies House register of disqualifications returns "
-                    f"{dq['total_results']} entr(ies) matching the name {_nm!r}. "
+                    f"{dq['total_results']} entr(ies) sharing the surname of {_nm!r}. "
                     f"{dq.get('corroboration_required', '')} "
                     + "Candidates: "
                     + "; ".join(
                         f"{c.get('title')}"
                         + (f" ({c.get('address_snippet')})" if c.get("address_snippet") else "")
+                        + (" [forename also matches]" if c.get("forename_also_matches") else "")
                         for c in _cands[:3]
                     )
                     + ". This is a name match, not a determination that this officer is "
-                      "that person."
+                      "that person. "
+                    + (dq.get("filter_note") or "")
+                    + (f" {dq['discarded_name_coincidence']} further row(s) returned by the "
+                       f"register were discarded as name coincidences (they do not carry "
+                       f"this officer's surname)."
+                       if dq.get("discarded_name_coincidence") else "")
                 ),
                 source="companies_house.disqualified_officers",
                 confidence="ASSESSED",
@@ -3965,10 +3971,11 @@ async def _run_ch_free_registers(report: ARKDDReport, profile: dict | None) -> N
                    f"disqualified-directors register — no match"),
             detail=(
                 f"The Companies House register of disqualifications was searched for: "
-                f"{', '.join(_dq_cleared[:8])}. No entry matched any of these names. "
-                f"The register matches on name, so this is the absence of a name match "
-                f"rather than proof that no officer has ever been disqualified under "
-                f"another spelling."
+                f"{', '.join(_dq_cleared[:8])}. No entry carrying any of these surnames "
+                f"is on the register. The register matches on name, so this is the "
+                f"absence of a name match rather than proof that no officer has ever "
+                f"been disqualified — a disqualification recorded under a former or "
+                f"married surname, or under another spelling, would not be found this way."
             ),
             source="companies_house.disqualified_officers",
             confidence="CONFIRMED",

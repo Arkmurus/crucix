@@ -857,6 +857,60 @@ async def get_insolvency(company_number: str) -> dict:
     }
 
 
+#: Honorifics and post-nominals. These are NOT names, and passing them to a free-text
+#: register search is how R-F3451 happened: the officer string Companies House returns is
+#: "COMISKEY, Aedamar Ita, Dr", and the token "Dr" prefix-matched DREAM HOME TRAVELS,
+#: DREX TECHNOLOGIES and NATIONAL IRANIAN DRILLING — three entries reported to a customer
+#: as disqualification "name matches" against a sitting FTSE director.
+_NAME_NOISE = frozenset({
+    "dr", "mr", "mrs", "ms", "miss", "mx", "sir", "dame", "lord", "lady", "prof",
+    "professor", "rev", "reverend", "hon", "rt", "capt", "captain", "col", "colonel",
+    "maj", "major", "gen", "general", "jr", "sr", "ii", "iii", "iv",
+    "obe", "mbe", "cbe", "kbe", "dbe", "qc", "kc", "phd", "frcs", "cbe.", "the",
+})
+
+
+def _person_name_parts(name: str) -> tuple[str, list[str]]:
+    """Split a Companies House officer string into (surname, forenames).
+
+    CH renders officers as ``SURNAME, Forename Middle, Title``. The surname is the
+    discriminator: two people can share a forename, but a register row whose name does
+    not contain this person's SURNAME cannot be this person.
+    """
+    raw = (name or "").strip()
+    if not raw:
+        return "", []
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    if len(parts) >= 2:
+        surname = parts[0]
+        fore_src = parts[1]
+    else:
+        toks = raw.split()
+        surname = toks[-1] if toks else ""
+        fore_src = " ".join(toks[:-1])
+    forenames = [t for t in fore_src.replace(".", " ").split()
+                 if t.lower() not in _NAME_NOISE and len(t) > 1]
+    if surname.lower() in _NAME_NOISE:
+        surname = ""
+    return surname, forenames
+
+
+def _disq_candidate_is_same_name(title: str, surname: str, forenames: list[str]) -> tuple[bool, bool]:
+    """(keeps, forename_also_matches) for one register row.
+
+    Surname match is REQUIRED to keep the row — that is what makes this a name match at
+    all. Forename agreement is reported but not required, because the register lists
+    former and alternate names and dropping on forename alone would risk a false NEGATIVE
+    on a genuine disqualification, which is the dangerous direction here.
+    """
+    if not surname:
+        return False, False
+    hay = {t.strip(".,()").lower() for t in str(title or "").split()}
+    if surname.lower() not in hay:
+        return False, False
+    return True, any(f.lower() in hay for f in forenames)
+
+
 @fail_wire(module="companies_house", gap_type="api_missing")
 async def search_disqualified_officers(name: str, limit: int = 20) -> dict:
     """Disqualified-directors register.
@@ -872,7 +926,15 @@ async def search_disqualified_officers(name: str, limit: int = 20) -> dict:
     THIS officer is THAT disqualified person; the returned rows carry the fields needed
     to do so, and `match_basis` states the limitation so no consumer can forget it.
     """
-    q = (name or "").strip()
+    raw_name = (name or "").strip()
+    if len(raw_name) < 3:
+        return _unchecked(OUTCOME_ERROR, "Disqualification check")
+    # R-F3451 — search on the NAME, not on the honorific. The raw CH officer string
+    # ("SURNAME, Forename Middle, Title") was previously sent verbatim to a free-text
+    # endpoint that matches tokens independently, so "Dr" and middle names pulled back
+    # entries belonging to unrelated people and companies.
+    _surname, _forenames = _person_name_parts(raw_name)
+    q = " ".join([_surname] + _forenames[:1]).strip() or raw_name
     if len(q) < 3:
         return _unchecked(OUTCOME_ERROR, "Disqualification check")
     from urllib.parse import quote_plus
@@ -882,33 +944,65 @@ async def search_disqualified_officers(name: str, limit: int = 20) -> dict:
     if outcome not in ANSWERED_OUTCOMES:
         return _unchecked(outcome, "Disqualification check")
     if outcome == OUTCOME_NOT_FOUND or not data:
+        # Same SHAPE as the answered branch — a consumer must not have to know which
+        # branch produced the dict to read it.
         return {"checked": True, "outcome": outcome, "query": q,
+                "searched_name": raw_name, "surname_required": _surname,
+                "raw_results": 0, "discarded_name_coincidence": 0,
                 "total_results": 0, "candidates": [],
                 "match_basis": "name_only",
+                "surname_filter_applied": True,
+                "filter_note": (
+                    f"Rows are kept only where the entry's name contains the surname "
+                    f"{_surname!r}. A disqualification recorded under a different surname "
+                    f"(for example a former or married name) would not be found by this "
+                    f"search."),
                 "detail": f"No disqualified officer matching {q!r} is on the register"}
     items = [i for i in (data.get("items") or []) if isinstance(i, dict)]
+    raw_total = int(data.get("total_results") or len(items) or 0)
+
+    # R-F3451 — a row whose name does not contain this officer's SURNAME cannot be this
+    # officer. Reporting one as a "name match" is an accusation generated by tokenisation,
+    # about a named human being, in a customer-facing report. `total_results` is the count
+    # AFTER this filter because that is the number every consumer treats as "hits"; the
+    # unfiltered figure stays visible as `raw_results` so the filter itself is auditable.
+    kept: list[dict] = []
+    for i in items:
+        ok, fore_ok = _disq_candidate_is_same_name(i.get("title") or "", _surname, _forenames)
+        if not ok:
+            continue
+        kept.append({
+            "title": i.get("title"),
+            "address_snippet": i.get("address_snippet"),
+            "date_of_birth": i.get("date_of_birth"),
+            "disqualification_start_on": (i.get("disqualification_start_on")
+                                          or i.get("appointment_count")),
+            "link": (i.get("links") or {}).get("self"),
+            "forename_also_matches": fore_ok,
+        })
+
     return {
         "checked": True,
         "outcome": outcome,
         "query": q,
-        "total_results": int(data.get("total_results") or len(items) or 0),
+        "searched_name": raw_name,
+        "surname_required": _surname,
+        "raw_results": raw_total,
+        "discarded_name_coincidence": max(0, len(items) - len(kept)),
+        "total_results": len(kept),
         # DELIBERATE WORDING: candidates, not matches. A name match is not an identity.
         "match_basis": "name_only",
+        "surname_filter_applied": True,
         "corroboration_required": (
             "Matched on NAME ONLY. Confirm date of birth and address against the "
             "officer's registry record before treating this as the same person."
         ),
-        "candidates": [
-            {
-                "title": i.get("title"),
-                "address_snippet": i.get("address_snippet"),
-                "date_of_birth": i.get("date_of_birth"),
-                "disqualification_start_on": (i.get("disqualification_start_on")
-                                              or i.get("appointment_count")),
-                "link": (i.get("links") or {}).get("self"),
-            }
-            for i in items[:limit]
-        ],
+        "filter_note": (
+            f"Rows are kept only where the entry's name contains the surname "
+            f"{_surname!r}. A disqualification recorded under a different surname "
+            f"(for example a former or married name) would not be found by this search."
+        ),
+        "candidates": kept[:limit],
         "source_url": "https://find-and-update.company-information.service.gov.uk/register-of-disqualifications",
     }
 
