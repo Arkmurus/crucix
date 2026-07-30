@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "case_id": "dd-gold-tac-mikronglobal-v1",
+  "subject": {
+    "display_name": "TAC / Mikronglobal network",
+    "entity_type": "network",
+    "jurisdiction": "UNSPECIFIED"
+  },
+  "fixture_mode": "blocked_missing_frozen_evidence",
+  "release_gate_eligible": false,
+  "resolver_version": null,
+  "verdict_fn_version": "1.0.0",
+  "observations": [],
+  "expected_findings": [],
+  "blocker": {
+    "reason": "No repository-local source observations or adjudicated expected findings were found for this named case.",
+    "required_to_unblock": [
+      "Freeze the source observations used in the completed investigation.",
+      "Record stable entity identifiers and aliases for every node.",
+      "Adjudicate each expected finding with a rationale and evidence reference.",
+      "Obtain a second review before promoting any P0 identity decision."
+    ]
+  }
+}

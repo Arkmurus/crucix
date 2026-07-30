@@ -25,6 +25,7 @@ from .engine_wiring import wire_failure, wire_success
 
 EVIDENCE_SCHEMA_ID = "aria.dd.evidence"
 EVIDENCE_SCHEMA_VERSION = "1.0.0"
+VERDICT_FUNCTION_VERSION = "1.0.0"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -62,6 +63,227 @@ class SnapshotPolicy(str, Enum):
     PERMITTED = "permitted"
     PROHIBITED = "prohibited"
     NOT_APPLICABLE = "not_applicable"
+
+
+class ConfigurationState(str, Enum):
+    """Whether the evidence capability is permitted and configured to run.
+
+    ``ACCESS_BASIS_MISSING`` deliberately lives on this axis.  It is a
+    legal-governance configuration state: engineering may be ready while ARIA is
+    still not permitted to acquire or retain the source.
+    """
+
+    CONFIGURED = "configured"
+    NOT_CONFIGURED = "not_configured"
+    NOT_APPLICABLE = "not_applicable"
+    DISABLED = "disabled"
+    ACCESS_BASIS_MISSING = "access_basis_missing"
+
+
+class SourceState(str, Enum):
+    """Condition of the source observation used for the attempt."""
+
+    CURRENT = "current"
+    STALE = "stale"
+    DEGRADED = "degraded"
+    UNAVAILABLE = "unavailable"
+    UNKNOWN = "unknown"
+
+
+class AttemptOutcome(str, Enum):
+    """Operational outcome of consulting one configured capability."""
+
+    NOT_ATTEMPTED = "not_attempted"
+    SUCCEEDED = "succeeded"
+    PARTIAL = "partial"
+    TIMED_OUT = "timed_out"
+    AUTH_REQUIRED = "auth_required"
+    ACCESS_DENIED = "access_denied"
+    SOURCE_FAILED = "source_failed"
+    PARSER_FAILED = "parser_failed"
+
+
+class MatchOutcome(str, Enum):
+    """Entity/evidence resolution result, independent of source condition.
+
+    ``AMBIGUOUS`` means two or more plausible candidates remain.
+    ``UNRESOLVED`` means the resolver lacked enough evidence to resolve any
+    candidate.  Neither is a negative match.
+    """
+
+    NOT_EVALUATED = "not_evaluated"
+    MATCH = "match"
+    NO_MATCH = "no_match"
+    AMBIGUOUS = "ambiguous"
+    UNRESOLVED = "unresolved"
+
+
+class EvidenceVerdict(str, Enum):
+    """Presentation-neutral verdict derived from the four status axes."""
+
+    BLOCKED = "blocked"
+    DEGRADED = "degraded"
+    COMPLETED_MATCH = "completed_match"
+    COMPLETED_NO_MATCH = "completed_no_match"
+    COMPLETED_PARTIAL = "completed_partial"
+    NOT_APPLICABLE = "not_applicable"
+    NOT_RUN = "not_run"
+
+
+_NON_CONFIGURED_STATES = frozenset({
+    ConfigurationState.NOT_CONFIGURED,
+    ConfigurationState.NOT_APPLICABLE,
+    ConfigurationState.DISABLED,
+    ConfigurationState.ACCESS_BASIS_MISSING,
+})
+_FAILED_ATTEMPTS = frozenset({
+    AttemptOutcome.TIMED_OUT,
+    AttemptOutcome.AUTH_REQUIRED,
+    AttemptOutcome.ACCESS_DENIED,
+    AttemptOutcome.SOURCE_FAILED,
+    AttemptOutcome.PARSER_FAILED,
+})
+_EVALUATED_MATCHES = frozenset({
+    MatchOutcome.MATCH,
+    MatchOutcome.NO_MATCH,
+    MatchOutcome.AMBIGUOUS,
+    MatchOutcome.UNRESOLVED,
+})
+
+
+@dataclass(frozen=True)
+class EvidenceAssessment:
+    """Version-pinned orthogonal status of one evidence capability.
+
+    Reports must persist all four axes and ``verdict_fn_version``.  Re-rendering
+    a historical report must use the function version it was issued with rather
+    than silently applying a later policy.
+    """
+
+    configuration_state: ConfigurationState
+    source_state: SourceState
+    attempt_outcome: AttemptOutcome
+    match_outcome: MatchOutcome
+    verdict_fn_version: str = VERDICT_FUNCTION_VERSION
+
+    def validate(self) -> None:
+        """Raise ``EvidenceContractError`` for an impossible combination."""
+        errors: list[str] = []
+        config = self.configuration_state
+        source = self.source_state
+        attempt = self.attempt_outcome
+        match = self.match_outcome
+
+        if self.verdict_fn_version != VERDICT_FUNCTION_VERSION:
+            errors.append(
+                f"verdict_fn_version must equal {VERDICT_FUNCTION_VERSION}")
+
+        if config in _NON_CONFIGURED_STATES:
+            if source != SourceState.UNKNOWN:
+                errors.append(
+                    f"{config.value} requires source_state=unknown")
+            if attempt != AttemptOutcome.NOT_ATTEMPTED:
+                errors.append(
+                    f"{config.value} requires attempt_outcome=not_attempted")
+            if match != MatchOutcome.NOT_EVALUATED:
+                errors.append(
+                    f"{config.value} requires match_outcome=not_evaluated")
+
+        if config == ConfigurationState.CONFIGURED:
+            if attempt == AttemptOutcome.NOT_ATTEMPTED:
+                if match != MatchOutcome.NOT_EVALUATED:
+                    errors.append(
+                        "not_attempted requires match_outcome=not_evaluated")
+            elif attempt in _FAILED_ATTEMPTS:
+                if match != MatchOutcome.NOT_EVALUATED:
+                    errors.append(
+                        f"{attempt.value} requires match_outcome=not_evaluated")
+            elif attempt == AttemptOutcome.SUCCEEDED:
+                if match not in _EVALUATED_MATCHES:
+                    errors.append(
+                        "succeeded requires an evaluated match outcome")
+            elif attempt == AttemptOutcome.PARTIAL:
+                # A partial attempt may fail before matching, or may resolve only
+                # the subset that answered.  Both states are truthful.
+                pass
+
+            if source == SourceState.UNAVAILABLE and attempt not in _FAILED_ATTEMPTS:
+                errors.append(
+                    "source_state=unavailable requires a failed attempt outcome")
+
+        if match in _EVALUATED_MATCHES and attempt not in {
+            AttemptOutcome.SUCCEEDED, AttemptOutcome.PARTIAL
+        }:
+            errors.append(
+                "an evaluated match requires attempt_outcome=succeeded or partial")
+
+        if errors:
+            raise EvidenceContractError(errors)
+
+    def derive_verdict(self) -> EvidenceVerdict:
+        """Validate and derive the v1 verdict without consulting synthesis."""
+        self.validate()
+        config = self.configuration_state
+        source = self.source_state
+        attempt = self.attempt_outcome
+        match = self.match_outcome
+
+        if config == ConfigurationState.NOT_APPLICABLE:
+            return EvidenceVerdict.NOT_APPLICABLE
+        if config == ConfigurationState.DISABLED:
+            return EvidenceVerdict.NOT_RUN
+        if config in {
+            ConfigurationState.NOT_CONFIGURED,
+            ConfigurationState.ACCESS_BASIS_MISSING,
+        }:
+            return EvidenceVerdict.BLOCKED
+        if attempt == AttemptOutcome.NOT_ATTEMPTED:
+            return EvidenceVerdict.NOT_RUN
+        if source == SourceState.UNAVAILABLE or attempt in _FAILED_ATTEMPTS:
+            return EvidenceVerdict.BLOCKED
+        if (
+            source in {SourceState.STALE, SourceState.DEGRADED, SourceState.UNKNOWN}
+            or attempt == AttemptOutcome.PARTIAL
+        ):
+            return EvidenceVerdict.DEGRADED
+        if match == MatchOutcome.MATCH:
+            return EvidenceVerdict.COMPLETED_MATCH
+        if match == MatchOutcome.NO_MATCH:
+            return EvidenceVerdict.COMPLETED_NO_MATCH
+        return EvidenceVerdict.COMPLETED_PARTIAL
+
+
+def evidence_assessment_matrix() -> tuple[dict[str, str], ...]:
+    """Return the complete v1 mapping of every valid axis combination.
+
+    Invalid combinations are deliberately absent.  Tests enumerate the entire
+    Cartesian product and prove every combination is either represented here or
+    rejected by ``EvidenceAssessment.validate``.
+    """
+    rows: list[dict[str, str]] = []
+    for configuration in ConfigurationState:
+        for source in SourceState:
+            for attempt in AttemptOutcome:
+                for match in MatchOutcome:
+                    assessment = EvidenceAssessment(
+                        configuration_state=configuration,
+                        source_state=source,
+                        attempt_outcome=attempt,
+                        match_outcome=match,
+                    )
+                    try:
+                        verdict = assessment.derive_verdict()
+                    except EvidenceContractError:
+                        continue
+                    rows.append({
+                        "configuration_state": configuration.value,
+                        "source_state": source.value,
+                        "attempt_outcome": attempt.value,
+                        "match_outcome": match.value,
+                        "verdict": verdict.value,
+                        "verdict_fn_version": VERDICT_FUNCTION_VERSION,
+                    })
+    return tuple(rows)
 
 
 _ANSWERED_OUTCOMES = frozenset({
@@ -413,6 +635,15 @@ def describe_standard() -> dict[str, Any]:
         "source_authorities": [item.value for item in SourceAuthority],
         "retrieval_outcomes": [item.value for item in RetrievalOutcome],
         "snapshot_policies": [item.value for item in SnapshotPolicy],
+        "assessment_contract": {
+            "verdict_fn_version": VERDICT_FUNCTION_VERSION,
+            "configuration_states": [item.value for item in ConfigurationState],
+            "source_states": [item.value for item in SourceState],
+            "attempt_outcomes": [item.value for item in AttemptOutcome],
+            "match_outcomes": [item.value for item in MatchOutcome],
+            "derived_verdicts": [item.value for item in EvidenceVerdict],
+            "valid_combinations": len(evidence_assessment_matrix()),
+        },
         "invariants": [
             "timeout is not zero_results or no_match",
             "answered source outcomes require a SHA-256 content hash",
@@ -421,5 +652,8 @@ def describe_standard() -> dict[str, Any]:
             "snapshot policy controls whether a raw artefact URI may be retained",
             "all case and evidence identifiers are UUIDs",
             "retrieval and effective timestamps include an explicit UTC offset",
+            "status axes remain orthogonal and impossible combinations are rejected",
+            "stale or degraded evidence never derives a completed verdict",
+            "historical reports pin the verdict function version used at issue time",
         ],
     }

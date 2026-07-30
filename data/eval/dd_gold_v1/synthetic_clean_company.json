@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0.0",
+  "case_id": "dd-gold-synthetic-clean-v1",
+  "subject": {
+    "display_name": "ARIA GOLD CLEAN LTD",
+    "entity_type": "synthetic_company",
+    "jurisdiction": "GB"
+  },
+  "fixture_mode": "synthetic_negative_control",
+  "release_gate_eligible": true,
+  "resolver_version": "synthetic-identifiers-v1",
+  "verdict_fn_version": "1.0.0",
+  "observations": [
+    {
+      "observation_id": "clean-company-identity",
+      "source_ref": "synthetic://dd-gold-v1/company-identity",
+      "frozen": true,
+      "payload": {
+        "company_number": "SYNTHETIC-0001",
+        "name": "ARIA GOLD CLEAN LTD"
+      }
+    },
+    {
+      "observation_id": "clean-company-sanctions",
+      "source_ref": "synthetic://dd-gold-v1/sanctions-current-no-match",
+      "frozen": true,
+      "payload": {
+        "configuration_state": "configured",
+        "source_state": "current",
+        "attempt_outcome": "succeeded",
+        "match_outcome": "no_match"
+      }
+    }
+  ],
+  "expected_findings": [
+    {
+      "finding_id": "current-sanctions-no-match",
+      "expected_state": "completed_no_match",
+      "rationale": "The synthetic current, successful, identifier-scoped observation is the negative-control path.",
+      "evidence_refs": [
+        "clean-company-sanctions"
+      ]
+    },
+    {
+      "finding_id": "no-material-adverse-finding",
+      "expected_state": "no_finding",
+      "rationale": "No frozen observation in this synthetic negative-control case supports a material adverse finding.",
+      "evidence_refs": [
+        "clean-company-identity",
+        "clean-company-sanctions"
+      ]
+    }
+  ]
+}

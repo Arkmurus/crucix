@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0.0",
+  "case_id": "dd-gold-babcock-v1",
+  "subject": {
+    "display_name": "Babcock International Group PLC",
+    "entity_type": "company",
+    "jurisdiction": "GB"
+  },
+  "fixture_mode": "frozen",
+  "release_gate_eligible": true,
+  "resolver_version": "repo-regression-fixtures-v1",
+  "verdict_fn_version": "1.0.0",
+  "observations": [
+    {
+      "observation_id": "babcock-export-control-input",
+      "source_ref": "aria_service/tests/test_rf3454_export_control_not_assessed.py",
+      "frozen": true
+    },
+    {
+      "observation_id": "babcock-disqualification-name-coincidence",
+      "source_ref": "aria_service/tests/test_rf3451_disqualified_name_coincidence.py",
+      "frozen": true
+    },
+    {
+      "observation_id": "babcock-sanctions-partial-coverage",
+      "source_ref": "aria_service/tests/test_rf3452_sanctions_partial_coverage.py",
+      "frozen": true
+    },
+    {
+      "observation_id": "babcock-report-integrity",
+      "source_ref": "aria_service/tests/test_rf3460_3463_report_integrity.py",
+      "frozen": true
+    }
+  ],
+  "expected_findings": [
+    {
+      "finding_id": "export-control-not-assessed-without-scope",
+      "expected_state": "open_gap",
+      "rationale": "A subject-sector label cannot establish the transaction-specific export-control classification.",
+      "evidence_refs": [
+        "babcock-export-control-input"
+      ]
+    },
+    {
+      "finding_id": "single-forename-disqualification-is-not-a-match",
+      "expected_state": "closed_false_positive",
+      "rationale": "A single shared forename without surname overlap is insufficient person resolution evidence.",
+      "evidence_refs": [
+        "babcock-disqualification-name-coincidence"
+      ]
+    },
+    {
+      "finding_id": "partial-sanctions-coverage-is-not-clear",
+      "expected_state": "degraded",
+      "rationale": "A partial or stale sanctions attempt must not render as a completed no-match conclusion.",
+      "evidence_refs": [
+        "babcock-sanctions-partial-coverage"
+      ]
+    },
+    {
+      "finding_id": "resolved-identity-doubt-must-close-deterministically",
+      "expected_state": "closed_by_rule_or_adjudication",
+      "rationale": "Synthesis may consume corroboration-based closure but may not manufacture or remove an identity flag.",
+      "evidence_refs": [
+        "babcock-report-integrity"
+      ]
+    }
+  ]
+}

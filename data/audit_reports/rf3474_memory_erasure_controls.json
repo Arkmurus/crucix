@@ -1,0 +1,87 @@
+{
+  "audit_id": "R-F3474-memory-erasure-v1",
+  "audited_at": "2026-07-30",
+  "scope": [
+    "aria_service/intel/mem0.py",
+    "aria_service/intel/knowledge.py",
+    "aria_service/intel/rag_store.py",
+    "fly.toml",
+    "fly.web.toml",
+    "fly.wa.toml"
+  ],
+  "controls": [
+    {
+      "control_id": "ERASURE-SUBJECT-KEY",
+      "status": "fail",
+      "finding": "Mem0 and knowledge facts have no mandatory stable data-subject identifier; available removal is keyword-substring based.",
+      "evidence": [
+        "aria_service/intel/mem0.py:290",
+        "aria_service/intel/mem0.py:293",
+        "aria_service/intel/knowledge.py:2074",
+        "aria_service/intel/knowledge.py:2092"
+      ]
+    },
+    {
+      "control_id": "ERASURE-ALL-RAG-COLLECTIONS",
+      "status": "fail",
+      "finding": "Retrieval consults hot, cold, and fact collections, but purge scans only hot documents and facts.",
+      "evidence": [
+        "aria_service/intel/rag_store.py:1590",
+        "aria_service/intel/rag_store.py:1591",
+        "aria_service/intel/rag_store.py:1593",
+        "aria_service/intel/rag_store.py:2176",
+        "aria_service/intel/rag_store.py:2181"
+      ]
+    },
+    {
+      "control_id": "RETENTION-CLASS",
+      "status": "fail",
+      "finding": "No mandatory evidence-class retention policy, expiry timestamp, or lawful-basis field was found in Mem0 storage.",
+      "evidence": [
+        "aria_service/intel/mem0.py:194",
+        "aria_service/intel/mem0.py:290",
+        "aria_service/intel/mem0.py:293"
+      ]
+    },
+    {
+      "control_id": "TENANT-ISOLATION",
+      "status": "fail",
+      "finding": "Mem0 retrieval scans the shared knowledge fact cache and filters by source prefix and lexical relevance, not tenant ownership.",
+      "evidence": [
+        "aria_service/intel/mem0.py:360",
+        "aria_service/intel/mem0.py:386"
+      ]
+    },
+    {
+      "control_id": "RESIDENCY-CONFIG",
+      "status": "partial",
+      "finding": "All committed Fly app configurations pin primary_region to London, but live machine and replica placement was not verified during this audit.",
+      "evidence": [
+        "fly.toml:2",
+        "fly.web.toml:30",
+        "fly.wa.toml:25"
+      ]
+    },
+    {
+      "control_id": "BACKUP-ERASURE",
+      "status": "unverified",
+      "finding": "No verified procedure demonstrates propagation of a subject erasure into snapshots, backups, exports, and restored replicas.",
+      "evidence": [
+        "fly.toml:129",
+        "fly.web.toml:40",
+        "fly.wa.toml:30"
+      ]
+    },
+    {
+      "control_id": "CRYPTO-SHREDDING",
+      "status": "not_implemented",
+      "finding": "No per-subject or per-record encryption-key lifecycle was found; crypto-shredding is therefore unavailable.",
+      "evidence": [
+        "aria_service/intel/mem0.py:293",
+        "aria_service/intel/rag_store.py:2059"
+      ]
+    }
+  ],
+  "conclusion": "fail_pre_phase_2",
+  "phase_2_gate": "Do not expand continuous personal-data ingestion until subject-keyed erasure, all-collection deletion, retention metadata, backup handling, and residency verification have passing evidence."
+}
