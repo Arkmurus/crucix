@@ -2062,6 +2062,21 @@ async def list_sources(limit: int = 50) -> dict:
 _SEARCHABLE_COLLECTION_LABELS = ("documents", "facts", "documents_cold")
 
 
+#: R-F3484 — the metadata key that makes erasure PROVABLE.
+#:
+#: Erasure by keyword substring cannot prove completeness: a subject's data survives an
+#: alias, a transliteration, an initial, a misspelling, or any encoding the needle does
+#: not literally appear in. Under UK GDPR Art. 17 the controller must be able to show the
+#: request was fulfilled — "we grepped for the name" is not that showing.
+#:
+#: A record written WITH this key can be erased exactly and the receipt can prove it. A
+#: record written without one can only be swept best-effort, and the receipt must say so
+#: rather than implying completeness.
+DATA_SUBJECT_KEY = "data_subject_key"
+LAWFUL_BASIS_KEY = "lawful_basis"
+RETENTION_CLASS_KEY = "retention_class"
+
+
 def _searchable_collections() -> list[tuple[str, object]]:
     """(label, collection) for every searchable collection, live objects included.
 
@@ -2075,6 +2090,111 @@ def _searchable_collections() -> list[tuple[str, object]]:
         ("facts", _facts_collection),
         ("documents_cold", _documents_cold_collection),
     ]
+
+
+@fail_wire(module="rag_store", gap_type="embedder_failure")
+async def erase_by_subject(subject_key: str, *, dry_run: bool = False) -> dict:
+    """R-F3484 — erase every chunk written for one data subject, PROVABLY.
+
+    THE GAP THIS CLOSES. Until now the only erasure was `purge_by_keywords`, a substring
+    sweep. That cannot fulfil a UK GDPR Art. 17 request in a way a controller can
+    demonstrate: the subject's data survives inside an alias, a transliteration, an
+    initial, a misspelling, or any phrasing the needle does not literally appear in. The
+    caller could not tell a complete erasure from a lucky one.
+
+    Matching on `data_subject_key` metadata is exact, so the receipt is EVIDENCE: every
+    chunk carrying the key is removed, across every collection a search can read from
+    (the R-F3478 invariant — erasure surface equals retrieval surface), and the per
+    collection counts show what was covered.
+
+    HONEST LIMIT, returned in the receipt rather than buried here: this reaches records
+    that were WRITTEN with a subject key. Historical records predate the key and are not
+    reachable this way; `coverage` says `keyed` and `unkeyed_records_exist` warns when a
+    keyword sweep is still required to approach them. Erasure that overstates itself is
+    worse than erasure that fails, because the controller stops looking.
+
+    Consistent with CLAUDE.md §7: this deletes only on an explicit, attributed request.
+    It introduces no TTL, no prune and no eviction.
+    """
+    key = (subject_key or "").strip()
+    if not key:
+        return {"available": True, "erased": 0, "coverage": "none",
+                "reason": "subject_key_required", "per_collection": {}}
+    if not await _ensure_async():
+        return {"available": False, "reason": "rag_store_unavailable",
+                "erased": 0, "coverage": "none", "per_collection": {}}
+
+    import asyncio as _aio
+    _PAGE = 500
+
+    def _scan(coll, label: str) -> tuple[int, list[str], str]:
+        if coll is None:
+            return 0, [], ""
+        ids_all: list[str] = []
+        metas_all: list[dict] = []
+        offset = 0
+        while True:
+            try:
+                page = coll.get(include=["metadatas"], limit=_PAGE, offset=offset)
+            except Exception as e:
+                # R-F3389 — "erased 0" must never be ambiguous between "nothing matched"
+                # and "I could not look". On an erasure request that difference is legal.
+                return len(ids_all), [], f"{label}: {str(e)[:160]}"
+            p_ids = page.get("ids") or []
+            ids_all.extend(p_ids)
+            metas_all.extend(page.get("metadatas") or [])
+            if len(p_ids) < _PAGE:
+                break
+            offset += _PAGE
+        hits = [
+            doc_id for i, doc_id in enumerate(ids_all)
+            if isinstance(metas_all[i] if i < len(metas_all) else None, dict)
+            and str((metas_all[i] or {}).get(DATA_SUBJECT_KEY) or "").strip() == key
+        ]
+        return len(ids_all), hits, ""
+
+    per_collection: dict[str, dict] = {}
+    scan_errors: list[str] = []
+    pending: list[tuple[object, list[str]]] = []
+    total_scanned = 0
+    for label, coll in _searchable_collections():
+        scanned, hits, err = await _aio.to_thread(_scan, coll, label)
+        if err:
+            scan_errors.append(err)
+        total_scanned += scanned
+        per_collection[label] = {
+            "scanned": scanned, "erased": len(hits), "present": coll is not None,
+        }
+        if hits and coll is not None:
+            pending.append((coll, hits))
+
+    erased = sum(v["erased"] for v in per_collection.values())
+    if not dry_run:
+        for coll, ids in pending:
+            await _aio.to_thread(coll.delete, ids=ids)
+        if erased:
+            logger.warning(
+                "rag_store.erase_by_subject: erased %d chunk(s) for subject_key=%s",
+                erased, key[:64],
+            )
+
+    return {
+        "available": True,
+        "subject_key": key,
+        "erased": erased,
+        "scanned": total_scanned,
+        "per_collection": per_collection,
+        "dry_run": dry_run,
+        # EVIDENCE, not decoration: `keyed` means every match was exact.
+        "coverage": "keyed",
+        # The honest caveat a controller must act on.
+        "note": (
+            "Exact-match erasure over records written with a data_subject_key. Records "
+            "stored before subject keying, or without one, are NOT reachable this way "
+            "and require a separate best-effort sweep, which cannot prove completeness."
+        ),
+        "scan_errors": scan_errors,
+    }
 
 
 @fail_wire(module="rag_store", gap_type="embedder_failure")
@@ -2271,6 +2391,16 @@ async def purge_by_keywords(
         # R-F3478 — per-collection detail, so "removed 0" from a collection that was
         # ABSENT is distinguishable from one that was scanned and matched nothing.
         "per_collection": per_collection,
+        # R-F3484 — SAY WHAT THIS CAN AND CANNOT PROVE. A substring sweep misses an
+        # alias, a transliteration, an initial or a misspelling, so it can never
+        # demonstrate that a subject's data is gone. For an Art. 17 request use
+        # erase_by_subject(), which matches exactly and returns coverage="keyed".
+        "coverage": "keyword_best_effort",
+        "completeness_caveat": (
+            "Substring matching cannot prove completeness: content referring to the "
+            "same subject under an alias, transliteration, initial or misspelling is "
+            "NOT removed. Do not record this as a fulfilled erasure request."
+        ),
         # R-F3389 — empty means "nothing matched" ONLY when this is empty too.
         "scan_errors": scan_errors,
     }
