@@ -29119,9 +29119,10 @@
       "title": "bounded deep-research gap states what happened but not the remedy: article analysis needs Deep mode",
       "claimed_at": "2026-07-30T15:55:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e88fe8e8",
+      "notes": null,
+      "shipped_at": "2026-07-30T16:09:17Z"
     }
   ]
 }
