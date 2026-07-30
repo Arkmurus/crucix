@@ -449,8 +449,15 @@ async def pending_stage(stage: str, limit: int = 100) -> list[dict]:
 def _db_replay(cursor: float, limit: int) -> dict:
     conn = _get_db()
     rows = [dict(r) for r in conn.execute(
+        # R-F3494 — the projection must carry everything the CLASSIFIER reads.
+        # It first returned url/title/summary only, and replaying an impoverished
+        # record changed the verdict: an article the live grader rejects was
+        # promoted on replay because publisher/tier/category were missing. A
+        # replay that cannot reproduce the original inputs is not a replay.
         "SELECT article_id, canonical_url, title, feed_summary, first_seen_at, "
-        "relevance_score, off_topic, classifier_version FROM news_articles "
+        "relevance_score, off_topic, classifier_version, publisher, "
+        "publisher_family, source_tier, category, published_at "
+        "FROM news_articles "
         "WHERE first_seen_at > ? ORDER BY first_seen_at LIMIT ?", (cursor, limit))]
     nxt = rows[-1]["first_seen_at"] if rows else cursor
     return {"rows": rows, "next_cursor": nxt, "done": len(rows) < limit}

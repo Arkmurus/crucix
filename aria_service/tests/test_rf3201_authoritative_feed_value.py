@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import pathlib
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -205,34 +206,51 @@ async def test_rf3201_classifier_replay_promotes_once_and_records_completion() -
     ]
     writes: list[dict] = []
 
-    with (
-        patch.object(nm.rs, "get_json", AsyncMock(return_value=None)),
-        patch.object(
-            nm.rs,
-            "lrange",
-            AsyncMock(return_value=[json.dumps(article) for article in articles]),
-        ),
-        patch.object(nm.rs, "set_json", AsyncMock()) as set_marker,
-        patch.object(nm, "_store_intel_signal", AsyncMock(side_effect=writes.append)),
-    ):
-        result = await nm._replay_recent_articles_for_classifier()
+    # R-F3494 — the properties asserted here are unchanged (an authoritative
+    # article is promoted with the right signal_type/priority; the marker is
+    # written; a completed version does not re-run). Only the SOURCE moved: the
+    # replay now walks the permanent archive instead of the hot list, which was
+    # destructively trimmed and capped the reachable history at 200 records.
+    import tempfile
+    from aria_service.intel import news_archive as _na
+    with tempfile.TemporaryDirectory() as _tmp:
+        _orig_db = _na._DB_PATH
+        _na._DB_PATH = pathlib.Path(_tmp) / "news_archive.db"
+        _na._reset_for_tests()
+        try:
+            for article in articles:
+                await _na.archive_article(article)
 
-    assert result["status"] == "completed"
-    assert result["scanned"] == 2
-    assert result["promoted"] == 1
-    assert writes[0]["signal_type"] == "natural_hazard"
-    assert writes[0]["priority"] == "HIGH"
-    assert set_marker.await_args.args[1]["version"] == nm._CLASSIFIER_REPLAY_VERSION
+            with (
+                patch.object(nm.rs, "get_json", AsyncMock(return_value=None)),
+                patch.object(nm.rs, "set_json", AsyncMock()) as set_marker,
+                patch.object(nm, "_store_intel_signal",
+                             AsyncMock(side_effect=writes.append)),
+            ):
+                result = await nm._replay_articles_for_classifier()
 
-    with (
-        patch.object(
-            nm.rs,
-            "get_json",
-            AsyncMock(return_value={"version": nm._CLASSIFIER_REPLAY_VERSION}),
-        ),
-        patch.object(nm.rs, "lrange", AsyncMock()) as lrange,
-    ):
-        current = await nm._replay_recent_articles_for_classifier()
+            assert result["status"] == "completed"
+            assert result["scanned"] == 2
+            assert result["promoted"] == 1
+            assert writes[0]["signal_type"] == "natural_hazard"
+            assert writes[0]["priority"] == "HIGH"
+            assert set_marker.await_args.args[1]["version"] == nm._CLASSIFIER_REPLAY_VERSION
 
-    assert current == {"status": "current", "scanned": 0, "promoted": 0}
-    lrange.assert_not_awaited()
+            with (
+                patch.object(
+                    nm.rs,
+                    "get_json",
+                    AsyncMock(return_value={
+                        "version": nm._CLASSIFIER_REPLAY_VERSION,
+                        "status": "completed",
+                    }),
+                ),
+                patch.object(nm.rs, "set_json", AsyncMock()),
+            ):
+                current = await nm._replay_articles_for_classifier()
+
+            assert current["status"] == "current"
+            assert current["scanned"] == 0
+        finally:
+            _na._reset_for_tests()
+            _na._DB_PATH = _orig_db

@@ -1425,38 +1425,119 @@ async def _backfill_intel_signals_from_articles(limit: int) -> list[dict]:
     return candidates[:limit]
 
 
-async def _replay_recent_articles_for_classifier(limit: int = 200) -> dict:
-    """Reclassify recent raw evidence once after a classifier contract upgrade."""
-    marker = await rs.get_json(_CLASSIFIER_REPLAY_KEY)
-    if isinstance(marker, dict) and marker.get("version") == _CLASSIFIER_REPLAY_VERSION:
-        return {"status": "current", "scanned": 0, "promoted": 0}
+async def _replay_articles_for_classifier(
+    batch: int = 500, max_batches: int = 20,
+) -> dict:
+    """R-F3494 — reclassify the WHOLE archive after a classifier upgrade,
+    resumably, recording what changed.
 
-    raw = await rs.lrange(_ARTICLES_KEY, 0, max(0, min(limit, _MAX_ARTICLES) - 1))
-    scanned = 0
-    promoted = 0
-    for item in raw:
-        try:
-            article = json.loads(item) if isinstance(item, str) else item
-        except Exception:
-            continue
-        if not isinstance(article, dict):
-            continue
-        scanned += 1
-        if await _promote_article_signal(article):
-            promoted += 1
+    This replaced ``_replay_recent_articles_for_classifier(limit=200)``, which
+    read the HOT list (``_ARTICLES_KEY``, 1,000 entries, destructively trimmed).
+    A classifier upgrade could therefore reach at most the newest 200 records:
+    historical false negatives were unrecoverable, historical false positives
+    stayed embedded in derived memory, and a better extractor could never be
+    applied to history that already existed. A compounding system becomes more
+    capable over the SAME evidence; that one waited for new URLs.
+
+    Three properties the old one lacked:
+
+    ARCHIVE-WIDE — walks news_archive.iter_for_replay (R-F3485), so every
+    retained observation is reachable, not just what survived the hot trim.
+
+    RESUMABLE — the cursor is persisted every run. The old marker was written
+    only after a complete pass, so a crash or restart part-way discarded all
+    progress and began again at the newest record; over an archive that only
+    grows, a non-resumable full scan eventually never completes. Each invocation
+    is bounded (batch x max_batches) so it can never monopolise a poll cycle,
+    and the next invocation continues where this one stopped.
+
+    RECORDS WHAT CHANGED — decisions_changed counts verdicts that FLIPPED, in
+    both directions, against the verdict stored on the archived record. Without
+    it there is no way to distinguish a classifier improvement from a regression,
+    and no way to audit a reclassification afterwards. The new verdict is stamped
+    back onto the archive so the NEXT replay can do the same comparison.
+    """
+    from . import news_archive as _na
+
+    state = await rs.get_json(_CLASSIFIER_REPLAY_KEY)
+    state = state if isinstance(state, dict) else {}
+    same_version = state.get("version") == _CLASSIFIER_REPLAY_VERSION
+    if same_version and state.get("status") == "completed":
+        return {"status": "current", "scanned": 0, "promoted": 0,
+                "decisions_changed": 0}
+
+    # Resume only within the SAME classifier version; a new version must re-walk
+    # the archive from the beginning, which is the entire point of a replay.
+    cursor = float(state.get("cursor") or 0.0) if same_version else 0.0
+
+    scanned = promoted = decisions_changed = failed = 0
+    status = "in_progress"
+
+    for _ in range(max(1, int(max_batches))):
+        page = await _na.iter_for_replay(cursor=cursor, limit=batch)
+        rows = page.get("rows") or []
+        if not rows:
+            status = "completed"
+            break
+        for row in rows:
+            # R-F3494 — rebuild the article with every field the grader reads.
+            # Dropping source/tier/category silently changed the outcome: the
+            # R-F3201 guard caught an article being promoted on replay that the
+            # live path rejects. Reclassification must see the same inputs.
+            article = {
+                "url": row.get("canonical_url", ""),
+                "title": row.get("title", ""),
+                "summary": row.get("feed_summary", ""),
+                "source": row.get("publisher", ""),
+                "tier": row.get("source_tier", ""),
+                "category": row.get("category", ""),
+                "published_at": row.get("published_at", ""),
+            }
+            prior_off_topic = row.get("off_topic")
+            try:
+                rel = _topical_relevance(article)
+            except Exception:
+                failed += 1
+                continue
+            scanned += 1
+            now_off_topic = not rel["on_topic"]
+            if prior_off_topic is not None and bool(prior_off_topic) != now_off_topic:
+                decisions_changed += 1
+            try:
+                await _na.record_relevance(
+                    row["article_id"], score=rel["score"],
+                    on_topic=rel["on_topic"], terms=rel.get("terms") or [],
+                    classifier_version=_CLASSIFIER_REPLAY_VERSION,
+                )
+            except Exception:
+                failed += 1
+            if rel["on_topic"] and await _promote_article_signal(dict(article)):
+                promoted += 1
+        cursor = page.get("next_cursor", cursor)
+        if page.get("done"):
+            status = "completed"
+            break
 
     completed_at = datetime.now(timezone.utc).isoformat()
     await rs.set_json(_CLASSIFIER_REPLAY_KEY, {
         "version": _CLASSIFIER_REPLAY_VERSION,
-        "completed_at": completed_at,
-        "scanned": scanned,
-        "promoted": promoted,
+        "status": status,
+        "cursor": cursor,
+        "completed_at": completed_at if status == "completed" else "",
+        "scanned": int(state.get("scanned") or 0) + scanned if same_version else scanned,
+        "promoted": int(state.get("promoted") or 0) + promoted if same_version else promoted,
+        "decisions_changed": (int(state.get("decisions_changed") or 0) + decisions_changed
+                              if same_version else decisions_changed),
+        "failed": int(state.get("failed") or 0) + failed if same_version else failed,
     })
     return {
-        "status": "completed",
+        "status": status,
         "scanned": scanned,
         "promoted": promoted,
-        "completed_at": completed_at,
+        "decisions_changed": decisions_changed,
+        "failed": failed,
+        "cursor": cursor,
+        "completed_at": completed_at if status == "completed" else "",
     }
 
 
@@ -2338,7 +2419,7 @@ async def poll_feeds(
     # wait indefinitely for a source to publish a new URL. The versioned marker
     # makes this a bounded one-time replay rather than an hourly duplication loop.
     try:
-        summary["classifier_replay"] = await _replay_recent_articles_for_classifier()
+        summary["classifier_replay"] = await _replay_articles_for_classifier()
     except Exception:
         logger.debug("[news_monitor] classifier replay failed", exc_info=True)
 
