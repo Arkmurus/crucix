@@ -5104,6 +5104,15 @@ class RagIngestRequest(BaseModel):
     title: str = ""
     url: str = ""
     market: str = ""
+    # R-F3488 — the data-subject envelope, declarable at the boundary that takes
+    # "customer document drops". A drop about an identified person is personal data;
+    # without a subject key it can never be erased on request, only swept best-effort.
+    # Optional so no existing caller breaks, and an unkeyed personal-data write is
+    # recorded as a gap rather than silently accepted.
+    data_subject_key: str = ""
+    lawful_basis: str = ""
+    retention_class: str = ""
+    personal_data: bool = False
 
 
 @router.post("/rag/ingest")
@@ -5121,6 +5130,10 @@ async def rag_ingest_ep(req: RagIngestRequest):
         title=req.title,
         url=req.url,
         market=req.market,
+        data_subject_key=req.data_subject_key,
+        lawful_basis=req.lawful_basis,
+        retention_class=req.retention_class,
+        personal_data=req.personal_data,
     )
 
 

@@ -852,6 +852,10 @@ async def ingest_document(
     url: str = "",
     market: str = "",
     extra_metadata: dict | None = None,
+    data_subject_key: str = "",
+    lawful_basis: str = "",
+    retention_class: str = "",
+    personal_data: bool = False,
 ) -> dict:
     """Chunk a document and add it to the RAG store.
 
@@ -912,6 +916,49 @@ async def ingest_document(
         "ingested_at": now_iso,
         "ts_epoch": ts_epoch,
     }
+    # ── R-F3488 — the data-subject envelope ────────────────────────────────
+    #
+    # R-F3484 gave ARIA provable, exact erasure keyed on `data_subject_key`. It reached
+    # nothing, because no write path carried one: a capability with no caller is a
+    # dormant specification, which is the defect this same session criticised elsewhere.
+    #
+    # Personal data stored WITHOUT a subject key cannot be erased on request — only
+    # swept best-effort, which cannot prove completeness. That is a fact about the
+    # record, so it is recorded ON the record. `erasure_reachable` lets a controller
+    # ANSWER "what personal data do we hold that we could not erase if asked?" instead
+    # of discovering it during a request.
+    #
+    # The write is NOT refused: refusing would drop a customer's document to enforce a
+    # metadata rule, which trades a data-protection gap for data loss. It is made
+    # VISIBLE instead — logged, wired to the brain, and flagged on the record.
+    if data_subject_key:
+        base_meta[DATA_SUBJECT_KEY] = str(data_subject_key)[:200]
+    if lawful_basis:
+        base_meta[LAWFUL_BASIS_KEY] = str(lawful_basis)[:80]
+    if retention_class:
+        base_meta[RETENTION_CLASS_KEY] = str(retention_class)[:80]
+    if personal_data:
+        base_meta["personal_data"] = True
+        base_meta["erasure_reachable"] = bool(data_subject_key)
+        if not data_subject_key:
+            logger.warning(
+                "[R-F3488] personal data ingested with NO data_subject_key "
+                "(source=%s): it cannot be erased on request, only swept best-effort",
+                str(source)[:120],
+            )
+            try:  # §21a — a gap the controller must be able to see, not just a log line
+                from .engine_wiring import wire_failure
+                wire_failure(
+                    module="rag_store",
+                    detail=(
+                        f"personal data ingested without a data_subject_key "
+                        f"(source={str(source)[:120]}): not erasable on request"
+                    ),
+                    gap_type="knowledge_gap",
+                    source="rag_store:R-F3488",
+                )
+            except Exception as _wf:
+                logger.debug("[R-F3488] wire_failure failed: %s", _wf)
     if extra_metadata:
         for k, v in extra_metadata.items():
             if isinstance(v, (str, int, float, bool)):
