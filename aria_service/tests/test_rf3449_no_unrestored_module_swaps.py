@@ -40,25 +40,40 @@ TESTS = pathlib.Path(__file__).resolve().parent
 _STUBBY = ("fake", "stub", "mock", "no_op", "noop", "counting", "boom", "dummy", "spy",
            "patched")
 
-#: KNOWN, TOLERATED offenders — `"file.py::dotted.target"`. MAY ONLY SHRINK.
-#: None of these caused a failure in the R-F3448 baseline, so they are latent rather than
-#: active: the modules they poison happen not to be re-used by a later test today. That is
-#: luck, not safety, and each should move to monkeypatch when its file is next touched.
-KNOWN_UNRESTORED: frozenset[str] = frozenset({
-    # test_rf2092_encode_offload_warmup.py::eo._pool was here and has been REMOVED: it
-    # restores correctly via `finally: _reset(eo)`, and the scanner simply could not see a
-    # helper-based restore. The instrument was wrong, not the test.
-    "test_rf2178_liveness.py::livemod.rs",
+#: VERIFIED SAFE — the assignment IS restored, by a wrapper or fixture in a DIFFERENT
+#: function than the one assigning, which this scanner cannot see (it only inspects the
+#: assigning function's own try/finally). Each was read and confirmed by hand:
+#:
+#:   test_rf2092  `finally: _reset(eo)`, and _reset sets eo._pool = None
+#:   test_rf2423  `_run_all` snapshots both modules and restores in a finally (R-F3314
+#:                fixed this exact thing already)
+#:   test_rf2433  a fixture saves and restores BOTH the sys.modules entries AND the two
+#:                student functions
+#:
+#: These are the scanner's FALSE POSITIVES, kept here so nobody "fixes" a correct test.
+#: Three of the original ten flagged entries turned out to be this — verify before fixing.
+#:   test_rf459   an autouse TEARDOWN fixture in the same file calls _reset_state(), which
+#:                sets semantic_search._embedder = None. Added by R-F3449 precisely because
+#:                the original code only reset on the way IN, so the last test's fake
+#:                survived the file. A fixture-based restore is a fourth shape the scanner
+#:                cannot see, alongside helper-in-finally and wrapper-function restores.
+RESTORED_ELSEWHERE: frozenset[str] = frozenset({
     "test_rf2423_diagnostic_no_inline_run.py::intel_pkg.redis_store",
     "test_rf2423_diagnostic_no_inline_run.py::intel_pkg.self_diagnostic",
     "test_rf2433_seed_all_regions.py::student.update_regional_mastery",
     "test_rf2433_seed_all_regions.py::student.get_regional_heatmap",
-    "test_rf2438_hallucination_cache.py::a._compute_hallucination_stats",
-    "test_rf2817_vault_capability_masking.py::ch.search_companies",
-    "test_rf2817_vault_capability_masking.py::ch.get_company_profile",
-    "test_rf410_rag_sanitization.py::rag_store._ensure_async",
     "test_rf459_embedder_race_safe.py::semantic_search._embedder",
 })
+
+#: GENUINELY UNRESTORED and still tolerated — MAY ONLY SHRINK. Currently EMPTY: every real
+#: leak found in the R-F3449 sweep has been fixed (test_rf2441, test_rf1771 — which together
+#: caused 11 of the 15 order-dependent failures — plus test_rf2178, test_rf2438, test_rf2817,
+#: test_rf410 and test_rf459, which were latent: they poisoned modules that no later test
+#: happened to re-use, which is luck rather than safety).
+KNOWN_UNRESTORED: frozenset[str] = frozenset()
+
+#: Everything the guard tolerates, for whichever reason.
+_EXEMPT = RESTORED_ELSEWHERE | KNOWN_UNRESTORED
 
 
 def _stubby(name: str) -> bool:
@@ -162,7 +177,7 @@ def find_unrestored_swaps() -> set[str]:
 
 def test_no_new_unrestored_module_swaps():
     """THE GUARD. A new bare swap fails HERE, in review, not in an unrelated file later."""
-    new = sorted(find_unrestored_swaps() - KNOWN_UNRESTORED)
+    new = sorted(find_unrestored_swaps() - _EXEMPT)
     assert not new, (
         "these tests permanently replace another module's callable with no restore, which "
         "poisons every later test in the session (the root of order-dependent failures):\n  "
@@ -173,14 +188,35 @@ def test_no_new_unrestored_module_swaps():
     )
 
 
-def test_the_allowlist_only_shrinks():
-    """A tolerated offender that has been FIXED must leave the allowlist, so the list stays
-    an honest inventory rather than drifting into decoration."""
-    stale = sorted(KNOWN_UNRESTORED - find_unrestored_swaps())
+def test_the_exempt_list_only_shrinks():
+    """A tolerated entry that no longer offends must LEAVE the list, so it stays an honest
+    inventory rather than drifting into decoration.
+
+    Subtracts `_EXEMPT`, not `KNOWN_UNRESTORED`. That distinction matters: once every real
+    leak was fixed KNOWN_UNRESTORED became empty, so a version of this test that subtracted
+    only KNOWN_UNRESTORED could never fail — a vacuous guard, the exact defect class this
+    whole R-number exists to remove. It has to validate the entries that are actually
+    exempt, which today are all in RESTORED_ELSEWHERE.
+    """
+    stale = sorted(_EXEMPT - find_unrestored_swaps())
     assert not stale, (
-        "these are allowlisted but no longer offend — delete them from KNOWN_UNRESTORED:\n  "
-        + "\n  ".join(stale)
+        "these are exempt but the scanner no longer flags them — delete them from "
+        "RESTORED_ELSEWHERE / KNOWN_UNRESTORED:\n  " + "\n  ".join(stale)
     )
+
+
+def test_no_genuinely_unrestored_swaps_are_tolerated():
+    """THE GOAL STATE: KNOWN_UNRESTORED is EMPTY.
+
+    Every real leak the R-F3449 sweep found is fixed — test_rf2441 and test_rf1771 (which
+    together caused 11 of the 15 order-dependent failures), plus test_rf2178, test_rf2438,
+    test_rf2817, test_rf410 and test_rf459, which were latent: they poisoned modules no
+    later test happened to re-use, which is luck rather than safety. Only scanner false
+    positives remain exempt. Re-adding an entry here means a real leak is being tolerated
+    and needs a stated reason.
+    """
+    assert KNOWN_UNRESTORED == frozenset(), (
+        f"a genuinely unrestored swap is being tolerated again: {sorted(KNOWN_UNRESTORED)}")
 
 
 def test_the_scanner_can_actually_detect_a_swap(tmp_path):

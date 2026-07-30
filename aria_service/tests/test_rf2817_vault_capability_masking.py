@@ -116,7 +116,7 @@ async def test_enrichment_is_persisted_so_it_stays_pay_once(_vault):
     assert v.writes[-1].get("registry_accounts")
 
 
-async def test_already_enriched_cache_is_not_refetched(_vault):
+async def test_already_enriched_cache_is_not_refetched(_vault, monkeypatch):
     """A profile that already has the evidence must not hit CH again."""
     import aria_service.intel.companies_house as ch
     v = _vault(_cached_profile(registry_accounts={"source": "companies_house",
@@ -124,8 +124,13 @@ async def test_already_enriched_cache_is_not_refetched(_vault):
 
     async def _boom(*a, **k):
         raise AssertionError("re-fetched Companies House for an already-enriched profile")
-    ch.search_companies = _boom
-    ch.get_company_profile = _boom
+
+    # R-F3449 — these were bare assignments with no restore, so companies_house.search_companies
+    # and .get_company_profile stayed an always-raising _boom for the REST OF THE SESSION.
+    # Latent rather than active in the R-F3448 baseline (nothing after this file happened to
+    # call them), which is luck, not safety: monkeypatch restores at teardown.
+    monkeypatch.setattr(ch, "search_companies", _boom)
+    monkeypatch.setattr(ch, "get_company_profile", _boom)
 
     out = await fh.assess("BAE Systems plc", jurisdiction_iso2="GB")
     assert out["from_vault"] is True

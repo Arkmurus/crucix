@@ -33,12 +33,25 @@ import inspect
 import sys
 import threading
 
+import pytest  # R-F3449 — the autouse teardown fixture below needs it
+
 
 def _reset_state():
     """Reset the singleton between tests so each starts clean."""
     from aria_service.intel import semantic_search
     semantic_search._embedder = None
     semantic_search._embedder_checked = False
+
+
+@pytest.fixture(autouse=True)
+def _reset_embedder_after_each_test():
+    """R-F3449 — `_reset_state()` is called at the START of each test here, which keeps this
+    FILE clean but leaves the last test's fake embedder installed for the rest of the
+    session: `semantic_search._embedder = _Sentinel()` with `_embedder_checked = True` makes
+    every later semantic search use a bogus embedder. Latent in the R-F3448 baseline only
+    because nothing after this file exercised it. Reset on the way OUT as well."""
+    yield
+    _reset_state()
 
 
 # ───────────────────────── 1. race-safety ────────────────────────────────────

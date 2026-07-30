@@ -120,7 +120,7 @@ def test_rf410_sanitize_preserves_legitimate_text():
 # ───────────────────────── Capability — ingest paths use the sanitizer ─────
 
 
-def test_rf410_capability_pure_html_rejected_as_too_short():
+def test_rf410_capability_pure_html_rejected_as_too_short(monkeypatch):
     """When raw HTML strips to <20 chars, ingest_document must reject
     it as too_short and surface the sanitization metadata so the
     operator can see what happened."""
@@ -130,7 +130,11 @@ def test_rf410_capability_pure_html_rejected_as_too_short():
     # Bypass chromadb init — we only need the sanitizer + length check
     async def _fake_ensure():
         return True
-    rag_store._ensure_async = _fake_ensure
+
+    # R-F3449 — a bare assignment left rag_store._ensure_async stubbed for the REST OF THE
+    # SESSION, so every later RAG call skipped its real chromadb init. Latent in the R-F3448
+    # baseline only because nothing after this file depended on that init actually running.
+    monkeypatch.setattr(rag_store, "_ensure_async", _fake_ensure)
 
     text = "<p>Hi</p><b>x</b>"  # strips to ~3 chars
     out = asyncio.run(rag_store.ingest_document(text, source="email:test"))

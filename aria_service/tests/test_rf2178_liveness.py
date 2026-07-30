@@ -33,22 +33,26 @@ class _FakeRS:
         return [k for k in self.store if fnmatch.fnmatch(k, pattern)]
 
 
-def _install_fake():
+def _install_fake(monkeypatch):
+    """R-F3449 — was `livemod.rs = fake` with no restore, leaving the liveness module's
+    store a _FakeRS for the REST OF THE SESSION. Six tests call this, so the leak was
+    six-deep; latent in the R-F3448 baseline only because nothing after this file re-uses
+    livemod.rs. monkeypatch restores it at teardown, so every caller now passes its own."""
     fake = _FakeRS()
-    livemod.rs = fake
+    monkeypatch.setattr(livemod, "rs", fake)
     return fake
 
 
-def test_rf2178_fresh_beat_reads_alive():
-    _install_fake()
+def test_rf2178_fresh_beat_reads_alive(monkeypatch):
+    _install_fake(monkeypatch)
     asyncio.run(record_beat("aria-wa", interval_s=120))
     live = asyncio.run(get_liveness())
     e = live["limbs"]["aria-wa"]
     assert e["alive"] is True and e["stale"] is False
 
 
-def test_rf2178_aged_beat_reads_stale():
-    fake = _install_fake()
+def test_rf2178_aged_beat_reads_stale(monkeypatch):
+    fake = _install_fake(monkeypatch)
     asyncio.run(record_beat("aria-web", interval_s=120))
     # Age the beat well past the staleness floor.
     fake.store["crucix:aria:liveness:aria-web"]["ts"] = time.time() - 9999
@@ -57,15 +61,15 @@ def test_rf2178_aged_beat_reads_stale():
     assert e["stale"] is True and e["alive"] is False
 
 
-def test_rf2178_non_alive_status_not_alive_even_when_fresh():
-    _install_fake()
+def test_rf2178_non_alive_status_not_alive_even_when_fresh(monkeypatch):
+    _install_fake(monkeypatch)
     asyncio.run(record_beat("aria-searxng", status="degraded", interval_s=120))
     live = asyncio.run(get_liveness())
     assert live["limbs"]["aria-searxng"]["alive"] is False  # fresh but not 'alive'
 
 
 def test_rf2178_stale_limb_records_gap(monkeypatch):
-    fake = _install_fake()
+    fake = _install_fake(monkeypatch)
     asyncio.run(record_beat("aria-wa", interval_s=120))
     fake.store["crucix:aria:liveness:aria-wa"]["ts"] = time.time() - 9999
 
@@ -84,7 +88,7 @@ def test_rf2178_stale_limb_records_gap(monkeypatch):
 
 
 def test_rf2181_searxng_probe_records_alive_beat(monkeypatch):
-    _install_fake()
+    _install_fake(monkeypatch)
 
     async def _healthy():
         return {"searxng": True}
@@ -98,7 +102,7 @@ def test_rf2181_searxng_probe_records_alive_beat(monkeypatch):
 
 
 def test_rf2181_searxng_probe_records_down_when_unhealthy(monkeypatch):
-    _install_fake()
+    _install_fake(monkeypatch)
 
     async def _down():
         return {"searxng": False}
@@ -112,7 +116,7 @@ def test_rf2181_searxng_probe_records_down_when_unhealthy(monkeypatch):
 
 
 def test_rf2178_no_gap_when_all_fresh(monkeypatch):
-    _install_fake()
+    _install_fake(monkeypatch)
     asyncio.run(record_beat("aria-web", interval_s=120))
     recorded = []
 

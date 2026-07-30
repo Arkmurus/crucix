@@ -32,7 +32,26 @@ async def _run():
         calls["n"] += 1
         return {"summary": {"total_violations_24h": 3, "turns_observed_24h": 100},
                 "self_claim_guard": {"ok": True}, "_schema_version": "rf407.v1"}
+
+    # R-F3449 — this was a bare assignment with no restore, leaving
+    # routes.aria._compute_hallucination_stats stubbed (and _hall_cache primed) for the REST
+    # OF THE SESSION. Latent rather than active in the R-F3448 baseline because nothing
+    # after this file re-uses them, which is luck, not safety.
+    #
+    # try/finally rather than the monkeypatch fixture: `_run` is a plain async helper called
+    # both by test_hallucination_cache and by a __main__ block, so it has no fixture access.
+    _orig_compute = a._compute_hallucination_stats
+    _orig_cache = getattr(a, "_hall_cache", None)
     a._compute_hallucination_stats = fake_compute
+    try:
+        return await _body(a, ok, fails, calls)
+    finally:
+        a._compute_hallucination_stats = _orig_compute
+        a._hall_cache = _orig_cache
+
+
+async def _body(a, ok, fails, calls):
+    import time
 
     # 1. cold → real compute
     a._hall_cache = None
