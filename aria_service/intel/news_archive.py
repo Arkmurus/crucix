@@ -359,6 +359,38 @@ async def record_relevance(article_id: str, *, score: float, on_topic: bool,
                classifier_version, reason)
 
 
+def _db_set_extraction(article_id, status, excerpt, detail) -> None:
+    conn = _get_db()
+    if excerpt:
+        conn.execute(
+            "UPDATE news_articles SET extraction_status=?, feed_summary=?, "
+            "body_ref=? WHERE article_id=?",
+            (status, excerpt[:_EXCERPT_MAX], f"inline:{len(excerpt)}", article_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE news_articles SET extraction_status=? WHERE article_id=?",
+            (status, article_id),
+        )
+    conn.commit()
+
+
+@fail_wire(module="news_archive", gap_type="engine_failure")
+async def set_extraction_status(article_id: str, status: str, *,
+                                excerpt: str = "", detail: str = "") -> None:
+    """R-F3499 — record HOW MUCH of this article was actually read.
+
+    A 500-char feed description and a fully read article are different grades of
+    evidence, so the distinction has to survive on the record. A failed deep
+    fetch is written as its own status rather than left looking un-attempted:
+    "not tried", "tried and could not read it" and "read" must stay
+    distinguishable, and none of the first two may be mistaken for the third.
+    """
+    await _adb(_db_set_extraction, article_id, status, excerpt, detail)
+    if detail:
+        await _adb(_db_mark_stage, article_id, f"extraction:{status}", False, detail)
+
+
 def _db_mark_stage(article_id, stage, ok, detail) -> None:
     conn = _get_db()
     conn.execute(
