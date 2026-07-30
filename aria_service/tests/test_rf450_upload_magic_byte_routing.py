@@ -181,11 +181,27 @@ def test_rf450_docx_renamed_as_pdf_routes_to_docx_parser(monkeypatch):
         # Bonus assertion: when extraction succeeds, the DOCX text
         # leaked through.
         body = r.json()
+        # R-F3497 — this read `text` / `extracted` / `content`, none of which
+        # /api/aria/read-document has ever returned. The endpoint's field is
+        # `extracted_text`, so this "bonus assertion" was reading "" and failing
+        # against a chain that worked correctly end to end. Confirmed by driving
+        # the real endpoint, which returns:
+        #   {"extracted_text": "Hello DOCX. Executive summary of the
+        #     procurement programme.", "extracted_chars": 59}
+        # so magic-byte routing, DOCX detection and text extraction were all
+        # sound — only the assertion's field list was wrong.
+        #
+        # The legacy names are kept as fallbacks so this does not re-break if the
+        # response shape is ever widened, but extracted_text is checked FIRST
+        # because it is the field the endpoint actually documents.
         extracted = (
-            body.get("text") or body.get("extracted")
-            or body.get("content") or ""
+            body.get("extracted_text") or body.get("text")
+            or body.get("extracted") or body.get("content") or ""
         )
-        assert "Hello DOCX" in extracted or "executive summary" in extracted
+        assert "Hello DOCX" in extracted or "executive summary" in extracted.lower(), (
+            f"DOCX text did not survive magic-byte routing; response keys="
+            f"{sorted(body)}"
+        )
 
 
 def test_rf450_genuine_pdf_with_correct_mime_not_rejected_by_magic_byte():
