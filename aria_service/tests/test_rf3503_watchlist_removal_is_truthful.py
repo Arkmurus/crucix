@@ -53,6 +53,9 @@ def _store(monkeypatch):
         fake = _FakeStore(entries)
         import aria_service.intel.redis_store as rs
         monkeypatch.setattr(rs, "get_json", fake.get_json)
+        # R-F3506 moved the watchlist read-modify-write onto get_json_strict, so
+        # a fixture that patches only get_json would let the real store answer.
+        monkeypatch.setattr(rs, "get_json_strict", fake.get_json)
         monkeypatch.setattr(rs, "set_json", fake.set_json)
         return fake
     return _install

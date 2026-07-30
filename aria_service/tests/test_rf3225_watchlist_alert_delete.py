@@ -83,6 +83,8 @@ def test_due_only_rescreen_skips_entity_until_its_own_cycle():
     async def run():
         with (
             patch("aria_service.intel.redis_store.get_json", side_effect=stored),
+            # R-F3506 — the watchlist read is strict now; patch both.
+            patch("aria_service.intel.redis_store.get_json_strict", side_effect=stored),
             patch.object(dd, "_acquire_rescreen_lock", AsyncMock(return_value=True)),
             patch.object(dd, "_release_rescreen_lock", AsyncMock()) as release,
         ):
@@ -104,6 +106,7 @@ def test_schedule_update_is_validated_and_owner_scoped():
     async def run():
         with (
             patch("aria_service.intel.redis_store.get_json", AsyncMock(return_value=entries)),
+            patch("aria_service.intel.redis_store.get_json_strict", AsyncMock(return_value=entries)),
             patch("aria_service.intel.redis_store.set_json", AsyncMock()) as save,
         ):
             result = await dd.update_watchlist_schedule(

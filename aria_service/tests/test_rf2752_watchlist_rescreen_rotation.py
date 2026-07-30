@@ -32,6 +32,10 @@ class _Store:
     INCR/DELETE lock primitives so the cross-trigger guard is hermetic."""
     def __init__(self):
         self.d = {}
+    async def get_json_strict(self, k):
+        # R-F3506 — same answer, strict contract
+        return await self.get_json(k)
+
     async def get_json(self, k):
         return self.d.get(k)
     async def set_json(self, k, v, ex=None, keepttl=False):
@@ -53,7 +57,8 @@ class _Store:
 def store(monkeypatch):
     s = _Store()
     import aria_service.intel.redis_store as rs
-    for fn in ("get_json", "set_json", "lpush", "ltrim", "expire", "incr", "delete"):
+    # R-F3506 — strict watchlist reads must be faked too
+    for fn in ("get_json", "get_json_strict", "set_json", "lpush", "ltrim", "expire", "incr", "delete"):
         monkeypatch.setattr(rs, fn, getattr(s, fn))
     monkeypatch.setattr(_sanc, "_looks_like_entity_name", lambda n: True, raising=False)
 

@@ -60,6 +60,10 @@ def store(monkeypatch):
         return True
 
     monkeypatch.setattr(rs, "get_json", _get_json)
+    # R-F3506 — the watchlist read-modify-write now reads STRICTLY so a store
+    # reconnect cannot be mistaken for an empty list. Patch both, or the real
+    # store answers and the fixture silently stops controlling the test.
+    monkeypatch.setattr(rs, "get_json_strict", _get_json)
     monkeypatch.setattr(rs, "set_json", _set_json)
     return data
 

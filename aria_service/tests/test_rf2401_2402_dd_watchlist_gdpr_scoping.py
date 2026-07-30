@@ -25,6 +25,10 @@ class _FakeRS:
         self.store = dict(initial or {})
         self.lists = {}
 
+    async def get_json_strict(self, key):
+        # R-F3506 — same answer, strict contract
+        return await self.get_json(key)
+
     async def get_json(self, key):
         return self.store.get(key)
 
@@ -42,7 +46,8 @@ class _FakeRS:
 def rs(monkeypatch):
     from aria_service.intel import redis_store as real_rs
     fake = _FakeRS()
-    for m in ("get_json", "set_json", "get", "lrange"):
+    # R-F3506 — strict watchlist reads must be faked too
+    for m in ("get_json", "get_json_strict", "set_json", "get", "lrange"):
         monkeypatch.setattr(real_rs, m, getattr(fake, m))
     return fake
 

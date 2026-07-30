@@ -21,6 +21,10 @@ def fake_rs(monkeypatch):
 
     monkeypatch.setattr(rs, "set_json", set_json)
     monkeypatch.setattr(rs, "get_json", get_json)
+    # R-F3506 — the watchlist read-modify-write now reads STRICTLY so a store
+    # reconnect cannot be mistaken for an empty list. Patch both, or the real
+    # store answers and the fixture silently stops controlling the test.
+    monkeypatch.setattr(rs, "get_json_strict", get_json)
     return store
 
 
