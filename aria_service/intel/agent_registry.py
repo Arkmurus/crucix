@@ -42,10 +42,12 @@ Usage
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import sqlite3
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -104,6 +106,32 @@ class AgentRegistry:
         self._redis = None  # lazy-loaded
         self._db_conn = None  # dedicated SQLite connection (R-F1446)
         self._db_path = _get_registry_db_path()
+        # R-F3468 — serialises this instance's connection across worker threads.
+        # _get_db() opens with check_same_thread=False, which PERMITS off-thread
+        # use but does NOT make the connection safe for CONCURRENT use. Without
+        # this lock, moving the writes off the loop would trade a stall for a
+        # race. Cross-instance concurrency is SQLite's own file locking (WAL).
+        self._db_lock = threading.Lock()
+
+    async def _adb(self, fn, *args, **kwargs):
+        """R-F3468 — run a blocking ``_db_*`` helper OFF the event loop.
+
+        LIVE 2026-07-30: R-F3464's stall attribution caught
+        ``agent_registry._db_tick_heartbeat`` on the loop thread during a 2.3s
+        stall. ``tick_heartbeat`` is async but called the sqlite helper straight
+        through — a synchronous execute + ``commit()``, and a commit is an fsync.
+
+        R-F1446's "fast, no lock contention" was half right: the dedicated DB did
+        remove lock contention. But on the event loop the property that matters
+        is not "fast", it is "does not block" — and sqlite3 always blocks.
+
+        An AST sweep found 12 such calls, so this is the shared door they all go
+        through, and a guard test fails the build if a new async caller skips it.
+        """
+        def _call():
+            with self._db_lock:
+                return fn(*args, **kwargs)
+        return await asyncio.to_thread(_call)
 
     def _get_db(self) -> sqlite3.Connection:
         """Get or create the dedicated SQLite connection for agent registry.
@@ -302,13 +330,13 @@ class AgentRegistry:
         # order checked _db_get_agent() after _db_register(), so it always saw
         # an existing row and never wired the first-registration success signal.
         try:
-            was_registered = self._db_get_agent(agent_id) is not None
+            was_registered = (await self._adb(self._db_get_agent, agent_id)) is not None
         except Exception:
             was_registered = False
         # R-F1446: write to dedicated DB first (fast, no lock contention)
         db_ok = False
         try:
-            self._db_register(agent_id, agent_type, current_task, now)
+            await self._adb(self._db_register, agent_id, agent_type, current_task, now)
             db_ok = True
         except Exception as _db_e:
             logger.debug("[R-F1446] dedicated DB register failed for %s: %s", agent_id, _db_e)
@@ -375,7 +403,7 @@ class AgentRegistry:
         """
         # R-F1446: remove from dedicated DB
         try:
-            self._db_unregister(agent_id)
+            await self._adb(self._db_unregister, agent_id)
         except Exception as _db_e:
             logger.debug("[R-F1446] dedicated DB unregister failed for %s: %s", agent_id, _db_e)
         try:
@@ -404,7 +432,7 @@ class AgentRegistry:
         now = time.time()
         # R-F1446: write to dedicated DB first (fast, no lock contention)
         try:
-            self._db_tick_heartbeat(agent_id, now, current_task=current_task)
+            await self._adb(self._db_tick_heartbeat, agent_id, now, current_task=current_task)
         except Exception as _db_e:
             logger.debug("[R-F1446] dedicated DB heartbeat failed for %s: %s", agent_id, _db_e)
         # Also write to Redis/state_store for backward compatibility
@@ -456,7 +484,7 @@ class AgentRegistry:
 
         # R-F1446: read from dedicated DB first
         try:
-            db_agents = self._db_list_agents()
+            db_agents = await self._adb(self._db_list_agents)
             if db_agents:
                 for entry in db_agents:
                     last_hb = entry.get("last_heartbeat", 0)
@@ -517,7 +545,7 @@ class AgentRegistry:
         """
         # R-F1446: read from dedicated DB first
         try:
-            db_entry = self._db_get_agent(agent_id)
+            db_entry = await self._adb(self._db_get_agent, agent_id)
             if db_entry is not None:
                 now = time.time()
                 last_hb = db_entry.get("last_heartbeat", 0)
@@ -692,7 +720,7 @@ class AgentRegistry:
         now = time.time()
 
         # R-F1555: try dedicated DB first
-        db_ok = self._db_claim_gap(gap_id, agent_id, now)
+        db_ok = await self._adb(self._db_claim_gap, gap_id, agent_id, now)
         if db_ok:
             logger.info("[R-F1555] gap %s claimed by %s (DB)", gap_id, agent_id)
             # Also write to Redis for backward compatibility
@@ -706,7 +734,7 @@ class AgentRegistry:
             return True
 
         # DB claim failed — check if another agent already claimed it
-        existing = self._db_is_gap_claimed(gap_id)
+        existing = await self._adb(self._db_is_gap_claimed, gap_id)
         if existing and existing != agent_id:
             logger.info(
                 "[R-F1160] gap %s already claimed by %s — %s cannot claim",
@@ -742,7 +770,7 @@ class AgentRegistry:
 
         R-F1555: removes from the dedicated DB first, then Redis.
         """
-        self._db_release_gap(gap_id)
+        await self._adb(self._db_release_gap, gap_id)
         try:
             rs = self._get_redis()
             await rs.delete(f"{_AGENT_GAP_CLAIM_PREFIX}{gap_id}")
@@ -758,7 +786,7 @@ class AgentRegistry:
         Returns the agent_id that claimed it, or None if unclaimed.
         """
         # R-F1555: read from dedicated DB first
-        db_result = self._db_is_gap_claimed(gap_id)
+        db_result = await self._adb(self._db_is_gap_claimed, gap_id)
         if db_result is not None:
             return db_result
 
@@ -805,7 +833,7 @@ class AgentRegistry:
         })
 
         # R-F1555: write to dedicated DB first
-        db_ok = self._db_send_message(from_agent, to_agent, payload_json, now)
+        db_ok = await self._adb(self._db_send_message, from_agent, to_agent, payload_json, now)
         if db_ok:
             logger.info(
                 "[R-F1555] message sent: %s → %s (type=%s) [DB]",
@@ -844,7 +872,7 @@ class AgentRegistry:
         """
         # R-F1555: read from dedicated DB first. Returns None on DB error
         # (fall back to Redis), or a list (possibly empty) on success.
-        db_messages = self._db_read_messages(agent_id, mark_read, _MAX_MESSAGES_PER_AGENT)
+        db_messages = await self._adb(self._db_read_messages, agent_id, mark_read, _MAX_MESSAGES_PER_AGENT)
         if db_messages is not None:
             return db_messages
 
