@@ -17,9 +17,27 @@ test('the upgrade is offered when a newer pack version exists', () => {
   assert.match(page, /Update rules to v/);
 });
 
-test('the empty state names the newer pack instead of just explaining the pin', () => {
-  // "none defined" was honest but a dead end. It now says what is available.
-  assert.match(page, /is available<\/strong> and does define/);
+test('the empty state is not a dead end: it says what to do about the pin', () => {
+  // R-F3472 — asserts the PROPERTY, not the sentence.
+  //
+  // This pinned the exact markup `is available</strong> and does define`. R-F3466
+  // reworded the empty state while making vetting BS-7858-only, so the assertion went
+  // red although the property it exists to protect was intact — and, in fact,
+  // strengthened: the new copy adds "Do not treat it as BS 7858 complete", which is a
+  // never-false-clean statement the old wording did not make.
+  //
+  // The property R-F3266 owns is that a case pinned to an old pack is NOT a dead end:
+  // the officer is told the pinned state is not completeness, and is given a route
+  // forward. Both halves are asserted here, and the route itself is covered by the
+  // data-migrate / "Update rules to v" assertions above, so a silent removal of the
+  // upgrade control still fails this file.
+  const empty = page.match(/This historical case[\s\S]{0,400}?<\/div>/);
+  assert.ok(empty, 'the historical-case empty state is gone entirely');
+  const text = empty[0].replace(/\s+/g, ' ');
+  assert.match(text, /not treat it as BS ?7858 complete/i,
+    'the empty state no longer warns that a pinned case is not completeness');
+  assert.match(text, /bring it onto the active standard/i,
+    'the empty state no longer states the route forward');
 });
 
 test('THE numeric-version property: 1.10.0 must beat 1.9.0', () => {

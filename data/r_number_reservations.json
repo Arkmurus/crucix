@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3472,
+  "next_available": 3473,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28759,6 +28759,15 @@
       "r_number": "R-F3471",
       "title": "vetting assurance rule is prose only: guard the prohibited BS 7858 claim wording",
       "claimed_at": "2026-07-30T11:52:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3472",
+      "title": "R-F3266 pack-upgrade guard pins wording R-F3466 changed; assert the not-a-dead-end property",
+      "claimed_at": "2026-07-30T11:56:32Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
