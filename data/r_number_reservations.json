@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3458,
+  "next_available": 3459,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28620,6 +28620,15 @@
       "r_number": "R-F3457",
       "title": "content_scanner false positives: sub-noise-floor byte patterns block benign documents",
       "claimed_at": "2026-07-30T10:26:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3458",
+      "title": "get_breaker silently discards config on re-registration; add peek_breaker for read-only checks",
+      "claimed_at": "2026-07-30T10:26:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

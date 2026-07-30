@@ -248,24 +248,94 @@ class CircuitBreaker:
 _breakers: dict[str, CircuitBreaker] = {}
 
 
+def peek_breaker(name: str) -> CircuitBreaker | None:
+    """R-F3458 — read a breaker WITHOUT creating one. None when unregistered.
+
+    A read must not have a side effect. `get_breaker(name).is_open()` looked like a
+    query and was actually a registration: the first caller to ask defined the
+    configuration for the whole process, and a caller that only wanted `is_open()`
+    naturally passes no thresholds — so it registered the DEFAULTS.
+
+    An unregistered breaker has recorded no failures, so it is not open. Callers that
+    only want the state should read `bool(peek_breaker(n) and peek_breaker(n).is_open())`.
+    """
+    return _breakers.get(name)
+
+
 def get_breaker(
     name: str,
-    failure_threshold: int = _DEFAULT_FAILURE_THRESHOLD,
-    cooldown_seconds: float = _DEFAULT_COOLDOWN_SECONDS,
-    max_cooldown_seconds: float = _DEFAULT_MAX_COOLDOWN_SECONDS,
+    failure_threshold: int | None = None,
+    cooldown_seconds: float | None = None,
+    max_cooldown_seconds: float | None = None,
 ) -> CircuitBreaker:
     """Get or create a circuit breaker for a named backend.
 
     ``cooldown_seconds`` is the BASE (first-probe) cooldown; on repeated probe
     failures it grows exponentially up to ``max_cooldown_seconds`` (R-F1834).
+
+    R-F3458 — FIRST REGISTRATION WINS, and it now says so out loud. The parameters
+    used to be silently discarded on every later call, which is a production footgun
+    and not only a test one:
+
+        _search_duckduckgo()  ->  get_breaker("search:duckduckgo",
+                                              failure_threshold=5, cooldown_seconds=600)
+        search()              ->  get_breaker("search:duckduckgo").is_open()
+
+    Whichever ran first in a given process defined DuckDuckGo's breaker. Reaching the
+    second call site first — easy now that Brave/SearXNG are primary and DDG is often
+    skipped — registered the defaults (3 / 300s) and the intended 5 / 600s were dropped
+    with no warning, for the life of the process.
+
+    Semantics are DELIBERATELY unchanged: mutating a live breaker's thresholds would
+    reset behaviour under callers already relying on it, which is a worse bug than the
+    one being fixed. The divergence is reported instead, and `peek_breaker` exists so a
+    read-only caller never has to register anything at all.
     """
     if name not in _breakers:
         _breakers[name] = CircuitBreaker(
             name=name,
-            failure_threshold=failure_threshold,
-            cooldown_seconds=cooldown_seconds,
-            max_cooldown_seconds=max_cooldown_seconds,
+            failure_threshold=(_DEFAULT_FAILURE_THRESHOLD if failure_threshold is None
+                               else failure_threshold),
+            cooldown_seconds=(_DEFAULT_COOLDOWN_SECONDS if cooldown_seconds is None
+                              else cooldown_seconds),
+            max_cooldown_seconds=(_DEFAULT_MAX_COOLDOWN_SECONDS
+                                  if max_cooldown_seconds is None
+                                  else max_cooldown_seconds),
         )
+    else:
+        # None means "took the default", so only an EXPLICIT value can conflict.
+        _existing = _breakers[name]
+        _diff = [
+            (f, want, got)
+            for f, want, got in (
+                ("failure_threshold", failure_threshold, _existing.failure_threshold),
+                ("cooldown_seconds", cooldown_seconds, _existing.cooldown_seconds),
+                ("max_cooldown_seconds", max_cooldown_seconds,
+                 _existing.max_cooldown_seconds),
+            )
+            if want is not None and want != got
+        ]
+        if _diff:
+            logger.warning(
+                "[R-F3458] get_breaker(%r) called with config that DIFFERS from the "
+                "registered breaker; first registration wins and these values are "
+                "DISCARDED: %s",
+                name,
+                "; ".join(f"{f}: requested {want!r}, in force {got!r}"
+                          for f, want, got in _diff),
+            )
+            try:  # §21a — a discarded configuration must reach the brain, not just a log
+                from .engine_wiring import wire_failure
+                wire_failure(
+                    module="circuit_breaker",
+                    detail=(f"get_breaker({name!r}) config discarded (first registration "
+                            f"wins): " + "; ".join(f"{f} {want!r}->{got!r}"
+                                                   for f, want, got in _diff)),
+                    gap_type="config_conflict",
+                    source="circuit_breaker:R-F3458",
+                )
+            except Exception as _wf:
+                logger.debug("[R-F3458] wire_failure failed: %s", _wf)
     # R-F996 — wire to brain
     from .engine_wiring import wire_success
     wire_success(

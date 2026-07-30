@@ -2038,11 +2038,17 @@ async def search(
     # Surface this as a capability_gap so operator sees it before users
     # start asking why entity searches return only news headlines.
     try:
-        from .circuit_breaker import get_breaker
+        from .circuit_breaker import peek_breaker
         from . import search_searxng as _sx_h
         # R-F320 (2026-05-11): Brave removed. General-web dead-state
         # now checks DDG breaker + searxng config only.
-        _ddg_breaker_open = get_breaker("search:duckduckgo").is_open()
+        # R-F3458 — PEEK, do not get. `get_breaker(name)` with no thresholds REGISTERS
+        # the breaker with the defaults if it does not exist yet, and first registration
+        # wins — so this read-only dead-state check could permanently define DuckDuckGo's
+        # breaker as 3/300s and silently discard the 5/600s that _search_duckduckgo
+        # intends. An unregistered breaker has recorded no failures and is not open.
+        _ddg_cb = peek_breaker("search:duckduckgo")
+        _ddg_breaker_open = bool(_ddg_cb and _ddg_cb.is_open())
         _searxng_configured = _sx_h.is_configured()
         if (
             not final
