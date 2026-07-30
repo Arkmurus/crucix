@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3505,
+  "next_available": 3507,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29090,6 +29090,25 @@
       "r_number": "R-F3504",
       "title": "wire get_psc_exemptions: an empty PSC register must be explained, not left reading as opacity",
       "claimed_at": "2026-07-30T15:34:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e06dfcf2",
+      "notes": null,
+      "shipped_at": "2026-07-30T15:49:19Z"
+    },
+    {
+      "r_number": "R-F3505",
+      "title": "watchlist orphan reconcile: dry-run report of entries with no surviving DD",
+      "claimed_at": "2026-07-30T15:41:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3506",
+      "title": "watchlist read-modify-write clobbers on a store reconnect - total data loss",
+      "claimed_at": "2026-07-30T15:46:40Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
