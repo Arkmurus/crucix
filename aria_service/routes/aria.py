@@ -27847,11 +27847,20 @@ async def list_tickets_ep(limit: int = 20) -> dict:
 
 @router.get("/news/recent")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def news_recent_ep(limit: int = 50) -> dict:
-    """Return recent news articles from the news monitor."""
+async def news_recent_ep(limit: int = 50, category: str = "") -> dict:
+    """Return recent news articles from the news monitor.
+
+    R-F3517 — ``category`` filters server-side so the list and the category
+    breakdown query the SAME population. Client-side filtering over the newest
+    100 made a category render "No articles" while the breakdown beside it,
+    computed over all 1,000, said otherwise.
+    """
     from ..intel import news_monitor
-    articles = await news_monitor.get_recent_articles(limit=limit)
-    return {"articles": articles, "count": len(articles)}
+    articles = await news_monitor.get_recent_articles(
+        limit=limit, category=category)
+    return {"articles": articles, "count": len(articles),
+            "category": (category or "").strip().lower(),
+            "filtered_server_side": bool((category or "").strip())}
 
 
 @router.get("/news/stats")

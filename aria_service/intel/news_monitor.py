@@ -2542,15 +2542,35 @@ async def poll_feeds(
 
 
 @fail_wire(module="news_monitor", gap_type="source_failure")
-async def get_recent_articles(limit: int = 50) -> list[dict]:
-    """Get most recent articles for dashboard display."""
-    raw = await rs.lrange(_ARTICLES_KEY, 0, limit - 1)
+async def get_recent_articles(limit: int = 50, category: str = "") -> list[dict]:
+    """Get most recent articles for dashboard display.
+
+    R-F3517 — ``category`` filters SERVER-SIDE over the same population the
+    stats aggregate. The UI used to fetch the newest 100 and filter those in the
+    browser, while the category breakdown beside it was computed over all
+    _MAX_ARTICLES records. Both numbers were true and they disagreed: a category
+    read "No articles" while the panel next to it said that category had some.
+
+    Filtering here scans the full hot store and returns the newest `limit`
+    MATCHES, so the list and the breakdown answer the same question. Without a
+    category the behaviour is unchanged (cheap newest-N read).
+    """
+    cat = (category or "").strip().lower()
+    # Unfiltered: the cheap path, unchanged. Filtered: scan the population the
+    # breakdown uses, so the two cannot disagree.
+    span = (limit - 1) if not cat else (_MAX_ARTICLES - 1)
+    raw = await rs.lrange(_ARTICLES_KEY, 0, max(0, span))
     articles = []
     for r in raw:
         try:
-            articles.append(json.loads(r) if isinstance(r, str) else r)
+            a = json.loads(r) if isinstance(r, str) else r
         except Exception:
             continue
+        if cat and str((a or {}).get("category") or "").strip().lower() != cat:
+            continue
+        articles.append(a)
+        if len(articles) >= limit:
+            break
     return articles
 
 
