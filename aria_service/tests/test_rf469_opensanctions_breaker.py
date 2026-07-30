@@ -31,7 +31,13 @@ def test_rf469_match_uses_breaker():
     assert 'failure_threshold=3' in body
     assert 'cooldown_seconds=300' in body
     assert 'is_open()' in body, "match() must short-circuit when breaker open"
-    assert 'record_failure(reason="rate_limit")' in body, "429 must record rate_limit"
+    # R-F3528 — the 429 reason assertion moved OUT of this source grep and into
+    # test_rf469_429_reason_is_recorded_behaviourally below. It pinned the literal
+    # `record_failure(reason="rate_limit")`, so splitting the 429 into its two real
+    # kinds (per-second vs monthly plan quota) broke a text match while the
+    # behaviour was unchanged. A grep proves shape, not behaviour; the replacement
+    # drives the function and reads what the breaker actually received, and covers
+    # both kinds instead of one.
     assert 'record_failure(reason="auth")' in body, "401 must record auth"
     assert 'record_success()' in body, "200 must record success"
 
@@ -47,8 +53,90 @@ def test_rf469_search_uses_breaker():
     assert 'get_breaker' in body, "search() must call get_breaker"
     assert '"opensanctions.org"' in body
     assert 'is_open()' in body
-    assert 'record_failure(reason="rate_limit")' in body
     assert 'record_success()' in body
+    # R-F3528 — see the note in test_rf469_match_uses_breaker: the 429-reason
+    # assertion is now behavioural, below.
+
+
+def test_rf469_429_reason_is_recorded_behaviourally(monkeypatch):
+    """R-F3528 — replaces the source grep this test used to do for the 429 reason.
+
+    R-F469's real requirement is that a 429 records a failure against the shared
+    breaker with an accurate reason, so dashboards attribute the drop honestly.
+    The old assertion checked for the literal string `reason="rate_limit"` in the
+    source, which is neither necessary nor sufficient: it passes on unreachable
+    code and fails on a correct refactor.
+
+    So: drive the function against each of the two real 429 bodies and read what
+    the breaker was actually told. The monthly-quota body is the one observed live
+    on 2026-07-30.
+    """
+    import importlib
+    from aria_service.intel import circuit_breaker as _cb
+    importlib.reload(_cb)
+    from aria_service.intel import sanctions as _s
+
+    monkeypatch.setattr(_s, "_looks_like_entity_name", lambda n: True)
+
+    seen: list[str] = []
+    real_get = _cb.get_breaker
+
+    def _spy_get_breaker(name, **kw):
+        br = real_get(name, **kw)
+        orig = br.record_failure
+
+        def _rec(reason: str = ""):
+            seen.append(reason)
+            return orig(reason=reason)
+
+        br.record_failure = _rec
+        return br
+
+    monkeypatch.setattr(_s, "_r469_get_breaker", _spy_get_breaker, raising=False)
+    import aria_service.intel.circuit_breaker as _cbmod
+    monkeypatch.setattr(_cbmod, "get_breaker", _spy_get_breaker)
+
+    def _run_with_body(body: str) -> str:
+        seen.clear()
+        importlib.reload(_cb)
+
+        class _Resp:
+            status_code = 429
+            text = body
+
+            def json(self):
+                return {}
+
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a, **k):
+                return False
+
+            async def post(self, *a, **k):
+                return _Resp()
+
+            async def get(self, *a, **k):
+                return _Resp()
+
+        monkeypatch.setattr(_s, "httpx", type("HX", (), {
+            "AsyncClient": lambda *a, **k: _Client(),
+            "HTTPError": Exception,
+        }))
+        res = asyncio.run(_s._opensanctions_match("Acme Corp"))
+        return res.reason
+
+    quota_body = ('{"detail":"This API key has exceeded its rate limit for the '
+                  'month. Please wait to retry or contact support for a higher '
+                  'limit."}')
+    assert _run_with_body(quota_body) == "quota_exhausted", (
+        "the monthly plan quota was reported as a transient rate limit — the "
+        "operator is told to slow down when the real action is to upgrade or wait"
+    )
+    assert _run_with_body("rate limited") == "rate_limit", (
+        "a per-second 429 was escalated to a month-long quota outage"
+    )
 
 
 def test_rf469_runtime_breaker_opens_after_three_429s(monkeypatch):

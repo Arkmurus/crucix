@@ -4871,6 +4871,56 @@ async def dd_save_tool_result_ep(request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
 
 
+@router.get("/sanctions/source/status")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def sanctions_source_status_ep() -> dict:
+    """R-F3528 — is sanctions screening degraded, and what would fix it?
+
+    Exists because the answer was previously only in a log line. When the
+    OpenSanctions monthly plan quota is spent, no amount of retrying or pacing
+    clears it — the action is the operator's (upgrade the plan, or wait for the
+    reset), and §19e says a blocker only they can clear must be surfaced, not
+    left to be discovered.
+
+    `opensanctions.quota_exhausted` is tri-state: None means the state could not
+    be read, which is not the same as "not exhausted".
+    """
+    from ..intel import sanctions as _s
+
+    quota = await _s.get_opensanctions_quota_state()
+    local: dict = {"available": None}
+    try:
+        from ..intel.sanctions_canonical import store as _store
+        count = await asyncio.to_thread(_store.count_entries)
+        local = {"available": bool(count and count > 0), "entries": count}
+    except Exception as exc:
+        local = {"available": None, "error": str(exc)[:200]}
+
+    # R-F3529 — screening survives an OpenSanctions outage ONLY while the local
+    # canonical store holds data. Say so plainly rather than implying the
+    # fallback is unconditional.
+    degraded = bool(quota.get("exhausted"))
+    return {
+        "opensanctions": {
+            "quota_exhausted": quota.get("exhausted"),
+            "since": quota.get("since"),
+            "operator_action": quota.get("action") or "",
+        },
+        "local_canonical": local,
+        "screening_available": (
+            True if not degraded else (True if local.get("available") else None)
+        ),
+        "note": (
+            "OpenSanctions quota is spent; screening continues against the local "
+            "canonical lists (OFAC/EU)." if degraded and local.get("available")
+            else "OpenSanctions quota is spent and the local canonical store "
+                 "cannot cover — screens will report UNVERIFIED, never clean."
+            if degraded else "OpenSanctions is the primary source and is not "
+                             "reporting a spent quota."
+        ),
+    }
+
+
 @router.get("/sanctions/divergence")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def sanctions_divergence_ep(name: str, threshold: float = 0.78):

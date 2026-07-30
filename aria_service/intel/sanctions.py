@@ -215,6 +215,100 @@ def _os_reset_pacing() -> None:
     _os_pace_lock = None
 
 
+# ── R-F3528: a 429 is TWO different failures wearing one status code ─────────
+#
+# Verified against the live API 2026-07-30 (one probe, keyed):
+#
+#   HTTP 429
+#   {"detail":"This API key has exceeded its rate limit for the month.
+#              Please wait to retry or contact support for a higher limit."}
+#
+# That is NOT the per-second limit the pacing in R-F3476 exists to avoid. It is
+# the PLAN QUOTA, and it stays exhausted until the month rolls or the plan is
+# upgraded.
+#
+# WHAT IS *NOT* WRONG, checked before changing anything: the R-F469 breaker does
+# NOT churn at 300s. R-F1834 already gives it exponential backoff — base 300s ×
+# 2^(open_cycles-1), capped at 24h — and open_cycles only resets on a success, so
+# a month-long outage backs off to the cap on its own. My first draft of this
+# comment claimed otherwise and was wrong; no second cooldown is added here,
+# because the existing one is correct and a competing timer would be worse.
+#
+# What IS wrong is the NAME. Both cases reported reason="rate_limit", so the DD
+# obstacle line told the reader ARIA was going too fast, when the true state is
+# "the plan is spent" and the true action is the operator's: upgrade or wait for
+# the reset. No amount of retrying or pacing can clear it, which makes it a §19e
+# item rather than a transient. A wrong cause pointed at the wrong fix.
+#
+# The body text is the only signal: this response carries no Retry-After and no
+# RateLimit-* header (checked on the live probe).
+_QUOTA_MARKERS = ("for the month", "monthly", "quota")
+
+
+def _classify_429(body: str) -> str:
+    """'quota_exhausted' when the body says the PLAN limit is spent, else 'rate_limit'.
+
+    Defaults to the transient reading. Mislabelling a per-second blip as a
+    month-long outage would silently disable screening for weeks, so the
+    ambiguous case takes the recoverable interpretation and lets the existing
+    breaker handle it.
+    """
+    text = (body or "").lower()
+    return "quota_exhausted" if any(m in text for m in _QUOTA_MARKERS) else "rate_limit"
+
+
+_QUOTA_STATE_KEY = "crucix:aria:sanctions:opensanctions_quota_exhausted"
+
+
+async def _record_quota_exhausted(detail: str) -> None:
+    """Persist + surface. §19e: only the operator can clear this one.
+
+    Durable because the fact outlives the process: a restart must not present a
+    spent monthly quota as a fresh start, which is the same mistake R-F3513
+    found in the LLM billing cooldown.
+    """
+    try:
+        from . import redis_store as _rs
+        await _rs.set_json(_QUOTA_STATE_KEY, {
+            "since": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "detail": detail[:300],
+            "action": ("operator: upgrade the OpenSanctions plan or wait for the "
+                       "monthly reset — no retry or pacing change can clear this"),
+        })
+    except Exception as exc:
+        logger.debug("could not persist quota state: %s", exc)
+    try:
+        wire_failure(
+            module="sanctions",
+            detail=(
+                "BLOCKED: OpenSanctions monthly plan quota EXHAUSTED — screening "
+                "via OpenSanctions is unavailable until the plan resets or is "
+                "upgraded. This is an operator action; retrying cannot clear it. "
+                f"Upstream said: {detail[:160]}"
+            ),
+            gap_type="sanctions_source_unavailable",
+            source="sanctions:_record_quota_exhausted",
+        )
+    except Exception as exc:
+        logger.debug("quota wire_failure failed: %s", exc)
+
+
+async def get_opensanctions_quota_state() -> dict:
+    """Operator surface: is the plan quota spent, and since when?
+
+    Exists so the answer to "why is sanctions screening degraded" is queryable
+    rather than something an operator has to find in a log line.
+    """
+    try:
+        from . import redis_store as _rs
+        state = await _rs.get_json(_QUOTA_STATE_KEY)
+    except Exception as exc:
+        return {"exhausted": None, "reason": f"could not read state: {exc}"}
+    if not state:
+        return {"exhausted": False}
+    return {"exhausted": True, **state}
+
+
 def _rate_limit_message(key_present: bool, interval: float) -> str:
     """R-F3476 — say what is MEASURED, never assert an unverified cause.
 
@@ -592,12 +686,67 @@ class _SourceQuery(NamedTuple):
 
       results: normalised raw hits (possibly empty, even when ok=True)
       ok:      True ONLY if a query actually COMPLETED (HTTP 200)
-      reason:  'ok' | 'auth' | 'rate_limit' | 'http_<code>' | 'network' |
-               'breaker_open' | 'input_rejected'
+      reason:  'ok' | 'auth' | 'rate_limit' | 'quota_exhausted' |
+               'http_<code>' | 'network' | 'breaker_open' | 'input_rejected'
+
+    R-F3528 — 'rate_limit' and 'quota_exhausted' are BOTH HTTP 429 and must stay
+    distinct: the first is transient and self-clears, the second is the monthly
+    plan allowance and only an operator can clear it. Collapsing them told the
+    reader ARIA was going too fast when the truth was that the plan was spent.
     """
     results: list
     ok: bool
     reason: str
+
+
+def _local_match_to_aria(lm: dict, queried_name: str) -> dict:
+    """R-F3529 — canonical-store hit → ARIA's standard match shape.
+
+    The shape is not cosmetic. `is_corroborated_match` (_sanctions_classify.py:344)
+    decides whether a match may BLOCK, and it reads two fields:
+
+      * `lists` — checked against _CANONICAL_SANCTIONS_SOURCES slugs. The
+        canonical store's own source ids are exactly those slugs (`ofac_sdn`,
+        `eu_consolidated`), so they pass unmodified. Get this key wrong and a
+        genuine OFAC designation is silently demoted to a "related name
+        observation" — a false clean, which is the worst output this tool has.
+      * `string_similarity` — a MEASURED-low value excludes a match.
+
+    `match_score` is carried into `string_similarity` because the canonical
+    matcher IS a name matcher, and its hit has additionally passed the R-F518
+    entity-overlap gate (name + jurisdiction/address/multi-token), which is a
+    STRONGER corroboration than string similarity alone. Nothing is invented: the
+    score is the one the store computed, and `match_method` travels with it so a
+    reader can see how the hit was made.
+    """
+    src = str(lm.get("source") or "").strip()
+    try:
+        score = float(lm.get("match_score") or 0.0)
+    except (TypeError, ValueError):
+        score = 0.0
+    return {
+        "name": lm.get("formatted_name") or lm.get("name") or "",
+        "schema": None,
+        "lists": [src] if src else [],
+        "list": src or "canonical_local",
+        "score": round(score, 3),
+        "string_similarity": round(score, 3),
+        "phonetic_match": False,
+        "topics": ["sanction"],
+        "countries": lm.get("countries") or [],
+        "aliases": [lm["alias_matched"]] if lm.get("alias_matched") else [],
+        "relationships": [],
+        "url": None,
+        "reason": f"local canonical list: {src or 'unknown'}",
+        "matched_via_variant": "local_canonical",
+        # R-F3529 — provenance the reader needs to know this did NOT come from
+        # OpenSanctions, so an auditor can tell which source carried the finding.
+        "source_kind": "local_canonical",
+        "match_method": lm.get("match_method"),
+        "entity_overlap": lm.get("entity_overlap") or [],
+        "source_uid": lm.get("source_uid"),
+        "queried_name": queried_name,
+    }
 
 
 async def _opensanctions_match(name: str, entity_type: str = "Thing") -> _SourceQuery:
@@ -664,11 +813,25 @@ async def _opensanctions_match(name: str, entity_type: str = "Thing") -> _Source
                 _r469_breaker.record_failure(reason="auth")
                 return _SourceQuery([], False, "auth")
             if resp.status_code == 429:
-                logger.warning("%s", _rate_limit_message(
-                    bool(await _resolve_opensanctions_key()),
-                    _OS_KEYED_INTERVAL_S if await _resolve_opensanctions_key() else _OS_FREE_INTERVAL_S))
-                _r469_breaker.record_failure(reason="rate_limit")
-                return _SourceQuery([], False, "rate_limit")
+                # R-F3528 — which 429? The body is the only signal.
+                _kind = _classify_429(resp.text)
+                if _kind == "quota_exhausted":
+                    logger.error(
+                        "BLOCKED: OpenSanctions MONTHLY PLAN QUOTA exhausted — "
+                        "retrying cannot clear this; operator must upgrade the "
+                        "plan or wait for the reset. Upstream: %s",
+                        (resp.text or "")[:200])
+                    await _record_quota_exhausted(resp.text or "")
+                else:
+                    logger.warning("%s", _rate_limit_message(
+                        bool(await _resolve_opensanctions_key()),
+                        _OS_KEYED_INTERVAL_S if await _resolve_opensanctions_key()
+                        else _OS_FREE_INTERVAL_S))
+                # Same breaker either way: R-F1834's exponential backoff is
+                # already the right pacing for both, and reason= is what the gap
+                # classifier reads.
+                _r469_breaker.record_failure(reason=_kind)
+                return _SourceQuery([], False, _kind)
             if resp.status_code != 200:
                 logger.debug("OpenSanctions match failed: %s %s", resp.status_code, resp.text[:200])
                 _r469_breaker.record_failure(reason="server" if resp.status_code >= 500 else "timeout")
@@ -734,11 +897,25 @@ async def _opensanctions_search(query: str, limit: int = 5) -> _SourceQuery:
                 _r469_breaker.record_failure(reason="auth")
                 return _SourceQuery([], False, "auth")
             if resp.status_code == 429:
-                logger.warning("%s", _rate_limit_message(
-                    bool(await _resolve_opensanctions_key()),
-                    _OS_KEYED_INTERVAL_S if await _resolve_opensanctions_key() else _OS_FREE_INTERVAL_S))
-                _r469_breaker.record_failure(reason="rate_limit")
-                return _SourceQuery([], False, "rate_limit")
+                # R-F3528 — which 429? The body is the only signal.
+                _kind = _classify_429(resp.text)
+                if _kind == "quota_exhausted":
+                    logger.error(
+                        "BLOCKED: OpenSanctions MONTHLY PLAN QUOTA exhausted — "
+                        "retrying cannot clear this; operator must upgrade the "
+                        "plan or wait for the reset. Upstream: %s",
+                        (resp.text or "")[:200])
+                    await _record_quota_exhausted(resp.text or "")
+                else:
+                    logger.warning("%s", _rate_limit_message(
+                        bool(await _resolve_opensanctions_key()),
+                        _OS_KEYED_INTERVAL_S if await _resolve_opensanctions_key()
+                        else _OS_FREE_INTERVAL_S))
+                # Same breaker either way: R-F1834's exponential backoff is
+                # already the right pacing for both, and reason= is what the gap
+                # classifier reads.
+                _r469_breaker.record_failure(reason=_kind)
+                return _SourceQuery([], False, _kind)
             if resp.status_code != 200:
                 _r469_breaker.record_failure(reason="server" if resp.status_code >= 500 else "timeout")
                 return _SourceQuery([], False, f"http_{resp.status_code}")
@@ -917,6 +1094,53 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
             # Free-text matches are lower-confidence by default
             normalised["score"] = round(normalised["score"] * 0.85, 3)
             all_matches.append(normalised)
+
+    # (converter lives at module level — see _local_match_to_aria)
+    # ── R-F3529: fall back to the LOCAL canonical lists ──────────────────────
+    # Only when OpenSanctions did not answer. Verified live 2026-07-30: the
+    # OpenSanctions monthly plan quota is spent, so this whole path returns
+    # source_unavailable — while prod's canonical store answers correctly on the
+    # same box (POST /compliance/screen "Islamic Revolutionary Guard Corps" →
+    # BLOCKED, matched against ofac_sdn AND eu_consolidated).
+    #
+    # A metered aggregator taking down due-diligence screening while the FREE,
+    # AUTHORITATIVE primary lists sit loaded next to it is backwards: §6 puts the
+    # burden of proof on any third-party, and §15 is pay-once-remember-forever.
+    # OpenSanctions stays PRIMARY (broader coverage, ~200 lists); this is the
+    # floor beneath it, not a replacement.
+    #
+    # NEVER-FALSE-CLEAN, the property that governs everything here:
+    # check_sanctions is used precisely because it REFUSES to invent a clean —
+    # an empty store, partial source coverage or stale data all return
+    # INSUFFICIENT_DATA + store_unavailable (lookup.py:486-556), never CLEAR. So
+    # `screened` is only set when the local store genuinely answered. If both
+    # sources are down, source_unavailable stands and the screen stays UNVERIFIED.
+    # Turning "unavailable" into "clean" is the one outcome a compliance tool must
+    # never produce, and it is what this fallback is written to avoid, not risk.
+    if not source_ok:
+        try:
+            from .sanctions_canonical import lookup as _canon
+            _local = await asyncio.to_thread(_canon.check_sanctions, name)
+            _verdict = str((_local or {}).get("verdict") or "")
+            if _verdict and _verdict != "INSUFFICIENT_DATA":
+                # The local store ANSWERED. That is a performed screen.
+                source_ok = True
+                source_reasons.append("opensanctions_unavailable_local_used")
+                for lm in (_local.get("matches") or []):
+                    all_matches.append(_local_match_to_aria(lm, name))
+                logger.info(
+                    "R-F3529: OpenSanctions unavailable (%s) — screened '%s' "
+                    "against local canonical lists instead: verdict=%s matches=%d",
+                    ",".join(sorted(set(source_reasons))[:3]), name[:60],
+                    _verdict, len(_local.get("matches") or []))
+            else:
+                # Local store could not answer either. Record WHY, so the
+                # obstacle line can name both failures rather than one.
+                source_reasons.append(
+                    f"local_{(_local or {}).get('reason') or 'insufficient_data'}")
+        except Exception as _le:
+            logger.warning("R-F3529 local canonical fallback failed: %s", _le)
+            source_reasons.append(f"local_crash:{type(_le).__name__}")
 
     # Rank
     all_matches.sort(key=lambda m: -m["score"])
