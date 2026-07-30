@@ -29321,27 +29321,30 @@
       "title": "chromadb PersistentClient constructed concurrently - Rust use-after-free SIGSEGV",
       "claimed_at": "2026-07-30T21:53:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2ae36344",
+      "notes": null,
+      "shipped_at": "2026-07-30T22:25:55Z"
     },
     {
       "r_number": "R-F3528",
       "title": "OpenSanctions 429: separate monthly-quota exhaustion from per-second rate limit",
       "claimed_at": "2026-07-30T22:00:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c5f69204",
+      "notes": null,
+      "shipped_at": "2026-07-30T22:42:13Z"
     },
     {
       "r_number": "R-F3529",
       "title": "sanctions screen falls back to local canonical lists when OpenSanctions cannot answer",
       "claimed_at": "2026-07-30T22:00:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c5f69204",
+      "notes": null,
+      "shipped_at": "2026-07-30T22:42:13Z"
     },
     {
       "r_number": "R-F3530",
