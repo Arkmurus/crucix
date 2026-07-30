@@ -28,6 +28,18 @@ class _FakeRS:
     async def get_json(self, key):
         return self.store.get(key)
 
+    async def get_json_strict(self, key):
+        # R-F3520 — WITHOUT THIS, THESE TESTS PROVED NOTHING.
+        #
+        # R-F3506 moved the watchlist reads to the STRICT reader. This fake stubbed
+        # only `get_json`, so `get_watchlist` bypassed it entirely, read the real
+        # (empty) store, and returned []. The assertion here is `a_wl == []`
+        # ("webmail stranger saw another user's watchlist entry") — so it PASSED
+        # because the watchlist was never populated, not because the cross-tenant
+        # exclusion worked. A green CROSS-TENANT security guard verifying nothing,
+        # the same shape as the R-F3449 `test_rf772` finding.
+        return self.store.get(key)
+
     async def set_json(self, key, value, ex=None):
         self.store[key] = value
 
@@ -41,6 +53,7 @@ def isolated_dd(monkeypatch, tmp_path):
 
     fake = _FakeRS()
     monkeypatch.setattr(real_rs, "get_json", fake.get_json)
+    monkeypatch.setattr(real_rs, "get_json_strict", fake.get_json_strict)
     monkeypatch.setattr(real_rs, "set_json", fake.set_json)
 
     temp_vault = dd_vault.DDVault(db_path=tmp_path / "dd_vault_test.db")
@@ -165,6 +178,19 @@ def test_watchlist_webmail_not_shared(isolated_dd):
             "share_to_company": True,
         },
     ]
+    # R-F3520 — POSITIVE CONTROL FIRST. Without it this test cannot tell "the
+    # cross-tenant exclusion worked" from "the watchlist was empty", and for two months
+    # it was the second: the fake stubbed only `get_json` while `get_watchlist` reads
+    # STRICTLY, so the seeded entry above was never visible to the code under test and
+    # the assertion below passed against nothing. An absence assertion is only evidence
+    # when the thing being excluded is provably present.
+    owner_wl = asyncio.run(
+        dd_orchestrator.get_watchlist(user_id="userB", user_email_domain="gmail.com")
+    )
+    assert len(owner_wl) == 1 and owner_wl[0]["name"] == "Acme Ltd", (
+        "the OWNER cannot see their own seeded entry — the store fake is not wired to "
+        "the read path, so the exclusion assertion below would prove nothing")
+
     a_wl = asyncio.run(
         dd_orchestrator.get_watchlist(user_id="userA", user_email_domain="gmail.com")
     )

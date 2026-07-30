@@ -16190,8 +16190,14 @@ class _WatchlistUnavailable(Exception):
     """The watchlist could not be READ, so it must not be REWRITTEN."""
 
 
-async def _read_watchlist_or_skip() -> list:
+async def _read_watchlist_or_skip(key: str = WATCHLIST_KEY) -> list:
     """R-F3506 — strict read for every read-modify-write on the watchlist.
+
+    R-F3520 — PARAMETERISED BY KEY, because there are TWO watchlists and R-F3506
+    only protected one. The public watchlist (`PUBLIC_WATCHLIST_KEY`) was left on the
+    exact `rs.get_json(...) or []` pattern this function exists to replace, with the
+    same read-modify-write and the same consequence. A key argument rather than a
+    second copy: a copy is how the two would drift apart again.
 
     Every watchlist mutation is a read-modify-write, and all of them were built
     on ``rs.get_json(WATCHLIST_KEY) or []``. get_json swallows a StoreReadError
@@ -16210,15 +16216,15 @@ async def _read_watchlist_or_skip() -> list:
     """
     from . import redis_store as rs
     try:
-        current = await rs.get_json_strict(WATCHLIST_KEY)
+        current = await rs.get_json_strict(key)
     except Exception as exc:
         logger.warning(
-            "[R-F3506] watchlist unreadable (%s) — SKIPPING the mutation rather "
-            "than rewriting from an empty read", exc)
+            "[R-F3506] watchlist %s unreadable (%s) — SKIPPING the mutation rather "
+            "than rewriting from an empty read", key, exc)
         try:
             from .engine_wiring import wire_failure as _wf
             _wf(module="dd_orchestrator",
-                detail=f"watchlist mutation skipped, store unreadable: {exc}"[:400],
+                detail=f"watchlist mutation skipped, {key} unreadable: {exc}"[:400],
                 gap_type="storage_failure",
                 source="dd_orchestrator:_read_watchlist_or_skip")
         except Exception:
@@ -16419,7 +16425,16 @@ async def add_public_watchlist_entity(name: str, curated_by: str = "operator") -
         raise
     except Exception:
         pass
-    current = await rs.get_json(PUBLIC_WATCHLIST_KEY) or []
+    # R-F3520 — STRICT. This is a read-modify-write, so a swallowed StoreReadError
+    # would read [] and then persist a ONE-ENTRY list, destroying every other public
+    # entry. It also silently defeats the dedup check three lines down: an unreadable
+    # store makes every name look new.
+    try:
+        current = await _read_watchlist_or_skip(PUBLIC_WATCHLIST_KEY)
+    except _WatchlistUnavailable as exc:
+        return {"ok": False, "error": "store_unreadable", "detail": str(exc)[:200],
+                "note": ("The public watchlist could not be read, so it was NOT "
+                         "rewritten. Nothing was added; retry.")}
     for w in current:
         if (w.get("name") or "").strip().lower() == name.lower():
             return {"ok": True, "note": "already public", "count": len(current)}
@@ -16436,6 +16451,13 @@ async def add_public_watchlist_entity(name: str, curated_by: str = "operator") -
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def get_public_watchlist() -> list:
+    # R-F3520 — DELIBERATELY left non-strict, so the next reader does not think it was
+    # missed. This is a pure read serving GET /dd/watchlist/public; it writes nothing,
+    # so it cannot clobber, and it asserts nothing about screening, so it cannot produce
+    # a false clean. Its only failure mode is rendering "unreadable" as "empty" on a
+    # listing page. Making it raise would turn a transient store reconnect into a 500 on
+    # a public endpoint — a worse outcome than a briefly empty list. The two mutations
+    # and the re-screen above are the ones that had to change.
     from . import redis_store as rs
     return await rs.get_json(PUBLIC_WATCHLIST_KEY) or []
 
@@ -16444,7 +16466,17 @@ async def get_public_watchlist() -> list:
 async def remove_public_watchlist_entity(name: str) -> dict:
     from . import redis_store as rs
     key = (name or "").strip().lower()
-    current = await rs.get_json(PUBLIC_WATCHLIST_KEY) or []
+    # R-F3520 — the WORST of the two sites. On a swallowed StoreReadError this read [],
+    # wrote [] — WIPING the entire public watchlist — and returned
+    # {"ok": True, "removed": 0, "count": 0}: a success receipt for a total deletion,
+    # indistinguishable from "that name was not on the list".
+    try:
+        current = await _read_watchlist_or_skip(PUBLIC_WATCHLIST_KEY)
+    except _WatchlistUnavailable as exc:
+        return {"ok": False, "error": "store_unreadable", "detail": str(exc)[:200],
+                "removed": 0,
+                "note": ("The public watchlist could not be read, so it was NOT "
+                         "rewritten. Nothing was removed; retry.")}
     kept = [w for w in current if (w.get("name") or "").strip().lower() != key]
     await rs.set_json(PUBLIC_WATCHLIST_KEY, kept)
     return {"ok": True, "removed": len(current) - len(kept), "count": len(kept)}
@@ -16484,7 +16516,19 @@ async def rescreen_public_watchlist() -> dict:
     import json as _json
     from . import redis_store as rs
     t0 = time.monotonic()
-    entities = await rs.get_json(PUBLIC_WATCHLIST_KEY) or []
+    # R-F3520 — not a clobber (nothing is written back), but the SAME false clean.
+    # A swallowed StoreReadError read [] and returned "0 entities screened, no changes
+    # detected, no errors" — a completed, clean public monitoring cycle that never ran.
+    # An unperformed screen must report that it could not run, never a clean result.
+    try:
+        entities = await _read_watchlist_or_skip(PUBLIC_WATCHLIST_KEY)
+    except _WatchlistUnavailable as exc:
+        return {"entities_screened": 0, "changes_detected": [],
+                "errors": [{"entity": "*", "error": f"public watchlist unreadable: {exc}"}],
+                "screened": False,
+                "note": ("The public watchlist could not be READ, so no screening was "
+                         "performed. This is NOT a clean cycle."),
+                "duration_ms": int((time.monotonic() - t0) * 1000)}
     if not entities:
         return {"entities_screened": 0, "changes_detected": [], "errors": [], "duration_ms": 0}
     try:

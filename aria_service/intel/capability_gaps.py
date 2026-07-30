@@ -68,6 +68,29 @@ VALID_GAP_TYPES = frozenset({
                                        # attempt failed. Distinct from source_failure,
                                        # which is a fetch against an ALREADY onboarded
                                        # source.
+    # ── R-F3520 — two more emitted-but-unregistered types, same class as above ──
+    # Read at their emit sites before registering, per the R-F3428 precedent, rather
+    # than rubber-stamped to turn the drift guard green.
+    "storage_failure",                 # news_monitor._ingest_article (R-F3486) and
+                                       # dd_orchestrator._read_watchlist_or_skip
+                                       # (R-F3506/R-F3520) — a DURABLE store could not
+                                       # be read or written, so the operation was
+                                       # deliberately SKIPPED rather than completed on
+                                       # bad data. Not engine_failure: nothing threw and
+                                       # no logic is wrong; the store was unavailable
+                                       # and the code correctly declined to act. That
+                                       # distinction is the whole point of the signal —
+                                       # it says "a mutation was dropped to protect
+                                       # durable state", which is what an operator needs
+                                       # to know to retry it.
+    "config_conflict",                 # circuit_breaker.get_breaker (R-F3458) — a
+                                       # caller's configuration was ACCEPTED and then
+                                       # silently discarded, because first registration
+                                       # wins and a later get_breaker(name,
+                                       # failure_threshold=...) returns the existing
+                                       # breaker unchanged. Nothing failed, which is
+                                       # exactly why it needs its own name: the caller
+                                       # believes a threshold is in force that is not.
     "file_parse",
     "registry_lookup",
     "api_missing",

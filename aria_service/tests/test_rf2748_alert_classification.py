@@ -21,7 +21,20 @@ import aria_service.intel._sanctions_classify as _cls
 class _Store:
     def __init__(self):
         self.d = {}
+        self.unreadable = False
     async def get_json(self, k):
+        return self.d.get(k)
+    async def get_json_strict(self, k):
+        # R-F3520 — R-F3506 moved every watchlist read-modify-write to the STRICT
+        # reader and this fake was never extended, so `_read_watchlist_or_skip` bypassed
+        # the fake entirely, found nothing, and `rescreen_watchlist` returned early with
+        # `changes_detected: []`. All four classification tests then failed with a
+        # PLAUSIBLE result rather than an error, which reads as "change detection is
+        # broken" when the engine was fine. A stub that silently under-implements the
+        # interface it fakes produces exactly this kind of misleading red.
+        if self.unreadable:
+            import aria_service.intel.redis_store as _rs
+            raise _rs.StoreReadError(f"state_store: no connection reading {k}")
         return self.d.get(k)
     async def set_json(self, k, v, ex=None, keepttl=False):
         self.d[k] = v
@@ -43,7 +56,8 @@ class _Store:
 def store(monkeypatch):
     s = _Store()
     import aria_service.intel.redis_store as rs
-    for fn in ("get_json", "set_json", "lpush", "ltrim", "expire", "incr", "delete"):
+    for fn in ("get_json", "get_json_strict", "set_json", "lpush", "ltrim",
+               "expire", "incr", "delete"):
         monkeypatch.setattr(rs, fn, getattr(s, fn))
     monkeypatch.setattr(_sanc, "_looks_like_entity_name", lambda n: True, raising=False)
 

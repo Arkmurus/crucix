@@ -21,6 +21,12 @@ class _Store:
         self.d = {}
     async def get_json(self, k):
         return self.d.get(k)
+    async def get_json_strict(self, k):
+        # R-F3520 — R-F3506 moved the watchlist read-modify-writes to the STRICT
+        # reader; a fake stubbing only `get_json` is bypassed, so rescreen_watchlist
+        # returns early with entities_screened: 0 and these tests fail with a
+        # PLAUSIBLE empty result rather than an error.
+        return self.d.get(k)
     async def set_json(self, k, v, ex=None, keepttl=False):
         self.d[k] = v
     async def lpush(self, k, v):
@@ -41,7 +47,7 @@ class _Store:
 def store(monkeypatch):
     s = _Store()
     import aria_service.intel.redis_store as rs
-    for fn in ("get_json", "set_json", "lpush", "ltrim", "expire", "incr", "delete"):
+    for fn in ("get_json", "get_json_strict", "set_json", "lpush", "ltrim", "expire", "incr", "delete"):
         monkeypatch.setattr(rs, fn, getattr(s, fn))
     monkeypatch.setattr(_sanc, "_looks_like_entity_name", lambda n: True, raising=False)
 

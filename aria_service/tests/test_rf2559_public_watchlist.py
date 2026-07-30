@@ -76,6 +76,14 @@ def _rs_stub(monkeypatch):
     from aria_service.intel import redis_store as rs
     async def get_json(k):
         return store.get(k)
+    async def get_json_strict(k):
+        # R-F3520 — the public watchlist's read-modify-writes and its re-screen now use
+        # the STRICT reader, because the non-strict one swallows a StoreReadError and
+        # returns None, which let a store reconnect WIPE the list. A fake that stubs only
+        # `get_json` is bypassed by the strict path and the re-screen finds no entities —
+        # so these tests fail with a plausible `entities_screened: 0` rather than an
+        # error. Same staleness that made test_rf2748 look like broken change detection.
+        return store.get(k)
     async def set_json(k, v, *a, **kw):
         store[k] = v
     async def lpush(k, v, **kw):
@@ -87,7 +95,8 @@ def _rs_stub(monkeypatch):
         return lists.get(k, [])
     async def expire(k, s):
         return True
-    for n, f in (("get_json", get_json), ("set_json", set_json), ("lpush", lpush),
+    for n, f in (("get_json", get_json), ("get_json_strict", get_json_strict),
+                 ("set_json", set_json), ("lpush", lpush),
                  ("ltrim", ltrim), ("lrange", lrange), ("expire", expire)):
         monkeypatch.setattr(rs, n, f)
     return store, lists

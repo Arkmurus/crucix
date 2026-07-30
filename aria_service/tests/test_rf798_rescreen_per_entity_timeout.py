@@ -48,6 +48,13 @@ def _setup(monkeypatch, screen_impl, watchlist):
             return watchlist
         return None
 
+    async def _get_json_strict(key):
+        # R-F3520 — R-F3506 moved the watchlist read-modify-writes to the STRICT
+        # reader; a fake stubbing only `get_json` is bypassed, so rescreen_watchlist
+        # returns early with entities_screened: 0 and these tests fail with a
+        # PLAUSIBLE empty result rather than an error.
+        return await _get_json(key)
+
     async def _set_json(key, val, ex=None):
         return None
 
@@ -61,6 +68,7 @@ def _setup(monkeypatch, screen_impl, watchlist):
         return None
 
     monkeypatch.setattr(rs, "get_json", _get_json)
+    monkeypatch.setattr(rs, "get_json_strict", _get_json_strict)
     monkeypatch.setattr(rs, "set_json", _set_json)
     monkeypatch.setattr(rs, "lpush", _lpush)
     monkeypatch.setattr(rs, "ltrim", _ltrim)
