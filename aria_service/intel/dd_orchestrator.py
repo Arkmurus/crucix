@@ -8022,6 +8022,12 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 _dr_op_budget, report.digital, "deep research", default={},
                 progress=_dr_progress)
             if isinstance(dr, dict) and dr.get("partial"):
+                # R-F3502 — the LAYER is partial, not just the gap list. A bounded sweep
+                # that analysed 0 articles was still rendering "COMPLETED" in the section
+                # header, because the status was set unconditionally at the end. A reader
+                # scanning headers saw a finished screen; the truncation was one gap
+                # buried in a long list.
+                report.digital.meta.status = LayerStatus.PARTIAL.value
                 # Honest, specific, and — unlike the old wording — TRUE: name what
                 # was gathered before the cut, not just that a timer expired.
                 report.digital.data_gaps.append(
@@ -9313,7 +9319,12 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 report.digital.data_gaps.append(f"link_investigator failed: {str(e)[:120]}")
 
     report.digital.meta.duration_ms = int((time.time() - t0) * 1000)
-    report.digital.meta.status = LayerStatus.OK.value
+    # R-F3502 — do NOT overwrite a status the layer already earned. This assigned OK
+    # unconditionally, so every degraded signal recorded earlier in the layer (a bounded
+    # deep-research sweep, a skipped sub-stage) was erased at the last line and the
+    # section rendered COMPLETED. Only promote to OK from an unset/OK state.
+    if str(report.digital.meta.status or "") in ("", LayerStatus.OK.value):
+        report.digital.meta.status = LayerStatus.OK.value
 
 
 # R-F2662 — ARIA's OWN compute / memory / RAG. NEVER an independent external witness;

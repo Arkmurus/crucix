@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3502,
+  "next_available": 3503,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29064,6 +29064,15 @@
       "commit_sha": "063e6daf",
       "notes": null,
       "shipped_at": "2026-07-30T15:19:01Z"
+    },
+    {
+      "r_number": "R-F3502",
+      "title": "digital layer reports COMPLETED after a bounded sweep that analysed nothing",
+      "claimed_at": "2026-07-30T15:21:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
