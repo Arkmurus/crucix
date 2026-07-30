@@ -28992,27 +28992,30 @@
       "title": "classifier replay is archive-wide and resumable, and records what changed",
       "claimed_at": "2026-07-30T14:35:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5385862d",
+      "notes": null,
+      "shipped_at": "2026-07-30T14:58:40Z"
     },
     {
       "r_number": "R-F3495",
       "title": "news feed_to_brain swallows ledger and absorb failures - dark paths",
       "claimed_at": "2026-07-30T14:41:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5385862d",
+      "notes": null,
+      "shipped_at": "2026-07-30T14:58:40Z"
     },
     {
       "r_number": "R-F3496",
       "title": "DD reports pin the verdict logic version at issue and declare drift instead of silently re-deriving",
       "claimed_at": "2026-07-30T14:47:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5385862d",
+      "notes": null,
+      "shipped_at": "2026-07-30T14:59:48Z"
     }
   ]
 }
