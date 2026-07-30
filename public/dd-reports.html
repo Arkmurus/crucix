@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DD Reports | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/aria.css?v=17">
+  <link rel="stylesheet" href="css/aria.css?v=18">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -523,14 +523,18 @@
                these THIS subject actually needs. Selecting one ELECTS the questions it
                unlocks and the run is held to it; declining records a WAIVER that stays
                in the denominator and can never improve a score. -->
-          <div class="sc-mod-field" id="dd-r-scope-wrap" style="display:none">
-            <label>Paid &amp; licence-gated sources
-              <span class="opt">Choose before running. A ticked source is searched and may be
+          <!-- R-F3465 — a separate DECISION, so it is separated visually. Everything
+               above is a description of the subject; this is a choice about spend and
+               coverage that the run is then held to. -->
+          <div class="sc-mod-field sc-mod-section" id="dd-r-scope-wrap" style="display:none">
+            <label>Paid &amp; licence-gated sources</label>
+            <p class="sc-hint">Choose before running. A ticked source is searched and may be
               chargeable; an unticked one is recorded as declined by you. A source that
               cannot run yet can still be ordered &mdash; it is reported as a named gap and
-              is never charged.</span>
-            </label>
-            <div id="dd-r-scope" style="display:flex;flex-direction:column;gap:8px"></div>
+              is never charged.</p>
+            <!-- R-F3465 — no inline layout here: an inline style BEATS the class, so the
+                 .dd-src-list spacing set in aria.css was silently overridden. -->
+            <div id="dd-r-scope" class="dd-src-list"></div>
           </div>
         </div>
         <div class="sc-mod-foot">

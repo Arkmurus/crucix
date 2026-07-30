@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3465,
+  "next_available": 3466,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28691,6 +28691,15 @@
       "r_number": "R-F3464",
       "title": "continuous_profiler attributes event-loop stalls to parked idle threads",
       "claimed_at": "2026-07-30T10:55:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3465",
+      "title": "New DD panel: block hint text, separate the gated-source decision from the basic fields",
+      "claimed_at": "2026-07-30T11:03:07Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

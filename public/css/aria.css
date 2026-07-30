@@ -766,3 +766,15 @@ body.nav-expanded .nav-dropdown-menu { left: calc(var(--rail-expanded-w) + 8px);
                      font-size: 10px; }
 .dd-gaps-list { margin: 0; padding-left: 18px; }
 .dd-gaps-list li { font-size: 12px; line-height: 1.6; color: var(--sc-text); margin: 3px 0; }
+
+/* ── R-F3465 — New DD panel: block hints and a separated decision section ──
+   Long help text was living INSIDE a <label> as inline muted text, so it wrapped
+   into the label and read as one ragged block. Help that runs to a sentence or
+   more is a paragraph, not a label suffix. Short "(optional)" hints stay inline
+   via .opt — that distinction is the whole point. */
+.sc-hint {
+  margin: 0; font-size: 11.5px; line-height: 1.6; color: var(--sc-muted); max-width: 62ch;
+}
+/* A choice about spend and coverage, not another description of the subject. */
+.sc-mod-section { border-top: 1px solid var(--sc-border); padding-top: 16px; margin-top: 2px; }
+.sc-mod-section > label { margin-bottom: 2px; }
