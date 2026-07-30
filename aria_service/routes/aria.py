@@ -5112,6 +5112,9 @@ class RagIngestRequest(BaseModel):
     data_subject_key: str = ""
     lawful_basis: str = ""
     retention_class: str = ""
+    # R-F3492 — whose law governs this record. Retention period and residency both
+    # depend on it, and it is NOT inferable from the storage region.
+    data_jurisdiction: str = ""
     personal_data: bool = False
 
 
@@ -5133,6 +5136,7 @@ async def rag_ingest_ep(req: RagIngestRequest):
         data_subject_key=req.data_subject_key,
         lawful_basis=req.lawful_basis,
         retention_class=req.retention_class,
+        data_jurisdiction=req.data_jurisdiction,
         personal_data=req.personal_data,
     )
 

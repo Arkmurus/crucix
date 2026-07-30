@@ -855,6 +855,7 @@ async def ingest_document(
     data_subject_key: str = "",
     lawful_basis: str = "",
     retention_class: str = "",
+    data_jurisdiction: str = "",
     personal_data: bool = False,
 ) -> dict:
     """Chunk a document and add it to the RAG store.
@@ -937,6 +938,8 @@ async def ingest_document(
         base_meta[LAWFUL_BASIS_KEY] = str(lawful_basis)[:80]
     if retention_class:
         base_meta[RETENTION_CLASS_KEY] = str(retention_class)[:80]
+    if data_jurisdiction:
+        base_meta[DATA_JURISDICTION_KEY] = str(data_jurisdiction)[:16].strip().lower()
     if personal_data:
         base_meta["personal_data"] = True
         base_meta["erasure_reachable"] = bool(data_subject_key)
@@ -2122,6 +2125,11 @@ _SEARCHABLE_COLLECTION_LABELS = ("documents", "facts", "documents_cold")
 DATA_SUBJECT_KEY = "data_subject_key"
 LAWFUL_BASIS_KEY = "lawful_basis"
 RETENTION_CLASS_KEY = "retention_class"
+#: R-F3492 — WHICH jurisdiction's law governs this record. Retention periods and
+#: residency obligations both depend on it, so it cannot be inferred from the storage
+#: region: where data SITS and whose law GOVERNS it are different questions, and
+#: conflating them is what makes a cross-border transfer invisible.
+DATA_JURISDICTION_KEY = "data_jurisdiction"
 
 
 def _searchable_collections() -> list[tuple[str, object]]:
@@ -2139,8 +2147,42 @@ def _searchable_collections() -> list[tuple[str, object]]:
     ]
 
 
+#: R-F3492 — where this instance actually stores data. `fly.toml` declares
+#: `primary_region = 'lhr'`, but a committed config file is a claim about intent, not
+#: evidence about a running replica, so the value is read from the environment the
+#: process is actually in and defaults to the declared region only as a last resort.
+def storage_region() -> str:
+    return (os.getenv("FLY_REGION")
+            or os.getenv("ARIA_STORAGE_REGION")
+            or "lhr").strip().lower()
+
+
+#: Regions that keep personal data inside the UK/EEA perimeter for Chapter V purposes.
+#: Deliberately short and explicit: an unknown region is treated as OUTSIDE, because
+#: guessing in the permissive direction is how an unlawful transfer goes unnoticed.
+_UK_EEA_REGIONS = frozenset({
+    "lhr", "cdg", "ams", "fra", "mad", "arn", "waw", "otp", "dub",
+})
+
+
+def jurisdiction_of_region(region: str) -> str:
+    """UK_EEA | OTHER — the perimeter a storage region sits in."""
+    return "UK_EEA" if str(region or "").strip().lower() in _UK_EEA_REGIONS else "OTHER"
+
+
 def _retention_periods() -> dict[str, int]:
-    """R-F3490 — retention class -> days, from configuration ONLY.
+    """R-F3490/R-F3492 — retention period keys, from configuration ONLY.
+
+    R-F3492 makes the key JURISDICTION-SPECIFIC, because a retention period is a
+    function of (data category, jurisdiction) and not of category alone: the same
+    category of personal data is lawfully kept for different periods under UK, EU and
+    other regimes. A flat class silently applied one country's answer everywhere, which
+    is wrong the moment a second jurisdiction is served.
+
+    Accepted keys, most specific first:
+      ``uk:chat_notebook=365``   — this class, this jurisdiction
+      ``chat_notebook=365``      — this class, ANY jurisdiction (explicit fallback)
+
 
     DELIBERATELY EMPTY BY DEFAULT. A retention period is a legal and commercial decision
     about a specific data category in a specific jurisdiction; inventing "7 years" in code
@@ -2149,7 +2191,7 @@ def _retention_periods() -> dict[str, int]:
     treated as indefinite.
 
     Configure with ARIA_RETENTION_PERIODS_DAYS, e.g.
-    ``dd_evidence=2555,chat_notebook=365``.
+    ``uk:dd_evidence=2555,uk:chat_notebook=365,de:chat_notebook=730``.
     """
     raw = str(os.getenv("ARIA_RETENTION_PERIODS_DAYS", "") or "").strip()
     out: dict[str, int] = {}
@@ -2158,10 +2200,30 @@ def _retention_periods() -> dict[str, int]:
             continue
         name, _, days = part.partition("=")
         try:
-            out[name.strip()] = int(days.strip())
+            out[name.strip().lower()] = int(days.strip())
         except ValueError:
             logger.warning("[R-F3490] ignoring malformed retention period: %r", part)
     return out
+
+
+def _period_for(retention_class: str, jurisdiction: str,
+                periods: dict[str, int]) -> int | None:
+    """R-F3492 — the period for this class IN THIS JURISDICTION, or None if undecided.
+
+    Most specific wins, and the fallback must be DECLARED. A bare ``class=days`` entry
+    means "this period applies in any jurisdiction" — an operator saying so explicitly.
+    What never happens is one country's period being applied to another's data because
+    it was the only one configured.
+    """
+    rclass = str(retention_class or "").strip().lower()
+    juris = str(jurisdiction or "").strip().lower()
+    if not rclass:
+        return None
+    if juris:
+        specific = periods.get(f"{juris}:{rclass}")
+        if specific is not None:
+            return specific
+    return periods.get(rclass)
 
 
 @fail_wire(module="rag_store", gap_type="embedder_failure")
@@ -2198,12 +2260,15 @@ async def retention_review(*, now_iso: str = "") -> dict:
         now = now.replace(tzinfo=_tz.utc)
 
     periods = _retention_periods()
+    _region = storage_region()
+    _region_perimeter = jurisdiction_of_region(_region)
     import asyncio as _aio
     _PAGE = 500
 
     def _scan(coll, label: str) -> tuple[dict, str]:
         acc = {"due": 0, "no_period_set": 0, "unclassified": 0, "within_period": 0,
-               "personal_records": 0}
+               "personal_records": 0, "no_jurisdiction": 0, "residency_mismatch": 0,
+               "by_jurisdiction": {}, "undecided_keys": set()}
         if coll is None:
             return acc, ""
         offset = 0
@@ -2218,12 +2283,24 @@ async def retention_review(*, now_iso: str = "") -> dict:
                     continue
                 acc["personal_records"] += 1
                 rclass = str(m.get(RETENTION_CLASS_KEY) or "").strip()
+                # R-F3492 — the record's OWN jurisdiction decides which period applies.
+                _juris = str(m.get(DATA_JURISDICTION_KEY) or "").strip().lower()
+                if _juris:
+                    acc["by_jurisdiction"][_juris] = acc["by_jurisdiction"].get(_juris, 0) + 1
+                else:
+                    acc["no_jurisdiction"] += 1
+                # Chapter V: personal data for one jurisdiction sitting in a region
+                # outside the UK/EEA perimeter is a transfer that needs a lawful basis.
+                # Reported, never assumed lawful.
+                if _juris in ("uk", "gb", "eu") and _region_perimeter != "UK_EEA":
+                    acc["residency_mismatch"] += 1
                 if not rclass:
                     acc["unclassified"] += 1
                     continue
-                days = periods.get(rclass)
+                days = _period_for(rclass, _juris, periods)
                 if days is None:
                     acc["no_period_set"] += 1
+                    acc["undecided_keys"].add(f"{_juris or 'any'}:{rclass}")
                     continue
                 stamped = str(m.get("ingested_at") or "")
                 try:
@@ -2245,19 +2322,70 @@ async def retention_review(*, now_iso: str = "") -> dict:
     per_collection: dict[str, dict] = {}
     scan_errors: list[str] = []
     totals = {"due": 0, "no_period_set": 0, "unclassified": 0, "within_period": 0,
-              "personal_records": 0}
+              "personal_records": 0, "no_jurisdiction": 0, "residency_mismatch": 0}
+    by_juris: dict[str, int] = {}
+    undecided: set[str] = set()
     for label, coll in _searchable_collections():
         acc, err = await _aio.to_thread(_scan, coll, label)
         if err:
             scan_errors.append(err)
+        for _j, _n in (acc.get("by_jurisdiction") or {}).items():
+            by_juris[_j] = by_juris.get(_j, 0) + _n
+        undecided |= acc.get("undecided_keys") or set()
+        acc["undecided_keys"] = sorted(acc.get("undecided_keys") or set())
         per_collection[label] = acc
         for k in totals:
             totals[k] += acc[k]
+
+    # ── R-F3492 — REMIND. A review nobody sees is not a review. ──────────────
+    #
+    # Art. 5(2) accountability sits with the controller, so an overdue population, an
+    # undecided period, or personal data sitting outside its own perimeter has to reach
+    # an operator rather than wait to be queried. Wired to the brain (§21a) so it
+    # surfaces on the operator's existing gap surface; the payload is returned too so a
+    # dashboard or a super-admin view can render it directly.
+    _reminders: list[str] = []
+    if totals["due"]:
+        _reminders.append(
+            f"{totals['due']} personal record(s) past their configured retention period "
+            f"— erase or anonymise (nothing is deleted automatically)")
+    if totals["unclassified"]:
+        _reminders.append(
+            f"{totals['unclassified']} personal record(s) carry NO retention class, so "
+            f"no period can apply to them")
+    if undecided:
+        _reminders.append(
+            f"no retention period configured for: {', '.join(sorted(undecided)[:8])} "
+            f"— set ARIA_RETENTION_PERIODS_DAYS (jurisdiction:class=days)")
+    if totals["residency_mismatch"]:
+        _reminders.append(
+            f"{totals['residency_mismatch']} UK/EU personal record(s) are stored in "
+            f"region {_region!r} ({_region_perimeter}) — a Chapter V transfer needs a "
+            f"lawful basis")
+    if _reminders:
+        try:
+            from .engine_wiring import wire_failure
+            wire_failure(
+                module="rag_store",
+                detail="[R-F3492] retention/residency review needs an operator: "
+                       + "; ".join(_reminders)[:600],
+                gap_type="knowledge_gap",
+                source="rag_store:R-F3492",
+            )
+        except Exception as _wf:
+            logger.debug("[R-F3492] reminder wiring failed: %s", _wf)
 
     return {
         "available": True,
         "as_of": now.isoformat(),
         "configured_classes": sorted(periods),
+        # R-F3492 — jurisdiction is now first-class in the answer.
+        "storage_region": _region,
+        "storage_perimeter": _region_perimeter,
+        "by_jurisdiction": by_juris,
+        "undecided_period_keys": sorted(undecided),
+        "reminders": _reminders,
+        "needs_operator": bool(_reminders),
         **totals,
         "per_collection": per_collection,
         "scan_errors": scan_errors,
