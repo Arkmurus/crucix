@@ -1625,6 +1625,28 @@ def _sanctions_match_metric(screen) -> str | None:
                                if noise else ""))
 
 
+def _people_line(people, formatter, limit: int = 8) -> str | None:
+    """R-F3508 — render up to `limit` people AND DISCLOSE when there are more.
+
+    THE DEFECT (delivered Babcock report): the officer row was a silent `[:8]`. The
+    report displayed 8 officers while its own data gaps referenced "8 of 11
+    officeholders" and named PARKER, RAMSAY and SMITH — three people who appeared
+    NOWHERE else in the document. A reader could not reconcile 8 with 11, and the three
+    named individuals looked like they had been invented by the gaps section.
+
+    Truncation is not the problem; SILENT truncation is. A count a reader can check
+    turns an apparent contradiction into an ordinary "showing the first 8".
+    """
+    items = list(people or [])
+    shown = [x for x in (formatter(p) for p in items[:limit]) if x]
+    if not shown:
+        return None
+    line = "; ".join(shown)
+    if len(items) > len(shown):
+        line += f" (showing {len(shown)} of {len(items)})"
+    return line
+
+
 def _sv_section(key, title, icon, section, highlights, *, kind="standard", evidence=None):
     """Assemble one render-ready section. Returns None when a non-core section has no content."""
     section = section or {}
@@ -3122,12 +3144,10 @@ def structured_view(r: dict) -> dict:
             ("Former names", "; ".join(
                 x for x in (_format_previous_name(p)
                             for p in (ident.get("previous_names") or [])[:5]) if x) or None),
-            ("Directors / officers", "; ".join(
-                x for x in (_format_officer(o)
-                            for o in (ident.get("directors") or [])[:8]) if x) or None),
-            ("PSC / beneficial owners", "; ".join(
-                x for x in (_format_psc(p)
-                            for p in (ident.get("shareholders") or [])[:8]) if x) or None),
+            # R-F3508 — disclose truncation. A silent [:8] made the report contradict
+            # its own gaps, which named officeholders it never displayed.
+            ("Directors / officers", _people_line(ident.get("directors"), _format_officer)),
+            ("PSC / beneficial owners", _people_line(ident.get("shareholders"), _format_psc)),
             ("LEI", (f"{(ident.get('lei_registration') or {}).get('lei')} "
                      f"({(ident.get('lei_registration') or {}).get('registration_status')})"
                      if (ident.get("lei_registration") or {}).get("lei") else None)),
