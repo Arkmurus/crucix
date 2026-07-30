@@ -194,12 +194,36 @@ class TestGoldenIntelSignals:
 
     @pytest.mark.asyncio
     async def test_recent_intel_signals_contract(self, monkeypatch) -> None:
+        # R-F3491 — this fixture predates the Golden Intel quality gate
+        # (c6817286) and was being filtered out entirely, so the test read
+        # count 0. Three production rules now apply, and ALL THREE are correct
+        # and deliberately unchanged:
+        #
+        #   1. only intel_grade A/B surface on the publishable feed
+        #   2. _normalise_intel_signal RECOMPUTES the grade — a declared
+        #      "intel_grade": "A" is ignored. A grade must be EARNED from
+        #      evidence, never asserted by the producer. Setting the field by
+        #      hand does nothing, which is exactly right.
+        #   3. the honesty floor in the grader is explicit that it is "never
+        #      negotiable": no evidence URL -> REJECT, no specific named entity/
+        #      programme/designation -> REJECT.
+        #
+        # So the fixture now describes a signal that genuinely MEETS the bar —
+        # a named designation, an official primary source URL, and extracted
+        # entities. Verified to grade "A: official-or-corroborated primary
+        # evidence at high relevance". Do NOT make this pass by relaxing the
+        # grader; that would be clamping the USP.
         signal = {
             "signal_type": "sanctions_change",
             "priority": "HIGH",
             "confidence": "HIGH",
-            "title": "New sanctions designation",
+            "title": "OFAC designates Rosoboronexport under Executive Order 14024",
             "detected_at": "2026-07-07T10:00:00+00:00",
+            "url": "https://ofac.treasury.gov/recent-actions/20260707",
+            "source_tier": "tier_1a",
+            "entities": {"countries": ["Russia"], "oems": ["Rosoboronexport"],
+                         "products": [], "events": []},
+            "evidence": {"url": "https://ofac.treasury.gov/recent-actions/20260707"},
         }
 
         async def _fake_lrange(_key, _start, _end):
@@ -219,7 +243,19 @@ class TestGoldenIntelSignals:
 
         out = await nm.get_recent_intel_signals(limit=5)
 
-        assert out["schema_version"] == "rf2385.v1"
+        # R-F3491 — was pinned to "rf2385.v1". get_recent_intel_signals now
+        # returns "rf2738.v1" (news_monitor.py:2423), set in c6817286
+        # (R-F2890..R-F2896 Golden Intel) despite the rf2738 name.
+        #
+        # Checked before changing it, because a schema_version is a CONSUMER
+        # CONTRACT and a bump can be a live breakage rather than test drift: no
+        # consumer keys on this value anywhere in public/, lib/, server.mjs,
+        # apis/ or the Python tree. Nothing downstream breaks, so the assertion
+        # was genuinely stale.
+        #
+        # Do NOT "fix" a future mismatch by reverting production to an older
+        # string — check for consumers first, then move the test.
+        assert out["schema_version"] == "rf2738.v1"
         assert out["count"] == 1
         assert out["by_priority"]["HIGH"] == 1
         assert out["by_type"]["sanctions_change"] == 1
