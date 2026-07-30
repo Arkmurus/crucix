@@ -45,7 +45,9 @@ _STUBBY = ("fake", "stub", "mock", "no_op", "noop", "counting", "boom", "dummy",
 #: active: the modules they poison happen not to be re-used by a later test today. That is
 #: luck, not safety, and each should move to monkeypatch when its file is next touched.
 KNOWN_UNRESTORED: frozenset[str] = frozenset({
-    "test_rf2092_encode_offload_warmup.py::eo._pool",
+    # test_rf2092_encode_offload_warmup.py::eo._pool was here and has been REMOVED: it
+    # restores correctly via `finally: _reset(eo)`, and the scanner simply could not see a
+    # helper-based restore. The instrument was wrong, not the test.
     "test_rf2178_liveness.py::livemod.rs",
     "test_rf2423_diagnostic_no_inline_run.py::intel_pkg.redis_store",
     "test_rf2423_diagnostic_no_inline_run.py::intel_pkg.self_diagnostic",
@@ -77,6 +79,15 @@ def _module_aliases(tree: ast.AST) -> set[str]:
     return out
 
 
+#: Helper names that, called in a `finally`, count as putting module state back.
+#: Needed because a restore is often factored into a helper: test_rf2092 does
+#: `finally: _reset(eo)` where `_reset` sets `eo._pool = None`. The first version of this
+#: scanner could only see a direct reassignment, so it reported that CORRECT test as an
+#: offender — a false positive, and the reason this list exists. Verify before "fixing":
+#: the code was right and the instrument was wrong.
+_RESTORE_HELPERS = ("reset", "restore", "teardown", "cleanup", "undo", "unpatch")
+
+
 def _has_restore(fn: ast.AST, dotted: str) -> bool:
     """A try/finally in the same function that puts the attribute back."""
     for node in ast.walk(fn):
@@ -91,6 +102,15 @@ def _has_restore(fn: ast.AST, dotted: str) -> bool:
                             pass
                     if isinstance(t, ast.Name) and t.id.startswith("_orig"):
                         return True
+                    # a reset/restore HELPER invoked in the finally
+                    if isinstance(t, ast.Call):
+                        fname = ""
+                        if isinstance(t.func, ast.Name):
+                            fname = t.func.id
+                        elif isinstance(t.func, ast.Attribute):
+                            fname = t.func.attr
+                        if fname.lstrip("_").lower().startswith(_RESTORE_HELPERS):
+                            return True
     return False
 
 

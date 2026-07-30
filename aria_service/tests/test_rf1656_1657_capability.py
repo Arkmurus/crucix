@@ -36,10 +36,21 @@ class TestVerifyBounded:
         without calling averify_and_store."""
         from aria_service.intel.circuit_breaker import get_breaker, reset_breaker
 
-        # Open the duckduckgo breaker
+        # Open the duckduckgo breaker.
+        # R-F3449 — `get_breaker` returns an EXISTING breaker and silently IGNORES the
+        # failure_threshold/cooldown arguments, so this receives whatever the first caller
+        # registered. One record_failure then leaves it CLOSED, and this test only passed
+        # because earlier tests had already accumulated failures on that breaker — it was
+        # order-dependent, and the R-F3449 breaker-reset fixture exposed it. Set the
+        # threshold and cooldown on the object actually returned so the precondition is
+        # established here rather than inherited.
         cb = get_breaker("search:duckduckgo", failure_threshold=1, cooldown_seconds=9999)
+        cb.failure_threshold = 1
+        cb.cooldown_seconds = 9999
         cb.record_failure("test")
-        assert cb.is_open()
+        assert cb.is_open(), (
+            f"precondition not established: threshold={cb.failure_threshold} "
+            f"consecutive={cb.consecutive_failures} state={cb.state}")
 
         # The function imports verified_intel via `from . import verified_intel`
         # at runtime. We patch the ARIAVerificationEngine class directly so

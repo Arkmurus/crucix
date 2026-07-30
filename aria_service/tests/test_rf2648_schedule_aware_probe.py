@@ -122,8 +122,18 @@ async def test_dormant_probe_stands_down_an_already_open_breaker(
     from aria_service.intel import circuit_breaker
 
     br = circuit_breaker.get_breaker("aria_llm", failure_threshold=1)
+    # R-F3449 — `get_breaker` returns an EXISTING breaker and silently IGNORES the
+    # failure_threshold argument, so this receives whatever threshold the first caller
+    # registered (5 in production). One record_failure then leaves it CLOSED, and this test
+    # only ever passed because earlier tests had already accumulated enough failures to
+    # cross that threshold — i.e. it was order-dependent and the R-F3449 breaker-reset
+    # fixture exposed it. Set the threshold on the object we actually got, so the
+    # precondition is established rather than inherited.
+    br.failure_threshold = 1
     br.record_failure(reason="server")  # simulate prior open
-    assert br.is_open()
+    assert br.is_open(), (
+        f"precondition not established: threshold={br.failure_threshold} "
+        f"consecutive={br.consecutive_failures} state={br.state}")
 
     monkeypatch.setattr(sched, "expected_serving", lambda now=None: False)
     checker = resilience.LLMHealthChecker(endpoint=_URL, failure_threshold=1)

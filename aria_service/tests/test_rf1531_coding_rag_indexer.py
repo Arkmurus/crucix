@@ -215,8 +215,36 @@ def test_rf1531_index_constitutional_rules():
 # ── Test: RAGAugmentedGenerator ──────────────────────────────────────────────
 
 
-def test_rf1531_build_augmented_context():
-    """Capability test: build_augmented_context returns all sections."""
+def test_rf1531_build_augmented_context(monkeypatch):
+    """Capability test: build_augmented_context returns all sections.
+
+    R-F3449 — ISOLATE THIS TEST'S COLLECTIONS. The assertion below requires the fix indexed
+    here to come back from a top-K similarity search, and the whole suite shares one RAG
+    store (conftest points ARIA_RAG_PATH at a single session temp dir). The more records
+    other tests index, the less likely this one ranks — so the test was silently depending
+    on the shared corpus staying sparse.
+
+    It surfaced when the R-F3449 breaker-reset fixture stopped tests inheriting an OPEN
+    chromadb breaker: ingests that used to short-circuit now succeed, the corpus got fuller,
+    and this record stopped ranking. The fixture is right — breaker state must not leak —
+    and this test needed to own its corpus. Retrieval assertions must never depend on how
+    much unrelated data happens to be in the store.
+    """
+    import uuid
+
+    from aria_service.intel import coding_rag_indexer as _cri
+
+    _tag = uuid.uuid4().hex[:8]
+    monkeypatch.setattr(_cri, "_COLLECTION_FIXES", f"coding_fixes_t{_tag}")
+    monkeypatch.setattr(_cri, "_COLLECTION_FAILURES", f"coding_failures_t{_tag}")
+    monkeypatch.setattr(_cri, "_COLLECTION_STRUCTURE", f"coding_structure_t{_tag}")
+    monkeypatch.setattr(_cri, "_COLLECTION_CONSTITUTIONAL", f"coding_const_t{_tag}")
+    # force _ensure() to build fresh handles against the renamed collections
+    monkeypatch.setattr(_cri, "_init_done", False)
+    for _attr in ("_fixes_collection", "_failures_collection",
+                  "_structure_collection", "_constitutional_collection"):
+        monkeypatch.setattr(_cri, _attr, None)
+
     from aria_service.intel.rag_augmented_generator import build_augmented_context
 
     # First index some data so there's something to retrieve
