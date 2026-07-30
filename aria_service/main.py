@@ -876,6 +876,30 @@ def _freeze_long_lived_state() -> int:
         return 0
 
 
+# R-F1845 / R-F3467 — modules whose FIRST lazy import is heavy enough to stall the
+# event loop, pre-warmed in a thread at boot so the later in-request import is a
+# cache hit. Module-level (not a literal buried in lifespan) so a guard test can
+# assert membership without booting the app.
+#
+# R-F3467 (2026-07-30): playwright added on LIVE evidence. The R-F3464 stall
+# attribution — the first stall report that names the loop thread rather than a
+# census of sleeping threads — caught this within minutes of deploy:
+#   last_stall_loop_stack: ["<frozen importlib._bootstrap_external>:get_data:1214",
+#                           ... "playwright/_impl/_locator.py:<module>:43"]
+#   last_stall_threads: {"total": 23, "aiosqlite_workers": 9}
+# An application frame on the loop thread means something BLOCKED it (main.py's own
+# rule below). `from playwright.async_api import async_playwright` is lazy in four
+# call sites (headless.py, scraper/playwright_engine.py x2, scraper/
+# procurement_adapters.py), so whichever runs first pays a multi-second synchronous
+# disk read + module exec ON the loop. The thread census in the same report also
+# clears the standing GIL-starvation theory for this stall: 9 aiosqlite workers
+# against R-F3252's 56 (peak 140), so R-F2754's leak fix is holding.
+_HEAVY_PREWARM_MODULES: tuple[str, ...] = (
+    "aria_service.writers.procurement_paper_writer",
+    "playwright.async_api",
+)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────
@@ -933,7 +957,7 @@ async def lifespan(app: FastAPI):
     # loop on it again. Guarded + fire-and-forget: never affects boot success.
     async def _prewarm_heavy_imports():
         import importlib
-        for _mod in ("aria_service.writers.procurement_paper_writer",):
+        for _mod in _HEAVY_PREWARM_MODULES:
             try:
                 await asyncio.to_thread(importlib.import_module, _mod)
                 logger.info("[R-F1845] pre-warmed %s off the event loop", _mod)
