@@ -40,6 +40,7 @@ import hashlib
 import logging
 import os
 import re
+import threading      # R-F3527 — the chromadb client build lock must be cross-THREAD
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -370,6 +371,43 @@ def diagnose_and_heal_corrupt_collections(
 _CHROMADB_RETRY_COOLDOWN_S = float(os.getenv("ARIA_RAG_RETRY_COOLDOWN_S", "60"))
 _init_lock = asyncio.Lock()
 
+# ── R-F3527 — construct the chromadb client under a THREAD lock ──────────────
+#
+# THE INCIDENT (2026-07-30): aria-intel crash-looped on SIGSEGV (exit_code=139) every
+# ~70-150s, surviving three deploys and the pausing of DD reconcile + autonomous work.
+# `PYTHONFAULTHANDLER=1` named it:
+#
+#     rag_store.py:498 in _get_client
+#       chromadb/__init__.py:228 in PersistentClient
+#         client.py:105 __init__ -> 641/650 _validate_tenant -> 721 get_tenant
+#           chromadb/api/rust.py:175 in get_tenant          <- Rust core
+#     ...and on ANOTHER THREAD, concurrently:
+#       chromadb/api/shared_system_client.py:124
+#         chromadb/config.py:473 in stop
+#           chromadb/api/rust.py:131 in stop                <- Rust core
+#
+# One thread CONSTRUCTING while another STOPS the shared system. chromadb keys its
+# systems by path in `SharedSystemClient._identifier_to_system`; a second concurrent
+# `PersistentClient(path=...)` for the same path tears down / re-enters a system the
+# first is still inside, and the Rust core dereferences freed state.
+#
+# `_get_client` is SYNC and had no mutual exclusion. `_init_lock` above is an
+# asyncio.Lock guarding a DIFFERENT (async) path — it cannot serialise sync callers,
+# and an asyncio lock protects nothing across threads anyway. The process runs ~25
+# threads (7 executor workers + 7 aiosqlite workers + uvicorn), so first-touch from
+# two of them at once is not a rare interleaving; it is the ordinary boot pattern
+# once several subsystems warm RAG together.
+#
+# WHY R-F2855 DID NOT SAVE US, which matters as much as the race itself. Its counter
+# is bumped before construction and RESET ON SUCCESS. The first init succeeds and
+# resets to 0; the racing second construction then dies with the counter at 1 — below
+# the threshold of 2. It oscillates 0<->1 forever and can never trip. That is exactly
+# why `/data/.chroma_init_crashes` read 0 on a box that was crash-looping, and why the
+# breaker's own "prevention, not error handling" promise silently did not apply.
+# The breaker is still correct for a genuinely corrupt store; it simply cannot see a
+# CONCURRENCY fault, so the concurrency has to be removed at the source.
+_client_build_lock = threading.Lock()
+
 
 class _SharedSentenceTransformerEmbeddingFn:
     """Chromadb-compatible embedding function backed by the shared
@@ -461,7 +499,33 @@ class _SharedSentenceTransformerEmbeddingFn:
 
 
 def _get_client():
+    """Lazy-load the chromadb client, serialising CONSTRUCTION across threads.
+
+    R-F3527 — two threads constructing `PersistentClient` for the same path at once
+    segfaults chromadb's Rust core (see `_client_build_lock`). The fast path stays
+    lock-free so the ~every-call hot path costs nothing once the client exists; only
+    the build is serialised, and it is re-checked INSIDE the lock because a thread
+    that waited may find the client already built by the winner.
+
+    Deliberately a wrapper rather than an inline `with` around the body: the build is
+    a long function and re-indenting it wholesale is how subtle damage gets in.
+    """
+    if (_client is not None and _documents_collection is not None
+            and _facts_collection is not None):
+        return _client
+    with _client_build_lock:
+        # Re-check under the lock — the winner may have finished while we waited.
+        if (_client is not None and _documents_collection is not None
+                and _facts_collection is not None):
+            return _client
+        return _get_client_unlocked()
+
+
+def _get_client_unlocked():
     """Lazy-load the chromadb persistent client + collections.
+
+    CALLER MUST HOLD `_client_build_lock` (R-F3527). Never call this directly — a
+    second concurrent entry is the use-after-free that crash-looped production.
 
     All three globals (_client, _documents_collection, _facts_collection)
     must succeed together or we roll back to None — otherwise callers can
