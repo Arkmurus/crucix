@@ -70,6 +70,76 @@ class EntityType(str, Enum):
 # PRIMITIVES — reused across sections
 # =============================================================================
 
+#: R-F3496 — the DECISION-LOGIC version a report was issued under.
+#:
+#: Distinct from `schema_version` (the shape of the document) and from `generator` (who
+#: wrote it). BUMP THIS whenever a rule that can change a finding or a verdict changes —
+#: a new gate, a reworded honesty statement that alters meaning, a filter that admits or
+#: excludes evidence. Date-based so a reader can place it against the changelog without
+#: a lookup table.
+#:
+#: 2026.07.30 covers the honesty batch shipped that day: surname-filtered disqualification
+#: matching (R-F3451), partial sanctions coverage (R-F3452), export control NOT ASSESSED
+#: without a product (R-F3454), the adverse-citation coherence check (R-F3455), grouped
+#: data gaps (R-F3456), and the provenance/ambiguity/vintage/evidence fixes
+#: (R-F3460..R-F3463). A report issued before that batch was decided under different
+#: rules, and saying so is the entire point of pinning it.
+DD_VERDICT_LOGIC_VERSION = "2026.07.30"
+
+
+def verdict_logic_status(report) -> dict:
+    """R-F3496 — under which rules was this read, and do they match the rules that issued it?
+
+    Answers the auditor's question: *is what I am reading the finding that was made, or a
+    finding re-interpreted under later rules?* Three states, and the third is why this
+    exists:
+
+      ``current``  — issued under the rules now in force
+      ``drifted``  — issued under EARLIER rules. The findings shown are AS ISSUED; the
+                     logic has since changed, so re-running would not necessarily
+                     reproduce them. Declared, never silently re-derived.
+      ``unpinned`` — issued before pinning existed. We cannot say which rules applied,
+                     and must not claim it was the current ones.
+
+    Accepts a report object or a stored dict, because a persisted report comes back as
+    JSON and the auditor's copy is usually the stored one.
+    """
+    pinned = ""
+    if isinstance(report, dict):
+        pinned = str(report.get("verdict_logic_version") or "").strip()
+    else:
+        pinned = str(getattr(report, "verdict_logic_version", "") or "").strip()
+
+    if not pinned:
+        return {
+            "state": "unpinned",
+            "pinned": "",
+            "current": DD_VERDICT_LOGIC_VERSION,
+            "reproducible": False,
+            "note": (
+                "This report predates decision-logic pinning, so the rules that produced "
+                "its findings cannot be identified. It must not be read as having been "
+                "decided under the current rules."
+            ),
+        }
+    if pinned == DD_VERDICT_LOGIC_VERSION:
+        return {
+            "state": "current", "pinned": pinned,
+            "current": DD_VERDICT_LOGIC_VERSION, "reproducible": True,
+            "note": "Issued under the decision logic currently in force.",
+        }
+    return {
+        "state": "drifted", "pinned": pinned,
+        "current": DD_VERDICT_LOGIC_VERSION, "reproducible": False,
+        "note": (
+            f"Issued under decision logic {pinned}; the current logic is "
+            f"{DD_VERDICT_LOGIC_VERSION}. The findings below are shown AS ISSUED and have "
+            f"not been re-derived. Re-running this subject now may produce different "
+            f"findings from the same evidence."
+        ),
+    }
+
+
 @dataclass
 class SectionMeta:
     """Bookkeeping for every layer section."""
@@ -534,6 +604,12 @@ class ARKDDReport:
     # Provenance
     run_id: str = field(default_factory=lambda: f"dd_{uuid.uuid4().hex[:12]}")
     schema_version: str = "1.0"
+    # R-F3496 — WHICH RULES produced these findings. `schema_version` pins the SHAPE and
+    # `generator` pins the NAME; neither says anything about the decision logic. Without
+    # this a report re-read six months later is interpreted under whatever rules exist
+    # THEN, so a verdict can change with no change in evidence — which is precisely what
+    # a regulated buyer's auditor asks about. Stamped at construction, i.e. at issue.
+    verdict_logic_version: str = ""
     generated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     generator: str = "aria.dd_orchestrator"
     trace_id: Optional[str] = None
@@ -677,6 +753,14 @@ class ARKDDReport:
     # ── Serialisation helpers ────────────────────────────────────────────
 
     @fail_wire(module="dd_schema", gap_type="engine_failure")
+    def __post_init__(self) -> None:
+        # R-F3496 — stamp the decision-logic version AT ISSUE. Default-factory would do
+        # the same for a fresh report, but an explicit hook also leaves a legacy report
+        # loaded from storage with an EMPTY value rather than silently acquiring today's
+        # version, which would be the fabrication this pin exists to prevent.
+        if not self.verdict_logic_version:
+            self.verdict_logic_version = DD_VERDICT_LOGIC_VERSION
+
     def as_dict(self) -> dict:
         """Return a JSON-serialisable dict. Dataclasses.asdict recursively
         handles every nested dataclass including Finding and SectionMeta."""
@@ -698,6 +782,16 @@ class ARKDDReport:
         lines.append("")
         if self.recommendation:
             lines.append(f"*Recommendation:* {self.recommendation}")
+            lines.append("")
+
+        # R-F3496 — declare the decision-logic version, and any DRIFT, in the report a
+        # reader actually holds. A pin recorded only in JSON is an audit trail nobody
+        # reads; the whole point is that someone relying on this months later can tell
+        # whether they are looking at the finding that was MADE or one re-interpreted
+        # under later rules. Silent on the happy path so it does not become noise.
+        _vl = verdict_logic_status(self)
+        if _vl["state"] != "current":
+            lines.append(f"⚠️ *Decision logic:* {_vl['note']}")
             lines.append("")
 
         # R-F2681 — surface the already-computed EVIDENCE-DEPTH grade + blockers
