@@ -95,11 +95,26 @@ class TestMagicBytes:
         assert result is None
 
     def test_mismatched_magic_detected(self):
-        """Mismatched magic bytes are detected."""
-        data = b"PK\x03\x04 this is actually a zip"
-        result = check_magic_bytes(data, "pdf")
-        assert result is not None
-        assert result["type"] == "mismatched_magic_bytes"
+        """A DISGUISED EXECUTABLE is detected. A benign mismatch is not a threat.
+
+        R-F3469 sharpened this. It used to assert that a zip named .pdf was a
+        threat, which directly contradicted
+        test_rf450_generic_zip_renamed_as_pdf_does_not_invoke_pdf_parser — that
+        guard requires the endpoint to ROUTE on the real type and return 200/400,
+        and it had been red for months because this control blocked first.
+
+        Measured cost of the old rule: 5 of 16 benign local files refused,
+        including a JPEG saved as .png. Mislabelling is what browsers and
+        operating systems do; it is not an attack. An executable wearing a
+        document extension is, and that is now CRITICAL and named.
+        """
+        exe = check_magic_bytes(b"MZ\x90\x00 disguised as a document", "pdf")
+        assert exe is not None
+        assert exe["type"] == "disguised_executable"
+        assert exe["severity"] == "CRITICAL"
+
+        # Benign container-family mismatch: allowed, so the caller can route.
+        assert check_magic_bytes(b"PK\x03\x04 this is actually a zip", "pdf") is None
 
     def test_unknown_type_passes(self):
         """Types without defined magic bytes pass through."""
@@ -195,14 +210,23 @@ class TestScanFile:
         assert "JavaScript" in result.reason
 
     async def test_mismatched_type_blocked(self, tmp_path: Path):
-        """A file claiming to be PDF but actually ZIP is blocked."""
-        file_path = tmp_path / "fake.pdf"
-        file_path.write_bytes(b"PK\x03\x04 this is a zip file")
+        """An EXECUTABLE claiming to be a PDF is blocked; a zip is routed.
 
-        result = await scan_file(file_path, claimed_type="pdf")
-
+        R-F3469 — see test_mismatched_magic_detected for why the zip half of this
+        was inverted. The blocking property that matters is preserved: content
+        that can execute never passes as a document.
+        """
+        exe_path = tmp_path / "invoice.pdf"
+        exe_path.write_bytes(b"MZ\x90\x00" + b"\x00" * 256)
+        result = await scan_file(exe_path, claimed_type="pdf")
         assert result.safe is False
-        assert "magic" in result.reason.lower()
+        assert "executable" in result.reason.lower()
+
+        # A genuine (non-bomb) zip mislabelled .pdf is a routing concern, and the
+        # zip-bomb check still runs on it because R-F3469 gates that on CONTENT.
+        zip_path = tmp_path / "fake.pdf"
+        zip_path.write_bytes(b"PK\x03\x04 this is a zip file")
+        assert (await scan_file(zip_path, claimed_type="pdf")).safe is True
 
     async def test_clean_file_passes(self, tmp_path: Path):
         """A clean PDF file passes through."""

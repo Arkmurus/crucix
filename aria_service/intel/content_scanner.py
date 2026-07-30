@@ -171,6 +171,20 @@ SUSPICIOUS_B64_PATTERNS: list[tuple[bytes, str]] = [
 _B64_MAX_RUNS = 64
 _B64_MAX_RUN_CHARS = 3000
 
+# R-F3469 — content that is DANGEROUS whatever it claims to be. Checked at
+# offset 0 only: these are file headers, and an executable must start with one to
+# be executable. A document claiming .pdf whose bytes begin with MZ or ELF magic
+# is the disguised-executable case magic-byte validation exists to catch.
+EXECUTABLE_MAGICS: list[tuple[bytes, str]] = [
+    (b"MZ", "DOS/PE executable"),
+    (b"\x7fELF", "ELF executable"),
+    (b"\xca\xfe\xba\xbe", "Mach-O / Java class"),
+    (b"\xcf\xfa\xed\xfe", "Mach-O 64-bit"),
+    (b"\xce\xfa\xed\xfe", "Mach-O 32-bit"),
+    (b"#!", "script with a shebang"),
+    (b"\x00" + b"asm", "WebAssembly module"),
+]
+
 # Quarantine directory
 QUARANTINE_DIR = Path("/data/quarantine")
 
@@ -281,7 +295,23 @@ def check_compression_bomb(file_path: Path) -> Optional[dict[str, Any]]:
 
 @fail_wire(module="content_scanner", gap_type="file_parse")
 def check_magic_bytes(data: bytes, claimed_type: str) -> Optional[dict[str, Any]]:
-    """Validate file magic bytes match the claimed type."""
+    """Validate file magic bytes against the claimed type.
+
+    R-F3469 — a MISLABELLED file is a routing problem; a DISGUISED EXECUTABLE is
+    a threat. This used to return HIGH for any difference at all, and the callers
+    block on any threat, so a JPEG saved as .png was refused as malware (5 of 16
+    benign local files). Browsers and operating systems mislabel images and
+    documents constantly; that is not an attack.
+
+    The control keeps its real job. A PE/ELF/shebang shipped as ``.pdf`` is
+    exactly what magic-byte validation exists to catch, and is now reported as
+    CRITICAL and NAMED, where before it was an anonymous "unknown_magic_bytes".
+
+    Benign family mismatches return None so the caller can route on the real type
+    — which is what test_rf450_docx_renamed_as_pdf_routes_to_docx_parser and
+    test_rf450_generic_zip_renamed_as_pdf_does_not_invoke_pdf_parser have been
+    asserting (long-red, docs/suite_baseline_2026_07_30.md:204-205).
+    """
     expected_magic = MAGIC_BYTES.get(claimed_type.lower(), [])
     if not expected_magic:
         return None  # No magic bytes defined for this type — pass
@@ -290,19 +320,31 @@ def check_magic_bytes(data: bytes, claimed_type: str) -> Optional[dict[str, Any]
         if data.startswith(magic):
             return None  # Match — file type is as claimed
 
-    # No match — but some types share magic bytes (e.g., docx/xlsx/zip all use PK)
-    # Check if it's at least a known type
+    # Mismatch. First question: is the ACTUAL content executable? That is the
+    # threat this check exists for, and it does not depend on what was claimed.
+    for magic, label in EXECUTABLE_MAGICS:
+        if data.startswith(magic):
+            return {
+                "type": "disguised_executable",
+                "severity": "CRITICAL",
+                "detail": (
+                    f"Claimed type '{claimed_type}' but content is a {label} — "
+                    f"executable disguised as a document"
+                ),
+            }
+
+    # Not executable. Is it some other RECOGNISED container (docx/xlsx/zip share
+    # PK; jpg vs png; etc.)? Then the file is simply mislabelled — report it for
+    # routing, do not block. Logged rather than silent (§21a: not dark).
     for file_type, magics in MAGIC_BYTES.items():
         for magic in magics:
-            if data.startswith(magic):
-                return {
-                    "type": "mismatched_magic_bytes",
-                    "severity": "HIGH",
-                    "detail": (
-                        f"Claimed type '{claimed_type}' but magic bytes "
-                        f"match '{file_type}'"
-                    ),
-                }
+            if magic and data.startswith(magic):
+                logger.info(
+                    "[R-F3469] mislabelled upload: claimed '%s', content is '%s' "
+                    "— allowed; caller should route on the real type",
+                    claimed_type, file_type,
+                )
+                return None
 
     return {
         "type": "unknown_magic_bytes",
@@ -505,7 +547,14 @@ async def scan_file(
         threats.append(eicar)
 
     # 2. Compression bomb (zip files only)
-    if claimed_type in ("zip", "docx", "xlsx", "pptx"):
+    # R-F3469 — gate on the CONTENT, not the claimed extension. This used to read
+    # `claimed_type in (...)`, which was safe only because a zip mislabelled as
+    # .pdf was blocked outright by the magic-byte mismatch. Now that a benign
+    # container mismatch is allowed through to the router, gating on the claim
+    # would let a zip bomb renamed "invoice.pdf" skip the bomb check entirely —
+    # attacker-controlled input selecting which checks run, the same flaw
+    # R-F3457 removed from the scope logic.
+    if claimed_type in ("zip", "docx", "xlsx", "pptx") or data.startswith(b"PK\x03\x04"):
         bomb = check_compression_bomb(file_path)
         if bomb:
             threats.append(bomb)
