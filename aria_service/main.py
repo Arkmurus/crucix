@@ -428,6 +428,40 @@ async def _expiry_sweeper_loop() -> None:
         await asyncio.sleep(300)
 
 
+def _dd_reconcile_enabled() -> bool:
+    """R-F3524 — the DD reconcile loop had NO kill switch, and that was the defect.
+
+    THE INCIDENT (2026-07-30). aria-intel entered a SIGSEGV crash-loop (exit_code=139,
+    ~70s period). `reconcile_pending_adverse_media` exists precisely to "re-launch
+    adverse-media follow-ups orphaned by a restart" (R-F2941), and
+    `reconcile_stale_running_dds` re-launches restart-killed DDs (R-F2300) — so every
+    crash re-armed the deep-DD work that was running when the box went down. The last
+    log line before a crash was a web search for an officer of a subject whose DD had
+    already been killed twice.
+
+    Whether the DD load CAUSED the segfault was not established. What was established is
+    that the operator asked to pause DD relaunches and **there was no way to do it**:
+    `_dd_reconcile_loop` checked only the singleton role, and the only levers were
+    `ARIA_ROLE` (far too broad — it disables every singleton) or a redeploy. The
+    autonomous engine has had a master switch since R-F276; this loop, which can generate
+    just as much production load, had none.
+
+    THE PROPERTY: a subsystem that can generate production load must be pausable WITHOUT
+    a deploy and WITHOUT the app being healthy. Hence an env var read on EVERY iteration
+    — not captured once at startup — so `flyctl secrets set` takes effect at the next
+    boot even while the box is crash-looping, which is exactly when it is needed.
+
+    Defaults to ENABLED so this is byte-equivalent to prior behaviour unless deliberately
+    turned off. Turning it off is not free: orphaned `status='running'` DDs stop being
+    cleared (R-F2300's 12.5h chat-hang), so it is an incident lever, not a setting.
+    """
+    # `_os`, not `os`: this module imports `os as _os` (main.py:16) and nothing binds a
+    # bare `os`. py_compile cannot see the difference — it would have been a NameError
+    # on the first iteration, disabling the very switch this adds.
+    return str(_os.getenv("ARIA_DD_RECONCILE_ENABLED", "1")).strip().lower() not in (
+        "0", "false", "no", "off")
+
+
 async def _dd_reconcile_once() -> None:
     """R-F2568 — ONE dd-reconcile pass with §21d failure-wiring. Extracted to module
     level so the (previously DARK) failure branch is capability-testable.
@@ -1225,7 +1259,25 @@ async def lifespan(app: FastAPI):
         if not _runs_singletons():
             logger.info("[R-F2541] dd_reconcile SKIPPED (ARIA_ROLE=%s)", _aria_role())
             return
+        _skip_logged = False
         while True:
+            # R-F3524 — checked EVERY iteration, not captured at startup, so the switch
+            # works on a box that is already running. Logged on the transition only: a
+            # line every 10 minutes for hours is how a real signal gets ignored, and
+            # silence is how an operator forgets DD self-heal is off.
+            if not _dd_reconcile_enabled():
+                if not _skip_logged:
+                    logger.warning(
+                        "[R-F3524] dd_reconcile PAUSED by ARIA_DD_RECONCILE_ENABLED=0. "
+                        "Orphaned status='running' DDs will NOT be cleared and "
+                        "restart-killed DDs will NOT be re-launched until this is "
+                        "unset. This is an incident lever, not a setting.")
+                    _skip_logged = True
+                await asyncio.sleep(600)
+                continue
+            if _skip_logged:
+                logger.info("[R-F3524] dd_reconcile RESUMED")
+                _skip_logged = False
             await _dd_reconcile_once()   # R-F2568: failure-wired, capability-tested
             await asyncio.sleep(600)
     # R-F2568: register the FACTORY so the bg supervisor respawns this DD-hang self-heal
