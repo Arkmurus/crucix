@@ -24,6 +24,12 @@ from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
 logger = logging.getLogger("aria.llm.fallback")
 
+# R-F3477 — how long a total chain exhaustion keeps `resilient` false. Long
+# enough that an operator polling /health sees the outage, short enough that the
+# chain reports healthy again on its own once calls stop failing. A successful
+# call clears it immediately, so this TTL only matters when nothing calls at all.
+_CHAIN_EXHAUSTION_TTL_S = float(os.getenv("ARIA_LLM_EXHAUSTION_TTL_S", "120"))
+
 
 # ── R-F2917: context-scoped provider preference ──────────────────────────────
 # Operator directive 2026-07-23: DD runs on Claude, EVERYTHING else on DeepSeek.
@@ -218,6 +224,9 @@ class FallbackProvider(LLMProvider):
         return False
 
     def _record_success(self, provider, stats: dict):
+        # R-F3477 — a served request is proof the chain works; clear the
+        # exhaustion flag immediately rather than waiting for its TTL.
+        self._record_chain_success()
         had_hard_cooldown = stats.get("last_kind") in ("auth", "billing") and stats.get("cooldown_until", 0) > 0
         if stats.get("failures", 0) > 0 or stats.get("cooldown_until", 0) > 0:
             logger.info("Provider %s recovered — resetting failure stats", provider.name)
@@ -597,6 +606,9 @@ class FallbackProvider(LLMProvider):
         # the operator reads. On 2026-07-25 this condition held for hours while
         # /api/aria/brain/stats showed 106 modules at success_rate 1.0 and the
         # daily spend line read $0.00 — a dead limb that looked like a quiet day.
+        # R-F3477 — record the OUTCOME so get_health() stops reporting a healthy
+        # chain during a total outage.
+        self._record_chain_exhausted()
         try:
             from ..intel.engine_wiring import wire_failure as _wf
             _tried = ", ".join(p.name for p in order) or "<none>"
@@ -713,6 +725,32 @@ class FallbackProvider(LLMProvider):
             for name, s in self._stats.items()
         }
 
+    # ── R-F3477: chain-level outcome memory ─────────────────────────────────
+    # One flag, deliberately TTL'd. A latching flag would mark the chain dead
+    # forever after a single blip if nothing called it again; expiry means the
+    # signal is "recently proven broken", which is what an operator needs.
+
+    def _reset_chain_outcome(self) -> None:
+        self._chain_exhausted_at = 0.0
+
+    def _record_chain_exhausted(self) -> None:
+        """Every provider failed for one request — the chain is NOT resilient."""
+        self._chain_exhausted_at = time.time()
+
+    def _record_chain_success(self) -> None:
+        """A request was served. Clear immediately: proof beats a stale flag."""
+        self._chain_exhausted_at = 0.0
+
+    def _chain_exhaustion_age(self) -> float | None:
+        """Seconds since the chain last exhausted every provider, or None."""
+        at = getattr(self, "_chain_exhausted_at", 0.0) or 0.0
+        if at <= 0:
+            return None
+        age = time.time() - at
+        if age > _CHAIN_EXHAUSTION_TTL_S:
+            return None
+        return round(age, 1)
+
     @fail_wire(module="fallback", gap_type="engine_failure")
     def get_health(self) -> dict:
         """Chain-level health summary.
@@ -737,10 +775,20 @@ class FallbackProvider(LLMProvider):
             else:
                 active.append(p.name)
         chain_order = [p.name for p in self.providers]
+        # R-F3477 — `resilient` must follow OUTCOMES, not chain membership.
+        # It used to be `len(active) > 0`, where "active" only means a provider's
+        # cooldown timestamp has passed. Live 2026-07-30 that reported
+        # resilient=true / status=operational while 14 consecutive real calls in
+        # the same five minutes returned "all LLM providers failed".
+        # §14 is unchanged: a COOLING provider is the chain working as designed.
+        # What is added is that a chain which just exhausted every provider is
+        # not healthy, whatever its cooldown timestamps say.
+        _exhausted_age = self._chain_exhaustion_age()
         return {
             "active_providers": active,
             "cooling_providers": cooling,
-            "resilient": len(active) > 0,
+            "resilient": len(active) > 0 and _exhausted_age is None,
+            "last_exhaustion_age_s": _exhausted_age,
             "primary_active": bool(active and chain_order and active[0] == chain_order[0]),
             "serving_provider": active[0] if active else None,
             "chain_order": chain_order,

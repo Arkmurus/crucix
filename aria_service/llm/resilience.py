@@ -745,6 +745,9 @@ class LLMResponseCache(LLMProvider):
         self._cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
         self._hits = 0
         self._misses = 0
+        # R-F3477 — upstream failures counted separately. Folding them into
+        # _misses made a total LLM outage look like a cache that never writes.
+        self._errors = 0
 
     @property
     def name(self) -> str:  # type: ignore[override]
@@ -814,16 +817,28 @@ class LLMResponseCache(LLMProvider):
                 output_tokens=0,
             )
 
-        self._misses += 1
         extra = {}
         if prefer_provider:
             extra["prefer_provider"] = prefer_provider
         if model:
             extra["model"] = model   # R-F2769 — forward the routed model
-        result = await self._inner.complete(
-            system_prompt, user_message,
-            max_tokens=max_tokens, timeout=timeout, **extra,
-        )
+        # R-F3477 — count the miss only once the call is SERVED. This used to
+        # increment before the call, so a failed call was recorded as a cache
+        # miss. Live 2026-07-30 that produced "misses":491 with "size":0 during a
+        # total LLM outage, which reads as a cache that is never written — the
+        # 15-cycle DD recorded it as a standing cost leak on that basis. The
+        # cache was fine (llm/resilience.py:773-790 is a correct LRU+TTL); it had
+        # nothing to store because every complete() raised. An error is not a
+        # cache event, so it now has its own counter.
+        try:
+            result = await self._inner.complete(
+                system_prompt, user_message,
+                max_tokens=max_tokens, timeout=timeout, **extra,
+            )
+        except Exception:
+            self._errors = getattr(self, "_errors", 0) + 1
+            raise
+        self._misses += 1
 
         # Cache successful responses (non-empty, non-error)
         if result.text and len(result.text) > 10:
@@ -858,6 +873,9 @@ class LLMResponseCache(LLMProvider):
             "max_size": self._max_size,
             "hits": self._hits,
             "misses": self._misses,
+            # R-F3477 — upstream failures, counted separately so a provider outage
+            # can no longer masquerade as a cache that is never written.
+            "errors": getattr(self, "_errors", 0),
             "hit_rate": round(self._hits / max(self._hits + self._misses, 1), 3),
             "ttl_seconds": self._ttl,
         }
