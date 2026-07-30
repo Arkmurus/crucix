@@ -878,6 +878,14 @@ class ARKDDReport:
                 _wr = self.identity.sanctions_screen.get("waived_reason") or ""
                 verdict = (f"WAIVED by {_wb}" + (f" — {_wr}" if _wr else "")
                            + " (declined for this run; not a clearance)")
+            # R-F3452 — "nothing was screened" and "the aggregate failed but three
+            # primary lists answered" lead a compliance reader to opposite actions.
+            # Ordered BEFORE the not-screened branch, which would otherwise swallow it.
+            elif self.identity.sanctions_screen.get("partial_coverage"):
+                _ls = self.identity.sanctions_screen.get("lists_screened_labels") or []
+                verdict = ("PARTIAL — " + (", ".join(str(x) for x in _ls) or "some lists")
+                           + " screened; consolidated aggregate unavailable "
+                             "(see data gaps; not a clearance)")
             elif self.identity.sanctions_screen.get("screened") is False:
                 verdict = "NOT SCREENED — see data gaps (not a clearance)"
             else:
@@ -1494,6 +1502,13 @@ def _sanctions_match_metric(screen) -> str | None:
     # (R-F2693) — treating it as one would retract already-delivered reports. The
     # live path always sets `error` when a screen does not run, so failing closed
     # on `error` (plus an explicit False) is sufficient without guessing.
+    # R-F3452 — partial coverage is neither "clean" nor "never looked". Checked before
+    # the fail-closed branch below, because `error` is set on exactly the runs where the
+    # aggregate failed but the primary lists answered.
+    if screen.get("partial_coverage"):
+        _ls = screen.get("lists_screened_labels") or []
+        return ("PARTIAL — " + (", ".join(str(x) for x in _ls) or "some lists")
+                + " screened, aggregate unavailable — see data gaps")
     if screen.get("error") or screen.get("screened") is False:
         return "NOT SCREENED — see data gaps"
     cls = screen.get("match_classification")

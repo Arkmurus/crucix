@@ -3157,6 +3157,12 @@ async def _identity_primary_source_screen(
         _scr = getattr(report.identity, "sanctions_screen", None)
         if isinstance(_scr, dict) and locals().get("_primary_snapshots"):
             annotate_primary_snapshots(_scr.get("verified_sources"), _primary_snapshots)
+            # R-F3452 — carry the OBSERVED per-list availability forward. _run_identity
+            # writes its "screen NOT performed" finding BEFORE this function runs, so at
+            # that moment it cannot know that OFAC/OFSI/UN answered. Without this the
+            # report states "NO screen was performed" on a run whose own OFAC result is
+            # printed three sections later.
+            _scr["primary_snapshots"] = dict(_primary_snapshots)
     except Exception as _ann_err:  # noqa: BLE001 — provenance must never fail a report
         logger.debug("[R-F2843] primary-snapshot annotation skipped: %s", _ann_err)
 
@@ -4701,6 +4707,102 @@ async def _screen_officer_sanctions(report: ARKDDReport, target: dict) -> bool:
     return hard_stop
 
 
+#: R-F3452 — the primary adapters that ARE sanctions lists. sec_edgar (filings),
+#: wb_debarred (debarment) and acled (conflict events) are useful elsewhere and are NOT
+#: sanctions lists; counting them toward sanctions coverage would be the same
+#: certify-by-something-else move this function exists to remove.
+_SANCTIONS_PRIMARY_LISTS: dict[str, str] = {
+    "ofac_sdn": "OFAC SDN",
+    "uk_ofsi": "UK OFSI consolidated list",
+    "un_sc": "UN Security Council consolidated list",
+}
+
+
+def _reconcile_sanctions_coverage(name: str, report: ARKDDReport) -> None:
+    """R-F3452 — say WHICH lists were screened, instead of "no screen was performed".
+
+    THE DEFECT, from a delivered report on Babcock International Group PLC. The screen
+    reported::
+
+        Sanctions screen NOT performed — UNVERIFIED
+        the sanctions source (OpenSanctions / primary lists) could not be reached,
+        so NO screen was performed.
+
+    while THE SAME REPORT printed an OFAC SDN result three sections later. Both came from
+    the same run. The aggregate (`sanctions.fuzzy_screen`) consults OpenSanctions and
+    nothing else, so `screened` goes false the moment that one free third-party is
+    unreachable — but `_identity_primary_source_screen` had separately queried OFAC SDN,
+    UK OFSI and UN SC, and recorded per-list availability.
+
+    Two different statements were true at once and the report published the more alarming
+    one as if it were the whole picture. "Nothing was screened" and "the consolidated
+    cross-list screen did not run, but three primary lists did" lead a compliance reader
+    to opposite actions.
+
+    WHAT THIS DOES NOT DO. It does not upgrade the verdict, clear the entity, or remove
+    the AMBER override — partial coverage is not a clearance, and every gap stays. It
+    changes only the CLAIM, from a false one to a true one, and names what is still
+    missing so the reader can close it.
+
+    Never raises: a wording reconciliation must not be able to fail a report.
+    """
+    try:
+        screen = getattr(report.identity, "sanctions_screen", None)
+        if not isinstance(screen, dict) or not screen.get("source_unavailable"):
+            return
+        snaps = screen.get("primary_snapshots")
+        if not isinstance(snaps, dict):
+            return
+
+        screened = [k for k in _SANCTIONS_PRIMARY_LISTS if snaps.get(k) == "ok"]
+        if not screened:
+            # Nothing answered. The existing wording is already true — leave it alone.
+            return
+        missed = [k for k in _SANCTIONS_PRIMARY_LISTS if k not in screened]
+
+        did = ", ".join(_SANCTIONS_PRIMARY_LISTS[k] for k in screened)
+        not_done = ", ".join(_SANCTIONS_PRIMARY_LISTS[k] for k in missed)
+        reasons = ", ".join((screen.get("source_reasons") or [])[:4]) or "source unreachable"
+
+        # Machine-readable, so a renderer never has to parse the prose back out.
+        screen["partial_coverage"] = True
+        screen["lists_screened"] = list(screened)
+        screen["lists_not_screened"] = list(missed)
+        screen["lists_screened_labels"] = [_SANCTIONS_PRIMARY_LISTS[k] for k in screened]
+        screen["lists_not_screened_labels"] = [_SANCTIONS_PRIMARY_LISTS[k] for k in missed]
+
+        detail = (
+            f"{name} — the OpenSanctions consolidated aggregate could not be reached "
+            f"({reasons}), so the cross-list screen did not run. ARIA's own snapshots of "
+            f"these primary lists DID answer and were screened: {did}."
+            + (f" NOT screened: {not_done}." if not_done else "")
+            + " This is PARTIAL COVERAGE and is NOT a clearance: the EU consolidated list "
+              "and any list not named above were not checked on this run, and a "
+              "designation made since the last snapshot refresh would not appear. "
+              "Re-screen against the full set before relying on this."
+        )
+        for f in (getattr(report.identity, "findings", None) or []):
+            if getattr(f, "title", "") == "Sanctions screen NOT performed — UNVERIFIED":
+                f.title = (f"Sanctions screen PARTIAL — {did} screened, "
+                           f"consolidated aggregate unavailable")
+                f.detail = detail
+                break
+
+        gaps = getattr(report.identity, "data_gaps", None)
+        if isinstance(gaps, list):
+            for i, g in enumerate(gaps):
+                if str(g).startswith("sanctions screen did not complete"):
+                    gaps[i] = (
+                        f"sanctions screen PARTIAL — the OpenSanctions consolidated "
+                        f"aggregate did not complete ({reasons}); {did} were screened"
+                        + (f"; {not_done} were NOT" if not_done else "")
+                        + ". Not a clearance — re-screen against the full set."
+                    )
+                    break
+    except Exception as _e:  # noqa: BLE001 — never fail a report over wording
+        logger.debug("[R-F3452] sanctions coverage reconciliation skipped: %s", _e)
+
+
 async def _run_identity(
     target: dict,
     report: ARKDDReport,
@@ -5472,6 +5574,9 @@ async def _run_identity(
     # hard-stop on a real OFAC/UN/OFSI match; OR-combine so we never unset one.
     if await _identity_primary_source_screen(name, jurisdiction, report):
         hard_stop = True
+
+    # R-F3452 — reconcile what the report SAYS was screened with what was screened.
+    _reconcile_sanctions_coverage(name, report)
 
     # ── 1a1b. R-F2195 — consult operator-curated VAULT sources (Pipeline 3). Bounded,
     # best-effort, additive INFO findings only; never blocks or alters the hard-stop.
