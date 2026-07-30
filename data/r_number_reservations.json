@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3480,
+  "next_available": 3481,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28839,6 +28839,15 @@
       "r_number": "R-F3479",
       "title": "web_integrity counts 4xx as pass and two probes cannot ever succeed",
       "claimed_at": "2026-07-30T12:53:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3480",
+      "title": "evidence contract: prove each declared invariant is enforced, and pin the unenforced ones by name",
+      "claimed_at": "2026-07-30T13:01:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
