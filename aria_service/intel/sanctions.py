@@ -112,6 +112,65 @@ def _resolve_jurisdictions(datasets: list[str]) -> list[dict]:
     return result
 
 
+# ── R-F3500: breaker-open skips are aggregated, and never name the subject ───
+#
+# Live 2026-07-30 15:08 the operator saw ~30 lines in ONE second, each naming a
+# watched entity ("Silverbrook Capital Management", "ROSSI FACILITY SERVICES",
+# "Chemring Group PLC", ...) — one per alias, per entity, per 5-minute monitor
+# pass, while the breaker was OPEN and no work was being done.
+#
+# Two problems, and the confidentiality one is the serious half. For a
+# due-diligence product the list of entities under investigation IS commercially
+# sensitive: it reveals who a client is looking at. log_redaction (R-F2851)
+# covers credentials only — query params, bearer tokens, headers — so subject
+# names went straight to the log stream.
+#
+# Suppressing the names must not suppress the SIGNAL, so the fact and the volume
+# are still reported, once, with a count. Silence would be its own dishonesty.
+_breaker_skips: int = 0
+_breaker_skip_last_log: float = 0.0
+_BREAKER_SKIP_LOG_INTERVAL_S = float(
+    os.getenv("ARIA_SANCTIONS_SKIP_LOG_INTERVAL_S", "300"))
+
+
+def _reset_breaker_skip_notes() -> None:
+    global _breaker_skips, _breaker_skip_last_log
+    _breaker_skips = 0
+    _breaker_skip_last_log = 0.0
+
+
+def _note_breaker_skip(_name: str = "") -> None:
+    """Count one skipped screening call. The name is accepted and DISCARDED:
+    taking it as a parameter keeps the call sites honest about what they hold,
+    while guaranteeing it cannot reach a handler."""
+    global _breaker_skips, _breaker_skip_last_log
+    _breaker_skips += 1
+    if _breaker_skip_last_log <= 0.0:
+        # Start the window on the FIRST skip rather than flushing it. Otherwise
+        # the opening call reports "1 skipped" and the rest of that pass lands in
+        # a second line, so neither number describes the actual burst — and the
+        # message promises a count "since the last notice".
+        _breaker_skip_last_log = _time.monotonic()
+        return
+    _flush_breaker_skip_notes()
+
+
+def _flush_breaker_skip_notes(force: bool = False) -> None:
+    global _breaker_skips, _breaker_skip_last_log
+    if _breaker_skips <= 0:
+        return
+    now = _time.monotonic()
+    if not force and (now - _breaker_skip_last_log) < _BREAKER_SKIP_LOG_INTERVAL_S:
+        return
+    logger.info(
+        "R-F469/R-F3500: OpenSanctions breaker OPEN — %d screening call(s) "
+        "skipped since the last notice (subject names omitted deliberately: a "
+        "DD subject list is confidential)", _breaker_skips,
+    )
+    _breaker_skips = 0
+    _breaker_skip_last_log = now
+
+
 async def _resolve_opensanctions_key() -> str:
     """Resolve the OpenSanctions API key from env or portal_registry vault.
 
@@ -586,7 +645,7 @@ async def _opensanctions_match(name: str, entity_type: str = "Thing") -> _Source
         cooldown_seconds=300,
     )
     if _r469_breaker.is_open():
-        logger.info("R-F469: OpenSanctions breaker OPEN — skipping match() for %r", name[:80])
+        _note_breaker_skip(name)   # R-F3500 — counted, never named
         return _SourceQuery([], False, "breaker_open")
     payload = {
         "queries": {
@@ -658,7 +717,7 @@ async def _opensanctions_search(query: str, limit: int = 5) -> _SourceQuery:
         cooldown_seconds=300,
     )
     if _r469_breaker.is_open():
-        logger.info("R-F469: OpenSanctions breaker OPEN — skipping search() for %r", query[:80])
+        _note_breaker_skip(query)  # R-F3500 — counted, never named
         return _SourceQuery([], False, "breaker_open")
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:

@@ -17645,6 +17645,60 @@ async def merge_cases(
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure", control_flow_exempt=("ValueError",))
+async def _unwatch_deleted_subject(report_blob) -> None:
+    """R-F3500 — stop monitoring a subject whose DD the user deleted.
+
+    delete_report removed the report blob, the index entry and the vault case,
+    but never the WATCHLIST entry. The autonomous dd_monitor runs every 300s
+    against the FULL watchlist (get_watchlist(user_id=None) is deliberately
+    unscoped so monitoring covers every entity), so a subject the user deleted
+    from their account went on being re-screened indefinitely — which is what
+    surfaced as a burst of breaker-open lines naming entities nobody was
+    supposed to still be watching.
+
+    That is a data-retention defect, not untidiness: the user asked for the
+    record to be gone and ARIA kept processing the subject.
+
+    OWNER-SCOPED on purpose. remove_from_watchlist(user_id="") means
+    admin/internal and is UNRESTRICTED, so passing the report's owner through is
+    what stops one tenant's deletion removing another tenant's entry — the exact
+    IDOR-write R-F2401 closed. With no owner on the blob we do nothing rather
+    than delete unscoped: failing to unwatch is recoverable, deleting someone
+    else's watchlist entry is not.
+
+    Never raises: a user's delete must not fail because the watchlist write did.
+    The failure is wired instead of swallowed (§21a).
+    """
+    if not isinstance(report_blob, dict):
+        return
+    subject = str(
+        report_blob.get("subject")
+        or report_blob.get("company_name")
+        or report_blob.get("target_name")
+        or ""
+    ).strip()
+    owner = str(report_blob.get("user_id") or "").strip()
+    if not subject or not owner:
+        return
+    try:
+        await remove_from_watchlist(
+            subject, user_id=owner,
+            user_email_domain=str(report_blob.get("user_email_domain") or ""),
+        )
+    except Exception as exc:
+        logger.warning(
+            "[R-F3500] could not unwatch a deleted subject — it may keep being "
+            "monitored: %s", exc)
+        try:
+            from .engine_wiring import wire_failure as _wf
+            _wf(module="dd_orchestrator",
+                detail=f"unwatch-on-delete failed, subject may still be monitored: {exc}"[:400],
+                gap_type="data_protection_violation",
+                source="dd_orchestrator:_unwatch_deleted_subject")
+        except Exception:
+            pass
+
+
 async def delete_report(run_id: str) -> dict:
     """Remove a single DD report + its index entry. R-F162 (2026-05-11) —
     the prior fix for the 'this company, which has nothing to do' case
@@ -17692,6 +17746,10 @@ async def delete_report(run_id: str) -> dict:
         ident_cid = (identity.get("canonical_entity_id") or "").strip() if identity else ""
         if ident_cid:
             canonical_ids.add(ident_cid)
+    # R-F3500 — stop monitoring the subject the user just deleted. Placed before
+    # the vault removal so the cascade still runs even if the vault step fails.
+    await _unwatch_deleted_subject(report_blob)
+
     # R-F2387: also remove from the persistent vault using the canonical case key,
     # not the run_id. Passing run_id here left vault-backed reports visible after
     # a refresh/rebuild, so the frontend appeared to need multiple delete attempts.
