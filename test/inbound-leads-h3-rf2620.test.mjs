@@ -35,6 +35,10 @@ check('landing form POSTs to /api/leads',
   /action="\/api\/leads"/.test(INDEX) && /url:\s*'\/api\/leads'[\s\S]{0,80}method:\s*'POST'/.test(LANDING_JS));
 check('sends name + email + use_case',
   /JSON\.stringify\(\{[\s\S]{0,100}name:\s*name,[\s\S]{0,50}email:\s*email,[\s\S]{0,50}use_case:/.test(LANDING_JS));
+check('collects a bounded supported use case instead of fabricating a generic one',
+  /id="lead-use-case"[\s\S]{0,700}Compliance advisory/.test(INDEX) &&
+  /var useCase =/.test(LANDING_JS) && /use_case:\s*useCase/.test(LANDING_JS) &&
+  !/use_case:\s*'ARIA landing page'/.test(LANDING_JS));
 check('only shows success after the request resolves',
   /\.done\(function\(\)[\s\S]{0,220}request has been recorded/.test(LANDING_JS));
 check('surfaces a failure branch (retry) instead of faking success',
@@ -60,6 +64,12 @@ check('distinguishes 403 (not admin) from a load failure',
   /res\.status === 403/.test(LEADS) && /admin-only/.test(LEADS));
 check('distinguishes a load failure from a real empty list',
   /Couldn\\?'t load leads/.test(LEADS) && /No leads yet/.test(LEADS));
+check('renders evidence-led trust, triage, gaps and next action',
+  /Relationship Intelligence/.test(LEADS) &&
+  /trust_state/.test(LEADS) && /priority/.test(LEADS) &&
+  /a\.gaps/.test(LEADS) && /next_best_action/.test(LEADS));
+check('does not misrepresent triage as conversion probability',
+  /not conversion probability/i.test(LEADS));
 
 // ── 4. BEHAVIOURAL: mirror index.html's success gate ─────────────────────────
 console.log('\nSuccess-gate mirror — "Thanks" only on a real recorded lead:');

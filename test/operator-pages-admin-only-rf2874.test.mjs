@@ -30,7 +30,7 @@ import {
 
 const ADMIN_ONLY = ['/aria-brain', '/aria-brain.html', '/sources.html',
                     '/vault.html', '/vault.htm', '/admin.html',
-                    '/wa-connections.html'];
+                    '/wa-connections.html', '/leads.html'];
 
 test('R-F2874: brain, source health and vault are in the ADMIN table', () => {
   const adminRoutes = OPERATOR_ADMIN_PAGES.map(([r]) => r);
@@ -62,7 +62,7 @@ test('R-F2874: the admin still gets everything', () => {
   }
   // and the pages that legitimately stay poweruser-visible
   for (const route of ['/vls-chain.html', '/bd-intelligence.html',
-                       '/leads.html', '/design-partners.html']) {
+                       '/design-partners.html']) {
     assert.ok(allowed.includes(route), `admin must still reach ${route}`);
   }
 });
@@ -87,7 +87,7 @@ test('R-F2874: NEGATIVE CONTROL — poweruser keeps the pages it should have', (
   // legitimate access to the other operator pages.
   const allowed = navPagesForRole('poweruser');
   for (const route of ['/vls-chain.html', '/bd-intelligence.html',
-                       '/leads.html', '/design-partners.html']) {
+                       '/design-partners.html']) {
     assert.ok(allowed.includes(route),
       `poweruser must KEEP ${route} — this ticket only moves brain/sources`);
   }

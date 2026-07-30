@@ -47,7 +47,7 @@ const ADMIN = OPERATOR_ADMIN_PAGES.map(([r]) => r);
 describe('R-F2822 — nav entitlement is computed server-side', () => {
   test('a poweruser SEES the view pages they are entitled to (the hidden-link bug)', () => {
     const allowed = navPagesForRole('poweruser');
-    for (const r of ['/leads.html', '/design-partners.html']) {
+    for (const r of ['/design-partners.html']) {
       assert.ok(allowed.includes(r),
         `${r} is in OPERATOR_VIEW_PAGES (poweruser OR admin) but the nav would hide it`);
     }
@@ -59,6 +59,11 @@ describe('R-F2822 — nav entitlement is computed server-side', () => {
     for (const r of ADMIN) {
       assert.ok(!allowed.includes(r), `${r} is admin-only; a poweruser must not see it`);
     }
+  });
+
+  test('relationship intelligence stays admin-only because it contains PII', () => {
+    assert.ok(!navPagesForRole('poweruser').includes('/leads.html'));
+    assert.ok(navPagesForRole('admin').includes('/leads.html'));
   });
 
   test('an ordinary user sees NO gated link (the bouncing-link bug)', () => {

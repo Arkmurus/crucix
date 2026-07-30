@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Inbound Leads | ARIA</title>
+  <title>Relationship Intelligence | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/aria.css?v=15">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
@@ -12,8 +12,8 @@
 <div id="header-placeholder"></div>
 <main id="app-main">
   <div class="sc-page-header">
-    <h1 class="sc-page-title"><i class="bi bi-inbox"></i> Inbound Leads</h1>
-    <p class="sc-page-sub">Sign-ups from the public landing form, newest first. Admin-only (contains contact details).</p>
+    <h1 class="sc-page-title"><i class="bi bi-person-check"></i> Relationship Intelligence</h1>
+    <p class="sc-page-sub">Evidence-led triage of access requests. Submitted details remain unverified until a human or verification control confirms them.</p>
   </div>
 
   <div id="leads-summary" style="margin-bottom:14px;color:var(--sc-muted);font-size:13px"></div>
@@ -22,7 +22,7 @@
     <div style="overflow-x:auto">
       <table class="sc-table">
         <thead>
-          <tr><th>Received</th><th>Name</th><th>Email</th><th>Use case</th><th>Source</th></tr>
+          <tr><th>Received</th><th>Contact</th><th>Use case</th><th>Trust</th><th>Triage</th><th>Evidence gaps</th><th>Next action</th></tr>
         </thead>
         <tbody id="leads-tbody"></tbody>
       </table>
@@ -43,6 +43,9 @@ function esc(s) {
 function fmtDate(iso) {
   if (!iso) return '';
   try { var d = new Date(iso); return isNaN(d) ? esc(iso) : d.toLocaleString(); } catch (e) { return esc(iso); }
+}
+function words(value) {
+  return String(value || '—').replace(/_/g, ' ');
 }
 
 async function load() {
@@ -65,19 +68,27 @@ async function load() {
   var data = res.data;
   var leads = Array.isArray(data.leads) ? data.leads : [];
   document.getElementById('leads-summary').textContent =
-    leads.length + ' shown' + (data.total != null ? ' · ' + data.total + ' total' : '');
+    leads.length + ' shown' + (data.total != null ? ' · ' + data.total + ' total' : '') +
+    ' · Triage scores describe observed intake quality, not conversion probability.';
   if (!leads.length) {
     stateEl.className = '';
     stateEl.innerHTML = '<p class="text-muted">No leads yet. New sign-ups from the landing page appear here.</p>';
     return;
   }
   document.getElementById('leads-tbody').innerHTML = leads.map(function (l) {
+    var a = l.assessment && typeof l.assessment === 'object' ? l.assessment : {};
+    var scores = a.scores && typeof a.scores === 'object' ? a.scores : {};
+    var gaps = Array.isArray(a.gaps) ? a.gaps : [];
     return '<tr>' +
       '<td style="white-space:nowrap">' + fmtDate(l.created_at) + '</td>' +
-      '<td><strong>' + esc(l.name) + '</strong></td>' +
-      '<td><a href="mailto:' + esc(l.email) + '">' + esc(l.email) + '</a></td>' +
+      '<td><strong>' + esc(l.name) + '</strong><br><a href="mailto:' + esc(l.email) + '">' + esc(l.email) + '</a>' +
+      (l.company ? '<br><span class="text-muted">' + esc(l.company) + '</span>' : '') + '</td>' +
       '<td>' + esc(l.use_case || '—') + '</td>' +
-      '<td>' + esc(l.source || 'landing') + '</td>' +
+      '<td>' + esc(words(a.trust_state || 'submitted_unverified')) + '</td>' +
+      '<td><strong>' + esc(words(a.priority || 'needs_verification')) + '</strong><br>' +
+      '<span class="text-muted">' + esc(scores.total == null ? '—' : scores.total + '/100') + '</span></td>' +
+      '<td>' + (gaps.length ? gaps.map(words).map(esc).join('<br>') : 'None recorded') + '</td>' +
+      '<td>' + esc(a.next_best_action || 'Review the submitted evidence.') + '</td>' +
       '</tr>';
   }).join('');
   stateEl.style.display = 'none';

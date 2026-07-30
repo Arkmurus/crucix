@@ -43,9 +43,9 @@ except Exception:
 # Topic mapping: module name → student mastery topics it touches
 _MODULE_TOPICS: dict[str, list[str]] = {
     "dd_orchestrator":      ["compliance", "osint", "finance", "relationships"],
-    # R-F2620: inbound marketing leads from the public landing form. A real
-    # limb — every sign-up reaches the brain so ARIA knows who is interested
-    # (business-development signal), never a dark drop (§21).
+    # R-F2620/R-F3481: access-request health telemetry. Public form assertions
+    # are not durable relationship knowledge; only non-PII success/failure
+    # signals use this topic mapping until verification (§21).
     "inbound_leads":        ["market_intel", "relationships"],
     # R-F154 (2026-05-10): added intel_ledger — was missing from the map and
     # showing as ⚠ on /aria-brain System Health ("not in brain_hook._MODULE_TOPICS

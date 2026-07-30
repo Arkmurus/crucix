@@ -53,7 +53,15 @@
                     <input id="lead-name" type="text" name="name" placeholder="Full name" autocomplete="name" maxlength="200" required>
                     <label class="sr-only" for="lead-email">Work email</label>
                     <input class="mail" id="lead-email" type="email" name="email" placeholder="Work email" autocomplete="email" maxlength="200" required>
-                    <input type="hidden" name="use_case" value="ARIA landing page">
+                    <label class="sr-only" for="lead-use-case">Primary use case</label>
+                    <select id="lead-use-case" name="use_case" required>
+                      <option value="" selected disabled>Primary use case</option>
+                      <option value="Defence brokerage">Defence brokerage</option>
+                      <option value="Compliance advisory">Compliance advisory</option>
+                      <option value="Financial advisory">Financial advisory</option>
+                      <option value="Government / institutional">Government or institutional</option>
+                      <option value="Other">Other</option>
+                    </select>
                     <button class="submit-button" type="submit">Request access</button>
                   </form>
                   <div id="lead-response" class="form-response" role="status" aria-live="polite"></div>

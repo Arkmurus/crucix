@@ -1,8 +1,8 @@
 """R-F2620 — inbound marketing leads from the public landing form.
 
 The landing form used to drop every sign-up on the floor (client-side only, POSTed
-nowhere). These endpoints capture the lead into the brain and let the operator view
-it. Capability test drives the REAL endpoint functions against the in-memory store
+nowhere). These endpoints record the request without promoting unverified public
+claims into brain memory. Capability tests drive the REAL endpoint functions against the in-memory store
 (conftest sets ARIA_STATE_BACKEND=memory):
 
   - POST create → {ok, lead_id}, and the record is retrievable via the list endpoint
@@ -59,6 +59,9 @@ def test_create_then_list_roundtrip():
     assert rec["name"] == "Ada Lovelace"
     assert rec["use_case"] == "Compliance advisory"
     assert rec["source"] == "landing"
+    assert rec["assessment"]["trust_state"] == "submitted_unverified"
+    assert rec["assessment"]["priority"] == "needs_verification"
+    assert rec["assessment"]["scores"]["total"] <= 49
     assert listed["total"] >= 1
 
 
@@ -79,6 +82,7 @@ def test_idempotent_same_person_one_lead():
     listed = _run(A.leads_inbound_list_ep(limit=500))
     matches = [l for l in listed["leads"] if l["email"] == "grace@navy.mil"]
     assert len(matches) == 1, f"idempotency broken: {len(matches)} copies"
+    assert matches[0]["submission_count"] == 2
 
 
 def test_public_post_not_operator_gated():
@@ -87,8 +91,15 @@ def test_public_post_not_operator_gated():
     assert A._OPERATOR_ONLY_RE.search("/api/aria/leads/inbound") is None
 
 
-def test_inbound_leads_is_a_wired_brain_limb():
-    # §21: the limb must have a real brain topic, not fall through to 'gen'.
+def test_public_submission_is_not_promoted_into_brain_memory(monkeypatch):
     from aria_service.intel import brain_hook as bh
-    assert "inbound_leads" in bh._MODULE_TOPICS
-    assert bh._MODULE_TOPICS["inbound_leads"], "topic list must be non-empty"
+
+    calls = []
+    monkeypatch.setattr(bh, "absorb", lambda **kwargs: calls.append(kwargs))
+    response = _run(A.leads_inbound_create_ep(_req({
+        "name": "Public Claim",
+        "email": "claim@example.org",
+        "use_case": "Compliance advisory",
+    })))
+    assert _status(response) == 200
+    assert calls == [], "an unverified public claim must not enter durable brain memory"

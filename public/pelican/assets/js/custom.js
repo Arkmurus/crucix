@@ -129,11 +129,12 @@ $(document).ready(function() {
     event.preventDefault();
     var name = $.trim($('#lead-name').val());
     var email = $.trim($('#lead-email').val());
+    var useCase = $.trim($('#lead-use-case').val());
     var $button = $form.find('button[type="submit"]');
 
     $response.removeClass('is-success is-error');
-    if (!name || !email || email.indexOf('@') < 1) {
-      $response.addClass('is-error').text('Please enter your name and a valid work email.');
+    if (!name || !email || email.indexOf('@') < 1 || !useCase) {
+      $response.addClass('is-error').text('Please enter your name, a valid work email and your primary use case.');
       return;
     }
 
@@ -145,7 +146,7 @@ $(document).ready(function() {
       data: JSON.stringify({
         name: name,
         email: email,
-        use_case: 'ARIA landing page'
+        use_case: useCase
       })
     }).done(function() {
       $form[0].reset();

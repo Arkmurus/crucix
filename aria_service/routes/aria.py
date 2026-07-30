@@ -20479,8 +20479,9 @@ async def audit_key_fingerprint_ep():
 # ── Inbound marketing leads (R-F2620) ───────────────────────────────────────
 # The public landing form (index.html) previously dropped every sign-up on the
 # floor — it showed "Thanks, we'll be in touch" and POSTed nowhere. These two
-# endpoints capture the lead into the brain (a real limb, §21-wired) and let the
-# operator view them. Both are under /api/aria/* so the auth middleware requires
+# endpoints persist the request, emit non-PII health telemetry and let the
+# operator view it. They do not promote public assertions into brain knowledge.
+# Both are under /api/aria/* so the auth middleware requires
 # a token — never anonymous. The public landing form POSTs to aria-web /api/leads
 # (public), which forwards here with the service token. GET returns PII
 # (name/email) and is additionally admin-gated at the web tier (requireAdmin).
@@ -20497,9 +20498,9 @@ _LEADS_USE_CASES = {
 async def leads_inbound_create_ep(request: Request):
     """Record one inbound marketing lead from the public landing form.
 
-    Wired to the brain on BOTH branches (§21): success → brain_hook.absorb
-    (inbound_leads limb); failure → capability_gaps.record_gap + the @fail_wire
-    decorator. Idempotent per (email,name) so a double-click is one lead."""
+    Wired on BOTH branches (§21): persisted success emits a non-PII metric;
+    failure reaches capability_gaps.record_gap and the @fail_wire decorator.
+    Idempotent per (email,name), with repeat submissions counted on one record."""
     import hashlib
     from fastapi.responses import JSONResponse
     try:
@@ -20519,23 +20520,48 @@ async def leads_inbound_create_ep(request: Request):
     if use_case not in _LEADS_USE_CASES:
         use_case = use_case[:120]  # keep unexpected free-text but bounded
     lead_id = "lead_" + hashlib.sha256(f"{email.lower()}|{name.lower()}".encode()).hexdigest()[:16]
-    record = {
-        "lead_id": lead_id,
-        "name": name,
-        "email": email,
-        "use_case": use_case,
-        "source": source,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
+    from ..intel import relationship_intelligence as _ri
+    now = datetime.now(timezone.utc).isoformat()
     try:
+        existing = await rs.get_json(_LEADS_INBOUND_KEY.format(lead_id=lead_id))
+        if not isinstance(existing, dict):
+            existing = {}
+        assessment = _ri.assess_new_access_request(
+            name=name,
+            email=email,
+            use_case=use_case,
+            company=str(body.get("company") or "").strip()[:200],
+            country=str(body.get("country") or "").strip()[:100],
+            role=str(body.get("role") or "").strip()[:160],
+            trust_state=_ri.TrustState.SUBMITTED_UNVERIFIED,
+            assessed_at=now,
+        )
+        record = {
+            "lead_id": lead_id,
+            "name": name,
+            "email": email,
+            "use_case": use_case,
+            "source": source,
+            "company": str(body.get("company") or "").strip()[:200],
+            "country": str(body.get("country") or "").strip()[:100],
+            "role": str(body.get("role") or "").strip()[:160],
+            "lifecycle_stage": existing.get("lifecycle_stage") or "NEW",
+            "owner": existing.get("owner") or "",
+            "notes": existing.get("notes") if isinstance(existing.get("notes"), list) else [],
+            "created_at": existing.get("created_at") or now,
+            "updated_at": now,
+            "submission_count": int(existing.get("submission_count") or 0) + 1,
+            "assessment": assessment,
+        }
         await rs.set_json(_LEADS_INBOUND_KEY.format(lead_id=lead_id), record)
         await rs.zadd(_LEADS_INBOUND_INDEX, datetime.now(timezone.utc).timestamp(), lead_id)
+        _ri.record_persisted_access_request(assessment)
     except Exception as _e:
         try:
             from ..intel import capability_gaps as _cg
             await _cg.record_gap(
                 "engine_failure",
-                f"inbound lead capture failed to persist: {_e}",
+                f"inbound lead capture failed to persist: {type(_e).__name__}",
                 source="leads_inbound",
                 severity="HIGH",
             )
@@ -20545,20 +20571,9 @@ async def leads_inbound_create_ep(request: Request):
             {"ok": False, "error": "Could not record your details right now. Please try again shortly."},
             status_code=503,
         )
-    # §21 success wire — the brain learns a lead arrived.
-    try:
-        from ..intel import brain_hook as _bh
-        await _bh.absorb(
-            module="inbound_leads",
-            summary=f"Inbound lead: {name} <{email}>" + (f" · {use_case}" if use_case and use_case != "Use case" else ""),
-            detail=f"Landing-page sign-up from '{source}'. Use case: {use_case or 'unspecified'}.",
-            entity_name=name,
-            success=True,
-            source_id=lead_id,
-            confidence="CONFIRMED",
-        )
-    except Exception:
-        pass  # absorb self-observes its own failure; never fail the user's submit
+    # Deliberately no brain_hook.absorb here.  A public submission is an
+    # unverified event, not durable market or relationship knowledge.  The
+    # assessment module emits non-PII operational health telemetry instead.
     return {"ok": True, "lead_id": lead_id}
 
 
@@ -20575,6 +20590,24 @@ async def leads_inbound_list_ep(limit: int = 100):
     for lid in ids:
         rec = await rs.get_json(_LEADS_INBOUND_KEY.format(lead_id=lid))
         if isinstance(rec, dict):
+            # Legacy records pre-date the evidence-led assessment.  Derive it
+            # at read time without silently rewriting historical intake data.
+            if not isinstance(rec.get("assessment"), dict):
+                from ..intel import relationship_intelligence as _ri
+                rec = {
+                    **rec,
+                    "assessment": _ri.assess_access_request(
+                        name=str(rec.get("name") or ""),
+                        email=str(rec.get("email") or ""),
+                        use_case=str(rec.get("use_case") or ""),
+                        company=str(rec.get("company") or ""),
+                        country=str(rec.get("country") or ""),
+                        role=str(rec.get("role") or ""),
+                        trust_state=_ri.TrustState.SUBMITTED_UNVERIFIED,
+                    ),
+                    "lifecycle_stage": rec.get("lifecycle_stage") or "NEW",
+                    "submission_count": int(rec.get("submission_count") or 1),
+                }
             leads.append(rec)
     total = await rs.zcard(_LEADS_INBOUND_INDEX)
     return {"leads": leads, "count": len(leads), "total": total}
