@@ -28572,9 +28572,10 @@
       "title": "DD sanctions: screen must not report UNSCREENED when primary lists answered",
       "claimed_at": "2026-07-30T08:01:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "865f74fc",
+      "notes": null,
+      "shipped_at": "2026-07-30T08:54:47Z"
     },
     {
       "r_number": "R-F3453",
@@ -28591,18 +28592,20 @@
       "title": "export control: never assert civilian from a non-product input (holding-company SIC)",
       "claimed_at": "2026-07-30T08:38:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "865f74fc",
+      "notes": null,
+      "shipped_at": "2026-07-30T08:54:47Z"
     },
     {
       "r_number": "R-F3455",
       "title": "adverse media: cited sources carrying adverse markers must not coexist with a nothing-found headline",
       "claimed_at": "2026-07-30T08:45:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "865f74fc",
+      "notes": null,
+      "shipped_at": "2026-07-30T08:54:48Z"
     }
   ]
 }
