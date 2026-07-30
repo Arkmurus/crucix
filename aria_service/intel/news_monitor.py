@@ -67,6 +67,10 @@ _POLL_STATE_KEY = "crucix:news_monitor:poll_state"
 _MAX_ARTICLES = 1000
 _MAX_INTEL_SIGNALS = 500
 _MAX_SEEN_URLS = 50000
+# R-F3486 — stamped onto each archived relevance verdict so a later
+# classifier upgrade can tell which decisions predate it (archive-wide
+# replay needs to know what it is superseding).
+_RELEVANCE_CLASSIFIER_VERSION = os.getenv("ARIA_NEWS_CLASSIFIER_VERSION", "rel.v1")
 _GOLDEN_POLL_STALE_S = int(os.getenv("ARIA_GOLDEN_POLL_STALE_S", "5400"))
 _GOLDEN_SIGNAL_STALE_S = int(os.getenv("ARIA_GOLDEN_SIGNAL_STALE_S", str(72 * 3600)))
 
@@ -1488,6 +1492,104 @@ async def _promote_article_signal(article: dict) -> bool:
         return False
 
 
+async def _archive_article(article: dict) -> dict:
+    """R-F3486 — the FIRST durable write. Thin seam so it can be spied/faked."""
+    from . import news_archive
+    return await news_archive.archive_article(article)
+
+
+async def _ingest_article(article: dict) -> dict:
+    """R-F3486 — archive-first, mark-seen-last ingest for ONE article.
+
+    The old order was ``_mark_seen`` -> ``_store_article`` -> ``_feed_to_brain``
+    (:2110-2112, and again at :1929/:1959 on the deep-scrape path). Any failure
+    after the seen-mark left the URL recorded as processed, so the next poll
+    skipped it — permanently, because the seen map holds 50,000 hashes. Raw
+    evidence, ledger entry and brain absorption could all be missing while the
+    poll summary still counted the article as "new". That is silent, permanent
+    evidence loss, and it is independent of the retention cap: uncapping storage
+    cannot recover an article that was never stored.
+
+    The order here is deliberate:
+
+      1. archive   — permanent record; if THIS fails, nothing is marked seen and
+                     the article stays retryable on the next poll
+      2. stages    — each downstream outcome recorded against the archived row,
+                     so a failure is visible and retryable (§25) instead of
+                     swallowed
+      3. hot cache — derived and disposable; its failure must not lose evidence
+      4. mark seen — ONLY after the durable record exists
+
+    Returns a per-stage outcome dict so the poll summary can report how many
+    articles became usable knowledge, not merely how many URLs were new.
+    """
+    out = {"archived": False, "article_id": "", "status": "",
+           "stored": False, "promoted": False, "retryable": False}
+
+    try:
+        res = await _archive_article(article)
+        out["archived"] = True
+        out["article_id"] = res.get("article_id", "")
+        out["status"] = res.get("status", "")
+        article["article_id"] = out["article_id"]
+    except Exception as exc:
+        # The durable write failed. Do NOT mark seen — leaving it unseen is what
+        # makes the next poll a retry instead of a permanent loss.
+        out["retryable"] = True
+        logger.warning("[R-F3486] archive failed for %s — left UNSEEN for retry: %s",
+                       (article.get("url") or "")[:120], exc)
+        try:
+            from .engine_wiring import wire_failure as _wf
+            _wf(module="news_monitor",
+                detail=f"archive write failed, article left retryable: {exc}"[:400],
+                gap_type="storage_failure", source="news_monitor:_ingest_article")
+        except Exception:
+            pass
+        return out
+
+    from . import news_archive as _na
+    aid = out["article_id"]
+
+    # 3) hot cache — derived; a failure here is recorded but never loses evidence
+    try:
+        await _store_article(article)
+        out["stored"] = True
+        await _na.mark_stage(aid, "hot_cached", ok=True)
+    except Exception as exc:
+        await _na.mark_stage(aid, "hot_cached", ok=False, detail=str(exc)[:400])
+
+    # 4) ledger + brain absorption
+    try:
+        out["promoted"] = bool(await _feed_to_brain(article))
+        await _na.mark_stage(aid, "brain_absorbed", ok=True)
+    except Exception as exc:
+        # R-F3486 — previously this raised out of poll_feeds or was swallowed
+        # inside _feed_to_brain; either way nothing recorded that the article
+        # failed to become knowledge.
+        await _na.mark_stage(aid, "brain_absorbed", ok=False, detail=str(exc)[:400])
+        logger.warning("[R-F3486] brain absorb failed for %s (archived, retryable): %s",
+                       aid, exc)
+
+    # 5) persist the promotion verdict onto the archived record so the decision
+    #    is reproducible FROM the record (the old code mutated only the
+    #    in-memory dict, after _store_article had already written it).
+    if article.get("relevance_score") is not None:
+        try:
+            await _na.record_relevance(
+                aid,
+                score=article.get("relevance_score"),
+                on_topic=not article.get("off_topic", False),
+                terms=article.get("relevance_terms") or [],
+                classifier_version=_RELEVANCE_CLASSIFIER_VERSION,
+            )
+        except Exception:
+            pass
+
+    # 6) ONLY now is it safe to suppress this URL from future polls.
+    await _mark_seen(article["url"])
+    return out
+
+
 async def _feed_to_brain(article: dict) -> bool:
     """Feed article to ARIA's brain for analysis.
 
@@ -1927,7 +2029,11 @@ async def _scrape_vault_website(name: str, url: str, category: str, lang: str, t
     seen_key = f"scrape:{chash}"
     if await _is_seen(seen_key):
         return {"fetched": 1, "new": 0}      # unchanged since last poll
-    await _mark_seen(seen_key)
+    # R-F3486 — the seen-mark used to happen HERE, before any durable write. A
+    # failure in the deep extraction or the store below then suppressed this
+    # source permanently. It now happens at the end, only once the article is
+    # archived. This is the vault-curated path — the operator's own highest-value
+    # sources — so it is the worst place to lose evidence silently.
 
     # 2) R-F2203 — NEW or CHANGED → richer MULTI-PAGE deep extraction (homepage + high-value
     #    internal pages: about/team/products/contact + structured extractors), so the operator's
@@ -1956,9 +2062,14 @@ async def _scrape_vault_website(name: str, url: str, category: str, lang: str, t
         "topics": topics,
         "detected_at": datetime.now(timezone.utc).isoformat(),
     }
-    await _store_article(article)
-    promoted = await _feed_to_brain(article)  # → intel_ledger (data output) + brain absorb (intel)
-    return {"fetched": 1, "new": 1, "signals_promoted": 1 if promoted else 0}
+    # R-F3486 — archive-first; _ingest_article marks seen only after the durable
+    # write succeeds, so a failure leaves this source retryable next poll.
+    _ing = await _ingest_article(article)
+    if not _ing["archived"]:
+        return {"fetched": 1, "new": 0, "signals_promoted": 0, "retryable": 1}
+    await _mark_seen(seen_key)   # content-hash key for this deep-scrape path
+    return {"fetched": 1, "new": 1,
+            "signals_promoted": 1 if _ing["promoted"] else 0}
 
 
 @fail_wire(module="news_monitor", gap_type="source_failure")
@@ -1987,6 +2098,7 @@ async def poll_feeds(
     total_new = 0
     total_failed = 0
     total_promoted = 0
+    total_retryable = 0   # R-F3486 — archived-write failures left for retry
     feed_results = []
 
     # R-F2890 — feed health is read ONCE per pass (strict; None = store unreadable,
@@ -2107,11 +2219,14 @@ async def poll_feeds(
                 article["tier"] = tier
                 article["topics"] = topics
                 article["detected_at"] = datetime.now(timezone.utc).isoformat()
-                await _mark_seen(article["url"])
-                await _store_article(article)
-                if await _feed_to_brain(article):
+                # R-F3486 — archive-first, mark-seen-last. See _ingest_article.
+                _ing = await _ingest_article(article)
+                if _ing["promoted"]:
                     total_promoted += 1
-                new_count += 1
+                if _ing["archived"]:
+                    new_count += 1
+                else:
+                    total_retryable += 1
 
             total_new += new_count
             feed_results.append({"name": name, "status": "ok", "articles": len(articles), "new": new_count})
@@ -2168,6 +2283,12 @@ async def poll_feeds(
         "feeds_quarantined": total_quarantined,
         "articles_fetched": total_fetched,
         "articles_new": total_new,
+        # R-F3486 — articles whose DURABLE write failed. They are deliberately
+        # left UNSEEN so the next poll retries them, and they are reported here
+        # rather than counted as "new": the summary must answer "how many became
+        # usable knowledge", not "how many new URLs did I encounter" (§25).
+        # A non-zero value here is real evidence loss risk, not noise.
+        "articles_retryable": total_retryable,
         "signals_promoted": total_promoted,
         "results": feed_results,
         "truncated": _truncated,
@@ -2185,8 +2306,9 @@ async def poll_feeds(
     summary["freshness"] = state
 
     logger.info(
-        "[news_monitor] Polled %d feeds: %d articles fetched, %d new, %d failed",
-        len(sources), total_fetched, total_new, total_failed,
+        "[news_monitor] Polled %d feeds: %d articles fetched, %d new, "
+        "%d retryable (durable write failed), %d failed feeds",
+        len(sources), total_fetched, total_new, total_retryable, total_failed,
     )
 
     # R-F2009c: wire success so the brain knows the monitor is alive even
