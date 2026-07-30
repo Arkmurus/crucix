@@ -8095,12 +8095,35 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 report.digital.meta.status = LayerStatus.PARTIAL.value
                 # Honest, specific, and — unlike the old wording — TRUE: name what
                 # was gathered before the cut, not just that a timer expired.
+                # R-F3507 — say what CLOSES it, not only what happened.
+                #
+                # R-F3093 and R-F3131 both established, deliberately, that standard and
+                # quick modes keep the small budget: the 660s total is what guarantees a
+                # WhatsApp async push inside the 15-minute poll window, and moving it
+                # breaks delivery. So in standard mode this stage CANNOT reach article
+                # analysis — that is a designed trade-off, not a failure.
+                #
+                # But the gap only described the cut. A reader saw "0 articles analysed"
+                # with no way to know that a Deep run is the remedy and that the search
+                # fan-out they DID get is still real. Per R-F3456, a gap owes the reader
+                # WHY and WHAT CLOSES IT; without the remedy this reads as a broken
+                # sweep rather than a tier boundary.
+                _mode_note = (
+                    " This is the STANDARD-mode research budget, which is sized for "
+                    "delivery inside the async-push window and cannot reach article "
+                    "analysis. Re-run in DEEP mode for article-level reading; the "
+                    "citations gathered here are real and remain valid."
+                    if not _mode_is_deep else
+                    " This was a DEEP run, so the budget was already the larger one — "
+                    "treat the sweep as genuinely incomplete rather than tier-limited."
+                )
                 report.digital.data_gaps.append(
                     f"deep research was bounded at {int(_dr_deadline)}s and stopped after "
                     f"{dr.get('stopped_after') or 'an earlier stage'} — "
                     f"{dr.get('articles_read', 0)} article(s) analysed, "
                     f"{dr.get('facts_learned', 0)} fact(s) retained; "
-                    "the results below are real but NOT an exhaustive sweep"
+                    "the results below are real but NOT an exhaustive sweep."
+                    + _mode_note
                 )
             # R-F3258/R-F3259/R-F3260 — surface what the engine reported about
             # ITSELF before reading its results, so a degraded run is visible in
@@ -16011,6 +16034,47 @@ def _apply_watchlist_schedule(entry: dict, *, legacy_default: bool = False) -> d
     return entry
 
 
+class _WatchlistUnavailable(Exception):
+    """The watchlist could not be READ, so it must not be REWRITTEN."""
+
+
+async def _read_watchlist_or_skip() -> list:
+    """R-F3506 — strict read for every read-modify-write on the watchlist.
+
+    Every watchlist mutation is a read-modify-write, and all of them were built
+    on ``rs.get_json(WATCHLIST_KEY) or []``. get_json swallows a StoreReadError
+    and returns None, so a mutation landing inside a store reconnect read an
+    EMPTY list, derived an empty list, and persisted it — destroying every
+    tenant's entries with no error and no signal.
+
+    Not theoretical: a strict read against production on 2026-07-30 returned
+    "state_store: no connection (reconnect in progress)" while the non-strict
+    read of the same key returned [] and list_reports() returned 25. The
+    R-F2277 watchdog reconnects after 45s of unhealth, so the window recurs.
+
+    Same mechanism R-F2664 fixed for regional mastery, and the same remedy:
+    read STRICTLY and SKIP the mutation when the store cannot answer. A lost
+    mutation is recoverable — the user retries. A clobbered watchlist is not.
+    """
+    from . import redis_store as rs
+    try:
+        current = await rs.get_json_strict(WATCHLIST_KEY)
+    except Exception as exc:
+        logger.warning(
+            "[R-F3506] watchlist unreadable (%s) — SKIPPING the mutation rather "
+            "than rewriting from an empty read", exc)
+        try:
+            from .engine_wiring import wire_failure as _wf
+            _wf(module="dd_orchestrator",
+                detail=f"watchlist mutation skipped, store unreadable: {exc}"[:400],
+                gap_type="storage_failure",
+                source="dd_orchestrator:_read_watchlist_or_skip")
+        except Exception:
+            pass
+        raise _WatchlistUnavailable(str(exc)) from exc
+    return list(current or [])
+
+
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure", control_flow_exempt=("ValueError",))
 async def add_to_watchlist(target: dict, *, requested_by_user: bool = False) -> dict:
     """Add a target to the DD watchlist. Target must include at least
@@ -16037,7 +16101,7 @@ async def add_to_watchlist(target: dict, *, requested_by_user: bool = False) -> 
     the user's own entries to make a point.
     """
     from . import redis_store as rs
-    current = await rs.get_json(WATCHLIST_KEY) or []
+    current = await _read_watchlist_or_skip()  # R-F3506 strict; never rewrite from an empty read
     name = (target.get("name") or target.get("entity") or "").strip()
     if not name:
         raise ValueError("target must include a name")
@@ -16127,7 +16191,7 @@ async def update_watchlist_schedule(
     from . import redis_store as rs
 
     hours = _watchlist_review_hours(review_interval_hours)
-    current = await rs.get_json(WATCHLIST_KEY) or []
+    current = await _read_watchlist_or_skip()  # R-F3506 strict; never rewrite from an empty read
     target_name = (name or "").strip().lower()
     caller_domain = (user_email_domain or "").strip().lower()
 
@@ -16359,7 +16423,15 @@ async def remove_from_watchlist(name: str, user_id: str = "",
     operator deployment). user_id='' = admin / internal → unrestricted (keeps the
     autonomous re-screen self-purge working)."""
     from . import redis_store as rs
-    current = await rs.get_json(WATCHLIST_KEY) or []
+    try:
+        current = await _read_watchlist_or_skip()
+    except _WatchlistUnavailable as exc:
+        # R-F3506 — the store could not be read, so the list must not be
+        # rewritten. Report it as a FAILED removal (R-F3503: ok means "it will
+        # no longer be re-screened"), never as a silent success over an entity
+        # that is still being monitored.
+        return {"ok": False, "removed": 0, "count": 0,
+                "reason": f"watchlist store unavailable, nothing was changed: {exc}"}
     before = len(current)
     tgt = (name or "").strip().lower()
     _legacy_uid, _ = _dd_legacy_owner_fallback()
@@ -16413,7 +16485,7 @@ async def get_watchlist(user_id: str | None = None,
     CLOSED — R-F2097). ``user_id=None`` = admin / internal (the autonomous due-check) and
     sees the FULL list so monitoring still covers every watched entity."""
     from . import redis_store as rs
-    items = await rs.get_json(WATCHLIST_KEY) or []
+    items = await _read_watchlist_or_skip()  # R-F3506 strict; never rewrite from an empty read
 
     # R-F2401 — reclaim OWNER-LESS watchlist entries (mirrors the R-F2393 report
     # reclaim). A DD auto-enroll before R-F2355, or an entry whose owner was lost,
@@ -17895,7 +17967,7 @@ async def delete_report(run_id: str) -> dict:
             }
             _orphaned = {c for c in canonical_ids if c and c not in _owner_still}
             if _orphaned:
-                _wl = await rs.get_json(WATCHLIST_KEY) or []
+                _wl = await _read_watchlist_or_skip()  # R-F3506 strict; never rewrite from an empty read
                 _kept = []
                 for w in _wl:
                     if (isinstance(w, dict)
@@ -18212,7 +18284,7 @@ async def rescreen_watchlist(
         # per-user manual re-screen: owner-scoped (mirror the read path exactly).
         watchlist = await get_watchlist(user_id, user_email_domain)
     else:
-        watchlist = await rs.get_json(WATCHLIST_KEY) or []
+        watchlist = await _read_watchlist_or_skip()  # R-F3506 strict; never rewrite from an empty read
     if not watchlist:
         return {"entities_screened": 0, "changes_detected": [], "errors": [],
                 "duration_ms": 0}
