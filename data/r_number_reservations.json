@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3514,
+  "next_available": 3515,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29180,6 +29180,15 @@
       "r_number": "R-F3513",
       "title": "operator lever to clear an LLM provider cooldown after a billing top-up",
       "claimed_at": "2026-07-30T17:03:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3514",
+      "title": "replay a recorded evidence set through the orchestrator's source layer",
+      "claimed_at": "2026-07-30T17:05:35Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
