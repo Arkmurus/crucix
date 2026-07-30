@@ -39,6 +39,9 @@ _ENABLED = (os.getenv("ARIA_CONTINUOUS_PROFILER_ENABLED", "1") or "").strip().lo
 _SAMPLE_INTERVAL_S = float(os.getenv("ARIA_PROFILER_INTERVAL_MS", "100")) / 1000.0
 _REPORT_INTERVAL_S = float(os.getenv("ARIA_PROFILER_REPORT_INTERVAL_S", "60"))
 _STALL_THRESHOLD_S = float(os.getenv("ARIA_PROFILER_STALL_THRESHOLD_S", "2.0"))
+# R-F3464 — floor on the sample base before a ">50% of samples" CPU-hotspot gap
+# may be recorded. Roughly one second of sampling at the default 100ms interval.
+_MIN_HOTSPOT_SAMPLES = int(os.getenv("ARIA_PROFILER_MIN_HOTSPOT_SAMPLES", "10"))
 
 # Shared state between the sampler thread and the async reporter
 _state: dict[str, Any] = {
@@ -58,6 +61,14 @@ _state: dict[str, Any] = {
     "stall_count": 0,
     "last_stall_at": 0.0,
     "max_stall_s": 0.0,
+    # R-F3464 — which OS thread runs the event loop. Without this the module
+    # cannot attribute a loop stall at all, and printed a census of sleeping
+    # threads instead. Set by _heartbeat_tick, which runs ON the loop.
+    "loop_thread_id": None,
+    # Evidence from the most recent stall, exposed via get_stall_stats() so the
+    # discriminator survives past the log line.
+    "last_stall_loop_stack": [],
+    "last_stall_census": {},
 }
 
 
@@ -69,18 +80,134 @@ def _frame_signature(frame) -> str:
     return f"{code.co_filename}:{code.co_name}:{frame.f_lineno}"
 
 
+# ── R-F3464: a stall must be attributed to the thread that stalled ──────────
+#
+# The old report printed `samples.most_common(5)`, a census over EVERY thread
+# from sys._current_frames(). Threads parked in a blocking wait are on the stack
+# 100% of the time, so they dominated that census unconditionally — the same five
+# frames appeared whatever the cause, and on an IDLE box they appear most of all.
+# Live, that read as "38.7% aiosqlite + 34% threadpool", which looks like I/O
+# saturation and is really just a count of sleeping threads.
+#
+# main.py:1766 records what this costs: a 2026-07-27 R-F704 dump showed the main
+# thread parked in a bare asyncio.runners.run with NO application frame — nothing
+# was blocking a coroutine — and "two review cycles went looking for a blocking
+# call that was never there". The real signature was 56 live aiosqlite connection
+# worker threads (peak 140) against a design of ~6: GIL starvation.
+#
+# So: attribute to the LOOP thread, and report the thread census that main.py:1771
+# names as the discriminator ("count the worker threads instead") but which was
+# measured nowhere.
+
+# (file basename, function name) pairs whose INNERMOST frame means "parked".
+# Two shapes matter. Pure-Python waits leave a frame in queue.py/threading.py.
+# A thread parked on a C-implemented primitive (aiosqlite's worker blocks on
+# queue.SimpleQueue.get, which has no Python frame) leaves its OWN function as
+# the innermost frame — which is exactly why `_connection_worker_thread:59`
+# showed up as a "top frame" in production.
+_PARKED_FRAMES: frozenset[tuple[str, str]] = frozenset({
+    ("queue.py", "get"),
+    ("queue.py", "_get"),
+    ("threading.py", "wait"),
+    ("threading.py", "acquire"),
+    ("selectors.py", "select"),          # an IDLE event loop, not a busy one
+    ("thread.py", "_worker"),            # concurrent.futures worker
+    ("core.py", "_connection_worker_thread"),   # aiosqlite
+    ("continuous_profiler.py", "_sample_thread"),  # our own sampler
+})
+
+# Innermost-frame function names that identify an aiosqlite connection worker.
+_AIOSQLITE_WORKER_FUNCS = frozenset({"_connection_worker_thread"})
+
+
+def _is_parked_frame(frame) -> bool:
+    """True when this thread's innermost frame is a blocking wait (i.e. asleep).
+
+    A parked thread cannot stall an event loop and cannot be a CPU hotspot, so it
+    must not enter either census.
+    """
+    if frame is None:
+        return False
+    code = frame.f_code
+    basename = os.path.basename(code.co_filename)
+    return (basename, code.co_name) in _PARKED_FRAMES
+
+
+def _register_loop_thread() -> None:
+    """Record which OS thread runs the event loop. Called from the heartbeat
+    coroutine, which by definition runs on it."""
+    _state["loop_thread_id"] = threading.get_ident()
+
+
+def _loop_thread_stack(limit: int = 8) -> list[str]:
+    """The event-loop thread's current stack, innermost first.
+
+    Returns [] when the loop thread is unknown — never guess an attribution.
+    This is the frame set that actually answers "what stalled the loop".
+    """
+    tid = _state.get("loop_thread_id")
+    if not tid:
+        return []
+    frame = sys._current_frames().get(tid)
+    out: list[str] = []
+    while frame is not None and len(out) < limit:
+        out.append(_frame_signature(frame))
+        frame = frame.f_back
+    return out
+
+
+def _thread_census() -> dict[str, int]:
+    """Count live threads by kind. R-F3252 named this as the discriminator
+    between a BLOCKED loop and a STARVED one; it was never measured."""
+    frames = sys._current_frames()
+    census = {"total": len(frames), "parked": 0, "aiosqlite_workers": 0,
+              "pool_workers": 0, "running": 0}
+    for tid, frame in frames.items():
+        if frame is None:
+            continue
+        name = frame.f_code.co_name
+        basename = os.path.basename(frame.f_code.co_filename)
+        if name in _AIOSQLITE_WORKER_FUNCS or "aiosqlite" in frame.f_code.co_filename:
+            census["aiosqlite_workers"] += 1
+        elif (basename, name) == ("thread.py", "_worker"):
+            census["pool_workers"] += 1
+        if _is_parked_frame(frame):
+            census["parked"] += 1
+        else:
+            census["running"] += 1
+    # Thread objects can be parked on a C primitive with no telling frame; the
+    # threading registry is the authority on how many exist at all.
+    try:
+        census["total"] = max(census["total"], threading.active_count())
+        census["aiosqlite_workers"] = max(
+            census["aiosqlite_workers"],
+            sum(1 for t in threading.enumerate()
+                if "connection_worker" in (t.name or "")),
+        )
+    except Exception:
+        pass
+    return census
+
+
+def _collect_samples() -> None:
+    """One sampling pass. Parked threads are EXCLUDED: the aggregate feeds a
+    'CPU hotspot' gap whose text asserts CPU on the event-loop thread, so a
+    sleeping worker must not be able to win it."""
+    frames = sys._current_frames()
+    for thread_id, frame in frames.items():
+        if _is_parked_frame(frame):
+            continue
+        _state["samples"][_frame_signature(frame)] += 1
+        _state["total_samples"] += 1
+    _state["last_sample_at"] = time.time()
+
+
 def _sample_thread() -> None:
     """Daemon thread: sample stack traces every _SAMPLE_INTERVAL_S."""
     while _state["running"]:
         time.sleep(_SAMPLE_INTERVAL_S)
         try:
-            frames = sys._current_frames()
-            for thread_id, frame in frames.items():
-                # Walk the stack to find the outermost interesting frame
-                sig = _frame_signature(frame)
-                _state["samples"][sig] += 1
-                _state["total_samples"] += 1
-            _state["last_sample_at"] = time.time()
+            _collect_samples()
 
             # Stall detection: check if the main loop heartbeat is stale
             heartbeat = _state.get("main_loop_heartbeat", 0)
@@ -93,12 +220,24 @@ def _sample_thread() -> None:
                     _state["last_stall_at"] = time.time()
                     if _stall_s > _state["max_stall_s"]:
                         _state["max_stall_s"] = _stall_s
+                    _census = _thread_census()
+                    _state["last_stall_census"] = _census
+                    _loop_stack = _loop_thread_stack()
+                    _state["last_stall_loop_stack"] = _loop_stack
+                    # R-F3464 — report the LOOP thread's stack and the thread
+                    # census, not a census of sleeping threads. Read it as
+                    # main.py:1771 says: an application frame on the loop thread
+                    # means something BLOCKED it; a bare asyncio.runners.run /
+                    # selectors.select means it was STARVED, so look at the
+                    # thread counts instead.
                     logger.warning(
                         "[continuous_profiler] Main loop heartbeat stale for "
-                        "%.1fs — possible event-loop stall (stall #%d). Top frames: %s",
+                        "%.1fs — possible event-loop stall (stall #%d). "
+                        "Loop-thread stack (innermost first): %s | threads: %s",
                         _stall_s,
                         _state["stall_count"],
-                        _state["samples"].most_common(5),
+                        _loop_stack or "<loop thread not registered>",
+                        _census,
                     )
         except Exception:
             pass  # Sampler must never crash
@@ -109,6 +248,9 @@ async def _heartbeat_tick() -> None:
     thread can detect genuine event-loop stalls. Runs in the event loop;
     if the loop stalls this task won't tick, and the sampler will correctly
     fire the stall warning."""
+    # R-F3464 — this coroutine runs ON the event loop, so its thread IS the loop
+    # thread. Registering here is what makes stall attribution possible at all.
+    _register_loop_thread()
     while _state["running"]:
         await asyncio.sleep(1.0)
         _state["main_loop_heartbeat"] = time.time()
@@ -125,6 +267,13 @@ def get_stall_stats() -> dict:
         "max_stall_s": round(float(_state.get("max_stall_s", 0.0)), 2),
         "last_stall_age_s": round(time.time() - _last, 1) if _last else None,
         "threshold_s": _STALL_THRESHOLD_S,
+        # R-F3464 — the attribution evidence, so an operator can tell a BLOCKED
+        # loop from a STARVED one without catching the log line live. An
+        # application frame in loop_stack => something blocked the loop. A bare
+        # asyncio.runners.run / selectors.select => starvation; read threads.
+        "last_stall_loop_stack": list(_state.get("last_stall_loop_stack") or []),
+        "last_stall_threads": dict(_state.get("last_stall_census") or {}),
+        "threads_now": _thread_census(),
     }
 
 
@@ -151,7 +300,14 @@ async def _report_loop() -> None:
                 logger.info("  %5.1f%%  %s", pct, sig)
 
             # If a single frame dominates (>50%), emit a brain signal
-            if top_frames and (top_frames[0][1] / total) > 0.5:
+            # R-F3464 — require a real sample base before accusing a frame.
+            # Excluding parked threads (correctly) shrank the denominator: where
+            # ~50 sleeping threads used to dilute every count, a single active
+            # frame can now clear 50% of a handful of samples and emit a bogus
+            # "CPU hotspot" gap. A hotspot claim needs evidence, not a ratio over
+            # noise. _MIN_HOTSPOT_SAMPLES is ~1s of sampling at the default rate.
+            if (top_frames and total >= _MIN_HOTSPOT_SAMPLES
+                    and (top_frames[0][1] / total) > 0.5):
                 try:
                     from . import capability_gaps as _cg
                     import asyncio as _aio
