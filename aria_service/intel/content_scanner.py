@@ -77,34 +77,99 @@ MAGIC_BYTES: dict[str, list[bytes]] = {
     "txt": [],  # No fixed magic bytes
 }
 
-# Embedded script patterns in documents
-EMBEDDED_SCRIPT_PATTERNS: list[tuple[bytes, str]] = [
-    # PDF JavaScript
-    (b"/JavaScript", "PDF embedded JavaScript"),
-    (b"/JS", "PDF embedded JS"),
-    (b"/Launch", "PDF launch action"),
-    (b"/EmbeddedFile", "PDF embedded file"),
-    (b"/OpenAction", "PDF open action"),
-    # DOCX macros
-    (b"vbaProject.bin", "DOCX VBA macro"),
-    (b"word/vbaProject.bin", "DOCX VBA macro (full path)"),
-    # XLSX DDE / formulas
-    (b"DDE", "XLSX DDE formula"),
-    (b"DDEAUTO", "XLSX DDE auto formula"),
-    # OLE objects
-    (b"\x01\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00", "OLE object"),
-    # Shellcode indicators
-    (b"\x90\x90\x90\x90", "NOP sled (potential shellcode)"),
-    (b"\xcc\xcc\xcc\xcc", "INT3 breakpoint chain"),
+# ── R-F3457: pattern specificity vs. the binary noise floor ─────────────────
+#
+# These tables used to be flat (bytes, description) pairs matched against the WHOLE
+# file with no type scoping. Several entries sat BELOW the noise floor of ordinary
+# binary content, so benign documents were blocked as malware — measured at 6 of 13
+# local files, and in production it refused a real customer PDF
+# ("Offer Sikorsky UH-60A ... .pdf": PDF embedded JS + INT3 chain + Base64, all noise).
+#
+# The offenders and why they could not work:
+#   b"DDE"                 3 ASCII bytes. Fired on a 434KB PDF and 4 images.
+#   b"\x90\x90\x90\x90"    4 repeated bytes — routine padding in image/font data.
+#   b"\xcc\xcc\xcc\xcc"    ditto.
+#   b"/JS"                 3 bytes, unanchored, so it matched inside compressed streams.
+#   "c2g"                  base64 of "sh" — a 3-char trigram present in almost any
+#                          long base64 run, so it flagged every encoded blob.
+#
+# Two structural fixes, neither of which weakens detection:
+#
+#   1. SCOPE each pattern to the container it can actually appear in, keyed off the
+#      SNIFFED magic bytes — never the caller-supplied `claimed_type`, which is
+#      attacker-controlled (a malicious PDF renamed .png must still be scanned as a
+#      PDF). An unrecognised container gets EVERY rule, so unknown = strictest.
+#   2. ANCHOR the short patterns: PDF names must be followed by a PDF delimiter, and
+#      shellcode runs must be long enough (>=16) to mean something.
+#
+# Scopes: "pdf" | "zip" (OOXML/zip container) | "binary" (unrecognised — strictest).
+_SCOPE_PDF = "pdf"
+_SCOPE_ZIP = "zip"
+_SCOPE_BINARY = "binary"
+
+# Minimum repeat length for a byte-run to count as shellcode. Four was noise; a real
+# NOP sled / INT3 chain is far longer. Env-tunable for incident response.
+_SHELLCODE_RUN = max(8, int(os.getenv("ARIA_SCAN_SHELLCODE_RUN", "16")))
+
+# PDF delimiters (PDF 32000-1 §7.2.2). A name token ends at one of these, so
+# `/JS(` and `/JS ` are real, while `/JSomething` and a chance `/JS` inside a
+# compressed stream are not.
+_PDF_DELIM = rb"[\s/<>\[\]()%]"
+
+# (compiled regex, description, scope). Regex — not bare substrings — so short
+# tokens can be delimiter-anchored.
+EMBEDDED_SCRIPT_PATTERNS: list[tuple[re.Pattern, str, str]] = [
+    # PDF JavaScript / actions. The long names are safe unanchored (11+ bytes);
+    # the short ones must be anchored as PDF name tokens.
+    (re.compile(rb"/JavaScript" + _PDF_DELIM), "PDF embedded JavaScript", _SCOPE_PDF),
+    (re.compile(rb"/JS" + _PDF_DELIM), "PDF embedded JS", _SCOPE_PDF),
+    (re.compile(rb"/Launch" + _PDF_DELIM), "PDF launch action", _SCOPE_PDF),
+    (re.compile(rb"/EmbeddedFile" + _PDF_DELIM), "PDF embedded file", _SCOPE_PDF),
+    (re.compile(rb"/OpenAction" + _PDF_DELIM), "PDF open action", _SCOPE_PDF),
+    # DOCX macros — 14+ byte literals, specific enough to match raw.
+    (re.compile(rb"word/vbaProject\.bin"), "DOCX VBA macro (full path)", _SCOPE_ZIP),
+    (re.compile(rb"vbaProject\.bin"), "DOCX VBA macro", _SCOPE_ZIP),
+    # XLSX DDE. Bare b"DDE" is REMOVED: 3 ASCII bytes cannot evidence a DDE formula,
+    # and OOXML parts are deflate-compressed inside the zip so raw matching is noise
+    # either way. DDEAUTO is the token that actually carries the attack.
+    (re.compile(rb"DDEAUTO"), "XLSX DDE auto formula", _SCOPE_ZIP),
+    # OLE objects.
+    (re.compile(rb"\x01\x05\x00{10}"), "OLE object", _SCOPE_ZIP),
+    # Shellcode indicators — only meaningful in a blob we could not identify, and
+    # only at a length that cannot occur by accident.
+    (re.compile(rb"\x90{%d,}" % _SHELLCODE_RUN),
+     "NOP sled (potential shellcode)", _SCOPE_BINARY),
+    (re.compile(rb"\xcc{%d,}" % _SHELLCODE_RUN),
+     "INT3 breakpoint chain", _SCOPE_BINARY),
 ]
 
-# Suspicious base64-encoded content patterns
-SUSPICIOUS_B64_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"(?:TVqQAAM|TVp|TVro|TVqQ)", re.I), "Base64-encoded PE executable"),
-    (re.compile(r"(?:TVp|TVro)", re.I), "Base64-encoded PE (short)"),
-    (re.compile(r"f0VMRg", re.I), "Base64-encoded ELF binary"),
-    (re.compile(r"(?:IyEvYmluL2Jh|c2g|YmFzaA)", re.I), "Base64-encoded shell script"),
+# ── Base64-embedded executables ─────────────────────────────────────────────
+#
+# Matching the ENCODED form by substring is what produced the false positives: any
+# sufficiently long base64 run contains most short trigrams. Instead we locate long
+# base64 runs and DECODE them, then test the decoded bytes against real file magic.
+# That is both stricter (no trigram can fake a PE header) and more sensitive (it
+# catches every base64 alignment, which a fixed encoded prefix cannot).
+# The run floor bounds COST only — it is not what prevents false positives (the
+# decoded-magic check is). So keep it low enough that a short embedded payload is
+# still caught: the R-F1131 PE fixture is a 36-char run, and a detector must not
+# need more evidence than that.
+_B64_RUN_RE = re.compile(r"[A-Za-z0-9+/=]{24,}")
+
+# (magic bytes searched in the DECODED payload, description). All >=4 bytes, so a
+# chance hit in decoded noise is negligible.
+SUSPICIOUS_B64_PATTERNS: list[tuple[bytes, str]] = [
+    (b"MZ\x90\x00", "Base64-encoded PE executable"),
+    (b"This program cannot be run in DOS mode", "Base64-encoded PE executable"),
+    (b"\x7fELF\x01", "Base64-encoded ELF binary"),
+    (b"\x7fELF\x02", "Base64-encoded ELF binary"),
+    (b"#!/bin/sh", "Base64-encoded shell script"),
+    (b"#!/bin/bash", "Base64-encoded shell script"),
 ]
+
+# Cost ceilings — this runs on every upload, so the decode sweep is bounded.
+_B64_MAX_RUNS = 64
+_B64_MAX_RUN_CHARS = 3000
 
 # Quarantine directory
 QUARANTINE_DIR = Path("/data/quarantine")
@@ -246,12 +311,67 @@ def check_magic_bytes(data: bytes, claimed_type: str) -> Optional[dict[str, Any]
     }
 
 
+# A PDF header need not sit at offset 0 — PDF 32000-1 §7.5.2 lets readers accept
+# "%PDF" anywhere in the first 1024 bytes, and real readers are laxer still. A ZIP
+# is likewise identified by its local-file-header signature, not only at offset 0.
+# So container sniffing must look INSIDE the prefix, not just at byte 0, or a
+# polyglot (PNG magic prepended to a malicious PDF) would skip every PDF rule.
+_POLYGLOT_WINDOW = 1024
+
+# Recognised, inert containers: an image or plain text cannot execute, so the
+# shellcode / macro / PDF rule families do not apply to them.
+_INERT_MAGICS = (
+    b"\x89PNG", b"\xff\xd8\xff", b"II\x2a\x00", b"MM\x00\x2a",
+    b"\x1f\x8b", b"{\\rtf", b"<?xml", b"<html", b"<!DOCTYPE",
+)
+
+
+def _sniff_container(data: bytes) -> set[str]:
+    """R-F3457 — decide which rule families apply, from the CONTENT.
+
+    Deliberately ignores any caller-supplied ``claimed_type``: that value comes from
+    the upload's filename/mimetype and is therefore attacker-controlled. Scoping on
+    it would let a malicious PDF evade every PDF rule by calling itself a .png.
+
+    Returns the SET of applicable scopes. A file may legitimately be in more than
+    one (an OOXML package is a zip; a polyglot is whatever it embeds). An
+    unrecognised blob returns every scope — unknown is the STRICTEST case, never
+    the most permissive.
+    """
+    head = data[:_POLYGLOT_WINDOW]
+    scopes: set[str] = set()
+    if b"%PDF" in head:
+        scopes.add(_SCOPE_PDF)
+    if b"PK\x03\x04" in head:
+        scopes.add(_SCOPE_ZIP)
+    if scopes:
+        return scopes
+    if any(data.startswith(m) for m in _INERT_MAGICS):
+        return set()
+    # Unidentified bytes: apply everything, including the shellcode family.
+    return {_SCOPE_PDF, _SCOPE_ZIP, _SCOPE_BINARY}
+
+
 @fail_wire(module="content_scanner", gap_type="file_parse")
 def check_embedded_scripts(data: bytes) -> list[dict[str, Any]]:
-    """Check for embedded scripts in documents."""
-    threats = []
-    for pattern, description in EMBEDDED_SCRIPT_PATTERNS:
-        if pattern in data:
+    """Check for embedded scripts in documents.
+
+    R-F3457: rules are scoped to the SNIFFED container (see _sniff_container) and
+    short tokens are delimiter-anchored, so ordinary binary noise inside a
+    compressed stream or an image can no longer read as malware.
+    """
+    scopes = _sniff_container(data)
+    threats: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for pattern, description, pat_scope in EMBEDDED_SCRIPT_PATTERNS:
+        # An unrecognised blob gets every rule; a recognised container gets only
+        # the rules that can apply to it.
+        if pat_scope not in scopes:
+            continue
+        if description in seen:
+            continue
+        if pattern.search(data):
+            seen.add(description)
             threats.append({
                 "type": "embedded_script",
                 "severity": "HIGH",
@@ -260,19 +380,49 @@ def check_embedded_scripts(data: bytes) -> list[dict[str, Any]]:
     return threats
 
 
+def _decode_b64_run(run: str) -> list[bytes]:
+    """Decode one base64 run at all 4 alignments. Never raises."""
+    stripped = run.replace("=", "")[:_B64_MAX_RUN_CHARS]
+    out: list[bytes] = []
+    for offset in range(4):
+        chunk = stripped[offset:]
+        chunk = chunk[: len(chunk) - (len(chunk) % 4)]
+        if len(chunk) < 8:
+            continue
+        try:
+            out.append(base64.b64decode(chunk, validate=False))
+        except Exception:
+            continue
+    return out
+
+
 @fail_wire(module="content_scanner", gap_type="file_parse")
 def check_suspicious_content(data: bytes) -> list[dict[str, Any]]:
-    """Check for suspicious content patterns."""
-    threats = []
-    # Check for base64-encoded executables
+    """Check for base64-embedded executables.
+
+    R-F3457: locates long base64 runs and inspects the DECODED payload for real
+    file magic, instead of substring-matching the encoded form. Short encoded
+    trigrams ("TVp", "c2g") occur in almost every long base64 blob and were the
+    source of the false positives; a decoded ``MZ\\x90\\x00`` or ``\\x7fELF`` is
+    unambiguous, and decoding covers every alignment for free.
+    """
     text = data.decode("utf-8", errors="replace")
-    for pattern, description in SUSPICIOUS_B64_PATTERNS:
-        if pattern.search(text):
-            threats.append({
-                "type": "suspicious_content",
-                "severity": "HIGH",
-                "detail": description,
-            })
+    threats: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for idx, match in enumerate(_B64_RUN_RE.finditer(text)):
+        if idx >= _B64_MAX_RUNS:
+            break
+        for decoded in _decode_b64_run(match.group(0)):
+            for magic, description in SUSPICIOUS_B64_PATTERNS:
+                if description in seen:
+                    continue
+                if magic in decoded:
+                    seen.add(description)
+                    threats.append({
+                        "type": "suspicious_content",
+                        "severity": "HIGH",
+                        "detail": description,
+                    })
     return threats
 
 
