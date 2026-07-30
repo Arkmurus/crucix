@@ -14489,6 +14489,50 @@ async def purge_cases_ep(request: Request):
     return await _rl.purge_polluted_cases(dry_run=dry_run)
 
 
+@router.get("/admin/gdpr/retention-review")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def gdpr_retention_review_ep():
+    """R-F3498 — what personal data is due for review, and what has no policy at all.
+
+    R-F3490/R-F3492/R-F3493 built this and shipped it with NO ROUTE, so a controller
+    could not run it. A capability nobody can invoke is a dormant specification — the
+    exact defect this session criticised in someone else's work, reproduced in my own.
+
+    Read-only. Deletes nothing and schedules nothing (§7). Returns the overdue
+    population, the classes with no configured period, the personal records carrying no
+    retention class at all, any residency mismatch against the live region, and the legal
+    basis for every period applied.
+    """
+    from ..intel import rag_store as _rs
+    return await _rs.retention_review()
+
+
+class GdprEraseRequest(BaseModel):
+    subject_key: str
+    # SAFE BY DEFAULT: a destructive, irreversible operation must be asked for twice.
+    # The caller sizes the request first and commits deliberately.
+    dry_run: bool = True
+
+
+@router.post("/admin/gdpr/erase-subject")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def gdpr_erase_subject_ep(req: GdprEraseRequest):
+    """R-F3498 — fulfil an Art. 17 erasure request, with an evidential receipt.
+
+    Exact match on `data_subject_key` across every collection a search can read from
+    (the R-F3478 invariant). Returns per-collection counts, `coverage: "keyed"`, and an
+    explicit statement of what it cannot reach — records written before subject keying.
+
+    `dry_run` defaults to TRUE. Erasure is irreversible and §7 otherwise forbids
+    deletion, so committing has to be a deliberate act rather than the default one.
+    """
+    key = (req.subject_key or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="subject_key is required")
+    from ..intel import rag_store as _rs
+    return await _rs.erase_by_subject(key, dry_run=req.dry_run)
+
+
 @router.post("/admin/purge-memory")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def purge_memory_ep(request: Request):

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3497,
+  "next_available": 3500,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29016,6 +29016,34 @@
       "commit_sha": "5385862d",
       "notes": null,
       "shipped_at": "2026-07-30T14:59:48Z"
+    },
+    {
+      "r_number": "R-F3497",
+      "title": "R-F450 docx assertion reads a response field the endpoint never returns",
+      "claimed_at": "2026-07-30T15:02:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "39613833",
+      "notes": null,
+      "shipped_at": "2026-07-30T15:04:22Z"
+    },
+    {
+      "r_number": "R-F3498",
+      "title": "GDPR erasure and retention review shipped with no route: a controller could not invoke either",
+      "claimed_at": "2026-07-30T15:03:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3499",
+      "title": "selective deep enrichment: fetch bodies only where they change the answer",
+      "claimed_at": "2026-07-30T15:04:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
