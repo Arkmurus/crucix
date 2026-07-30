@@ -20,6 +20,7 @@ Correlation types:
 from __future__ import annotations
 from .engine_wiring import wire_success, wire_failure
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -54,6 +55,51 @@ SIGNAL_WEIGHTS = {
 CORRELATION_WINDOW_DAYS = 14  # signals within 14 days are "correlated"
 MIN_CORRELATION_SCORE = 5.0   # minimum score to generate an insight
 MIN_SIGNALS_FOR_INSIGHT = 2   # need at least 2 different signal types
+
+# ── R-F3521 — temporal compounding ────────────────────────────────────────────
+# Time was a BINARY filter here: `if ts < cutoff: continue`. A signal 13 days old
+# counted exactly as much as one from this morning, and everything older than 14
+# days was discarded outright. The ledger retains ~100 years by design (§7 — no
+# TTL on knowledge; live 2026-07-30: 72,729 signals), so the correlator was
+# throwing away almost all of ARIA's own memory on every call.
+#
+# What that costs is the ability to COMPOUND: whether a country's activity is
+# accelerating, merely sustained, or decaying is invisible when the only question
+# asked is "did this land inside a fortnight". Two countries with identical
+# 14-day scores are indistinguishable today even when one has been building for
+# three months and the other appeared on Tuesday.
+#
+# chain_correlator.py does NOT cover this. It models 12–18 month causal chains
+# from STRUCTURAL shifts (coup, sanctions change, budget announcement) gated at
+# MIN_SEVERITY 0.35. Ordinary signal tempo between 14 and 90 days is seen by
+# neither module.
+#
+# THE ANTI-INFLATION PROPERTY, which is the whole design constraint:
+# widening a window raises every score and fires more insights — "a grade that
+# improves without new evidence IS the false clean". So historical evidence is
+# applied as an ANNOTATION on insights that have ALREADY been generated, never as
+# an input to generating them. It cannot create an insight, suppress one, or move
+# a score by any amount. That is structural, not a promise: _annotate_trajectories
+# runs after _generate_insight and only adds fields.
+HISTORICAL_WINDOW_DAYS = 90   # 15..90d informs TRAJECTORY only, never the score
+
+# A trajectory is a claim about the world, so it obeys the same independence rule
+# as MARKET_HEATING (R-F3487): it is computed from independent ORIGINS, not from
+# signal volume. Otherwise syndication drives the trend line and the fabrication
+# this product exists to prevent simply reappears on the time axis.
+_MIN_TRAJECTORY_ORIGINS = int(os.getenv("ARIA_TRAJECTORY_MIN_ORIGINS", "2"))
+
+# Ratio of active-band rate to historical-band rate needed to call a direction.
+_TRAJECTORY_ACCEL_RATIO = 2.0
+_TRAJECTORY_DECAY_RATIO = 0.5
+
+# Trajectory vocabulary. UNKNOWN is load-bearing and tri-state in the same sense
+# as the phase gates: "could not measure" is not "measured and found flat".
+TRAJECTORY_ACCELERATING = "ACCELERATING"
+TRAJECTORY_SUSTAINED = "SUSTAINED"
+TRAJECTORY_DECAYING = "DECAYING"
+TRAJECTORY_EMERGING = "EMERGING"
+TRAJECTORY_UNKNOWN = "UNKNOWN"
 
 
 async def correlate_signals() -> list[dict]:
@@ -171,6 +217,12 @@ async def correlate_signals() -> list[dict]:
         if insight:
             insights.append(insight)
 
+    # R-F3521 — temporal context, applied AFTER every insight and score is final.
+    # Ordering is the anti-inflation guarantee: historical evidence annotates, it
+    # never participates. Sorting is still by score alone for the same reason —
+    # an ACCELERATING trajectory must not silently reorder the operator's list.
+    await _annotate_trajectories(insights)
+
     # Sort by score descending
     insights.sort(key=lambda x: x.get("score", 0), reverse=True)
 
@@ -189,6 +241,211 @@ async def correlate_signals() -> list[dict]:
 
     logger.info("[correlator] %d insights from %d countries", len(insights), len(country_signals))
     return insights
+
+
+# R-F3521 — the historical band is 15..90-day-old data. Recomputing it on every
+# chat message is wrong regardless of how fast the scan is: at live ledger scale
+# (72,729 signals) it measured 39ms for one country and 98ms for three, and
+# correlate_signals runs per message. The band cannot meaningfully change inside
+# a few minutes, so it is cached PER COUNTRY — per country rather than per
+# insight-set so two different queries share the work.
+#
+# Kept resettable, and reset by an autouse fixture in the test file. A leaked
+# module-level cache is the exact mechanism behind the 15 order-dependent
+# failures closed by R-F3449; a cache that survives between tests makes the
+# second test observe the first one's answer.
+_HIST_CACHE_TTL_S = int(os.getenv("ARIA_TRAJECTORY_CACHE_TTL_S", "300"))
+_hist_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _reset_trajectory_cache() -> None:
+    """Drop the historical-band cache. For tests and for an operator-forced recompute."""
+    _hist_cache.clear()
+
+
+def _historical_origins_by_country(
+    ledger_signals: list, countries: set[str], now: datetime
+) -> dict[str, dict]:
+    """R-F3521 — independent origins in the 15..90d band, for named countries only.
+
+    Restricted to countries that ALREADY produced an insight, which is normally a
+    handful. That matters: correlate_signals runs on the chat request path
+    (aria_engine._sync_correlation_context) over a ledger holding ~72k signals, so
+    an unrestricted second pass would put real per-message latency on every reply.
+    The membership test below is a set lookup per signal; descriptor building and
+    the union-find happen only for the few countries that matter.
+
+    Identity uses the ledger's OWN dedup notion — the normalised leading text —
+    rather than a fresh hash. intel_ledger dedups on ``text[:150].lower()``
+    (intel_ledger.py:773,785), so two records the ledger considers the same story
+    must not read as two independent witnesses here either.
+    """
+    # Serve what is still fresh; scan only for the rest. If every requested
+    # country is cached the ledger is not walked at all.
+    mono = time.monotonic()
+    out: dict[str, dict] = {}
+    pending = set()
+    for c in countries:
+        hit = _hist_cache.get(c)
+        if hit and hit[0] > mono:
+            out[c] = dict(hit[1])
+        else:
+            pending.add(c)
+    if not pending:
+        return out
+
+    countries = pending
+    active_cutoff = (now - timedelta(days=CORRELATION_WINDOW_DAYS)).isoformat()
+    hist_cutoff = (now - timedelta(days=HISTORICAL_WINDOW_DAYS)).isoformat()
+
+    # Deduped descriptors per country. A set, not a list: feeding the union-find
+    # the same (publisher, story) pair a thousand times cannot change its answer,
+    # so carrying the duplicates would only cost memory on the request path.
+    buckets: dict[str, set] = {c: set() for c in countries}
+    counts: dict[str, int] = {c: 0 for c in countries}
+
+    for sig in ledger_signals:
+        ts = sig.get("ts", "")
+        # Strictly OUTSIDE the active window and inside the historical one. The
+        # bands must not overlap or the same signal would be counted on both
+        # sides of the comparison and every country would look flat.
+        if not ts or ts >= active_cutoff or ts < hist_cutoff:
+            continue
+        sig_countries = sig.get("countries") or []
+        if not sig_countries:
+            continue
+        # Membership FIRST. Building the descriptor before this test cost 131ms
+        # per call at live ledger scale (72,729 signals) because it normalised
+        # text for every country in the band, not the two or three an insight
+        # actually asked about. Measured, not guessed.
+        wanted = [c.lower() for c in sig_countries if c.lower() in buckets]
+        if not wanted:
+            continue
+        text = sig.get("text", "") or ""
+        story = " ".join(text[:150].split()).casefold()
+        url = (sig.get("url") or "").strip() or (sig.get("source") or "").strip()
+        for c in wanted:
+            counts[c] += 1
+            buckets[c].add((url, story))
+
+    expiry = mono + _HIST_CACHE_TTL_S
+    for c, descriptors in buckets.items():
+        sources = [{"url": u, "story": s} if s else {"url": u} for u, s in descriptors]
+        failed = False
+        try:
+            from .dd_independent_verifier import count_independent_origins
+            origins = int(count_independent_origins(sources)) if sources else 0
+        except Exception as exc:
+            # Same rule as _independent_origins: NEVER inflate on failure. Zero
+            # historical origins yields UNKNOWN below, not a confident verdict.
+            logger.warning("[R-F3521] historical origin count failed for %s: %s", c, exc)
+            origins, failed = 0, True
+        entry = {"signals": counts[c], "origins": origins}
+        out[c] = entry
+        # Never cache a failure. Caching origins=0 from a broken counter would
+        # pin a wrong answer for the full TTL and make the failure look like a
+        # measurement.
+        if not failed:
+            _hist_cache[c] = (expiry, dict(entry))
+    return out
+
+
+def _trajectory(active_origins: int, hist: dict) -> dict:
+    """R-F3521 — direction of travel from independent-origin RATES, not volume.
+
+    Rates, not totals: the bands are different lengths (14d vs 76d), so comparing
+    raw counts would call almost everything "decaying" purely because the
+    historical band is five times longer.
+
+    Returns UNKNOWN rather than guessing whenever the evidence cannot support a
+    direction. "Could not measure" is not "measured and found flat" — the same
+    tri-state discipline the phase gates use for `pass`.
+    """
+    hist_origins = int(hist.get("origins") or 0)
+    total = int(active_origins or 0) + hist_origins
+
+    if total < _MIN_TRAJECTORY_ORIGINS:
+        return {"trajectory": TRAJECTORY_UNKNOWN,
+                "basis": (f"insufficient independent evidence to call a direction "
+                          f"({total} origin(s) across 90 days; need "
+                          f"{_MIN_TRAJECTORY_ORIGINS})")}
+
+    active_rate = active_origins / float(CORRELATION_WINDOW_DAYS)
+    hist_days = float(HISTORICAL_WINDOW_DAYS - CORRELATION_WINDOW_DAYS)
+    hist_rate = hist_origins / hist_days if hist_days > 0 else 0.0
+
+    if hist_origins == 0:
+        # No independent prior coverage at all. Genuinely new activity — which is
+        # useful and is NOT the same claim as "accelerating from a known base".
+        return {"trajectory": TRAJECTORY_EMERGING,
+                "basis": (f"{active_origins} independent origin(s) in the last "
+                          f"{CORRELATION_WINDOW_DAYS} days with no independent "
+                          f"coverage in the preceding {int(hist_days)}")}
+
+    ratio = active_rate / hist_rate if hist_rate > 0 else float("inf")
+    if ratio >= _TRAJECTORY_ACCEL_RATIO:
+        label = TRAJECTORY_ACCELERATING
+    elif ratio <= _TRAJECTORY_DECAY_RATIO:
+        label = TRAJECTORY_DECAYING
+    else:
+        label = TRAJECTORY_SUSTAINED
+    return {"trajectory": label,
+            "basis": (f"{active_origins} independent origin(s) in {CORRELATION_WINDOW_DAYS}d "
+                      f"vs {hist_origins} in the preceding {int(hist_days)}d "
+                      f"({ratio:.1f}x the prior rate)")}
+
+
+async def _annotate_trajectories(insights: list[dict]) -> None:
+    """R-F3521 — add temporal context to insights that have ALREADY been generated.
+
+    Deliberately a post-pass that MUTATES rather than a parameter to
+    _generate_insight. The anti-inflation property is then structural instead of
+    a promise in a docstring: this function has no way to create an insight,
+    remove one, or change a score, because by the time it runs those decisions are
+    made and it only writes new keys.
+
+    That ordering is the whole design. Widening a correlation window is the
+    textbook way to make an engine look smarter while making it wrong more often
+    — every score rises, more insights fire, and nothing new was actually learnt.
+
+    Never raises: a failure here degrades trajectories to UNKNOWN and leaves every
+    existing insight untouched.
+    """
+    if not insights:
+        return
+    try:
+        from . import intel_ledger
+        ledger = await intel_ledger._load()
+        signals = ledger.get("signals", []) or []
+        countries = {str(i.get("country", "")).lower() for i in insights}
+        countries.discard("")
+        # OFF the event loop. This is a pure-CPU scan of an in-memory list with no
+        # I/O and no shared mutation, and correlate_signals sits on the chat
+        # request path (aria_engine._sync_correlation_context) — the same place
+        # R-F3475 found trafilatura blocking and causing live stalls. Measured at
+        # live ledger scale it is tens of ms, which is small but is exactly the
+        # kind of "small" that accumulates into a stall report.
+        hist = await asyncio.to_thread(
+            _historical_origins_by_country, signals, countries,
+            datetime.now(timezone.utc))
+        for insight in insights:
+            c = str(insight.get("country", "")).lower()
+            h = hist.get(c) or {"signals": 0, "origins": 0}
+            t = _trajectory(int(insight.get("independent_origins") or 0), h)
+            insight["trajectory"] = t["trajectory"]
+            insight["trajectory_basis"] = t["basis"]
+            insight["historical_signal_count"] = h["signals"]
+            insight["historical_independent_origins"] = h["origins"]
+    except Exception as exc:
+        logger.warning("[R-F3521] trajectory annotation failed: %s", exc)
+        try:
+            wire_failure(
+                module="signal_correlator",
+                detail=f"trajectory annotation failed, insights left untouched: {exc}"[:400],
+                gap_type="engine_failure",
+                source="signal_correlator:_annotate_trajectories")
+        except Exception:
+            pass
 
 
 def _story_fingerprint(text: str) -> str:
@@ -398,6 +655,12 @@ def _generate_insight(country: str, signals: list[dict], signal_types: set, scor
         # only the first is what let volume masquerade as corroboration.
         "independent_origins": _origins,
         "independently_corroborated": _origins >= _MIN_INDEPENDENT_ORIGINS,
+        # R-F3521 — present on EVERY insight so no consumer has to test for the
+        # key's existence. UNKNOWN until _annotate_trajectories measures it, which
+        # is honest for a direct caller of _generate_insight (several tests): it
+        # has no historical band to reason from, and absent must not read as flat.
+        "trajectory": TRAJECTORY_UNKNOWN,
+        "trajectory_basis": "not yet measured",
         "signal_types": sorted(signal_types),
         "signals": [{"type": s["type"], "text": s["text"][:150], "source": s["source"]} for s in signals[:10]],
         "generated_at": datetime.now(timezone.utc).isoformat(),
