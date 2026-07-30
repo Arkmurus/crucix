@@ -313,7 +313,13 @@ def test_every_endpoint_has_required_fields():
     for ep in WEB_ENDPOINTS:
         assert "path" in ep, f"Endpoint missing 'path': {ep}"
         assert "method" in ep, f"Endpoint missing 'method': {ep}"
-        assert "expected" in ep, f"Endpoint missing 'expected': {ep}"
+        # R-F3479 — a probe declares either the response FIELDS it verifies
+        # (`expected`) or the STATUS it expects (`expected_status`, for an
+        # endpoint that legitimately rejects). One or the other must be
+        # present, or the probe asserts nothing at all.
+        assert ("expected" in ep) or ("expected_status" in ep), (
+            f"Endpoint declares neither 'expected' nor 'expected_status': {ep}"
+        )
         assert "critical" in ep, f"Endpoint missing 'critical': {ep}"
 
 

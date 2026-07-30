@@ -124,7 +124,19 @@ WEB_ENDPOINTS: list[dict[str, Any]] = [
     # probes without a token, getting 401. Marked non-critical so no alert
     # fires, but the 401 is log noise. Removed from probe list since the
     # agent can't authenticate for this endpoint.
-    {"path": "/api/aria/report", "method": "POST", "expected": {"sections", "sources"}, "critical": False},
+    # R-F3479 — this was POSTed json={} against a route requiring report_type +
+    # subject (routes/aria.py:15597), so it 400d on EVERY cycle while being
+    # counted as a pass, and its declared `expected` fields were never evaluated.
+    #
+    # It is NOT fixed by sending a valid body: build_report() calls the LLM, so a
+    # 60s monitor would generate ~1,440 reports/day straight through the §17 cost
+    # cap. A monitor must not buy anything. So the probe now checks the CONTRACT
+    # it can check for free — that the route is mounted and REJECTS an invalid
+    # payload — and declares the 400 it expects, which is a real input-validation
+    # check rather than a silent pass. Output shape is covered by the report
+    # capability tests, not by a production poller.
+    {"path": "/api/aria/report", "method": "POST", "expected_status": 400,
+     "critical": False},
 
     # Due diligence
     {"path": "/api/aria/dd/watchlist/alerts/unread-count", "method": "GET",
@@ -137,7 +149,13 @@ WEB_ENDPOINTS: list[dict[str, Any]] = [
 
     # Cost & autonomy
     {"path": "/api/aria/cost/monthly/status", "method": "GET", "expected": {"spent_usd", "cap_usd"}, "critical": False},  # R-F2597: real fields (was stale total/monthly_cap)
-    {"path": "/api/aria/autonomous/status", "method": "GET", "expected": {"ok", "engine"}, "critical": False},
+    # R-F3479 — R-F2139 scopes /api/aria/autonomous/ to the OPERATOR token
+    # (routes/aria.py:297); this agent holds only the internal one, so it 403s
+    # every cycle. Declared, so the rejection is visible and deliberate rather
+    # than a silent pass. Same shape as the R-F2567 coder/llm 403.
+    {"path": "/api/aria/autonomous/status", "method": "GET",
+     "expected": {"ok", "engine"}, "operator_scoped": True,
+     "expected_status_without_operator_token": 403, "critical": False},
 
     # Adversarial
     {"path": "/api/aria/adversarial/stats", "method": "GET", "expected": {}, "critical": False},
@@ -211,6 +229,88 @@ def _internal_auth_headers() -> dict:
     return {"Authorization": f"Bearer {tok}"} if tok else {}
 
 
+def _probe_auth_headers(endpoint: dict) -> dict:
+    """R-F3479 — headers for one probe, escalating to the OPERATOR token where
+    the endpoint requires it.
+
+    R-F2561 attached the internal token "so probes don't 401". They no longer
+    401 — they 403, because R-F2139 scopes control paths like
+    ``/api/aria/autonomous/`` to the operator token (routes/aria.py:297). The
+    result was a probe that rejected on every cycle while being scored as a pass.
+
+    Declaring the 403 would make it honest but blind: the endpoint's
+    ``{ok, engine}`` contract would never be checked again. This agent runs
+    IN-PROCESS against localhost, so it can legitimately hold the operator token
+    and verify the endpoint for real. Nothing is exposed to the network by this —
+    the token never leaves the box.
+
+    Falls back to the internal token when ARIA_OPERATOR_TOKEN is unset, in which
+    case the endpoint's declared ``expected_status`` keeps the result honest.
+    """
+    if not endpoint.get("operator_scoped"):
+        return _internal_auth_headers()
+    tok = (os.getenv("ARIA_OPERATOR_TOKEN") or "").strip()
+    if tok:
+        return {"Authorization": f"Bearer {tok}"}
+    return _internal_auth_headers()
+
+
+def _apply_status_verdict(check, resp, expected_status) -> None:
+    """R-F3479 — a 4xx is a FAILURE unless the probe declared it.
+
+    This used to fail only on 5xx; a 4xx appended a warning and left
+    ``passed = True``. Live 2026-07-30, every cycle of the whole review window:
+    ``POST /api/aria/report`` 400 and ``GET /api/aria/autonomous/status`` 403,
+    reported as "9 endpoints, 9 passed, 0 failed". A monitor that cannot fail is
+    worse than no monitor — the green number suppresses the investigation.
+
+    ``expected_status`` lets a probe declare a rejection it EXPECTS (an auth
+    probe that should 403). That keeps the pass deliberate and visible in the
+    endpoint table, instead of an accident of the rule.
+    """
+    code = resp.status_code
+    if expected_status is not None:
+        if code == expected_status:
+            return
+        check.errors.append(
+            f"Expected status {expected_status} but got {code} on "
+            f"{check.method} {check.endpoint}"
+        )
+        check.passed = False
+        return
+    if code >= 500:
+        check.errors.append(
+            f"Server error: {code} on {check.method} {check.endpoint}"
+        )
+        check.passed = False
+    elif code >= 400:
+        check.errors.append(
+            f"Client error: {code} on {check.method} {check.endpoint} — the "
+            f"probe cannot verify this endpoint's contract while it rejects"
+        )
+        check.passed = False
+
+
+def _apply_field_verdict(check, resp, expected) -> None:
+    """Check the declared response fields on a successful response."""
+    if not (expected and resp.is_success):
+        return
+    try:
+        data = resp.json()
+        for fname in expected:  # R-F2523: was 'field' — shadowed dataclasses.field
+            if fname not in data:
+                check.errors.append(
+                    f"Missing expected field '{fname}' in "
+                    f"{check.method} {check.endpoint}"
+                )
+                check.passed = False
+    except (json.JSONDecodeError, ValueError):
+        check.warnings.append(
+            f"Non-JSON response on {check.method} {check.endpoint} "
+            f"(expected fields: {expected})"
+        )
+
+
 async def check_endpoint(endpoint: dict[str, Any]) -> IntegrityCheck:
     """Check a single web endpoint for correctness.
 
@@ -233,11 +333,13 @@ async def check_endpoint(endpoint: dict[str, Any]) -> IntegrityCheck:
     try:
         url = f"{_ARIA_SERVICE_URL}{path}"
         async with httpx.AsyncClient(timeout=10.0) as client:  # no-breaker: web integrity agent is best-effort; breaker would block integrity checks
-            _hdrs = _internal_auth_headers()   # R-F2561 — internal token so probes don't 401
+            # R-F3479 — escalate to the operator token for control-plane probes.
+            _hdrs = _probe_auth_headers(endpoint)
             if method == "GET":
                 resp = await client.get(url, headers=_hdrs)
             elif method == "POST":
-                resp = await client.post(url, json={}, headers=_hdrs)
+                resp = await client.post(
+                    url, json=endpoint.get("body") or {}, headers=_hdrs)
             else:
                 check.errors.append(f"Unsupported method: {method}")
                 check.passed = False
@@ -248,15 +350,13 @@ async def check_endpoint(endpoint: dict[str, Any]) -> IntegrityCheck:
         check.status_code = resp.status_code
 
         # Check 1: Status code
-        if resp.status_code >= 500:
-            check.errors.append(
-                f"Server error: {resp.status_code} on {method} {path}"
-            )
-            check.passed = False
-        elif resp.status_code >= 400:
-            check.warnings.append(
-                f"Client error: {resp.status_code} on {method} {path}"
-            )
+        # R-F3479 — an operator-scoped probe verifies for real when the operator
+        # token is available, and otherwise declares the 403 it will get, so the
+        # result is honest either way.
+        _exp_status = endpoint.get("expected_status")
+        if endpoint.get("operator_scoped") and not (os.getenv("ARIA_OPERATOR_TOKEN") or "").strip():
+            _exp_status = endpoint.get("expected_status_without_operator_token")
+        _apply_status_verdict(check, resp, _exp_status)
 
         # Check 2: Response time
         if elapsed > 5000:
@@ -269,19 +369,7 @@ async def check_endpoint(endpoint: dict[str, Any]) -> IntegrityCheck:
         # without a bearer token — don't flag as missing_field. The endpoint
         # is working correctly (it rejected an unauthenticated request).
         # Only check expected fields when the response is successful (2xx).
-        if expected and resp.is_success:
-            try:
-                data = resp.json()
-                for fname in expected:  # R-F2523: was 'field' — shadowed dataclasses.field
-                    if fname not in data:
-                        check.errors.append(
-                            f"Missing expected field '{fname}' in {method} {path}"
-                        )
-                        check.passed = False
-            except (json.JSONDecodeError, ValueError):
-                check.warnings.append(
-                    f"Non-JSON response on {method} {path} (expected fields: {expected})"
-                )
+        _apply_field_verdict(check, resp, expected)
 
         # Check 4: Critical endpoints must respond fast
         if is_critical and elapsed > 2000:
