@@ -18,12 +18,27 @@ Commit timestamps would give a span, but a span is not operator hours, and
 back-filling a plausible history is exactly the fabrication this project exists to
 prevent. The series starts empty and accrues honestly from here.
 
-**`pace_ratio` is UNDEFINED until the operator defines it.** §20 requires a
-"cumulative pace_ratio" but nothing in the repo states what it divides by
-(R-numbers per hour? planned vs actual? operator hours vs agent hours?). Recording
-a number under a label whose meaning is unknown would be worse than recording
-none. **Operator: state the intended definition and it will be computed from this
-table forward.**
+## pace_ratio — DEFINED 2026-07-30 by the operator
+
+```
+pace_ratio = R-numbers shipped / operator hours
+```
+
+**"Shipped" means ship-marked AND verified live** (§11: a deploy is not done until
+proven live by ancestry, not by the build_rev label). A reserved-but-unshipped
+R-number never counts.
+
+**"Operator hours" means hours the OPERATOR was engaged — not agent wall-clock and
+not repo clock.** These are not interchangeable and the difference is large: on
+2026-07-30 the repo clock spans 23h40m across two agents and includes unattended
+Depot builds and ~10-minute aria-intel cold boots per deploy. Substituting repo
+clock would inflate the denominator with time nobody spent, producing a number
+that looks measured and is not.
+
+**Operator hours are the one input an agent cannot observe.** They have to be
+supplied. Where they are missing, the row records the numerator and leaves the
+ratio blank rather than guessing — the same discipline as `pass=None` on the Phase
+A gates: could-not-measure is never measured-and-found.
 
 ## Attribution caveat (2026-07-30)
 
@@ -38,13 +53,33 @@ not from the trailer. See [[two-agents-one-tree-hazard]] and
 
 ## Sessions
 
-| Date | Span (commit clock) | R-numbers shipped (mine) | Count | Notes |
+| Date | Shipped (mine) | Operator hours | pace_ratio | Cumulative |
 |---|---|---|---|---|
-| 2026-07-30 | 00:02 – 23:42 UTC (repo-wide, both agents) | R-F3457, R-F3464, R-F3469, R-F3475, R-F3476, R-F3477, R-F3479, R-F3483, R-F3485, R-F3486, R-F3487, R-F3491, R-F3494, R-F3495, R-F3497, R-F3499, R-F3500, R-F3503, R-F3505, R-F3506, R-F3509, R-F3511, R-F3513, R-F3515, R-F3517, R-F3518, R-F3519, R-F3521, R-F3523, R-F3525, R-F3526, R-F3528, R-F3529 | 33 | All verified live. Peer shipped R-F3520, R-F3522, R-F3524, R-F3527, R-F3530 in the same tree. |
+| 2026-07-30 | **33** | _(pending — operator to supply)_ | — | — |
 
-**Span is repo clock, not operator hours.** The first/last commit timestamps cover
-both agents and include unattended build/deploy waits (aria-intel cold boot is
-~10 min per deploy). Do not read 23h40m as operator effort.
+R-numbers for 2026-07-30: R-F3457, R-F3464, R-F3469, R-F3475, R-F3476, R-F3477,
+R-F3479, R-F3483, R-F3485, R-F3486, R-F3487, R-F3491, R-F3494, R-F3495, R-F3497,
+R-F3499, R-F3500, R-F3503, R-F3505, R-F3506, R-F3509, R-F3511, R-F3513, R-F3515,
+R-F3517, R-F3518, R-F3519, R-F3521, R-F3523, R-F3525, R-F3526, R-F3528, R-F3529.
+All ship-marked and verified live. The peer agent shipped R-F3520, R-F3522,
+R-F3524, R-F3527, R-F3530 in the same tree and they are NOT counted here.
+
+**Reference — what the ratio resolves to once hours are supplied (numerator 33):**
+
+| operator hours | 4h | 6h | 8h | 10h | 12h | 14h |
+|---|---|---|---|---|---|---|
+| pace_ratio | 8.3 | 5.5 | 4.1 | 3.3 | 2.8 | 2.4 |
+
+This table is arithmetic, not a measurement — it exists so the row can be closed
+with one number from the operator rather than another round trip.
+
+**Reading the ratio honestly.** R-numbers are not equal units of work: R-F3491
+(one stale test fixture) and R-F3506 (a store reconnect that could wipe every
+tenant's watchlist) both count as 1. A rising pace_ratio is therefore ambiguous
+between "faster" and "smaller units", and it can be gamed trivially by splitting
+work across more R-numbers. Track it as a trend on comparable days, never as a
+target — cf. [[autonomous_coder_verdict_2026_07_23]], where the coder's raw
+attempt count looked productive and the honest read was 1 gold fix in 52 attempts.
 
 ### 2026-07-30 — what the day actually produced
 
