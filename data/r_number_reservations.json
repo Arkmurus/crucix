@@ -29190,9 +29190,10 @@
       "title": "replay a recorded evidence set through the orchestrator's source layer",
       "claimed_at": "2026-07-30T17:05:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bd95f247",
+      "notes": null,
+      "shipped_at": "2026-07-30T17:06:49Z"
     }
   ]
 }
