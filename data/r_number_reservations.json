@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3471,
+  "next_available": 3472,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28712,9 +28712,10 @@
       "title": "BS7858 single-standard intelligent vetting",
       "claimed_at": "2026-07-30T11:08:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "726837c7",
+      "notes": null,
+      "shipped_at": "2026-07-30T11:42:51Z"
     },
     {
       "r_number": "R-F3467",
@@ -28748,6 +28749,16 @@
       "r_number": "R-F3470",
       "title": "ARIA Brain zero evidence honesty",
       "claimed_at": "2026-07-30T11:32:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0cb4492cb58e5f63d709bceddfc6a9c8049c5101",
+      "notes": null,
+      "shipped_at": "2026-07-30T11:53:02Z"
+    },
+    {
+      "r_number": "R-F3471",
+      "title": "vetting assurance rule is prose only: guard the prohibited BS 7858 claim wording",
+      "claimed_at": "2026-07-30T11:52:46Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
