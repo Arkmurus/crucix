@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3503,
+  "next_available": 3505,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29042,18 +29042,20 @@
       "title": "selective deep enrichment: fetch bodies only where they change the answer",
       "claimed_at": "2026-07-30T15:04:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9e09be8e",
+      "notes": null,
+      "shipped_at": "2026-07-30T15:32:39Z"
     },
     {
       "r_number": "R-F3500",
       "title": "deleted DD keeps being monitored and its subject name is logged at INFO",
       "claimed_at": "2026-07-30T15:13:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9e09be8e",
+      "notes": null,
+      "shipped_at": "2026-07-30T15:32:40Z"
     },
     {
       "r_number": "R-F3501",
@@ -29074,6 +29076,24 @@
       "commit_sha": "9e09be8e",
       "notes": null,
       "shipped_at": "2026-07-30T15:31:54Z"
+    },
+    {
+      "r_number": "R-F3503",
+      "title": "watchlist UI claims removal succeeded when nothing was removed",
+      "claimed_at": "2026-07-30T15:33:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3504",
+      "title": "wire get_psc_exemptions: an empty PSC register must be explained, not left reading as opacity",
+      "claimed_at": "2026-07-30T15:34:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

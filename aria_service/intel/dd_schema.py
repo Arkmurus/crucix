@@ -394,6 +394,10 @@ class IdentitySection:
     # {lei, registration_status, entity_status, lapsed: bool, source_url}
     lei_registration: dict = field(default_factory=dict)
     sanctions_screen: dict = field(default_factory=dict)  # from sanctions.screen_with_aliases
+    # R-F3504 — why the PSC register may lawfully be empty. An absence with a
+    # checkable explanation is not the same as undisclosed ownership, and the
+    # difference is decision-critical (R-F2830).
+    psc_exemptions: dict = field(default_factory=dict)
     ghost_score: dict = field(default_factory=dict)       # from due_diligence_playbooks.score_ghost_indicators
     findings: list[Finding] = field(default_factory=list)
     data_gaps: list[str] = field(default_factory=list)
