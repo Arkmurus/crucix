@@ -29060,9 +29060,10 @@
       "title": "executable report-layer gold case: run the real assembly functions against frozen inputs",
       "claimed_at": "2026-07-30T15:15:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "063e6daf",
+      "notes": null,
+      "shipped_at": "2026-07-30T15:19:01Z"
     }
   ]
 }
