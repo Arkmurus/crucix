@@ -652,8 +652,8 @@ async def fetch_with_fallbacks(
                 # Also extract plain text via the existing structured
                 # extractor so the return shape is uniform
                 try:
-                    from .researcher import _extract_structured_html
-                    extracted = _extract_structured_html(r.text)
+                    from .researcher import extract_structured_html_async
+                    extracted = await extract_structured_html_async(r.text)
                     result["text"] = extracted.get("text", "") or ""
                 except Exception:
                     result["text"] = re.sub(r"<[^>]+>", " ", r.text)[:50000]
@@ -687,8 +687,8 @@ async def fetch_with_fallbacks(
                 f"snapshot {wb.get('snapshot_timestamp','?')}"
             )
             try:
-                from .researcher import _extract_structured_html
-                extracted = _extract_structured_html(result["html"])
+                from .researcher import extract_structured_html_async
+                extracted = await extract_structured_html_async(result["html"])
                 result["text"] = extracted.get("text", "") or ""
             except Exception:
                 result["text"] = re.sub(r"<[^>]+>", " ", result["html"])[:50000]

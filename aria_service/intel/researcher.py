@@ -887,6 +887,29 @@ def _is_plausible_defence_domain(url: str) -> bool:
     return not any(host == d or host.endswith("." + d) for d in _IMPLAUSIBLE_DEFENCE_DOMAINS)
 
 
+async def extract_structured_html_async(html: str) -> dict:
+    """R-F3475 — run _extract_structured_html OFF the event loop.
+
+    LIVE 2026-07-30: R-F3464's stall attribution caught this on the loop thread:
+        trafilatura/main_extractor.py:_extract:610
+        trafilatura/main_extractor.py:extract_content:657
+        trafilatura/core.py:trafilatura_sequence:103
+
+    Unlike the three stall causes fixed before it — a module import (R-F3467), a
+    sqlite commit (R-F3468) and a DNS resolve (R-F3473), all blocking syscalls —
+    this one is pure CPU: trafilatura parses the DOM and runs main-content
+    detection, and the function below then runs a dozen regex passes over the
+    whole document (R-F2204 raised the output cap to 30k chars, so inputs are
+    large by design). CPU-bound work cannot be made non-blocking in place; it has
+    to move to a thread.
+
+    Every async caller must use THIS, not the sync function. A guard test
+    (test_rf3475_html_extraction_offload.py) fails the build if a new async
+    caller calls the sync one directly.
+    """
+    return await asyncio.to_thread(_extract_structured_html, html)
+
+
 def _extract_structured_html(html: str) -> dict:
     """Extract STRUCTURED data from HTML — not just blob text.
 
@@ -3503,7 +3526,7 @@ async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
             "duration_ms": int((time.time() - t0) * 1000),
         }
 
-    extracted = _extract_structured_html(html)
+    extracted = await extract_structured_html_async(html)
     text = extracted.get("text", "") or ""
     if not text or len(text) < 50:
         # R-W2: also try headless when html had content but extraction
@@ -3517,7 +3540,7 @@ async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
                 )
                 rendered = await _headless.fetch_rendered_html(url, timeout=20)
                 if rendered and len(rendered) > len(html or ""):
-                    extracted = _extract_structured_html(rendered)
+                    extracted = await extract_structured_html_async(rendered)
                     text = extracted.get("text", "") or ""
         except Exception as _hl_e:
             logger.debug("R-W2 headless fallback failed for %s: %s", url[:80], _hl_e)

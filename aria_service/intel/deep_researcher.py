@@ -106,7 +106,7 @@ async def _fetch_page_with_links(url: str, timeout: float = 15.0) -> tuple[str, 
     """
     import asyncio as _asyncio
     from .security import sanitise_url
-    from .researcher import _extract_structured_html
+    from .researcher import extract_structured_html_async
 
     url = sanitise_url(url)
     if not url:
@@ -184,7 +184,7 @@ async def _fetch_page_with_links(url: str, timeout: float = 15.0) -> tuple[str, 
 
     try:
         links = await _extract_links(url, html)
-        extracted = _extract_structured_html(html)
+        extracted = await extract_structured_html_async(html)
         text = extracted.get("text", "")
         if not text:
             # Fallback to plain strip if structured extraction returned nothing
