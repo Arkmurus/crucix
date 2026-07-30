@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3459,
+  "next_available": 3460,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28629,6 +28629,15 @@
       "r_number": "R-F3458",
       "title": "get_breaker silently discards config on re-registration; add peek_breaker for read-only checks",
       "claimed_at": "2026-07-30T10:26:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3459",
+      "title": "test timeout inversion: an inner subprocess timeout above the per-test budget kills the run",
+      "claimed_at": "2026-07-30T10:30:34Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -117,7 +117,7 @@ def test_dry_run_is_the_default_and_writes_nothing(tmp_path: Path):
     before = (root / "chroma.sqlite3").read_bytes()
     proc = subprocess.run(
         [sys.executable, str(TOOL), "--collection", "aria_documents", "--rag-path", str(root)],
-        capture_output=True, text=True, timeout=300,
+        capture_output=True, text=True, timeout=90,   # R-F3459: below the 120s per-test budget
     )
     assert proc.returncode == 0, proc.stderr[-500:]
     assert "DRY RUN" in proc.stdout
@@ -131,7 +131,7 @@ def test_apply_refuses_without_a_verified_backup(tmp_path: Path):
     proc = subprocess.run(
         [sys.executable, str(TOOL), "--collection", "aria_documents",
          "--rag-path", str(root), "--apply"],
-        capture_output=True, text=True, timeout=300,
+        capture_output=True, text=True, timeout=90,   # R-F3459: below the 120s per-test budget
     )
     assert proc.returncode == 1
     assert "REFUSING" in proc.stdout
@@ -145,7 +145,7 @@ def test_apply_refuses_when_backup_dir_is_not_a_real_backup(tmp_path: Path):
     proc = subprocess.run(
         [sys.executable, str(TOOL), "--collection", "aria_documents", "--rag-path", str(root),
          "--apply", "--backup-dir", str(empty)],
-        capture_output=True, text=True, timeout=300,
+        capture_output=True, text=True, timeout=90,   # R-F3459: below the 120s per-test budget
     )
     assert proc.returncode == 1
     assert "NOT A VALID BACKUP" in proc.stdout
@@ -155,7 +155,7 @@ def test_unknown_collection_is_an_error_not_a_silent_noop(tmp_path: Path):
     root = _fixture_store(tmp_path, records=1)
     proc = subprocess.run(
         [sys.executable, str(TOOL), "--collection", "does_not_exist", "--rag-path", str(root)],
-        capture_output=True, text=True, timeout=300,
+        capture_output=True, text=True, timeout=90,   # R-F3459: below the 120s per-test budget
     )
     assert proc.returncode == 2
     assert "ERROR" in proc.stdout

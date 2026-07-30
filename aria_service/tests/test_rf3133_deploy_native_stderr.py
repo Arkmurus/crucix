@@ -129,7 +129,7 @@ def _ps5(body: str, tmp_path: Path) -> str:
         [POWERSHELL_5, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=90,   # R-F3459: below the 120s per-test budget
     )
     return (proc.stdout or "") + (proc.stderr or "")
 

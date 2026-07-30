@@ -33,7 +33,7 @@ def _dry_run(dataset: Path, **env_over) -> subprocess.CompletedProcess:
     env = {**os.environ, **{k: str(v) for k, v in env_over.items()}}
     return subprocess.run(
         [sys.executable, str(SCRIPT), "--dry-run", "--dataset", str(dataset)],
-        cwd=str(REPO), env=env, capture_output=True, text=True, timeout=180,
+        cwd=str(REPO), env=env, capture_output=True, text=True, timeout=90,   # R-F3459: below the 120s per-test budget
     )
 
 

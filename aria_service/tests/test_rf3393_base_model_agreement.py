@@ -100,7 +100,7 @@ def test_missing_base_model_is_a_hard_error():
     import subprocess, sys
     r = subprocess.run(
         [sys.executable, str(SFT), "--train-file", "x.jsonl", "--output-dir", "out"],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True, text=True, timeout=90,   # R-F3459: below the 120s per-test budget
     )
     assert r.returncode != 0
     assert "base-model" in (r.stderr + r.stdout).lower()
