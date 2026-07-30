@@ -2055,14 +2055,51 @@ async def list_sources(limit: int = 50) -> dict:
 
 # ── Surgical purge by keyword ──────────────────────────────────────────────
 
+#: R-F3478 — every collection a SEARCH can return content from, and therefore every
+#: collection an ERASURE must reach. The labels match the ones the retrieval path passes
+#: to `_sync_query_collection`, so the two surfaces are comparable by a test rather than
+#: by whoever remembers to update both.
+_SEARCHABLE_COLLECTION_LABELS = ("documents", "facts", "documents_cold")
+
+
+def _searchable_collections() -> list[tuple[str, object]]:
+    """(label, collection) for every searchable collection, live objects included.
+
+    Shared by retrieval-coverage assertions and by `purge_by_keywords`. A collection
+    that is `None` (chromadb unavailable, or cold not yet created) is still returned so
+    the caller records that it was CONSIDERED — an absent collection must not read the
+    same as one that was scanned and matched nothing.
+    """
+    return [
+        ("documents", _documents_collection),
+        ("facts", _facts_collection),
+        ("documents_cold", _documents_cold_collection),
+    ]
+
+
 @fail_wire(module="rag_store", gap_type="embedder_failure")
 async def purge_by_keywords(
     keywords: list[str],
     *,
     dry_run: bool = False,
 ) -> dict:
-    """Remove every chunk in `aria_documents` and `aria_facts` whose stored
-    text contains any of the given keywords (case-insensitive substring).
+    """Remove every chunk in EVERY SEARCHABLE COLLECTION whose stored text
+    contains any of the given keywords (case-insensitive substring).
+
+    R-F3478 — THE ERASURE SURFACE MUST EQUAL THE RETRIEVAL SURFACE.
+
+    This scanned `aria_documents` and `aria_facts` only. Retrieval also queries
+    `aria_documents_cold` (see the `documents_cold` query task in `search`), because
+    R-F2989 offloads the oldest ~10% of documents there and searches consult both. So
+    material offloaded to cold SURVIVED a purge and stayed retrievable, while the purge
+    returned removed-counts and reported success.
+
+    That is the erasure analogue of a false clean, and it is worse than a purge that
+    fails: a caller acting on a right-to-erasure request was told the content was gone.
+
+    The collection list now comes from `_searchable_collections()`, which is the single
+    source of truth shared with the retrieval path — adding a fourth collection cannot
+    silently escape erasure again, and `test_rf3478_*` fails if one does.
 
     Background: 2026-04-24 OpenClaw incident — ARIA's brain_hook absorbed
     a fabricated brave_answer about a fictional "OpenClaw" gateway into
@@ -2076,23 +2113,24 @@ async def purge_by_keywords(
     materialisation runs in <2s.
 
     Returns:
-        {scanned_docs, scanned_facts, removed_docs, removed_facts,
-         dry_run, keywords_used, removed_samples: [...]}
+        {scanned_docs, scanned_facts, scanned_cold, removed_docs, removed_facts,
+         removed_cold, per_collection, dry_run, keywords_used,
+         removed_samples: [...], scan_errors: [...]}
     """
     if not await _ensure_async():
         return {
             "available": False,
             "reason": "rag_store_unavailable",
-            "scanned_docs": 0, "scanned_facts": 0,
-            "removed_docs": 0, "removed_facts": 0,
+            "scanned_docs": 0, "scanned_facts": 0, "scanned_cold": 0,
+            "removed_docs": 0, "removed_facts": 0, "removed_cold": 0,
             "dry_run": dry_run, "keywords_used": [],
             "removed_samples": [],
         }
     if not keywords:
         return {
             "available": True,
-            "scanned_docs": 0, "scanned_facts": 0,
-            "removed_docs": 0, "removed_facts": 0,
+            "scanned_docs": 0, "scanned_facts": 0, "scanned_cold": 0,
+            "removed_docs": 0, "removed_facts": 0, "removed_cold": 0,
             "dry_run": dry_run, "keywords_used": [],
             "removed_samples": [],
         }
@@ -2100,8 +2138,8 @@ async def purge_by_keywords(
     if not needles:
         return {
             "available": True,
-            "scanned_docs": 0, "scanned_facts": 0,
-            "removed_docs": 0, "removed_facts": 0,
+            "scanned_docs": 0, "scanned_facts": 0, "scanned_cold": 0,
+            "removed_docs": 0, "removed_facts": 0, "removed_cold": 0,
             "dry_run": dry_run, "keywords_used": [],
             "removed_samples": [],
         }
@@ -2109,8 +2147,8 @@ async def purge_by_keywords(
     import asyncio as _aio
 
     removed_samples: list[dict] = []
-    counts = {"scanned_docs": 0, "scanned_facts": 0,
-              "removed_docs": 0, "removed_facts": 0}
+    counts = {"scanned_docs": 0, "scanned_facts": 0, "scanned_cold": 0,
+              "removed_docs": 0, "removed_facts": 0, "removed_cold": 0}
 
     # R-F3389 — PAGE through the collection. The previous version issued one
     # unbounded `coll.get(include=[...])`, materialising every row in a single
@@ -2174,28 +2212,44 @@ async def purge_by_keywords(
         return n, to_delete, ""
 
     try:
-        scanned_docs, doc_ids_to_del, doc_err = await _aio.to_thread(
-            _scan_collection, _documents_collection, "documents"
-        )
-        scanned_facts, fact_ids_to_del, fact_err = await _aio.to_thread(
-            _scan_collection, _facts_collection, "facts"
-        )
-        # R-F3389 — surface any collection we could not read, so a caller can
-        # tell an empty result from a blind one.
-        scan_errors = [e for e in (doc_err, fact_err) if e]
-        counts["scanned_docs"] = scanned_docs
-        counts["scanned_facts"] = scanned_facts
-        counts["removed_docs"] = len(doc_ids_to_del)
-        counts["removed_facts"] = len(fact_ids_to_del)
+        # R-F3478 — iterate the SHARED list rather than two hardcoded calls. The cold
+        # collection was missing here while retrieval queried it, so purged material
+        # stayed searchable and the purge still reported success.
+        scan_errors: list[str] = []
+        per_collection: dict[str, dict] = {}
+        pending_deletes: list[tuple[object, list[str]]] = []
+        for _label, _coll in _searchable_collections():
+            _scanned, _ids_to_del, _err = await _aio.to_thread(
+                _scan_collection, _coll, _label
+            )
+            # R-F3389 — surface any collection we could not read, so a caller can
+            # tell an empty result from a blind one.
+            if _err:
+                scan_errors.append(_err)
+            per_collection[_label] = {
+                "scanned": _scanned,
+                "removed": len(_ids_to_del),
+                # An absent collection is NOT a scanned-and-clean one.
+                "present": _coll is not None,
+            }
+            if _ids_to_del and _coll is not None:
+                pending_deletes.append((_coll, _ids_to_del))
+
+        counts["scanned_docs"] = per_collection["documents"]["scanned"]
+        counts["scanned_facts"] = per_collection["facts"]["scanned"]
+        counts["scanned_cold"] = per_collection["documents_cold"]["scanned"]
+        counts["removed_docs"] = per_collection["documents"]["removed"]
+        counts["removed_facts"] = per_collection["facts"]["removed"]
+        counts["removed_cold"] = per_collection["documents_cold"]["removed"]
 
         if not dry_run:
-            if doc_ids_to_del and _documents_collection is not None:
-                await _aio.to_thread(_documents_collection.delete, ids=doc_ids_to_del)
-            if fact_ids_to_del and _facts_collection is not None:
-                await _aio.to_thread(_facts_collection.delete, ids=fact_ids_to_del)
+            for _coll, _ids in pending_deletes:
+                await _aio.to_thread(_coll.delete, ids=_ids)
             logger.warning(
-                "rag_store.purge_by_keywords: removed %d docs + %d facts matching %s",
-                counts["removed_docs"], counts["removed_facts"], needles,
+                "rag_store.purge_by_keywords: removed %d docs + %d facts + %d cold "
+                "matching %s",
+                counts["removed_docs"], counts["removed_facts"],
+                counts["removed_cold"], needles,
             )
     except Exception as e:
         logger.warning("rag_store.purge_by_keywords failed: %s", e)
@@ -2214,6 +2268,9 @@ async def purge_by_keywords(
         "dry_run": dry_run,
         "keywords_used": needles,
         "removed_samples": removed_samples,
+        # R-F3478 — per-collection detail, so "removed 0" from a collection that was
+        # ABSENT is distinguishable from one that was scanned and matched nothing.
+        "per_collection": per_collection,
         # R-F3389 — empty means "nothing matched" ONLY when this is empty too.
         "scan_errors": scan_errors,
     }
