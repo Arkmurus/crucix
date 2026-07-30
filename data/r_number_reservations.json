@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3454,
+  "next_available": 3455,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28585,6 +28585,15 @@
       "commit_sha": "28c6bd7a",
       "notes": null,
       "shipped_at": "2026-07-30T08:25:27Z"
+    },
+    {
+      "r_number": "R-F3454",
+      "title": "export control: never assert civilian from a non-product input (holding-company SIC)",
+      "claimed_at": "2026-07-30T08:38:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

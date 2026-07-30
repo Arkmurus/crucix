@@ -4707,6 +4707,36 @@ async def _screen_officer_sanctions(report: ARKDDReport, target: dict) -> bool:
     return hard_stop
 
 
+def _export_control_is_unsupported_negative(
+    *, product_supplied: bool, military_sic_present: bool, recommendation: str,
+) -> bool:
+    """R-F3454 — is this "civilian" verdict a CONCLUSION, or just an empty input?
+
+    A pure predicate, and pure deliberately: the same question is asked by the report
+    renderer and by the R-F3040 military-SIC contradiction check further down, and the
+    first version of this fix rewrote the recommendation string BEFORE R-F3040 read it —
+    which silently disarmed R-F3040's amber finding, because it detects a contradiction by
+    looking for the words "civilian"/"unclassified" in that very string. One predicate,
+    consulted by both, is what stops that.
+
+    Returns True only when ALL of:
+      * no product/goods/transaction was supplied, so nothing about the goods was
+        classified — what got classified was the entity's registered or self-described
+        activity, which for a group holding company describes administration whatever its
+        subsidiaries manufacture (the Babcock case);
+      * no military SIC is on the registry, since that IS evidence bearing on export
+        control and must keep its R-F3040 treatment;
+      * and the recommendation is the classifier's no-hits value.
+
+    The asymmetry is the point: a POSITIVE classification from a weak input still stands,
+    because it is evidence. Only an unsupported NEGATIVE is withdrawn.
+    """
+    if product_supplied or military_sic_present:
+        return False
+    rec = (recommendation or "").lower()
+    return "civilian" in rec or "unclassified" in rec
+
+
 #: R-F3452 — the primary adapters that ARE sanctions lists. sec_edgar (filings),
 #: wb_debarred (debarment) and acled (conflict events) are useful elsewhere and are NOT
 #: sanctions lists; counting them toward sanctions coverage would be the same
@@ -7098,6 +7128,71 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                 ec["basis"] = "classified from the entity's SELF-DESCRIBED activity (website), not a supplied product spec — indicative only"
             if isinstance(ec, dict) and _sic_text:
                 ec["registry_sic"] = _sic_text          # R-F3040 — show the input
+            # ── R-F3454 — "civilian" is a CONCLUSION and needs a product to reach it ──
+            #
+            # THE DEFECT (live, Babcock International Group PLC). The report stated
+            # "Export control: civilian or unclassified" for one of the UK's largest
+            # defence primes — nuclear submarines, warships, the Type 31 frigate.
+            #
+            # R-F3040 already catches a MILITARY SIC code, but it could not fire here:
+            # the legal entity 02342138 is the GROUP HOLDING company, so its registered
+            # activity is head-office administration and carries no military words. The
+            # classifier was handed that, found no hits, and returned its no-hits value.
+            # Every layer behaved correctly and the report still printed the single most
+            # misleading sentence a defence-DD product can print.
+            #
+            # The error is asserting a NEGATIVE from an input that could never have
+            # produced a positive. No product or transaction was supplied, so nothing
+            # about the goods was assessed. "No military words in a head-office SIC code"
+            # is an absence of COVERAGE, not evidence of civilian use — the same rule this
+            # report applies to adverse media and to an unsearched register.
+            #
+            # A positive hit from SIC/self-description still stands: that is real
+            # evidence, and only the negative is downgraded.
+            if _export_control_is_unsupported_negative(
+                    product_supplied=bool(target.get("product_description")
+                                          or target.get("goods")),
+                    military_sic_present=bool(_military_sic_codes(_sic_codes)),
+                    recommendation=str((ec or {}).get("recommendation") or "")):
+                if isinstance(ec, dict):
+                    ec["assessed"] = False
+                    ec["not_assessed_reason"] = (
+                        "no product or transaction was specified for this run, so the "
+                        "goods themselves were never classified"
+                    )
+                    ec["recommendation"] = (
+                        "NOT ASSESSED — no product or transaction specified"
+                    )
+                    ec["confidence"] = 0.0
+                    report.compliance.findings.append(Finding(
+                        severity="amber",
+                        title="Export-control exposure NOT ASSESSED — no product or "
+                              "transaction was specified",
+                        detail=(
+                            "No product, goods or transaction context was supplied for "
+                            "this run, so no export-control classification of the goods "
+                            "was performed. What was classified instead was the entity's "
+                            + ("registered activity (" + _sic_text + "). "
+                               if _sic_text else "self-described activity. ")
+                            + "That input cannot establish that a subject is civilian: a "
+                              "group holding company's registered activity is "
+                              "administration whatever its subsidiaries manufacture. This "
+                              "is an absence of coverage, NOT a finding of civilian use. "
+                              "Re-run with the specific goods or services being contracted "
+                              "to obtain a classification, and treat the entity as "
+                              "potentially in scope until then."
+                        ),
+                        source="tech_classifier.classify_export_control:R-F3454",
+                        confidence="UNCERTAIN",
+                    ))
+                    report.compliance.data_gaps.append(
+                        "Export-control classification NOT PERFORMED — no product or "
+                        "transaction was specified, so the goods were never classified. "
+                        "The entity's registered activity was used instead and cannot "
+                        "establish civilian status (a holding company's SIC describes "
+                        "administration, not what the group manufactures). Supply the "
+                        "goods or services being contracted to close this."
+                    )
             report.compliance.export_control = ec
             # R-F3040 — a registry-declared MILITARY activity is stated outright and
             # NEVER depends on the text classifier agreeing. Without this, a company
