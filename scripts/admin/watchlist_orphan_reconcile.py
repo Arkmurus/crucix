@@ -74,7 +74,19 @@ def _subjects(index: list[dict]) -> set[str]:
     for r in index:
         if not isinstance(r, dict):
             continue
-        for key in ("subject", "company_name", "target_name", "name", "entity"):
+        # R-F3505 — `entity_name` is the field the report index ACTUALLY carries
+        # (verified live: keys are canonical_entity_id, entity_name, entity_type,
+        # jurisdiction, run_id, severity, user_id, ...). The first version of
+        # this matcher looked only for subject/company_name/target_name/name/
+        # entity — none of which exist — so all 24 reports contributed ZERO
+        # subjects and all 8 watchlist entries looked orphaned. Running --apply
+        # on that would have deleted the entire watchlist.
+        #
+        # Same producer/consumer field-mismatch as
+        # memory/producer-consumer-no-carrier-defect: grep what the WRITER
+        # emits, never assume the reader's field names.
+        for key in ("entity_name", "subject", "company_name", "target_name",
+                    "name", "entity"):
             v = str(r.get(key) or "").strip().lower()
             if v:
                 out.add(v)
@@ -103,6 +115,16 @@ async def main(apply: bool) -> int:
         return 2
 
     known = _subjects(index)
+    if index and not known:
+        # Every report yielded no identifiable subject -> the field names are
+        # wrong, not the data. Proposing removals from this would clear the
+        # whole watchlist.
+        print("")
+        print("REFUSING: read {} reports but could not extract a single "
+              "subject name from them.".format(len(index)))
+        print("That is a field-name mismatch in this script, not genuine orphaning.")
+        print("Nothing proposed, nothing removed.")
+        return 4
     orphans, unowned = [], []
     for w in watchlist:
         if not isinstance(w, dict):
