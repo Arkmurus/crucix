@@ -148,3 +148,57 @@ def test_the_limitation_is_disclosed(monkeypatch):
     # broke a guard that was asserting something still true.
     assert res["match_basis"] == "name_only"
     assert res["surname_filter_applied"] is True
+
+
+# ── R-F3515 — the live Chemring run proved R-F3451 was INSUFFICIENT ──────────
+#
+# A real deep DD on Chemring Group PLC (dd_8bd7ac42a488, 2026-07-30) still produced
+# fabricated disqualification matches, because R-F3451 required the officer's surname to
+# appear ANYWHERE in the register row rather than in the SURNAME POSITION:
+#
+#   AMAR, Alpna              -> "Amar ISMAEL", "Amar NADEEM"   (AMAR is their FORENAME)
+#   KING, Stephen Anthony    -> "KING ROYAL TECHNOLOGIES CO. LTD"  (a Myanmar COMPANY)
+#
+# Two unrelated individuals and a company, reported against named directors of a listed
+# defence group. The unit tests passed the whole time: they were built from the Babcock
+# rows, where the surname genuinely did not appear at all. Only real data on a NEW
+# subject exposed the residual class.
+
+@pytest.mark.parametrize("title,surname,forenames,expected,why", [
+    ("Amar ISMAEL", "AMAR", ["Alpna"], False,
+     "the officer's surname is this person's FORENAME"),
+    ("Amar NADEEM", "AMAR", ["Alpna"], False,
+     "same collision, second unrelated individual"),
+    ("KING ROYAL TECHNOLOGIES CO. LTD", "KING", ["Stephen", "Anthony"], False,
+     "a company is never the individual being screened"),
+    ("David Charles LOCKWOOD", "LOCKWOOD", ["David", "Charles"], True,
+     "a genuine surname match must still survive"),
+    ("COMISKEY, Aedamar", "COMISKEY", ["Aedamar"], True,
+     "the register's other rendering, SURNAME first"),
+    ("Kevin GREGORY (AKA CHARLES HENRY)", "LOCKWOOD", ["David"], False,
+     "an alias parenthetical must not smuggle in a match"),
+])
+def test_rf3515_surname_must_be_in_the_surname_position(title, surname, forenames,
+                                                        expected, why):
+    keeps, _ = ch._disq_candidate_is_same_name(title, surname, forenames)
+    assert keeps is expected, f"{title!r} vs {surname!r}: {why}"
+
+
+def test_rf3515_an_entity_has_no_person_surname():
+    assert ch._candidate_surname("DREX TECHNOLOGIES S.A.") == ""
+    assert ch._candidate_surname("KING ROYAL TECHNOLOGIES CO. LTD") == ""
+    assert ch._candidate_surname("David Charles LOCKWOOD") == "lockwood"
+
+
+def test_rf3515_the_entity_check_runs_before_the_rendering_branch():
+    """Both halves of this were wrong on my first cut, and the tests found them.
+
+    ``S.A.`` strips to ``s.a`` and never equalled ``sa``, so a company parsed as a person
+    surnamed "s.a"; and the legal-form check sat inside the no-comma branch only, so a
+    comma in the row ("DREX TECHNOLOGIES, S.A.") skipped it entirely and yielded "drex".
+    Deciding is-it-an-entity on the WHOLE row, before any branch, closes both.
+    """
+    assert ch._candidate_surname("DREX TECHNOLOGIES, S.A.") == ""
+    assert ch._candidate_surname("SMITH HOLDINGS, LTD") == ""
+    # ...without swallowing a person whose row merely contains a comma.
+    assert ch._candidate_surname("SMITH, John") == "smith"

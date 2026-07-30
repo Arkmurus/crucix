@@ -3382,6 +3382,80 @@ def _vault_text_names_subject(name: str, text: str) -> bool:
     return re.search(pattern, body) is not None
 
 
+async def _explain_empty_psc_register(report: "ARKDDReport") -> None:
+    """An EMPTY PSC register must be EXPLAINED, not left to be read as opacity.
+
+    R-F2830 built `companies_house.get_psc_exemptions` for exactly this and NOTHING EVER
+    CALLED IT. Its own docstring states the stakes: a company disclosing no beneficial
+    owners looks opaque, potentially evasive, whereas one exempt because it trades on a UK
+    regulated market is behaving entirely normally. Reporting the first when the truth is
+    the second is a false ACCUSATION — the mirror of a false clean.
+
+    That is the Babcock case: a listed PLC whose Network section showed "UBO chain nodes
+    traversed 11" and nothing else, leaving a reader to infer opacity from an absence that
+    had a lawful, checkable explanation.
+
+    R-F3515 — WHY THIS IS A FUNCTION AND NOT AN INLINE BLOCK. R-F3504 put it inline on the
+    ``else`` of ``if jurisdiction_iso2 == "GB"`` — the MULTI-JURISDICTION adapter branch —
+    and then guarded it on ``jurisdiction in (GB, UK, "")``. A UK-only check on the non-UK
+    path: it could not fire for the case it was built for, and a real run on Chemring Group
+    PLC (a UK listed PLC, reg 00086662) proved it, returning ``psc_exemptions: {}`` with no
+    finding and no gap. Its tests passed throughout because they called the branch directly.
+    One named function called once, AFTER both branches converge, is what makes "did this
+    run?" answerable — the placement, not the logic, was the whole defect.
+
+    Asked ONLY when the register is empty: an exemption explains nothing when controllers
+    are disclosed, and the call would be wasted spend.
+    """
+    if report.identity.shareholders:
+        return
+    _rg = str(report.identity.registration_number or "").strip()
+    if not _rg:
+        return
+    if str(report.identity.jurisdiction_iso2 or "").upper() not in ("GB", "UK", ""):
+        return
+    try:
+        from . import companies_house as _ch_psc
+        _ex = await _ch_psc.get_psc_exemptions(_rg)
+        _ex = _ex if isinstance(_ex, dict) else {}
+        report.identity.psc_exemptions = _ex
+        _act = _ex.get("active") or []
+        if not _ex.get("checked"):
+            # Claim NEITHER exemption nor opacity: an unperformed check must not
+            # resolve to either.
+            report.identity.data_gaps.append(
+                "PSC register is empty and the exemption register could NOT be "
+                "checked, so it is unknown whether the absence is lawful. Not a "
+                "finding of opacity and not a clearance — re-check before relying "
+                "on the ownership position.")
+        elif _ex.get("has_active_exemption") and _act:
+            report.identity.findings.append(Finding(
+                severity="info",
+                title="No PSC recorded — a LAWFUL exemption is on the register",
+                detail=(
+                    "The PSC register is empty because an exemption is currently "
+                    "active: "
+                    + "; ".join(
+                        f"{a.get('exemption_type')} (from "
+                        f"{a.get('exempt_from') or 'an unstated date'})"
+                        for a in _act[:3] if isinstance(a, dict))
+                    + ". A company trading on a regulated market discloses ownership "
+                      "through market rules rather than the PSC register, so this "
+                      "absence is NORMAL and must not be read as opacity."),
+                source="companies_house.psc_exemptions:R-F2830",
+                confidence="CONFIRMED",
+                source_tier="OFFICIAL",
+            ))
+        else:
+            # No exemption AND no PSC is the genuinely opaque case.
+            report.identity.data_gaps.append(
+                "PSC register is EMPTY and no active exemption is recorded at "
+                "Companies House. Beneficial ownership is undisclosed rather than "
+                "lawfully exempt — establish it before relying on this file.")
+    except Exception as _psc_ex_e:  # noqa: BLE001 — never cost a report
+        logger.debug("[R-F3504] PSC exemption lookup skipped: %s", _psc_ex_e)
+
+
 def _apply_registry_result(
     report: "ARKDDReport",
     reg_result: dict,
@@ -6293,70 +6367,6 @@ async def _run_identity(
                 # single place, from RegistryStatus, and never from truthiness.
                 _apply_registry_result(report, reg_result, registration_number)
 
-                # ── R-F3504 — an EMPTY PSC register must be EXPLAINED ──────────
-                #
-                # R-F2830 built `companies_house.get_psc_exemptions` for exactly this
-                # and NOTHING EVER CALLED IT. Its own docstring states the stakes: a
-                # company disclosing no beneficial owners looks opaque, potentially
-                # evasive, whereas one exempt because it trades on a UK regulated
-                # market is behaving entirely normally — and reporting the first when
-                # the truth is the second is a false ACCUSATION, the mirror of a
-                # false clean.
-                #
-                # That is the Babcock case: a listed PLC whose Network section showed
-                # "UBO chain nodes traversed 11" and nothing else, leaving a reader to
-                # infer opacity from an absence with a lawful, checkable explanation.
-                #
-                # Asked ONLY when the register is empty — an exemption explains nothing
-                # when controllers are disclosed, and the call would be wasted spend.
-                if not report.identity.shareholders:
-                    _rg = str(report.identity.registration_number or "").strip()
-                    if _rg and str(report.identity.jurisdiction_iso2 or "").upper() in ("GB", "UK", ""):
-                        try:
-                            from . import companies_house as _ch_psc
-                            _ex = await _ch_psc.get_psc_exemptions(_rg)
-                            _ex = _ex if isinstance(_ex, dict) else {}
-                            report.identity.psc_exemptions = _ex
-                            _act = _ex.get("active") or []
-                            if not _ex.get("checked"):
-                                # Claim NEITHER exemption nor opacity: an unperformed
-                                # check must not resolve to either.
-                                report.identity.data_gaps.append(
-                                    "PSC register is empty and the exemption register "
-                                    "could NOT be checked, so it is unknown whether the "
-                                    "absence is lawful. Not a finding of opacity and not "
-                                    "a clearance — re-check before relying on the "
-                                    "ownership position.")
-                            elif _ex.get("has_active_exemption") and _act:
-                                report.identity.findings.append(Finding(
-                                    severity="info",
-                                    title=("No PSC recorded — a LAWFUL exemption is on "
-                                           "the register"),
-                                    detail=(
-                                        "The PSC register is empty because an exemption "
-                                        "is currently active: "
-                                        + "; ".join(
-                                            f"{a.get('exemption_type')} (from "
-                                            f"{a.get('exempt_from') or 'an unstated date'})"
-                                            for a in _act[:3] if isinstance(a, dict))
-                                        + ". A company trading on a regulated market "
-                                          "discloses ownership through market rules "
-                                          "rather than the PSC register, so this absence "
-                                          "is NORMAL and must not be read as opacity."),
-                                    source="companies_house.psc_exemptions:R-F2830",
-                                    confidence="CONFIRMED",
-                                    source_tier="OFFICIAL",
-                                ))
-                            else:
-                                # No exemption AND no PSC is the genuinely opaque case.
-                                report.identity.data_gaps.append(
-                                    "PSC register is EMPTY and no active exemption is "
-                                    "recorded at Companies House. Beneficial ownership is "
-                                    "undisclosed rather than lawfully exempt — establish "
-                                    "it before relying on this file.")
-                        except Exception as _psc_ex_e:  # noqa: BLE001
-                            logger.debug("[R-F3504] PSC exemption lookup skipped: %s",
-                                         _psc_ex_e)
                 # ── Virtual-office re-check on registry-returned address ──
                 # If the registry returned an address and the supplied_address
                 # check earlier did not fire (e.g. no address was supplied
@@ -6441,6 +6451,13 @@ async def _run_identity(
                 f"Registry lookup failed for {jurisdiction or jurisdiction_iso2}: {str(e)[:100]}. "
                 f"Manual action: {jur_hint}"
             )
+
+    # ── R-F3515 — the ONE call site for the empty-PSC explanation ──
+    # Placed after BOTH the Companies House branch and the multi-jurisdiction adapter
+    # branch have finished writing `identity`, so it sees the final shareholder list
+    # regardless of which path found the company. R-F3504 had it inside the non-UK
+    # branch only; see `_explain_empty_psc_register` for why that could never fire.
+    await _explain_empty_psc_register(report)
 
     # ── 1c. Ghost-score from available signals ──
     # Feed whatever we've collected into the programmatic scorer. The

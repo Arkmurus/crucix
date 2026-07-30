@@ -942,19 +942,72 @@ def _person_name_parts(name: str) -> tuple[str, list[str]]:
     return surname, forenames
 
 
+#: Legal-form tokens that mark a register row as an ENTITY rather than a natural person.
+#: R-F3515 — "KING ROYAL TECHNOLOGIES CO. LTD" was returned as a disqualification match
+#: against a director named Stephen Anthony KING, because "king" was one of its tokens.
+_CORPORATE_FORM_TOKENS = frozenset({
+    "ltd", "limited", "plc", "llp", "llc", "inc", "incorporated", "corp", "corporation",
+    "co", "company", "gmbh", "ag", "sa", "sas", "srl", "spa", "bv", "nv", "pte", "pty",
+    "oy", "ab", "as", "aps", "kft", "zoo", "sarl", "holdings", "group",
+})
+
+
+def _candidate_surname(title: str) -> str:
+    """The SURNAME a register row belongs to, or "" when it is not a natural person.
+
+    R-F3515 — POSITION MATTERS, and the first fix ignored it. Requiring the officer's
+    surname to appear ANYWHERE in the row matched:
+      * "Amar ISMAEL" / "Amar NADEEM" for an officer surnamed AMAR — AMAR is those
+        people's FORENAME, so they are two unrelated individuals
+      * "KING ROYAL TECHNOLOGIES CO. LTD" for an officer surnamed KING — a company
+
+    Companies House renders these rows as "Forename SURNAME" (and occasionally
+    "SURNAME, Forename"), so the surname is positional and recoverable. A row carrying a
+    legal-form token is an entity and can never be the individual being screened.
+    """
+    raw = str(title or "")
+    # Drop alias parentheticals: "Kevin GREGORY (AKA CHARLES HENRY)" is Mr Gregory.
+    raw = re.sub(r"\([^)]*\)", " ", raw)
+
+    # Is-it-an-entity is decided on the WHOLE row, before any rendering branch. Two ways
+    # this was wrong on the first cut, both found by the tests rather than by reading:
+    #   * punctuation hid the form token — "DREX TECHNOLOGIES S.A." strips to "s.a", which
+    #     never equals "sa", so a company parsed as a person surnamed "s.a"
+    #   * the check sat inside the no-comma branch only, so "DREX TECHNOLOGIES, S.A."
+    #     would have parsed as a person surnamed "drex"
+    def _bare(tok: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", tok.lower())
+
+    if any(_bare(t) in _CORPORATE_FORM_TOKENS for t in raw.replace(",", " ").split()):
+        return ""
+
+    if "," in raw:
+        # "SURNAME, Forename" — the register's other rendering.
+        head = raw.split(",", 1)[0]
+        toks = [t.strip(".") for t in head.split() if t.strip(".")]
+        return toks[-1].lower() if toks else ""
+    toks = [t.strip(".,") for t in raw.split() if t.strip(".,")]
+    if not toks:
+        return ""
+    return toks[-1].lower()
+
+
 def _disq_candidate_is_same_name(title: str, surname: str, forenames: list[str]) -> tuple[bool, bool]:
     """(keeps, forename_also_matches) for one register row.
 
-    Surname match is REQUIRED to keep the row — that is what makes this a name match at
-    all. Forename agreement is reported but not required, because the register lists
-    former and alternate names and dropping on forename alone would risk a false NEGATIVE
-    on a genuine disqualification, which is the dangerous direction here.
+    The row's SURNAME must equal the officer's surname. R-F3451 required only that the
+    surname appear somewhere in the row, which still produced fabricated matches against
+    real people (see `_candidate_surname`). Forename agreement is reported but not
+    required: the register lists former and alternate names, and dropping on forename
+    alone would risk a false NEGATIVE on a genuine disqualification — the dangerous
+    direction here.
     """
     if not surname:
         return False, False
-    hay = {t.strip(".,()").lower() for t in str(title or "").split()}
-    if surname.lower() not in hay:
+    cand_surname = _candidate_surname(title)
+    if not cand_surname or cand_surname != surname.lower():
         return False, False
+    hay = {t.strip(".,()").lower() for t in str(title or "").split()}
     return True, any(f.lower() in hay for f in forenames)
 
 
