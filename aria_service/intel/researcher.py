@@ -4397,17 +4397,36 @@ def _query_site_hosts(query: str) -> list[str]:
             re.findall(r"site:([A-Za-z0-9.\-]+)", str(query or ""))]
 
 
+#: R-F3516 — host constraints too BROAD to corroborate a specific body.
+#:
+#: `site:gov.uk` is the whole of UK government, not OFSI. On the live Chemring run
+#: (dd_8bd7ac42a488) the OFSI template was `"{name}" site:gov.uk OFSI enforcement`, the
+#: backend answered with Companies House pages at
+#: `find-and-update.company-information.service.gov.uk` — which ends with `.gov.uk` — and
+#: four registry pages were stamped `source_class_corroborated: True` for OFSI. A company
+#: register page corroborates precisely nothing about a sanctions-enforcement screen.
+#:
+#: These yield None (unverifiable), never True. None is not False: the template genuinely
+#: constrained itself, we simply cannot tell from the host whether the right BODY answered.
+_UNSPECIFIC_CONSTRAINT_HOSTS = frozenset({
+    "gov.uk", "gov", "gov.au", "gov.ca", "gov.in", "gov.za", "gc.ca",
+    "europa.eu", "int", "org", "com", "net", "co.uk", "org.uk", "ac.uk", "edu",
+})
+
+
 def _domain_corroborates_class(domain: str, source_class: str, query: str = "") -> bool | None:
     """R-F3023 — does the RESULT's domain support the class the TEMPLATE asserted?
 
-    True  — the template constrained itself to a host and the result came from it.
+    True  — the template constrained itself to a SPECIFIC host and the result came from it.
     False — it constrained itself and the result came from somewhere else (the live
             failure: `site:justice.gov` answered by a doi.org academic paper because
             every news/court backend was silent and only the academic backend replied).
-    None  — the template set no host constraint, so there is nothing to corroborate.
+    None  — nothing to corroborate: either the template set no host constraint, or the
+            constraint it set is too broad to identify the body it claims (R-F3516).
             None is not False: "unverifiable" must never render as "contradicted".
     """
-    hosts = _query_site_hosts(query)
+    hosts = [h for h in _query_site_hosts(query)
+             if h not in _UNSPECIFIC_CONSTRAINT_HOSTS]
     if not hosts:
         return None
     d = (domain or "").lower()
@@ -4569,7 +4588,14 @@ async def run_adverse_media_deep_search(
     templates_to_run = templates[:max_templates]
 
     findings: list[dict] = []
+    # R-F3516 — two facts, two counters. `_class_asked` is how many templates of this
+    # class ran; `_class_answered` is how many findings the class's OWN sources actually
+    # returned. Collapsing them into one number is what let a silent source read as a
+    # screened-clean one. `coverage_by_class` is retained as the asked count for
+    # backward compatibility and re-stated honestly in the result (see below).
     coverage_by_class: dict[str, int] = {}
+    _class_asked: dict[str, int] = {}
+    _class_answered: dict[str, int] = {}
     breaker_skips = 0
     _templates_done = 0
     _templates_searched = 0   # R-F2791: templates that actually reached the search layer
@@ -4664,6 +4690,7 @@ async def run_adverse_media_deep_search(
             # `source_class_corroborated` says plainly whether the two agree — so a
             # consumer can require corroboration before treating a class as true.
             _domain = _result_domain(url)
+            _corrob = _domain_corroborates_class(_domain, source_class, query)
             findings.append({
                 "source_class": source_class,
                 "source_url": url,
@@ -4674,11 +4701,33 @@ async def run_adverse_media_deep_search(
                 "matched_template_purpose": purpose[:240],
                 # R-F3023 — result-derived provenance
                 "source_domain": _domain,
-                "source_class_corroborated": _domain_corroborates_class(
-                    _domain, source_class, query),
+                "source_class_corroborated": _corrob,
             })
+            if _corrob:
+                _class_answered[source_class] = _class_answered.get(source_class, 0) + 1
 
-        coverage_by_class[source_class] = coverage_by_class.get(source_class, 0) + 1
+        # ── R-F3516 — coverage counts TEMPLATES ASKED, and said "covered" ────────
+        #
+        # R-F3023 stopped one line short. It made each FINDING honest — carrying
+        # `source_domain` and `source_class_corroborated` — and then this counter went on
+        # incrementing off `source_class`, the TEMPLATE's intent, so the sweep's headline
+        # coverage claim kept asserting exactly what R-F3023 had just proved unreliable.
+        # The producer had no carrier into the number a reader actually reads.
+        #
+        # THE LIVE HARM (Chemring Group PLC, dd_8bd7ac42a488, a listed defence group).
+        # `coverage_by_class` reported leak_database_icij, investigative_journalism_occrp,
+        # investigative_journalism_bellingcat, regulatory_us_doj, regulatory_us_sec,
+        # regulatory_us_ofac, legal_court_us_federal — while 75 of 92 findings were NOT
+        # corroborated and those classes had ZERO corroborated rows between them. What
+        # actually came back was the subject's own Companies House pages and ARIA's own
+        # `memory://` records. A reader sees "ICIJ, OCCRP, Bellingcat, DOJ, SEC, SFO
+        # screened, nothing material" and concludes those sources are clean. They were
+        # never heard from. That is a FALSE CLEAN on the adverse-media layer.
+        #
+        # `templates_asked` is kept — it is true, and it is the honest denominator. But
+        # "we asked" and "the source answered" are different facts and must not share one
+        # number.
+        _class_asked[source_class] = _class_asked.get(source_class, 0) + 1
 
         # Polite throttle — 100ms between templates
         await asyncio.sleep(0.1)
@@ -4716,7 +4765,29 @@ async def run_adverse_media_deep_search(
         # R-F2745 — results that matched the adverse topic but did not name the subject
         # (a different same-named entity, or generic topic news) were NOT attributed.
         "off_subject_dropped": _off_subject_dropped,
-        "coverage_by_class": coverage_by_class,
+        # R-F3516 — "we asked" and "the source answered" are separate facts.
+        #
+        # `coverage_by_class` is the ASKED count and keeps its old meaning and shape so
+        # no existing consumer silently changes behaviour — but it is no longer the only
+        # thing on offer, and it is no longer the one to read when the question is
+        # "was this source actually screened?".
+        #
+        # `classes_answered` counts findings whose OWN domain corroborated the class.
+        # `classes_silent` is the difference: templates that ran and whose target source
+        # returned nothing attributable to it. A silent source is real negative evidence
+        # and must be reported AS silence — presenting it as coverage is a false clean.
+        "coverage_by_class": coverage_by_class or dict(_class_asked),
+        "classes_asked": dict(_class_asked),
+        "classes_answered": dict(_class_answered),
+        "classes_silent": sorted(c for c in _class_asked if not _class_answered.get(c)),
+        "coverage_note": (
+            "classes_asked = templates executed for that source class. "
+            "classes_answered = findings whose own domain corroborated the class. "
+            "A class in classes_silent was SEARCHED and its own sources returned "
+            "nothing attributable to them — that is negative evidence, NOT a clean "
+            "screen of that source. Do not read coverage_by_class as confirmation "
+            "that a source was reached."
+        ),
         "execution_time_seconds": duration,
         "circuit_breaker_skips": breaker_skips,
         "clause_17_attribution": (

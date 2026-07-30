@@ -2298,6 +2298,36 @@ def _render_adverse_media(am, entity_type: str = "") -> list[str]:
     if am.get("search_backends_answered") is not None:
         out.append("  • Search backends answered: "
                    f"{'yes' if am.get('search_backends_answered') else 'NO — the sweep could not observe the web'}")
+
+    # ── R-F3516 — WHICH named sources stayed silent ─────────────────────────────
+    #
+    # The no-findings branch below already tells the reader "the sources that did not
+    # answer are listed in the data gaps". On the live Chemring run (dd_8bd7ac42a488)
+    # that list was EMPTY: a promise in the renderer with nothing producing it.
+    #
+    # It matters MOST when findings ARE present. Chemring returned 92 raw results and
+    # a coverage claim naming ICIJ, OCCRP, Bellingcat, DOJ, SEC, OFAC and the US federal
+    # courts — while every one of those classes had ZERO corroborated rows. What came
+    # back was the subject's own Companies House pages and ARIA's `memory://` records,
+    # stamped with the class of the query that had been ASKED. A reader sees breadth and
+    # infers those sources are clean; they were never heard from.
+    _silent = am.get("classes_silent")
+    _answered = am.get("classes_answered") if isinstance(am.get("classes_answered"), dict) else None
+    if isinstance(_silent, list) and _silent:
+        out.append(
+            f"  • Sources SEARCHED but SILENT ({len(_silent)}): "
+            + ", ".join(str(s) for s in _silent[:12])
+            + (f" … +{len(_silent) - 12} more" if len(_silent) > 12 else "")
+        )
+        out.append("    These sources returned nothing attributable to them. That is "
+                   "negative evidence, NOT a clean screen of those sources — and any "
+                   "result listed against them below came from somewhere else.")
+    elif _answered is not None and not _answered and am.get("classes_asked"):
+        # Every class asked, none answered: say so plainly rather than let the raw
+        # count imply coverage.
+        out.append("  • NO named source class returned a result attributable to it — "
+                   "the results below came from other domains than the ones searched. "
+                   "Treat source coverage as UNESTABLISHED.")
     raw_findings = am.get("findings") if isinstance(am.get("findings"), list) else []
     # The materiality arithmetic, when the verdict path recorded it (R-F3022).
     mat = am.get("materiality") if isinstance(am.get("materiality"), dict) else {}
