@@ -1671,6 +1671,38 @@ async def _ingest_article(article: dict) -> dict:
     return out
 
 
+def _wire_article_stage_failure(stage: str, article: dict, exc: Exception) -> None:
+    """R-F3495 — one sink for the three downstream failures _feed_to_brain used
+    to swallow (§21a: a debug log is DARK, not wired).
+
+    Also records the outcome against the ARCHIVED record when the article
+    carries an article_id, because R-F3486's stage marking otherwise reported
+    ``brain_absorbed ok=True`` for these — nothing propagated out of
+    _feed_to_brain, so a green stage sat on top of a failed write. A green stage
+    over a failure is worse than no stage at all.
+
+    Fire-and-forget and fully guarded: observability must never break ingestion.
+    """
+    try:
+        wire_failure(
+            module="news_monitor",
+            detail=f"{stage} failed for {str(article.get('url') or '')[:120]}: {exc}"[:400],
+            gap_type="engine_failure",
+            source=f"news_monitor:{stage}",
+        )
+    except Exception:
+        pass
+    aid = str(article.get("article_id") or "")
+    if not aid:
+        return
+    try:
+        import asyncio as _aio
+        from . import news_archive as _na
+        _aio.create_task(_na.mark_stage(aid, stage, ok=False, detail=str(exc)[:400]))
+    except Exception:
+        pass
+
+
 async def _feed_to_brain(article: dict) -> bool:
     """Feed article to ARIA's brain for analysis.
 
@@ -1689,7 +1721,10 @@ async def _feed_to_brain(article: dict) -> bool:
             source_id=f"news_monitor:{_article_hash(article['url'])}",
         )
     except Exception as e:
-        logger.debug("[news_monitor] brain feed failed: %s", e)
+        # R-F3495 §21a — was debug-only, i.e. DARK: not emitted in production and
+        # reaching no brain sink, so a failed absorb looked identical to success.
+        logger.warning("[news_monitor] brain feed failed: %s", e)
+        _wire_article_stage_failure("brain_feed", article, e)
 
     # R-F2001: feed into intel_ledger so signal_correlator sees news
     try:
@@ -1709,8 +1744,12 @@ async def _feed_to_brain(article: dict) -> bool:
             ],
             "timestamp": article.get("detected_at", ""),
         })
-    except Exception:
-        logger.debug("[news_monitor] intel_ledger feed failed", exc_info=True)
+    except Exception as _led_e:
+        # R-F3495 §21a — the intel_ledger is the PRIMARY correlation source; a
+        # silent failure here means the signal correlator never sees this article
+        # and nothing anywhere records that it did not.
+        logger.warning("[news_monitor] intel_ledger feed failed: %s", _led_e)
+        _wire_article_stage_failure("ledger_written", article, _led_e)
 
     # R-F2385 — product-grade promotion layer. The raw article still lands in
     # the audit feed, but the user-facing surface now gets a concise signal with
@@ -1737,8 +1776,12 @@ async def _feed_to_brain(article: dict) -> bool:
                 confidence="PROBABLE",
                 extra_topics=["vault_source"],
             )
-    except Exception:
-        logger.debug("[news_monitor] vault-source brain absorb failed", exc_info=True)
+    except Exception as _vault_e:
+        # R-F3495 §21a — vault-curated sources are the operator's own
+        # highest-value feeds; a dropped deep absorb there is the least
+        # affordable silent loss in this module.
+        logger.warning("[news_monitor] vault-source brain absorb failed: %s", _vault_e)
+        _wire_article_stage_failure("vault_absorbed", article, _vault_e)
 
     return promoted
 
