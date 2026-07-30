@@ -155,6 +155,8 @@ class TestShallowRecordsCannotPassAsRead:
 
     def test_confidence_is_capped_for_feed_only_evidence(self):
         capped = ne.cap_confidence_for_extraction("HIGH", "feed_only")
+        assert capped in {"LOW", "MEDIUM"}, (
+            f"the cap must stay inside the caller's vocabulary, got {capped!r}")
         assert capped != "HIGH", (
             "a 500-char feed summary was allowed to carry HIGH confidence"
         )

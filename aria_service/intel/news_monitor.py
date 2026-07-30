@@ -1130,6 +1130,17 @@ def _build_intel_signal(article: dict) -> dict:
     score = max(0, min(100, tier_score + action_score + entity_score + summary_score))
     priority = _signal_priority(signal_type, entities, tier)
     confidence = _confidence(score)
+    # R-F3509 — a headline that was never READ must not be published as
+    # HIGH-confidence intelligence. Wiring enrichment WITHOUT this would be
+    # actively harmful: deep text would lift the apparent quality of enriched
+    # signals while leaving the un-enriched ones unguarded. An absent or
+    # unfamiliar status is treated as shallow — never assume a record was read.
+    try:
+        from . import news_enrichment as _ne3509
+        confidence = _ne3509.cap_confidence_for_extraction(
+            confidence, str(article.get("extraction_status") or ""))
+    except Exception:
+        pass
     evidence_count = int(article.get("evidence_count") or article.get("source_count") or 1)
     target = (
         (entities.get("oems") or [None])[0]
@@ -1573,6 +1584,53 @@ async def _promote_article_signal(article: dict) -> bool:
         return False
 
 
+# ── R-F3509: selective enrichment, wired ────────────────────────────────────
+# R-F3499 built the engine (should_enrich / enrich_archived_article /
+# cap_confidence_for_extraction) and NOTHING called it. An engine with no caller
+# is exactly what I refused to build R-F3487 on — intel/corroboration.py has
+# zero production callers and its fixtures were green while it scored 0/20 on
+# real data. Shipping a second one under my own name would be the same mistake.
+_ENRICH_BUDGET_PER_POLL = int(os.getenv("ARIA_NEWS_ENRICH_PER_POLL", "8"))
+_enrich_spent = 0
+
+
+def _reset_enrichment_budget() -> None:
+    """Called at the start of each poll cycle. Cost tracks poll cycles, not feed
+    volume, so a breaking-news burst cannot run up unbounded deep fetches (§17)."""
+    global _enrich_spent
+    _enrich_spent = 0
+
+
+async def _maybe_enrich(article_id: str) -> dict:
+    """Decide, then deep-read, then record — all bounded and never fatal.
+
+    Enrichment runs AFTER the archive write, so a failure here can never lose the
+    article: the durable record already exists (R-F3486) and the failed status is
+    written onto it, which keeps "not tried", "tried and failed" and "read"
+    distinguishable.
+    """
+    global _enrich_spent
+    from . import news_archive as _na
+    from . import news_enrichment as _ne
+
+    rec = await _na.get_article(article_id)
+    if not rec:
+        return {"enriched": False, "reason": "not archived"}
+    article = {
+        "url": rec.get("canonical_url", ""),
+        "title": rec.get("title", ""),
+        "summary": rec.get("feed_summary", ""),
+        "source": rec.get("publisher", ""),
+        "tier": rec.get("source_tier", ""),
+        "relevance_score": rec.get("relevance_score"),
+    }
+    should, reason = _ne.should_enrich(
+        article, budget_remaining=max(0, _ENRICH_BUDGET_PER_POLL - _enrich_spent))
+    if not should:
+        return {"enriched": False, "reason": reason}
+    _enrich_spent += 1
+    return await _ne.enrich_archived_article(article_id)
+
 async def _archive_article(article: dict) -> dict:
     """R-F3486 — the FIRST durable write. Thin seam so it can be spied/faked."""
     from . import news_archive
@@ -1630,6 +1688,16 @@ async def _ingest_article(article: dict) -> dict:
 
     from . import news_archive as _na
     aid = out["article_id"]
+
+    # R-F3509 — selective deep read. Non-fatal by construction: the archive write
+    # has already succeeded, so a fetch failure degrades the EVIDENCE GRADE of
+    # this record, never its existence.
+    try:
+        _enr = await _maybe_enrich(aid)
+        out["enriched"] = bool((_enr or {}).get("enriched"))
+    except Exception as _enr_e:
+        out["enriched"] = False
+        await _na.mark_stage(aid, "enriched", ok=False, detail=str(_enr_e)[:400])
 
     # 3) hot cache — derived; a failure here is recorded but never loses evidence
     try:
@@ -2223,6 +2291,7 @@ async def poll_feeds(
     total_failed = 0
     total_promoted = 0
     total_retryable = 0   # R-F3486 — archived-write failures left for retry
+    _reset_enrichment_budget()   # R-F3509 — bound deep reads per poll cycle
     feed_results = []
 
     # R-F2890 — feed health is read ONCE per pass (strict; None = store unreadable,

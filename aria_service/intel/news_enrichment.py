@@ -120,7 +120,12 @@ def cap_confidence_for_extraction(confidence: str, extraction_status: str) -> st
     conf = str(confidence or "").strip().upper()
     if str(extraction_status or "").strip().lower() in _READ_STATUSES:
         return conf
-    return "ASSESSED" if conf == "HIGH" else conf
+    # Downgrade WITHIN the caller's own vocabulary. The first version returned
+    # "ASSESSED", which belongs to brain_hook's enum, not the news signal's
+    # {LOW, MEDIUM, HIGH} — it would have injected an unknown value into a field
+    # other code compares against that set. A cap must lower confidence, not
+    # change what kind of thing the field is.
+    return "MEDIUM" if conf == "HIGH" else conf
 
 
 async def _fetch_body(url: str) -> str:
