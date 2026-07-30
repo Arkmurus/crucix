@@ -406,21 +406,21 @@ def test_rf3138_client_cannot_choose_its_own_tenant(client):
                       headers=AUTH).status_code == 404
 
 
-def test_rf3138_draft_pack_refused_over_http(client):
+def test_rf3138_non_bs7858_standard_selection_refused_over_http(client):
     payload = _create_payload("API-DRAFT") | {"pack_id": "pt_generic"}
     response = client.post("/api/aria/vetting/cases", json=payload,
                            params={"user_id": TENANT}, headers=AUTH)
-    assert response.status_code == 409
-    assert response.json()["detail"]["code"] == "pack_not_usable"
+    assert response.status_code == 422
 
 
-def test_rf3138_packs_surface_declares_decision_eligibility(client):
+def test_rf3466_standard_surface_exposes_only_current_bs7858(client):
     response = client.get("/api/aria/vetting/packs", headers=AUTH)
     assert response.status_code == 200
-    by_id = {p["pack_id"]: p for p in response.json()["packs"]}
-    # A FRAMEWORK_ONLY pack must advertise that it cannot issue a decision.
-    assert by_id["intl_baseline"]["decision_eligible"] is False
-    assert by_id["uk_bs7858"]["decision_eligible"] is True
+    body = response.json()
+    assert body["single_standard"] is True
+    assert body["count"] == 1
+    assert body["packs"][0]["standard"] == "BS 7858:2019"
+    assert body["packs"][0]["pack_id"] == "uk_bs7858"
 
 
 def test_rf3138_bad_as_of_is_422_not_500(client):

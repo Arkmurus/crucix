@@ -119,51 +119,17 @@ def test_rf3162_uk_case_proceeds_with_a_recorded_basis(client):
 
 
 def test_rf3162_intl_case_is_refused_even_with_a_uk_basis(client):
-    """THE capability test: a UK Schedule 1 condition must not authorise
-    criminal-offence processing under a non-UK pack."""
-    assert _create(client, "JUR-INTL", pack_id="intl_baseline").status_code == 200
-    assert _record_basis(client).status_code == 200      # valid UK position
-
-    r = client.patch("/api/aria/vetting/case/JUR-INTL",
-                     json={"inputs": {"convictions_declared": True}},
-                     params={"user_id": TENANT}, headers=AUTH)
-    assert r.status_code == 409, r.text
-    detail = r.json()["detail"]
-    assert detail["code"] == "jurisdiction_not_reviewed"
-    assert detail["jurisdiction"] == "INTL"
-
-    # And it really did not land.
-    case = client.get("/api/aria/vetting/case/JUR-INTL",
-                      params={"user_id": TENANT}, headers=AUTH).json()
-    assert case["inputs"]["convictions_declared"] is False
+    """The BS 7858-only product cannot open an international-framework case."""
+    assert _create(client, "JUR-INTL", pack_id="intl_baseline").status_code == 422
 
 
 def test_rf3162_intl_document_upload_is_refused_too(client):
-    assert _create(client, "JUR-DOC", pack_id="intl_baseline").status_code == 200
-    assert _record_basis(client).status_code == 200
-    with patch("aria_service.vetting.documents.extract_document",
-               new=AsyncMock(return_value={"available": True, "data": {
-                   "doc_type": "DISCLOSURE_CERTIFICATE", "confidence": 0.97}})):
-        r = client.post("/api/aria/vetting/case/JUR-DOC/documents",
-                        json={"filename": "dbs.txt",
-                              "content_base64": base64.b64encode(b"x").decode(),
-                              "declared_doc_type": "DISCLOSURE_CERTIFICATE"},
-                        params={"user_id": TENANT}, headers=AUTH)
-    assert r.status_code == 409
-    assert r.json()["detail"]["code"] == "jurisdiction_not_reviewed"
+    assert _create(client, "JUR-DOC", pack_id="intl_baseline").status_code == 422
 
 
 def test_rf3162_non_criminal_work_is_unaffected_on_any_jurisdiction(client):
-    """The refusal is scoped to Art. 10 data. Ordinary screening under a
-    framework pack must still work."""
-    assert _create(client, "JUR-OK", pack_id="intl_baseline").status_code == 200
-    r = client.patch("/api/aria/vetting/case/JUR-OK",
-                     json={"extension_approved": True},
-                     params={"user_id": TENANT}, headers=AUTH)
-    assert r.status_code == 200, r.text
-    a = client.post("/api/aria/vetting/case/JUR-OK/assess",
-                    params={"user_id": TENANT}, headers=AUTH)
-    assert a.status_code == 200
+    """Even non-criminal cases cannot silently select another framework."""
+    assert _create(client, "JUR-OK", pack_id="intl_baseline").status_code == 422
 
 
 def test_rf3164_legal_basis_surface_offers_a_confirmable_recommendation(client):

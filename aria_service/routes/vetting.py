@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, date, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -241,8 +242,11 @@ class CreateCaseRequest(BaseModel):
     date_of_birth: date
     employment_start: date
     screening_years: int = 5
-    pack_id: str = "uk_bs7858"
+    # Backwards-compatible wire field, constrained to the only standard this
+    # product supports. The UI does not expose a selector.
+    pack_id: Literal["uk_bs7858"] = "uk_bs7858"
     conditional_employment_start: date | None = None
+    offer_date: date | None = None
     extension_approved: bool = False
     inputs: ScreeningInputs = Field(default_factory=ScreeningInputs)
     career: list[CareerEntry] = Field(default_factory=list)
@@ -255,7 +259,10 @@ class UpdateCaseRequest(BaseModel):
     documents: list[UploadedDocument] | None = None
     financial: FinancialFlags | None = None
     conditional_employment_start: date | None = None
+    offer_date: date | None = None
     extension_approved: bool | None = None
+    stat_dec_days_used: int | None = Field(default=None, ge=0)
+    stat_dec_approved_by: str | None = Field(default=None, max_length=200)
     # R-F3152 — WITHOUT these the retention fields were unreachable: the model
     # carried outcome/outcome_date/employment_end, retention.py computed from
     # them, and no API path could ever set them. So every case stayed PENDING
@@ -384,20 +391,23 @@ async def vetting_legal_basis_set_ep(body: LegalBasisRequest, user_id: str = "")
 @router.get("/packs")
 @fail_wire(module=_MODULE, gap_type="engine_failure")
 async def vetting_packs_ep():
-    """The jurisdiction packs this process carries, with their real status.
-
-    Exposed so the UI can state plainly which framework a case is governed by
-    and whether that pack is decision-eligible — a FRAMEWORK_ONLY pack must
-    never be presented as though it certifies anything.
-    """
-    packs = registry.list_packs()
-    wire_success(module=_MODULE, summary=f"listed {len(packs)} screening packs")
-    return {"packs": packs, "count": len(packs)}
+    """Compatibility surface exposing the one active BS 7858 standard."""
+    pack = registry.latest_usable("uk_bs7858")
+    active = {
+        "pack_id": pack.pack_id,
+        "version": pack.version,
+        "standard": "BS 7858:2019",
+        "status": pack.status.value,
+        "legal_coverage": pack.legal_coverage.value,
+        "decision_eligible": pack.employment_decision_eligible,
+    }
+    wire_success(module=_MODULE, summary="served the active BS 7858 standard")
+    return {"packs": [active], "count": 1, "single_standard": True}
 
 
 @router.get("/standard")
 @fail_wire(module=_MODULE, gap_type="engine_failure")
-async def vetting_standard_coverage_ep(pack_id: str = "uk_bs7858"):
+async def vetting_standard_coverage_ep():
     """R-F3214 — which clauses of BS 7858 this module actually implements.
 
     Answers "does ARIA understand the standard?" with a number that can be
@@ -416,7 +426,7 @@ async def vetting_standard_coverage_ep(pack_id: str = "uk_bs7858"):
     from ..vetting.standard_map import coverage_report
 
     try:
-        pack = registry.latest_usable(pack_id)
+        pack = registry.latest_usable("uk_bs7858")
     except PackNotUsable as exc:
         raise HTTPException(
             status_code=404,
@@ -491,6 +501,7 @@ async def vetting_create_case_ep(body: CreateCaseRequest, user_id: str = ""):
             employment_start=body.employment_start,
             screening_years=body.screening_years,
             conditional_employment_start=body.conditional_employment_start,
+            offer_date=body.offer_date,
             extension_approved=body.extension_approved,
             inputs=body.inputs,
             career=body.career,
@@ -508,11 +519,12 @@ async def vetting_create_case_ep(body: CreateCaseRequest, user_id: str = ""):
     # The pack is not pinned yet, so check the jurisdiction of the pack being
     # REQUESTED rather than of a manifest that does not exist.
     await _require_art10_position_for_pack(
-        tenant, case, body.pack_id, datetime.now(UTC).date())
+        tenant, case, "uk_bs7858", datetime.now(UTC).date())
 
     service = _service()
     try:
-        created = await asyncio.to_thread(service.create_case, case, body.pack_id)
+        created = await asyncio.to_thread(
+            service.create_case, case, "uk_bs7858")
     except PackNotUsable as exc:
         # A DRAFT pack is not legally reviewed for the jurisdiction it names.
         # Refusing here is the enforced-by-construction half of the pack
@@ -528,7 +540,7 @@ async def vetting_create_case_ep(body: CreateCaseRequest, user_id: str = ""):
         ) from exc
 
     wire_success(module=_MODULE,
-                 summary=f"vetting case created under pack {body.pack_id}")
+                 summary="vetting case created under BS 7858:2019")
     return {
         "case_id": created.case_id,
         "manifest": created.manifest.model_dump() if created.manifest else None,

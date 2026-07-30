@@ -14,7 +14,7 @@ from datetime import date, timedelta
 from enum import Enum
 from itertools import combinations
 
-from .models import CareerEntryType, VerificationState, VettingCase
+from .models import CareerEntryType, DocumentType, VerificationState, VettingCase
 from .packs.base import ScreeningPack
 
 
@@ -145,13 +145,62 @@ def gap_findings(case: VettingCase, pack: ScreeningPack, as_of: date) -> list[Fi
     return out
 
 
+def statutory_declaration_findings(
+    case: VettingCase, pack: ScreeningPack, as_of: date,
+) -> list[Finding]:
+    """Enforce the exceptional statutory-declaration route in 7.7 i)."""
+    entries = [
+        entry for entry in case.career
+        if entry.state is VerificationState.COVERED_BY_STAT_DEC
+    ]
+    if not entries:
+        return []
+    doc_index = {document.document_id: document for document in case.documents}
+    findings: list[Finding] = []
+    total_days = 0
+    period_start, period_end = screening_period(case, pack)
+    for entry in entries:
+        start = max(entry.start, period_start)
+        end = min(entry.end or period_end, period_end)
+        total_days += max(0, (end - start).days + 1)
+        if not any(
+            document_id in doc_index
+            and doc_index[document_id].doc_type
+            is DocumentType.STATUTORY_DECLARATION
+            for document_id in entry.supporting_documents
+        ):
+            findings.append(Finding(
+                "STAT_DEC_DOCUMENT_MISSING", Severity.BLOCKER, "7.7 i)",
+                "A period marked as covered by statutory declaration has no "
+                "statutory-declaration document attached.",
+                entry_id=entry.entry_id,
+            ))
+    limit = pack.declaration_max_days_per_block
+    if limit is not None and total_days > limit:
+        findings.append(Finding(
+            "STAT_DEC_TOTAL_EXCEEDED", Severity.BLOCKER, "7.7 i)",
+            f"Statutory declarations cover {total_days} days in the screening "
+            f"period, above the {limit}-day exceptional limit.",
+        ))
+    if not case.stat_dec_approved_by.strip():
+        findings.append(Finding(
+            "STAT_DEC_APPROVAL_MISSING", Severity.BLOCKER, "7.7 i)",
+            "Record the named top-management approver before relying on a "
+            "statutory declaration.",
+        ))
+    return findings
+
+
 # -------------------------------------------------------------- evidence --
 
 def evidence_findings(case: VettingCase, pack: ScreeningPack, as_of: date) -> list[Finding]:
     doc_index = {d.document_id: d for d in case.documents}
     out: list[Finding] = []
     for e in case.career:
-        if e.state == VerificationState.VERIFIED:
+        if e.state in (
+            VerificationState.VERIFIED,
+            VerificationState.COVERED_BY_STAT_DEC,
+        ):
             continue
         accepted = pack.accepted_evidence.get(e.entry_type, [])
         ref = pack.evidence_references.get(e.entry_type, pack.pack_id)
@@ -249,6 +298,58 @@ def checklist_findings(case: VettingCase, pack: ScreeningPack) -> list[Finding]:
                            f"No accepted criminality/conduct route on file yet. "
                            f"Accepted for {pack.display_name}: {routes}."))
     return out
+
+
+def interview_sequence_findings(case: VettingCase) -> list[Finding]:
+    """Verify the dated interview-before-offer sequence in clause 7.3.4."""
+    if not case.inputs.interview_done or case.inputs.interview_date is None:
+        return []  # checklist_findings owns the missing interview/date actions
+    if case.offer_date is None:
+        return [Finding(
+            "OFFER_DATE_MISSING", Severity.ACTION, "7.3.4",
+            "Record the offer date so the interview-before-offer sequence can "
+            "be verified.",
+        )]
+    if case.inputs.interview_date >= case.offer_date:
+        return [Finding(
+            "INTERVIEW_NOT_BEFORE_OFFER", Severity.BLOCKER, "7.3.4",
+            "The recorded interview was not before the employment offer. "
+            "Controller review and a documented corrective decision are required.",
+        )]
+    return []
+
+
+def _next_actions(findings: list[Finding]) -> list[dict]:
+    """Render the deterministic findings as a prioritised officer worklist."""
+    priority = {
+        Severity.BLOCKER: 0,
+        Severity.SIGNOFF: 1,
+        Severity.DEADLINE: 2,
+        Severity.ACTION: 3,
+        Severity.INFO: 4,
+    }
+    ordered = sorted(
+        findings,
+        key=lambda finding: (
+            priority.get(finding.severity, 9),
+            finding.due_date or date.max,
+            finding.code,
+            finding.entry_id or "",
+        ),
+    )
+    return [
+        {
+            "code": finding.code,
+            "priority": finding.severity.value,
+            "action": finding.message,
+            "reference": finding.ref,
+            "entry_id": finding.entry_id,
+            "due_date": (
+                finding.due_date.isoformat() if finding.due_date else None
+            ),
+        }
+        for finding in ordered
+    ]
 
 
 # -------------------------------------------------------------- signoffs --
@@ -499,7 +600,9 @@ def assess(case: VettingCase, pack: ScreeningPack, as_of: date) -> dict:
     findings = (
         integrity_findings(case, as_of)
         + checklist_findings(case, pack)
+        + interview_sequence_findings(case)
         + gap_findings(case, pack, as_of)
+        + statutory_declaration_findings(case, pack, as_of)
         + evidence_findings(case, pack, as_of)
         + referee_findings(case, pack, as_of)   # R-F3206
         + requirement_findings(case, pack, as_of)   # R-F3207
@@ -543,6 +646,7 @@ def assess(case: VettingCase, pack: ScreeningPack, as_of: date) -> dict:
         "screening_period": [start.isoformat(), end.isoformat()],
         "status": status,
         "findings": [f.__dict__ for f in findings],
+        "next_actions": _next_actions(findings),
         "controller_notes": pack.controller_notes,
         "counts": {"blockers": len(blockers), "signoffs": len(signoffs),
                    "actions": len(actions)},

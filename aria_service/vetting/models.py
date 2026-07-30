@@ -361,12 +361,15 @@ class VettingCase(BaseModel):
     screening_years: int = 5
     manifest: CaseManifest | None = None
     conditional_employment_start: date | None = None
+    # 7.3.4 is a sequence, so both dates are required to verify it.
+    offer_date: date | None = None
     extension_approved: bool = False
     inputs: ScreeningInputs = Field(default_factory=ScreeningInputs)
     career: list[CareerEntry] = Field(default_factory=list)
     documents: list[UploadedDocument] = Field(default_factory=list)
     financial: FinancialFlags = Field(default_factory=FinancialFlags)
     stat_dec_days_used: int = 0
+    stat_dec_approved_by: str = ""
 
     # R-F3148 — retention anchors. A retention period runs from an OUTCOME, so
     # these are what start the clock; without them `retention_due_date` returns

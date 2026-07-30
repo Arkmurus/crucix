@@ -63,6 +63,12 @@ class StageSpec:
 # progress tracker rather than a second checklist.
 STAGE_SPECS: tuple[StageSpec, ...] = (
     StageSpec(
+        key="INTERVIEW", label="Interview",
+        hint="Held before any offer, with both dates and a named interviewer",
+        inputs=("interview_done", "interview_date", "interviewed_by"),
+        finding_codes=("OFFER_DATE_MISSING", "INTERVIEW_NOT_BEFORE_OFFER"),
+    ),
+    StageSpec(
         key="APPLICATION", label="Application",
         hint="Declared history, signed authorisation, and the CV it is checked against",
         inputs=("full_name", "previous_names_declared", "date_of_birth",
@@ -81,17 +87,15 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
                        "EXAMINER_NOT_RECORDED"),
     ),
     StageSpec(
-        key="INTERVIEW", label="Interview",
-        hint="Held before any offer, with a date and a named interviewer",
-        inputs=("interview_done", "interview_date", "interviewed_by"),
-    ),
-    StageSpec(
         key="HISTORY", label="Career history",
         hint="Every period declared, and every period verified",
         finding_codes=("GAP_UNDECLARED", "GAP_UNVERIFIED_OVER_LIMIT",
                        "EVIDENCE_MISSING", "EVIDENCE_INSUFFICIENT",
                        "REFEREE_NOT_NOMINATED", "OVERLAPPING_DECLARATIONS",
-                       "DUPLICATE_ENTRY", "FUTURE_DATED_HISTORY"),
+                       "DUPLICATE_ENTRY", "FUTURE_DATED_HISTORY",
+                       "STAT_DEC_DOCUMENT_MISSING",
+                       "STAT_DEC_TOTAL_EXCEEDED",
+                       "STAT_DEC_APPROVAL_MISSING"),
     ),
     StageSpec(
         key="CRIMINALITY", label="Criminality & conduct",

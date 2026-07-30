@@ -78,6 +78,43 @@ class Clause:
 
 
 CLAUSES: tuple[Clause, ...] = (
+    Clause(
+        clause="4", title="Top-management commitment",
+        requirement="Top management owns and resources the screening system "
+                    "and assigns its responsibilities.",
+        status=ClauseStatus.OPERATOR_CONTROL,
+        verified_on="2026-07-30",
+        note="No organization-control record is implemented."),
+    Clause(
+        clause="5", title="Risk management",
+        requirement="A named human makes a role-aware decision from the "
+                    "verified history; the engine never auto-hires or rejects.",
+        status=ClauseStatus.PARTIAL,
+        implemented_by=("decisions: named human decision and reason",),
+        verified_on="2026-07-30",
+        note="The role risk assessment is not yet captured."),
+    Clause(
+        clause="6.2", title="Screening personnel competence",
+        requirement="Screening personnel are trained, competence is reviewed "
+                    "and training records are retained.",
+        status=ClauseStatus.OPERATOR_CONTROL,
+        verified_on="2026-07-30",
+        note="No organization-level training register is implemented."),
+    Clause(
+        clause="6.3", title="Outsourced screening",
+        requirement="Outsourcing does not transfer accountability; the "
+                    "employing organization reviews the completed file.",
+        status=ClauseStatus.OPERATOR_CONTROL,
+        verified_on="2026-07-30",
+        note="Supplier governance is not modelled."),
+    Clause(
+        clause="7.2", title="Secure administration",
+        requirement="Each person has a secure separate screening file and a "
+                    "progress record; conditional files are identifiable.",
+        status=ClauseStatus.PARTIAL,
+        implemented_by=("store: tenant-scoped encrypted case file",
+                        "requests: verification progress ledger"),
+        verified_on="2026-07-30"),
     # ── 7.3.2 — the application form ──────────────────────────────────────
     Clause(
         clause="7.3.2 a)4)", title="Five-year address history",
@@ -104,7 +141,9 @@ CLAUSES: tuple[Clause, ...] = (
         note="Added by R-F3174; the pack captured only the number before."),
     Clause(
         clause="7.3.2 c)", title="Convictions and cautions declaration",
-        requirement="The applicant declares unspent convictions and cautions.",
+        requirement="The applicant supplies the criminality information the "
+                    "organization may lawfully request for the role, with "
+                    "Rehabilitation of Offenders filtering applied.",
         status=ClauseStatus.ENCODED,
         implemented_by=("packs.builtin: checklist convictions_declared",
                         "legal_basis: Art. 10 gate on criminal-offence data"),
@@ -146,6 +185,8 @@ CLAUSES: tuple[Clause, ...] = (
         status=ClauseStatus.ENCODED,
         implemented_by=("models.ScreeningInputs.interview_date",
                         "models.ScreeningInputs.interviewed_by",
+                        "models.VettingCase.offer_date",
+                        "rules.interview_sequence_findings",
                         "packs.builtin: requirement interview_record",
                         "stages: INTERVIEW"),
         verified_on=VERIFIED_2026_07_26,
@@ -302,6 +343,14 @@ CLAUSES: tuple[Clause, ...] = (
                         "rules.checklist_findings",
                         "packs.builtin: requirement criminality_certificate"),
         verified_on=VERIFIED_2026_07_26),
+    Clause(
+        clause="7.7 i)", title="Exceptional statutory declaration",
+        requirement="A statutory declaration is exceptional, documented, "
+                    "limited in total duration and approved by top management.",
+        status=ClauseStatus.ENCODED,
+        implemented_by=("rules.statutory_declaration_findings",
+                        "models.VettingCase.stat_dec_approved_by"),
+        verified_on="2026-07-30"),
 
     # ── screening clock and retention ─────────────────────────────────────
     Clause(
@@ -318,7 +367,7 @@ CLAUSES: tuple[Clause, ...] = (
              "places it elsewhere, correct it here — the RULE is verified, the "
              "clause NUMBER is the part carrying less evidence."),
     Clause(
-        clause="retention", title="Retention periods",
+        clause="11", title="Records and retention",
         requirement="Twelve months for an unsuccessful applicant; seven years "
                     "from the END of employment for a successful one.",
         status=ClauseStatus.ENCODED,
@@ -353,6 +402,28 @@ CLAUSES: tuple[Clause, ...] = (
         note="The module records the nominated referee and warns where a "
              "period has none. It cannot verify that a number was sourced "
              "independently — that is a human control."),
+    Clause(
+        clause="7.8", title="Review of screening progress",
+        requirement="The controller systematically records and reviews each "
+                    "case throughout screening.",
+        status=ClauseStatus.PARTIAL,
+        implemented_by=("requests: dated request/chaser ledger",
+                        "rules.assess: live findings and deadlines"),
+        verified_on="2026-07-30",
+        note="A named controller review event is not stored."),
+    Clause(
+        clause="9", title="Ancillary staff",
+        requirement="Relevant ancillary staff are screened and unscreened "
+                    "access to sensitive assets is restricted.",
+        status=ClauseStatus.OPERATOR_CONTROL,
+        verified_on="2026-07-30",
+        note="Role/access scoping is not represented."),
+    Clause(
+        clause="10", title="Acquisitions and transfers",
+        requirement="Relevant transferred personnel and inherited screening "
+                    "records are reviewed; missing screening is completed.",
+        status=ClauseStatus.NOT_ENCODED,
+        verified_on="2026-07-30"),
 )
 
 
@@ -361,12 +432,8 @@ CLAUSES: tuple[Clause, ...] = (
 # completeness, and this module's whole discipline is that absence is never a
 # finding.
 UNMAPPED_SCOPE: tuple[str, ...] = (
-    "Every clause outside those listed above. The 2026-07-26 reading against "
-    "the licensed copy covered 7.3.2, 7.4, 7.6 and 7.7; the rest of BS 7858 "
-    "has NOT been read into this module and nothing here should be taken as "
-    "evidence about it.",
-    "The offer date is not captured, so 7.3.4's 'before any offer' is recorded "
-    "as an interview date but never COMPARED against an offer.",
+    "Clauses and subclauses not listed in this register remain unmodelled. "
+    "This is a capability disclosure, not a certificate of conformity.",
     "Screening for a period longer than ten years, and the limited-screening "
     "variant, are carried as pack data but have not been clause-verified.",
     "Sector-specific annexes and any normative references BS 7858 makes to "
@@ -417,9 +484,12 @@ _STRUCTURAL: dict[str, tuple[str, ...]] = {
     "7.6": ("full_screening_weeks", "extension_weeks"),
     "retention": ("retention_unsuccessful_months",
                   "retention_post_employment_years"),
+    "11": ("retention_unsuccessful_months",
+           "retention_post_employment_years"),
     "7.4 c)": ("originals_required",),
     "7.7 b)": ("min_documentary_items_without_reference",
                "direct_reference_documents"),
+    "7.7 i)": ("declaration_max_days_per_block",),
     "screening staff": ("controller_notes",),
     "referee contact": ("controller_notes",),
 }

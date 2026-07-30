@@ -321,6 +321,7 @@ Sidebar.init('vetting');
   let DOC_TYPES = [];              // [{label, types:[...]}]
   let CASES = [];
   const DETAIL = new Map();        // case_id -> {assessment, documents, requests}
+  const DETAIL_LOADING = new Set();
 
   function initials(name) {
     const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -366,7 +367,7 @@ Sidebar.init('vetting');
           <span class="vt-avatar">${esc(initials(c.applicant_name))}</span>
           <span class="vt-ident">
             <span class="vt-name">${esc(c.applicant_name || '(unnamed)')}</span>
-            <span class="vt-ref">${esc(c.case_id)} · ${asOf} · ${esc(c.pack_id)} v${esc(c.pack_version)}</span>
+            <span class="vt-ref">${esc(c.case_id)} · ${asOf} · BS 7858:2019</span>
             <span class="vt-face" data-face-for="${esc(c.case_id)}">
               <span class="vt-facemeta">${Number(c.document_count || 0)} document(s) on file, expand for detail</span>
             </span>
@@ -460,7 +461,7 @@ Sidebar.init('vetting');
         <p class="vt-vstrip-sub"><strong>${Number(c.blockers || 0)}</strong> blocker(s) ·
           <strong>${Number(c.signoffs || 0)}</strong> sign-off(s) ·
           <strong>${Number(c.actions || 0)}</strong> action(s)</p>
-        <p class="vt-ref" style="margin-top:5px">${esc(pack.pack_id)} v${esc(pack.version)} · ${esc(pack.jurisdiction)} ·
+        <p class="vt-ref" style="margin-top:5px">BS 7858:2019 · United Kingdom ·
           screening period ${esc(period[0])} → ${esc(period[1])} · assessed as of ${esc(a.as_of)}</p>
         ${pack.employment_decision_eligible ? '' :
           `<p class="vt-vstrip-sub" style="color:#b45309">FRAMEWORK-ONLY pack. It organises and grades
@@ -520,18 +521,13 @@ Sidebar.init('vetting');
   function requirementsSection(caseId, a) {
     const reqs = a.requirements || [];
     const s = a.requirements_summary || {};
-    const add = `${upgradeButton(caseId, a)}
-      <button class="vt-btn secondary sm" data-addreq="${esc(caseId)}">
+    const add = `<button class="vt-btn secondary sm" data-addreq="${esc(caseId)}">
       <i class="bi bi-plus-lg"></i> Add requirement</button>`;
     if (!reqs.length) {
-      const next = newerPackFor(a);
       return sec('Required documents', 'none defined',
-        `<div class="vt-empty">This case is pinned to a rule pack version that defines no
-         document requirements. Cases keep the pack they were opened under, which is why a
-         historical assessment still means what it meant.${next ? `<br><br>
-         <strong>${esc(next.pack_id)} v${esc(next.version)} is available</strong> and does define
-         requirements. Updating re-pins this case to it, records the change on the file, and
-         marks the assessment for re-running.` : ''}</div>`, add);
+        `<div class="vt-empty">This historical case has no document requirements.
+         Do not treat it as BS 7858 complete. An administrator must bring it onto
+         the active standard before a decision is recorded.</div>`, add);
     }
     const rows = reqs.map((r) => {
       const acts = [];
@@ -665,21 +661,19 @@ Sidebar.init('vetting');
   }
 
   function findingsSection(a) {
-    const order = { BLOCKER: 0, SIGNOFF: 1, DEADLINE: 2, ACTION: 3, INFO: 4 };
-    const findings = (a.findings || []).slice().sort(
-      (x, y) => (order[x.severity] ?? 9) - (order[y.severity] ?? 9));
-    const body = findings.length
-      ? findings.map((f) => `
+    const actions = a.next_actions || [];
+    const body = actions.length
+      ? actions.map((f) => `
         <div class="vt-find">
-          <span class="vt-pill ${esc(String(f.severity || '').toLowerCase())}">${esc(f.severity)}</span>
+          <span class="vt-pill ${esc(String(f.priority || '').toLowerCase())}">${esc(f.priority)}</span>
           <div class="vt-row-main">
-            <p class="vt-find-msg">${esc(f.message)}</p>
-            <span class="vt-ref">${esc(f.code)} · ${esc(f.ref)}${f.due_date ? ' · due ' + esc(f.due_date) : ''}</span>
+            <p class="vt-find-msg">${esc(f.action)}</p>
+            <span class="vt-ref">${esc(f.code)} · ${esc(f.reference)}${f.due_date ? ' · due ' + esc(f.due_date) : ''}</span>
           </div>
         </div>`).join('')
-      : '<div class="vt-empty">No findings were returned for this assessment.</div>';
+      : '<div class="vt-empty">No outstanding actions were returned for this assessment.</div>';
     const notes = (a.controller_notes || []).join(' · ');
-    return sec('Findings', String(findings.length),
+    return sec('ARIA action plan', String(actions.length),
       body + (notes ? `<p class="vt-note">${esc(notes)}</p>` : ''));
   }
 
@@ -739,26 +733,32 @@ Sidebar.init('vetting');
     const body = document.querySelector(`[data-body-for="${CSS.escape(caseId)}"]`);
     if (!body) return;
     if (DETAIL.has(caseId) && !force) { paint(caseId); return; }
+    if (DETAIL_LOADING.has(caseId)) return;
+    DETAIL_LOADING.add(caseId);
     body.innerHTML = '<div class="vt-loading"><i class="bi bi-hourglass-split"></i> Opening the file…</div>';
 
-    // The assessment is the authority; documents and the ledger are context.
-    // A failure in either context call must not block the verdict, and must
-    // not be rendered as "none" — see documentsSection.
-    const [assessment, documents, requests] = await Promise.all([
-      authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/assess`, { method: 'POST' })
-        .then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/documents`)
-        .then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/requests`)
-        .then((r) => (r.ok ? r.json() : null)).catch(() => null),
-    ]);
-    DETAIL.set(caseId, {
-      assessment,
-      documents: documents ? (documents.documents || []) : null,
-      requests,
-    });
-    paint(caseId);
-    refreshFace(caseId);
+    try {
+      // The assessment is the authority; documents and the ledger are context.
+      // A failure in either context call must not block the verdict, and must
+      // not be rendered as "none" — see documentsSection.
+      const [assessment, documents, requests] = await Promise.all([
+        authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/assess`, { method: 'POST' })
+          .then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/documents`)
+          .then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}/requests`)
+          .then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      ]);
+      DETAIL.set(caseId, {
+        assessment,
+        documents: documents ? (documents.documents || []) : null,
+        requests,
+      });
+      paint(caseId);
+      refreshFace(caseId);
+    } finally {
+      DETAIL_LOADING.delete(caseId);
+    }
   }
 
   function paint(caseId) {
@@ -1103,7 +1103,7 @@ Sidebar.init('vetting');
   async function addRequirement(caseId) {
     const values = await Modal.form({
       title: 'Add a document requirement',
-      message: 'Applies to this case only. The rule pack is never modified. Its hash is pinned in the case manifest.',
+      message: 'Applies to this case only and does not change the active BS 7858 standard.',
       icon: 'bi-list-check', okLabel: 'Add',
       fields: [
         { name: 'label', label: 'What is needed?', type: 'text', required: true, autofocus: true,
@@ -1191,9 +1191,14 @@ Sidebar.init('vetting');
   // about a date. A boolean cannot evidence one.
   async function recordInterview(caseId) {
     let current = {};
+    let currentOfferDate = '';
     try {
       const r = await authed('/api/aria/vetting/case/' + encodeURIComponent(caseId));
-      if (r.ok) current = (await r.json()).inputs || {};
+      if (r.ok) {
+        const body = await r.json();
+        current = body.inputs || {};
+        currentOfferDate = body.offer_date || '';
+      }
     } catch (e) { /* the form still works empty */ }
     const values = await Modal.form({
       title: 'Record the screening interview',
@@ -1204,13 +1209,17 @@ Sidebar.init('vetting');
           value: current.interview_date || '' },
         { name: 'interviewed_by', label: 'Who conducted it?', type: 'text', required: true,
           value: current.interviewed_by || '' },
+        { name: 'offer_date', label: 'Offer date', type: 'date', required: true,
+          value: currentOfferDate,
+          help: 'ARIA compares this with the interview date. The interview must be earlier.' },
       ],
     });
     if (!values) return;
     try {
       const r = await authed(`/api/aria/vetting/case/${encodeURIComponent(caseId)}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ inputs: Object.assign({}, current, {
+        body: JSON.stringify({ offer_date: values.offer_date,
+          inputs: Object.assign({}, current, {
           interview_done: true, interview_date: values.interview_date,
           interviewed_by: values.interviewed_by }) }),
       });
@@ -1554,8 +1563,8 @@ Sidebar.init('vetting');
     if (!PACKS.length) await loadPacks();
     if (!PACKS.length) {
       Modal.info({
-        title: 'No rule pack available',
-        message: 'A case must be pinned to a PRODUCTION screening pack, and none could be loaded.',
+        title: 'BS 7858 standard unavailable',
+        message: 'The active BS 7858:2019 standard could not be loaded.',
         tone: 'danger', icon: 'bi-exclamation-triangle-fill',
         bodyHtml: '<div class="sc-form-static">This usually means the vetting service is '
           + 'unreachable. Nothing has been created. Try Refresh, and if it persists the '
@@ -1566,7 +1575,7 @@ Sidebar.init('vetting');
     const today = new Date().toISOString().slice(0, 10);
     const values = await Modal.form({
       title: 'New vetting case',
-      message: 'ARIA computes every gap, clock, document requirement and threshold from the pinned rule pack.',
+      message: 'ARIA monitors this case against the single active BS 7858:2019 standard.',
       icon: 'bi-folder-plus', okLabel: 'Create and assess',
       fields: [
         { name: 'case_id', label: 'Case reference', type: 'text', required: true,
@@ -1578,13 +1587,6 @@ Sidebar.init('vetting');
           help: 'Used to floor the screening period at the 16th birthday.' },
         { name: 'employment_start', label: 'Employment start date', type: 'date', required: true,
           value: today, help: 'The screening period is counted back from this date.' },
-        { name: 'pack_id', label: 'Rule pack', type: 'select', required: true,
-          value: PACKS[0] && PACKS[0].pack_id,
-          options: PACKS.map((p) => ({
-            value: p.pack_id,
-            label: `${p.pack_id} v${p.version}${p.decision_eligible ? '' : '. Framework only'}`,
-          })),
-          help: 'A framework-only pack organises evidence but never issues decision-readiness.' },
       ],
       validate: (v) => {
         const errs = {};
@@ -1719,6 +1721,18 @@ Sidebar.init('vetting');
   await Promise.all([loadPacks(), loadDocTypes(), loadStandard()]);
   await loadCases();
   await loadRetention();
+
+  // R-F3466 — an open file is a live control surface, not a snapshot. Refresh
+  // the authoritative assessment, document states and request ledger while the
+  // officer is looking at it. Hidden tabs do no work; returning to the tab
+  // resumes from the server rather than replaying stale browser state.
+  window.setInterval(() => {
+    if (document.hidden) return;
+    document.querySelectorAll('.vt-case[open]').forEach((card) => {
+      const caseId = card.getAttribute('data-case');
+      if (caseId) loadDetail(caseId, true);
+    });
+  }, 30000);
 })();
 </script>
 </body>
