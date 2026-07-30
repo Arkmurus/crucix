@@ -275,10 +275,12 @@ def _historical_origins_by_country(
     The membership test below is a set lookup per signal; descriptor building and
     the union-find happen only for the few countries that matter.
 
-    Identity uses the ledger's OWN dedup notion — the normalised leading text —
-    rather than a fresh hash. intel_ledger dedups on ``text[:150].lower()``
-    (intel_ledger.py:773,785), so two records the ledger considers the same story
-    must not read as two independent witnesses here either.
+    Story identity MUST match the active band's (``_story_fingerprint`` over the
+    full text). R-F3525: it originally used the ledger's cheaper dedup prefix
+    (``text[:150]``) here, which merged historical stories that the active band
+    kept separate — an under-counted denominator that made 53 of 54 live
+    countries read ACCELERATING. Whenever two measurements are compared to each
+    other, the same instrument has to produce both.
     """
     # Serve what is still fresh; scan only for the rest. If every requested
     # country is cached the ledger is not walked at all.
@@ -322,7 +324,15 @@ def _historical_origins_by_country(
         if not wanted:
             continue
         text = sig.get("text", "") or ""
-        story = " ".join(text[:150].split()).casefold()
+        # R-F3525 — the SAME identity the active band uses. The first cut used
+        # the ledger's dedup prefix (text[:150]) here while correlate_signals
+        # fingerprints the FULL text, so historical signals sharing a boilerplate
+        # lead-in merged into one origin while identical-shaped active ones did
+        # not. That under-counts the DENOMINATOR of the rate comparison, and it
+        # showed: live, 53 of 54 countries read ACCELERATING. A verdict that
+        # fires on 98% of subjects is measuring the instrument, not the world.
+        # Two bands compared against each other must be measured the same way.
+        story = _story_fingerprint(text)
         url = (sig.get("url") or "").strip() or (sig.get("source") or "").strip()
         for c in wanted:
             counts[c] += 1

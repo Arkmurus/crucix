@@ -313,6 +313,66 @@ class TestTrajectoryIsMeasuredFromOrigins:
             sc.TRAJECTORY_SUSTAINED
 
 
+class TestBothBandsUseTheSameInstrument:
+    """R-F3525 — caught LIVE by the output distribution, not by any test here.
+
+    The first cut identified historical stories by the ledger's cheap dedup
+    prefix (text[:150]) while correlate_signals fingerprints the FULL text. So
+    historical signals sharing a boilerplate lead-in merged into ONE origin while
+    identical-shaped active ones stayed separate — an under-counted denominator.
+
+    The symptom was in the numbers, not in a stack trace: 53 of 54 live countries
+    read ACCELERATING. A verdict that fires on 98% of subjects is measuring the
+    instrument rather than the world, and that is the only reason this was found.
+    """
+
+    def test_a_shared_prefix_does_not_collapse_historical_stories(self):
+        prefix = ("Defence procurement update from the ministry of defence regarding "
+                  "the ongoing modernisation programme announced earlier this year by "
+                  "officials in ")
+        assert len(prefix) > 140, "fixture must exceed the old 150-char prefix cut"
+        signals = [
+            _sig(30, "angola", prefix + f"the {kind} contract for {n} units",
+                 f"https://pub{i}.com/x", f"pub{i}")
+            for i, (kind, n) in enumerate(
+                (("armoured", 120), ("naval", 4), ("aviation", 18), ("missile", 60)))
+        ]
+        out = sc._historical_origins_by_country(signals, {"angola"}, NOW)
+        assert out["angola"]["origins"] == 4, (
+            f"four distinct stories from four publishers collapsed to "
+            f"{out['angola']['origins']} because the historical band identified "
+            f"them by a shared prefix. The denominator is under-counted and every "
+            f"country reads ACCELERATING"
+        )
+
+    def test_identical_stories_still_collapse(self):
+        """The correction must not go the other way: genuine syndication of ONE
+        story across publishers is still ONE witness."""
+        signals = [_sig(30, "angola", "Angola signs armoured vehicle contract",
+                        f"https://pub{i}.com/x", f"pub{i}") for i in range(5)]
+        out = sc._historical_origins_by_country(signals, {"angola"}, NOW)
+        assert out["angola"]["origins"] == 1, (
+            f"five syndicated copies of one story counted as "
+            f"{out['angola']['origins']} independent witnesses"
+        )
+
+    def test_the_two_bands_agree_on_the_same_input(self):
+        """The property stated directly: feed identical signals to both paths and
+        require the same origin count. Any future divergence fails here."""
+        texts = [f"Angola defence story number {i} with a distinct body" for i in range(4)]
+        hist_signals = [_sig(30, "angola", t, f"https://pub{i}.com/x", f"pub{i}")
+                        for i, t in enumerate(texts)]
+        active_shaped = [{"url": f"https://pub{i}.com/x",
+                          "story": sc._story_fingerprint(t), "source": f"pub{i}"}
+                         for i, t in enumerate(texts)]
+
+        hist = sc._historical_origins_by_country(hist_signals, {"angola"}, NOW)
+        assert hist["angola"]["origins"] == sc._independent_origins(active_shaped), (
+            "the historical and active bands disagree on the same evidence, so "
+            "their rates cannot be compared"
+        )
+
+
 class TestBandsDoNotOverlap:
 
     def test_a_signal_is_never_counted_in_both_bands(self):

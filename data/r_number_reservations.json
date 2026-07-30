@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3524,
+  "next_available": 3526,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29281,6 +29281,25 @@
       "r_number": "R-F3523",
       "title": "R-F3521 carrier: trajectory reaches chat/briefing/opportunities surfaces",
       "claimed_at": "2026-07-30T20:47:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "afaeb235",
+      "notes": null,
+      "shipped_at": "2026-07-30T21:04:19Z"
+    },
+    {
+      "r_number": "R-F3524",
+      "title": "DD reconcile loop has no kill switch - operator cannot pause DD relaunches",
+      "claimed_at": "2026-07-30T21:00:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3525",
+      "title": "trajectory bands compared with different story identities - denominator undercount",
+      "claimed_at": "2026-07-30T21:11:25Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
