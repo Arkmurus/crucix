@@ -28849,9 +28849,10 @@
       "title": "evidence contract: prove each declared invariant is enforced, and pin the unenforced ones by name",
       "claimed_at": "2026-07-30T13:01:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f91e02b5",
+      "notes": null,
+      "shipped_at": "2026-07-30T13:04:16Z"
     }
   ]
 }
