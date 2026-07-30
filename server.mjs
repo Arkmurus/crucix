@@ -2751,6 +2751,14 @@ app.get('/api/leads', requireAdmin, async (req, res) => {
   }
 });
 
+app.delete('/api/leads/:leadId', requireAdmin, (req, res) =>
+  ariaProxy(
+    req,
+    res,
+    '/api/aria/leads/inbound/' + encodeURIComponent(req.params.leadId),
+    { method: 'DELETE' },
+  ));
+
 // R-F2670 — Design partners (Phase A gate #7): frictionless operator logging.
 // Admin-only (real prospect contact details); proxies to the aria-intel tracker
 // so /design-partners.html can list + add without a raw curl. GET lists +

@@ -15,7 +15,7 @@ from typing import Any
 from .engine_wiring import wire_failure, wire_success
 
 
-ASSESSMENT_SCHEMA_VERSION = "1.0.0"
+ASSESSMENT_SCHEMA_VERSION = "1.1.0"
 
 
 class TrustState(str, Enum):
@@ -26,12 +26,12 @@ class TrustState(str, Enum):
     OPERATOR_VERIFIED = "operator_verified"
 
 
-class IntakePriority(str, Enum):
-    """Truthful triage band; never a probability of conversion."""
+class IntakeReadiness(str, Enum):
+    """Truthful workflow readiness; never a probability of conversion."""
 
     NEEDS_VERIFICATION = "needs_verification"
-    REVIEW = "review"
-    PRIORITY = "priority"
+    INCOMPLETE = "incomplete"
+    READY_FOR_REVIEW = "ready_for_review"
 
 
 _FREE_EMAIL_DOMAINS = frozenset({
@@ -47,12 +47,11 @@ _SPECIFIC_USE_CASES = frozenset({
 
 
 @dataclass(frozen=True)
-class ScoreFactor:
-    """One human-readable input to a deterministic triage score."""
+class EvidenceFactor:
+    """One human-readable observation, assertion or derived signal."""
 
     code: str
     label: str
-    points: int
     basis: str
     detail: str
 
@@ -60,7 +59,6 @@ class ScoreFactor:
         return {
             "code": self.code,
             "label": self.label,
-            "points": self.points,
             "basis": self.basis,
             "detail": self.detail,
         }
@@ -82,57 +80,57 @@ def assess_access_request(
     trust_state: TrustState = TrustState.SUBMITTED_UNVERIFIED,
     assessed_at: str | None = None,
 ) -> dict[str, Any]:
-    """Return an explainable triage assessment without inferring buyer truth.
-
-    Scores measure observable intake quality, not conversion probability.  A
-    record cannot become ``priority`` while identity remains unverified.
-    """
-    factors: list[ScoreFactor] = []
+    """Return explainable workflow readiness without inferring buyer quality."""
+    factors: list[EvidenceFactor] = []
     gaps: list[str] = []
     domain = _email_domain(email)
-    fit_score = 0
-    engagement_score = 20  # one explicit access-request submission
-    data_quality_score = 0
 
-    factors.append(ScoreFactor(
+    factors.append(EvidenceFactor(
         code="ACCESS_REQUEST_SUBMITTED",
         label="Explicit access request",
-        points=20,
         basis="observed_event",
         detail="The visitor submitted the access-request form.",
     ))
 
     if domain and domain not in _FREE_EMAIL_DOMAINS:
-        fit_score += 15
-        factors.append(ScoreFactor(
+        factors.append(EvidenceFactor(
             code="WORK_EMAIL_DOMAIN",
             label="Non-consumer email domain",
-            points=15,
             basis="derived_from_submission",
-            detail="The submitted domain is not in ARIA's consumer-email list; ownership remains unverified.",
+            detail=(
+                "The submitted domain is not in ARIA's consumer-email list; "
+                "this does not prove ownership, employment or organisational fit."
+            ),
         ))
     else:
-        gaps.append("work_email_or_verified_identity")
+        factors.append(EvidenceFactor(
+            code="CONSUMER_OR_UNKNOWN_EMAIL_DOMAIN",
+            label="Consumer or unclassified email domain",
+            basis="derived_from_submission",
+            detail=(
+                "The submitted domain is consumer-hosted or unclassified. "
+                "ARIA makes no inference about professional standing from this."
+            ),
+        ))
 
     normalized_use_case = str(use_case or "").strip().lower()
     if normalized_use_case in _SPECIFIC_USE_CASES:
-        fit_score += 15
-        data_quality_score += 10
-        factors.append(ScoreFactor(
+        factors.append(EvidenceFactor(
             code="SPECIFIC_USE_CASE",
             label="Specific supported use case",
-            points=25,
             basis="submitted_assertion",
             detail="The visitor selected a use case ARIA is designed to support; the assertion is not independently verified.",
         ))
     else:
         gaps.append("specific_use_case")
 
-    if str(name or "").strip():
-        data_quality_score += 5
     if str(company or "").strip():
-        fit_score += 10
-        data_quality_score += 5
+        factors.append(EvidenceFactor(
+            code="ORGANISATION_SUBMITTED",
+            label="Organisation supplied",
+            basis="submitted_assertion",
+            detail="An organisation name was supplied but has not been resolved or verified.",
+        ))
     else:
         gaps.append("organisation")
     if not str(country or "").strip():
@@ -140,39 +138,42 @@ def assess_access_request(
     if not str(role or "").strip():
         gaps.append("role_or_decision_capacity")
 
-    total_score = min(100, fit_score + engagement_score + data_quality_score)
+    required_fact_count = 4
+    supplied_fact_count = required_fact_count - len(gaps)
     if trust_state == TrustState.SUBMITTED_UNVERIFIED:
-        priority = IntakePriority.NEEDS_VERIFICATION
-        total_score = min(total_score, 49)
-        next_action = (
-            "Verify email ownership, then collect organisation, jurisdiction "
-            "and role before qualification."
-        )
-    elif total_score >= 65:
-        priority = IntakePriority.PRIORITY
-        next_action = "Assign an owner and review the evidence-backed fit factors."
+        readiness = IntakeReadiness.NEEDS_VERIFICATION
+        if gaps:
+            next_action = (
+                "Verify email ownership, then complete: "
+                + ", ".join(gap.replace("_", " ") for gap in gaps)
+                + "."
+            )
+        else:
+            next_action = "Verify email ownership, then assign a human owner to review the submitted facts."
+    elif gaps:
+        readiness = IntakeReadiness.INCOMPLETE
+        next_action = "Complete the named evidence gaps before qualification."
     else:
-        priority = IntakePriority.REVIEW
-        next_action = "Complete the missing relationship facts before prioritisation."
+        readiness = IntakeReadiness.READY_FOR_REVIEW
+        next_action = "Assign a human owner to review the verified facts and business fit."
 
     return {
         "schema_version": ASSESSMENT_SCHEMA_VERSION,
         "assessed_at": assessed_at or datetime.now(timezone.utc).isoformat(),
         "trust_state": trust_state.value,
-        "priority": priority.value,
-        "scores": {
-            "fit": fit_score,
-            "engagement": engagement_score,
-            "data_quality": data_quality_score,
-            "total": total_score,
+        "readiness": readiness.value,
+        "evidence_completeness": {
+            "supplied": supplied_fact_count,
+            "required": required_fact_count,
+            "is_complete": supplied_fact_count == required_fact_count,
         },
         "factors": [factor.as_dict() for factor in factors],
         "gaps": gaps,
         "next_best_action": next_action,
         "invariants": [
             "submission is not identity verification",
-            "score is not conversion probability",
-            "unverified identity cannot receive priority status",
+            "no conversion probability is inferred",
+            "unverified identity cannot become ready for review",
         ],
     }
 
@@ -197,8 +198,43 @@ def record_persisted_access_request(assessment: dict[str, Any]) -> None:
         module="inbound_leads",
         summary=(
             "unverified access request persisted; "
-            f"priority={assessment.get('priority', 'unknown')}; "
+            f"readiness={assessment.get('readiness', 'unknown')}; "
             f"gaps={len(assessment.get('gaps') or [])}"
         ),
         source_id="relationship_intelligence:record_persisted_access_request",
+    )
+
+
+def record_erased_access_request(*, index_removed: bool) -> None:
+    """Emit a non-PII metric after strict read-back proves erasure."""
+    wire_success(
+        module="inbound_leads",
+        summary=f"access request erased; index_removed={index_removed}",
+        source_id="relationship_intelligence:record_erased_access_request",
+    )
+
+
+def record_failed_erasure(*, record_deleted: bool, still_present: bool) -> None:
+    """Wire the FAILURE branch of erasure — added in review of R-F3481.
+
+    §21a defines a path as wired only when it emits on BOTH branches. The
+    success branch had record_erased_access_request(); the failure branch
+    returned a 503 and reached no sink. The endpoint's ``@fail_wire`` decorator
+    does not cover it either — that fires on an unhandled EXCEPTION, and a
+    returned JSONResponse is not one.
+
+    An erasure that cannot be PROVEN is a data-protection incident: the operator
+    told a data subject their record was removed and it may still be there.
+    Silence is the one outcome that must never happen here, so this is wired as
+    a data_protection_violation rather than a generic engine failure. Carries no
+    PII — only booleans.
+    """
+    wire_failure(
+        module="inbound_leads",
+        detail=(
+            "access-request erasure could not be proven; "
+            f"record_deleted={record_deleted} still_present={still_present}"
+        ),
+        gap_type="data_protection_violation",
+        source="relationship_intelligence:record_failed_erasure",
     )

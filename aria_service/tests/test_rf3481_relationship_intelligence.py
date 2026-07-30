@@ -37,13 +37,20 @@ def test_unverified_request_is_explainable_and_cannot_be_priority():
         role="Compliance Director",
     )
 
-    assert result["schema_version"] == "1.0.0"
+    assert result["schema_version"] == "1.1.0"
     assert result["trust_state"] == "submitted_unverified"
-    assert result["priority"] == "needs_verification"
-    assert result["scores"]["total"] <= 49
+    assert result["readiness"] == "needs_verification"
+    assert "priority" not in result
+    assert result["evidence_completeness"] == {
+        "supplied": 4,
+        "required": 4,
+        "is_complete": True,
+    }
+    assert "scores" not in result
     assert result["factors"]
-    assert all({"code", "points", "basis", "detail"} <= set(f) for f in result["factors"])
-    assert "score is not conversion probability" in result["invariants"]
+    assert all({"code", "basis", "detail"} <= set(f) for f in result["factors"])
+    assert all("points" not in factor for factor in result["factors"])
+    assert "no conversion probability is inferred" in result["invariants"]
 
 
 def test_consumer_email_and_missing_context_are_explicit_gaps():
@@ -54,12 +61,15 @@ def test_consumer_email_and_missing_context_are_explicit_gaps():
     )
 
     assert set(result["gaps"]) == {
-        "work_email_or_verified_identity",
         "specific_use_case",
         "organisation",
         "jurisdiction",
         "role_or_decision_capacity",
     }
+    assert any(
+        factor["code"] == "CONSUMER_OR_UNKNOWN_EMAIL_DOMAIN"
+        for factor in result["factors"]
+    )
 
 
 def test_new_request_telemetry_contains_no_submitted_pii(monkeypatch):
@@ -129,8 +139,8 @@ def test_capability_real_create_endpoint_persists_assessment_and_repeat_count():
     record = next(item for item in listed["leads"] if item["lead_id"] == first["lead_id"])
     assert record["submission_count"] == 2
     assert record["assessment"]["trust_state"] == "submitted_unverified"
-    assert record["assessment"]["priority"] == "needs_verification"
-    assert record["assessment"]["scores"]["total"] <= 49
+    assert record["assessment"]["readiness"] == "needs_verification"
+    assert record["assessment"]["evidence_completeness"]["is_complete"] is True
 
 
 def test_store_read_failure_returns_honest_503(monkeypatch):
@@ -152,3 +162,139 @@ def test_store_read_failure_returns_honest_503(monkeypatch):
         "error": "Could not record your details right now. Please try again shortly.",
     }
     assert successes == [], "failed persistence must never emit a success signal"
+
+
+def test_same_email_with_corrected_name_updates_one_relationship():
+    email = "corrected-name@example.org"
+    first = _body(_run(A.leads_inbound_create_ep(_req({
+        "name": "A. Example",
+        "email": email,
+        "use_case": "Compliance advisory",
+    }))))
+    second = _body(_run(A.leads_inbound_create_ep(_req({
+        "name": "Alex Example",
+        "email": email.upper(),
+        "use_case": "Compliance advisory",
+    }))))
+
+    assert first["lead_id"] == second["lead_id"]
+    listed = _run(A.leads_inbound_list_ep(limit=500))
+    matches = [item for item in listed["leads"] if item.get("email", "").lower() == email]
+    assert len(matches) == 1
+    assert matches[0]["name"] == "Alex Example"
+    assert matches[0]["submission_count"] == 2
+
+
+def test_public_caller_cannot_spoof_attribution_source():
+    created = _body(_run(A.leads_inbound_create_ep(_req({
+        "name": "Source Spoof",
+        "email": "source-spoof@example.org",
+        "use_case": "Compliance advisory",
+        "source": "trusted_partner",
+    }))))
+    listed = _run(A.leads_inbound_list_ep(limit=500))
+    record = next(item for item in listed["leads"] if item["lead_id"] == created["lead_id"])
+    assert record["source"] == "landing"
+
+
+def test_capability_delete_endpoint_returns_provable_erasure_receipt():
+    created = _body(_run(A.leads_inbound_create_ep(_req({
+        "name": "Erase Me",
+        "email": "erase-me@example.org",
+        "use_case": "Compliance advisory",
+    }))))
+    lead_id = created["lead_id"]
+
+    erased = _run(A.leads_inbound_delete_ep(lead_id))
+    assert erased == {
+        "ok": True,
+        "lead_id": lead_id,
+        "erasure_complete": True,
+        "record_deleted": True,
+        "index_removed": True,
+    }
+    listed = _run(A.leads_inbound_list_ep(limit=500))
+    assert all(item.get("lead_id") != lead_id for item in listed["leads"])
+
+
+def test_delete_rejects_invalid_id_and_does_not_claim_missing_record_erased():
+    invalid = _run(A.leads_inbound_delete_ep("../../account"))
+    assert invalid.status_code == 400
+    assert _body(invalid)["ok"] is False
+
+    missing = _run(A.leads_inbound_delete_ep("lead_0000000000000000"))
+    assert missing.status_code == 404
+    assert _body(missing)["ok"] is False
+
+
+def test_delete_never_claims_erasure_when_strict_readback_finds_record(monkeypatch):
+    reads = iter(({"lead_id": "lead_1111111111111111"}, {"lead_id": "lead_1111111111111111"}))
+    successes = []
+
+    async def strict_read(_key):
+        return next(reads)
+
+    async def reports_deleted(_key):
+        return True
+
+    async def reports_index_removed(_key, _member):
+        return True
+
+    monkeypatch.setattr(A.rs, "get_json_strict", strict_read)
+    monkeypatch.setattr(A.rs, "delete", reports_deleted)
+    monkeypatch.setattr(A.rs, "zrem", reports_index_removed)
+    monkeypatch.setattr(
+        ri,
+        "record_erased_access_request",
+        lambda **kwargs: successes.append(kwargs),
+    )
+
+    response = _run(A.leads_inbound_delete_ep("lead_1111111111111111"))
+    assert response.status_code == 503
+    assert _body(response)["erasure_complete"] is False
+    assert successes == []
+
+
+def test_failed_erasure_is_wired_not_silent():
+    """Review finding on R-F3481 — the failure branch reached no sink.
+
+    The success branch called record_erased_access_request(). The 503 branch
+    returned without wiring, and the endpoint's @fail_wire decorator does not
+    cover it: that fires on an unhandled EXCEPTION, and a returned JSONResponse
+    is not one. §21a defines a path as wired only when BOTH branches emit.
+
+    An erasure that cannot be proven is a data-protection incident — the operator
+    may have told a data subject their record was gone while it is still there.
+    Silence is the one unacceptable outcome.
+    """
+    import aria_service.intel.relationship_intelligence as _ri
+    captured = {}
+
+    real = _ri.wire_failure
+    try:
+        _ri.wire_failure = lambda **kw: captured.update(kw)
+        _ri.record_failed_erasure(record_deleted=True, still_present=True)
+    finally:
+        _ri.wire_failure = real
+
+    assert captured, "a failed erasure emitted no brain signal"
+    assert captured.get("gap_type") == "data_protection_violation", captured
+    assert "erasure could not be proven" in captured.get("detail", "")
+    # Non-PII by construction: booleans only, never the subject's identifiers.
+    assert "@" not in captured.get("detail", "")
+
+
+def test_failed_erasure_wiring_is_reachable_from_the_endpoint():
+    """Guard the WIRING, not just the helper: the 503 branch must call it."""
+    import ast
+    import pathlib
+    src = pathlib.Path(__file__).resolve().parents[1] / "routes" / "aria.py"
+    tree = ast.parse(src.read_text(encoding="utf-8"))
+    fn = next((n for n in ast.walk(tree)
+               if isinstance(n, ast.AsyncFunctionDef)
+               and n.name == "leads_inbound_delete_ep"), None)
+    assert fn is not None, "leads_inbound_delete_ep not found"
+    called = {getattr(c.func, "attr", "") for c in ast.walk(fn) if isinstance(c, ast.Call)}
+    assert "record_failed_erasure" in called, (
+        "the unprovable-erasure branch does not wire a failure — it is dark"
+    )

@@ -20523,7 +20523,9 @@ async def leads_inbound_create_ep(request: Request):
     name = str(body.get("name") or "").strip()[:200]
     email = str(body.get("email") or "").strip()[:200]
     use_case = str(body.get("use_case") or "").strip()[:120]
-    source = str(body.get("source") or "landing").strip()[:60]
+    # This endpoint is reached only through the public landing proxy. Attribution
+    # is server-owned; accepting a caller-supplied source would poison analytics.
+    source = "landing"
     # Honest validation — a lead is only real with a name + a plausible email.
     if not name or "@" not in email or "." not in email.split("@")[-1]:
         return JSONResponse(
@@ -20532,7 +20534,9 @@ async def leads_inbound_create_ep(request: Request):
         )
     if use_case not in _LEADS_USE_CASES:
         use_case = use_case[:120]  # keep unexpected free-text but bounded
-    lead_id = "lead_" + hashlib.sha256(f"{email.lower()}|{name.lower()}".encode()).hexdigest()[:16]
+    # Email is the stable contact key. A corrected display name must update the
+    # same request rather than manufacture a second relationship.
+    lead_id = "lead_" + hashlib.sha256(email.lower().encode()).hexdigest()[:16]
     from ..intel import relationship_intelligence as _ri
     now = datetime.now(timezone.utc).isoformat()
     try:
@@ -20624,6 +20628,54 @@ async def leads_inbound_list_ep(limit: int = 100):
             leads.append(rec)
     total = await rs.zcard(_LEADS_INBOUND_INDEX)
     return {"leads": leads, "count": len(leads), "total": total}
+
+
+@router.delete("/leads/inbound/{lead_id}")
+@fail_wire(module="aria", gap_type="data_protection_violation")
+async def leads_inbound_delete_ep(lead_id: str):
+    """Erase one access request and return a strict read-back receipt."""
+    import re
+    from fastapi.responses import JSONResponse
+    from ..intel import relationship_intelligence as _ri
+
+    if not re.fullmatch(r"lead_[0-9a-f]{16}", str(lead_id or "")):
+        return JSONResponse({"ok": False, "error": "Invalid lead identifier."}, status_code=400)
+
+    key = _LEADS_INBOUND_KEY.format(lead_id=lead_id)
+    existing = await rs.get_json_strict(key)
+    if not isinstance(existing, dict):
+        return JSONResponse({"ok": False, "error": "Access request not found."}, status_code=404)
+
+    record_deleted = await rs.delete(key)
+    index_removed = await rs.zrem(_LEADS_INBOUND_INDEX, lead_id)
+    remaining = await rs.get_json_strict(key)
+    erasure_complete = bool(record_deleted and remaining is None)
+    if not erasure_complete:
+        # Review of R-F3481 — this branch reached NO sink. @fail_wire covers an
+        # unhandled exception, not a returned 503, so an unprovable erasure was
+        # dark (§21a: wired means BOTH branches emit). An erasure we cannot prove
+        # is a data-protection incident, not a routine 5xx.
+        _ri.record_failed_erasure(
+            record_deleted=bool(record_deleted),
+            still_present=remaining is not None,
+        )
+        return JSONResponse(
+            {
+                "ok": False,
+                "erasure_complete": False,
+                "error": "Could not prove that the access request was erased.",
+            },
+            status_code=503,
+        )
+
+    _ri.record_erased_access_request(index_removed=index_removed)
+    return {
+        "ok": True,
+        "lead_id": lead_id,
+        "erasure_complete": True,
+        "record_deleted": True,
+        "index_removed": index_removed,
+    }
 
 
 @router.get("/compliance/file/{deal_id}")

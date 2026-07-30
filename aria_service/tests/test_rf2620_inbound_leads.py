@@ -7,7 +7,7 @@ claims into brain memory. Capability tests drive the REAL endpoint functions aga
 
   - POST create → {ok, lead_id}, and the record is retrievable via the list endpoint
   - validation: no name / bad email → 400, nothing recorded
-  - idempotent: same (email,name) twice → one lead
+  - idempotent: the same normalized email maps to one relationship
   - the list endpoint returns newest-first with a total
   - _OPERATOR_ONLY_RE does NOT gate /leads/inbound (the public POST, carried by the
     web tier's service token, must not 403)
@@ -60,8 +60,9 @@ def test_create_then_list_roundtrip():
     assert rec["use_case"] == "Compliance advisory"
     assert rec["source"] == "landing"
     assert rec["assessment"]["trust_state"] == "submitted_unverified"
-    assert rec["assessment"]["priority"] == "needs_verification"
-    assert rec["assessment"]["scores"]["total"] <= 49
+    assert rec["assessment"]["readiness"] == "needs_verification"
+    assert "scores" not in rec["assessment"]
+    assert rec["assessment"]["evidence_completeness"]["required"] == 4
     assert listed["total"] >= 1
 
 
@@ -78,7 +79,7 @@ def test_idempotent_same_person_one_lead():
     body = {"name": "Grace Hopper", "email": "grace@navy.mil", "use_case": "Government / institutional"}
     id1 = _body(_run(A.leads_inbound_create_ep(_req(body))))["lead_id"]
     id2 = _body(_run(A.leads_inbound_create_ep(_req(body))))["lead_id"]
-    assert id1 == id2, "same (email,name) must map to one lead_id"
+    assert id1 == id2, "the same normalized email must map to one lead_id"
     listed = _run(A.leads_inbound_list_ep(limit=500))
     matches = [l for l in listed["leads"] if l["email"] == "grace@navy.mil"]
     assert len(matches) == 1, f"idempotency broken: {len(matches)} copies"

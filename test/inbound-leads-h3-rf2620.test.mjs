@@ -57,6 +57,9 @@ check('POST relays the brain verdict — no fake success on upstream failure',
   /r\.ok \? \{ ok: true \} : \{ ok: false/.test(SERVER));
 check('GET /api/leads is admin-gated (requireAdmin)',
   /app\.get\('\/api\/leads',\s*requireAdmin/.test(SERVER));
+check('DELETE /api/leads/:leadId is admin-gated and forwarded as DELETE',
+  /app\.delete\('\/api\/leads\/:leadId',\s*requireAdmin/.test(SERVER) &&
+  /leads\/inbound\/' \+ encodeURIComponent\(req\.params\.leadId\)[\s\S]{0,100}method:\s*'DELETE'/.test(SERVER));
 
 // ── 3. leads.html: honest status-aware states ────────────────────────────────
 check('leads.html fetches /api/leads via status-aware probe', /API\.probe\('\/api\/leads'\)/.test(LEADS));
@@ -66,10 +69,14 @@ check('distinguishes a load failure from a real empty list',
   /Couldn\\?'t load leads/.test(LEADS) && /No leads yet/.test(LEADS));
 check('renders evidence-led trust, triage, gaps and next action',
   /Relationship Intelligence/.test(LEADS) &&
-  /trust_state/.test(LEADS) && /priority/.test(LEADS) &&
+  /trust_state/.test(LEADS) && /readiness/.test(LEADS) &&
   /a\.gaps/.test(LEADS) && /next_best_action/.test(LEADS));
 check('does not misrepresent triage as conversion probability',
-  /not conversion probability/i.test(LEADS));
+  /never a conversion score/i.test(LEADS) && !/\/100/.test(LEADS));
+check('erasure UI requires a verified erasure receipt',
+  /API\.del\('\/api\/leads\/'/.test(LEADS) &&
+  /erasure_complete !== true/.test(LEADS) &&
+  /Erase access request/.test(LEADS));
 
 // ── 4. BEHAVIOURAL: mirror index.html's success gate ─────────────────────────
 console.log('\nSuccess-gate mirror — "Thanks" only on a real recorded lead:');
