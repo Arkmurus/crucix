@@ -22,6 +22,8 @@ import ipaddress
 import logging
 import os
 import re
+import socket
+import time
 from urllib.parse import urlparse
 
 logger = logging.getLogger("aria.security")
@@ -80,6 +82,78 @@ _ALLOW_AUTH_REQUIRED_URLS = os.getenv("ARIA_ALLOW_AUTH_REQUIRED_URLS", "0") == "
 _ALLOW_SCRIPT_EXTENSIONS = os.getenv("ARIA_ALLOW_SCRIPT_EXTENSIONS", "0") == "1"
 
 
+# ── R-F3473: DNS resolution cache for the SSRF rebinding check ──────────────
+#
+# LIVE 2026-07-30, third stall cause named by R-F3464's attribution (after
+# R-F3467 and R-F3468 each removed the previous one):
+#   loop stack: socket.py:getaddrinfo:981 <- security.py:validate_url:133
+#                                         <- security.py:sanitise_url:263
+#
+# The rebinding check below is correct and stays. The problem is that
+# socket.getaddrinfo BLOCKS, and it is slowest exactly when it FAILS: an
+# unresolvable host burns the resolver timeout before raising, and a crawler
+# retrying dead domains pays that again for every URL — on the event loop.
+#
+# validate_url is sync with 23 call sites, so making it async would ripple across
+# the tree instead of fixing anything. Cache the lookup instead, with NEGATIVE
+# entries as well as positive ones since the failures are the expensive case.
+#
+# What is cached is the VERDICT, never a bare "this host is fine" — a cache that
+# forgot why it said yes would be an SSRF bypass.
+_DNS_CACHE: dict[str, tuple[float, tuple[bool, str]]] = {}
+_DNS_CACHE_MAX = int(os.getenv("ARIA_DNS_CACHE_MAX", "512"))
+_DNS_CACHE_TTL_S = float(os.getenv("ARIA_DNS_CACHE_TTL_S", "300"))
+
+
+def _dns_cache_clear() -> None:
+    """Drop every cached resolution verdict (tests, and operator recovery)."""
+    _DNS_CACHE.clear()
+
+
+def _resolve_verdict(hostname: str) -> tuple[bool, str]:
+    """(is_safe, reason) for the DNS-rebinding half of the SSRF guard, cached.
+
+    A host whose A/AAAA record points into a private range is refused. An
+    unresolvable host is ALLOWED (unchanged behaviour): the fetch will simply
+    fail, so a transient DNS blip must not permanently reject a good source.
+    """
+    now = time.time()
+    hit = _DNS_CACHE.get(hostname)
+    if hit is not None and (now - hit[0]) < _DNS_CACHE_TTL_S:
+        return hit[1]
+
+    verdict: tuple[bool, str] = (True, "")
+    try:
+        for _info in socket.getaddrinfo(hostname, None):
+            _addr = str(_info[4][0]).split("%")[0]
+            try:
+                _rip = ipaddress.ip_address(_addr)
+            except ValueError:
+                continue
+            for _net in _PRIVATE_RANGES:
+                if _rip in _net:
+                    verdict = (False, f"Host resolves to private IP: {hostname} -> {_addr}")
+                    break
+            if not verdict[0]:
+                break
+    except Exception:
+        # DNS failure/unresolvable — allow; the fetch attempt will fail naturally.
+        # Cached anyway: this is the SLOW path (resolver timeout) and the one a
+        # crawler hits repeatedly on dead domains.
+        verdict = (True, "")
+
+    if len(_DNS_CACHE) >= _DNS_CACHE_MAX:
+        # Bounded: hostnames can be attacker-supplied, so this must not grow
+        # without limit. Evict the oldest entry.
+        try:
+            oldest = min(_DNS_CACHE.items(), key=lambda kv: kv[1][0])[0]
+            _DNS_CACHE.pop(oldest, None)
+        except ValueError:
+            pass
+    _DNS_CACHE[hostname] = (now, verdict)
+    return verdict
+
+
 def validate_url(url: str) -> tuple[bool, str]:
     """Validate a URL is safe to fetch. Returns (is_safe, reason)."""
     if not url or not isinstance(url, str):
@@ -128,19 +202,11 @@ def validate_url(url: str) -> tuple[bool, str]:
         #     private/link-local/loopback IP (DNS-rebinding SSRF). Best-effort: an
         #     unresolvable host is left to the fetcher (which will simply fail),
         #     so a transient DNS blip can't permanently reject a good public source.
-        try:
-            import socket as _socket
-            for _info in _socket.getaddrinfo(hostname, None):
-                _addr = str(_info[4][0]).split("%")[0]
-                try:
-                    _rip = ipaddress.ip_address(_addr)
-                except ValueError:
-                    continue
-                for _net in _PRIVATE_RANGES:
-                    if _rip in _net:
-                        return False, f"Host resolves to private IP: {hostname} -> {_addr}"
-        except Exception:
-            pass  # DNS failure/unresolvable — allow; the fetch attempt will fail naturally
+        # R-F3473 — cached: same check, but a repeat lookup (and especially a
+        # repeat FAILING lookup) no longer blocks the event loop again.
+        _ok, _why = _resolve_verdict(_h)
+        if not _ok:
+            return False, _why
 
     # Check for dangerous file extensions
     # R-F1102: ARIA_ALLOW_SCRIPT_EXTENSIONS=1 allows GET on .js/.py/.jar etc.
