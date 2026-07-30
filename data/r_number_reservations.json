@@ -29032,9 +29032,10 @@
       "title": "GDPR erasure and retention review shipped with no route: a controller could not invoke either",
       "claimed_at": "2026-07-30T15:03:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "203638ad",
+      "notes": null,
+      "shipped_at": "2026-07-30T15:13:25Z"
     },
     {
       "r_number": "R-F3499",
