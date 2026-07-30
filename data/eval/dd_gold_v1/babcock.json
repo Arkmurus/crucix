@@ -6,30 +6,34 @@
     "entity_type": "company",
     "jurisdiction": "GB"
   },
-  "fixture_mode": "frozen",
-  "release_gate_eligible": true,
+  "fixture_mode": "regression_reference",
+  "release_gate_eligible": false,
   "resolver_version": "repo-regression-fixtures-v1",
   "verdict_fn_version": "1.0.0",
   "observations": [
     {
       "observation_id": "babcock-export-control-input",
       "source_ref": "aria_service/tests/test_rf3454_export_control_not_assessed.py",
-      "frozen": true
+      "frozen": false,
+      "reference_only": true
     },
     {
       "observation_id": "babcock-disqualification-name-coincidence",
       "source_ref": "aria_service/tests/test_rf3451_disqualified_name_coincidence.py",
-      "frozen": true
+      "frozen": false,
+      "reference_only": true
     },
     {
       "observation_id": "babcock-sanctions-partial-coverage",
       "source_ref": "aria_service/tests/test_rf3452_sanctions_partial_coverage.py",
-      "frozen": true
+      "frozen": false,
+      "reference_only": true
     },
     {
       "observation_id": "babcock-report-integrity",
       "source_ref": "aria_service/tests/test_rf3460_3463_report_integrity.py",
-      "frozen": true
+      "frozen": false,
+      "reference_only": true
     }
   ],
   "expected_findings": [
@@ -65,5 +69,6 @@
         "babcock-report-integrity"
       ]
     }
-  ]
+  ],
+  "gate_blocker": "R-F3482: observations are POINTERS to repo regression tests, not frozen evidence \u2014 each source_ref is a .py file that changes whenever that test changes, which is the opposite of frozen. This case cannot gate a release until real raw observations are captured and pinned (payload carrying configuration_state, source_state, attempt_outcome, match_outcome, plus the raw source artefact). The referenced regression tests remain valid on their own; they are simply not a gold corpus."
 }

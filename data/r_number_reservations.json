@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3481,
+  "next_available": 3483,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28822,9 +28822,10 @@
       "title": "LLM health reports configuration not outcomes: resilient flag and miss counter",
       "claimed_at": "2026-07-30T12:48:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2672ff1c",
+      "notes": null,
+      "shipped_at": "2026-07-30T13:09:36Z"
     },
     {
       "r_number": "R-F3478",
@@ -28840,9 +28841,10 @@
       "title": "web_integrity counts 4xx as pass and two probes cannot ever succeed",
       "claimed_at": "2026-07-30T12:53:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2672ff1c",
+      "notes": null,
+      "shipped_at": "2026-07-30T13:09:37Z"
     },
     {
       "r_number": "R-F3480",
@@ -28853,6 +28855,24 @@
       "commit_sha": "f91e02b5",
       "notes": null,
       "shipped_at": "2026-07-30T13:04:16Z"
+    },
+    {
+      "r_number": "R-F3481",
+      "title": "evidence-led relationship intelligence intake",
+      "claimed_at": "2026-07-30T13:07:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3482",
+      "title": "executable DD gold harness: run the report path against frozen evidence and assert the honesty properties",
+      "claimed_at": "2026-07-30T13:08:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
