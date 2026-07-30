@@ -28701,9 +28701,10 @@
       "title": "New DD panel: block hint text, separate the gated-source decision from the basic fields",
       "claimed_at": "2026-07-30T11:03:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6078a1c0",
+      "notes": null,
+      "shipped_at": "2026-07-30T11:06:46Z"
     }
   ]
 }
