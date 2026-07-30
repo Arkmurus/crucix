@@ -9748,6 +9748,49 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
                 confidence="ASSESSED",
             ))
 
+    # ── 6b1a. R-F3455 — the report must not contradict its own cited sources ──
+    try:
+        _am_blob = getattr(report, "adverse_media", None) or {}
+        _am_mat = _am_blob.get("materiality") if isinstance(_am_blob, dict) else None
+        _am_mat = _am_mat if isinstance(_am_mat, dict) else {}
+        _reviewed = (_am_mat.get("review_findings")
+                     or (_am_blob.get("findings_for_review") if isinstance(_am_blob, dict) else None)
+                     or [])
+        # Only fires when the adverse section is CLAIMING nothing. If items are already
+        # queued for review the reader has not been told a false clean.
+        if not _reviewed:
+            _contra = _adverse_citation_contradictions(report)
+            if _contra:
+                if isinstance(_am_blob, dict):
+                    _am_blob["unreviewed_adverse_citations"] = _contra[:10]
+                report.digital.findings.append(Finding(
+                    severity="amber",
+                    title=(f"{len(_contra)} cited source(s) carry adverse markers but are "
+                           f"absent from the adverse-media review set"),
+                    detail=(
+                        "The adverse-media sweep concluded that nothing was found, while "
+                        "these sources — cited by this same report — name the subject AND "
+                        "carry adverse content by the sweep's own tests: "
+                        + "; ".join(str(c.get("title"))[:120] for c in _contra[:3])
+                        + ". The sweep and the citation list are populated by different "
+                          "paths, so an item can be missing from one and present in the "
+                          "other. This is NOT a determination that the items are material "
+                          "— it is a statement that the report's evidence and its "
+                          "conclusion disagree, and the disagreement must be settled by a "
+                          "reader rather than resolved silently in favour of the clean "
+                          "answer."
+                    ),
+                    source="dd_orchestrator.adverse_citation_coherence:R-F3455",
+                    confidence="ASSESSED",
+                ))
+                report.digital.data_gaps.append(
+                    f"adverse-media conclusion CONTRADICTED by {len(_contra)} of this "
+                    f"report's own cited source(s), which name the subject and carry "
+                    f"adverse content. Open them before relying on the clean reading."
+                )
+    except Exception as _cc_err:  # noqa: BLE001
+        logger.debug("[R-F3455] adverse citation coherence gate skipped: %s", _cc_err)
+
     # ── 6b2. Confidence gate — never GREEN when verification is insufficient ──
     # If risk landed on GREEN but key identity signals are missing, bump
     # to AMBER-LIGHT with MANUAL REVIEW flag. This prevents a clean bill
@@ -12336,6 +12379,65 @@ def _adverse_dedup_key(f) -> str:
     if url:
         return url.split("#", 1)[0]
     return f"title::{str((f or {}).get('title') or '').strip().lower()[:120]}"
+
+
+def _adverse_citation_contradictions(report) -> list[dict]:
+    """R-F3455 — cited sources that carry adverse markers but reached no review set.
+
+    THE DEFECT, from the delivered Babcock International Group PLC report. The digital
+    section concluded::
+
+        Adverse media: nothing found in the sources searched
+        0 credible adverse item(s) from 122 raw hit(s)
+
+    and its OWN "Cited sources" list, printed a few lines below, contained::
+
+        FRC expands probe of PwC's Babcock International audits | Compliance Week
+        Investigation regarding the audits of Babcock International Group plc by
+        PricewaterhouseCoopers LLP
+
+    A live Financial Reporting Council investigation touching the subject's audited
+    accounts is material to any decision that relies on those accounts. The report
+    published both statements and reconciled neither.
+
+    The adverse sweep and the citation list are populated by DIFFERENT paths — the sweep
+    filters 122 raw hits down through de-duplication, attribution and content tests, while
+    press_coverage accumulates what the research layer actually read. Nothing compared
+    them, so an item could be absent from one and present in the other with no complaint.
+
+    THIS DOES NOT RE-CLASSIFY ANYTHING. It re-uses the SAME two predicates the sweep uses
+    (`_adverse_names_subject`, `_adverse_has_adverse_content`) — no new heuristic, so it
+    cannot invent an allegation the sweep would have rejected. It only reports that the
+    report's own evidence disagrees with the report's own conclusion, which a reader can
+    then settle in one click.
+    """
+    out: list[dict] = []
+    try:
+        press = list(getattr(report.digital, "press_coverage", None) or [])
+        if not press:
+            return out
+        tokens = _adverse_subject_tokens(
+            getattr(report.identity, "entity_name", "") or "",
+            getattr(report.identity, "aliases", None))
+        for ev in press:
+            # Evidence carries the headline in `source`; dicts arrive from stored blobs.
+            if isinstance(ev, dict):
+                title, url, snip = ev.get("source"), ev.get("url"), ev.get("snippet")
+            else:
+                title = getattr(ev, "source", "")
+                url = getattr(ev, "url", None)
+                snip = getattr(ev, "snippet", None)
+            item = {"title": title or "", "url": url or "", "snippet": snip or ""}
+            if not item["title"]:
+                continue
+            if not _adverse_names_subject(item, tokens):
+                continue
+            if not _adverse_has_adverse_content(item):
+                continue
+            out.append(item)
+    except Exception as _e:  # noqa: BLE001 — a coherence check must never fail a report
+        logger.debug("[R-F3455] adverse citation coherence check skipped: %s", _e)
+    return out
 
 
 def _adverse_media_materiality(am_result: dict, subject_name: str = "",

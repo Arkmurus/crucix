@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3455,
+  "next_available": 3456,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28590,6 +28590,15 @@
       "r_number": "R-F3454",
       "title": "export control: never assert civilian from a non-product input (holding-company SIC)",
       "claimed_at": "2026-07-30T08:38:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3455",
+      "title": "adverse media: cited sources carrying adverse markers must not coexist with a nothing-found headline",
+      "claimed_at": "2026-07-30T08:45:08Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
