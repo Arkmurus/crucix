@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3470,
+  "next_available": 3471,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28739,6 +28739,15 @@
       "r_number": "R-F3469",
       "title": "check_magic_bytes blocks benign container-family mismatch instead of routing",
       "claimed_at": "2026-07-30T11:31:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3470",
+      "title": "ARIA Brain zero evidence honesty",
+      "claimed_at": "2026-07-30T11:32:28Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

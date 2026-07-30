@@ -702,14 +702,24 @@ async function loadHealth() {
   hb.className = `badge ${d.status === 'healthy' ? 'badge-green' : 'badge-yellow'}`;
 
   document.getElementById('infra-metrics').innerHTML =
-    metricRow('Redis', d.infra?.redis ? 'Connected' : 'n/a (file backend)', d.infra?.redis ? 'good' : 'neutral') +
+    metricRow('State Store Read', d.infra?.redis ? 'Available' : 'Unavailable', d.infra?.redis ? 'good' : 'bad') +
     metricRow('RAG Store', d.infra?.rag ? 'Available' : 'DOWN', d.infra?.rag ? 'good' : 'bad') +
-    metricRow('Open Breakers', d.circuit_breakers?.open || 0, d.circuit_breakers?.open > 0 ? 'warn' : 'good');
+    metricRow(
+      'Open Breakers',
+      d.circuit_breakers?.registry_empty
+        ? 'UNKNOWN (registry empty)'
+        : (d.circuit_breakers?.open ?? 'UNKNOWN'),
+      d.circuit_breakers?.registry_empty
+        ? 'neutral'
+        : (d.circuit_breakers?.open > 0 ? 'warn' : 'good'),
+    );
 
   const q = d.quality || {};
   const coreWeak = q.core_weak_topics || [];
-  const coreTotal = Object.keys(q.core_mastery_breakdown || {}).length || 10;
-  const coreWeakLabel = coreWeak.length ? `${coreWeak.length}/${coreTotal} weak` : `all ≥ 55%`;
+  const coreTotal = Object.keys(q.core_mastery_breakdown || {}).length;
+  const coreWeakLabel = coreTotal === 0
+    ? 'UNKNOWN (no mastery measurement)'
+    : (coreWeak.length ? `${coreWeak.length}/${coreTotal} weak` : 'all measured topics ≥ 55%');
   document.getElementById('quality-metrics').innerHTML =
     metricRow('Mastery Overall', pct(q.mastery_overall), scoreClass(q.mastery_overall, 0.8, 0.55)) +
     metricRow(`Core Mastery (${coreTotal} load-bearing)`, pct(q.core_mastery), scoreClass(q.core_mastery, 0.7, 0.55)) +
@@ -717,7 +727,7 @@ async function loadHealth() {
     metricRow('Grounded Rate', pct(q.grounded_rate), scoreClass(q.grounded_rate)) +
     metricRow('Adversarial Score', pct(q.adversarial_score), scoreClass(q.adversarial_score, 0.8, 0.5)) +
     metricRow('Predictor Blocks (24h)', q.predictor_blocks_24h || 0, q.predictor_blocks_24h > 3 ? 'bad' : 'good') +
-    metricRow('Core-Weak Tags', coreWeakLabel + (coreWeak.length ? ': ' + coreWeak.join(', ') : ''), coreWeak.length ? 'warn' : 'good') +
+    metricRow('Core-Weak Tags', coreWeakLabel + (coreWeak.length ? ': ' + coreWeak.join(', ') : ''), coreTotal === 0 ? 'neutral' : (coreWeak.length ? 'warn' : 'good')) +
     metricRow('Weak Topics (all)', (q.weak_topics || []).join(', ') || 'None', q.weak_topics?.length ? 'warn' : 'good');
 }
 
@@ -2488,7 +2498,10 @@ async function loadHallucination() {
   const total24h = sum.total_violations_24h || 0;
   const turns24h = sum.turns_observed_24h || 0;
   const rate = sum.violation_rate_24h;
-  if (total24h === 0) {
+  if (turns24h === 0) {
+    badge.textContent = 'NO SAMPLE (0 turns)';
+    badge.className = 'badge badge-yellow';
+  } else if (total24h === 0) {
     badge.textContent = '0 violations';
     badge.className = 'badge badge-green';
   } else if (rate && rate > 0.05) {
@@ -2549,7 +2562,9 @@ async function loadHallucination() {
     html += '</table>';
   }
   if (!html) {
-    html = '<span class="good">No violations recorded yet</span>';
+    html = turns24h === 0
+      ? '<span class="neutral">No turns observed in the last 24h; violation rate is unmeasured.</span>'
+      : '<span class="good">No violations recorded in observed turns.</span>';
   }
   el.innerHTML = html;
 }

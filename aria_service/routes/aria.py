@@ -25410,6 +25410,11 @@ async def health_check_ep():
         degraded_reasons.append("grounded_rate_unknown")
     if adversarial is None:
         degraded_reasons.append("adversarial_no_recent_run")
+    if not mastery:
+        # R-F3470: an unreadable mastery store is UNKNOWN, never evidence that
+        # every core topic is healthy.  The dashboard renders the null fields
+        # explicitly and the top-level status must degrade with the same fact.
+        degraded_reasons.append("mastery_unknown")
     if ecosystem_health_error:
         degraded_reasons.append("ecosystem_health_unknown")
     elif ecosystem_health.get("red", 0) > 0:
