@@ -6157,6 +6157,71 @@ async def _run_identity(
                 # decision "did a registry actually confirm this?" is made in a
                 # single place, from RegistryStatus, and never from truthiness.
                 _apply_registry_result(report, reg_result, registration_number)
+
+                # ── R-F3504 — an EMPTY PSC register must be EXPLAINED ──────────
+                #
+                # R-F2830 built `companies_house.get_psc_exemptions` for exactly this
+                # and NOTHING EVER CALLED IT. Its own docstring states the stakes: a
+                # company disclosing no beneficial owners looks opaque, potentially
+                # evasive, whereas one exempt because it trades on a UK regulated
+                # market is behaving entirely normally — and reporting the first when
+                # the truth is the second is a false ACCUSATION, the mirror of a
+                # false clean.
+                #
+                # That is the Babcock case: a listed PLC whose Network section showed
+                # "UBO chain nodes traversed 11" and nothing else, leaving a reader to
+                # infer opacity from an absence with a lawful, checkable explanation.
+                #
+                # Asked ONLY when the register is empty — an exemption explains nothing
+                # when controllers are disclosed, and the call would be wasted spend.
+                if not report.identity.shareholders:
+                    _rg = str(report.identity.registration_number or "").strip()
+                    if _rg and str(report.identity.jurisdiction_iso2 or "").upper() in ("GB", "UK", ""):
+                        try:
+                            from . import companies_house as _ch_psc
+                            _ex = await _ch_psc.get_psc_exemptions(_rg)
+                            _ex = _ex if isinstance(_ex, dict) else {}
+                            report.identity.psc_exemptions = _ex
+                            _act = _ex.get("active") or []
+                            if not _ex.get("checked"):
+                                # Claim NEITHER exemption nor opacity: an unperformed
+                                # check must not resolve to either.
+                                report.identity.data_gaps.append(
+                                    "PSC register is empty and the exemption register "
+                                    "could NOT be checked, so it is unknown whether the "
+                                    "absence is lawful. Not a finding of opacity and not "
+                                    "a clearance — re-check before relying on the "
+                                    "ownership position.")
+                            elif _ex.get("has_active_exemption") and _act:
+                                report.identity.findings.append(Finding(
+                                    severity="info",
+                                    title=("No PSC recorded — a LAWFUL exemption is on "
+                                           "the register"),
+                                    detail=(
+                                        "The PSC register is empty because an exemption "
+                                        "is currently active: "
+                                        + "; ".join(
+                                            f"{a.get('exemption_type')} (from "
+                                            f"{a.get('exempt_from') or 'an unstated date'})"
+                                            for a in _act[:3] if isinstance(a, dict))
+                                        + ". A company trading on a regulated market "
+                                          "discloses ownership through market rules "
+                                          "rather than the PSC register, so this absence "
+                                          "is NORMAL and must not be read as opacity."),
+                                    source="companies_house.psc_exemptions:R-F2830",
+                                    confidence="CONFIRMED",
+                                    source_tier="OFFICIAL",
+                                ))
+                            else:
+                                # No exemption AND no PSC is the genuinely opaque case.
+                                report.identity.data_gaps.append(
+                                    "PSC register is EMPTY and no active exemption is "
+                                    "recorded at Companies House. Beneficial ownership is "
+                                    "undisclosed rather than lawfully exempt — establish "
+                                    "it before relying on this file.")
+                        except Exception as _psc_ex_e:  # noqa: BLE001
+                            logger.debug("[R-F3504] PSC exemption lookup skipped: %s",
+                                         _psc_ex_e)
                 # ── Virtual-office re-check on registry-returned address ──
                 # If the registry returned an address and the supplied_address
                 # check earlier did not fire (e.g. no address was supplied
@@ -16320,7 +16385,23 @@ async def remove_from_watchlist(name: str, user_id: str = "",
         if not ((w.get("name") or "").strip().lower() == tgt and _caller_may_remove(w))
     ]
     await rs.set_json(WATCHLIST_KEY, kept)
-    return {"ok": True, "removed": before - len(kept), "count": len(kept)}
+    _removed = before - len(kept)
+    # R-F3503 — `ok` must mean "the entity will no longer be re-screened",
+    # because that is exactly what the UI tells the user on the strength of it
+    # (public/watchlist.html: "will no longer be re-screened against sanctions &
+    # PEP lists"). Returning ok=True for removed=0 turned a name mismatch — or a
+    # legitimate owner-scope refusal (R-F2401, another tenant's entry) — into a
+    # success message over an entity the monitor kept screening every 300s.
+    # A workflow that ends in a label grants nothing; the store holding the
+    # RESULT is what decides.
+    _reason = ""
+    if _removed == 0:
+        _reason = (
+            "no matching watchlist entry you are permitted to remove — it was "
+            "not found, or it belongs to another owner"
+        )
+    return {"ok": _removed > 0, "removed": _removed, "count": len(kept),
+            "reason": _reason}
 
 
 @fail_wire(module="dd_orchestrator", gap_type="engine_failure")

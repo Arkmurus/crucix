@@ -605,9 +605,24 @@ async function removeEntry(name, btn) {
   btn.innerHTML = '<i class="bi bi-arrow-repeat"></i>';
   try {
     const r = await authed('/api/aria/dd/watchlist/' + encodeURIComponent(name), { method: 'DELETE' });
-    if (r.ok) {
-      Toast.show('“' + name + '” removed from watchlist', 'success');
+    // R-F3503 — a 200 is NOT proof of removal. The API answers 200 with
+    // removed:0 when the name matches nothing, or when owner-scoping refuses
+    // the caller (another tenant's entry). Claiming success there told the user
+    // the entity "will no longer be re-screened" while the monitor kept
+    // screening it every 300s. Confirm the RESULT, not the status code.
+    let payload = null;
+    try { payload = await r.clone().json(); } catch (_) { payload = null; }
+    const reallyRemoved = !!(payload && payload.ok && Number(payload.removed) > 0);
+    if (r.ok && reallyRemoved) {
+      Toast.show('“' + name + '” removed — it will no longer be re-screened', 'success');
       await loadWatchlist();
+    } else if (r.ok) {
+      Toast.show((payload && payload.reason)
+        ? 'Not removed: ' + payload.reason
+        : '“' + name + '” could not be removed — it is still being monitored',
+        'error');
+      await loadWatchlist();
+      btn.disabled = false; btn.innerHTML = orig;
     } else {
       Toast.show('Failed to remove (HTTP ' + r.status + ')', 'error');
       btn.disabled = false; btn.innerHTML = orig;
