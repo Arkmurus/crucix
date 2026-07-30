@@ -7,6 +7,56 @@
 111 failed, 12556 passed, 7 skipped, 2 xfailed, 90 warnings in 1716.90s (0:28:36)
 ```
 
+## UPDATE 2026-07-30 (R-F3449) — the 15 order-dependent failures are CLOSED
+
+A second COMPLETE single-process run after the fixes:
+
+```
+99 failed, 12568 passed, 7 skipped, 2 xfailed  in 2146.72s (0:35:46)
+```
+
+Failure-set diff against the 111 below: **exactly the 15 GONE**, and **3 NEW** — all three
+caused by the global conftest fixtures the fixes introduced, and all three real
+order-dependence those fixtures EXPOSED rather than created:
+
+| New failure | Why |
+|---|---|
+| `test_rf1656 …::test_circuit_open_skips_verify` | asked `get_breaker(…, failure_threshold=1)`, silently got the registered **5**, so one `record_failure` left it CLOSED — it had only ever passed by inheriting other tests' failure counts |
+| `test_rf2648 …::test_dormant_probe_stands_down_an_already_open_breaker` | same mechanism |
+| `test_rf1531 …::test_rf1531_build_augmented_context` | asserts a RAG record returns from a top-K search while the whole suite shares one store — it depended on the corpus staying SPARSE, and breaker-reset meant ingests that used to short-circuit now succeed |
+
+All three fixed (R-F3449 part 6) and verified under their poisoning conditions: rf1531 passes
+with the corpus deliberately polluted first (19 passed); rf1656+rf2648 pass together with
+only `TestBackendNames::test_backend_names_no_brave`, a documented baseline entry, failing.
+
+**Expected next full-suite figure: 96** (99 − 3). **NOT YET MEASURED** — background full runs
+were reaped at 2%, 10% and 2% on three consecutive attempts (the §16 behaviour, more
+aggressive late in a long session) and a 256-file foreground segment exceeds the 10-minute
+window. Do not quote 96 as measured until a run completes.
+
+The argument for why 96 is the expected value, and why the risk of further collateral is
+low: unlike the conftest fixtures (global, and which genuinely did cause the 3 above), those
+three fixes are strictly LOCAL — two set a threshold on a breaker they had already fetched,
+one scopes its own RAG collections. None can affect another test.
+
+### The five root mechanisms behind the 15
+
+| Mechanism | Failures |
+|---|---|
+| A bare `module.func = fake` with no restore (2 tests) | 7 |
+| A ContextVar set in the AMBIENT context — `monkeypatch` cannot see it | 3 |
+| An inherited OPEN circuit breaker short-circuiting before any HTTP call | 2 |
+| A singleton `main.app.state` inherited across tests | 1 |
+| A stale parent-package attribute defeating `sys.modules.pop` | 1 |
+
+The last one is the most important finding in this document: `test_rf772` was **not
+exercising the eager import at all in-suite**, because `from . import X` resolves from the
+parent package's attribute and `pop` does not clear it. A green guard verifying nothing,
+nominally protecting against an 81.6s main-loop wedge.
+
+`test_rf3449_no_unrestored_module_swaps.py` now fails on any NEW unrestored swap, with the
+10 remaining known offenders allowlisted by name in a list that may only shrink.
+
 ## Against the previous baseline
 
 | | 2026-07-28 (guard OFF) | 2026-07-30 (guard ON) |
