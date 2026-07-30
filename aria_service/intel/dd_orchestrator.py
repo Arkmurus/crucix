@@ -4774,6 +4774,123 @@ _SANCTIONS_PRIMARY_LISTS: dict[str, str] = {
 }
 
 
+def sanctions_evidence_shadow(screen: dict) -> dict:
+    """R-F3510 — derive the sanctions state through the EVIDENCE CONTRACT, in SHADOW.
+
+    PHASE 1 OF A CONSOLIDATION, and deliberately inert. R-F3474 built an orthogonal
+    four-axis contract that nothing calls; the live sanctions state is expressed ad hoc
+    across `screened` / `source_unavailable` / `partial_coverage` / `error`. Two ways of
+    saying the same thing is the phase-gate fork that produced fabricated passes, so the
+    end state is ONE measure.
+
+    Getting there safely means proving the contract REPRODUCES today's behaviour before
+    anything depends on it. This function maps the live state onto the four axes, derives
+    a verdict with production contract code, and returns the comparison. It changes no
+    finding, no verdict and no wording — a caller records it and reads it later.
+
+    A DISAGREEMENT IS A FINDING, not a licence to switch. Either the mapping is wrong or
+    one of the two measures is, and both are worth knowing before the ad-hoc path is
+    deleted.
+    """
+    from .dd_evidence_standard import (
+        AttemptOutcome, ConfigurationState, EvidenceAssessment, MatchOutcome, SourceState,
+    )
+    if not isinstance(screen, dict) or not screen:
+        return {"mapped": False, "reason": "no screen"}
+
+    err = str(screen.get("error") or "").strip()
+    screened = bool(screen.get("screened"))
+    unavailable = bool(screen.get("source_unavailable"))
+    partial = bool(screen.get("partial_coverage"))
+    blocked = bool(screen.get("blocked"))
+    matches = screen.get("matches") or []
+
+    # ── configuration ──
+    if err == "not_entity_shaped":
+        # The subject name was refused by the screening guard, so no list was queried.
+        config = ConfigurationState.NOT_APPLICABLE
+    else:
+        config = ConfigurationState.CONFIGURED
+
+    # ── source ──
+    if screen.get("stale"):
+        source = SourceState.STALE
+    elif partial:
+        # Some primary lists answered, the consolidated aggregate did not (R-F3452).
+        source = SourceState.DEGRADED
+    elif unavailable:
+        source = SourceState.UNAVAILABLE
+    elif screened:
+        source = SourceState.CURRENT
+    else:
+        source = SourceState.UNKNOWN
+
+    # ── attempt ──
+    if config == ConfigurationState.NOT_APPLICABLE:
+        attempt = AttemptOutcome.NOT_ATTEMPTED
+    elif partial:
+        attempt = AttemptOutcome.PARTIAL
+    elif screened:
+        attempt = AttemptOutcome.SUCCEEDED
+    elif unavailable or err:
+        attempt = AttemptOutcome.SOURCE_FAILED
+    else:
+        attempt = AttemptOutcome.NOT_ATTEMPTED
+
+    # ── match ──
+    if attempt in (AttemptOutcome.NOT_ATTEMPTED, AttemptOutcome.SOURCE_FAILED):
+        match = MatchOutcome.NOT_EVALUATED
+    elif blocked:
+        match = MatchOutcome.MATCH
+    elif matches:
+        # Scored hits that were NOT corroborated into a block (R-F2840): named, but not
+        # a designation. `ambiguous` is the contract's word for exactly that.
+        match = MatchOutcome.AMBIGUOUS
+    else:
+        match = MatchOutcome.NO_MATCH
+
+    try:
+        assessment = EvidenceAssessment(
+            configuration_state=config, source_state=source,
+            attempt_outcome=attempt, match_outcome=match)
+        verdict = assessment.derive_verdict().value
+    except Exception as e:  # a rejected combination is itself a finding
+        return {"mapped": False, "reason": f"contract rejected the mapping: {e}",
+                "axes": {"configuration_state": config.value, "source_state": source.value,
+                         "attempt_outcome": attempt.value, "match_outcome": match.value}}
+
+    # What the LIVE path says today, in the contract's vocabulary.
+    if partial:
+        # Some lists answered: the evidence is impaired, not absent.
+        live = "degraded"
+    elif unavailable or (err and not screened):
+        # NOTHING answered, so the check did not run. The contract's word is `blocked`,
+        # and the distinction is real: `degraded` claims evidence was gathered and
+        # weakened, which would overstate what a failed screen actually produced.
+        # My first mapping said `degraded` here and the shadow comparison caught it —
+        # which is the entire reason this phase exists.
+        live = "blocked"
+    elif blocked:
+        live = "completed_match"
+    elif screened and not matches:
+        live = "completed_no_match"
+    elif screened:
+        live = "completed_partial"
+    else:
+        live = "not_run"
+
+    return {
+        "mapped": True,
+        "axes": {"configuration_state": config.value, "source_state": source.value,
+                 "attempt_outcome": attempt.value, "match_outcome": match.value},
+        "contract_verdict": verdict,
+        "live_equivalent": live,
+        "agrees": verdict == live,
+        # Inert by construction. Nothing reads this to decide anything.
+        "shadow_only": True,
+    }
+
+
 def _reconcile_sanctions_coverage(name: str, report: ARKDDReport) -> None:
     """R-F3452 — say WHICH lists were screened, instead of "no screen was performed".
 

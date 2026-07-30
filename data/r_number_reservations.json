@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3509,
+  "next_available": 3511,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29136,6 +29136,24 @@
       "commit_sha": "7920b9e2",
       "notes": null,
       "shipped_at": "2026-07-30T16:23:28Z"
+    },
+    {
+      "r_number": "R-F3509",
+      "title": "wire selective enrichment into the poll loop and cap shallow-evidence confidence",
+      "claimed_at": "2026-07-30T16:24:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3510",
+      "title": "consolidation phase 1: derive sanctions state via the evidence contract in SHADOW, acting on nothing",
+      "claimed_at": "2026-07-30T16:26:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
