@@ -26,7 +26,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone, timedelta
-from typing import Any
+from typing import Any, Optional
 
 logger = logging.getLogger("aria.signal_correlator")
 
@@ -360,12 +360,24 @@ def _historical_origins_by_country(
     return out
 
 
-def _trajectory(active_origins: int, hist: dict) -> dict:
+def _trajectory(active_origins: int, hist: dict, baseline_ratio: float = 1.0) -> dict:
     """R-F3521 — direction of travel from independent-origin RATES, not volume.
 
     Rates, not totals: the bands are different lengths (14d vs 76d), so comparing
     raw counts would call almost everything "decaying" purely because the
     historical band is five times longer.
+
+    R-F3526 — measured RELATIVE TO THE CORPUS, via ``baseline_ratio``. A country's
+    own before/after ratio cannot distinguish "the world got busier" from "ARIA
+    started collecting more", and on the live box it was the latter: 53 of 54
+    countries read ACCELERATING, corpus-wide 4.82x against a median country 3.93x.
+    Every country was moving with the tide, and the tide was our own ingestion
+    growth. Dividing by the corpus baseline removes the collection-rate change
+    and leaves only movement relative to everything else.
+
+    ``baseline_ratio`` defaults to 1.0 — "no corpus-wide change" — so the pure
+    rate comparison can still be unit-tested in isolation. _annotate_trajectories
+    supplies the measured value, or refuses to call a direction at all.
 
     Returns UNKNOWN rather than guessing whenever the evidence cannot support a
     direction. "Could not measure" is not "measured and found flat" — the same
@@ -393,16 +405,72 @@ def _trajectory(active_origins: int, hist: dict) -> dict:
                           f"coverage in the preceding {int(hist_days)}")}
 
     ratio = active_rate / hist_rate if hist_rate > 0 else float("inf")
-    if ratio >= _TRAJECTORY_ACCEL_RATIO:
+    base = float(baseline_ratio) if baseline_ratio and baseline_ratio > 0 else 1.0
+    relative = ratio / base
+
+    if relative >= _TRAJECTORY_ACCEL_RATIO:
         label = TRAJECTORY_ACCELERATING
-    elif ratio <= _TRAJECTORY_DECAY_RATIO:
+    elif relative <= _TRAJECTORY_DECAY_RATIO:
         label = TRAJECTORY_DECAYING
     else:
         label = TRAJECTORY_SUSTAINED
+
+    against = ("" if abs(base - 1.0) < 1e-9 else
+               f", vs {base:.1f}x across all tracked countries")
     return {"trajectory": label,
             "basis": (f"{active_origins} independent origin(s) in {CORRELATION_WINDOW_DAYS}d "
                       f"vs {hist_origins} in the preceding {int(hist_days)}d "
-                      f"({ratio:.1f}x the prior rate)")}
+                      f"({ratio:.1f}x the prior rate{against})")}
+
+
+# R-F3526 — how many countries are needed before a corpus baseline means anything.
+# With one country the baseline IS that country, so its relative ratio is 1.0 and
+# it would always read SUSTAINED — an answer that looks measured and is not.
+_MIN_BASELINE_COUNTRIES = int(os.getenv("ARIA_TRAJECTORY_MIN_BASELINE_COUNTRIES", "5"))
+
+
+def _corpus_baseline(insights: list[dict], hist: dict) -> tuple[Optional[float], str]:
+    """R-F3526 — the corpus-wide active:historical rate ratio, or a refusal.
+
+    This is the correction for ARIA's own collection rate. A country's before/after
+    ratio answers "is there more reporting than there was", which is NOT the
+    question — it cannot separate a busier world from a busier crawler. Measured
+    live 2026-07-30: corpus-wide 4.82x against a median country of 3.93x, so 53 of
+    54 countries read ACCELERATING purely because ingestion had grown ~4-5x after
+    this week's news-pipeline work (R-F3486/R-F3494/R-F3509).
+
+    Dividing each country by this baseline asks the answerable question instead:
+    is this country moving differently from everything else we track?
+
+    Returns (None, reason) when no honest baseline exists. UNKNOWN is the correct
+    output there — an unnormalised direction would be a false finding, and this
+    engine's whole purpose is to not produce those.
+    """
+    pairs = []
+    for i in insights:
+        c = str(i.get("country", "")).lower()
+        h = hist.get(c) or {}
+        a = int(i.get("independent_origins") or 0)
+        ho = int(h.get("origins") or 0)
+        if ho > 0:
+            pairs.append((a, ho))
+
+    if len(pairs) < _MIN_BASELINE_COUNTRIES:
+        return None, (
+            f"no corpus baseline available ({len(pairs)} country/countries with "
+            f"historical coverage; need {_MIN_BASELINE_COUNTRIES}) — a direction "
+            f"here could not be separated from a change in ARIA's own collection "
+            f"rate, so none is claimed"
+        )
+
+    total_active = sum(a for a, _ in pairs)
+    total_hist = sum(h for _, h in pairs)
+    if total_hist <= 0 or total_active <= 0:
+        return None, "no corpus baseline available (empty band totals)"
+
+    hist_days = float(HISTORICAL_WINDOW_DAYS - CORRELATION_WINDOW_DAYS)
+    baseline = (total_active / float(CORRELATION_WINDOW_DAYS)) / (total_hist / hist_days)
+    return (baseline if baseline > 0 else None), ""
 
 
 async def _annotate_trajectories(insights: list[dict]) -> None:
@@ -438,10 +506,17 @@ async def _annotate_trajectories(insights: list[dict]) -> None:
         hist = await asyncio.to_thread(
             _historical_origins_by_country, signals, countries,
             datetime.now(timezone.utc))
+        baseline, baseline_reason = _corpus_baseline(insights, hist)
         for insight in insights:
             c = str(insight.get("country", "")).lower()
             h = hist.get(c) or {"signals": 0, "origins": 0}
-            t = _trajectory(int(insight.get("independent_origins") or 0), h)
+            if baseline is None:
+                insight["trajectory"] = TRAJECTORY_UNKNOWN
+                insight["trajectory_basis"] = baseline_reason
+                insight["historical_signal_count"] = h["signals"]
+                insight["historical_independent_origins"] = h["origins"]
+                continue
+            t = _trajectory(int(insight.get("independent_origins") or 0), h, baseline)
             insight["trajectory"] = t["trajectory"]
             insight["trajectory_basis"] = t["basis"]
             insight["historical_signal_count"] = h["signals"]

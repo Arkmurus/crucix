@@ -70,6 +70,29 @@ def _fresh_cluster(country="angola"):
     ]
 
 
+def _baseline_fillers(n=6):
+    """R-F3526 — other tracked countries, so a corpus baseline exists.
+
+    A trajectory is now measured RELATIVE to the corpus, because a country's own
+    before/after ratio cannot separate "the world got busier" from "ARIA started
+    collecting more" — live, that produced ACCELERATING on 53 of 54 countries.
+    With a single country the baseline IS that country, so these fillers are what
+    make the subject's own movement measurable at all.
+
+    Each filler is deliberately NEUTRAL: 2 active origins and 11 historical, which
+    is (2/14)/(11/76) = 0.99x — flat. So the baseline sits at ~1.0 and the
+    subject's raw ratio still drives its label, keeping the parametrised
+    expectations below meaningful rather than an artefact of the fillers.
+    """
+    out = []
+    for k in range(n):
+        c = f"filler{k}"
+        out += _fresh_cluster(c)
+        out += [_sig(20 + j, c, f"{c} history {j}",
+                     f"https://f{k}p{j}.com/x", f"f{k}p{j}") for j in range(11)]
+    return out
+
+
 class _FakeLedger:
     def __init__(self, signals):
         self._signals = signals
@@ -170,8 +193,9 @@ class TestHistoryCannotInflate:
             for i in range(hist_depth)
         ]
 
-        without = await _run(monkeypatch, copy.deepcopy(fresh))
-        with_hist = await _run(monkeypatch, copy.deepcopy(fresh + history))
+        fillers = _baseline_fillers()
+        without = await _run(monkeypatch, copy.deepcopy(fresh + fillers))
+        with_hist = await _run(monkeypatch, copy.deepcopy(fresh + history + fillers))
 
         assert _core(without) == _core(with_hist), (
             f"adding {hist_depth} historical origins changed which insights fired "
@@ -215,7 +239,7 @@ class TestHistoryCannotInflate:
 
         history = [_sig(20 + i, "angola", f"Angola history {i}",
                         f"https://pub{i}.com/x", f"pub{i}") for i in range(3)]
-        await _run(monkeypatch, _fresh_cluster() + history)
+        await _run(monkeypatch, _fresh_cluster() + history + _baseline_fillers())
 
         # The ONLY keys annotation is permitted to write. Listed explicitly rather
         # than pattern-matched on a "trajectory*" prefix, so a future field that
@@ -311,6 +335,89 @@ class TestTrajectoryIsMeasuredFromOrigins:
         # Equal RATES: 2/14 vs 11/76 are within ~5%.
         assert sc._trajectory(2, {"signals": 11, "origins": 11})["trajectory"] == \
             sc.TRAJECTORY_SUSTAINED
+
+
+class TestTrajectoryIsRelativeToTheCorpus:
+    """R-F3526 — caught LIVE, and NOT by the fix that preceded it.
+
+    R-F3525 corrected a real defect (the two bands used different story
+    identities) and I expected it to break up the 53-of-54 ACCELERATING result.
+    It did not: the distribution came back byte-identical. That is what forced the
+    real diagnosis, measured from the live response:
+
+        corpus-wide     4.82x   (695 active origins vs 782 historical)
+        median country  3.93x
+        quartiles       2.92 / 3.98 / 5.43
+
+    Nearly every country was moving with the tide, and the tide was ARIA's OWN
+    ingestion growing ~4-5x after this week's news-pipeline work
+    (R-F3486/R-F3494/R-F3509). A country's own before/after ratio simply cannot
+    separate "the world got busier" from "we started collecting more".
+
+    So the ratio is now divided by the corpus baseline, which asks the answerable
+    question: is this country moving differently from everything else we track.
+    """
+
+    def test_corpus_wide_growth_is_not_per_country_acceleration(self):
+        """The live failure, reduced. A country growing exactly as fast as the
+        whole corpus has not accelerated relative to anything."""
+        # 29 active vs 44 historical is Iran's real live shape: 3.6x raw.
+        out = sc._trajectory(29, {"signals": 400, "origins": 44}, baseline_ratio=4.82)
+        assert out["trajectory"] == sc.TRAJECTORY_SUSTAINED, (
+            f"a country moving with the corpus was still called "
+            f"{out['trajectory']} — this is the 53-of-54 result"
+        )
+
+    def test_a_country_outpacing_the_corpus_is_still_accelerating(self):
+        """The correction must not flatten everything: Mozambique was 39.3x
+        against a 4.8x corpus, which is genuine relative movement."""
+        out = sc._trajectory(94, {"signals": 200, "origins": 13}, baseline_ratio=4.82)
+        assert out["trajectory"] == sc.TRAJECTORY_ACCELERATING, out
+
+    def test_the_basis_states_what_it_was_compared_against(self):
+        out = sc._trajectory(94, {"signals": 200, "origins": 13}, baseline_ratio=4.82)
+        assert "4.8x across all tracked countries" in out["basis"], (
+            f"a relative verdict must show its comparator: {out['basis']}"
+        )
+
+    def test_falling_behind_a_growing_corpus_is_decay(self):
+        """Flat in absolute terms while everything else grows IS losing ground."""
+        out = sc._trajectory(2, {"signals": 50, "origins": 11}, baseline_ratio=4.82)
+        assert out["trajectory"] == sc.TRAJECTORY_DECAYING, out
+
+    def test_too_few_countries_yields_no_baseline_and_no_verdict(self):
+        insights = [{"country": "Angola", "independent_origins": 5}]
+        hist = {"angola": {"signals": 20, "origins": 3}}
+        baseline, reason = sc._corpus_baseline(insights, hist)
+        assert baseline is None, (
+            "a baseline computed from ONE country IS that country, so its "
+            "relative ratio is 1.0 and it would always read SUSTAINED"
+        )
+        assert "collection rate" in reason, reason
+
+    def test_a_real_corpus_produces_a_baseline(self):
+        insights = [{"country": f"C{i}", "independent_origins": 2} for i in range(6)]
+        hist = {f"c{i}": {"signals": 30, "origins": 11} for i in range(6)}
+        baseline, reason = sc._corpus_baseline(insights, hist)
+        assert baseline is not None and reason == ""
+        assert 0.9 < baseline < 1.1, (
+            f"six flat countries should baseline at ~1.0, got {baseline}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_without_a_baseline_the_chain_reports_unknown_not_a_guess(
+            self, monkeypatch, _isolate):
+        """End to end: one country, deep history, and still no verdict — because
+        none can honestly be given."""
+        sigs = _fresh_cluster("angola") + [
+            _sig(20 + i, "angola", f"Angola history {i}",
+                 f"https://pub{i}.com/a", f"pub{i}") for i in range(20)
+        ]
+        insights = await _run(monkeypatch, sigs)
+        angola = [i for i in insights if i["country"].lower() == "angola"]
+        assert angola, "fixture no longer fires"
+        assert angola[0]["trajectory"] == sc.TRAJECTORY_UNKNOWN
+        assert "collection rate" in angola[0]["trajectory_basis"]
 
 
 class TestBothBandsUseTheSameInstrument:
@@ -529,7 +636,7 @@ class TestTheTrajectoryReachesAConsumer:
         sigs = _fresh_cluster("angola") + [
             _sig(20 + i, "angola", f"Angola history {i}",
                  f"https://pub{i}.com/a", f"pub{i}") for i in range(3)
-        ]
+        ] + _baseline_fillers()
         from aria_service.intel import intel_ledger
         sc._reset_trajectory_cache()
         monkeypatch.setattr(intel_ledger, "_load", _FakeLedger(sigs)._load)
@@ -570,7 +677,7 @@ class TestEveryInsightCarriesTheField:
         sigs = _fresh_cluster("angola") + [
             _sig(20 + i, "angola", f"Angola history {i}",
                  f"https://pub{i}.com/a", f"pub{i}") for i in range(20)
-        ]
+        ] + _baseline_fillers()
         insights = await _run(monkeypatch, sigs)
         angola = [i for i in insights if i["country"].lower() == "angola"]
         assert angola, "the fixture cluster no longer fires — test is vacuous"

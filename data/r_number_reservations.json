@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3526,
+  "next_available": 3527,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29300,6 +29300,16 @@
       "r_number": "R-F3525",
       "title": "trajectory bands compared with different story identities - denominator undercount",
       "claimed_at": "2026-07-30T21:11:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "adcb42d6",
+      "notes": null,
+      "shipped_at": "2026-07-30T21:28:39Z"
+    },
+    {
+      "r_number": "R-F3526",
+      "title": "trajectory must be relative to corpus baseline - ingestion growth read as world acceleration",
+      "claimed_at": "2026-07-30T21:30:21Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
