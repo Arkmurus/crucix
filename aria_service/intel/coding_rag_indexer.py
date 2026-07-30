@@ -147,32 +147,45 @@ def _get_shared_embed_fn():
 
 
 def _get_chromadb_client():
-    """Return the shared chromadb client from rag_store.
+    """Return the SHARED chromadb client from rag_store. Never construct one here.
 
-    Reuses rag_store's PersistentClient so there's exactly one chromadb
-    instance in the process. Returns None if rag_store isn't initialised.
+    R-F3530 — THIS FUNCTION USED TO CONTRADICT ITS OWN DOCSTRING, and that is what
+    kept aria-intel crash-looping after R-F3527. It said "exactly one chromadb
+    instance in the process", then fell back to
+    `chromadb.PersistentClient(path=RAG_PATH)` — a SECOND client on the SAME PATH.
+
+    R-F3527 serialised construction inside `rag_store._get_client`, but this module
+    holds a DIFFERENT lock (`_init_lock`), so the two could still build concurrently
+    on one path. The post-R-F3527 faulthandler dump named this exact site:
+
+        coding_rag_indexer.py:215 in _ensure
+          chromadb/api/client.py:361 in get_or_create_collection
+            chromadb/api/rust.py:313 -> 244 in create_collection   <- Rust core
+
+    chromadb keys systems by path in `SharedSystemClient._identifier_to_system`; two
+    constructions for one path tear down / re-enter a system the other is inside, and
+    the Rust core dereferences freed state.
+
+    So there is now ONE owner. If rag_store cannot provide a client — chromadb absent,
+    the R-F2855 corrupt-store breaker tripped, or the R-F2151 cooldown armed — coding
+    RAG is DEGRADED and says so. That is the correct outcome: every reason
+    `_get_client` returns None is a reason NOT to construct a rival client at the same
+    path. The old fallback turned "RAG is deliberately disabled" into "build another
+    one anyway", which is the worst possible response to a tripped breaker.
     """
     try:
         from .rag_store import _get_client as _rag_get_client
         client = _rag_get_client()
         if client is not None:
             return client
-    except Exception:
-        pass
-
-    # Fallback: create our own client at the same path so coding RAG works
-    # even if rag_store hasn't been initialised yet (e.g. during tests).
-    try:
-        import chromadb
-        from chromadb.config import Settings
-        from .rag_store import RAG_PATH
-        Path(RAG_PATH).mkdir(parents=True, exist_ok=True)
-        return chromadb.PersistentClient(
-            path=RAG_PATH,
-            settings=Settings(anonymized_telemetry=False, allow_reset=False),
-        )
-    except Exception as e:
-        logger.warning("CodingRAG chromadb client init failed: %s", e)
+        logger.warning(
+            "[R-F3530] CodingRAG DEGRADED — rag_store has no chromadb client "
+            "(not initialised, breaker tripped, or cooldown armed). NOT constructing "
+            "a second client on the same path: that is the SIGSEGV.")
+        return None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[R-F3530] CodingRAG DEGRADED — rag_store client "
+                       "unavailable: %s", e)
         return None
 
 
