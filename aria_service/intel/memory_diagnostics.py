@@ -122,7 +122,9 @@ async def diagnose_topic(topic: str) -> dict:
     try:
         from . import mem0 as _m
         if hasattr(_m, "retrieve_for_query"):
-            ctx = _m.retrieve_for_query(topic)
+            # R-F3489 — a tier diagnostic must see the tier. Without an explicit system
+            # scope it would report ok=True with an empty preview: a false clean.
+            ctx = _m.retrieve_for_query(topic, system_scope=True)
             hits["tiers"]["mem0"] = {"ok": True, "preview": (ctx or "")[:800]}
         else:
             hits["tiers"]["mem0"] = {"ok": False, "error": "no retrieve_for_query"}

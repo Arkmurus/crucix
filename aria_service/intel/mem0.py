@@ -197,6 +197,7 @@ async def summarise_and_store(
     session_id: str,
     llm: "LLMProvider | None",
     user_label: str = "user",
+    owner_key: str = "",
 ) -> dict:
     """Run the MEM0 summariser on a turn and store the result as a knowledge fact.
 
@@ -287,7 +288,13 @@ async def summarise_and_store(
     try:
         from . import knowledge
         ts_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        # R-F3489 — record WHOSE conversation this was. Appended so the existing
+        # provenance parser (split(":", 2)[2][:10] for the date) is unaffected, and
+        # omitted entirely when unknown so a fact is never mis-attributed.
+        _own = str(owner_key or "").strip()[:64]
         source = f"mem0:session_{session_id[:32]}:{ts_iso}"
+        if _own:
+            source = f"{source}:owner_{_own}"
         # Topic = first 60 chars of the summary (used for keyword search)
         topic = summary[:60]
         result = await knowledge.store_fact(
@@ -334,7 +341,33 @@ _MAX_MEM0_RECALL_CHARS = 1200
 _MAX_MEM0_RECALL_FACTS = 6
 
 
-def retrieve_for_query(query: str) -> str:
+def _owner_of(source: str) -> str:
+    """R-F3489 — the owner encoded in a mem0 fact's source, or "" for legacy facts.
+
+    Source format is ``mem0:session_<id>:<iso8601>`` and, since R-F3489,
+    ``mem0:session_<id>:<iso8601>:owner_<key>``. The owner is APPENDED so the existing
+    provenance parser (``split(":", 2)[2][:10]`` for the date) is unaffected.
+    """
+    src = str(source or "")
+    marker = ":owner_"
+    idx = src.rfind(marker)
+    return src[idx + len(marker):].strip() if idx != -1 else ""
+
+
+def _recall_unowned_allowed() -> bool:
+    """Single-tenant escape hatch, OFF by default.
+
+    A legacy fact carries no owner, so it cannot be attributed. Serving it to whoever
+    happens to ask is the cross-tenant leak this fix removes, so the default is to
+    withhold it. An operator running a genuinely single-user box can set
+    ``ARIA_MEM0_RECALL_UNOWNED=1`` to keep recalling their own history — a deliberate,
+    recorded choice rather than a silent default.
+    """
+    return str(os.getenv("ARIA_MEM0_RECALL_UNOWNED", "")).strip().lower() in {"1", "true", "yes"}
+
+
+def retrieve_for_query(query: str, *, owner_key: str = "",
+                       system_scope: bool = False) -> str:
     """Pull mem0-stored notebook facts that look relevant to `query` and
     return them as a formatted prompt-injection block.
 
@@ -350,6 +383,27 @@ def retrieve_for_query(query: str) -> str:
     new async wiring.
     """
     if not is_enabled() or not query or not isinstance(query, str):
+        return ""
+
+    # ── R-F3489 — FAIL CLOSED WITHOUT AN OWNER ────────────────────────────────
+    #
+    # This function took a query and nothing else. It scanned the SHARED knowledge fact
+    # cache, kept everything tagged `mem0:`, and returned it as a prompt-injection block
+    # headed "facts captured from prior conversations". Whose prior conversations was
+    # never asked: one user's turn could recall notebook facts summarised from ANOTHER
+    # user's chats, straight into the model context.
+    #
+    # Recall is now scoped to the asking user. No owner => no recall, because the
+    # alternative is serving someone else's conversation history to whoever asks.
+    # `system_scope` is for INTERNAL verification that does not feed a user's model
+    # context — the cited-artifact verifier and the memory diagnostic. It is opt-in and
+    # explicit precisely so it cannot become the silent default again; a guard test
+    # asserts the chat engine never uses it.
+    _owner = str(owner_key or "").strip()
+    if not _owner and not system_scope:
+        logger.debug(
+            "[R-F3489] mem0 recall skipped: no owner_key supplied, so facts cannot be "
+            "attributed to the asking user")
         return ""
 
     try:
@@ -385,6 +439,17 @@ def retrieve_for_query(query: str) -> str:
         source = (f.get("source") or "")
         if not source.startswith("mem0:"):
             continue
+        # R-F3489 — ownership gate. A fact owned by someone else is never served. A
+        # LEGACY fact (no owner recorded) is withheld too, unless the operator has
+        # explicitly declared a single-tenant box: unattributable is not the same as
+        # mine, and guessing in the permissive direction is the leak.
+        _fact_owner = _owner_of(source)
+        if not system_scope:
+            if _fact_owner:
+                if _fact_owner != _owner:
+                    continue
+            elif not _recall_unowned_allowed():
+                continue
         text = f"{f.get('topic', '')} {f.get('content', '')}".lower()
         score = sum(3 for w in words if w in text)
         if score > 0:

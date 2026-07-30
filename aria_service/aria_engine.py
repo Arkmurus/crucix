@@ -1677,7 +1677,8 @@ _SELF_INFRA_QUARANTINE_NOTE = (
 )
 
 
-def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
+def _build_7_layer_context(message: str, intel_data: dict | None,
+                          owner_key: str = "") -> str:
     """Build all 9 intelligence layers (7 base + neural memory + RAG), budget-capped.
 
     The RAG layer is the highest-value retrieval for proprietary intel — every
@@ -1774,7 +1775,7 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
         # document-grounded mode they are quarantined behind a fence line
         # so the LLM does not blend them into attached-document claims.
         recall_layers = [
-            ("mem0",        lambda: _mem0_retrieve(message)),
+            ("mem0",        lambda: _mem0_retrieve(message, owner_key=owner_key)),
             ("ledger",      lambda: query_ledger(message)),
             ("contacts",    lambda: get_contact_context(message)),
             ("competitors", lambda: get_competitor_context(message)),
@@ -3894,7 +3895,8 @@ async def _aria_chat_impl(
     # liveness probes timed out and chat replies arrived 60s+ late. Moving
     # the whole context build into a worker thread frees the event loop to
     # service other requests while the encode runs.
-    context = await _aio.to_thread(_build_7_layer_context, message, intel_data)
+    context = await _aio.to_thread(_build_7_layer_context, message, intel_data,
+                                   user_id)
 
     # Sanctions yes/no guard (2026-04-17 21:50): when the user asks
     # "is X sanctioned?" force a LIVE primary-source check and prepend
@@ -4287,7 +4289,8 @@ async def _aria_chat_impl(
     try:
         from .intel import mem0 as _mem0
         mem0_task = asyncio.create_task(
-            _mem0.summarise_and_store(message, response_text, session_id, llm)
+            _mem0.summarise_and_store(message, response_text, session_id, llm,
+                                      owner_key=user_id)
         )
         # Hold a strong reference so the GC can't collect mid-task; log
         # the result asynchronously when done so we have visibility into
@@ -4814,7 +4817,8 @@ async def _aria_chat_stream_impl(
     _rag_ctx_var.set(rag_ctx)
     _rag_sources_var.set(rag_sources_s)
 
-    context = await _aio.to_thread(_build_7_layer_context, message, intel_data)
+    context = await _aio.to_thread(_build_7_layer_context, message, intel_data,
+                                   user_id)
 
     # Sanctions yes/no guard (2026-04-17 21:50): when the user asks
     # "is X sanctioned?" force a LIVE primary-source check and prepend
@@ -5154,7 +5158,8 @@ async def _aria_chat_stream_impl(
     try:
         from .intel import mem0 as _mem0
         mem0_task = asyncio.create_task(
-            _mem0.summarise_and_store(message, response_text, session_id, llm)
+            _mem0.summarise_and_store(message, response_text, session_id, llm,
+                                      owner_key=user_id)
         )
         mem0_task.add_done_callback(_bg_done("mem0"))
     except Exception as _m0_e:

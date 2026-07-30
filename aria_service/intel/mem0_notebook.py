@@ -31,7 +31,10 @@ def search(query: str, limit: int = 5) -> list[dict[str, Any]]:
     if not query:
         return []
     try:
-        ctx = _mem0.retrieve_for_query(query)
+        # R-F3489 — a citation check verifies that an artifact EXISTS; it does not inject
+        # another user's notebook into anyone's context, so it scopes system-wide
+        # EXPLICITLY rather than relying on the old unscoped default.
+        ctx = _mem0.retrieve_for_query(query, system_scope=True)
     except Exception:
         return []
     if not ctx or not str(ctx).strip():

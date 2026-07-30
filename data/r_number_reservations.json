@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3489,
+  "next_available": 3490,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28927,6 +28927,15 @@
       "r_number": "R-F3488",
       "title": "carry the data-subject envelope at ingest so personal data is erasable and unkeyed writes are visible",
       "claimed_at": "2026-07-30T13:32:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3489",
+      "title": "mem0 recall is unscoped: any user can retrieve facts captured from another user's conversations",
+      "claimed_at": "2026-07-30T13:41:40Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
