@@ -306,6 +306,11 @@ _OPERATOR_ONLY_RE = re.compile(
     # can't silently inherit the service-token exemption).
     r"|coder/(?!rag/|llm(?![-\w/]))|cost/set-cap|cost/reset-task|cost/daily/reset|cost/reconcile|admin/state/key|admin/purge|capability-gaps/purge"
     r"|memory/backup/restore|student/mastery/reset|portal/credentials|session/forget"
+    # R-F3513 — clearing a provider cooldown RE-ENABLES SPEND, so it is
+    # control-plane. /admin/ is NOT gated as a prefix (only the specific
+    # paths listed above are), so this must be named explicitly or the
+    # shared service token held by aria-web/aria-wa could reach it.
+    r"|admin/llm/cooldown/clear"
     r"|eval/|operating-mode/set|knowledge/fact"
     # R-F2458: /training-data/library-export + /export dump up to 5000 Q&A tuples
     # aggregated across ALL tenants' chats with no user scoping — a cross-tenant
@@ -1641,6 +1646,44 @@ async def admin_state_hotcold_backfill_ep(
     asyncio.create_task(_run())
     return {"started": True, "page_size": page_size, "sleep_s": sleep_s,
             "reset": bool(reset), "status": await _ss.backfill_status()}
+
+
+
+@router.post("/admin/llm/cooldown/clear")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def admin_llm_cooldown_clear_ep(request: Request, provider: str = ""):
+    """R-F3513 — operator lever: make an LLM billing top-up take effect now.
+
+    A HARD billing cooldown is 24h (R-F678), mirrored to Redis with a TTL pinned
+    to its own end, and rehydrated on boot. _record_success is the only thing
+    that clears it and a cooling provider is never called, so it sustains itself
+    for the full 24h. Before this endpoint there was no way to act on paying for
+    credit — CLAUDE.md's "bounce the machine" guidance was wrong (boot
+    rehydrates), and /admin/state/key is GET-only.
+
+    Operator-token only (see _OPERATOR_ONLY_RE): clearing a cooldown re-enables a
+    provider and therefore re-enables SPEND (§17).
+    """
+    llm = getattr(request.app.state, "llm_provider", None)
+    if llm is None or not hasattr(llm, "clear_cooldown"):
+        return JSONResponse(
+            {"ok": False, "error": "the active LLM provider does not expose a "
+                                   "cooldown (no fallback chain configured)"},
+            status_code=409,
+        )
+    res = llm.clear_cooldown((provider or "").strip())
+    if not res.get("cleared"):
+        return JSONResponse({"ok": False, **res}, status_code=400)
+    try:
+        from ..intel.engine_wiring import wire_success as _ws
+        _ws(module="llm_chain",
+            summary=f"operator cleared LLM cooldown for {res.get('providers')} "
+                    f"(was_cooling={res.get('was_cooling')})",
+            source_id="aria:admin_llm_cooldown_clear")
+    except Exception:
+        pass
+    return {"ok": True, **res, "health": llm.get_health()
+            if hasattr(llm, "get_health") else {}}
 
 
 @router.get("/admin/state/key")

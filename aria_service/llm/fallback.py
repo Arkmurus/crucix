@@ -144,11 +144,25 @@ class FallbackProvider(LLMProvider):
     #                              this stage (2026-05-18). 30-min re-probes
     #                              wasted 96 calls/day on a provider with no
     #                              credit. 24h slashes that to ≤2 wasted calls
-    #                              per race window per day. Operator can
-    #                              force-reset by setting the secret to fresh
-    #                              billing and bouncing the machine, which
-    #                              clears in-memory stats AND the redis-mirror
-    #                              TTL has already expired.
+    #                              per race window per day.
+    #
+    #                              R-F3513 — the previous note here said the
+    #                              operator could "force-reset by setting the
+    #                              secret to fresh billing and bouncing the
+    #                              machine, which clears in-memory stats AND the
+    #                              redis-mirror TTL has already expired". BOTH
+    #                              halves are FALSE. Boot REHYDRATES the cooldown
+    #                              from the Redis mirror (live log: "Provider
+    #                              deepseek_backup HARD cooldown (billing)
+    #                              rehydrated from Redis - 56479s remaining"),
+    #                              and the mirror's TTL is pinned to the
+    #                              cooldown's own end, so it has NOT expired.
+    #                              A restart changes nothing and costs a ~10-min
+    #                              cold boot. Acting on that advice on 2026-07-30
+    #                              would have been a pointless outage.
+    #                              To act on a top-up NOW:
+    #                                POST /api/aria/admin/llm/cooldown/clear
+    #                                     ?provider=deepseek   (operator token)
     #   - rate_limit:              short 60s cooldown — transient
     #   - server / timeout / other: 60s cooldown after 2 consecutive failures
     # Any success resets the provider entirely. This prevents the old trap
@@ -707,6 +721,58 @@ class FallbackProvider(LLMProvider):
             "all LLM providers failed (stream) — try again in a minute",
             kind="other", retryable=True, cause=last_error,
         )
+
+    def clear_cooldown(self, provider_name: str = "") -> dict:
+        """R-F3513 — make a billing top-up take effect NOW.
+
+        A HARD billing cooldown is 24h (R-F678) and is mirrored to Redis with a
+        TTL pinned to its own end, and boot REHYDRATES it. ``_record_success``
+        is the only thing that clears it, and a cooling provider is never
+        called — so once set, it sustains itself for the full 24h no matter what
+        the operator does. Paying for credit could not be acted on at all.
+
+        CLAUDE.md §17 claimed a restart would fix it ("bouncing the machine ...
+        the redis-mirror TTL has already expired"). Both halves are false, and
+        that guidance is corrected in the same change as this method.
+
+        Clears BOTH sides — the in-process stats entry and the Redis mirror —
+        because clearing either alone leaves the other to restore it.
+
+        Reports honestly: ``was_cooling`` says whether anything was actually
+        undone, so the caller is never told a cooldown was lifted that was not
+        there. Pass "" to clear every provider in the chain.
+        """
+        names = ([provider_name] if provider_name
+                 else [p.name for p in self.providers])
+        if provider_name and provider_name not in self._stats:
+            return {"cleared": False, "providers": [], "was_cooling": False,
+                    "reason": f"unknown provider {provider_name!r}; chain is "
+                              f"{[p.name for p in self.providers]}"}
+
+        now = time.time()
+        was_cooling = False
+        for name in names:
+            stats = self._stats.get(name)
+            if stats is None:
+                continue
+            if float(stats.get("cooldown_until") or 0) > now:
+                was_cooling = True
+            stats["cooldown_until"] = 0
+            stats["failures"] = 0
+            stats["last_kind"] = ""
+            try:
+                self._clear_redis_cooldown(name)
+            except Exception as exc:
+                logger.warning(
+                    "[R-F3513] cleared %s in memory but the Redis mirror delete "
+                    "failed — a restart may rehydrate the cooldown: %s", name, exc)
+        # A cleared chain is serveable again; drop any stale exhaustion flag so
+        # /health does not keep reporting an outage that has just been resolved.
+        self._record_chain_success()
+        logger.info("[R-F3513] cooldown cleared for %s (was_cooling=%s)",
+                    names, was_cooling)
+        return {"cleared": True, "providers": names, "was_cooling": was_cooling,
+                "reason": ""}
 
     @fail_wire(module="fallback", gap_type="engine_failure")
     def get_stats(self) -> dict:
