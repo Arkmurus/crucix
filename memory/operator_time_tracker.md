@@ -55,7 +55,13 @@ not from the trailer. See [[two-agents-one-tree-hazard]] and
 
 | Date | Shipped (mine) | Operator hours | pace_ratio | Cumulative |
 |---|---|---|---|---|
-| 2026-07-30 | **33** | _(pending — operator to supply)_ | — | — |
+| 2026-07-30 | **33** | **12.0** (operator-supplied) | **2.75** | **2.75** (33 / 12.0) |
+
+Cumulative equals the row because this is the first recorded session — the file
+did not exist before today, and earlier sessions were deliberately not back-filled
+(see above). Cumulative is `sum(shipped) / sum(hours)` across rows, **not** a mean
+of the per-row ratios; averaging ratios would silently weight a 2-hour day equal
+to a 12-hour one.
 
 R-numbers for 2026-07-30: R-F3457, R-F3464, R-F3469, R-F3475, R-F3476, R-F3477,
 R-F3479, R-F3483, R-F3485, R-F3486, R-F3487, R-F3491, R-F3494, R-F3495, R-F3497,
@@ -64,14 +70,15 @@ R-F3517, R-F3518, R-F3519, R-F3521, R-F3523, R-F3525, R-F3526, R-F3528, R-F3529.
 All ship-marked and verified live. The peer agent shipped R-F3520, R-F3522,
 R-F3524, R-F3527, R-F3530 in the same tree and they are NOT counted here.
 
-**Reference — what the ratio resolves to once hours are supplied (numerator 33):**
+**What 2.75 does and does not establish.** It is one data point with no prior
+series, so it is a BASELINE, not a benchmark — there is nothing yet to say whether
+it is fast, slow, or typical. It becomes informative only against comparable later
+days. Do not treat it as a floor to beat.
 
-| operator hours | 4h | 6h | 8h | 10h | 12h | 14h |
-|---|---|---|---|---|---|---|
-| pace_ratio | 8.3 | 5.5 | 4.1 | 3.3 | 2.8 | 2.4 |
-
-This table is arithmetic, not a measurement — it exists so the row can be closed
-with one number from the operator rather than another round trip.
+Note also what the 12 hours contained: ~25 minutes of box-wide 502s caused by
+three deploys landing inside 17 minutes (mine plus the peer's two), each resetting
+aria-intel's ~10-minute warm-up. That is denominator spent on contention, not on
+work, and it is the concrete argument for batching deploys on a shared tree.
 
 **Reading the ratio honestly.** R-numbers are not equal units of work: R-F3491
 (one stale test fixture) and R-F3506 (a store reconnect that could wipe every
