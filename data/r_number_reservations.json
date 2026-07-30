@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3513,
+  "next_available": 3514,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29170,6 +29170,16 @@
       "r_number": "R-F3512",
       "title": "record raw source responses so frozen gold evidence can exist, under the data-subject envelope",
       "claimed_at": "2026-07-30T16:45:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "12697847",
+      "notes": null,
+      "shipped_at": "2026-07-30T17:05:30Z"
+    },
+    {
+      "r_number": "R-F3513",
+      "title": "operator lever to clear an LLM provider cooldown after a billing top-up",
+      "claimed_at": "2026-07-30T17:03:59Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
