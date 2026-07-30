@@ -6806,8 +6806,16 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                         severity="info",
                         title=f"Sovereign macro context: central-govt debt {_debt:.1f}% of GDP",
                         detail=(
-                            f"Central government debt for {iso2_for_overlay} = {_debt:.1f}% of GDP "
-                            f"(WB threshold for fiscal-stress concern: ~100%). Country-level "
+                            f"Central government debt for {iso2_for_overlay} = {_debt:.1f}% of GDP"
+                            # R-F3462 — STATE THE VINTAGE. The World Bank request asks for
+                            # the most recent NON-EMPTY value, which for this series is
+                            # routinely several years old; an undated macro figure invites
+                            # a reader to treat stale data as current.
+                            + (f" ({(overlay.get('vintage') or {}).get('debt_to_gdp_pct')} data — "
+                               f"the most recent year the World Bank publishes for this series)"
+                               if (overlay.get("vintage") or {}).get("debt_to_gdp_pct")
+                               else " (year not reported by the source on this run)")
+                            + f". WB threshold for fiscal-stress concern: ~100%. Country-level "
                             f"context for sovereign-counterparty + payment-currency risk — not a "
                             f"finding against this entity."
                         ),

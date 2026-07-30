@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3460,
+  "next_available": 3464,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28638,6 +28638,42 @@
       "r_number": "R-F3459",
       "title": "test timeout inversion: an inner subprocess timeout above the per-test budget kills the run",
       "claimed_at": "2026-07-30T10:30:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3460",
+      "title": "financial findings label every source as sec_edgar_financials regardless of provenance",
+      "claimed_at": "2026-07-30T10:47:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3461",
+      "title": "exact full legal-name match reported as AMBIGUOUS because the scorer discards word order",
+      "claimed_at": "2026-07-30T10:47:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3462",
+      "title": "World Bank indicator year is fetched then discarded so the report cannot state a vintage",
+      "claimed_at": "2026-07-30T10:47:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3463",
+      "title": "ownership ANSWERED renders a criterion description instead of the holders that satisfied it",
+      "claimed_at": "2026-07-30T10:47:20Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

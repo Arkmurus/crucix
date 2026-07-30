@@ -72,7 +72,14 @@ def test_rf3123_tied_top_scores_are_disclosed():
         {"company_number": "02", "title": "ACME LIMITED", "company_status": "active"},
     ], d)
     assert d["ambiguous"] is True
-    assert "share the top name match" in " ".join(d["reasons"])
+    # R-F3461 — the PROPERTY this guard owns is that a tie is DISCLOSED, not the exact
+    # sentence used. These two rows share an exact LEGAL NAME, not merely a top score, so
+    # that case now gets the sharper message; both wordings satisfy the guard, and the
+    # ambiguity assertion above is unchanged. Pinning the old phrasing would have blocked
+    # a strictly more accurate disclosure.
+    _r = " ".join(d["reasons"])
+    assert ("share the top name match" in _r
+            or "registered under this exact legal name" in _r), _r
 
 
 def test_rf3123_inexact_match_is_disclosed():

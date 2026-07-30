@@ -268,6 +268,36 @@ def _company_name_match(query: str, title: str) -> float:
     return len(q & t) / len(q | t)
 
 
+def _normalised_legal_name(s: str) -> str:
+    """R-F3461 — the FULL legal name, order and suffix preserved.
+
+    `_company_name_match` above is a Jaccard over DISTINCTIVE tokens, so it deliberately
+    discards word ORDER and generic corporate suffixes. That is right for ranking near
+    matches and wrong for deciding whether the subject was actually identified: for the
+    query "Babcock International Group PLC" it scores ALL THREE of
+
+        BABCOCK INTERNATIONAL GROUP PLC     <- the exact legal name
+        BABCOCK GROUP INTERNATIONAL LIMITED <- different company, words reordered
+        BABCOCK INTERNATIONAL LIMITED       <- different company
+
+    at exactly 1.00, because each reduces to {babcock, international}. The report then
+    told the reader its subject was AMBIGUOUS and "inferred, not confirmed", on a run
+    where the register held a verbatim match for the name supplied.
+
+    Comparing the whole normalised string restores the distinction the token set threw
+    away. Punctuation and spacing vary between the register and how people type a name,
+    so those are normalised; nothing else is.
+    """
+    import re as _re
+    return _re.sub(r"[^a-z0-9 ]+", "", str(s or "").lower()).strip()
+
+
+def _exact_legal_name_matches(query: str, title: str) -> bool:
+    """True when the register title IS the name that was searched for."""
+    q, t = _normalised_legal_name(query), _normalised_legal_name(title)
+    return bool(q) and q == t
+
+
 def _is_overseas_entity(row: dict) -> bool:
     """A Register-of-Overseas-Entities record: an 'OE'-prefixed number or an overseas
     company_type. It has no officers/PSC at the standard company endpoints, so it is
@@ -321,6 +351,10 @@ def _pick_best_company(query: str, results: list[dict],
     def _rank(item):
         idx, row = item
         return (
+            # R-F3461 — an EXACT full legal-name match outranks everything. Without this
+            # the tie between three different companies was broken by status and search
+            # rank, so the verbatim match could lose to a reordered name.
+            1 if _exact_legal_name_matches(query, str(row.get("title") or "")) else 0,
             _company_name_match(query, str(row.get("title") or "")),
             0 if _is_overseas_entity(row) else 1,
             1 if "active" in str(row.get("company_status") or "").lower() else 0,
@@ -347,8 +381,21 @@ def _pick_best_company(query: str, results: list[dict],
         win_dissolved = "active" not in win_status
         active_alts = [c for c in scored
                        if c["company_number"] != win_num and "active" in c["status"].lower()]
+        # R-F3461 — an exact full legal-name match is an IDENTIFICATION, not a tie.
+        exact = [c for c in scored if _exact_legal_name_matches(query, c["title"])]
+        exact_is_winner = len(exact) == 1 and exact[0]["company_number"] == win_num
+
         reasons: list[str] = []
-        if len(tied) > 1:
+        if len(exact) > 1:
+            # Two companies genuinely registered under the same legal name is rare and IS
+            # ambiguous — and it is a SHARPER statement than the generic tie, so it is
+            # tested first. Ordered the other way it never fired, because a set of exact
+            # matches is also a set of top-scoring matches.
+            reasons.append(
+                f"{len(exact)} companies are registered under this exact legal name — "
+                "the register itself does not distinguish them; confirm by registration "
+                "number")
+        elif len(tied) > 1 and not exact_is_winner:
             reasons.append(
                 f"{len(tied)} candidates share the top name match ({top:.2f}) — the "
                 "choice between them rests on status and search rank, not on the name")

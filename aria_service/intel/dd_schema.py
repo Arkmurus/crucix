@@ -1973,6 +1973,33 @@ def _is_subject_node(h) -> bool:
     return False
 
 
+def _named_holders(holders) -> list[str]:
+    """R-F3463 — the holder names that satisfy `_has_named_holder`, for DISPLAY.
+
+    THE GAP (live, Babcock International Group PLC). "Ownership and control: ANSWERED"
+    was rendered beside a Network section whose entire visible content was "UBO chain
+    nodes traversed 11". The gate itself is sound — R-F2793 made it require a holder with
+    SUBSTANCE rather than a truthy list, and R-F3027 made an untraversed controller
+    disqualify it — so the verdict was correct and the reader simply could not see what
+    produced it. A conclusion whose evidence is never shown asks for trust instead of
+    offering proof, which is the opposite of what this report is for.
+
+    Returns names only; the caller decides how many to show.
+    """
+    out: list[str] = []
+    if not isinstance(holders, (list, tuple)):
+        return out
+    for h in holders:
+        if _is_subject_node(h):
+            continue
+        name = h.get("name") if isinstance(h, dict) else h
+        if isinstance(name, str) and len(name.strip()) >= 2 and _substantive_value(name):
+            n = name.strip()
+            if n not in out:
+                out.append(n)
+    return out
+
+
 def _has_named_holder(holders) -> bool:
     """True iff `holders` contains at least one NAMED party OTHER than the subject.
 
@@ -2537,11 +2564,17 @@ def _dd_decision_readiness(r: dict) -> dict:
     # R-F2793 — a holder LIST is not ownership evidence; a holder with SUBSTANCE is.
     # This was the truthiness of the list, so `[{}]` or `['x']` answered
     # "Ownership and control: ANSWERED".
-    ownership_present = any(
-        _has_named_holder(src) for src in (
-            ident.get("shareholders"), ident.get("ubo_chain"), network.get("ubo_chain"),
-        )
+    _ownership_sources = (
+        ident.get("shareholders"), ident.get("ubo_chain"), network.get("ubo_chain"),
     )
+    ownership_present = any(_has_named_holder(src) for src in _ownership_sources)
+    # R-F3463 — collected from the SAME sources the gate consults, so what is displayed
+    # can never disagree with what was decided.
+    _ownership_holder_names: list[str] = []
+    for _src in _ownership_sources:
+        for _n in _named_holders(_src):
+            if _n not in _ownership_holder_names:
+                _ownership_holder_names.append(_n)
     # R-F3027 — an UNTRAVERSED corporate controller means ownership is NOT answered.
     # Live on dd_16db41eb5fa8: `Raven Delta Limited` held 75-100% of shares and votes
     # plus the right to appoint and remove directors; it appeared exactly ONCE in the
@@ -2678,7 +2711,16 @@ def _dd_decision_readiness(r: dict) -> dict:
                 "ANSWERED" if ownership_ok else "INCOMPLETE" if budget_exhausted else "UNRESOLVED"
             ),
             "answered": ownership_ok,
-            "evidence": "shareholder/UBO chain without an exhausted traversal",
+            # R-F3463 — the holders that ACTUALLY satisfied the gate, not a description of
+            # the gate. The static string told a reader what the criterion was and nothing
+            # about whether this subject met it.
+            "evidence": (
+                ("named holder(s): " + ", ".join(_ownership_holder_names[:4])
+                 + (f" (+{len(_ownership_holder_names) - 4} more)"
+                    if len(_ownership_holder_names) > 4 else ""))
+                if ownership_ok and _ownership_holder_names
+                else "shareholder/UBO chain without an exhausted traversal"
+            ),
             "blocker": (
                 "" if ownership_ok
                 # R-F3027 — name the controller that was never walked; "unresolved"

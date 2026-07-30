@@ -1839,7 +1839,26 @@ def financial_health_findings(result: dict) -> list[dict]:
     """Map an assessment into DD Finding dicts (title/detail/severity/source/confidence)."""
     if not isinstance(result, dict):
         return []
-    src = "sec_edgar_financials"
+    # R-F3460 — the source label must name where the figures ACTUALLY came from.
+    #
+    # THE DEFECT (live, Babcock International Group PLC). The report carried:
+    #
+    #   "Financial health: STRONG ... read from the issuer's own published report
+    #    (Annual Report and Financial Statements 2026) ... Source: sec_edgar_financials"
+    #
+    # while a finding two sections above said, correctly, that EDGAR holds only ADR
+    # registration forms for this entity and "does NOT evidence this entity's financials".
+    # The label was hardcoded for every finding regardless of provenance, so the report
+    # attributed the numbers to the one source it had just told the reader was empty.
+    #
+    # A reader who checks provenance before relying on a figure is the reader this
+    # product is for; sending them to the wrong source is worse than saying nothing.
+    # The `_uk` branch below already derived its own label — the issuer-report path
+    # (R-F3128) simply never got one.
+    if result.get("issuer_report_verified"):
+        src = "issuer_annual_report"
+    else:
+        src = "sec_edgar_financials"
     verdict = result.get("health_verdict", "UNKNOWN")
     findings: list[dict] = []
     if not result.get("data_available"):
@@ -1862,8 +1881,13 @@ def financial_health_findings(result: dict) -> list[dict]:
         _mt = result.get("matched_title")
         # R-F3016 — a UK balance-sheet verdict cites Companies House, not SEC EDGAR, and
         # is explicitly a solvency (not profitability) read.
+        # R-F3460 — the TITLE names the source too. "Financial health: STRONG" with no
+        # qualifier reads as a filings-derived verdict; the issuer's own annual report is
+        # a primary source but a different one, and the reader is entitled to know which.
         _title = (f"Financial health: {verdict} — UK filed accounts (balance sheet)"
                   if _uk else
+                  f"Financial health: {verdict} — issuer's published annual report"
+                  if result.get("issuer_report_verified") else
                   f"Financial health: {verdict}" + (f" — {_mt} (SEC EDGAR)" if _mt else ""))
         findings.append({
             "title": _title,

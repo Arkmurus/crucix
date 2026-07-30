@@ -403,6 +403,18 @@ async def country_risk_overlay(country_iso2_or_iso3: str) -> dict[str, Any]:
         rows = inds.get(code) or []
         return rows[0]["value"] if rows else None
 
+    # R-F3462 — the YEAR is fetched and was then thrown away here.
+    #
+    # `fetch_country_indicators` already records `{"year": row["date"]}` per observation,
+    # but `_val` returned only the value, so no consumer could state a vintage and the DD
+    # report printed "central-govt debt 130.7% of GDP" with no date at all. The request
+    # uses `mrnev=1` — MOST RECENT NON-EMPTY — so that figure can legitimately be several
+    # years old, and how old it is changes what a reader should conclude from it. An
+    # undated macro figure is not a measurement, it is an anecdote.
+    def _year(code: str) -> Any:
+        rows = inds.get(code) or []
+        return rows[0].get("year") if rows else None
+
     return {
         "ok": True,
         "country_code": raw["country_code"],
@@ -420,6 +432,20 @@ async def country_risk_overlay(country_iso2_or_iso3: str) -> dict[str, Any]:
             "political_stability": _val("PV.EST"),
             "rule_of_law": _val("RL.EST"),
             "government_effectiveness": _val("GE.EST"),
+        },
+        # R-F3462 — the vintage of each observation, keyed by the same names used above.
+        # `retrieved_at` says when WE asked; this says what year the DATA describes, and
+        # those are routinely years apart.
+        "vintage": {
+            "gdp_usd": _year("NY.GDP.MKTP.CD"),
+            "debt_to_gdp_pct": _year("GC.DOD.TOTL.GD.ZS"),
+            "reserves_usd": _year("FI.RES.TOTL.CD"),
+            "inflation_pct": _year("FP.CPI.TOTL.ZG"),
+            "military_spend_pct_gdp": _year("MS.MIL.XPND.GD.ZS"),
+            "control_of_corruption": _year("CC.EST"),
+            "political_stability": _year("PV.EST"),
+            "rule_of_law": _year("RL.EST"),
+            "government_effectiveness": _year("GE.EST"),
         },
         "retrieved_at": raw.get("retrieved_at", ""),
         # R-F2495 — surface partial coverage: when the combined request failed but the
