@@ -28970,9 +28970,10 @@
       "title": "retention and residency become jurisdiction-specific, with an operator reminder for overdue review",
       "claimed_at": "2026-07-30T14:15:41Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "89e73217",
+      "notes": null,
+      "shipped_at": "2026-07-30T14:30:35Z"
     }
   ]
 }
