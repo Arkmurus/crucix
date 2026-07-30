@@ -36,6 +36,7 @@ from aria_service.intel.dd_evidence_standard import (
     SourceState,
 )
 
+TESTS_DIR = pathlib.Path(__file__).resolve().parent
 GOLD_DIR = pathlib.Path(__file__).resolve().parents[2] / "data" / "eval" / "dd_gold_v1"
 
 #: The four axes an observation must carry to be EXECUTABLE by this harness.
@@ -78,6 +79,15 @@ def test_gate_eligibility_is_backed_by_executable_evidence(name, case):
     execute it. Otherwise the flag is a self-certification nothing can honour."""
     if not case.get("release_gate_eligible"):
         return  # honestly not gating — nothing to prove
+    # R-F3501 — a case may be gate-eligible for a DIFFERENT scope, executed by a
+    # different harness. The rule stays "gate-eligible => SOME harness executes it";
+    # what is NOT accepted is a label with no executor, so the harness must exist.
+    scope = str(case.get("gate_scope") or "").strip()
+    if scope:
+        harness = TESTS_DIR / f"test_rf3501_gold_report_layer_executes.py"
+        assert scope == "report_assembly_only" and harness.exists(), (
+            f"{name} declares gate_scope={scope!r} but no harness executes that scope")
+        return
     executable = _executable_observations(case)
     assert executable, (
         f"{name} claims release_gate_eligible=true but carries NO observation with the "
@@ -137,7 +147,7 @@ def test_executable_observations_derive_the_expected_verdict(name, case):
             f"wrong; both are findings, neither is noise.")
         checked += 1
 
-    if case.get("release_gate_eligible"):
+    if case.get("release_gate_eligible") and not case.get("gate_scope"):
         assert checked, (
             f"{name} is gate-eligible but no observation was actually checked against an "
             f"expected finding — the gate would pass vacuously")

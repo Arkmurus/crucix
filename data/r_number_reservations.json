@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3500,
+  "next_available": 3502,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29041,6 +29041,24 @@
       "r_number": "R-F3499",
       "title": "selective deep enrichment: fetch bodies only where they change the answer",
       "claimed_at": "2026-07-30T15:04:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3500",
+      "title": "deleted DD keeps being monitored and its subject name is logged at INFO",
+      "claimed_at": "2026-07-30T15:13:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3501",
+      "title": "executable report-layer gold case: run the real assembly functions against frozen inputs",
+      "claimed_at": "2026-07-30T15:15:47Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

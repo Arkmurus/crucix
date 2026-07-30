@@ -1,0 +1,100 @@
+{
+  "schema_version": "1.0.0",
+  "case_id": "dd-gold-babcock-report-layer-v1",
+  "subject": {
+    "display_name": "Babcock International Group PLC",
+    "entity_type": "company",
+    "jurisdiction": "GB"
+  },
+  "fixture_mode": "frozen_report_layer",
+  "release_gate_eligible": true,
+  "resolver_version": "report-layer-v1",
+  "verdict_fn_version": "1.0.0",
+  "note": "Frozen INPUTS to the report-assembly layer, taken from the delivered 2026-07-30 Babcock report. This gates the assembly functions (sanctions coverage reconciliation, adverse-citation coherence, decision-logic pinning) against real evidence shapes. It does NOT perform retrieval or run the orchestrator end to end; see gate_scope.",
+  "gate_scope": "report_assembly_only",
+  "gate_blocker": "Full orchestrator replay still needs frozen RAW source responses, which do not exist yet. This case gates the layer where the 2026-07-30 honesty fixes live, and nothing beyond it.",
+  "expected_findings": [
+    {
+      "finding_id": "sanctions-partial-not-unscreened",
+      "expected_state": "partial_coverage_declared",
+      "rationale": "OFAC SDN, UK OFSI and UN SC answered in the same run. Reporting 'NO screen was performed' contradicts the report's own OFAC result and sends a compliance reader to the wrong action.",
+      "evidence_refs": [
+        "babcock-sanctions-screen-state"
+      ]
+    },
+    {
+      "finding_id": "adverse-citation-contradiction-raised",
+      "expected_state": "contradiction_raised",
+      "rationale": "A live FRC investigation into the audits of the subject's accounts sits in the report's own cited sources while the adverse conclusion says nothing was found.",
+      "evidence_refs": [
+        "babcock-cited-sources"
+      ]
+    },
+    {
+      "finding_id": "decision-logic-is-pinned",
+      "expected_state": "pinned",
+      "rationale": "A report must record which rules produced it, or a later reader cannot tell a finding that was made from one re-interpreted under later rules.",
+      "evidence_refs": [
+        "babcock-sanctions-screen-state"
+      ]
+    }
+  ],
+  "observations": [
+    {
+      "observation_id": "babcock-sanctions-screen-state",
+      "source_ref": "frozen://dd-gold-v1/babcock/sanctions-screen-state",
+      "frozen": true,
+      "payload": {
+        "entity_name": "Babcock International Group PLC",
+        "sanctions_screen": {
+          "screened": false,
+          "source_unavailable": true,
+          "error": "sanctions_source_unavailable",
+          "source_reasons": [
+            "timeout"
+          ],
+          "primary_snapshots": {
+            "ofac_sdn": "ok",
+            "uk_ofsi": "ok",
+            "un_sc": "ok",
+            "sec_edgar": "ok",
+            "wb_debarred": "unavailable",
+            "acled": "unavailable"
+          }
+        },
+        "provisional_sanctions_finding": {
+          "title": "Sanctions screen NOT performed \u2014 UNVERIFIED",
+          "detail": "Babcock International Group PLC \u2014 the sanctions source (OpenSanctions / primary lists) could not be reached (source unreachable), so NO screen was performed."
+        }
+      }
+    },
+    {
+      "observation_id": "babcock-cited-sources",
+      "source_ref": "frozen://dd-gold-v1/babcock/cited-sources",
+      "frozen": true,
+      "payload": {
+        "press_coverage": [
+          {
+            "source": "FRC expands probe of PwC's Babcock International audits | Article | Compliance Week",
+            "url": "https://www.complianceweek.com/accounting-and-auditing/frc-expands-probe-of-pwcs-babcock-international-audits/"
+          },
+          {
+            "source": "BABCOCK INTERNATIONAL GROUP PLC overview - GOV.UK",
+            "url": "https://find-and-update.company-information.service.gov.uk/company/02342138"
+          },
+          {
+            "source": "Babcock International Group | LinkedIn",
+            "url": "https://www.linkedin.com/company/babcock-international-group"
+          }
+        ],
+        "adverse_media": {
+          "status": "completed",
+          "materiality": {
+            "credible_count": 0,
+            "review_findings": []
+          }
+        }
+      }
+    }
+  ]
+}

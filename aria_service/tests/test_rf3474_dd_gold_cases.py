@@ -23,7 +23,12 @@ def _cases() -> list[dict]:
 
 def test_first_three_named_cases_exist_and_pin_contract_versions() -> None:
     cases = _cases()
-    assert {case["case_id"] for case in cases} == REQUIRED_CASES
+    # R-F3501 — the three named cases must all EXIST and pin their versions; the set is
+    # a floor, not a ceiling. Equality made adding a fourth gold case a test failure,
+    # which would push the next person to not add one — the opposite of what a gold
+    # corpus is for. Removing one of the three still fails here.
+    present = {case["case_id"] for case in cases}
+    assert REQUIRED_CASES <= present, f"a required gold case is missing: {REQUIRED_CASES - present}"
     for case in cases:
         assert case["schema_version"] == "1.0.0"
         assert case["verdict_fn_version"] == "1.0.0"
