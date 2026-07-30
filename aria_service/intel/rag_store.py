@@ -2139,6 +2139,140 @@ def _searchable_collections() -> list[tuple[str, object]]:
     ]
 
 
+def _retention_periods() -> dict[str, int]:
+    """R-F3490 — retention class -> days, from configuration ONLY.
+
+    DELIBERATELY EMPTY BY DEFAULT. A retention period is a legal and commercial decision
+    about a specific data category in a specific jurisdiction; inventing "7 years" in code
+    and letting a report present it as policy is the same defect class as a fabricated
+    finding. A class with no configured period is REPORTED as undecided, not quietly
+    treated as indefinite.
+
+    Configure with ARIA_RETENTION_PERIODS_DAYS, e.g.
+    ``dd_evidence=2555,chat_notebook=365``.
+    """
+    raw = str(os.getenv("ARIA_RETENTION_PERIODS_DAYS", "") or "").strip()
+    out: dict[str, int] = {}
+    for part in raw.split(","):
+        if "=" not in part:
+            continue
+        name, _, days = part.partition("=")
+        try:
+            out[name.strip()] = int(days.strip())
+        except ValueError:
+            logger.warning("[R-F3490] ignoring malformed retention period: %r", part)
+    return out
+
+
+@fail_wire(module="rag_store", gap_type="embedder_failure")
+async def retention_review(*, now_iso: str = "") -> dict:
+    """R-F3490 — WHAT IS DUE FOR REVIEW. Reports; never deletes.
+
+    UK GDPR Art. 5(1)(e) requires personal data be kept no longer than necessary, and the
+    ICO's route to that is a retention schedule with PERIODIC REVIEW and erasure *or
+    anonymisation* — not an automatic timer.
+
+    An automatic timer is also unavailable here: CLAUDE.md §7 forbids TTL, oldest-first
+    prune and eviction outright. Both rules are satisfiable at once, because the thing
+    Art. 5(1)(e) actually needs is a controller who can SEE what is overdue and decide.
+    This function is that surface, and it takes no destructive action of any kind.
+
+    Three answers, and the last two matter as much as the first:
+      * `due`            — personal data past its configured period, per class
+      * `no_period_set`  — a retention CLASS was declared but no period configured, so
+                           nothing can be said to be overdue. Undecided, not compliant.
+      * `unclassified`   — personal data with NO retention class at all. This is the
+                           population a controller most needs to know about, and the one
+                           an automatic timer would have silently ignored.
+    """
+    if not await _ensure_async():
+        return {"available": False, "reason": "rag_store_unavailable"}
+
+    from datetime import datetime, timedelta, timezone as _tz
+    try:
+        now = (datetime.fromisoformat(now_iso) if now_iso
+               else datetime.now(_tz.utc))
+    except ValueError:
+        now = datetime.now(_tz.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=_tz.utc)
+
+    periods = _retention_periods()
+    import asyncio as _aio
+    _PAGE = 500
+
+    def _scan(coll, label: str) -> tuple[dict, str]:
+        acc = {"due": 0, "no_period_set": 0, "unclassified": 0, "within_period": 0,
+               "personal_records": 0}
+        if coll is None:
+            return acc, ""
+        offset = 0
+        while True:
+            try:
+                page = coll.get(include=["metadatas"], limit=_PAGE, offset=offset)
+            except Exception as e:
+                return acc, f"{label}: {str(e)[:160]}"
+            ids = page.get("ids") or []
+            for m in (page.get("metadatas") or []):
+                if not isinstance(m, dict) or not m.get("personal_data"):
+                    continue
+                acc["personal_records"] += 1
+                rclass = str(m.get(RETENTION_CLASS_KEY) or "").strip()
+                if not rclass:
+                    acc["unclassified"] += 1
+                    continue
+                days = periods.get(rclass)
+                if days is None:
+                    acc["no_period_set"] += 1
+                    continue
+                stamped = str(m.get("ingested_at") or "")
+                try:
+                    written = datetime.fromisoformat(stamped)
+                    if written.tzinfo is None:
+                        written = written.replace(tzinfo=_tz.utc)
+                except ValueError:
+                    acc["no_period_set"] += 1
+                    continue
+                if written + timedelta(days=days) <= now:
+                    acc["due"] += 1
+                else:
+                    acc["within_period"] += 1
+            if len(ids) < _PAGE:
+                break
+            offset += _PAGE
+        return acc, ""
+
+    per_collection: dict[str, dict] = {}
+    scan_errors: list[str] = []
+    totals = {"due": 0, "no_period_set": 0, "unclassified": 0, "within_period": 0,
+              "personal_records": 0}
+    for label, coll in _searchable_collections():
+        acc, err = await _aio.to_thread(_scan, coll, label)
+        if err:
+            scan_errors.append(err)
+        per_collection[label] = acc
+        for k in totals:
+            totals[k] += acc[k]
+
+    return {
+        "available": True,
+        "as_of": now.isoformat(),
+        "configured_classes": sorted(periods),
+        **totals,
+        "per_collection": per_collection,
+        "scan_errors": scan_errors,
+        # No destructive action is taken or scheduled. Say so, so nobody assumes it was.
+        "action_taken": "none",
+        "note": (
+            "Review only — nothing is deleted, and no deletion is scheduled (§7 forbids "
+            "TTL/prune/eviction). Act on `due` explicitly via erase_by_subject, or "
+            "anonymise. `unclassified` personal records have no retention policy at all "
+            "and `no_period_set` classes have no configured period: both are undecided, "
+            "not compliant."
+        ),
+    }
+
+
 @fail_wire(module="rag_store", gap_type="embedder_failure")
 async def erase_by_subject(subject_key: str, *, dry_run: bool = False) -> dict:
     """R-F3484 — erase every chunk written for one data subject, PROVABLY.

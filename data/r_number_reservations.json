@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3490,
+  "next_available": 3492,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -28901,18 +28901,20 @@
       "title": "news archive: append-only canonical store, retention split from serving",
       "claimed_at": "2026-07-30T13:32:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5cbe19bf",
+      "notes": null,
+      "shipped_at": "2026-07-30T14:01:45Z"
     },
     {
       "r_number": "R-F3486",
       "title": "news ingest: archive-first transactional ordering, no silent loss",
       "claimed_at": "2026-07-30T13:32:30Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5cbe19bf",
+      "notes": null,
+      "shipped_at": "2026-07-30T14:01:45Z"
     },
     {
       "r_number": "R-F3487",
@@ -28942,6 +28944,25 @@
       "commit_sha": "5cbe19bf",
       "notes": null,
       "shipped_at": "2026-07-30T13:54:43Z"
+    },
+    {
+      "r_number": "R-F3490",
+      "title": "retention review surface: report what is due and what has no policy, without deleting anything",
+      "claimed_at": "2026-07-30T13:57:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3491",
+      "title": "stale rf2385.v1 schema assertion in news-to-ledger test",
+      "claimed_at": "2026-07-30T13:57:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7c70f972",
+      "notes": null,
+      "shipped_at": "2026-07-30T14:01:19Z"
     }
   ]
 }
