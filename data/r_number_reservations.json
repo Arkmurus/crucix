@@ -28950,9 +28950,10 @@
       "title": "retention review surface: report what is due and what has no policy, without deleting anything",
       "claimed_at": "2026-07-30T13:57:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9fa8d267",
+      "notes": null,
+      "shipped_at": "2026-07-30T14:10:44Z"
     },
     {
       "r_number": "R-F3491",
