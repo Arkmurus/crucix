@@ -29,10 +29,45 @@ All three fixed (R-F3449 part 6) and verified under their poisoning conditions: 
 with the corpus deliberately polluted first (19 passed); rf1656+rf2648 pass together with
 only `TestBackendNames::test_backend_names_no_brave`, a documented baseline entry, failing.
 
-**Expected next full-suite figure: 96** (99 − 3). **NOT YET MEASURED** — background full runs
-were reaped at 2%, 10% and 2% on three consecutive attempts (the §16 behaviour, more
-aggressive late in a long session) and a 256-file foreground segment exceeds the 10-minute
-window. Do not quote 96 as measured until a run completes.
+**Expected next full-suite figure: 96** (99 − 3). **STILL NOT MEASURED as of 2026-07-30
+13:40.** Do not quote 96, or any other number, as measured. Nine attempts were made; the
+furthest reached **25%**. What follows is the full list of what kills a full run on this
+machine, because every one of them was diagnosed the hard way and each masked the next.
+
+#### Why a full-suite run cannot currently be completed here
+
+| # | Cause | Signature | Status |
+|---|---|---|---|
+| 1 | Background-process reaping (§16) | dies at 2–10%, no summary | fixed — run it detached, not as a child of the session shell |
+| 2 | **Timeout inversion** (R-F3459) | stack dump, process killed, no summary | **FIXED — the only genuine product defect of the nine** |
+| 3 | `STATUS_CONTROL_C_EXIT` (`0xC000013A`) | log truncated mid-line, no epilogue | a `/IT` scheduled task shares the interactive console; a concurrent agent's Ctrl+C kills it |
+| 4 | Per-test timeout under CPU contention | different test each run | `--timeout=600` for measurement runs only; pytest.ini stays 120s for CI |
+| 5 | **Orphaned runs** | everything above, repeatedly | see below — this was the dominant cause |
+
+**Cause 5 is the trap, and it is self-inflicted.** The fix for (3) — `Start-Process`
+without `-NoNewWindow`, giving the child its own console and process group — also makes it
+immune to `schtasks /end`. So every "stopped" run KEPT RUNNING. One pytest instance
+survived 45 minutes across four subsequent attempts, competing for CPU and writing to the
+same redirect file as each new run. That single fault produced symptoms I diagnosed
+separately and wrongly as: CPU starvation, a stalled log, a stale `END` marker with a null
+exit code, and a projected 3.5-hour runtime. Repeated `schtasks /run` then queued further
+instances that fired serially, compounding it.
+
+**If you run this: kill by PID and verify none remain before relaunching.** `schtasks /end`
+is not sufficient. Do not relaunch while any `python.exe -m pytest` is alive.
+
+#### The instruments lied more often than the run failed
+
+Four separate monitoring errors, every one of which reported a healthy run as dead or a
+dead run as healthy: `tasklist` does not resolve in the Monitor's bash environment, so its
+ABSENCE read as the process's absence (twice); a liveness probe on the first loop iteration
+fired before the child had spawned; and a stale `END` written by an overlapping runner was
+believed over pytest's own output. **Completion is pytest's summary line. Death is an exit
+code.** Nothing else is evidence — including a plausible stack frame, which twice named a
+test that was merely the victim of contention rather than the cause.
+
+The argument for 96 as the EXPECTED value is unchanged and is set out below; it remains an
+argument, not a measurement.
 
 The argument for why 96 is the expected value, and why the risk of further collateral is
 low: unlike the conftest fixtures (global, and which genuinely did cause the 3 above), those
