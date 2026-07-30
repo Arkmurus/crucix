@@ -144,6 +144,12 @@
     ? API
     : { get: (url) => fetch(url, { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('crucix_token') || '') } }).then(r => r.json()) };
   let allArticles = [];
+  // R-F3518 — set from the response's own `filtered_server_side`, never assumed.
+  // If this page is ever served against an aria-intel that predates R-F3517 the
+  // flag is absent, and the browser filter below is used as a stated fallback
+  // rather than the page silently rendering an unfiltered list as if filtered.
+  let serverFiltered = false;
+  let lastStats = null;
   let activeCategory = 'all';
 
   function escapeHtml(s) {
@@ -172,14 +178,42 @@
     return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
 
+  // R-F3518 — the list and the breakdown used to answer different questions.
+  // This page fetched the newest 100 articles and filtered THOSE in the browser,
+  // while "Coverage by Category" beside it was computed server-side over the full
+  // retained corpus (1,000). Both numbers were true of different populations, so
+  // a category whose articles were older than the newest 100 rendered
+  // "No articles yet" next to a bar saying that category had plenty.
+  //
+  // The filter is now applied server-side (R-F3517) over the SAME population the
+  // breakdown aggregates, so the two panels can no longer contradict each other.
   function renderArticles(articles) {
     const container = document.getElementById('articles-list');
-    const filtered = activeCategory === 'all' ? articles : articles.filter(a => a.category === activeCategory);
+    const filtered = serverFiltered
+      ? articles
+      : (activeCategory === 'all' ? articles : articles.filter(a => a.category === activeCategory));
 
-    document.getElementById('article-count').textContent = filtered.length;
+    // What the corpus holds for this category, per the same aggregate the
+    // breakdown renders. Showing "12 of 87" is honest about the page limit;
+    // showing a bare "12" invited the reader to believe that was the total.
+    const byCat = (lastStats && lastStats.by_category) || {};
+    const known = activeCategory === 'all'
+      ? Object.values(byCat).reduce((a, b) => a + b, 0)
+      : Number(byCat[activeCategory] || 0);
+    document.getElementById('article-count').textContent =
+      (known && known > filtered.length) ? (filtered.length + ' of ' + known) : filtered.length;
 
     if (!filtered.length) {
-      container.innerHTML = '<div class="empty-state"><i class="bi bi-inbox"></i><p>No articles yet. Click <strong>Poll Now</strong> to fetch the latest news, or wait for the hourly poll.</p></div>';
+      // An empty CATEGORY is not an empty CORPUS. Telling the operator to "Poll
+      // Now" when the corpus is full and only this filter is empty is a false
+      // instruction — polling would not change the result.
+      container.innerHTML = (activeCategory !== 'all' && known === 0)
+        ? '<div class="empty-state"><i class="bi bi-funnel"></i><p>No articles in <strong>' +
+          escapeHtml(activeCategory.replace(/_/g, ' ')) + '</strong>. Other categories may have coverage: select <strong>All</strong>.</p></div>'
+        : (activeCategory !== 'all')
+          ? '<div class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>The corpus reports <strong>' + known +
+            '</strong> article(s) in this category but none could be listed. This is a server-side inconsistency, not an empty category. Please report it.</p></div>'
+          : '<div class="empty-state"><i class="bi bi-inbox"></i><p>No articles yet. Click <strong>Poll Now</strong> to fetch the latest news, or wait for the hourly poll.</p></div>';
       return;
     }
 
@@ -242,7 +276,9 @@
         container.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         activeCategory = btn.dataset.category;
-        renderArticles(allArticles);
+        // R-F3518 — re-QUERY rather than re-filter the page already in memory.
+        // Re-filtering could only ever find articles inside the newest 100.
+        loadArticles();
       });
     });
   }
@@ -265,14 +301,27 @@
     document.getElementById('source-count').textContent = stats ? stats.total_sources : '—';
   }
 
+  // R-F3518 — one place that fetches articles for the ACTIVE category, used both
+  // by the initial load and by every filter click.
+  async function loadArticles() {
+    const q = '/api/aria/news/recent?limit=100' +
+      (activeCategory && activeCategory !== 'all'
+        ? '&category=' + encodeURIComponent(activeCategory) : '');
+    const res = await newsApi.get(q);
+    allArticles = (res && res.articles) || [];
+    serverFiltered = !!(res && res.filtered_server_side);
+    renderArticles(allArticles);
+    return res;
+  }
+
   async function loadData() {
     try {
-      const [stats, articles] = await Promise.all([
+      const [stats] = await Promise.all([
         newsApi.get('/api/aria/news/stats'),      // R-F2875
-        newsApi.get('/api/aria/news/recent?limit=100'),
+        loadArticles(),
       ]);
 
-      allArticles = (articles && articles.articles) || [];
+      lastStats = stats;
       const lastPollAt = stats && stats.poll_state && stats.poll_state.last_poll_at;
       document.getElementById('last-updated').textContent =
         lastPollAt ? 'Last poll ' + formatTime(lastPollAt) : 'Poll time unavailable';

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3515,
+  "next_available": 3520,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29162,9 +29162,10 @@
       "title": "claim-level absorption: structured claims with provenance, corroboration and supersession",
       "claimed_at": "2026-07-30T16:45:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6359ff60",
+      "notes": null,
+      "shipped_at": "2026-07-30T17:41:49Z"
     },
     {
       "r_number": "R-F3512",
@@ -29181,9 +29182,10 @@
       "title": "operator lever to clear an LLM provider cooldown after a billing top-up",
       "claimed_at": "2026-07-30T17:03:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6359ff60",
+      "notes": null,
+      "shipped_at": "2026-07-30T17:41:50Z"
     },
     {
       "r_number": "R-F3514",
@@ -29194,6 +29196,54 @@
       "commit_sha": "bd95f247",
       "notes": null,
       "shipped_at": "2026-07-30T17:06:49Z"
+    },
+    {
+      "r_number": "R-F3515",
+      "title": "disqualification match still fabricates: surname matched a forename and a company name",
+      "claimed_at": "2026-07-30T17:22:43Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6359ff60",
+      "notes": null,
+      "shipped_at": "2026-07-30T17:41:17Z"
+    },
+    {
+      "r_number": "R-F3516",
+      "title": "adverse-media coverage claimed from the query, not the result",
+      "claimed_at": "2026-07-30T17:46:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0c03de0d",
+      "notes": null,
+      "shipped_at": "2026-07-30T18:05:58Z"
+    },
+    {
+      "r_number": "R-F3517",
+      "title": "news list and category breakdown query different populations",
+      "claimed_at": "2026-07-30T17:49:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f2ee0d0c",
+      "notes": null,
+      "shipped_at": "2026-07-30T18:05:22Z"
+    },
+    {
+      "r_number": "R-F3518",
+      "title": "news UI: category filter server-side + honest empty state (R-F3517 web half)",
+      "claimed_at": "2026-07-30T18:05:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3519",
+      "title": "restore the R-F3278 no-AI-dash guard on watchlist.html + aria-brain.html",
+      "claimed_at": "2026-07-30T18:18:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
