@@ -323,3 +323,56 @@ Findings #2 (`resilient: true` during total LLM failure), #3 (fallback cache nev
 written), #4 (web_integrity counts 4xx as pass), #5 (gate #2 grader tri-state), #6/#7
 (neural tier), #9-#13. Plus the two residuals tracked as tasks: trafilatura offload, and
 DOCX extraction returning empty for a renamed upload.
+
+---
+
+# Second pass — 5 more R-numbers (2026-07-30)
+
+| R# | What | Live sha |
+|---|---|---|
+| R-F3475 | CPU-bound HTML extraction on the loop (5 async call sites) | `196dd4cb` |
+| R-F3476 | OpenSanctions earned its own 429s; log blamed a set key | `196dd4cb` |
+| R-F3477 | `resilient` reported membership, not outcomes (finding #2/#3) | `2672ff1c` |
+| R-F3479 | Integrity agent scored a 4xx as a pass (finding #4) | `2672ff1c` |
+| R-F3483 | Mastery grader punished "could not measure" (finding #5) | **committed, NOT deployed** |
+
+## Second correction to the register
+
+**Finding #3 was wrong.** I recorded the LLM fallback cache as "never written — a
+standing cost leak" from `{"size":0,"hits":0,"misses":491}`. `_set_cached` /
+`_get_cached` (`llm/resilience.py:773-790`) are a correct LRU+TTL. The cache had
+nothing to store because every `complete()` raised during the outage — and `_misses`
+was incremented *before* the call, so failed calls were counted as cache misses.
+R-F3477 moves the miss to after a served call and gives errors their own counter.
+Verified live: `"misses":16, "errors":0`.
+
+**Finding #9 was half wrong.** `OPENSANCTIONS_API_KEY` is Deployed *and* is sent as
+`Authorization: ApiKey ...`. The 429 message was unconditional — it told the operator
+to set a key that was already set. The real defect was that nothing paced the calls:
+R-F469 answered a 429 storm with a circuit breaker, which treats the symptom.
+R-F3476 paces both request paths to the documented limit, so a request now *succeeds*
+where a breaker-skipped one returned nothing. On a sanctions path, slower beats absent.
+
+## Live proof
+
+- `autonomous/status` → **200 OK** (was 403 every cycle for the whole review). The
+  probe verifies `{ok, engine}` again instead of scoring a silent pass.
+- `/health` now carries `last_exhaustion_age_s` and a separate `errors` counter.
+- Loop-stall attribution walked through four distinct causes and now shows a **bare
+  `asyncio.runners.run` with no application frame** at 27 threads — neither a blocking
+  call nor starvation.
+
+## Two regressions caught by verify pass 2 (mine, before shipping)
+
+1. Giving the `/report` probe a valid body would have made the 60s monitor generate
+   **~1,440 LLM reports/day** through the §17 cap. A monitor must not buy anything —
+   it now checks the contract it can check for free.
+2. Letting mislabelled zips through would have let a **zip bomb renamed `.pdf` skip
+   the bomb check entirely**, because that check was gated on the attacker-controlled
+   extension.
+
+## Deploy status
+
+R-F3483 is committed + pushed at `3b48c21b` and **NOT live** — the peer agent holds 91
+uncommitted lines in `routes/aria.py`, and `deploy.ps1` builds from the working tree.
+Deploying would ship their in-progress code. Tracked as task #7.
