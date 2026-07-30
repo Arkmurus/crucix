@@ -669,6 +669,26 @@ def _generate_insight(country: str, signals: list[dict], signal_types: set, scor
 
 # ── Format for injection into chat context ────────────────────────────────────
 
+def _trajectory_suffix(insight: dict) -> str:
+    """R-F3523 — the CARRIER for the trajectory on text surfaces.
+
+    Added because R-F3521 computed a trajectory that no consumer
+    could see: correlate_signals emitted the fields, and every formatter — the
+    chat context, the daily briefing, and the /opportunities route's _shape() —
+    dropped them on the way out. Live-verified as unreachable before this existed.
+    A value the engine computes but nothing can read is not a shipped capability;
+    it is a producer with no carrier, and the surfaces are where that gets caught.
+
+    UNKNOWN renders as nothing rather than as the word "UNKNOWN". Printing it on
+    every insight that lacks 90 days of history would be noise, and would read as
+    a finding rather than as the absence of one.
+    """
+    t = str(insight.get("trajectory") or "")
+    if not t or t == TRAJECTORY_UNKNOWN:
+        return ""
+    return f", {t.lower()}"
+
+
 async def get_correlation_context(query: str, max_insights: int = 3) -> str:
     """Generate correlation context for a chat query.
 
@@ -695,7 +715,8 @@ async def get_correlation_context(query: str, max_insights: int = 3) -> str:
     for insight in relevant:
         lines.append(
             f"  {insight['emoji']} [{insight['insight_type']}] {insight['country']} "
-            f"(score {insight['score']}, {insight['signal_count']} signals): "
+            f"(score {insight['score']}, {insight['signal_count']} signals"
+            f"{_trajectory_suffix(insight)}): "
             f"{insight['recommendation']}"
         )
     return "\n".join(lines)
@@ -803,7 +824,8 @@ async def generate_correlation_briefing() -> str:
         f"_{len(insights)} compound insight(s) detected:_",
     ]
     for i in insights[:5]:
-        lines.append(f"{i['emoji']} *{i['country']}* — {i['insight_type']} (score {i['score']})")
+        lines.append(f"{i['emoji']} *{i['country']}* — {i['insight_type']} "
+                     f"(score {i['score']}{_trajectory_suffix(i)})")
         lines.append(f"  {i['recommendation'][:200]}")
         lines.append("")
 

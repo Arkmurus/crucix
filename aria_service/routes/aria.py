@@ -28154,6 +28154,13 @@ async def opportunities_ep() -> dict:
             "signals": sigs,            # the real evidence behind every entry
             "grounded": True,
             "source": "signal_correlator",
+            # R-F3523 — _shape() is an allow-list, so a new engine field is
+            # invisible here unless it is named. correlate_signals was emitting
+            # these and this route was silently dropping them: computed, and
+            # unreachable by any consumer.
+            "trajectory": ins.get("trajectory") or "UNKNOWN",
+            "trajectory_basis": ins.get("trajectory_basis") or "",
+            "historical_independent_origins": ins.get("historical_independent_origins", 0),
         }
 
     opportunities = [_shape(i) for i in insights if i.get("insight_type") in _OPPORTUNITY_TYPES]

@@ -421,6 +421,72 @@ class TestTheAnnotationIsHonestWhenItFails:
         await sc._annotate_trajectories([])   # must not raise
 
 
+class TestTheTrajectoryReachesAConsumer:
+    """R-F3523 - the carrier. Caught LIVE, not by a test: R-F3521 computed
+    a trajectory that nothing could read — the chat formatter, the briefing and
+    the /opportunities route each dropped it on the way out, the last because
+    _shape() is an allow-list. A value the engine computes but no surface exposes
+    is not a shipped capability. This is the producer/consumer-with-no-carrier
+    class, and it is only ever caught at the surface."""
+
+    @pytest.mark.asyncio
+    async def test_the_opportunities_route_does_not_drop_it(self, monkeypatch):
+        """Drives the REAL route. _shape() names its keys, so a new engine field
+        is invisible unless added — and a source grep for the string would pass
+        even if the shaper were unreachable. Call it and read the response."""
+        from aria_service.routes import aria as routes
+        from aria_service.intel import signal_correlator as _sc, deal_pipeline as _dp
+
+        async def _fake_correlate():
+            return [{
+                "country": "Angola", "score": 9.0, "insight_type": "OPPORTUNITY_WINDOW",
+                "emoji": "🟢", "recommendation": "act now", "signal_count": 4,
+                "signals": [], "independent_origins": 3,
+                "independently_corroborated": True, "signal_types": [],
+                "trajectory": sc.TRAJECTORY_ACCELERATING,
+                "trajectory_basis": "3 origins in 14d vs 1 in the preceding 76d",
+                "historical_signal_count": 9, "historical_independent_origins": 1,
+            }]
+
+        async def _no_pipeline():
+            return []
+
+        monkeypatch.setattr(_sc, "correlate_signals", _fake_correlate)
+        monkeypatch.setattr(_dp, "get_pipeline", _no_pipeline)
+
+        res = await routes.opportunities_ep()
+        opps = res.get("opportunities") or []
+        assert opps, "the fixture insight did not survive the route — test is vacuous"
+        assert opps[0]["trajectory"] == sc.TRAJECTORY_ACCELERATING, (
+            f"the /opportunities route dropped the trajectory: {sorted(opps[0])}"
+        )
+        assert opps[0]["trajectory_basis"], (
+            "the verdict shipped without the evidence that produced it"
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_chat_context_states_the_trajectory(self, monkeypatch, _isolate):
+        sigs = _fresh_cluster("angola") + [
+            _sig(20 + i, "angola", f"Angola history {i}",
+                 f"https://pub{i}.com/a", f"pub{i}") for i in range(3)
+        ]
+        from aria_service.intel import intel_ledger
+        sc._reset_trajectory_cache()
+        monkeypatch.setattr(intel_ledger, "_load", _FakeLedger(sigs)._load)
+        ctx = await sc.get_correlation_context("what is happening in angola")
+        assert "accelerating" in ctx.lower(), (
+            f"the chat surface dropped the trajectory:\n{ctx}"
+        )
+
+    def test_unknown_renders_as_nothing_not_as_the_word(self):
+        """Printing UNKNOWN on every thin-history insight would read as a finding
+        rather than as the absence of one."""
+        assert sc._trajectory_suffix({"trajectory": sc.TRAJECTORY_UNKNOWN}) == ""
+        assert sc._trajectory_suffix({}) == ""
+        assert "accelerating" in sc._trajectory_suffix(
+            {"trajectory": sc.TRAJECTORY_ACCELERATING})
+
+
 class TestEveryInsightCarriesTheField:
     """No consumer should have to test for the key's existence."""
 
