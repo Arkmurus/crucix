@@ -25,9 +25,11 @@ Usage:
 from __future__ import annotations
 from .engine_wiring import wire_success, wire_failure
 
+import asyncio
 import logging
 import os
 import re
+import time as _time
 from datetime import datetime, timezone  # R-F3019 — screened_at stamp
 from typing import Any, NamedTuple
 
@@ -125,6 +127,77 @@ async def _resolve_opensanctions_key() -> str:
     except Exception:
         pass
     return ""
+
+
+# ── R-F3476: pace the calls instead of earning 429s ─────────────────────────
+#
+# Observed live 2026-07-30: repeated `429 -> breaker CLOSED->OPEN (reason=
+# rate_limit) -> backoff 300s -> 2400s`. R-F469 added that breaker as the
+# response to a 429 storm. It stops the bleeding, but it treats the SYMPTOM:
+# ARIA still fires as fast as it likes, earns a 429, and then has sanctions
+# screening disabled for 5-40 minutes.
+#
+# The free-tier limit is documented (1 req/sec) and therefore knowable in
+# ADVANCE, so the root fix is not to exceed it. Pacing is preferred over the
+# breaker on this path deliberately: a paced request SUCCEEDS, where a
+# breaker-skipped one returns no data — and on a sanctions path "slower" beats
+# "absent". The breaker stays as the backstop for real upstream failure.
+_OS_FREE_INTERVAL_S = float(os.getenv("ARIA_OPENSANCTIONS_FREE_INTERVAL_S", "1.05"))
+# A paid key is 100 req/sec, so it needs only token pacing.
+_OS_KEYED_INTERVAL_S = float(os.getenv("ARIA_OPENSANCTIONS_KEYED_INTERVAL_S", "0.02"))
+_os_pace_lock: asyncio.Lock | None = None
+_os_last_call: float = 0.0
+
+
+def _os_reset_pacing() -> None:
+    """Clear pacing state (tests, and operator recovery)."""
+    global _os_last_call, _os_pace_lock
+    _os_last_call = 0.0
+    _os_pace_lock = None
+
+
+def _rate_limit_message(key_present: bool, interval: float) -> str:
+    """R-F3476 — say what is MEASURED, never assert an unverified cause.
+
+    The old text was unconditional: "rate-limited (free tier: 1 req/sec). Set
+    OPENSANCTIONS_API_KEY for unlimited access." It printed that even when the
+    key WAS set (it is Deployed on aria-intel and IS sent as `Authorization:
+    ApiKey ...`), so the log named a cause the evidence contradicted — and a
+    reviewer acting on it recorded "a deployed key that buys nothing".
+    """
+    if key_present:
+        return (
+            f"OpenSanctions rate-limited (429). api_key_present=True — the "
+            f"configured key hit its plan/quota limit, so this is NOT a missing "
+            f"credential. Client pacing is {interval:.2f}s/req; if 429s persist "
+            f"the plan quota is the constraint."
+        )
+    return (
+        f"OpenSanctions rate-limited (429). api_key_present=False — running "
+        f"UNKEYED on the 1 req/sec free tier at {interval:.2f}s/req. Set "
+        f"OPENSANCTIONS_API_KEY for higher quota."
+    )
+
+
+async def _opensanctions_pace() -> None:
+    """Block until the next call is allowed by the client-side rate limit.
+
+    The lock is held ACROSS the sleep on purpose: that is what serialises
+    concurrent callers into a single paced stream. Without it, N coroutines
+    would all read the same `_os_last_call` and fire together — which is how
+    the 429 storm happened.
+    """
+    global _os_last_call, _os_pace_lock
+    interval = _OS_KEYED_INTERVAL_S if await _resolve_opensanctions_key() else _OS_FREE_INTERVAL_S
+    if interval <= 0:
+        return
+    if _os_pace_lock is None:
+        _os_pace_lock = asyncio.Lock()
+    async with _os_pace_lock:
+        wait = interval - (_time.monotonic() - _os_last_call)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _os_last_call = _time.monotonic()
 
 
 async def _opensanctions_headers() -> dict:
@@ -525,14 +598,16 @@ async def _opensanctions_match(name: str, entity_type: str = "Thing") -> _Source
     }
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
+            await _opensanctions_pace()   # R-F3476 — never earn a 429
             resp = await client.post(OPENSANCTIONS_API, json=payload, headers=await _opensanctions_headers())
             if resp.status_code == 401:
                 logger.error("OpenSanctions auth failed — check OPENSANCTIONS_API_KEY env var")
                 _r469_breaker.record_failure(reason="auth")
                 return _SourceQuery([], False, "auth")
             if resp.status_code == 429:
-                logger.warning("OpenSanctions rate-limited (free tier: 1 req/sec). "
-                               "Set OPENSANCTIONS_API_KEY for unlimited access.")
+                logger.warning("%s", _rate_limit_message(
+                    bool(await _resolve_opensanctions_key()),
+                    _OS_KEYED_INTERVAL_S if await _resolve_opensanctions_key() else _OS_FREE_INTERVAL_S))
                 _r469_breaker.record_failure(reason="rate_limit")
                 return _SourceQuery([], False, "rate_limit")
             if resp.status_code != 200:
@@ -587,6 +662,9 @@ async def _opensanctions_search(query: str, limit: int = 5) -> _SourceQuery:
         return _SourceQuery([], False, "breaker_open")
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
+            # R-F3476 — search() shares the same upstream quota as match(), so it
+            # must share the pacer. Pacing only one path would still earn 429s.
+            await _opensanctions_pace()
             resp = await client.get(
                 OPENSANCTIONS_SEARCH,
                 params={"q": query, "limit": limit},
@@ -597,7 +675,9 @@ async def _opensanctions_search(query: str, limit: int = 5) -> _SourceQuery:
                 _r469_breaker.record_failure(reason="auth")
                 return _SourceQuery([], False, "auth")
             if resp.status_code == 429:
-                logger.warning("OpenSanctions rate-limited on search — set OPENSANCTIONS_API_KEY for higher quota")
+                logger.warning("%s", _rate_limit_message(
+                    bool(await _resolve_opensanctions_key()),
+                    _OS_KEYED_INTERVAL_S if await _resolve_opensanctions_key() else _OS_FREE_INTERVAL_S))
                 _r469_breaker.record_failure(reason="rate_limit")
                 return _SourceQuery([], False, "rate_limit")
             if resp.status_code != 200:
