@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3553,
+  "next_available": 3554,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29571,6 +29571,16 @@
       "commit_sha": "f405702c",
       "notes": null,
       "shipped_at": "2026-07-31T11:35:24Z"
+    },
+    {
+      "r_number": "R-F3553",
+      "title": "T1 positive register evidence never promoted to findings",
+      "claimed_at": "2026-07-31T11:38:37Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f78ca326",
+      "notes": null,
+      "shipped_at": "2026-07-31T11:50:00Z"
     }
   ]
 }
