@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3565,
+  "next_available": 3567,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29687,6 +29687,25 @@
       "r_number": "R-F3564",
       "title": "DD evidence extractors swallow every failure - a broken extractor is indistinguishable from an empty page",
       "claimed_at": "2026-07-31T14:01:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5d966b25",
+      "notes": null,
+      "shipped_at": "2026-07-31T14:11:15Z"
+    },
+    {
+      "r_number": "R-F3565",
+      "title": "wiring audit: a failure-side sink must SATISFY the failure branch, and aliased wire imports must count",
+      "claimed_at": "2026-07-31T14:14:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3566",
+      "title": "positive register promotion is dead by ordering - consumer runs before producer",
+      "claimed_at": "2026-07-31T14:20:11Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

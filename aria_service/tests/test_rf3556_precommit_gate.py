@@ -128,3 +128,81 @@ def test_the_scan_is_not_vacuous():
     sample = (_REPO / "aria_service" / "intel" / "dd_orchestrator.py").read_text(encoding="utf-8")
     calls = find_function_calls(sample.splitlines())
     assert len(calls) > 100, f"only {len(calls)} calls found — the scan has stopped working"
+
+
+# ── R-F3565 — the wiring audit was demanding work already done ───────────────
+
+
+def _wiring_issues(tmp_path, body: str) -> list:
+    """Run check_wiring_present over one synthetic intel module."""
+    from pre_commit_checks import check_wiring_present
+    d = tmp_path / "intel"
+    d.mkdir(parents=True, exist_ok=True)
+    f = d / "synthetic_module.py"
+    f.write_text(body, encoding="utf-8")
+    return check_wiring_present([f])
+
+
+def test_an_aliased_wire_import_counts(tmp_path):
+    """Both knowledge packs do `import wire_failure as _wf` and call `_wf(...)`.
+    A literal "wire_failure(" scan cannot see that, so the gate reported them as
+    missing a branch they had wired three lines below a wire_success it DID see.
+    """
+    body = (
+        "from ..engine_wiring import wire_success, wire_failure as _wf\n"
+        "def run():\n"
+        "    try:\n"
+        "        wire_success(module='m', summary='ok')\n"
+        "    except Exception:\n"
+        "        _wf(module='m', detail='bad')\n"
+    )
+    assert _wiring_issues(tmp_path, body) == [], (
+        "an aliased wire_failure call is still invisible to the audit"
+    )
+
+
+def test_a_failure_side_sink_satisfies_the_failure_branch(tmp_path):
+    """@fail_wire sends every unhandled exception to the brain. With a
+    wire_success alongside it, BOTH branches are covered. Live: ocr.py,
+    deep_researcher.py, document_reader.py were all reported as missing the
+    failure branch while carrying the decorator."""
+    body = (
+        "from .engine_wiring import wire_success\n"
+        "from .wire import fail_wire\n"
+        "@fail_wire(module='m', gap_type='engine_failure')\n"
+        "def run():\n"
+        "    wire_success(module='m', summary='ok')\n"
+    )
+    assert _wiring_issues(tmp_path, body) == [], (
+        "a module with @fail_wire + wire_success is fully wired and still flagged"
+    )
+
+
+def test_a_failure_sink_does_NOT_satisfy_the_success_branch(tmp_path):
+    """THE ASYMMETRY, and it is load-bearing.
+
+    Crediting a failure-side sink for the SUCCESS branch is the R-F3382 clamp
+    that took the report 72 -> 52 and was reverted on measurement. A module that
+    only ever reports failures leaves the brain unable to tell "ran fine" from
+    "never ran".
+    """
+    body = (
+        "from .wire import fail_wire\n"
+        "from .engine_wiring import wire_failure\n"
+        "@fail_wire(module='m', gap_type='engine_failure')\n"
+        "def run():\n"
+        "    try:\n"
+        "        return 1\n"
+        "    except Exception:\n"
+        "        wire_failure(module='m', detail='bad')\n"
+    )
+    issues = _wiring_issues(tmp_path, body)
+    assert issues, "a module with NO success signal must still be flagged"
+    assert "NO wire_success" in issues[0], issues[0]
+
+
+def test_a_module_with_no_sink_at_all_is_still_flagged(tmp_path):
+    """The fix must not become a way to make the backlog disappear."""
+    body = "def run():\n    return 1\n"
+    issues = _wiring_issues(tmp_path, body)
+    assert issues and "NO brain wiring found" in issues[0], issues

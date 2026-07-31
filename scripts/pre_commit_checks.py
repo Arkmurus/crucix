@@ -514,6 +514,28 @@ def check_builtin_shadowing(files: list[Path]) -> list[str]:
     return issues
 
 
+def _wiring_call_aliases(content: str) -> dict:
+    """Local names bound to wire_success / wire_failure, including aliases.
+
+    R-F3565 — `from ..engine_wiring import wire_failure as _wf` binds the sink to
+    `_wf`, and a literal `"wire_failure(" in content` check can never see the
+    resulting `_wf(...)` call. AST rather than a regex so an import inside a
+    function body (the lazy-import style used throughout intel/) is found too.
+    """
+    out = {"success": set(), "failure": set()}
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return out
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        for alias in node.names:
+            if alias.name in ("wire_success", "wire_failure") and alias.asname:
+                out["success" if alias.name == "wire_success" else "failure"].add(alias.asname)
+    return out
+
+
 def check_wiring_present(files: list[Path]) -> list[str]:
     """Check that every changed intel module has at least one wire_success or wire_failure call (brain wiring).
 
@@ -599,8 +621,17 @@ def check_wiring_present(files: list[Path]) -> list[str]:
         if re.search(r"@wired\b", content):
             continue
 
-        has_wire_success = "wire_success(" in content
-        has_wire_failure = "wire_failure(" in content
+        # R-F3565 — ALIASED IMPORTS COUNT. The literal-token check cannot see
+        # `from ..engine_wiring import wire_success, wire_failure as _wf` followed
+        # by `_wf(...)`. Both knowledge packs (balkans_seed, latam_asia_pac_seed)
+        # wire their failure branch exactly that way and were reported as missing
+        # it — the gate demanding work that was already done, three lines below a
+        # wire_success it DID see.
+        _aliases = _wiring_call_aliases(content)
+        has_wire_success = "wire_success(" in content or any(
+            f"{a}(" in content for a in _aliases["success"])
+        has_wire_failure = "wire_failure(" in content or any(
+            f"{a}(" in content for a in _aliases["failure"])
         # Decorator/other sinks cover BOTH branches by construction: @fail_wire
         # wraps the callable so any unhandled exception reaches the brain, and a
         # record_gap/absorb call is a sink in its own right.
@@ -621,6 +652,23 @@ def check_wiring_present(files: list[Path]) -> list[str]:
         # the 30 half-wired modules stay flagged.
         if has_other_sink and not has_wire_success and not has_wire_failure:
             continue
+
+        # R-F3565 — A FAILURE-SIDE SINK SATISFIES THE FAILURE BRANCH.
+        #
+        # The comment above states the rule correctly — `@fail_wire`, `record_gap`
+        # and friends ARE failure-side sinks — and then never lets that fact
+        # satisfy the failure requirement; it only clears the "nothing at all"
+        # verdict. So a module with `@fail_wire` (every unhandled exception
+        # reaches the brain) PLUS `wire_success` has both branches covered and was
+        # still reported as "has wire_success but NO wire_failure". Live: ocr.py,
+        # deep_researcher.py and document_reader.py, all three decorated.
+        #
+        # The asymmetry is deliberate and stays: a FAILURE sink says nothing about
+        # whether the SUCCESS branch is wired, so `has_other_sink` must NOT
+        # satisfy has_wire_success. That was the R-F3382 clamp (72 -> 52) and it
+        # is not being re-introduced — this credits one direction only.
+        if has_other_sink:
+            has_wire_failure = True
 
         if not has_wire_success and not has_wire_failure:
             issues.append(

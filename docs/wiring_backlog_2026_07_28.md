@@ -147,3 +147,83 @@ deciding what SUCCESS means for `memory_wal`, or what FAILURE means for
 `deal_pipeline`, is a per-module judgement, and a mechanical `wire_success()` at
 the end of each function would be precisely the cosmetic wiring §21a exists to
 prevent. It is real work, not a formality, and it is the next tranche.
+
+
+---
+
+## R-F3565 (2026-07-31) — nine of the 26 were the DETECTOR: 26 → 17
+
+The gate was failing on modules that were **already correctly wired**. That is the
+worse failure mode of the two: a slow gate gets waited on, a lying gate gets muted
+(see `assert-the-property-not-the-wording`). Two classes, both closed:
+
+1. **An aliased import was invisible.** `knowledge_packs/balkans_seed.py` and
+   `latam_asia_pac_seed.py` do `from ..engine_wiring import wire_success,
+   wire_failure as _wf` and then call `_wf(...)`. The scan tested
+   `"wire_failure(" in content`, so it reported them as missing a branch that was
+   wired three lines below the `wire_success` it *did* see. Now resolved from the
+   AST: any `asname` bound to `wire_success` / `wire_failure` counts as that call.
+
+2. **`@fail_wire` did not credit the failure branch.** It is a genuine
+   failure-side sink — it routes every unhandled exception to `record_gap` — and
+   `ocr.py`, `deep_researcher.py` and `document_reader.py` each carried it
+   *alongside* a `wire_success`, i.e. both branches covered, and were reported as
+   missing the failure branch. The rule was already written correctly in the
+   comment; only the "no sink at all" verdict consulted it.
+
+**The asymmetry is deliberate and survives.** A failure-side sink credits the
+FAILURE branch only, never SUCCESS. Crediting it for both is the R-F3382 clamp
+(72 → 52) that was reverted on measurement: `@fail_wire` says nothing about
+whether the happy path ever tells the brain it ran, and a module that only reports
+failures leaves the brain unable to distinguish *ran fine* from *never ran*.
+
+Guarded by four tests in `test_rf3556_precommit_gate.py`, including
+`test_a_failure_sink_does_NOT_satisfy_the_success_branch` and a no-sink-at-all
+case so the fix cannot become a way to make the backlog disappear.
+
+### WHAT REMAINS: 17, all missing the SUCCESS branch
+
+Re-measured, not carried over. Every one has a real failure sink — a
+non-comment `wire_failure(...)` call or a `@fail_wire` decorator — and no success
+signal at all:
+
+| module | failure sink | note |
+|---|---|---|
+| `behavioural_anomaly` | 1 call | |
+| `brain_hook_bg` | 2 `@fail_wire` | |
+| `calibration_auto_tune` | 2 calls | |
+| `compliance_workflow` | 9 `@fail_wire` | |
+| `content_scanner` | 2 calls + 9 `@fail_wire` | network |
+| `country_sanctions` | 2 `@fail_wire` | |
+| `credential_self_destruct` | 1 call | |
+| `dd_case_archive` | 2 calls | |
+| `eval_judge` | 2 calls | |
+| `memory_wal` | 4 `@fail_wire` | |
+| `quarantine_network` | 3 calls | |
+| `registration_check` | 4 `@fail_wire` | |
+| `sipri_ingest` | 3 `@fail_wire` | network |
+| `sources/eccn_lookup` | present | |
+| `zefix` | 2 calls | network |
+| `wire` | 3 calls | **see below** |
+| `wiring_harness` | scanner strings | **see below** |
+
+`wire.py` and `wiring_harness.py` are the wiring machinery itself, not engines.
+`wire.py`'s own docstring states design constraint #1: *"FAILURE-ONLY — never
+wire_success on every call (would wedge the loop). Success stays at path-level
+entry points only (§21a)."* Adding a `wire_success` to the module that exists to
+emit failures would contradict the rule it implements, and `wiring_harness.py`
+matches only because its AST scanner contains the decorator name as a string.
+They are listed here rather than silently exempted so the decision is visible; the
+exemption belongs in `WIRING_EXEMPT_MODULES` with that reason, not in a widened
+count.
+
+The other 15 are real work of the delicate kind R-F3563 described: deciding what
+*success* means for `memory_wal` or `credential_self_destruct` is a per-module
+judgement, and a mechanical `wire_success()` at the end of every function is
+exactly the cosmetic wiring §21a exists to prevent.
+
+**Correction to the R-F3563 list above:** `extractors/facts.py` and
+`extractors/structured.py` are recorded there as exempt pure transforms. R-F3564
+removed both exemptions on measurement — 13 and 6 swallowed exceptions
+respectively, feeding the DD evidence path. Classified from docstrings rather than
+from the code; the measurement was right.
