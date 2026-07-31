@@ -213,9 +213,32 @@ def test_rf3555_an_untitled_source_cannot_carry_an_attribution():
         TOK) == []
 
 
-def test_rf3555_the_live_chemring_replay_promotes_NOTHING():
-    """The regression, end to end: those 92 real sources contain no genuine credential
-    for Chemring, so the honest output is zero. Two was a fabrication."""
+def test_rf3555_the_live_chemring_replay_promotes_NO_FABRICATION():
+    """The R-F3555 regression, end to end, on 92 real captured sources.
+
+    R-F3594 — THIS TEST ASSERTED `== []` AND THAT WAS A LIMITATION, NOT THE SPEC.
+
+    R-F3555's finding was that TWO credentials were FABRICATED from this corpus: the
+    FCA National Storage Mechanism (a document ARCHIVE, not the register) and a
+    Babcock AGM notice credited to Chemring because a single-token subject collapsed
+    "all tokens" into "any token". Zero was the honest answer *for those two*.
+
+    But zero was also, silently, the answer for a THIRD row this corpus contains:
+
+        https://www.gov.uk/armed-forces-covenant-businesses/chemring-group-plc
+        "Chemring Group Plc - GOV.UK"
+        "We Chemring Group Plc will endeavour ... to uphold the key principles of
+         the Armed Forces Covenant"
+
+    That is the company's own pledge on the statutory GOV.UK signatory page — a REAL
+    credential, invisible only because `_POSITIVE_REGISTERS` was keyed by HOST and the
+    Covenant list is a PATH on gov.uk. R-F3585 made it reachable, and this test went
+    red because it had pinned the blind spot as the expected output.
+
+    So the assertion is now the PROPERTY it always meant: no FABRICATION survives, and
+    the genuine listing does. `== []` would have quietly re-imposed the blind spot the
+    moment anyone tried to fix it — which is exactly what it did.
+    """
     import json
     import pathlib
     p = pathlib.Path(__file__).resolve().parents[2] / "_chemring.json"
@@ -227,4 +250,18 @@ def test_rf3555_the_live_chemring_replay_promotes_NOTHING():
     src = [{"url": f.get("source_url"), "title": f.get("title"),
             "snippet": f.get("snippet")}
            for f in (r.get("adverse_media") or {}).get("findings") or []]
-    assert positive_register_findings(src, tokens) == []
+    out = positive_register_findings(src, tokens)
+
+    # THE ORIGINAL GUARANTEE, unchanged: neither fabrication may return.
+    srcs = " ".join(str(f.get("source") or "") for f in out)
+    assert "data.fca.org.uk" not in srcs, (
+        "the FCA document ARCHIVE is being credited as the Financial Services "
+        f"Register again: {out}"
+    )
+    assert not any("babcock" in str(f.get("source", "")).lower() for f in out), (
+        f"a Babcock filing is being credited to Chemring again: {out}"
+    )
+    # THE REAL CREDENTIAL this corpus genuinely contains (R-F3585).
+    assert len(out) == 1, f"expected exactly the Covenant listing, got: {out}"
+    assert "Armed Forces Covenant" in out[0]["title"]
+    assert "armed-forces-covenant-businesses/chemring-group-plc" in out[0]["source"]

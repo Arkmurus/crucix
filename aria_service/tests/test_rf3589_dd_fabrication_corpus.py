@@ -172,6 +172,14 @@ CREDENTIAL_MUST_PROMOTE = [
     ({"url": "https://www.gov.uk/armed-forces-covenant-businesses/wilson-james-ltd",
       "title": "Wilson James Ltd - GOV.UK"},
      _WJT, "R-F3585 live — the real Covenant listing"),
+    # R-F3594 — from the 92-source Chemring corpus (_chemring.json). This one was
+    # INVISIBLE until R-F3585: the Covenant list is a PATH on gov.uk, and the registry
+    # was keyed by host. A test had pinned "promotes NOTHING" on this corpus, which was
+    # true of the two FABRICATIONS R-F3555 removed and quietly also true of this REAL
+    # pledge — a blind spot recorded as the specification.
+    ({"url": "https://www.gov.uk/armed-forces-covenant-businesses/chemring-group-plc",
+      "title": "Chemring Group Plc - GOV.UK"},
+     _CHEM, "R-F3594 live — Chemring's own Covenant pledge on the statutory page"),
 ]
 
 

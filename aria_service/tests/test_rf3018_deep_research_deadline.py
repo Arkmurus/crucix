@@ -154,6 +154,23 @@ def test_rf3018_orchestrator_passes_a_deadline_and_reports_honestly():
     assert "deadline_s=_dr_deadline" in src, "the bound must be handed to the engine"
     assert 'dr.get("partial")' in src, "the honest gap must key off the engine's own flag"
     # the gap text must not resurrect the false wording
+    #
+    # R-F3595 — this was `src[i:i + 1200]`, a FIXED BYTE WINDOW, and it broke without
+    # anything it guards being touched: R-F3502 added an explanatory comment inside the
+    # `partial` branch, pushing the gap text past 1200 characters. Measured — the same
+    # assertion fails identically on the pre-R-F3502 source, so it had been red on
+    # every full run since, for a reason unrelated to the property it exists to check.
+    #
+    # A guard that fires on unrelated edits gets muted, and then it protects nothing.
+    # The property is "the honest wording lives in the partial branch, and the false
+    # wording is gone" — so the window now ends where the BRANCH ends (the next
+    # top-level def), not at an arbitrary offset.
     i = src.index('dr.get("partial")')
-    window = src[i:i + 1200]
-    assert "was bounded at" in window and "article(s) analysed" in window
+    _next_def = src.find("\ndef ", i)
+    window = src[i:_next_def if _next_def != -1 else len(src)]
+    assert "was bounded at" in window and "article(s) analysed" in window, (
+        "the honest 'bounded at N / article(s) analysed' gap wording is no longer in "
+        "the partial branch"
+    )
+    # and the false wording it replaced must not come back
+    assert "partial result" not in window.lower() or "not a partial result" in window.lower()
