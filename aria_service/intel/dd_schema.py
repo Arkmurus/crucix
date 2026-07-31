@@ -1344,13 +1344,34 @@ class ARKDDReport:
             lines.append("")
 
         # Footer
+        #
+        # R-F3550 — the label said "Confidence" over an EVIDENCE-STATUS vocabulary.
+        # `confidence_tag` takes CONFIRMED / ASSESSED / PROBABLE / UNCERTAIN /
+        # UNVERIFIED — those describe how a claim was ESTABLISHED (corroborated by a
+        # primary source, inferred, not checked), not how likely it is to be true.
+        # Calling that "Confidence" invites a reader to take ASSESSED as a probability
+        # and UNVERIFIED as "probably fine", when UNVERIFIED means nobody looked. Two
+        # different axes were sharing one word, on the line that closes the report.
+        #
+        # The value is unchanged and so is its computation (still the WEAKEST tag across
+        # sections, so the headline cannot oversell). Only the name it is given, and a
+        # legend so the scale is checkable — same rule as the evidence grade (R-F3549):
+        # a label a reader cannot audit is not a disclosure.
         lines.append(
             f"─────\n"
-            f"*Confidence:* [{self.confidence_tag}]  ·  "
+            f"*Evidence status:* [{self.confidence_tag}]  ·  "
             f"*Layers run:* {', '.join(self.layers_run)}  ·  "
             f"*Cost:* ${self.total_cost_usd:.4f}  ·  "
             f"*Duration:* {self.total_duration_ms}ms  ·  "
             f"*run_id:* {self.run_id}"
+        )
+        lines.append(
+            "<sub>Evidence status describes how claims were ESTABLISHED, not how likely "
+            "they are to be true: CONFIRMED = corroborated against a primary source · "
+            "ASSESSED = derived from evidence gathered · PROBABLE = inferred, not "
+            "directly evidenced · UNCERTAIN = evidence conflicts or is thin · "
+            "UNVERIFIED = not checked. The report carries the WEAKEST status of any "
+            "section, so this line cannot oversell the rest.</sub>"
         )
         # R-F996 — wire to brain
         from .engine_wiring import wire_success, wire_failure
