@@ -483,14 +483,40 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
             await dd_orchestrator.rescreen_public_watchlist()
         except Exception:
             pass
-        # R-F2560 — refresh the OFAC/UN/FCDO designation-diff feed (new official
-        # designations -> decision-grade Golden Intel). Non-fatal.
+        # R-F2560 — refresh the designation-diff feed (new official designations ->
+        # decision-grade Golden Intel).
+        #
+        # R-F3534 — this is now a BELT-AND-BRACES second run, not the lane's only
+        # heartbeat. It used to be the only caller, so the most valuable signal
+        # class in the product was checked once a WEEK ("0 7 * * mon"), as a
+        # non-fatal afterthought on an unrelated task, behind a bare `except: pass`.
+        # OFAC designated on seven separate days in July while ARIA looked once, and
+        # a failure here told nobody. `sanctions_designation_watch` now owns the
+        # cadence; the failure is wired either way.
         try:
             from ..intel import sanctions_designation_diff
             await sanctions_designation_diff.run_designation_diff()
-        except Exception:
-            pass
+        except Exception as _sdd_err:
+            try:
+                from ..intel.engine_wiring import wire_failure as _wf
+                _wf(module="sanctions_designation_diff",
+                    detail=f"designation diff failed inside dd_watchlist_sweep: {type(_sdd_err).__name__}",
+                    gap_type="golden_intel_promotion_failure",
+                    source="tasks:dd_watchlist_sweep")
+            except Exception:
+                pass
         return result
+
+    elif tool_kind == "sanctions_designation_watch":
+        # R-F3534 — the official-designation lane's OWN heartbeat.
+        #
+        # This is ARIA's highest-value signal: a counterparty designated by OFAC,
+        # the UN, the UK, the EU or debarred by the World Bank is a stop-work event
+        # for a defence broker. It costs no LLM spend (list fetch + set diff), so it
+        # can run hourly; the value is entirely in LATENCY, and a week-old
+        # designation is not intelligence, it is history.
+        from ..intel import sanctions_designation_diff
+        return await sanctions_designation_diff.run_designation_diff()
 
     # R-F1255 (2026-06-01): Full DD sweep — runs the 7-layer orchestrator
     # on every watchlist entity. This is a COSTLY operation (each entity

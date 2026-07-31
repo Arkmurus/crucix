@@ -354,6 +354,71 @@ def count_entries(source: str | None = None) -> int:
         return int(cur.fetchone()[0])
 
 
+def list_sources() -> list[str]:
+    """Every source currently holding rows, newest-refreshed first.
+
+    R-F3534 — the designation diff enumerates this rather than a hardcoded list,
+    so a regime added to the canonical store starts being WATCHED for new
+    designations without a second edit. The store was already global
+    (ofac_sdn + eu_consolidated, 24,953 rows live) while the diff watched only
+    three hand-listed lists and never saw the EU's 5,994 at all.
+    """
+    try:
+        with connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT source, MAX(last_refreshed) AS r FROM entries "
+                "GROUP BY source ORDER BY r DESC"
+            )
+            return [str(row[0]) for row in cur.fetchall() if row and row[0]]
+    except Exception:
+        return []
+
+
+def iter_designations(source: str) -> list[dict]:
+    """Lightweight designation rows for change detection, for ONE source.
+
+    Deliberately narrow: the diff needs a stable id, a name and enough context to
+    write an alert — not ``raw_excerpt``, which is up to 2000 chars × 24,953 rows.
+    Returns [] rather than raising: a diff that cannot read a list must skip that
+    list, never take down the others (the per-source isolation the caller relies on).
+    """
+    if not source:
+        return []
+    try:
+        with connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT source_uid, formatted_name, entity_type, countries, programs, "
+                "       designation_at "
+                "FROM entries WHERE source = ?",
+                (source,),
+            )
+            out: list[dict] = []
+            for uid, name, etype, countries, programs, designated in cur.fetchall():
+                if not name:
+                    continue
+                try:
+                    program_list = json.loads(programs) if programs else []
+                except Exception:
+                    program_list = []
+                try:
+                    country_list = json.loads(countries) if countries else []
+                except Exception:
+                    country_list = []
+                out.append({
+                    "uid": str(uid or ""),
+                    "name": str(name),
+                    "entity_type": str(etype or ""),
+                    "countries": country_list,
+                    "programs": program_list,
+                    "designation_date": str(designated or ""),
+                })
+            return out
+    except Exception:
+        return []
+
+
 def last_successful_rows_loaded(source: str) -> int:
     """R-F2570 — rows_loaded of the most recent SUCCESSFUL refresh for `source`, or 0 if
     there is no successful refresh on record. The self-calibrating baseline for the

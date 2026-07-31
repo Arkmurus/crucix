@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3534,
+  "next_available": 3536,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29384,6 +29384,24 @@
       "commit_sha": "93bc66c9",
       "notes": null,
       "shipped_at": "2026-07-31T07:47:19Z"
+    },
+    {
+      "r_number": "R-F3534",
+      "title": "sanctions designation lane: hourly own heartbeat, global coverage (EU + World Bank), wired failure",
+      "claimed_at": "2026-07-31T08:16:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3535",
+      "title": "the R-F3510 sanctions evidence shadow has no caller",
+      "claimed_at": "2026-07-31T08:23:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

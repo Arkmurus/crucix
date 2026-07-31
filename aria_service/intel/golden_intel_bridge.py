@@ -809,9 +809,15 @@ _SANCTIONS_DIFF_WINDOW_H = 168   # promote designations detected in the last 7 d
 
 
 async def _sanctions_diff_adapter() -> list[dict]:
-    """Promote GENUINELY NEW OFAC/UN/FCDO designations (sanctions_designation_diff)
+    """Promote GENUINELY NEW official designations (sanctions_designation_diff)
     into decision-grade tier_1a `sanctions_change` signals — real primary-source
-    sanctions intel (contrast: the OpenSanctions heuristic is capped to Mining Queue)."""
+    sanctions intel (contrast: the OpenSanctions heuristic is capped to Mining Queue).
+
+    R-F3534 — coverage is now global: US (OFAC SDN), UN Security Council, UK FCDO,
+    EU consolidated, and World Bank debarment. It was US/UN/UK only, so an EU
+    listing — 5,994 live designations sitting in ARIA's own canonical store —
+    could never become intel.
+    """
     from . import sanctions_designation_diff as sdd
     try:
         alerts = await sdd.get_designation_alerts(since_hours=_SANCTIONS_DIFF_WINDOW_H)
@@ -830,13 +836,24 @@ async def _sanctions_diff_adapter() -> list[dict]:
         list_type = _clean(a.get("list_type")) or src.upper()
         programs = _clean(a.get("programs"))
         url = _clean(a.get("citation_url"))
-        if not url.startswith(("http://", "https://")):   # source-aware fallback (review #5)
-            url = {
-                "un": "https://www.un.org/securitycouncil/sanctions/information",
-                "fcdo": "https://www.gov.uk/government/publications/financial-sanctions-consolidated-list-of-targets",
-            }.get(src, "https://sanctionssearch.ofac.treas.gov/")
-        why = (f"New {list_type} sanctions designation."
-               + (f" Programs: {programs}." if programs else "")
+        if not url.startswith(("http://", "https://")):
+            # R-F3534 — the fallback map knew only un/fcdo and sent EVERY other
+            # source to the OFAC search page. With the lane now covering the EU
+            # consolidated list and World Bank debarment, that would have cited the
+            # US Treasury as the register for an EU listing — a fabricated citation
+            # on a compliance signal. The register now comes from the source itself,
+            # and a source with no known register yields no URL (the channel's
+            # evidence-URL gate then drops it, which is the correct outcome).
+            url = sdd.source_citation(src)
+        if not url.startswith(("http://", "https://")):
+            continue
+        # R-F3534 — a debarment is not a designation; say what actually happened.
+        debarment = src == "worldbank"
+        countries = _clean(a.get("countries"))
+        verb = "debarred by the World Bank" if debarment else f"newly designated on {list_type}"
+        why = ((f"New World Bank debarment." if debarment else f"New {list_type} sanctions designation.")
+               + (f" Jurisdiction: {countries}." if countries else "")
+               + (f" {'Grounds' if debarment else 'Programs'}: {programs}." if programs else "")
                + (f" Listed {a.get('designation_date')}." if _clean(a.get("designation_date")) else ""))
         findings.append({
             "source_key": "sanctions_diff",
@@ -845,7 +862,7 @@ async def _sanctions_diff_adapter() -> list[dict]:
             "priority": "HIGH",
             "confidence": "HIGH",
             "source_tier": "tier_1a",   # primary official designation
-            "title": f"{entity}: newly designated on {list_type}",
+            "title": f"{entity}: {verb}",
             "why_it_matters": why,
             "recommended_action": "Screen counterparties; block/freeze per the designation.",
             "target": entity,

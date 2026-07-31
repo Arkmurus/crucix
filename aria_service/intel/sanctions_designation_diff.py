@@ -49,9 +49,55 @@ def _record_id(source: str, rec: dict) -> str:
         rid = _clean(rec.get("group_id")) or _clean(rec.get("reference"))
     elif source == "fcdo":
         rid = _clean(rec.get("group_id"))
+    elif source.startswith("canon:"):
+        # R-F3534 — the canonical store's own upstream id (UNIQUE per source).
+        rid = _clean(rec.get("uid"))
+    elif source == "worldbank":
+        # The debarment feed carries no stable id; name+period is the identity of
+        # a debarment, and re-debarring the same firm for a new period IS new.
+        rid = ":".join(x for x in (
+            _clean(rec.get("name")).lower(),
+            _clean(rec.get("ineligibility_from")),
+            _clean(rec.get("ineligibility_to")),
+        ) if x)
     else:
         rid = ""
     return rid or f"name:{_clean(rec.get('name')).lower()}"
+
+
+# R-F3534 — per-source display label + the citation that source actually supports.
+# Before this the golden-intel bridge fell back to the OFAC search URL for ANY
+# source it did not recognise, so an EU or World Bank listing would have cited
+# OFAC — a fabricated citation on a compliance signal, which is worse than no
+# citation at all.
+_SOURCE_LABELS: dict[str, str] = {
+    "ofac": "OFAC SDN",
+    "un": "UN Security Council",
+    "fcdo": "UK FCDO",
+    "worldbank": "World Bank Debarment",
+    "canon:eu_consolidated": "EU Consolidated",
+}
+_SOURCE_CITATIONS: dict[str, str] = {
+    "ofac": "https://sanctionssearch.ofac.treas.gov/",
+    "un": "https://www.un.org/securitycouncil/sanctions/information",
+    "fcdo": "https://www.gov.uk/government/publications/financial-sanctions-consolidated-list-of-targets",
+    "worldbank": "https://www.worldbank.org/en/projects-operations/procurement/debarred-firms",
+    "canon:eu_consolidated": "https://www.sanctionsmap.eu/",
+}
+
+
+def source_label(source: str) -> str:
+    """Human list name. Never leaks the internal `canon:` prefix to a customer."""
+    if source in _SOURCE_LABELS:
+        return _SOURCE_LABELS[source]
+    bare = source.split(":", 1)[-1]
+    return bare.replace("_", " ").upper()
+
+
+def source_citation(source: str) -> str:
+    """The register a reader can check this designation against. Empty when we do
+    not have one — an absent citation is honest; a wrong one is not."""
+    return _SOURCE_CITATIONS.get(source, "")
 
 
 async def _loaders() -> list[tuple[str, Callable]]:
@@ -73,7 +119,51 @@ async def _loaders() -> list[tuple[str, Callable]]:
         out.append(("fcdo", fcdo_sanctions._load_records))
     except Exception:
         logger.debug("[%s] fcdo_sanctions unavailable", _MODULE, exc_info=True)
+
+    # R-F3534 — GLOBAL coverage. The three lists above are US + UN + UK; the
+    # canonical store was ALREADY holding the EU consolidated list (5,994 live
+    # designations, refreshed daily) and nothing watched it for changes, so an EU
+    # designation could never become intel. Enumerating the store means a regime
+    # added there is watched automatically rather than needing a second edit here.
+    #
+    # `ofac_sdn` is deliberately SKIPPED: it is the same regime as the live "ofac"
+    # loader above under a different id scheme, and adding it would both duplicate
+    # every US alert and, on its first run, baseline 18,959 rows as a separate
+    # source. Each NEW source baselines silently on its first run (`prior is None`
+    # emits nothing), which is exactly why adding lists here is safe.
+    try:
+        from .sanctions_canonical import store as _canon
+        _already = {"ofac_sdn"}
+        for src in _canon.list_sources():
+            if src in _already:
+                continue
+            out.append((f"canon:{src}", _make_canonical_loader(_canon, src)))
+    except Exception:
+        logger.debug("[%s] canonical store unavailable", _MODULE, exc_info=True)
+
+    # World Bank debarment: not a sanctions regime, but for a defence/procurement
+    # customer a newly debarred supplier is the same decision — do not bid, do not
+    # contract. It is global by construction (every Bank-financed project).
+    try:
+        from .sources import worldbank_debarred
+        out.append(("worldbank", worldbank_debarred._load_records))
+    except Exception:
+        logger.debug("[%s] worldbank_debarred unavailable", _MODULE, exc_info=True)
     return out
+
+
+def _make_canonical_loader(canon_store, source: str) -> Callable:
+    """Adapt a canonical-store source to the (async, no-arg) loader contract.
+
+    The store call is synchronous SQLite; it runs in a worker thread so a 24k-row
+    read cannot stall the event loop (the R-F3264 lesson — a full scan on this very
+    table was caught wedging the loop).
+    """
+    async def _load() -> list[dict]:
+        import asyncio
+        return await asyncio.to_thread(canon_store.iter_designations, source)
+    _load.__name__ = f"canonical_{source}"
+    return _load
 
 
 def _designation_alert(source: str, rec: dict, rid: str) -> dict:
@@ -81,14 +171,23 @@ def _designation_alert(source: str, rec: dict, rid: str) -> dict:
     if isinstance(programs, list):
         programs = ", ".join(str(p) for p in programs if p)
     programs = _clean(programs) or _clean(rec.get("regime"))
+    # R-F3534 — a designation with no programs still carries its jurisdiction; for
+    # the canonical rows that is the most useful context a reader gets.
+    countries = rec.get("countries")
+    if isinstance(countries, list):
+        countries = ", ".join(str(c) for c in countries[:5] if c)
     return {
         "source": source,
         "id": rid,
         "entity": _clean(rec.get("name")),
-        "list_type": _clean(rec.get("list_type")) or source.upper(),
-        "programs": programs,
-        "designation_date": _clean(rec.get("designation_date")),
-        "citation_url": _clean(rec.get("citation_url")),
+        "list_type": _clean(rec.get("list_type")) or source_label(source),
+        "programs": programs or _clean(rec.get("grounds")),
+        "countries": _clean(countries),
+        "entity_type": _clean(rec.get("entity_type")),
+        "designation_date": _clean(rec.get("designation_date")) or _clean(rec.get("ineligibility_from")),
+        # Prefer the record's own citation; otherwise the register this list
+        # belongs to. Never another regime's search page.
+        "citation_url": _clean(rec.get("citation_url")) or source_citation(source),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 

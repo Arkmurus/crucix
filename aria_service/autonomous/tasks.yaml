@@ -768,6 +768,44 @@ tasks:
     mem0_tags: [dd, orchestrator, watchlist, weekly, autonomous]
 
   # ──────────────────────────────────────────────────────────────────
+  # R-F3534 — Official sanctions designations: ARIA's highest-value lane
+  # ──────────────────────────────────────────────────────────────────
+  - id: HOURLY-SANCTIONS-DESIGNATIONS
+    name: Official sanctions designation watch
+    description: |
+      Hourly — snapshots every official designation list ARIA holds and
+      emits an alert for each GENUINELY NEW designation, which the golden
+      intel bridge promotes to a tier_1a Grade-A `sanctions_change` signal.
+
+      Coverage is global: US (OFAC SDN), UN Security Council, UK FCDO,
+      EU consolidated, and World Bank debarment.
+
+      WHY HOURLY, AND WHY ITS OWN TASK. Until R-F3534 this ran only as a
+      non-fatal afterthought inside WEEKLY-DD-WATCHLIST ("0 7 * * mon")
+      behind a bare `except: pass`. OFAC designated on seven separate days
+      in July 2026 while ARIA checked once, and the EU list — 5,994 live
+      designations already sitting in ARIA's own canonical store — was not
+      watched at all. The measured result: zero Grade-A sanctions signals
+      in a 100-signal feed, so the public channel published procurement
+      instead. The value of this signal is almost entirely LATENCY: a
+      designation a customer learns about a week late is history, not
+      intelligence.
+
+      Costs no LLM spend — an HTTP list fetch plus a set difference — so
+      the cost cap is zero and the cadence can be tight.
+    cron: "7 * * * *"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 300
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: sanctions_designation_watch
+    delivery_channels: [intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if: ["RED", "HARD_STOP", "SAR"]
+    mem0_tags: [sanctions, designations, golden_intel, hourly, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
   # R-F1255 — Full DD sweep on watchlist entities
   # ──────────────────────────────────────────────────────────────────
   # Runs the 7-layer DD orchestrator on up to 3 watchlist entities per
