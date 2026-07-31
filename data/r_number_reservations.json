@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3544,
+  "next_available": 3546,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29483,6 +29483,25 @@
       "commit_sha": "f42cebeb",
       "notes": null,
       "shipped_at": "2026-07-31T09:51:31Z"
+    },
+    {
+      "r_number": "R-F3544",
+      "title": "clearance status absent from the report list - GREEN badge stands alone",
+      "claimed_at": "2026-07-31T09:55:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "92a67cdf",
+      "notes": null,
+      "shipped_at": "2026-07-31T10:00:58Z"
+    },
+    {
+      "r_number": "R-F3545",
+      "title": "BIS export-control rules promoted to graded intel; dormant portfolio_nexus grading input removed",
+      "claimed_at": "2026-07-31T09:59:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
