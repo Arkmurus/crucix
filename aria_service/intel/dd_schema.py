@@ -930,6 +930,11 @@ class ARKDDReport:
                 f"Reliance threshold: Evidence Grade {_dr.get('evidence_grade', 'INCOMPLETE')} "
                 f"({'met' if _dr.get('evidence_ready') else 'not met'}); risk is reported separately."
             )
+            # R-F3549 — say what the grade MEANS. It gates clearance (R-F3173 refuses
+            # reliance below A), so printing the letter alone tells a customer their
+            # decision cannot be relied upon on a scale they cannot check.
+            lines.append(
+                f"<sub>{evidence_grade_explained(_dr.get('evidence_grade'))}</sub>")
             lines.append("")
         except Exception:
             pass  # readiness rendering must never break report delivery
@@ -1896,15 +1901,56 @@ def _quality_has_search_gap(r: dict) -> bool:
     ))
 
 
+# ── R-F3549 — the grade thresholds, named ONCE ───────────────────────────────
+#
+# THE DEFECT. The report prints "Reliance threshold: Evidence Grade C (not met)" and
+# never says what C is. That grade GATES CLEARANCE — R-F3173 refuses reliance below A —
+# so the customer is told a decision cannot be relied upon, on a scale they have no way
+# to check. A gate whose scale is undisclosed is unfalsifiable to the reader: they cannot
+# tell whether C is "nearly there" or "almost nothing", nor what would move it.
+#
+# Naming the thresholds here rather than restating them in prose is the point. A printed
+# definition that duplicates the numbers drifts the first time a threshold changes, and
+# then the report explains a scale it is no longer using — a fresh misrepresentation in
+# the fix for one. `_quality_grade` and the reader-facing explanation now read the SAME
+# constants.
+_GRADE_MIN_SCORE = {"A": 85, "B": 70, "C": 50}
+
+#: What each grade MEANS, in the reader's terms — not a restatement of the arithmetic.
+_GRADE_MEANING = {
+    "A": "decision-ready; corroborated evidence across the decision-critical questions",
+    "B": "sound but not decision-ready; some claims rest on a single source",
+    "C": "partial; material gaps or thin corroboration — do not rely without more work",
+    "D": "insufficient; too little established to support a decision",
+    "INCOMPLETE": "not graded; the assessment did not complete",
+}
+
+
 def _quality_grade(score: int, blockers: list[str]) -> str:
     """Map an evidence-depth score to an operator-facing grade."""
-    if score >= 85 and not blockers:
+    if score >= _GRADE_MIN_SCORE["A"] and not blockers:
         return "A"
-    if score >= 70:
+    if score >= _GRADE_MIN_SCORE["B"]:
         return "B"
-    if score >= 50:
+    if score >= _GRADE_MIN_SCORE["C"]:
         return "C"
     return "D"
+
+
+def evidence_grade_explained(grade) -> str:
+    """One reader-facing line: what this grade means and where it sits on the scale.
+
+    Derived from `_GRADE_MIN_SCORE`, so it cannot describe a scale the grader has
+    stopped using.
+    """
+    g = str(grade or "INCOMPLETE").strip().upper() or "INCOMPLETE"
+    meaning = _GRADE_MEANING.get(g, "unrecognised grade")
+    scale = ", ".join(
+        f"{k} ≥{v}" for k, v in sorted(_GRADE_MIN_SCORE.items(), key=lambda kv: -kv[1])
+    )
+    return (f"Grade {g} — {meaning}. Scale: {scale}, D below "
+            f"{_GRADE_MIN_SCORE['C']} (0-100 evidence-depth score; A also requires no "
+            "blockers). Grade A is required to rely on this report for clearance.")
 
 
 # R-F3013 — the evidence grade is a RELIANCE grade. The evidence-DEPTH scorer can
