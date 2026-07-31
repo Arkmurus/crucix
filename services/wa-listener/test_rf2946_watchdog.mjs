@@ -102,7 +102,12 @@ describe('R-F2946 — the listener wires the decision + dedup', () => {
   it('tracks inbound activity from real socket events', () => {
     assert.ok(SRC.includes('function _markInbound()'), 'must define _markInbound');
     // messages.upsert (the core), plus the liveness-only taps that keep a quiet socket fresh
-    assert.ok(SRC.includes('_markInbound(); onMessagesUpsert'), 'messages.upsert must mark inbound');
+    const upsertHandler = SRC.slice(
+      SRC.indexOf('async function onMessagesUpsert('),
+      SRC.indexOf('async function onMessagesUpsert(') + 240,
+    );
+    assert.ok(/async function onMessagesUpsert\([^)]*\)\s*\{\s*_markInbound\(\)/.test(upsertHandler),
+      'the real messages.upsert handler must mark inbound before inspecting the event');
     assert.ok(SRC.includes("sock.ev.on('message-receipt.update', () => _markInbound())"), 'receipts must mark inbound');
     assert.ok(SRC.includes("sock.ev.on('presence.update',        () => _markInbound())"), 'presence must mark inbound');
   });

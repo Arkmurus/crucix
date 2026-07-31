@@ -15,10 +15,15 @@ test('R-F3562 empty state uses the canonical WhatsApp icon, not a generic device
 function managerRuntime() {
   const listeners = new Map();
   const elements = new Map();
+  // Derived from every getElementById() in wa-connections.html. R-F3578 added the
+  // governance controls (acceptRiskBtn, governanceStatus, officialLink, pauseBtn,
+  // revokeBtn, totpCode); a missing id returns undefined and the page's
+  // addEventListener wiring throws at LOAD, taking every assertion with it.
   const ids = [
     'accounts', 'createBar', 'accountName', 'createBtn', 'refreshBtn', 'qrCloseBtn',
     'qrModal', 'qrModalInner', 'loading', 'empty', 'limitNote', 'error', 'toast',
     'qrTitle', 'qrContent', 'qrStatus',
+    'acceptRiskBtn', 'governanceStatus', 'officialLink', 'pauseBtn', 'revokeBtn', 'totpCode',
   ];
   for (const id of ids) {
     elements.set(id, {
@@ -29,12 +34,38 @@ function managerRuntime() {
     });
   }
 
+  // Eight risk acceptances + one scope, mirroring REQUIRED_RISK_ACCEPTANCES and
+  // LINKED_SCOPES in lib/whatsapp/waGovernance.mjs. Left UNCHECKED by default so
+  // this stays a test about the BLANK form, which is what R-F3562 guards.
+  const checkboxes = [
+    ...['optional_mode', 'official_channel_available', 'unsupported_integration',
+        'account_enforcement_risk', 'continuity_not_guaranteed', 'authorised_account',
+        'no_unlawful_monitoring', 'privacy_retention_reviewed']
+      .map((value) => ({ name: 'risk', value, checked: false, addEventListener() {} })),
+    { name: 'scope', value: 'forwarded_or_tagged', checked: false, addEventListener() {} },
+  ];
+
   const requests = [];
   const context = vm.createContext({
     console,
     document: {
       getElementById(id) { return elements.get(id); },
       createElement() { return { textContent: '', innerHTML: '' }; },
+      // R-F3578 review — the governance UI reads the risk/scope checkboxes at
+      // load time (wa-connections.html:554). Without this the whole script
+      // throws during vm.runInContext and every assertion below is unreachable,
+      // which is how the R-F3578 change broke this test at SCRIPT LOAD rather
+      // than at the behaviour it guards.
+      querySelectorAll(selector) {
+        const boxes = String(selector).includes('name="scope"') || String(selector).includes('name="risk"')
+          ? checkboxes.filter((b) => {
+              if (selector.includes(':checked') && !b.checked) return false;
+              if (selector.includes('name="scope"') && selector.includes('name="risk"')) return true;
+              return selector.includes(`name="${b.name}"`);
+            })
+          : [];
+        return boxes;
+      },
     },
     localStorage: { getItem() { return 'test-user-jwt'; } },
     fetch: async (url, options = {}) => {

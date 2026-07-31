@@ -99,6 +99,9 @@ import { redisAdapter } from './lib/persist/redisAdapter.mjs';
 import { reliableRun } from './lib/orchestrator/retry.mjs';
 import ariaWhatsApp from './lib/whatsapp/ariaWhatsApp.mjs';
 import { mountWAListener } from './lib/whatsapp/waListener.mjs';
+import {
+  issueLinkedGrant, linkedGrantState, publicGovernanceState,
+} from './lib/whatsapp/waGovernance.mjs';
 import { mountEmailReader } from './lib/aria/emailReader.mjs';
 import { mountLinkedInRoutes, initLinkedInIntel } from './lib/aria/linkedinIntel.mjs';
 import { mountProactive } from './lib/aria/proactive.mjs';
@@ -1305,6 +1308,81 @@ const WA_LISTENER_URL = process.env.WA_LISTENER_URL || 'http://aria-wa.internal:
 // proxy pattern already in this file (ARIA_API_TOKEN || ARIA_INTERNAL_TOKEN).
 const WA_SERVICE_AUTH = 'Bearer ' + (process.env.ARIA_INTERNAL_TOKEN || process.env.ARIA_API_TOKEN || '');
 
+async function syncWaLinkedGovernance(userId, grant) {
+  const response = await fetch(WA_LISTENER_URL + '/api/wa-listener/governance', { // no-breaker: immediate user safety control must make one bounded authoritative call
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'Authorization': WA_SERVICE_AUTH, 'X-WA-User': userId },
+    body: JSON.stringify({ governance: grant }),
+    signal: AbortSignal.timeout(5000),
+  });
+  if (!response.ok) throw new Error(`aria-wa governance update failed with HTTP ${response.status}`);
+  return response.json();
+}
+
+// R-F3578 — channel choice and consent are server policy, not presentation.
+// The official channel is the default. Linked-device QR creation remains locked
+// until the signed-in user has MFA and creates a complete, time-limited grant.
+app.get('/api/wa/governance', requireAuth, (req, res) => {
+  const user = findUserById(req.user?.userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json(publicGovernanceState(
+    user.waLinkedGrant,
+    (process.env.ARIA_WHATSAPP_OFFICIAL_NUMBER || '').trim(),
+  ));
+});
+
+app.post('/api/wa/governance', requireAuth, express.json({ limit: '50kb' }), async (req, res) => {
+  const user = findUserById(req.user?.userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const { action, totpCode } = req.body || {};
+  if (action === 'pause' || action === 'revoke') {
+    if (!user.waLinkedGrant) return res.status(409).json({ error: 'No linked-device consent exists' });
+    const now = new Date().toISOString();
+    const grant = {
+      ...user.waLinkedGrant,
+      status: action === 'pause' ? 'paused' : 'revoked',
+      pausedAt: action === 'pause' ? now : user.waLinkedGrant.pausedAt,
+      revokedAt: action === 'revoke' ? now : user.waLinkedGrant.revokedAt,
+    };
+    try {
+      await syncWaLinkedGovernance(user.id, grant);
+    } catch (error) {
+      return res.status(503).json({ error: 'governance_sync_failed', message: 'ARIA could not safely change the live linked session. Try again or disconnect the device in WhatsApp.' });
+    }
+    updateUser(user.id, { waLinkedGrant: grant });
+    return res.json(publicGovernanceState(grant, (process.env.ARIA_WHATSAPP_OFFICIAL_NUMBER || '').trim()));
+  }
+  if (action !== 'accept_linked_risk') return res.status(400).json({ error: 'Unsupported governance action' });
+  if (!user.twoFactorEnabled || !user.twoFactorSecret) {
+    return res.status(403).json({ error: 'mfa_required', message: 'Enable two-factor authentication before linked-device access.' });
+  }
+  if (!await verifyTotpCode(totpCode, user.twoFactorSecret)) {
+    return res.status(403).json({ error: 'step_up_failed', message: 'A current authenticator code is required.' });
+  }
+  const issued = issueLinkedGrant(req.body);
+  if (!issued.ok) return res.status(400).json(issued);
+  try {
+    await syncWaLinkedGovernance(user.id, issued.grant);
+  } catch (error) {
+    // No account commonly exists before first consent; the listener returns
+    // success with updated=0. A network failure is different: fail closed so
+    // the browser never reports an active grant the enforcement tier did not see.
+    return res.status(503).json({ error: 'governance_sync_failed', message: 'WhatsApp enforcement is unavailable; linked access was not enabled.' });
+  }
+  updateUser(user.id, { waLinkedGrant: issued.grant });
+  logAudit({
+    adminId: user.id,
+    adminEmail: user.email || '',
+    action: 'wa_linked_consent_created',
+    targetId: user.id,
+    targetEmail: user.email || '',
+    targetName: user.fullName || '',
+    notes: `scope_count=${issued.grant.scopes.length}; expires_at=${issued.grant.expiresAt}`,
+  });
+  return res.json(publicGovernanceState(issued.grant, (process.env.ARIA_WHATSAPP_OFFICIAL_NUMBER || '').trim()));
+});
+
 app.get('/api/wa-listener/accounts', requireAuth, async (req, res) => {
   try {
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts', {
@@ -1326,11 +1404,19 @@ app.get('/api/wa-listener/accounts', requireAuth, async (req, res) => {
 // its name). A route-level express.json() runs the parser before the handler.
 app.post('/api/wa-listener/accounts', requireAuth, express.json({ limit: '100kb' }), async (req, res) => {
   try {
+    const user = findUserById(req.user?.userId);
+    const grantState = linkedGrantState(user?.waLinkedGrant);
+    if (!grantState.active) {
+      return res.status(403).json({
+        error: grantState.code,
+        message: 'Complete the advanced linked-device risk, scope and MFA flow before requesting a QR code.',
+      });
+    }
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts', {
       method: 'POST',
       // R-F1909 (G3): pin the JWT user so the new account is owned by its creator.
       headers: { 'Content-Type': 'application/json', 'Authorization': WA_SERVICE_AUTH, 'X-WA-User': req.user?.userId || '' },
-      body: JSON.stringify(req.body || {}),
+      body: JSON.stringify({ name: req.body?.name || 'My WhatsApp', governance: user.waLinkedGrant }),
       signal: AbortSignal.timeout(15000),
     });
     const data = await r.json();

@@ -100,6 +100,7 @@ import path     from 'path';            // R-F1861: ESM has no require(); import
 import { createClient } from 'redis';
 import { randomBytes, timingSafeEqual } from 'node:crypto';   // R-F1870/R-F1884: per-job callback token (constant-time compare)
 import { AsyncLocalStorage } from 'node:async_hooks';         // R-F1930 (C1): per-inbound {sock,account} context so secondary numbers reply on themselves
+import { buildOperationalEvent, linkedGrantState, linkedMessageAllowed } from '../../lib/whatsapp/waGovernance.mjs';
 
 // R-F1930 (C1): ambient context for the inbound message pipeline. onMessagesUpsert
 // runs each batch inside _waCtx.run({sock, account}); sendReply reads the store to
@@ -414,6 +415,7 @@ function _persistAccounts() {
   try {
     const meta = [..._accounts.values()].map(a => ({
       id: a.id, name: a.name, ownerUserId: a.ownerUserId || '', createdAt: a.createdAt,
+      governance: a.governance || null,
     }));
     fs.writeFileSync(_ACCOUNTS_META_FILE, JSON.stringify(meta));
   } catch (e) {
@@ -434,7 +436,7 @@ async function _loadAccounts() {
     try {
       // only restore an account whose saved creds dir still exists on the volume
       if (!fs.existsSync(_accountPath(m.id))) continue;
-      const acc = await _createAccount(m.id, m.name || m.id, m.ownerUserId || '');
+      const acc = await _createAccount(m.id, m.name || m.id, m.ownerUserId || '', m.governance || null);
       if (m.createdAt) acc.createdAt = m.createdAt;   // preserve original creation time
       restored++;
     } catch (e) {
@@ -444,7 +446,7 @@ async function _loadAccounts() {
   if (restored) console.log(`[ARIA Listener] R-F1927 restored ${restored} WhatsApp account(s) from saved creds (reconnecting)`);
 }
 
-async function _createAccount(accountId, name, ownerUserId = '') {
+async function _createAccount(accountId, name, ownerUserId = '', governance = null) {
   const authDir = _accountPath(accountId);
   fs.mkdirSync(authDir, { recursive: true });  // R-F1861: fs already imported
   
@@ -468,6 +470,7 @@ async function _createAccount(accountId, name, ownerUserId = '') {
     id: accountId,
     name: name || accountId,
     ownerUserId: ownerUserId || '',  // R-F1909 (G3): per-user account ownership
+    governance,
     status: 'connecting',
     sock,
     saveCreds,
@@ -631,15 +634,20 @@ function _isDuplicateMessage(chatId, senderJid, msgTimestamp) {
 const messageStore = [];
 const MAX_STORE    = 500;
 
-function store(groupId, groupName, sender, senderName, text, ts) {
-  const entry = { groupId, groupName, sender, senderName, text, ts };
+function store(groupId, _groupName, _sender, _senderName, _text, ts) {
+  // R-F3578 Gate Zero: operational memory records delivery metadata only. Raw
+  // message text, names and phone identifiers belong to ephemeral processing.
+  const entry = buildOperationalEvent({
+    eventId: randomBytes(12).toString('hex'), chatId: groupId, timestamp: ts,
+    byteCount: Buffer.byteLength(String(_text || ''), 'utf8'), outcome: 'accepted',
+  });
   messageStore.push(entry);
   if (messageStore.length > MAX_STORE) messageStore.shift();
 
   // Persist to Redis for ARIA to access across restarts
   if (redis) {
-    const key = `crucix:wa_listener:messages:${Date.now()}`;
-    redis.setEx(key, 7 * 86400, JSON.stringify(entry)).catch(() => {});
+    const key = `crucix:wa_listener:events:${entry.eventId}`;
+    redis.setEx(key, 86400, JSON.stringify(entry)).catch(() => {});
   }
 }
 
@@ -658,9 +666,10 @@ const _recentDocs = new Map();                 // chatId → [{filename,text,ts,
 // The cache is ALSO persisted to disk (below) so a listener restart no longer
 // wipes it — today a redeploy erased a contract uploaded 59 min earlier, so the
 // review lost the document and the footer read "from memory / training".
-const _RECENT_DOC_TTL_MS = parseInt(process.env.ARIA_RECENT_DOC_TTL_MS || String(24 * 60 * 60 * 1000), 10);
+const _RECENT_DOC_TTL_MS = parseInt(process.env.ARIA_RECENT_DOC_TTL_MS || String(2 * 60 * 60 * 1000), 10);
 const _MAX_DOCS_PER_CHAT = 6;                  // R-F912 — keep several recent docs, not just one
 const _RECENT_DOCS_FILE = process.env.ARIA_RECENT_DOCS_FILE || '/data/recent_docs.json';
+const _RAW_DOC_DISK_CACHE_ENABLED = process.env.ARIA_WA_RAW_DOC_CACHE_ENABLED === '1';
 export const _DOC_REF_PATTERN = /\b(contract|agreement|nda|mou|rfq|tender|document|annex|appendix|clause|terms|paperwork|the\s+file|the\s+pdf|attachment|payment)\b/i;
 // R-F912 — collective/plural reference → the follow-up wants ALL recent docs
 // ("analyse all contracts", "both agreements", "review the documents").
@@ -716,6 +725,7 @@ function _cacheFailedDocRead(chatId, senderName, filename, error) {
 // the operator shared minutes/hours earlier. Best-effort: any failure is logged
 // and ignored — the cache simply falls back to in-memory-only for that write.
 function _persistRecentDocs() {
+  if (!_RAW_DOC_DISK_CACHE_ENABLED) return;
   try {
     fs.writeFileSync(_RECENT_DOCS_FILE, JSON.stringify([..._recentDocs.entries()]));
   } catch (e) {
@@ -724,6 +734,7 @@ function _persistRecentDocs() {
 }
 
 function _loadRecentDocs() {
+  if (!_RAW_DOC_DISK_CACHE_ENABLED) return;
   try {
     const arr = JSON.parse(fs.readFileSync(_RECENT_DOCS_FILE, 'utf-8'));
     let restored = 0;
@@ -1258,10 +1269,10 @@ async function _reportVoiceFailure(groupName, chatId, errMsg) {
 function signalChatFailure(message, senderJid, errMsg) {
   try {
     brainPost('/api/aria/brain/signal', {
-      content: `WA chat failed (${errMsg}). User asked: "${String(message || '').slice(0, 300)}"`,
+      content: `WA chat failed. error_class=${String(errMsg || 'unknown').slice(0, 80)} bytes=${Buffer.byteLength(String(message || ''), 'utf8')}`,
       source: 'aria-wa',
       signal_type: 'wa_chat_failed',
-      metadata: { sender: String(senderJid || ''), error: String(errMsg || '').slice(0, 200) },
+      metadata: { channel: 'whatsapp', error: String(errMsg || '').slice(0, 200) },
     }).catch(() => {});   // best-effort — the brain may be the thing that's down
   } catch { /* never let observability break the reply path */ }
 }
@@ -1653,7 +1664,7 @@ function _resolveLiveSock() {
 function _sendChunkWithRetry(chatId, content, resolveSock) {
   return sendChunkWithRetry(chatId, content, resolveSock, {
     onAttemptFail: (n, total, e) =>
-      console.warn(`[ARIA Listener] R-F2069 send attempt ${n}/${total} to ${chatId} failed: ${e.message}`),
+      console.warn(`[ARIA Listener] send attempt ${n}/${total} failed error_class=${e?.name || 'Error'}`),
   });
 }
 
@@ -1747,7 +1758,7 @@ function _waSenderAllowed(senderJid) {
 async function handleCommand(cmd, args, senderJid, requestId = null) {
   // R-F1821 (audit H6): per-sender allow-list (opt-in via WA_ALLOWED_SENDERS).
   if (!_waSenderAllowed(senderJid)) {
-    console.warn(`[wa] dropped command '${cmd}' from non-allowed sender ${String(senderJid || '').slice(0, 30)}`);
+    console.warn(`[ARIA Listener] command dropped command=${cmd} reason=sender_not_allowed`);
     return '⛔ Not authorized to run this command.';
   }
   // R-F1804 (audit #4): rate-limit per user before any LLM-backed work.
@@ -2222,8 +2233,7 @@ async function startListener() {
   sock.ev.on('presence.update',        () => _markInbound());
 
   // ── THE CORE: receive every group message ──────────────────────────────────
-  sock.ev.on('messages.upsert', (ev) => { _markInbound(); onMessagesUpsert(sock, null, ev); });
-
+  sock.ev.on('messages.upsert', (ev) => onMessagesUpsert(sock, null, ev));
   // R-F2422 — arm the connection watchdog on EVERY (re)start. It was armed once
   // at boot and NULLED after its first fire without re-arming, so a second silent
   // WS drop went uncaught (WA stayed dead until a human noticed). _startWatchdog
@@ -2437,6 +2447,7 @@ async function _handleGuardianIntent(gi, user, chat) {
 }
 
 async function onMessagesUpsert(sock, account, ev) {
+  _markInbound();
   const { messages, type } = ev;
   // Only process new incoming messages, not history
   if (type !== 'notify') return;
@@ -2494,6 +2505,20 @@ async function onMessagesUpsert(sock, account, ev) {
         text = text.slice(0, _WA_MAX_TEXT);
       }
 
+      // R-F3578 — enforce the recorded grant on every inbound event, not only
+      // when the QR is created. Expiry, pause and revocation therefore stop
+      // processing without waiting for a reconnect or trusting the browser.
+      if (account) {
+        const _kind = msg.message?.audioMessage ? 'voice_note'
+          : (msg.message?.documentMessage || msg.message?.imageMessage || msg.message?.videoMessage) ? 'attachment'
+            : 'message';
+        const _allowed = linkedMessageAllowed(account.governance, {
+          chatId, isGroup: _isGroup, kind: _kind,
+        });
+        if (!_allowed.active) continue;
+        if (_allowed.code === 'tagged_only' && !MENTIONS_RE.some((p) => p.test(text || ''))) continue;
+      }
+
       // R-F1994 — loop guard (belt-and-suspenders behind the id-based skip at the
       // top of the loop): drop ARIA's OWN guardian template output echoed back as
       // `fromMe` on a linked account, so a self-ping can't re-arm a check-in and
@@ -2540,7 +2565,7 @@ async function onMessagesUpsert(sock, account, ev) {
       // OCR'd/parsed + LLM-analysed + replied TWICE (double reply + double spend).
       // Gate ALL processing (text AND media) here.
       if (_isDuplicateMessage(chatId, senderJid, msg.messageTimestamp)) {
-        console.log(`[ARIA Listener] Dedup skipped message from ${senderName} in ${groupName}`);
+        console.log('[ARIA Listener] duplicate inbound event skipped');
         continue;
       }
 
@@ -2579,7 +2604,7 @@ async function onMessagesUpsert(sock, account, ev) {
       // times out the WA listener.
       if (imgMsg) {
         const caption = imgMsg.caption || '';
-        console.log(`[ARIA Listener] Image shared in ${groupName} by ${senderName}${caption ? ` "${caption.slice(0,60)}"` : ' (no caption)'}`);
+        console.log(`[ARIA Listener] image accepted caption_bytes=${Buffer.byteLength(caption || '', 'utf8')}`);
         // R-F2061 — only review the image when ARIA is called (named in caption).
         // No mention → observe silently, do not download/OCR/reply (operator rule).
         if (!_ariaCalled) continue;
@@ -2626,7 +2651,7 @@ async function onMessagesUpsert(sock, account, ev) {
             ? `Image shared in WhatsApp group "${groupName}" by ${senderName}. Caption: ${caption.slice(0, 300)}`
             : `Image shared in WhatsApp group "${groupName}" by ${senderName} (no caption)`;
 
-          console.log(`[ARIA Listener] OCR request: ${filename} (${sizeKb} KB)`);
+          console.log(`[ARIA Listener] OCR request bytes_kb=${sizeKb}`);
 
           // ── Async OCR: submit job → get job_id → ack → poll ──────────
           let ocrJob;
@@ -2764,7 +2789,7 @@ async function onMessagesUpsert(sock, account, ev) {
         const mimetype = docMsg.mimetype || '';
         const isProcessable = /pdf|word|spreadsheet|text|csv|octet-stream|msword|officedocument/.test(mimetype);
         if (isProcessable) {
-          console.log(`[ARIA Listener] Processing document: ${filename} (${mimetype})`);
+          console.log(`[ARIA Listener] document accepted media_type=${mimetype}`);
           try {
             const stream = await downloadMediaMessage(msg, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage });  // R-F867 — standalone fn, not a socket method
             const buffer = await collectMediaBuffer(stream); // R-F1870 (audit DD-15): capped collection
@@ -2809,7 +2834,7 @@ async function onMessagesUpsert(sock, account, ev) {
                 }
                 _cacheRecentDoc(chatId, senderName, filename, _cacheText);
                 const summary = result.summary || `${docType} file, ${content.length} characters`;
-                console.log(`[ARIA Listener] Doc processed: ${filename} → ${result.facts_learned || 0} facts (form: ${result.doc_intel?.form_code || '?'})${bytesTruncated ? ' [BYTE-TRUNCATED >8MB]' : ''}`);
+                console.log(`[ARIA Listener] document processed facts=${result.facts_learned || 0} byte_truncated=${bytesTruncated ? 1 : 0}`);
                 const overview = result.overview_markdown;
                 // R-F955 (2026-05-28) — when the document arrives WITH a caption
                 // (the user asked something in the SAME message, e.g. "review this
@@ -2836,7 +2861,7 @@ async function onMessagesUpsert(sock, account, ev) {
                       await sendReply(chatId, _parts[_pi], _pi === _parts.length - 1 ? requestId : undefined);
                     }
                   } catch (e) {
-                    console.warn('[ARIA Listener] R-F955 inline doc+caption review failed:', e.message);
+                    console.warn(`[ARIA Listener] inline document review failed error_class=${e?.name || 'Error'}`);
                     await sendReply(chatId, `📄 I've read *${filename}* but my analysis step failed (${e.message}). Please ask me again in a moment.`, requestId).catch(() => {});
                   }
                 } else if (overview && overview.length > 40) {
@@ -2863,7 +2888,7 @@ async function onMessagesUpsert(sock, account, ev) {
                 // R-F854 cache was never populated, so every follow-up
                 // ("analyse this contract") honestly said "no document in my
                 // context." Surface it so the user can retry or paste the text.
-                console.warn(`[ARIA Listener] R-F856 read-document returned null for ${filename}: ${_docErr || 'unknown'}`);
+                console.warn(`[ARIA Listener] read-document returned no result error_class=${_docErr || 'unknown'}`);
                 // R-F1391 — leave a failure marker so a follow-up mention says
                 // "I couldn't read X" instead of re-attaching an OLDER cached
                 // doc as a silent substitute (the wrong-document failure class).
@@ -2905,7 +2930,7 @@ async function onMessagesUpsert(sock, account, ev) {
           // R-F2107 (ARIA wa DD): unsupported MIME type — tell the user instead
           // of silently dropping their file. Honest feedback: "I can't read this
           // format" rather than a silent no-op that looks like the file was ignored.
-          console.log(`[ARIA Listener] Unsupported document type: ${filename} (${mimetype}) — notifying user`);
+          console.log(`[ARIA Listener] unsupported document media_type=${mimetype}`);
           await sendReply(chatId,
             `📄 I received *${filename}* but can't read \`${mimetype || 'unknown'}\` format. Please send as PDF or text and I'll review it.`
           , requestId).catch(() => {});
@@ -2931,11 +2956,11 @@ async function onMessagesUpsert(sock, account, ev) {
           if (tr && tr.ok && tr.text) {
             text = tr.text;   // transcript flows through the normal text path below
             _isVoiceNote = true;   // R-F963 — treat as an implicit mention (STT drops the wake-word)
-            console.log(`[ARIA Listener] 🎙 Voice note transcribed (${tr.duration_s || '?'}s → ${text.length} chars) in ${groupName} by ${senderName}: ${text.slice(0, 80)}`);
+            console.log(`[ARIA Listener] voice note transcribed duration_s=${tr.duration_s || 0} chars=${text.length}`);
           } else if (tr && tr.skipped === 'disabled') {
-            console.log(`[ARIA Listener] 🎙 Voice note received in ${groupName} — transcription disabled (set ARIA_VOICE_TRANSCRIBE_ENABLED=1 on aria-intel).`);
+            console.log('[ARIA Listener] voice note received; transcription disabled');
           } else {
-            console.warn(`[ARIA Listener] 🎙 Voice transcription failed: ${(tr && tr.error) || 'no response'}`);
+            console.warn('[ARIA Listener] voice transcription failed');
             _reportVoiceFailure(groupName, chatId, (tr && tr.error) || 'no response');
           }
         } catch (e) {
@@ -2956,7 +2981,7 @@ async function onMessagesUpsert(sock, account, ev) {
       // Baileys message refired on reconnect is skipped before media processing.
 
       // Log to console
-      console.log(`[${groupName}] ${senderName}: ${text.slice(0, 100)}`);
+      console.log(`[ARIA Listener] inbound accepted type=${_isGroup ? 'group' : 'direct'} bytes=${Buffer.byteLength(text || '', 'utf8')}`);
       messagesHeard++;
       // R-F1153 — track message rate (sliding 60s window)
       _msgRateTimestamps.push(Date.now());
@@ -3413,7 +3438,7 @@ app.post('/api/wa-listener/callback', requireAuth, async (req, res) => {
     mapping.deliveredViaCallback = true;
     _persistAsyncJobs();  // R-F1918 (G5): record delivery so a restart can't re-deliver
     reportOutcome('wa', requestId, 'chat_response', 'delivered_real_answer', Date.now() - t0);
-    console.log(`[ARIA Listener] R-F1413 callback delivered job ${jobId} to ${chatId} (${message.length} chars)`);
+    console.log(`[ARIA Listener] callback delivered request=${jobId} chars=${message.length}`);
     res.json({ delivered: true, to: chatId, parts: chunks.length });
   } catch (e) {
     // R-F1884: release the in-progress claim on failure so a retry callback can
@@ -3456,9 +3481,37 @@ app.get('/api/wa-listener/accounts', requireAuth, (req, res) => {
   res.json({ accounts: list, count: list.length });
 });
 
+// R-F3578 — consent changes are pushed into the live socket owner state. This
+// closes the otherwise-dangerous gap where the web UI said "paused" while the
+// listener continued processing with its creation-time grant.
+app.put('/api/wa-listener/governance', requireAuth, async (req, res) => {
+  const owner = _waUser(req);
+  if (!owner) return res.status(400).json({ error: 'Owner identity required' });
+  const grant = req.body?.governance || null;
+  let updated = 0;
+  const disconnects = [];
+  for (const account of _accounts.values()) {
+    if (account.ownerUserId !== owner) continue;
+    account.governance = grant;
+    if (grant?.status === 'revoked' && account.sock?.logout) {
+      disconnects.push(Promise.resolve(account.sock.logout()).then(() => {
+        account.connected = false;
+        account.status = 'logged_out';
+      }));
+    }
+    updated++;
+  }
+  const results = await Promise.allSettled(disconnects);
+  if (results.some((result) => result.status === 'rejected')) {
+    return res.status(503).json({ error: 'linked_session_revoke_failed' });
+  }
+  _persistAccounts();
+  return res.json({ updated, state: linkedGrantState(grant).code });
+});
+
 // Create a new account (returns QR code)
 app.post('/api/wa-listener/accounts', requireAuth, async (req, res) => {
-  const { name } = req.body || {};
+  const { name, governance } = req.body || {};
   const accountId = `wa_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   // R-F2984 — ONE WhatsApp connection PER ACCOUNT. Before this the only cap was a
@@ -3467,6 +3520,23 @@ app.post('/api/wa-listener/accounts', requireAuth, async (req, res) => {
   // second connection for the SAME owner (they must remove the existing one first).
   // An admin/internal caller with no pinned user (u === '') keeps the global cap.
   const _owner = _waUser(req);
+  const _grantState = linkedGrantState(governance);
+  // R-F3578 (Claude review) — THE CONSENT CHECK IS UNCONDITIONAL.
+  //
+  // It was `if (_owner && !_grantState.active)`, i.e. skipped entirely whenever
+  // `X-WA-User` was absent, because `_waUser()` returns '' for an admin/internal
+  // caller. So presenting the listener's service auth WITHOUT that header created
+  // a linked device with no consent grant at all — the exact bypass this change
+  // exists to close, and the opposite of Dockerfile.wa's claim that "the internal
+  // service cannot be reached around web consent".
+  //
+  // Unconditional is also the only coherent reading: an ownerless account has no
+  // user who could have consented, so there is nobody whose grant could make it
+  // lawful. The real flow is unaffected — server.mjs always sends both the header
+  // and `governance: user.waLinkedGrant`.
+  if (!_grantState.active) {
+    return res.status(403).json({ error: _grantState.code, message: 'A current linked-device consent grant is required.' });
+  }
   if (_owner) {
     const _ownCount = [..._accounts.values()].filter(a => a.ownerUserId === _owner).length;
     if (_ownCount >= 1) {
@@ -3480,7 +3550,7 @@ app.post('/api/wa-listener/accounts', requireAuth, async (req, res) => {
   }
 
   try {
-    const account = await _createAccount(accountId, name || accountId, _waUser(req));
+    const account = await _createAccount(accountId, name || accountId, _waUser(req), governance || null);
     _persistAccounts();  // R-F1927: record metadata so this link survives a restart
     // R-F1905: poll for QR code instead of fixed 1s wait. Baileys can take
     // 2-5s to generate the QR on first connect. Poll every 500ms for up to 10s.
@@ -3722,11 +3792,18 @@ process.on('unhandledRejection', (reason) => {
 _loadRecentDocs();   // R-F964 — restore the doc cache from disk so a restart doesn't forget shared documents
 _loadAsyncJobs();    // R-F1918 (G5) — restore in-flight job→chat mappings so a callback landing post-restart still delivers
 _loadAccounts().catch(e => console.warn('[ARIA Listener] R-F1927 _loadAccounts failed:', e.message));  // restore linked WhatsApp accounts from saved creds
-startListener().catch(e => {
-  console.error('[ARIA Listener] Fatal error:', e);
-  process.exit(1);
-});
-_startWatchdog();    // R-F1551 — start the connection watchdog
+// R-F3578 — the historical ownerless Baileys session bypasses per-user consent.
+// It is now off by default and may exist only as an explicitly enabled internal
+// experiment. Governed per-user accounts above remain independently available.
+if (process.env.WA_PRIMARY_LINKED_ENABLED === '1') {
+  startListener().catch(e => {
+    console.error('[ARIA Listener] primary experimental session failed:', e);
+    process.exit(1);
+  });
+  _startWatchdog();
+} else {
+  console.log('[ARIA Listener] ownerless primary linked-device session disabled');
+}
 
 
 /*

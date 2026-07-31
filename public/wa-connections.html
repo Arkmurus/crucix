@@ -148,15 +148,74 @@
     }
     .refresh-bar .btn { font-size: 0.78rem; }
     .delete-id { font-size: 0.7rem; color: #9b968c; word-break: break-all; }
+    .mode-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; margin:20px 0; }
+    .mode-card { background:#fff; border:1px solid #e9e6df; border-radius:12px; padding:18px; }
+    .mode-card.recommended { border-color:#25d366; box-shadow:0 0 0 1px rgba(37,211,102,.15); }
+    .mode-card h2 { font-size:1rem; margin:8px 0; }
+    .mode-label { font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:#15803d; }
+    .mode-card p,.risk-panel p,.risk-panel label { font-size:.82rem; line-height:1.45; color:#57534b; }
+    .risk-panel { background:#fff8ed; border:1px solid #f2c98d; border-radius:12px; padding:18px; margin-bottom:18px; }
+    .risk-panel h2 { font-size:1rem; margin-bottom:8px; }
+    .check-list { display:grid; gap:8px; margin:14px 0; }
+    .check-list label { display:flex; gap:9px; align-items:flex-start; }
+    .step-up { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+    .step-up input { min-width:180px; padding:8px 10px; border:1px solid #dcd8cf; border-radius:6px; }
+    .governance-status { font-size:.8rem; padding:9px 12px; border-radius:7px; background:#f3f4f6; margin:10px 0; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1><span class="logo"></span> WhatsApp Connections</h1>
-    <p class="subtitle">One WhatsApp connection per account. Link a device via QR (codes expire after 60 seconds); remove the existing connection to link a different device.</p>
+    <p class="subtitle">Use ARIA through her official number, or explicitly opt into experimental linked-device access. One linked device per user.</p>
 
     <div id="error" class="error"></div>
     <div id="toast" class="toast"></div>
+
+    <section class="mode-grid" aria-label="WhatsApp connection modes">
+      <article class="mode-card recommended">
+        <div class="mode-label">Recommended</div>
+        <h2><i class="bi bi-whatsapp" aria-hidden="true"></i> Message ARIA directly</h2>
+        <p>Use ARIA's official WhatsApp number. ARIA sees only what you deliberately send to her.</p>
+        <a id="officialLink" class="btn btn-primary" href="#" aria-disabled="true">Official number unavailable</a>
+      </article>
+      <article class="mode-card">
+        <div class="mode-label" style="color:#9a6700">Advanced · Experimental</div>
+        <h2><i class="bi bi-whatsapp" aria-hidden="true"></i> Link ARIA to my WhatsApp</h2>
+        <p>ARIA acts as an additional linked device. Protocol changes may cause logout, restriction or account enforcement. A dedicated business number is strongly recommended.</p>
+      </article>
+    </section>
+
+    <section id="riskPanel" class="risk-panel">
+      <h2>Important information before linking ARIA</h2>
+      <p>This mode is optional, unsupported by WhatsApp, time-limited to 30 days and revocable. ARIA cannot guarantee continuity or intercept native-app messages before they are sent.</p>
+      <div class="check-list" id="scopeChecks">
+        <strong>Choose a limited scope</strong>
+        <label><input type="checkbox" name="scope" value="forwarded_or_tagged"> Messages I forward or explicitly tag for ARIA</label>
+        <label><input type="checkbox" disabled> Selected transaction chats only — available after the chat approval interface is reviewed</label>
+        <label><input type="checkbox" disabled> New messages in approved chats — not enabled in this safety-first release</label>
+        <label><input type="checkbox" disabled> Attachments in approved chats — not enabled in this safety-first release</label>
+        <label><input type="checkbox" disabled> Voice notes in approved chats — not enabled in this safety-first release</label>
+        <label><input type="checkbox" disabled> Group chats individually approved — not enabled in this safety-first release</label>
+      </div>
+      <div class="check-list" id="riskChecks">
+        <strong>Confirm every statement</strong>
+        <label><input type="checkbox" name="risk" value="optional_mode"> Linked-device mode is optional.</label>
+        <label><input type="checkbox" name="risk" value="official_channel_available"> I can use ARIA without linking my account.</label>
+        <label><input type="checkbox" name="risk" value="unsupported_integration"> The integration may be unsupported by WhatsApp.</label>
+        <label><input type="checkbox" name="risk" value="account_enforcement_risk"> My session or account could be logged out, restricted or affected.</label>
+        <label><input type="checkbox" name="risk" value="continuity_not_guaranteed"> ARIA cannot guarantee continuity.</label>
+        <label><input type="checkbox" name="risk" value="authorised_account"> I am authorised to link this account.</label>
+        <label><input type="checkbox" name="risk" value="no_unlawful_monitoring"> I will not monitor another person without lawful authority.</label>
+        <label><input type="checkbox" name="risk" value="privacy_retention_reviewed"> I reviewed the privacy and retention settings.</label>
+      </div>
+      <div class="step-up">
+        <input id="totpCode" inputmode="numeric" autocomplete="one-time-code" maxlength="8" aria-label="Authenticator code" placeholder="6-digit authenticator code">
+        <button id="acceptRiskBtn" class="btn btn-primary" disabled>Accept risk and enable QR</button>
+        <button id="pauseBtn" class="btn btn-outline" style="display:none">Pause ARIA</button>
+        <button id="revokeBtn" class="btn btn-danger" style="display:none">Revoke access</button>
+      </div>
+      <div id="governanceStatus" class="governance-status">Checking access state…</div>
+    </section>
 
     <!-- Create new account (R-F2984: one per account — hidden once a connection exists) -->
     <form class="create-bar" id="createBar">
@@ -205,7 +264,9 @@
 
   <script>
     const API = '/api/wa-listener';
+    const GOVERNANCE_API = '/api/wa/governance';
     let accounts = [];
+    let governance = null;
     let pollTimer = null;
 
     async function apiFetch(path, opts = {}) {
@@ -231,6 +292,58 @@
         throw new Error(text || `HTTP ${res.status}`);
       }
       return res.headers.get('content-type')?.includes('json') ? res.json() : res.text();
+    }
+
+    async function governanceFetch(opts = {}) {
+      const token = localStorage.getItem('crucix_token') || '';
+      const res = await fetch(GOVERNANCE_API, {
+        headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + token }, ...opts,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+      return data;
+    }
+
+    function renderGovernance() {
+      const active = Boolean(governance?.linked?.active);
+      const createBar = document.getElementById('createBar');
+      if (!accounts.length) createBar.style.display = active ? '' : 'none';
+      document.getElementById('pauseBtn').style.display = active ? '' : 'none';
+      document.getElementById('revokeBtn').style.display = governance?.linked?.status !== 'not_configured' ? '' : 'none';
+      const status = document.getElementById('governanceStatus');
+      status.textContent = active
+        ? `Linked-device permission active until ${formatTime(governance.linked.expiresAt)}. Scope: ${governance.linked.scopes.join(', ')}.`
+        : `Linked-device access is not active (${governance?.linked?.state || 'consent required'}). No QR can be generated.`;
+      const official = document.getElementById('officialLink');
+      if (governance?.official?.enabled) {
+        official.textContent = 'Message ARIA on WhatsApp';
+        official.href = 'https://wa.me/' + governance.official.number.replace(/[^0-9]/g, '');
+        official.removeAttribute('aria-disabled');
+      }
+    }
+
+    function updateRiskButton() {
+      const scopeCount = document.querySelectorAll('input[name="scope"]:checked').length;
+      const riskBoxes = [...document.querySelectorAll('input[name="risk"]')];
+      document.getElementById('acceptRiskBtn').disabled = !(scopeCount && riskBoxes.every((box) => box.checked));
+    }
+
+    async function acceptLinkedRisk() {
+      const scopes = [...document.querySelectorAll('input[name="scope"]:checked')].map((box) => box.value);
+      const accepted = [...document.querySelectorAll('input[name="risk"]:checked')].map((box) => box.value);
+      try {
+        governance = await governanceFetch({ method:'POST', body:JSON.stringify({ action:'accept_linked_risk', scopes, accepted, totpCode:document.getElementById('totpCode').value }) });
+        renderGovernance();
+        showToast('Advanced linked-device access enabled for 30 days');
+      } catch (e) { showError(e.message); }
+    }
+
+    async function changeLinkedState(action) {
+      try {
+        governance = await governanceFetch({ method:'POST', body:JSON.stringify({ action }) });
+        renderGovernance();
+        showToast(action === 'pause' ? 'ARIA paused' : 'Linked access revoked');
+      } catch (e) { showError(e.message); }
     }
 
     function showError(msg) {
@@ -271,7 +384,7 @@
         if (createBar) createBar.style.display = 'none';
         if (limitNote) limitNote.style.display = 'block';
       } else {
-        if (createBar) createBar.style.display = '';
+        if (createBar) createBar.style.display = governance?.linked?.active ? '' : 'none';
         if (limitNote) limitNote.style.display = 'none';
       }
 
@@ -438,8 +551,13 @@
     document.getElementById('qrModal').addEventListener('click', () => closeQr());
     document.getElementById('qrModalInner').addEventListener('click', (e) => e.stopPropagation());
 
-    // Start polling
-    refresh();
+    document.querySelectorAll('input[name="scope"],input[name="risk"]').forEach((box) => box.addEventListener('change', updateRiskButton));
+    document.getElementById('acceptRiskBtn').addEventListener('click', acceptLinkedRisk);
+    document.getElementById('pauseBtn').addEventListener('click', () => changeLinkedState('pause'));
+    document.getElementById('revokeBtn').addEventListener('click', () => changeLinkedState('revoke'));
+
+    // Start with governance so a stale browser cannot briefly expose QR creation.
+    governanceFetch().then((data) => { governance = data; renderGovernance(); return refresh(); }).catch((e) => showError(e.message));
     pollTimer = setInterval(refresh, 15000);
   </script>
 </body>

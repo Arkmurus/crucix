@@ -61,6 +61,10 @@ COPY services/wa-listener/doc-resubmit.mjs ./services/wa-listener/doc-resubmit.m
 # (ERR_MODULE_NOT_FOUND on boot). Dependency-free (Node only).
 COPY services/wa-listener/log-redact.mjs ./services/wa-listener/log-redact.mjs
 
+# R-F3578 — shared linked-device scope/expiry policy. Both web and aria-wa use
+# this exact module so the internal service cannot be reached around web consent.
+COPY lib/whatsapp/waGovernance.mjs ./lib/whatsapp/waGovernance.mjs
+
 # Cross-module dependency: the listener imports `../../lib/aria/complianceAudit.mjs`.
 # That file only uses Node stdlib (fs/path/url), so copying just it is safe.
 COPY lib/aria/complianceAudit.mjs ./lib/aria/complianceAudit.mjs

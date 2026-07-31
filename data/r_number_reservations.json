@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3581,
+  "next_available": 3582,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29846,6 +29846,16 @@
       "r_number": "R-F3580",
       "title": "R-F3577 wired a consumer to a retired transport - nothing writes the key; correct it and kill the stale comment that caused it",
       "claimed_at": "2026-07-31T17:42:57Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fcb31f8e",
+      "notes": null,
+      "shipped_at": "2026-07-31T18:03:41Z"
+    },
+    {
+      "r_number": "R-F3581",
+      "title": "coincidence drops never reached match_classification - chip said 1, finding said none",
+      "claimed_at": "2026-07-31T17:53:42Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
