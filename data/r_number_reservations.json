@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3537,
+  "next_available": 3538,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29364,16 +29364,17 @@
       "status": "shipped",
       "commit_sha": "32611899",
       "notes": null,
-      "shipped_at": "2026-07-31T07:20:41Z"
+      "shipped_at": "2026-07-31T09:01:50Z"
     },
     {
       "r_number": "R-F3532",
       "title": "DD delete removes the whole version chain the UI promises, idempotent on an absent run",
       "claimed_at": "2026-07-31T07:32:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e3ac71e6",
+      "notes": null,
+      "shipped_at": "2026-07-31T09:01:49Z"
     },
     {
       "r_number": "R-F3533",
@@ -29390,9 +29391,10 @@
       "title": "sanctions designation lane: hourly own heartbeat, global coverage (EU + World Bank), wired failure",
       "claimed_at": "2026-07-31T08:16:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "33a66fe3",
+      "notes": null,
+      "shipped_at": "2026-07-31T09:01:49Z"
     },
     {
       "r_number": "R-F3535",
@@ -29408,6 +29410,16 @@
       "r_number": "R-F3536",
       "title": "intel value chain: anchored tender matching, ambient re-grade, propaganda corroboration, procurement off the intel channel, dashboard coherence",
       "claimed_at": "2026-07-31T08:37:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "12142071",
+      "notes": null,
+      "shipped_at": "2026-07-31T09:01:50Z"
+    },
+    {
+      "r_number": "R-F3537",
+      "title": "GREEN banner rendered over a NOT CLEARED assessment",
+      "claimed_at": "2026-07-31T08:59:52Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
