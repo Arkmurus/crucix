@@ -23,7 +23,7 @@ const { dedupKey, recordPosted } = await import('../lib/telegram/postDedup.mjs')
 function goodSignal(overrides = {}) {
   return {
     id: 'sig-1',
-    signal_type: 'active_tender',
+    signal_type: 'sanctions_change',
     priority: 'HIGH',
     confidence: 'HIGH',
     quality_label: 'decision-grade single-source',

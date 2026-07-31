@@ -20,7 +20,7 @@ const { selectTelegramGoldenIntel } = await import('../lib/telegram/channelServe
 
 function gradeASignal(overrides = {}) {
   return {
-    id: 'sig-A', signal_type: 'active_tender', priority: 'HIGH', confidence: 'HIGH',
+    id: 'sig-A', signal_type: 'sanctions_change', priority: 'HIGH', confidence: 'HIGH',
     intel_grade: 'A', source_tier: 'tier_1a', score: 90,
     // R-F2899 — publishable signals must carry per-item analysis provenance;
     // without it the gate fails closed and this fixture would test nothing.
@@ -40,7 +40,7 @@ describe('R-F2715 per-candidate freshness (#4)', () => {
       signals: [gradeASignal()],
     };
     assert.equal(selectTelegramGoldenIntel(feed)?.id, 'sig-A',
-      'a live official tender must publish even when unrelated feeds failed');
+      'a live official designation must publish even when unrelated feeds failed');
   });
 
   it('a real staleness reason (signals_stale) still blocks the whole feed', () => {

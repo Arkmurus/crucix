@@ -121,7 +121,7 @@
             </div>
           </div>
           <div>
-            <h3 style="font-size:13px;color:#57534b;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Raw Telegram Collection</h3>
+            <h3 style="font-size:13px;color:#57534b;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Channel Collection</h3>
             <div id="osint-list" style="max-height:320px;overflow-y:auto">
               <div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div>
             </div>
@@ -346,9 +346,19 @@ function renderGoldenIntelItem(s, compact) {
     : '<span style="color:var(--sc-muted)">Evidence retained</span>';
   const detected = s.detected_at ? new Date(s.detected_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '';
   const watchlistHits = Array.isArray(s._watchlistHits) ? s._watchlistHits : [];
+  // R-F3536 — "no direct watchlist entity match" was printed on EVERY card, in a
+  // panel titled Portfolio Intelligence that promises "why it may affect your
+  // portfolio". The matcher was working correctly; the live watchlist was simply
+  // EMPTY, so the panel reported a failed match when the truth was that the user
+  // has never said what they care about. "We checked and found nothing" and "you
+  // have told us nothing to check" are different statements, and only one of them
+  // is actionable.
+  const _wlSize = Number(window._wlMatcherSize || 0);
   const relevanceLine = watchlistHits.length
     ? '<div style="font-size:11px;color:#b91c1c;line-height:1.4;margin-bottom:8px"><i class="bi bi-star-fill"></i> Relevant to your watchlist: ' + escHtml(watchlistHits.join(', ')) + '</div>'
-    : '<div style="font-size:11px;color:var(--sc-muted);line-height:1.4;margin-bottom:8px">External development · no direct watchlist entity match</div>';
+    : (_wlSize > 0
+      ? '<div style="font-size:11px;color:var(--sc-muted);line-height:1.4;margin-bottom:8px">External development · no match against your ' + _wlSize + ' watched entit' + (_wlSize === 1 ? 'y' : 'ies') + '</div>'
+      : '<div style="font-size:11px;color:var(--sc-muted);line-height:1.4;margin-bottom:8px">External development · <a href="/watchlist.html" style="color:var(--sc-prime)">add entities to your watchlist</a> to see what affects your portfolio</div>');
   return '<div style="padding:12px 0;border-bottom:1px solid var(--sc-border)">'
     + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
     + intelGradeBadge(s)
@@ -360,7 +370,7 @@ function renderGoldenIntelItem(s, compact) {
     + '<div style="font-size:14px;font-weight:700;color:var(--sc-heading);line-height:1.35;margin-bottom:4px">' + escHtml(s.decision_summary || s.title || 'Untitled signal') + '</div>'
     + '<div style="font-size:12px;color:var(--sc-muted);margin-bottom:6px"><strong style="color:var(--sc-text)">Target:</strong> ' + escHtml(target)
     + ' · <strong style="color:var(--sc-text)">Horizon:</strong> ' + escHtml(s.action_horizon || 'monitor')
-    + ' · <strong style="color:var(--sc-text)">Evidence:</strong> ' + escHtml(s.corroboration || 'single-source')
+    + ' · <strong style="color:var(--sc-text)">Evidence:</strong> ' + escHtml(evidenceLabel(s))
     + '</div>'
     + (why ? '<div style="font-size:12px;color:var(--sc-text);line-height:1.5;margin-bottom:8px">' + escHtml(compact ? truncate(why, 180) : why) + '</div>' : '')
     + '<div style="font-size:11px;color:#9b968c;line-height:1.4;margin-bottom:8px">' + escHtml(s.confidence_rationale || '') + '</div>'
@@ -429,6 +439,10 @@ function renderGoldenIntel(data, wlData) {
   const el = document.getElementById('golden-intel-list');
   if (!el) return;
   const wlMatch = buildWatchlistMatcher(wlData);
+  // R-F3536 — publish what was actually RENDERED so the KPI row above can count
+  // the same rows the reader sees, and so a card can tell "no match" apart from
+  // "no watchlist". Both were computed independently before and disagreed.
+  window._wlMatcherSize = wlMatch.size;
   const rawSignals = (data && Array.isArray(data.signals)) ? data.signals : [];
   const signals = rawSignals.filter(isCustomerVisibleIntel).map(function (signal) {
     const entityText = signal.entities && typeof signal.entities === 'object'
@@ -439,6 +453,7 @@ function renderGoldenIntel(data, wlData) {
   }).sort(function (a, b) {
     return (b._watchlistHits.length - a._watchlistHits.length);
   });
+  window._lastFeedSignals = signals;
   if (!signals.length) {
     el.innerHTML = '<p class="text-muted" style="padding:8px">No material Grade A or Grade B changes are available. Lower-grade and rejected collection remains outside the customer decision layer.</p>';
     return;
@@ -499,6 +514,24 @@ function provenanceBadge(sourceCount) {
   const n = Number(sourceCount) || 0;
   if (n >= 2) return '<span class="sc-badge sc-badge-green" title="Seen across ' + n + ' distinct publishers or channels">✓ ' + n + ' publishers/channels</span>';
   return '<span class="sc-badge sc-badge-muted" title="Seen through one publisher or channel; treat as unconfirmed">single publisher/channel</span>';
+}
+
+// ── R-F3536 — the evidence line must not contradict the grade badge ──────────
+// Every Grade-A card printed "Evidence: single-source" while the badge tooltip
+// said "Official primary evidence or independent corroboration". Both were
+// rendered from the same object, two rows apart, saying opposite things — the
+// customer had no way to know which to believe. They are not actually in
+// conflict: an official primary source IS decision-grade on its own (the source
+// is the authority), and that is what the grader already encodes. So say THAT,
+// rather than a bare "single-source" that reads as uncorroborated.
+function evidenceLabel(s) {
+  const stated = String((s && s.corroboration) || '').trim();
+  const tier = String((s && (s.source_tier || (s.evidence && s.evidence.source_tier))) || '').toLowerCase();
+  const count = Number((s && s.evidence_count) || 0);
+  if (count >= 2) return count + ' independent sources';
+  if (tier === 'tier_1a') return 'official primary source';
+  if (tier === 'tier_1b') return 'official screen against primary lists';
+  return stated || 'single-source, corroboration pending';
 }
 
 // ── R-F2414 — watchlist matcher (personalisation spine). Flags live signals
@@ -735,18 +768,37 @@ async function loadData() {
     // ── R-F2411 — real intelligence KPIs (replaces VIX/Brent/market-direction) ──
     // Every value derives from a populated brain field; nothing is fabricated.
     const corrs0 = Array.isArray(data.correlations) ? data.correlations : [];
-    // High correlations — early research indicators, not customer alerts.
-    const critEls = corrs0.filter(function (c) { return c.severity === 'critical'; });
+    // R-F3536 — every headline number is now derived from the SAME array the
+    // panel below renders, because two of them were counting something else and
+    // visibly disagreeing with the list underneath:
+    //   "3 High Correlations" over a list of 5 (it counted `critical` only, and
+    //   called the result "High"), and "1 Active Tenders" over a feed showing 4.
+    // A KPI that contradicts the list it sits on top of destroys trust in both.
+    const critEls = corrs0.filter(function (c) { return c.severity === 'critical' || c.severity === 'high'; });
     const kCrit = document.getElementById('kpi-critical');
     kCrit.textContent = critEls.length;
-    if (critEls.length > 0) { kCrit.style.color = '#dc2626'; kCrit.title = critEls.length + ' high-scoring research correlation(s)'; }
-    else { kCrit.style.color = ''; kCrit.title = ''; }
-    // Conflict Signals — total ACLED/multi-source signal volume across correlations
+    if (critEls.length > 0) {
+      kCrit.style.color = '#dc2626';
+      const nCrit = corrs0.filter(function (c) { return c.severity === 'critical'; }).length;
+      kCrit.title = critEls.length + ' correlation(s) at high or critical severity (' + nCrit + ' critical) — the same rows listed below';
+    } else { kCrit.style.color = ''; kCrit.title = ''; }
+    // Conflict Signals — total signal volume across the correlations listed below.
     const conflictSignals = corrs0.reduce(function (n, c) { return n + (Number(c.signalCount) || 0); }, 0);
-    document.getElementById('kpi-conflict').textContent = conflictSignals;
-    // Active Tenders — live defence procurement (bdIntelligence, real feed)
-    const tenders = (data.bdIntelligence && data.bdIntelligence.counts && data.bdIntelligence.counts.activeTenders) || 0;
-    document.getElementById('kpi-tenders').textContent = tenders;
+    const kConf = document.getElementById('kpi-conflict');
+    kConf.textContent = conflictSignals;
+    kConf.title = 'Total signals behind the ' + corrs0.length + ' correlation(s) listed below — collection volume, not corroborated events';
+    // Active Tenders — counted from the SAME signal feed the research panel
+    // renders, so the number and the list can never disagree. bdIntelligence
+    // counts a different window and was the source of the 1-vs-4 split.
+    const _feedSignals = Array.isArray(window._lastFeedSignals) ? window._lastFeedSignals : null;
+    const tenders = _feedSignals
+      ? _feedSignals.filter(function (s) { return String(s && s.signal_type) === 'active_tender'; }).length
+      : ((data.bdIntelligence && data.bdIntelligence.counts && data.bdIntelligence.counts.activeTenders) || 0);
+    const kTen = document.getElementById('kpi-tenders');
+    kTen.textContent = tenders;
+    kTen.title = _feedSignals
+      ? tenders + ' active tender(s) in the current research feed'
+      : 'From the procurement feed; the research feed had not loaded yet';
     // Source Health — real feed liveness from /api/health (X/Y OK)
     try {
       const h = await API.get('/api/health');
@@ -834,29 +886,51 @@ async function loadData() {
       }).join('');
     }
 
-    // Telegram OSINT
+    // ── R-F3536 — Telegram collection HEALTH, never raw channel text ─────────
+    //
+    // Operator decision 2026-07-31: keep collecting, stop rendering raw.
+    //
+    // This block used to print verbatim posts from channels ARIA's own
+    // constitution classifies as TIER-D-PROPAGANDA — intelslava and similar —
+    // whose "CONTENT IS NOT FACT" and may never be promoted to [CONFIRMED]
+    // (aria_engine._PROPAGANDA_SOURCE_HINTS, written after the 2026-04-09
+    // incident where an intelslava claim was injected into a customer's RFQ
+    // analysis as fact). Rendering that text verbatim in a paid product puts an
+    // unverified state-aligned claim in front of a customer with ARIA's brand
+    // around it, which is the same failure at the presentation layer.
+    //
+    // The collection is unchanged and still feeds correlation and corroboration.
+    // What is shown is that it is ALIVE and what it is FOR — observability
+    // without publication.
     const osintEl = document.getElementById('osint-list');
     const posts = Array.isArray(data.tg && data.tg.urgent) ? data.tg.urgent : [];
+    const channels = Array.from(new Set(posts.map(function (p) { return String((p && p.channel) || '').trim(); }).filter(Boolean)));
+    const flaggedCount = posts.filter(function (p) { return wlMatch.find(p.text || '').length > 0; }).length;
+    // Personalisation survives the de-rawing (R-F2414's property): naming the
+    // user's OWN watchlist entity is safe — what must not be republished is the
+    // channel's text, not the fact that it mentioned something they watch.
+    const flaggedEntities = Array.from(new Set([].concat.apply([], posts.map(function (p) {
+      return wlMatch.find(p.text || '');
+    }))));
     if (!posts.length) {
-      osintEl.innerHTML = '<p class="text-muted" style="padding:8px">No urgent signals this sweep.</p>';
+      osintEl.innerHTML = '<p class="text-muted" style="padding:8px">No channel signals this sweep.</p>';
     } else {
-      osintEl.innerHTML = posts.slice(0,6).map(function(p) {
-        // R-F2414 — flag posts mentioning a watchlist entity (personalisation)
-        const hits = wlMatch.find(p.text || '');
-        const flagged = hits.length > 0;
-        const wlBadge = flagged
-          ? '<span class="sc-badge sc-badge-red" title="Mentions an entity on your watchlist">⭐ ' + escHtml(hits[0]) + (hits.length > 1 ? (' +' + (hits.length - 1)) : '') + '</span>'
-          : '';
-        return '<div style="padding:8px 0;border-bottom:1px solid var(--sc-border)'
-          + (flagged ? ';background:rgba(239,68,68,0.06);border-left:3px solid #dc2626;padding-left:8px;padding-right:8px' : '') + '">'
-          + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">'
-          + '<span style="font-size:10px;font-weight:700;color:var(--sc-prime)">' + escHtml(p.channel||'OSINT') + '</span>'
-          + wlBadge
-          + '<span style="font-size:10px;color:#9b968c;margin-left:auto">' + (p.date ? new Date(p.date).toLocaleDateString() : '') + '</span>'
-          + '</div>'
-          + '<p style="font-size:12px;color:var(--sc-text);line-height:1.5;margin:0">' + escHtml(truncate(p.text||'',150)) + '</p>'
-          + '</div>';
-      }).join('');
+      osintEl.innerHTML =
+        '<div style="padding:10px 0">'
+        + '<div style="font-size:22px;font-weight:700;color:var(--sc-heading);line-height:1.1">' + posts.length + '</div>'
+        + '<div style="font-size:12px;color:var(--sc-muted);margin-bottom:10px">items collected from ' + channels.length + ' channel' + (channels.length === 1 ? '' : 's') + ' this sweep</div>'
+        + (flaggedCount
+          ? '<div style="font-size:12px;color:#b91c1c;margin-bottom:10px">⭐ ' + flaggedCount + ' mention an entity on your watchlist: '
+            + escHtml(flaggedEntities.slice(0, 4).join(', ')) + '</div>'
+          : '')
+        + '<div style="font-size:11px;color:#9b968c;line-height:1.5">'
+        + 'Channel collection is an INPUT to correlation and corroboration, not a source of intelligence. '
+        + 'These channels are single-source and frequently state-aligned, so their claims are never '
+        + 'published as fact and never count as corroboration on their own. '
+        + 'Anything that survives verification appears in the research feed above, graded.'
+        + '</div>'
+        + '<div style="font-size:11px;color:#9b968c;margin-top:8px">Channels: ' + escHtml(channels.slice(0, 8).join(', ')) + '</div>'
+        + '</div>';
     }
 
     // ── R-F2416 — real Sanctions & Export-Control actions (Federal Register) ──

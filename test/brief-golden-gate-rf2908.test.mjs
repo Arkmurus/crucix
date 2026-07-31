@@ -23,7 +23,7 @@ const hooks = await import('../lib/telegram/channelServerHooks.mjs');
 const SERVER = readFileSync(new URL('../server.mjs', import.meta.url), 'utf8');
 
 const sig = (over = {}) => ({
-  id: 'x', intel_grade: 'A', signal_type: 'active_tender', confidence: 'HIGH', score: 90,
+  id: 'x', intel_grade: 'A', signal_type: 'sanctions_change', confidence: 'HIGH', score: 90,
   title: 'Germany - Fighter aircraft procurement notice',
   why_it_matters: 'Bundesamt (Germany) - deadline 2026-08-11. Matched products: ammunition.',
   recommended_action: 'Assess bid/no-bid - review scope, eligibility and deadline.',

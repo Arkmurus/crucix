@@ -145,6 +145,98 @@ RELEVANCE_KEYWORDS = {
     ],
 }
 
+# ── R-F3536 — generic terms that must not assert a category on their own ─────
+#
+# Live 2026-07-31, from the customer dashboard:
+#   * an ionising-RADIATION PPE tender for a Sicilian hospital trust was labelled
+#     `communication_systems`, because "radio" is a substring of "radiological"
+#     and of the Italian "radiazioni";
+#   * an ELECTRICAL CURRENT SENSOR tender for the Czech national grid operator
+#     (ČEZ Distribuce, an electricity distributor) was labelled
+#     `surveillance_systems` on the bare token "sensor".
+#
+# Two of the four Grade-A items on the dashboard were false positives telling an
+# analyst to bid on hospital PPE and grid hardware. Word boundaries alone do not
+# fix this — "Sensors" is a real word in that tender. The discriminator is that
+# some terms are defence-specific ("mrap", "howitzer", "night vision") and others
+# are ordinary industrial vocabulary that only means defence IN a defence context.
+#
+# A WEAK term therefore asserts a category only when the tender independently
+# looks like defence: a defence CPV prefix, or a STRONG term elsewhere in the text.
+WEAK_KEYWORDS = frozenset({
+    # measurement / electronics — ubiquitous in utilities, healthcare, transport
+    "sensor", "radio", "radar", "monitoring system", "cctv", "intercom",
+    # ordnance words that are also everyday words
+    "shell", "primer", "fuse", "fuze", "cartridge", "calibre", "caliber",
+    "detonation", "propellant", "pyrotechnic",
+    # generic services / logistics
+    "simulation", "training services", "capacity building", "supply chain",
+    "sustainment", "maintenance repair overhaul", "mro", "spare parts",
+    "checkpoint", "perimeter security", "surveillance", "ballistic", "helmet",
+})
+
+
+def _compile_keyword_patterns() -> dict:
+    """Word-boundary patterns, plural-tolerant, whitespace-flexible.
+
+    `"radio" in text` is the defect; `\\bradios?\\b` cannot match "radiological".
+    """
+    out: dict = {}
+    for category, keywords in RELEVANCE_KEYWORDS.items():
+        compiled = []
+        for kw in keywords:
+            body = re.escape(kw.lower()).replace(r"\ ", r"\s+").replace(" ", r"\s+")
+            compiled.append((kw, re.compile(rf"(?<!\w){body}(?:s|es)?(?!\w)", re.IGNORECASE)))
+        out[category] = compiled
+    return out
+
+
+_KEYWORD_PATTERNS = _compile_keyword_patterns()
+
+
+def has_defence_cpv(cpv_codes) -> bool:
+    """True when any CPV code sits under a defence prefix."""
+    for cpv in (cpv_codes or []):
+        code = str(cpv or "").strip()
+        if any(code.startswith(prefix) for prefix in DEFENCE_CPV_PREFIXES):
+            return True
+    return False
+
+
+def match_product_categories(text: str, cpv_codes=None) -> list[str]:
+    """The single answer to "which of our product lines is this tender about?".
+
+    Returns [] rather than a guess. An empty list is honest — a wrong category is
+    an analyst bidding on the wrong thing, and it is printed to the customer as
+    "Matched products: …" on a Grade-A card.
+    """
+    haystack = str(text or "")
+    if not haystack.strip():
+        return []
+    defence_context = has_defence_cpv(cpv_codes)
+
+    strong_hits: list[str] = []
+    weak_hits: list[str] = []
+    for category, patterns in _KEYWORD_PATTERNS.items():
+        for kw, pattern in patterns:
+            if not pattern.search(haystack):
+                continue
+            if kw.lower() in WEAK_KEYWORDS:
+                if category not in weak_hits:
+                    weak_hits.append(category)
+            else:
+                if category not in strong_hits:
+                    strong_hits.append(category)
+                break
+
+    # A weak term counts only in a context that is independently defence-shaped.
+    if defence_context or strong_hits:
+        for category in weak_hits:
+            if category not in strong_hits:
+                strong_hits.append(category)
+    return strong_hits
+
+
 # Defence-related CPV code prefixes (EU Common Procurement Vocabulary)
 DEFENCE_CPV_PREFIXES = [
     "35",       # Security, defence, offence materials
@@ -264,15 +356,11 @@ def _score_relevance(tender: TenderAlert) -> float:
         reasons.append(f"Country {tender.country} is a target market")
 
     # ── Keyword matching (+0.3) ──────────────────────────────────────────
-    keyword_score = 0.0
-    for category, keywords in RELEVANCE_KEYWORDS.items():
-        for kw in keywords:
-            if kw.lower() in text:
-                if category not in matched:
-                    matched.append(category)
-                    keyword_score += 0.1  # Each new category match
-                break
-    keyword_score = min(keyword_score, 0.3)
+    # R-F3536 — one matcher, boundary-anchored and context-aware. The old inline
+    # `kw.lower() in text` substring scan labelled radiological PPE as
+    # communication systems and grid sensors as surveillance systems.
+    matched = match_product_categories(text, tender.cpv_codes)
+    keyword_score = min(0.1 * len(matched), 0.3)
     if keyword_score > 0:
         score += keyword_score
         reasons.append(f"Keywords match: {', '.join(matched[:5])}")

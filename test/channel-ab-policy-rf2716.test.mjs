@@ -21,7 +21,7 @@ const {
 
 function sig(grade, overrides = {}) {
   return {
-    id: `sig-${grade}`, signal_type: 'active_tender', priority: 'HIGH', confidence: 'HIGH',
+    id: `sig-${grade}`, signal_type: 'sanctions_change', priority: 'HIGH', confidence: 'HIGH',
     intel_grade: grade, source_tier: grade === 'A' ? 'tier_1a' : 'tier_2', score: 85,
     // R-F2899 — both lanes require real per-item analysis, not a classifier template.
     why_action_provenance: 'source_adapter',

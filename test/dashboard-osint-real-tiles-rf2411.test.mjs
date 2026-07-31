@@ -131,7 +131,15 @@ try {
 
 ok(String(getEl('kpi-critical').textContent) === '1', 'Critical Alerts = 1 (one critical correlation)');
 ok(String(getEl('kpi-conflict').textContent) === '30', 'Conflict Signals = 30 (22 + 8 signalCount)');
-ok(String(getEl('kpi-tenders').textContent) === '5', 'Active Tenders = 5 (bdIntelligence.counts.activeTenders)');
+// R-F3536 — the KPI now counts the tenders in the RENDERED research feed, not a
+// different window. Live 2026-07-31 it read "Active Tenders 1" directly above a
+// feed listing four, because bdIntelligence.counts and the feed are two
+// different queries. This fixture supplies no feed signals, so the honest answer
+// above an empty panel is 0 — a KPI must never contradict the list it captions.
+ok(String(getEl('kpi-tenders').textContent) === '0',
+   'Active Tenders counts the rendered feed (empty fixture feed → 0, not a stale 5)');
+ok(/research feed/.test(getEl('kpi-tenders').title || ''),
+   'the tile states which set it counted');
 ok(String(getEl('kpi-srchealth').textContent) === '45/48', 'Source Health = 45/48 (/api/health)');
 
 // The removed noise tiles must never be touched by the live code.

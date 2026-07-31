@@ -1,0 +1,242 @@
+"""R-F3536 — the intel value chain: what ARIA claims, grades and publishes.
+
+Everything here was reproduced against LIVE production data before it was fixed.
+
+Dashboard, 2026-07-31, four Grade-A "actionable" tenders shown to the customer:
+
+  Italy   -> communication_systems   because "radio" is inside "radiological"
+  Czechia -> surveillance_systems    because "sensor" is inside "Sensors"
+
+The Italian tender is ionising-radiation PPE for a Sicilian hospital trust; the
+Czech one is electrical current sensors for the national grid operator. Two of
+four Grade-A items told an analyst to assess a bid on hospital PPE and grid
+hardware.
+
+Golden feed, same day, 100 signals:
+
+  Grade A: natural_hazard 46 | active_tender 8 | conflict_escalation 2
+  Grade A: sanctions_change 0
+
+82% of the decision-grade pool was weather — which the channel is not allowed to
+publish — so procurement won the channel by attrition, not by editorial choice.
+"""
+
+from __future__ import annotations
+
+import pathlib
+
+import pytest
+
+from aria_service.intel.tender_monitor import (
+    WEAK_KEYWORDS,
+    match_product_categories,
+)
+from aria_service.intel.news_monitor import _compute_intel_grade
+from aria_service.intel.signal_correlator import _independent_origins
+
+
+_REPO = pathlib.Path(__file__).resolve().parents[2]
+
+
+# ── The classifier: a wrong category is worse than none ──────────────────────
+
+
+@pytest.mark.parametrize("label,text,cpv", [
+    ("radiological PPE, Sicilian hospital trust",
+     "Nuclear, biological, chemical and radiological protection equipment "
+     "Fornitura Dispositivi di Protezione Individuale protezione dalle radiazioni ionizzanti",
+     ["33735100"]),
+    ("electrical current sensors, national grid operator",
+     "Sensors DODAVKY PROUDOVYCH SENZORU current sensors CEZ Distribuce electricity distribution",
+     ["38000000"]),
+])
+def test_live_false_positives_no_longer_assert_a_product_line(label, text, cpv):
+    assert match_product_categories(text, cpv) == [], (
+        f"{label}: still classified as a defence product line"
+    )
+
+
+def test_radio_does_not_match_radiological():
+    """The exact substring defect, isolated."""
+    assert match_product_categories("radiological protection", ["35000000"]) == []
+    assert "communication_systems" in match_product_categories(
+        "supply of tactical radio equipment", ["35000000"])
+
+
+def test_genuine_defence_tenders_still_classify():
+    assert "surveillance_systems" in match_product_categories(
+        "Surveillance and security systems and devices, signal-blocking equipment", ["35120000"])
+    ammo = match_product_categories("Supply of 5.56mm small arms ammunition and mortar rounds", ["35330000"])
+    assert "ammunition" in ammo
+    assert "armoured_vehicles" in match_product_categories(
+        "Military vehicles and associated parts", ["35410000"])
+
+
+def test_a_weak_term_needs_a_defence_context_to_count():
+    """"sensor" in a defence tender is a sensor; in a grid tender it is not."""
+    assert match_product_categories("supply of sensors", ["38000000"]) == []
+    assert "surveillance_systems" in match_product_categories("supply of sensors", ["35000000"])
+
+
+def test_a_weak_term_also_counts_alongside_a_strong_one():
+    """No CPV, but "mrap" makes the context unambiguous."""
+    got = match_product_categories("MRAP protected vehicles with thermal imaging sensors", [])
+    assert "armoured_vehicles" in got
+    assert "surveillance_systems" in got
+
+
+def test_weak_list_covers_the_terms_that_actually_misfired():
+    for term in ("radio", "sensor", "surveillance", "shell", "spare parts"):
+        assert term in WEAK_KEYWORDS, f"{term!r} is generic and must not assert a category alone"
+
+
+def test_plural_and_spacing_variants_still_match():
+    assert "patrol_boats" in match_product_categories("procurement of patrol   boats", ["35000000"])
+
+
+# ── Grading: decision-grade must mean a decision ─────────────────────────────
+
+
+def _grade(**kw):
+    base = dict(
+        source_tier="tier_1a", signal_type="natural_hazard", priority="HIGH",
+        evidence_count=1, url="https://earthquake.usgs.gov/x",
+        entities={"countries": ["TR"]},
+    )
+    base.update(kw)
+    return _compute_intel_grade(**base)
+
+
+def test_an_earthquake_with_no_portfolio_nexus_is_not_decision_grade():
+    grade, reason = _grade()
+    assert grade != "A", "official + HIGH still buys Grade A for ambient weather"
+    assert grade == "B"
+    assert "nexus" in reason
+
+
+def test_the_same_hazard_becomes_decision_grade_when_it_names_what_it_hits():
+    grade, _ = _grade(entities={"countries": ["TR"], "oems": ["Aselsan"]})
+    assert grade == "A", "a hazard naming an affected supplier IS a decision"
+
+
+def test_an_explicit_portfolio_match_also_lifts_an_ambient_signal():
+    grade, _ = _grade(portfolio_nexus=True)
+    assert grade == "A"
+
+
+def test_a_sanctions_designation_is_still_grade_a_on_source_authority():
+    """The lane this whole change exists to unblock must not regress."""
+    grade, _ = _compute_intel_grade(
+        source_tier="tier_1a", signal_type="sanctions_change", priority="HIGH",
+        evidence_count=1, url="https://sanctionssearch.ofac.treas.gov/",
+        entities={"countries": ["RU"]},
+    )
+    assert grade == "A"
+
+
+def test_conflict_escalation_is_not_treated_as_ambient():
+    grade, _ = _compute_intel_grade(
+        source_tier="tier_1a", signal_type="conflict_escalation", priority="HIGH",
+        evidence_count=2, url="https://example.gov/x", entities={"countries": ["YE"]},
+    )
+    assert grade == "A"
+
+
+def test_the_honesty_floor_is_untouched():
+    assert _grade(url="")[0] == "REJECT"
+    assert _grade(entities={})[0] == "REJECT"
+    assert _grade(priority="LOW")[0] == "REJECT"
+
+
+# ── Corroboration: two aggregators are not two witnesses ─────────────────────
+
+
+def test_two_propaganda_channels_are_one_origin():
+    got = _independent_origins([
+        {"source": "intelslava", "url": "telegram:intelslava/1"},
+        {"source": "wartranslated", "url": "telegram:wartranslated/2"},
+    ])
+    assert got == 1, "two state-aligned aggregators were counted as corroboration"
+
+
+def test_a_propaganda_channel_never_corroborates_a_real_publisher():
+    got = _independent_origins([
+        {"source": "intelslava", "url": "telegram:intelslava/1"},
+        {"url": "https://reuters.com/story"},
+    ])
+    assert got == 1, "a propaganda repost was counted as a second witness"
+
+
+def test_genuinely_independent_publishers_still_count():
+    got = _independent_origins([
+        {"url": "https://reuters.com/a"},
+        {"url": "https://apnews.com/b"},
+    ])
+    assert got == 2
+
+
+def test_the_corroboration_rule_reuses_the_constitutional_source_list():
+    """One derivation point: the list that says these are never [CONFIRMED] is the
+    same list that says they never corroborate."""
+    src = (_REPO / "aria_service" / "intel" / "signal_correlator.py").read_text(encoding="utf-8")
+    assert "_looks_like_propaganda_source" in src, (
+        "the correlator maintains its own idea of which channels are unreliable"
+    )
+
+
+# ── Channel policy: procurement is a workflow item, not intelligence ─────────
+
+
+def test_the_intel_channel_no_longer_publishes_open_tenders():
+    hooks = (_REPO / "lib" / "telegram" / "channelServerHooks.mjs").read_text(encoding="utf-8")
+    allowed = hooks.split("_GOLDEN_ALLOWED_TYPES = new Set([", 1)[1].split("]);", 1)[0]
+    assert "'active_tender'" not in allowed, "open tenders are still published as intelligence"
+    for keep in ("'sanctions_change'", "'conflict_escalation'", "'competitor_activity'",
+                 "'contract_award'", "'budget_movement'", "'programme_signal'"):
+        assert keep in allowed, f"{keep} was dropped from the channel"
+
+
+# ── Dashboard coherence ─────────────────────────────────────────────────────
+
+
+def _dashboard() -> str:
+    return (_REPO / "public" / "dashboard.html").read_text(encoding="utf-8")
+
+
+def test_raw_channel_text_is_no_longer_rendered_to_customers():
+    html = _dashboard()
+    assert "Raw Telegram Collection" not in html
+    # the verbatim post body was the thing being published
+    assert "escHtml(truncate(p.text||'',150))" not in html, (
+        "verbatim propaganda-tier channel text is still rendered in the product"
+    )
+    assert "Channel collection is an INPUT" in html, "the collection lost its honest framing"
+
+
+def test_the_kpi_row_counts_the_same_rows_it_sits_above():
+    html = _dashboard()
+    assert "c.severity === 'critical' || c.severity === 'high'" in html, (
+        "'High Correlations' still counts critical only, so 3 sits above a list of 5"
+    )
+    assert "window._lastFeedSignals" in html, (
+        "the tender KPI still counts a different window from the feed it sits above"
+    )
+
+
+def test_grade_a_no_longer_prints_single_source_against_itself():
+    html = _dashboard()
+    assert "function evidenceLabel(s)" in html
+    assert "escHtml(s.corroboration || 'single-source')" not in html, (
+        "Grade A cards still print 'Evidence: single-source' under an "
+        "'official primary evidence' badge"
+    )
+    assert "official primary source" in html
+
+
+def test_an_empty_watchlist_is_reported_as_empty_not_as_no_match():
+    html = _dashboard()
+    assert "add entities to your watchlist" in html, (
+        "a user with no watchlist is told the match failed rather than that they "
+        "have not told ARIA what they care about"
+    )
+    assert "window._wlMatcherSize" in html

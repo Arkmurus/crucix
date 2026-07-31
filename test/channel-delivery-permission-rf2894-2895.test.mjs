@@ -133,7 +133,7 @@ test('R-F2893: the channel asks the SERVER for the grades it can publish', async
 // ── R-F2896 ────────────────────────────────────────────────────────────────
 
 const GRADE_A = {
-  id: 'a1', intel_grade: 'A', signal_type: 'active_tender', confidence: 'MEDIUM',
+  id: 'a1', intel_grade: 'A', signal_type: 'sanctions_change', confidence: 'MEDIUM',
   title: 'Germany - Fighter aircraft - procurement notice', why_it_matters: 'why',
   recommended_action: 'Assess bid/no-bid', url: 'https://ted.europa.eu/en/notice/1',
   detected_at: '2026-07-23T06:02:55Z', score: 60,
@@ -253,7 +253,7 @@ const TEMPLATE_NEWS = {
 };
 
 const ADAPTER_TENDER = {
-  id: 't1', intel_grade: 'A', signal_type: 'active_tender', confidence: 'MEDIUM',
+  id: 't1', intel_grade: 'A', signal_type: 'sanctions_change', confidence: 'MEDIUM',
   title: 'Germany - Fighter aircraft - Bordkanonenbeladesystem EUROFIGHTER',
   why_it_matters: 'Bundesamt fuer Ausruestung (Germany) - value undisclosed, deadline 2026-08-11. Matched products: ammunition.',
   recommended_action: 'Assess bid/no-bid - review scope, eligibility and deadline.',

@@ -128,8 +128,17 @@ const summary = getEl('wl-signal-match').innerHTML;
 ok(summary.includes('Acme Corporation') && /live signal/.test(summary), 'watchlist summary names the matched entity');
 ok(getEl('wl-signal-match').style.display === '', 'watchlist summary is shown (display cleared)');
 const osint = getEl('osint-list').innerHTML;
-ok(osint.includes('⭐') && osint.includes('Acme Corporation'), 'the matching Telegram post is flagged ⭐');
-ok((osint.match(/⭐/g) || []).length === 1, 'only the matching post is flagged (not the unrelated one)');
+// R-F3536 — the channel block no longer renders one row per post (verbatim
+// propaganda-tier text is not republished to customers), so "the matching POST
+// carries a star" is no longer the shape of the answer. R-F2414's PROPERTY is
+// unchanged and still asserted: a channel item mentioning the user's own
+// watchlist entity is surfaced, by name, and an unrelated item is not.
+ok(osint.includes('⭐') && osint.includes('Acme Corporation'),
+   'a channel item mentioning a watchlist entity is surfaced by name');
+ok(/1 mention an entity on your watchlist/.test(osint),
+   'exactly the matching item is counted (not the unrelated one)');
+ok(!osint.includes('unrelated'),
+   'raw channel text must not be rendered back to the customer');
 const corr = getEl('correlations-list').innerHTML;
 // R-F3342 — same correction as the unit block above: the rendered correlation
 // shows the publisher COUNT, not a corroboration claim.

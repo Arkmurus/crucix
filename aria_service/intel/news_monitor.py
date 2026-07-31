@@ -1014,6 +1014,22 @@ def _quality_label(priority: str, confidence: str, evidence_count: int) -> str:
     return "context"
 
 
+# R-F3536 — signal types that describe the WORLD rather than a counterparty.
+# Official and true, but not a decision on their own. See _compute_intel_grade.
+_AMBIENT_SIGNAL_TYPES = frozenset({"natural_hazard", "political_transition"})
+
+
+def _has_specific_nexus(entities: dict) -> bool:
+    """True when a signal names something more specific than a country.
+
+    A country tag is where a thing happened; an OEM, product line or named
+    programme is who it happens TO. Only the latter makes an ambient event
+    actionable for a particular customer.
+    """
+    ents = entities or {}
+    return bool(ents.get("oems") or ents.get("products") or ents.get("facilities"))
+
+
 def _compute_intel_grade(
     *,
     source_tier: str,
@@ -1022,6 +1038,7 @@ def _compute_intel_grade(
     evidence_count: int,
     url: str,
     entities: dict,
+    portfolio_nexus: bool = False,
 ) -> tuple[str, str]:
     """R-F2714 — formal publication grade A|B|C|REJECT for channel intelligence.
 
@@ -1067,6 +1084,24 @@ def _compute_intel_grade(
         return "REJECT", "no specific named entity / programme / designation"
     if not actionable or prio == "LOW":
         return "REJECT", "context-only / low operational relevance"
+
+    # R-F3536 — AMBIENT signals cannot buy Grade A with source authority alone.
+    #
+    # Measured live 2026-07-31: of 56 Grade-A signals, 46 were `natural_hazard`.
+    # They are official (USGS/GDACS are tier_1a) and true, and they were crowding
+    # out every designation and escalation in the pool — and the channel then
+    # discarded them anyway because natural_hazard is not a publishable type. So
+    # 82% of the decision-grade pool was unusable by construction, and procurement
+    # won the channel by default.
+    #
+    # An earthquake is not a decision unless it touches something you hold.
+    # Grade A therefore requires a NEXUS — a named organisation, product line or
+    # facility, or an explicit portfolio match — not merely a country. Without one
+    # it is situational awareness: real, worth showing, not decision-grade.
+    if stype in _AMBIENT_SIGNAL_TYPES and not (portfolio_nexus or _has_specific_nexus(ents)):
+        if prio in ("HIGH", "MEDIUM") and credible:
+            return "B", "ambient signal: official but no portfolio nexus; situational awareness"
+        return "C", "ambient signal with no portfolio nexus"
 
     # Grade A — official/primary OR corroborated, at HIGH relevance.
     if prio == "HIGH" and (tier == "tier_1a" or corroborated or official):

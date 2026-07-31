@@ -611,12 +611,37 @@ def _independent_origins(signals: list[dict]) -> int:
         return 0
     try:
         from .dd_independent_verifier import count_independent_origins
+        from ..aria_engine import _looks_like_propaganda_source
         sources = []
+        # R-F3536 — propaganda-tier channels are ONE origin between them, however
+        # many of them repost a claim.
+        #
+        # The union-find collapses same-story and same-publisher, but two war
+        # aggregators rewording the same claim look like two publishers with two
+        # stories, so "✓ 2 publishers/channels" was rendered as corroboration on
+        # the correlation cards — with 4 of 6 raw items on the live dashboard
+        # coming from a single channel. ARIA's constitution already states these
+        # sources' CONTENT IS NOT FACT and may never reach [CONFIRMED]
+        # (aria_engine._PROPAGANDA_SOURCE_HINTS, after the 2026-04-09 Lebanon
+        # fabrication). A rule that says a claim from one of them is unconfirmed,
+        # but two of them are corroboration, contradicts itself. Same list, one
+        # derivation point: they collapse into a single synthetic origin.
+        _propaganda_seen = False
         for s in signals:
             loc = (s.get("url") or "").strip() or (s.get("source") or "").strip()
+            if _looks_like_propaganda_source(loc) or _looks_like_propaganda_source(
+                    (s.get("source") or "").strip()):
+                _propaganda_seen = True
+                continue
             story = (s.get("story") or s.get("content_hash") or "").strip()
             sources.append({"url": loc, "story": story} if story else {"url": loc})
-        return int(count_independent_origins(sources))
+        origins = int(count_independent_origins(sources)) if sources else 0
+        # Propaganda-tier coverage contributes AT MOST one origin, and only when
+        # nothing else is behind the story — never a second witness alongside a
+        # real one, and never enough on its own to clear a corroboration gate.
+        if _propaganda_seen and origins == 0:
+            origins = 1
+        return origins
     except Exception as exc:
         logger.warning(
             "[R-F3487] independence count failed — treating as SINGLE origin "

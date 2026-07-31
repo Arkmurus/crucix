@@ -23,7 +23,7 @@ const fresh = { stale: false, stale_reasons: [], blocking_stale_reasons: [], pub
 
 function sig(over = {}) {
   return {
-    id: 'x', intel_grade: 'A', signal_type: 'active_tender', confidence: 'HIGH',
+    id: 'x', intel_grade: 'A', signal_type: 'sanctions_change', confidence: 'HIGH',
     title: 'Germany - Fighter aircraft procurement notice',
     why_it_matters: 'Bundesamt (Germany) — deadline 2026-08-11. Matched products: ammunition.',
     recommended_action: 'Assess bid/no-bid — review scope, eligibility and deadline.',
