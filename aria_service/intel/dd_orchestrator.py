@@ -10700,7 +10700,10 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
             all_findings.append(f)
     severity_order = {"hard_stop": 0, "red": 1, "amber": 2, "info": 3}
     all_findings.sort(key=lambda f: severity_order.get(getattr(f, "severity", "info"), 4))
-    report.synthesis.key_findings = all_findings[:10]
+    # R-F3571 — cap any ONE check's share of the summary. `all_findings[:10]` let
+    # network_walker take 3 of 10 slots with the same observation about three
+    # officers, pushing the sanctions screen and contract exposure out of view.
+    report.synthesis.key_findings = _rollup_key_findings(all_findings)
 
     # ── 6f. Residual unknowns = all data_gaps combined (R-F2275: sanitised) ──
     def _sanitize_gap(g: str):
@@ -13116,6 +13119,58 @@ def _promote_positives_into_body(body: dict, am_result: dict) -> int:
         existing.append(f)
         added += 1
     return added
+
+
+#: R-F3571 — how many key_findings any ONE producing check may contribute before the
+#: rest of its output is deferred to the backfill pass.
+_KEY_FINDINGS_PER_SOURCE = 2
+_KEY_FINDINGS_MAX = 10
+
+
+def _rollup_key_findings(all_findings: list, *, limit: int = _KEY_FINDINGS_MAX) -> list:
+    """R-F3571 — a severity-ranked summary that one check cannot monopolise.
+
+    THE DEFECT, measured on a live report (Chemring, dd2_uk): 3 of the 10 key findings
+    were `network_walker` "Director X has N+ cross-linked appointments" lines, all
+    amber, all the same point about three different people. Three of ten slots in the
+    executive summary spent restating one observation, crowding out the sanctions
+    screen, the LEI and the federal-contract exposure further down the list.
+
+    That is what the operator saw as duplication. The findings are not duplicates —
+    they concern different officers — but at summary granularity they are one signal,
+    and a BLUF that repeats a signal three times is a worse BLUF.
+
+    NOTHING IS HIDDEN. This re-orders a 10-item view of a list that stays complete in
+    its own section; a deferred finding is still rendered under `network`. Severity
+    primacy is preserved absolutely: the pass never lets a lower-severity finding
+    displace a higher one, it only defers a REPEAT from the same source, and the
+    backfill re-admits the deferred items in their original order when spare slots
+    remain. So on a report with few distinct sources the output is unchanged.
+    """
+    def _source_key(f) -> str:
+        # R-F1946 — the " [from <url>]" suffix on Finding.source is load-bearing for
+        # other consumers, so it is stripped for GROUPING only and never written back.
+        src = str(getattr(f, "source", "") or "")
+        return src.split(" [from ")[0].strip().lower() or "(unattributed)"
+
+    picked: list = []
+    deferred: list = []
+    per_source: dict[str, int] = {}
+    for f in all_findings:
+        key = _source_key(f)
+        if per_source.get(key, 0) >= _KEY_FINDINGS_PER_SOURCE:
+            deferred.append(f)
+            continue
+        per_source[key] = per_source.get(key, 0) + 1
+        picked.append(f)
+        if len(picked) >= limit:
+            break
+
+    # Backfill: an under-filled summary helps nobody, so spare slots go back to the
+    # deferred items in their original (severity-sorted) order.
+    if len(picked) < limit:
+        picked.extend(deferred[: limit - len(picked)])
+    return picked[:limit]
 
 
 def _positive_source_rows(report) -> list[dict]:
