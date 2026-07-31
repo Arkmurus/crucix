@@ -3212,41 +3212,23 @@ async def lifespan(app: FastAPI):
     regional_snapshot_task = _singleton_task(_regional_snapshot_loop, "regional_snapshot_loop")  # R-F2957 singleton
     logger.info("Student loops started: self-quiz (3h), reading (6h), library consolidate (24h), regional snapshot (6h)")
 
-    # ── R-F3577 — WEB-TIER BRAIN SIGNAL CONSUMER (R-F1060), never started ────
+    # ── R-F3580 — R-F3577 IS REVERTED HERE. It wired a reader to a DEAD PIPE. ──
     #
-    # server.mjs:7709 and apis/briefing.mjs:847 push sweep signals to the Redis
-    # list crucix:brain:incoming_signals on every web-tier sweep. The consumer
-    # for that list existed and was started by NOBODY: it relied on an
-    # import-time side effect, and the R-F3573 orphan audit showed no production
-    # module imports it. Its own docstring said "call start_consumer() from
-    # lifespan startup" — this is that call, written five R-numbers of drift
-    # later. Until now every web-tier signal was pushed into a list nothing
-    # drained (§21b: no dark engines, cross-tier included).
+    # R-F3577 registered intel/brain_signal_consumer.py to poll the Redis list
+    # crucix:brain:incoming_signals, on the premise that the Node web tier writes
+    # to it. IT DOES NOT, and has not for a long time. A repo-wide grep for that
+    # key finds ONLY: a stale COMMENT in apis/briefing.mjs (now corrected), the
+    # consumer's own constant, and R-F3577's own code and test. No writer exists.
     #
-    # _singleton_task, not asyncio.create_task: this must run on the engine
-    # process only, or N web workers would each drain the same list and race for
-    # the same signals. respawn stays True (default) — _consume_loop is a genuine
-    # while-True loop, so the R-F2668 one-shot exception does not apply.
-    try:
-        from .intel.brain_signal_consumer import _consume_loop as _brain_signal_loop
-        brain_signal_task = _singleton_task(_brain_signal_loop, "brain_signal_consumer")
-        logger.info("[R-F3577] web-tier brain signal consumer registered (crucix:brain:incoming_signals)")
-    except Exception as _bsc_e:
-        logger.error("[R-F3577] brain signal consumer FAILED to start: %s", _bsc_e, exc_info=True)
-        try:
-            from .intel.engine_wiring import wire_failure as _wf_bsc
-            _wf_bsc(
-                module="brain_signal_consumer",
-                detail=f"consumer failed to register at boot ({type(_bsc_e).__name__}) — "
-                       f"web-tier signals will accumulate unread",
-                gap_type="engine_failure",
-                source="main:lifespan",
-            )
-        except Exception:
-            # R-F672 — NOT `pass`. A silent except inside lifespan is the class
-            # that guard exists to stop, and the boot path is exactly where a
-            # swallowed error becomes an outage nobody can explain (§9).
-            logger.debug("[R-F3577] consumer failure wiring failed", exc_info=True)
+    # What actually carries web-tier signals is HTTP: pushSignalsToBrain() POSTs
+    # to /brain/signal/bulk (routes/aria.py:17067, R-F2505), which absorbs them
+    # as cross_tier:{sig_type}. Live-verified on /api/aria/brain/stats — 120
+    # signals under cross_tier:crucix_briefing_signal, last seen 0.1h ago. The
+    # cross-tier path was never dark; only its retired transport was.
+    #
+    # The consumer module is DELETED rather than left registered: a 60s loop
+    # polling a key nothing writes is pure cost, and leaving it in place is what
+    # made the stale comment look corroborated in the first place.
 
     # ── RUNPOD SCHEDULER (R-F1335) ──────────────────────────────────────
     # ARIA runs her own GPU reasoning window: pod ON 10:00-18:00

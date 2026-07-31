@@ -425,51 +425,18 @@ async def test_brain_signal_path() -> dict[str, Any]:
     except Exception as e:
         result["endpoint_check_error"] = str(e)[:200]
 
-    # Check that the brain_signal_consumer is wired
-    try:
-        consumer_file = os.path.join(
-            os.path.dirname(__file__), "brain_signal_consumer.py"
-        )
-        consumer_content = _cached_source(consumer_file)
-        # ── R-F3577 — THESE TWO ASSERT THE SOURCE TEXT, NOT THE BEHAVIOUR ────
-        #
-        # Both were TRUE for five R-numbers while the consumer had never run:
-        # "_auto_started" appeared in the file (as a variable the import-time
-        # start assigned) and the Redis key appeared in the file (as the constant
-        # it polls). Neither says the loop is RUNNING. Nothing imported the
-        # module, so the import-time start never fired, and this monitor reported
-        # a wired cross-tier path the whole time.
-        #
-        # Kept, because they do detect the constant being renamed away — but
-        # renamed to say what they actually measure, and joined by the check that
-        # matters: is the consumer REGISTERED as a background loop by lifespan?
-        result["consumer_source_mentions_auto_start"] = "_auto_started" in consumer_content
-        result["consumer_source_mentions_key"] = "crucix:brain:incoming_signals" in consumer_content
-        try:
-            main_file = os.path.join(os.path.dirname(__file__), "..", "main.py")
-            main_content = _cached_source(main_file)
-            result["consumer_registered_in_lifespan"] = (
-                "brain_signal_consumer" in main_content
-                and "_singleton_task" in main_content
-            )
-        except Exception as e:  # pragma: no cover - path/IO only
-            result["consumer_registration_check_error"] = str(e)[:200]
-            result["consumer_registered_in_lifespan"] = None
-        # The live answer, not a source scan: has the loop actually been started
-        # in THIS process? None when the module was never imported at all, which
-        # is itself the honest reading of "the consumer is not running here".
-        try:
-            import sys as _sys
-            _mod = _sys.modules.get("aria_service.intel.brain_signal_consumer")
-            if _mod is None:
-                result["consumer_task_live"] = None
-            else:
-                _task = getattr(_mod, "_auto_started", None)
-                result["consumer_task_live"] = bool(_task and not _task.done())
-        except Exception:
-            result["consumer_task_live"] = None
-    except Exception as e:
-        result["consumer_check_error"] = str(e)[:200]
+    # ── R-F3580 — the brain_signal_consumer checks are REMOVED with the module ──
+    #
+    # They asserted the consumer's own SOURCE TEXT ("_auto_started" in it, the
+    # Redis key in it) and were true for its entire life while the loop had never
+    # run. R-F3577 then "fixed" that by starting the loop — against a key NOTHING
+    # WRITES. Both the monitor and the fix were reading a retired transport.
+    #
+    # The cross-tier signal path is HTTP and is checked below via the endpoint and
+    # the producer: pushSignalsToBrain() -> /brain/signal/bulk (R-F2505). That is
+    # the path carrying real traffic (live: 120 signals absorbed under
+    # cross_tier:crucix_briefing_signal), so it is the one worth monitoring.
+    result["redis_signal_transport"] = "retired"
 
     # Check that the web tier's pushSignalsToBrain is NOT a no-op
     try:

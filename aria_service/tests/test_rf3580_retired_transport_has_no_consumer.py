@@ -1,215 +1,151 @@
-"""R-F3577 — the web tier pushed brain signals into a list nothing drained.
+"""R-F3580 — R-F3577 wired a reader to a DEAD PIPE. This is the correction.
 
-`apis/briefing.mjs::pushSignalsToBrain` writes sweep signals to the Redis list
-`crucix:brain:incoming_signals`, and it is LIVE — called from `server.mjs:7709`
-and `apis/briefing.mjs:847`. `intel/brain_signal_consumer.py` is the reader.
-**Nothing started it**, so every web-tier signal was pushed and never consumed:
-a producer with no reader, which is the cross-tier darkness §21b exists to stop.
+R-F3577 registered `intel/brain_signal_consumer.py` in lifespan to poll the Redis
+list `crucix:brain:incoming_signals`, on the premise that the Node web tier writes
+to it. **It does not.** A repo-wide grep for that key finds only: a stale COMMENT
+in `apis/briefing.mjs`, the consumer's own constant, and R-F3577's own code and
+test. There is no writer, and there has not been one for a long time.
 
-Three compounding causes, and each hid the next:
+HOW THE ERROR SURVIVED, because the mechanism is the point:
 
-  1. The consumer started itself as an IMPORT-TIME side effect
-     (`asyncio.get_running_loop()` then `start_consumer()`), and **nothing
-     imports the module** — proven by the R-F3573 orphan audit. An import-time
-     side effect cannot fire without an import.
-  2. Its fallback comment said "the consumer will be started when lifespan calls
-     start_consumer()". Lifespan never called it. The comment asserted a caller
-     that was never written.
-  3. The §21a wiring sat INSIDE the `except RuntimeError` branch, so
-     `wire_success("brain_signal_consumer module active")` fired on exactly the
-     path where the consumer had NOT started — the brain was told the module was
-     active by the code handling its failure to start.
+  * I verified the producer FUNCTION was still called — `pushSignalsToBrain(` is
+    live at `server.mjs:7709`. I did NOT verify that the function still writes the
+    KEY. It POSTs to `/brain/signal/bulk` (R-F2505); the Redis write is long gone.
+  * `apis/briefing.mjs:629` said "The brain reads from
+    crucix:brain:incoming_signals and generates ML leads". That comment was false
+    and load-bearing in the wrong direction.
+  * My own capability test asserted `"crucix:brain:incoming_signals" in briefing`
+    — which matched THE COMMENT. The test enshrined the defect it was written to
+    prove, so it passed while the premise was wrong.
 
-And the monitor that was supposed to catch this asserted the module's SOURCE TEXT
-(`"_auto_started" in consumer_content`), which stayed true throughout. Cf.
-[[assert-the-property-not-the-wording]].
+This is the exact failure CLAUDE.md records for Phase A gate #4 (R-F2643): a gate
+certified by a key nothing writes. **Grep the WRITER of every key.** A function
+being called is not evidence about what it writes.
+
+The cross-tier path was never dark. Live-verified on /api/aria/brain/stats: 120
+signals under `cross_tier:crucix_briefing_signal`, last seen 0.1h ago, arriving
+over HTTP. Only the retired transport was empty.
 """
 
 from __future__ import annotations
 
-import ast
-import inspect
 import pathlib
+import re
 
 import pytest
 
 
 _REPO = pathlib.Path(__file__).resolve().parents[2]
+_RETIRED_KEY = "crucix:brain:incoming_signals"
 
 
-def test_the_producer_is_actually_live():
-    """Verify the premise before the fix: if nothing pushed, there would be
-    nothing to drain and this whole change would be pointless."""
-    server = (_REPO / "server.mjs").read_text(encoding="utf-8", errors="replace")
-    briefing = (_REPO / "apis" / "briefing.mjs").read_text(encoding="utf-8", errors="replace")
-    assert "pushSignalsToBrain(" in server, "the web tier no longer pushes signals"
-    assert "crucix:brain:incoming_signals" in briefing
-    assert "no-op since Upstash retirement" not in briefing, (
-        "the producer has been turned into a no-op — the consumer is then moot"
-    )
+def _writer_sites() -> list[str]:
+    """Every place that could WRITE the retired key — a list push or a set.
 
-
-def test_the_consumer_is_registered_in_lifespan():
-    """THE FIX. The docstring asked for this call for five R-numbers."""
-    main_src = (_REPO / "aria_service" / "main.py").read_text(encoding="utf-8")
-    assert "brain_signal_consumer" in main_src, (
-        "lifespan does not reference the consumer — it will never start"
-    )
-    assert "_singleton_task(_brain_signal_loop" in main_src, (
-        "the consumer must start via _singleton_task (R-F2073), not "
-        "asyncio.create_task: on a multi-worker web role every worker would "
-        "drain the same Redis list and race for the same signals"
-    )
-
-
-def test_the_import_time_autostart_is_gone():
-    """It could never work (nothing imports the module) and it produced the
-    false success signal. A module must not start its own background loop as an
-    import side effect."""
-    src = (_REPO / "aria_service" / "intel" / "brain_signal_consumer.py").read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    for node in tree.body:
-        if isinstance(node, ast.Try):
-            calls = [
-                ast.unparse(n.func)
-                for n in ast.walk(node)
-                if isinstance(n, ast.Call)
-            ]
-            assert "start_consumer" not in calls, (
-                "module-level start_consumer() is back — an import-time side "
-                "effect that cannot fire, because nothing imports this module"
-            )
-
-
-def test_the_success_signal_is_not_on_the_failure_path():
-    """`wire_success("module active")` used to live inside `except RuntimeError`,
-    i.e. it fired only when the consumer had NOT started."""
-    src = (_REPO / "aria_service" / "intel" / "brain_signal_consumer.py").read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ExceptHandler):
+    Deliberately searches for the WRITE VERB near the key, not the key alone:
+    counting mentions is what made R-F3577 believe a producer existed.
+    """
+    hits: list[str] = []
+    patterns = re.compile(r"(lpush|rpush|lPush|rPush|\.set\(|setJson|set_json)")
+    for path in list(_REPO.rglob("*.mjs")) + list(_REPO.rglob("*.js")) + list(_REPO.rglob("*.py")):
+        if any(p in path.parts for p in ("node_modules", ".venv", "tests", "test", ".git")):
             continue
-        for call in [n for n in ast.walk(node) if isinstance(n, ast.Call)]:
-            name = ast.unparse(call.func).split(".")[-1]
-            assert name != "wire_success", (
-                "a wire_success sits inside an exception handler — a success "
-                "signal on a failure path is a false claim to the brain"
-            )
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        if _RETIRED_KEY not in text:
+            continue
+        for i, line in enumerate(text.splitlines(), 1):
+            if _RETIRED_KEY in line and patterns.search(line):
+                hits.append(f"{path.relative_to(_REPO)}:{i}")
+    return hits
 
 
-def test_the_loop_factory_matches_what_singleton_task_expects():
-    """_singleton_task takes a ZERO-ARG coroutine function. Passing a coroutine
-    object, or a sync function, fails at boot — the F28 class (§9)."""
-    from aria_service.intel.brain_signal_consumer import _consume_loop
-
-    assert inspect.iscoroutinefunction(_consume_loop)
-    sig = inspect.signature(_consume_loop)
-    required = [
-        p for p in sig.parameters.values()
-        if p.default is inspect.Parameter.empty
-        and p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)
-    ]
-    assert not required, f"_consume_loop takes required args {required}; the factory must be zero-arg"
-
-
-@pytest.mark.asyncio
-async def test_a_drained_signal_reaches_the_brain_and_signals_success(monkeypatch):
-    """Drive the real loop body once: a signal on the list must reach
-    brain_hook.absorb AND emit the §21a success branch."""
-    from aria_service.intel import brain_signal_consumer as bsc
-
-    absorbed, signals = [], []
-    popped = {"done": False}
-
-    async def _fake_lpop(key, count=10):
-        if popped["done"]:
-            raise _Stop()
-        popped["done"] = True
-        assert key == "crucix:brain:incoming_signals"
-        return ['{"content": "web tier saw a tender", "signal_type": "web_sweep_signal"}']
-
-    async def _fake_absorb(**kw):
-        absorbed.append(kw)
-
-    class _Stop(Exception):
-        pass
-
-    from aria_service.intel import redis_store, brain_hook
-    monkeypatch.setattr(redis_store, "lpop_multi", _fake_lpop)
-    monkeypatch.setattr(brain_hook, "absorb", _fake_absorb)
-    monkeypatch.setattr(bsc, "wire_success", lambda **kw: signals.append(kw))
-    monkeypatch.setattr(bsc, "_STARTUP_DELAY_S", 0)
-    monkeypatch.setattr(bsc, "_POLL_INTERVAL_S", 0)
-
-    import asyncio
-    task = asyncio.create_task(bsc._consume_loop())
-    for _ in range(200):
-        await asyncio.sleep(0)
-        if absorbed and signals:
-            break
-    task.cancel()
-
-    assert absorbed, "a queued web-tier signal never reached brain_hook.absorb"
-    assert absorbed[0]["module"].startswith("cross_tier:")
-    assert absorbed[0]["success"] is True
-    assert signals, "signals were absorbed and the §21a success branch never fired"
-    assert signals[-1]["module"] == "brain_signal_consumer"
-
-
-def test_the_monitor_now_checks_registration_not_source_text():
-    """The old monitor asserted `"_auto_started" in consumer_content` — true for
-    five R-numbers while the loop had never run."""
-    src = (_REPO / "aria_service" / "intel" / "wiring_monitor.py").read_text(encoding="utf-8")
-    assert "consumer_registered_in_lifespan" in src, (
-        "the monitor still only greps the consumer's own source"
+def test_nothing_writes_the_retired_key():
+    """The fact R-F3577 should have established before writing any code."""
+    writers = _writer_sites()
+    assert not writers, (
+        f"something now WRITES {_RETIRED_KEY}: {writers}. If the Redis transport "
+        f"has been deliberately revived, a consumer must be restored with it — "
+        f"but do not restore one without a writer, which is what R-F3577 did."
     )
-    assert "consumer_task_live" in src
-    # The old key names claimed behaviour they never measured.
-    assert '"consumer_has_auto_start"' not in src
-    assert '"consumer_polls_key"' not in src
 
 
-def test_the_consumer_left_the_orphan_baseline():
-    """R-F3573's anti-rot rule, applied to this change: a module that is no
-    longer orphaned must be REMOVED from the baseline, not left there."""
-    import sys
-    sys.path.insert(0, str(_REPO / "scripts"))
-    from ecosystem_audit import ORPHAN_BASELINE_NEVER, ORPHAN_BASELINE_TEST_ONLY
+def test_the_consumer_module_is_gone():
+    """A 60s loop polling a key nothing writes is pure cost, and leaving it in
+    place is what made the stale comment look corroborated."""
+    assert not (_REPO / "aria_service" / "intel" / "brain_signal_consumer.py").exists()
 
-    assert "intel/brain_signal_consumer.py" not in ORPHAN_BASELINE_NEVER
-    assert "intel/brain_signal_consumer.py" not in ORPHAN_BASELINE_TEST_ONLY
+    main_src = (_REPO / "aria_service" / "main.py").read_text(encoding="utf-8")
+    assert "_singleton_task(_brain_signal_loop" not in main_src, (
+        "the consumer is registered in lifespan again — it polls a dead key"
+    )
+
+
+def test_the_stale_comment_that_caused_this_is_corrected():
+    """THE ROOT CAUSE. A comment naming a transport is a claim about behaviour."""
+    briefing = (_REPO / "apis" / "briefing.mjs").read_text(encoding="utf-8", errors="replace")
+    assert "The brain reads from crucix:brain:incoming_signals and generates ML leads." not in briefing, (
+        "the false comment is back — it is what R-F3577 read and believed"
+    )
+    assert "RETIRED" in briefing
+
+
+def test_the_live_transport_is_the_http_bulk_endpoint():
+    """What actually carries web-tier signals, so a future reader does not have to
+    re-derive it from a comment."""
+    briefing = (_REPO / "apis" / "briefing.mjs").read_text(encoding="utf-8", errors="replace")
+    assert "/brain/signal/bulk" in briefing, "the live producer no longer targets the bulk endpoint"
+
+    routes = (_REPO / "aria_service" / "routes" / "aria.py").read_text(encoding="utf-8")
+    assert '@router.post("/brain/signal/bulk")' in routes, "the bulk consumer endpoint is gone"
+    assert 'module=f"cross_tier:{sig_type}"' in routes, (
+        "the bulk endpoint no longer absorbs as cross_tier:* — that prefix is what "
+        "proves the path live on /api/aria/brain/stats"
+    )
+
+
+# ── What R-F3577 got right, kept and still guarded ──────────────────────────
 
 
 def test_the_monitor_does_not_re_read_source_files_every_cycle():
-    """R-F3577 — test_brain_signal_path() runs on the monitor loop and read four
-    PRODUCTION SOURCE FILES per cycle, synchronously, on the event loop. Those
-    files cannot change inside a running process, so the answer is constant.
+    """Independent of the mistaken premise, and a real defect either way:
+    `test_brain_signal_path()` runs on the monitor loop and was doing SEVEN
+    synchronous source-file reads per cycle, on the event loop, for answers that
+    are constant for the life of the process (the code executing IS the code on
+    disk). Adding one more made test_rf1091's 0.5s-budgeted loop test fail."""
+    import inspect
 
-    Adding a fourth read (main.py, ~250KB) made test_rf1091's 0.5s-budgeted loop
-    test fail under load. The test was right to be sensitive: the defect is
-    blocking file I/O in an async loop, not a slow test.
-    """
     from aria_service.intel import wiring_monitor
 
     assert hasattr(wiring_monitor, "_cached_source")
     assert hasattr(wiring_monitor._cached_source, "cache_info"), (
         "_cached_source is not memoised — every monitor cycle re-reads the files"
     )
-
     src = inspect.getsource(wiring_monitor.test_brain_signal_path)
     assert "with open(" not in src, (
         "a raw open() is back in the monitor's per-cycle path; route it through "
         "_cached_source so the loop does not block on constant data"
     )
-    assert src.count("_cached_source(") >= 4
 
 
 def test_the_cached_read_degrades_to_empty_not_an_exception(tmp_path):
-    """Every caller treats a missing file as 'token not present'. Raising here
-    would turn a missing file into a monitor crash."""
+    """Every caller treats a missing file as 'token not present'. Raising would
+    turn a missing file into a monitor crash."""
     from aria_service.intel.wiring_monitor import _cached_source
 
-    assert _cached_source(str(tmp_path / "does_not_exist.py")) == ""
+    assert _cached_source(str(tmp_path / "nope.py")) == ""
     real = tmp_path / "real.py"
     real.write_text("token_here = 1\n", encoding="utf-8")
     assert "token_here" in _cached_source(str(real))
+
+
+def test_the_monitor_no_longer_asserts_a_modules_source_text():
+    """R-F3577's other correct finding: the monitor claimed the consumer was
+    'wired' because `"_auto_started"` appeared in its source. That stayed true for
+    the module's whole life while the loop had never run."""
+    src = (_REPO / "aria_service" / "intel" / "wiring_monitor.py").read_text(encoding="utf-8")
+    assert '"consumer_has_auto_start"' not in src
+    assert '"consumer_polls_key"' not in src
+    assert 'result["redis_signal_transport"] = "retired"' in src

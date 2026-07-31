@@ -626,7 +626,13 @@ export async function fullBriefing() {
 
 // ── Brain signal bridge ──────────────────────────────────────────────────────
 // After a sweep, push top procurement/defence signals into the Python brain queue.
-// The brain reads from crucix:brain:incoming_signals and generates ML leads.
+// R-F3580 — this line used to read "The brain reads from
+// crucix:brain:incoming_signals and generates ML leads". That transport is
+// RETIRED and nothing has written that key in a long time; the function below
+// POSTs to /brain/signal/bulk (R-F2505). The stale comment was load-bearing in
+// the wrong direction: R-F3577 read it, believed a live producer existed, and
+// registered a consumer for a pipe with no writer. A comment that names a
+// transport is a claim about behaviour — keep it true or delete it.
 
 const BRAIN_SIGNAL_LIMIT = 30; // max signals pushed per sweep
 const BRAIN_SIGNAL_CONCURRENCY = 4;

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3579,
+  "next_available": 3581,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29818,14 +29818,34 @@
       "title": "web tier pushes brain signals to redis and NOTHING drains them - the consumer is never started",
       "claimed_at": "2026-07-31T17:06:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "35d0cb66",
+      "notes": null,
+      "shipped_at": "2026-07-31T17:39:20Z"
     },
     {
       "r_number": "R-F3578",
       "title": "ARIA WA governed dual channel foundation",
       "claimed_at": "2026-07-31T17:13:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3579",
+      "title": "sanctions display filter is order-blind: reversed name survives the R-F2994 coincidence drop",
+      "claimed_at": "2026-07-31T17:31:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2985d37e",
+      "notes": null,
+      "shipped_at": "2026-07-31T17:35:38Z"
+    },
+    {
+      "r_number": "R-F3580",
+      "title": "R-F3577 wired a consumer to a retired transport - nothing writes the key; correct it and kill the stale comment that caused it",
+      "claimed_at": "2026-07-31T17:42:57Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
