@@ -6,6 +6,12 @@ import test from 'node:test';
 const html = fs.readFileSync(new URL('../public/wa-connections.html', import.meta.url), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
 
+test('R-F3562 empty state uses the canonical WhatsApp icon, not a generic device emoji', () => {
+  assert.match(html, /class="bi bi-whatsapp"/);
+  assert.doesNotMatch(html, /<div class="icon">📱<\/div>/);
+  assert.match(html, /fonts\/bootstrap-icons\/font-css\.css/);
+});
+
 function managerRuntime() {
   const listeners = new Map();
   const elements = new Map();

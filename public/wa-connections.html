@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WhatsApp Connections | ARIA</title>
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -82,7 +83,7 @@
     .empty-state {
       text-align: center; padding: 48px 16px; color: #6b6862;
     }
-    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; color: #25d366; line-height: 1; }
     .empty-state h3 { color: #57534b; margin-bottom: 8px; }
     .empty-state p { font-size: 0.85rem; margin-bottom: 20px; }
     .loading { text-align: center; padding: 48px; color: #6b6862; }
@@ -177,7 +178,7 @@
 
     <!-- Empty state -->
     <div id="empty" class="empty-state" style="display:none">
-      <div class="icon">📱</div>
+      <div class="icon" aria-hidden="true"><i class="bi bi-whatsapp"></i></div>
       <h3>No WhatsApp connections yet</h3>
       <p>Create a connection above to link a WhatsApp number. You'll scan a QR code from WhatsApp → Settings → Linked Devices → Link a Device.</p>
     </div>
