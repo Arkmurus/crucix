@@ -964,6 +964,7 @@ def _collapse_index(index: list, limit: int) -> list:
     return result[:limit]
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def entity_group_run_ids(run_id: str) -> list[str]:
     """R-F3532 — every run_id the library folds into the SAME row as ``run_id``.
 
@@ -4946,6 +4947,7 @@ def _record_sanctions_screen(report, screen: dict) -> None:
         logger.debug("[R-F3535] evidence shadow skipped: %s", _e)
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 def sanctions_evidence_shadow(screen: dict) -> dict:
     """R-F3510 — derive the sanctions state through the EVIDENCE CONTRACT, in SHADOW.
 
@@ -12917,6 +12919,7 @@ def _positive_names_subject(title: str, subject_tokens: set, *, snippet: str = "
     return True
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 def positive_register_findings(sources, subject_tokens: set, *, as_of: str = "") -> list[dict]:
     """Build findings for T1 register hits that PROVABLY name the subject.
 
