@@ -27,7 +27,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
           cache: 'pip'
 
       - name: Install dependencies
@@ -45,7 +45,7 @@ jobs:
           # fly.io auto-deploy) has been broken since 2026-04-17.
           pip install pytest pytest-timeout pytest-asyncio fastapi pydantic pydantic-settings \
                       httpx python-multipart redis pyyaml beautifulsoup4 \
-                      lxml requests numpy
+                      lxml requests numpy orjson defusedxml
 
       - name: Run smoke tests
         env:
@@ -86,7 +86,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
           cache: 'pip'
       - name: Install dependencies
         run: |
@@ -97,7 +97,7 @@ jobs:
           # mark and pull torch (3 GB).
           pip install pytest pytest-timeout pytest-asyncio fastapi pydantic pydantic-settings \
                       httpx python-multipart redis pyyaml beautifulsoup4 \
-                      lxml requests numpy
+                      lxml requests numpy orjson defusedxml
       - name: Run lifespan smoke
         env:
           ARIA_SEMANTIC_INDEX_BUILD: '0'
@@ -131,14 +131,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
           cache: 'pip'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pytest pytest-timeout pytest-asyncio fastapi pydantic pydantic-settings \
                       httpx python-multipart redis pyyaml beautifulsoup4 \
-                      lxml requests numpy anthropic
+                      lxml requests numpy orjson defusedxml anthropic
       - name: Run constitution suite
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

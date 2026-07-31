@@ -65,6 +65,14 @@ lxml>=5.0.0
 # These parse untrusted remote XML; stdlib ElementTree is vulnerable to
 # entity-expansion attacks. defusedxml is pure-Python and mandatory here.
 defusedxml>=0.7.1
+# R-F3551 — orjson is a HARD top-level import (neural_memory.py:31) that was
+# never declared. It survives in the image only because chromadb depends on it
+# (`pip show orjson` -> Required-by: chromadb, live 2026-07-31). The comment on
+# that import reads "in image; verified live" — which is the whole problem: it
+# was verified PRESENT rather than declared REQUIRED. If chromadb ever drops it
+# or is swapped out, neural_memory fails at import and takes the brain's boot
+# with it. Declared here so it is our dependency, not someone else's side effect.
+orjson>=3.10.0
 # R-F2204 — clean main-content extraction (readability-grade) for modern div-based sites;
 # wraps the regex extractor in researcher._extract_structured_html (best-effort, import-guarded).
 trafilatura>=1.8.0
