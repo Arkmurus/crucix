@@ -887,6 +887,7 @@ def _is_plausible_defence_domain(url: str) -> bool:
     return not any(host == d or host.endswith("." + d) for d in _IMPLAUSIBLE_DEFENCE_DOMAINS)
 
 
+@fail_wire(module="researcher", gap_type="source_failure")
 async def extract_structured_html_async(html: str) -> dict:
     """R-F3475 — run _extract_structured_html OFF the event loop.
 

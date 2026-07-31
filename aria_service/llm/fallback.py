@@ -722,6 +722,7 @@ class FallbackProvider(LLMProvider):
             kind="other", retryable=True, cause=last_error,
         )
 
+    @fail_wire(module="fallback", gap_type="engine_failure")
     def clear_cooldown(self, provider_name: str = "") -> dict:
         """R-F3513 — make a billing top-up take effect NOW.
 

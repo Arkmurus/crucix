@@ -95,6 +95,16 @@ MODULE_GAP_TYPES: dict[str, str] = {
     # at the top would have had no effect and the reason why would not have been
     # obvious. Found by the duplicate-key guard added in the same R-number, which had
     # just caught me introducing the same shape in HARD_EXEMPT.
+    # R-F3560 — news_archive / news_claims were never REGISTERED, so gate_b compared
+    # their decorators against `_default` (agent_cycle_failure) and reported 16
+    # "violations" for declarations that were correct all along. The fix is the
+    # registry, not the 16 decorators: neither module is an agent loop. news_archive is
+    # an append-only store of news observations and news_claims records extracted
+    # claims — their failure domain is internal processing, which IS engine_failure.
+    # Rewriting 16 accurate decorators to satisfy an absent registry entry would have
+    # made gate_b green by making its accuracy claim false.
+    "news_archive": "engine_failure",
+    "news_claims": "engine_failure",
     # Portal registry
     "portal_registry": "registry_lookup",
     "portal_coverage_audit": "registry_lookup",
@@ -154,8 +164,36 @@ MODULE_GAP_TYPES: dict[str, str] = {
 }
 
 
-def get_gap_type(module: str) -> str:
-    """Get the registered gap_type for a module, or the default."""
+# ── R-F3560 — per-FUNCTION gap_type overrides ────────────────────────────
+#
+# GATE B enforces one gap_type per module, which is right for a module with one
+# failure domain and too coarse for a module that spans several. `routes/aria.py` is
+# every DD, vetting, billing and GDPR endpoint in one file.
+#
+# THE CASE THAT FORCED THIS: `leads_inbound_delete_ep` declares
+# `data_protection_violation`, and VALID_GAP_TYPES says of that type — verbatim —
+# "Deliberately NOT folded into engine_failure: this is a GDPR-severity signal and
+# collapsing it into a generic type would bury a regulatory obligation in ordinary
+# noise." Rewriting the decorator to `engine_failure` would have made GATE B green by
+# destroying the exact signal the type exists to carry: a green gate bought with a
+# worse system.
+#
+# AN ALLOWLIST, NOT A LOOSENING. Every override is named with its reason, so a
+# deliberate exception stays visible and a careless one still fails. A function absent
+# from this table is still held to its module's registered type.
+GAP_TYPE_OVERRIDES: dict[str, dict[str, str]] = {
+    "aria": {
+        "leads_inbound_delete_ep": "data_protection_violation",
+    },
+}
+
+
+def get_gap_type(module: str, func_name: str = "") -> str:
+    """The gap_type a function must declare: its override, else its module's."""
+    if func_name:
+        override = GAP_TYPE_OVERRIDES.get(module, {}).get(func_name)
+        if override:
+            return override
     return MODULE_GAP_TYPES.get(module, MODULE_GAP_TYPES["_default"])
 
 
@@ -345,6 +383,28 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
     },
     "dd_schema.py": {
         "has_provenance": "returns bool(self.url) on a dataclass; pure predicate",
+        # R-F3560 — MERGED into this entry, not given a second "dd_schema.py" key:
+        # a duplicate would silently keep the LAST one and discard has_provenance.
+        # Four pure functions with no operational failure mode. Wiring them would
+        # emit gap signals only for programming errors, and dd_schema's registered
+        # gap_type (engine_failure) would mislabel a formatting bug as an engine
+        # fault — the gate_b accuracy problem, introduced by the fix for gate_a.
+        "as_dict": "dataclasses.asdict(self); pure serialiser on a hot render path",
+        "dd_policy_bundle_line": "joins a module-level constant dict; pure (R-F3546)",
+        "evidence_grade_explained": "formats a grade from constants; pure (R-F3549)",
+        "verdict_logic_status": "compares a pinned string to a constant; pure, no I/O "
+                                "(R-F3496)",
+    },
+    # R-F3560 — rag_store's registered gap_type is `embedder_failure`, which is right
+    # for its retrieval surface and WRONG for these three: they are GDPR/config helpers
+    # with no embedding involvement and no operational failure mode. Wiring them would
+    # satisfy gate_a by making gate_b's accuracy claim false — a fault domain asserted
+    # about a function that cannot fault. Precedent: fallback.py's
+    # "preference_only_providers": "env-derived set; pure".
+    "rag_store.py": {
+        "storage_region": "env read with a literal default; cannot fail (R-F3492)",
+        "jurisdiction_of_region": "pure region->jurisdiction mapping (R-F3492)",
+        "retention_bases": "returns a constant table of lawful bases (R-F3484)",
     },
     "test_runner.py": {
         "coder_tests_enabled": "single env-flag read (R-F2905)",
@@ -598,10 +658,12 @@ def check_gate_b(module_path: str, filename: str) -> list[str]:
     if filename in FULLY_EXEMPT_MODULES:
         return violations  # wiring infrastructure (carries example decorators in docstrings)
     module_name = filename.replace(".py", "")
-    expected_type = get_gap_type(module_name)
 
     # Inspect REAL @fail_wire decorators only (AST — ignores docstring examples).
     for name, info in fail_wire_decorators(module_path).items():
+        # R-F3560 — resolved PER FUNCTION so a deliberately more specific type
+        # (e.g. data_protection_violation) is not reported as a violation.
+        expected_type = get_gap_type(module_name, name)
         actual = info["gap_type"]
         if actual is None:
             violations.append(
@@ -762,6 +824,12 @@ def run_gate_c(module_name: str) -> None:
     if not fns:
         return  # No wired functions — nothing to test
 
+    # R-F3560 — GATE C must accept the SAME per-function types GATE B enforces, or a
+    # module whose only wired function carries an override (e.g. the GDPR-severity
+    # `data_protection_violation`) would fail a gate it actually satisfies. Two gates
+    # disagreeing about what a function must declare is worse than either being wrong.
+    _expected_types = {get_gap_type(module_name, f["name"]) for f in fns}
+
     recorded = []
 
     async def _mock(gap_type, detail, source):
@@ -787,7 +855,7 @@ def run_gate_c(module_name: str) -> None:
             import time
             deadline = time.time() + 3
             while time.time() < deadline:
-                if any(g["gap_type"] == get_gap_type(module_name) for g in recorded):
+                if any(g["gap_type"] in _expected_types for g in recorded):
                     break
                 import asyncio
                 try:
@@ -799,11 +867,10 @@ def run_gate_c(module_name: str) -> None:
     finally:
         _wire._record_gap = original
 
-    expected = get_gap_type(module_name)
-    landed = [g for g in recorded if g["gap_type"] == expected]
+    landed = [g for g in recorded if g["gap_type"] in _expected_types]
     assert len(landed) >= 1, (
-        f"GATE C FAIL: module '{module_name}' expected gap_type='{expected}' "
-        f"but no gap landed. Recorded: {recorded}"
+        f"GATE C FAIL: module '{module_name}' expected one of "
+        f"gap_type={sorted(_expected_types)} but no gap landed. Recorded: {recorded}"
     )
 
 

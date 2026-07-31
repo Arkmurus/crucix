@@ -18417,6 +18417,7 @@ async def _unwatch_deleted_subject(report_blob) -> None:
             pass
 
 
+@fail_wire(module="dd_orchestrator", gap_type="engine_failure")
 async def delete_report(run_id: str) -> dict:
     """Remove a single DD report + its index entry. R-F162 (2026-05-11) —
     the prior fix for the 'this company, which has nothing to do' case

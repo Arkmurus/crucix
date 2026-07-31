@@ -293,6 +293,7 @@ async def _record_quota_exhausted(detail: str) -> None:
         logger.debug("quota wire_failure failed: %s", exc)
 
 
+@fail_wire(module="sanctions", gap_type="source_failure")
 async def get_opensanctions_quota_state() -> dict:
     """Operator surface: is the plan quota spent, and since when?
 
