@@ -34,19 +34,32 @@ import pathlib
 
 
 def _src_routes() -> str:
-    """Return the source of _execute_tool, the function that contains
-    the R-F409 auto-escalation logic. Uses inspect.getsource on the
-    specific function rather than a fixed window into the module source,
-    so the test doesn't break when unrelated code is added above or
-    below the target (R-F1956 structural fix)."""
+    """Return the CURRENT source of _execute_tool, resolved BY NAME.
+
+    R-F3597 — this was `inspect.getsource(_aria._execute_tool)`, and all eight tests
+    in this file failed in the 2026-07-31 full-suite run while passing alone.
+
+    `getsource` takes the line range from the IMPORTED code object and slices the file
+    FROM DISK at call time. The run took 77 minutes; a peer agent committed four times
+    during it and touched `routes/aria.py`. By the time these tests ran, getsource was
+    slicing the NEW file at OLD offsets and returning a DIFFERENT function's body —
+    so the assertions were checking text that was never theirs. Nothing leaked; the
+    instrument moved under the test.
+
+    Resolving by NAME through the current AST is immune to that: if the function moved,
+    it is simply found where it now is.
+    """
     import aria_service.routes.aria as _aria
-    return inspect.getsource(_aria._execute_tool)
+    from ._source_probe import function_source
+    return function_source(_aria, "_execute_tool")
 
 
 def _src_orch() -> str:
-    return pathlib.Path(
-        "C:/code/crucix/aria_service/intel/dd_orchestrator.py"
-    ).read_text(encoding="utf-8", errors="ignore")
+    """R-F3597 — was a HARDCODED absolute path ("C:/code/crucix/..."), which reads a
+    different checkout than the one under test on any other machine or worktree."""
+    from aria_service.intel import dd_orchestrator as _ddo
+    from ._source_probe import module_source
+    return module_source(_ddo)
 
 
 # ── 1. Chat handler — wraps orchestrate_dd with retry ────────────
