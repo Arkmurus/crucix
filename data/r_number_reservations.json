@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3541,
+  "next_available": 3542,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29440,14 +29440,24 @@
       "title": "directors counted as beneficial owners - ownership scorecard answered YES on officers",
       "claimed_at": "2026-07-31T09:16:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "091a2057",
+      "notes": null,
+      "shipped_at": "2026-07-31T09:21:12Z"
     },
     {
       "r_number": "R-F3540",
       "title": "OFAC diff read from the working canonical store; credential-less source surfaced not skipped; provenance derived from the registry",
       "claimed_at": "2026-07-31T09:19:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3541",
+      "title": "full ecosystem business and organ DD report",
+      "claimed_at": "2026-07-31T09:25:56Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
