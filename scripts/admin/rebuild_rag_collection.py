@@ -130,6 +130,110 @@ def extract_records(db: sqlite3.Connection, seg: str) -> list[dict]:
 
 # ── rebuild ─────────────────────────────────────────────────────────────────
 
+# ── R-F3533 — RECOVER the original vectors instead of recomputing them ──────
+#
+# THE 2026-07-31 RECOVERY. `aria_facts` (489,002 records) was rebuilt by re-embedding at
+# a measured ~13 docs/sec: NINE HOURS. It did not need to be. The corruption is an INDEX
+# failure, and the vectors were intact the whole time:
+#
+#     data_level0.bin     817,499,168 B  INTACT (holds the vectors)
+#     link_lists.bin   82,140,554,932 B  CORRUPT — 82GB apparent in a 3.7GB store
+#
+# hnswlib reads link_lists.bin at load and segfaults on that length. Recovering the
+# vectors from data_level0.bin took ~25 minutes AND is byte-exact, where re-embedding
+# only produces *equivalent* vectors.
+#
+# CHECK THE FILE SIZES FIRST: an 82GB file inside a 3.7GB store names the culprit
+# instantly and tells you the data survived.
+_DEFAULT_DIM = 384          # all-MiniLM-L6-v2
+
+
+def hnsw_layout(seg_dir: str, n_records: int, dim: int = _DEFAULT_DIM) -> dict | None:
+    """Derive the data_level0.bin element layout, or None if it cannot be trusted.
+
+    `header.bin` is NOT hnswlib's saveIndex header — parsing it as one yields
+    max_elements=2.25e15 — so the stride is derived from file size instead.
+
+    ARITHMETIC IS NOT PROOF, and this is the trap that cost two failed attempts:
+    817,499,168 factorises EXACTLY as both 1672 x 489,002 and 1676 x 487,768, and
+    element 0 verifies under either. Only 1676 was right. So every exact divisor is
+    returned as a CANDIDATE and the caller must confirm one by cosine — see
+    `recover_vectors`, which refuses to proceed without that proof.
+    """
+    import os
+    path = os.path.join(seg_dir, "data_level0.bin")
+    if not os.path.exists(path):
+        return None
+    size = os.path.getsize(path)
+    data_bytes = dim * 4
+    cands = []
+    # links = maxM0*4 + 4 for the usual hnswlib M; label is 4 or 8 bytes.
+    for label_sz in (4, 8):
+        for max_m0 in (16, 24, 31, 32, 48, 64):
+            stride = (max_m0 * 4 + 4) + data_bytes + label_sz
+            if size % stride == 0:
+                cands.append({"stride": stride, "off_data": max_m0 * 4 + 4,
+                              "off_label": max_m0 * 4 + 4 + data_bytes,
+                              "label_size": label_sz, "slots": size // stride})
+    # Most plausible first: an exact fit whose slot count is nearest the record count.
+    cands.sort(key=lambda c: abs(c["slots"] - n_records))
+    return {"file_size": size, "candidates": cands} if cands else None
+
+
+def recover_vectors(seg_dir: str, label_to_id: dict, layout: dict,
+                    verify_fn=None, dim: int = _DEFAULT_DIM) -> dict:
+    """Return {chroma_id: vector} recovered from data_level0.bin.
+
+    `verify_fn(chroma_id, vector) -> bool` MUST be supplied and MUST compare the
+    recovered vector against a freshly embedded copy of that record's text. A misparse
+    silently writes WRONG vectors into the knowledge base, which is worse than a slow
+    rebuild — so a candidate stride that cannot be proven is rejected, not used.
+    """
+    import numpy as np
+    import os
+    import struct
+
+    path = os.path.join(seg_dir, "data_level0.bin")
+    raw = np.fromfile(path, dtype=np.uint8)
+
+    for cand in layout["candidates"]:
+        stride = cand["stride"]
+        n = raw.size // stride
+        grid = raw[: n * stride].reshape(n, stride)
+        lab_raw = grid[:, cand["off_label"]: cand["off_label"] + cand["label_size"]].copy()
+        labels = lab_raw.view(np.uint32 if cand["label_size"] == 4 else np.uint64).ravel()
+        vecs = grid[:, cand["off_data"]: cand["off_data"] + dim * 4].copy()             .view(np.float32).reshape(n, dim)
+
+        out = {}
+        for i in range(n):
+            cid = label_to_id.get(int(labels[i]))
+            if cid is not None:
+                out[cid] = vecs[i]
+        if not out:
+            continue
+        if verify_fn is not None:
+            probe = list(out)[:: max(1, len(out) // 6)][:6]
+            if not all(verify_fn(c, out[c]) for c in probe):
+                continue                # wrong stride — try the next candidate
+        return {"vectors": out, "stride": stride, "slots": n}
+
+    return {"vectors": {}, "stride": None, "slots": 0}
+
+
+def staging_existing_ids(collection) -> set:
+    """R-F3533 — ids already written, so a killed rebuild RESUMES instead of restarting.
+
+    THE DEFECT THIS CLOSES. `rebuild()` names its staging collection with a fresh
+    timestamp, so every restart began again at ZERO. On 2026-07-31 the box restarted
+    three times during one rebuild (twice under load, once a peer's deploy); a 9-hour
+    job would never have finished. With resume, a kill cost minutes.
+    """
+    try:
+        return set(collection.get(include=[]).get("ids") or [])
+    except Exception:                   # noqa: BLE001 — unreadable staging = start fresh
+        return set()
+
+
 def rebuild(rag_path: str, name: str, *, apply: bool, batch: int) -> int:
     db = _db(rag_path)
     cid = collection_id(db, name)
