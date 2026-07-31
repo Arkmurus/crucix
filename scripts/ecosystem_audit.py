@@ -51,7 +51,6 @@ DEAD_CODE_EXEMPT = {
 # ISOLATION primitive) are likewise built, tested and unreachable.
 ORPHAN_BASELINE_NEVER = {
     'intel/audit_trail.py',
-    'intel/brain_signal_consumer.py',
     'intel/continuous_learner.py',
     'intel/dd_case_library.py',
     'intel/engagement.py',

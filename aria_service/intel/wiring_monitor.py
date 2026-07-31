@@ -36,6 +36,7 @@ import logging
 import os
 import time
 from collections import defaultdict
+from functools import lru_cache
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -372,6 +373,29 @@ async def check_wa_connection_health() -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+# ── R-F3577 — SOURCE READS IN A BACKGROUND LOOP MUST BE CACHED ──────────────
+#
+# test_brain_signal_path() reads several PRODUCTION SOURCE FILES to decide
+# whether a cross-tier path is wired, and it runs on the monitor loop. Those
+# files cannot change inside a running process — the code executing IS the code
+# on disk — so re-reading them every cycle is blocking I/O on the event loop for
+# an answer that is constant for the life of the process.
+#
+# Found by adding a fourth read (main.py, ~250KB) and watching test_rf1091's
+# 0.5s-budgeted loop test fail under load. The test was right to be sensitive:
+# the defect is synchronous file I/O in an async loop, not a slow test.
+@lru_cache(maxsize=8)
+def _cached_source(path: str) -> str:
+    """Read a source file ONCE per process. Empty string if unreadable, which
+    preserves every caller's existing behaviour (a missing file reads as
+    'token not present')."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except Exception:
+        return ""
+
+
 async def test_brain_signal_path() -> dict[str, Any]:
     """End-to-end test of the brain signal path.
 
@@ -393,8 +417,7 @@ async def test_brain_signal_path() -> dict[str, Any]:
         route_file = os.path.join(
             os.path.dirname(__file__), "..", "routes", "aria.py"
         )
-        with open(route_file, "r", encoding="utf-8", errors="replace") as fh:
-            route_content = fh.read()
+        route_content = _cached_source(route_file)
         result["endpoint_exists"] = (
             'def brain_signal_ep' in route_content
             or 'brain/signal' in route_content
@@ -407,10 +430,44 @@ async def test_brain_signal_path() -> dict[str, Any]:
         consumer_file = os.path.join(
             os.path.dirname(__file__), "brain_signal_consumer.py"
         )
-        with open(consumer_file, "r", encoding="utf-8", errors="replace") as fh:
-            consumer_content = fh.read()
-        result["consumer_has_auto_start"] = "_auto_started" in consumer_content
-        result["consumer_polls_key"] = "crucix:brain:incoming_signals" in consumer_content
+        consumer_content = _cached_source(consumer_file)
+        # ── R-F3577 — THESE TWO ASSERT THE SOURCE TEXT, NOT THE BEHAVIOUR ────
+        #
+        # Both were TRUE for five R-numbers while the consumer had never run:
+        # "_auto_started" appeared in the file (as a variable the import-time
+        # start assigned) and the Redis key appeared in the file (as the constant
+        # it polls). Neither says the loop is RUNNING. Nothing imported the
+        # module, so the import-time start never fired, and this monitor reported
+        # a wired cross-tier path the whole time.
+        #
+        # Kept, because they do detect the constant being renamed away — but
+        # renamed to say what they actually measure, and joined by the check that
+        # matters: is the consumer REGISTERED as a background loop by lifespan?
+        result["consumer_source_mentions_auto_start"] = "_auto_started" in consumer_content
+        result["consumer_source_mentions_key"] = "crucix:brain:incoming_signals" in consumer_content
+        try:
+            main_file = os.path.join(os.path.dirname(__file__), "..", "main.py")
+            main_content = _cached_source(main_file)
+            result["consumer_registered_in_lifespan"] = (
+                "brain_signal_consumer" in main_content
+                and "_singleton_task" in main_content
+            )
+        except Exception as e:  # pragma: no cover - path/IO only
+            result["consumer_registration_check_error"] = str(e)[:200]
+            result["consumer_registered_in_lifespan"] = None
+        # The live answer, not a source scan: has the loop actually been started
+        # in THIS process? None when the module was never imported at all, which
+        # is itself the honest reading of "the consumer is not running here".
+        try:
+            import sys as _sys
+            _mod = _sys.modules.get("aria_service.intel.brain_signal_consumer")
+            if _mod is None:
+                result["consumer_task_live"] = None
+            else:
+                _task = getattr(_mod, "_auto_started", None)
+                result["consumer_task_live"] = bool(_task and not _task.done())
+        except Exception:
+            result["consumer_task_live"] = None
     except Exception as e:
         result["consumer_check_error"] = str(e)[:200]
 
@@ -419,8 +476,7 @@ async def test_brain_signal_path() -> dict[str, Any]:
         briefing_file = os.path.join(
             os.path.dirname(__file__), "..", "..", "apis", "briefing.mjs"
         )
-        with open(briefing_file, "r", encoding="utf-8", errors="replace") as fh:
-            briefing_content = fh.read()
+        briefing_content = _cached_source(briefing_file)
         result["pushSignalsToBrain_is_noop"] = (
             "no-op since Upstash retirement" in briefing_content
         )
@@ -432,8 +488,7 @@ async def test_brain_signal_path() -> dict[str, Any]:
         tracker_file = os.path.join(
             os.path.dirname(__file__), "..", "..", "lib", "observability", "errorTracker.mjs"
         )
-        with open(tracker_file, "r", encoding="utf-8", errors="replace") as fh:
-            tracker_content = fh.read()
+        tracker_content = _cached_source(tracker_file)
         result["errorTracker_wired"] = (
             "/api/aria/brain/signal" in tracker_content
         )
@@ -445,8 +500,7 @@ async def test_brain_signal_path() -> dict[str, Any]:
         wa_file = os.path.join(
             os.path.dirname(__file__), "..", "..", "services", "wa-listener", "aria_wa_listener.mjs"
         )
-        with open(wa_file, "r", encoding="utf-8", errors="replace") as fh:
-            wa_content = fh.read()
+        wa_content = _cached_source(wa_file)
         result["wa_listener_wired"] = "/api/aria/brain/signal" in wa_content
         result["wa_listener_has_auth_loss_dark"] = (
             "loggedOut" in wa_content
@@ -461,8 +515,7 @@ async def test_brain_signal_path() -> dict[str, Any]:
         zoom_file = os.path.join(
             os.path.dirname(__file__), "..", "..", "services", "aria_zoom_service.py"
         )
-        with open(zoom_file, "r", encoding="utf-8", errors="replace") as fh:
-            zoom_content = fh.read()
+        zoom_content = _cached_source(zoom_file)
         result["zoom_uses_bare_brain_signal"] = (
             "/api/brain/signal" in zoom_content
             and "/api/aria/brain/signal" not in zoom_content

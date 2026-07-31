@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3576,
+  "next_available": 3579,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29778,9 +29778,10 @@
       "title": "the dead-code gate reported 0 on a tree with 19 never-imported and 45 test-only modules",
       "claimed_at": "2026-07-31T16:31:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bbb4b84e",
+      "notes": null,
+      "shipped_at": "2026-07-31T16:52:37Z"
     },
     {
       "r_number": "R-F3574",
@@ -29801,6 +29802,34 @@
       "commit_sha": "35d0915e",
       "notes": null,
       "shipped_at": "2026-07-31T16:41:46Z"
+    },
+    {
+      "r_number": "R-F3576",
+      "title": "R-F3574 was too narrow: extra tokens in the FCA Name field defeat the permutation check",
+      "claimed_at": "2026-07-31T17:02:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "54ad5e05",
+      "notes": null,
+      "shipped_at": "2026-07-31T17:04:04Z"
+    },
+    {
+      "r_number": "R-F3577",
+      "title": "web tier pushes brain signals to redis and NOTHING drains them - the consumer is never started",
+      "claimed_at": "2026-07-31T17:06:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3578",
+      "title": "ARIA WA governed dual channel foundation",
+      "claimed_at": "2026-07-31T17:13:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
