@@ -166,37 +166,26 @@
 <body>
   <div class="container">
     <h1><span class="logo"></span> WhatsApp Connections</h1>
-    <p class="subtitle">Use ARIA through her official number, or explicitly opt into experimental linked-device access. One linked device per user.</p>
+    <p class="subtitle">Two ways to connect: message ARIA directly from your own phone, or link a device by QR code. One linked device per user.</p>
 
     <div id="error" class="error"></div>
     <div id="toast" class="toast"></div>
 
-    <section class="mode-grid" aria-label="WhatsApp connection modes">
-      <article class="mode-card recommended">
-        <div class="mode-label">Recommended</div>
-        <h2><i class="bi bi-whatsapp" aria-hidden="true"></i> Message ARIA directly</h2>
-        <p>Send ARIA a WhatsApp message the normal way. She has her own number, Nothing
-           on your phone is linked or read; she sees only the messages you send her.</p>
-        <!-- R-F3601 — SHOW THE NUMBER, not just a button.
-             The button was a wa.me click-to-chat link and worked, but the number
-             itself never appeared anywhere on the page. A user who wants to save
-             the contact, or message her from a different device, had no way to
-             find it — which is exactly how the operator ended up asking. -->
-        <div id="officialNumber" class="governance-status" style="display:none;margin:10px 0;font-weight:600"></div>
-        <a id="officialLink" class="btn btn-primary" href="#" aria-disabled="true">Official number unavailable</a>
-      </article>
-      <article class="mode-card">
-        <div class="mode-label" style="color:#9a6700">Advanced · Experimental</div>
-        <h2><i class="bi bi-whatsapp" aria-hidden="true"></i> Link ARIA to my WhatsApp</h2>
-        <p>ARIA acts as an additional linked device. Protocol changes may cause logout, restriction or account enforcement. A dedicated business number is strongly recommended.</p>
-      </article>
-    </section>
-
-    <!-- R-F3593 — verify THIS handset against your ARIA account.
-         Distinct from the linked-device flow above: that one lets ARIA read YOUR
-         WhatsApp; this one proves who is TALKING to ARIA's own number, so
-         verified-only mode can be turned on without locking anyone out. -->
-    <section id="bindPanel" class="risk-panel">
+    <!-- R-F3603 - TWO OPTIONS, EACH SELF-CONTAINED.
+         The page showed a two-card chooser and then TWO more stacked panels below
+         it, so a user picking between two things faced four blocks with no
+         indication which control belonged to which choice. Verification is not a
+         third option, it is how option 1 is ACTIVATED; the risk acceptance and QR
+         form are how option 2 is activated. Each now sits inside the option it
+         belongs to. Every id is unchanged, so behaviour and its tests are
+         untouched - this is a move, not a rewrite. -->
+    <section class="mode-card recommended" aria-labelledby="opt1" style="margin-bottom:18px">
+      <div class="mode-label">Option 1 &middot; Recommended</div>
+      <h2 id="opt1"><i class="bi bi-whatsapp" aria-hidden="true"></i> Connect by direct message</h2>
+      <p>Save this number and message ARIA from your own phone, the same as any other
+         contact. Nothing on your device is linked or read; she sees only what you send her.</p>
+      <div id="officialNumber" style="display:none;margin:10px 0;font-size:1.15rem;font-weight:700;letter-spacing:.02em;color:#166534;user-select:all"></div>
+      <div id="officialHint" style="font-size:.8rem;color:#57534b"></div>
       <h2>Verify my handset with ARIA</h2>
       <p>ARIA only engages people she can identify. Generate a code here, then send
          it to ARIA on WhatsApp <strong>from the handset you want to verify</strong>.
@@ -215,7 +204,12 @@
       </div>
     </section>
 
-    <section id="riskPanel" class="risk-panel">
+    <section class="mode-card" aria-labelledby="opt2">
+      <div class="mode-label" style="color:#9a6700">Option 2 &middot; Advanced, experimental</div>
+      <h2 id="opt2"><i class="bi bi-whatsapp" aria-hidden="true"></i> Connect by QR code</h2>
+      <p>ARIA joins your WhatsApp as an additional linked device. Protocol changes may
+         cause logout, restriction or account enforcement. A dedicated business number
+         is strongly recommended.</p>
       <h2>Important information before linking ARIA</h2>
       <p>This mode is optional, unsupported by WhatsApp, time-limited to 30 days and revocable. ARIA cannot guarantee continuity or intercept native-app messages before they are sent.</p>
       <div class="check-list" id="scopeChecks">
@@ -245,13 +239,12 @@
         <button id="revokeBtn" class="btn btn-danger" style="display:none">Revoke access</button>
       </div>
       <div id="governanceStatus" class="governance-status">Checking access state…</div>
-    </section>
-
-    <!-- Create new account (R-F2984: one per account — hidden once a connection exists) -->
     <form class="create-bar" id="createBar">
       <input type="text" id="accountName" aria-label="Connection name" placeholder="Optional name (defaults to My WhatsApp)" maxlength="50">
       <button class="btn btn-primary" id="createBtn" type="submit">+ Add</button>
     </form>
+    </section>
+
     <div id="limitNote" class="subtitle" style="display:none;">You have your one WhatsApp connection (the maximum per account). Remove it below to link a different device.</div>
 
     <!-- Refresh -->
@@ -361,30 +354,19 @@
       status.textContent = active
         ? `Linked-device permission active until ${formatTime(governance.linked.expiresAt)}. Scope: ${governance.linked.scopes.join(', ')}.`
         : `Linked-device access is not active (${governance?.linked?.state || 'consent required'}). No QR can be generated.`;
-      const official = document.getElementById('officialLink');
+      // R-F3603 — the number, not a button. Selectable so it can be copied on a
+      // desktop and saved as a contact on a phone.
       const officialNum = document.getElementById('officialNumber');
+      const officialHint = document.getElementById('officialHint');
       const digits = String(governance?.official?.number || '').replace(/[^0-9]/g, '');
       if (governance?.official?.enabled && digits) {
-        official.textContent = 'Open WhatsApp chat with ARIA';
-        official.href = 'https://wa.me/' + digits;
-        official.removeAttribute('aria-disabled');
-        official.style.pointerEvents = '';
-        // R-F3601 — the number in plain text, selectable and copyable. The
-        // wa.me link only helps on a device that has WhatsApp installed; on a
-        // desktop browser it is the number itself the user needs.
         officialNum.textContent = '+' + digits;
         officialNum.style.display = '';
+        officialHint.textContent = 'Save it as a contact, then message her from your own phone.';
       } else {
-        // R-F3601 — a DEAD LINK, disarmed. aria-disabled tells a screen reader
-        // the control is unavailable and does nothing whatsoever to a mouse:
-        // the anchor stayed clickable and navigated to "#". Announce it AND
-        // make it inert, or the two disagree.
-        official.textContent = 'Official number not configured';
-        official.href = '#';
-        official.setAttribute('aria-disabled', 'true');
-        official.style.pointerEvents = 'none';
-        official.style.opacity = '0.55';
+        // Say what is missing rather than showing a bare "+" or an empty line.
         officialNum.style.display = 'none';
+        officialHint.textContent = 'ARIA’s number is not configured yet. Ask the operator to set it before using this mode.';
       }
     }
 

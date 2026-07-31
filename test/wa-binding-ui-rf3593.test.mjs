@@ -85,8 +85,13 @@ function runtime({ bindingResponse, mintExtra } = {}) {
   return { elements, listeners, requests };
 }
 
-test('R-F3593 the verify panel exists and explains what proves what', () => {
-  assert.match(html, /id="bindPanel"/);
+test('R-F3593 the verify controls exist and explain what proves what', () => {
+  // R-F3603 - assert the CONTROLS, not the wrapper id. This pinned
+  // id="bindPanel", which was structural scaffolding referenced by nothing but
+  // this test; folding the panel into option 1 removed the wrapper while every
+  // control and its behaviour stayed identical.
+  assert.match(html, /id="bindCodeBtn"/);
+  assert.match(html, /id="bindStatus"/);
   assert.match(html, /from the handset you want to verify/);
   assert.match(html, /Being signed in proves the account; sending the code proves the phone/,
     'the two-factor nature is the whole point — the user has to understand why '
@@ -314,33 +319,68 @@ function governanceRuntime(official) {
   return elements;
 }
 
-test('R-F3601 a configured number is SHOWN, not just linked', () => {
+test('R-F3603 the number is shown and there is NO deep-link button', () => {
+  // Operator decision: these cards are a CHOICE (text her, or link a device),
+  // not a call to action. A wa.me link is a third thing that does neither, and
+  // it can hand the user off to WhatsApp Web or another client when the whole
+  // point is that they message ARIA from their OWN handset.
   const els = governanceRuntime({ enabled: true, number: '+351932015591' });
-  assert.equal(els.get('officialNumber').textContent, '+351932015591',
-    'the number never appeared on the page — a user wanting to save the contact '
-    + 'or message from another device had no way to find it');
+  assert.equal(els.get('officialNumber').textContent, '+351932015591');
   assert.equal(els.get('officialNumber').style.display, '');
+  const page = fs.readFileSync(new URL('../public/wa-connections.html', import.meta.url), 'utf8');
+  const markup = page.replace(/<!--[\s\S]*?-->/g, '');   // the removal is explained in a comment
+  assert.doesNotMatch(markup, /wa\.me/, 'the click-to-chat deep link is back');
+  assert.doesNotMatch(markup, /id="officialLink"/, 'the CTA button is back');
 });
 
-test('R-F3601 the button is a real wa.me click-to-chat deep link', () => {
-  const els = governanceRuntime({ enabled: true, number: '+351 932 015 591' });
-  assert.equal(els.get('officialLink').href, 'https://wa.me/351932015591',
-    'wa.me requires digits only — spaces or a leading + break the link');
+test('R-F3603 the number is selectable, because saving it is the actual action', () => {
+  const page = fs.readFileSync(new URL('../public/wa-connections.html', import.meta.url), 'utf8');
+  const el = page.slice(page.indexOf('id="officialNumber"'), page.indexOf('id="officialNumber"') + 260);
+  assert.match(el, /user-select:\s*all/,
+    'a number you cannot select is a number you cannot save as a contact');
 });
 
-test('R-F3601 an unconfigured number leaves an INERT control, not a live dead link', () => {
+test('R-F3603 an unconfigured number says so instead of rendering a bare +', () => {
   const els = governanceRuntime({ enabled: false, number: null });
-  const link = els.get('officialLink');
-  assert.equal(link._attrs['aria-disabled'], 'true');
-  assert.equal(link.style.pointerEvents, 'none',
-    'aria-disabled tells a screen reader the control is unavailable and does '
-    + 'NOTHING to a mouse — the anchor stayed clickable and navigated to "#"');
   assert.equal(els.get('officialNumber').style.display, 'none');
+  assert.match(els.get('officialHint').textContent, /not configured/i);
 });
 
-test('R-F3601 enabled-but-empty is treated as unconfigured', () => {
-  // Trusting `enabled` alone would render "+" and a wa.me link to nowhere.
+test('R-F3603 enabled-but-empty is treated as unconfigured', () => {
+  // Trusting `enabled` alone would render a lone "+" and tell the user nothing.
   const els = governanceRuntime({ enabled: true, number: '' });
-  assert.equal(els.get('officialLink').style.pointerEvents, 'none');
   assert.equal(els.get('officialNumber').style.display, 'none');
+  assert.match(els.get('officialHint').textContent, /not configured/i);
+});
+
+
+// ── R-F3603 - two options, nothing else ─────────────────────────────────────
+
+test('R-F3603 the page presents exactly two connection options', () => {
+  // Operator: "there should be only two options, connect via direct text
+  // messages or connect via qr code, nothing else". Before this the page showed
+  // a two-card chooser AND two more stacked panels below it - four blocks for
+  // two choices, with no indication which control belonged to which.
+  const cards = html.match(/<section class="mode-card/g) || [];
+  assert.equal(cards.length, 2, `found ${cards.length} option sections, expected exactly 2`);
+  assert.match(html, /Connect by direct message/);
+  assert.match(html, /Connect by QR code/);
+});
+
+test('R-F3603 each option CONTAINS its own activation controls', () => {
+  // The point of the restructure: verification is not a third option, it is how
+  // option 1 is activated. If a control drifts outside its option the page is
+  // back to a chooser with orphaned panels.
+  const opt1 = html.slice(html.indexOf('aria-labelledby="opt1"'), html.indexOf('aria-labelledby="opt2"'));
+  const opt2 = html.slice(html.indexOf('aria-labelledby="opt2"'));
+  assert.match(opt1, /id="officialNumber"/, 'option 1 must show the number to text');
+  assert.match(opt1, /id="bindCodeBtn"/, 'option 1 must carry the verification control');
+  assert.match(opt2, /id="createBar"/, 'option 2 must carry the QR creation form');
+  assert.match(opt2, /name="risk"/, 'option 2 must carry its risk acceptances');
+  assert.doesNotMatch(opt1, /id="createBar"/, 'the QR form leaked into the direct-message option');
+});
+
+test('R-F3603 the old mode-grid chooser is gone', () => {
+  assert.doesNotMatch(html, /class="mode-grid"/,
+    'the separate chooser is back, which puts the page at four blocks again');
 });

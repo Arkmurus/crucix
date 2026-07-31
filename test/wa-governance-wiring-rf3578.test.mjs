@@ -16,7 +16,13 @@ test('R-F3578 QR creation is gated at web and listener boundaries', () => {
 
 test('R-F3578 user sees official default and explicit advanced risk flow', () => {
   assert.match(page, /Recommended/);
-  assert.match(page, /Advanced · Experimental/);
+  // R-F3603 - assert the PROPERTY, not the exact label. This pinned
+  // "Advanced · Experimental" and broke when the cards were relabelled to
+  // "Option 2 · Advanced, experimental" during the two-option restructure -
+  // while the thing it guards, that the linked-device path is explicitly marked
+  // advanced AND experimental, was never in question.
+  assert.match(page, /Advanced/i);
+  assert.match(page, /Experimental/i);
   assert.match(page, /accept_linked_risk/);
   assert.match(page, /authenticator code/);
   assert.match(page, /No QR can be generated/);
