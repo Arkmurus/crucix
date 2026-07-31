@@ -50,9 +50,11 @@ function runtime({ bindingResponse } = {}) {
     localStorage: { getItem: () => 'test-user-jwt' },
     fetch: async (url, options = {}) => {
       requests.push({ url, options });
-      const body = String(url).includes('/api/wa/binding/code')
+      // Exact-match the stub too: a prefixed URL must NOT be served a happy
+      // response, or the test keeps passing while the page 404s.
+      const body = String(url) === '/api/wa/binding/code'
         ? { ok: true, code: '445566', expiresAt: '2026-07-31T23:00:00Z' }
-        : String(url).includes('/api/wa/binding')
+        : String(url) === '/api/wa/binding'
           ? (bindingResponse ?? { bound: false, pairingPending: false })
           : { accounts: [] };
       return new Response(JSON.stringify(body), {
@@ -87,9 +89,18 @@ test('R-F3593 generating a code calls the API and displays what came back', asyn
   const { listeners, elements, requests } = runtime();
   await listeners.get('bindCodeBtn:click')();
 
-  const post = requests.find((r) => String(r.url).includes('/api/wa/binding/code'));
+  // R-F3598 — assert the EXACT url, not includes().
+  //
+  // This originally used .includes('/api/wa/binding/code') and PASSED against a
+  // live 404: apiFetch() prepends '/api/wa-listener', so the real request was
+  // POST /api/wa-listener/api/wa/binding/code — which still CONTAINS the
+  // substring. A containment check cannot detect a wrong prefix, which is the
+  // most likely way a URL is wrong.
+  const post = requests.find((r) => String(r.options?.method) === 'POST');
   assert.ok(post, 'no request was made — the button is decorative');
-  assert.equal(post.options.method, 'POST');
+  assert.equal(post.url, '/api/wa/binding/code',
+    `posted to ${post.url} — the binding routes are on aria-web, NOT under the `
+    + `/api/wa-listener proxy prefix`);
   assert.match(post.options.headers?.Authorization || '', /^Bearer /,
     'the mint route is Bearer-gated; without the header every real user 401s');
 
@@ -125,7 +136,10 @@ test('R-F3593 a failed status check does NOT report "not verified"', async () =>
   const ctx = vm.createContext({
     console,
     document: { getElementById: (id) => elements.get(id) || { style: {}, textContent: '' } },
-    apiFetch: async () => { throw new Error('network down'); },
+    // R-F3598 — inject the helper the code ACTUALLY calls. Injecting the old
+    // name left bindingFetch undefined, so this passed on a ReferenceError
+    // instead of on the simulated network failure — green for the wrong reason.
+    bindingFetch: async () => { throw new Error('network down'); },
     formatTime: () => 'x',
   });
   vm.runInContext(src + '\nrefreshBinding();', ctx, { filename: 'refreshBinding' });
@@ -133,4 +147,28 @@ test('R-F3593 a failed status check does NOT report "not verified"', async () =>
   const text = elements.get('bindStatus').textContent;
   assert.match(text, /Could not check/, `status read "${text}" — an unreachable check must not render as a verdict`);
   assert.doesNotMatch(text, /Not verified/);
+});
+
+
+test('R-F3598 the binding calls do NOT go through the listener-proxy helper', () => {
+  // apiFetch() prepends `const API = '/api/wa-listener'`. The binding routes are
+  // aria-web's own, so any binding call routed through it 404s.
+  const src = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const start = src.indexOf('async function refreshBinding');
+  const block = src.slice(start);
+  assert.doesNotMatch(block.slice(0, 3000), /apiFetch\('\/api\/wa\/binding/,
+    'a binding call is using apiFetch again — it will be prefixed and 404'
+  );
+  assert.match(block.slice(0, 3000), /bindingFetch\('\/api\/wa\/binding/);
+});
+
+test('R-F3598 every URL the page requests for binding is absolute and correct', async () => {
+  const { listeners, requests } = runtime();
+  await listeners.get('bindCodeBtn:click')();
+  const bindingCalls = requests.filter((r) => String(r.url).includes('binding'));
+  assert.ok(bindingCalls.length >= 2, 'expected a status read and a mint');
+  for (const c of bindingCalls) {
+    assert.ok(['/api/wa/binding', '/api/wa/binding/code'].includes(String(c.url)),
+      `unexpected binding URL: ${c.url}`);
+  }
 });

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3597,
+  "next_available": 3599,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30005,6 +30005,26 @@
       "r_number": "R-F3596",
       "title": "aria-wa /data inodes 100pc exhausted by the Baileys LID cache; nothing watched it and a failed persist left stale in-memory state",
       "claimed_at": "2026-07-31T22:24:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e8f75cf3",
+      "notes": null,
+      "shipped_at": "2026-07-31T22:32:15Z"
+    },
+    {
+      "r_number": "R-F3597",
+      "title": "inspect.getsource tests misread the file when a peer edits it mid-run - resolve by AST not line numbers",
+      "claimed_at": "2026-07-31T22:31:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0405051b",
+      "notes": null,
+      "shipped_at": "2026-07-31T22:35:41Z"
+    },
+    {
+      "r_number": "R-F3598",
+      "title": "binding UI 404: apiFetch prefixes /api/wa-listener and my test asserted includes() so it passed",
+      "claimed_at": "2026-07-31T22:38:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

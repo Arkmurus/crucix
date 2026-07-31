@@ -576,6 +576,26 @@
     document.querySelectorAll('input[name="scope"],input[name="risk"]').forEach((box) => box.addEventListener('change', updateRiskButton));
     document.getElementById('acceptRiskBtn').addEventListener('click', acceptLinkedRisk);
 
+    // ── R-F3597 — the binding routes are NOT under the listener proxy ────────
+    //
+    // apiFetch() prepends `const API = '/api/wa-listener'`. The binding routes
+    // live on aria-web at /api/wa/binding*, so using apiFetch produced
+    // POST /api/wa-listener/api/wa/binding/code -> "Cannot POST" 404.
+    //
+    // I checked that apiFetch EXISTED and not what it DID — §3b verifies a
+    // function's existence; its contract needs the same treatment.
+    async function bindingFetch(path, opts = {}) {
+      const token = localStorage.getItem('crucix_token') || '';
+      const res = await fetch(path, {
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token, ...opts.headers },
+        ...opts,
+      });
+      if (res.status === 401) throw new Error('Not signed in. Log in to imaria.io first, then reload this page.');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+      return data;
+    }
+
     // ── R-F3593 — handset verification ────────────────────────────────────
     // The code is shown ONLY to the session that requested it, and the server
     // never returns one it failed to store (R-F3587) — a code the listener does
@@ -584,7 +604,7 @@
     async function refreshBinding() {
       const box = document.getElementById('bindStatus');
       try {
-        const d = await apiFetch('/api/wa/binding');
+        const d = await bindingFetch('/api/wa/binding');
         const bound = Boolean(d && d.bound);
         document.getElementById('unbindBtn').style.display = bound ? '' : 'none';
         box.textContent = bound
@@ -603,7 +623,7 @@
       const btn = document.getElementById('bindCodeBtn');
       btn.disabled = true;
       try {
-        const d = await apiFetch('/api/wa/binding/code', { method: 'POST' });
+        const d = await bindingFetch('/api/wa/binding/code', { method: 'POST' });
         document.getElementById('bindCode').textContent = d.code;
         document.getElementById('bindExpiry').textContent =
           `Expires ${formatTime(d.expiresAt)} · single use`;
@@ -619,7 +639,7 @@
     async function unbindHandset() {
       if (!confirm('Unlink this handset? ARIA will stop responding to it once verified-only mode is on.')) return;
       try {
-        await apiFetch('/api/wa/binding', { method: 'DELETE' });
+        await bindingFetch('/api/wa/binding', { method: 'DELETE' });
         document.getElementById('bindCodeBox').style.display = 'none';
         await refreshBinding();
       } catch (e) {
