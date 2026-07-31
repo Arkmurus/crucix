@@ -2755,6 +2755,109 @@ def _detect_metacog_domain(message: str) -> str:
     return "general"
 
 
+# ── R-F3588 — ARIA HAS A CLOCK. TELL HER WHAT TIME IT IS. ────────────────────
+#
+# Live 2026-07-31, operator asked on WhatsApp: "What time is it in the UK?"
+# ARIA answered "I don't have a live clock in front of me, so I can't honestly
+# give you the exact current time", explained GMT/BST correctly, and offered to
+# "run a quick live time check".
+#
+# That answer was HONEST AND USELESS, and the honesty layer was not the bug. An
+# LLM's only notion of "now" is its training cutoff, and neither system prompt
+# carried a date or a time — so refusing was the correct behaviour given what she
+# was told. The defect is that THE SERVER KNOWS THE TIME AND NEVER TELLS HER.
+#
+# One class of question this silently broke: what day is it, how old is this
+# filing, is this licence expired, how long until the deadline, is my sanctions
+# snapshot stale. Every one of them is a defence-compliance question where the
+# date is load-bearing.
+#
+# Appended at the END of the system prompt, never the front: LLM prompt caching
+# keys on a stable PREFIX, so a timestamp at the top would bust the cache on
+# every single request and quietly multiply input-token spend against the $300/mo
+# cap (§17).
+def _ambient_now_block(compact: bool = False) -> str:
+    """The context ARIA genuinely HAS, stated plainly, appended to every prompt.
+
+    Named for the clock it started as; it now carries the whole ambient class.
+    """
+    now = datetime.now(timezone.utc)
+    lines = [
+        "",
+        "## CURRENT CONTEXT (authoritative — you KNOW these)",
+        f"- UTC now: {now.strftime('%Y-%m-%d %H:%M')} UTC ({now.strftime('%A')})",
+    ]
+    try:
+        # zoneinfo is stdlib, but the IANA database is a SYSTEM package and slim
+        # images often omit it. Guarded so a missing tzdata degrades to UTC-only
+        # rather than raising inside prompt construction and breaking EVERY chat.
+        from zoneinfo import ZoneInfo
+        uk = now.astimezone(ZoneInfo("Europe/London"))
+        lines.append(f"- UK local (Europe/London): {uk.strftime('%Y-%m-%d %H:%M')} {uk.tzname()}")
+    except Exception:
+        lines.append(
+            "- UK local: unavailable on this host (tzdata missing) — derive it from "
+            "UTC: GMT in winter, BST (UTC+1) from the last Sunday in March to the "
+            "last Sunday in October."
+        )
+    if compact:
+        # R-F3588 x R-F1337 — the small-model path gets the CLOCK ONLY.
+        #
+        # R-F1337 returns the compact prompt and skips every addendum because the
+        # 7B is derailed by extra scaffolding (live: a PMESII scaffold answered
+        # instead of ITAR). The reported defect is that she does not know the
+        # time, and ~200 chars fixes exactly that; the capability inventory and
+        # engagement coaching are ~1.7K more and belong on the large-model path
+        # where they cannot crowd out the question. Fixing one bug is not a
+        # licence to undo another R-number's reasoning.
+        lines += [
+            "",
+            "You DO have a clock. Asked the time or date, answer in one line from "
+            "the values above. Do not say you cannot know it.",
+            "",
+        ]
+        return "\n".join(lines)
+
+    lines += [
+        "",
+        "### What this block means",
+        "These values were handed to you by the system. They are KNOWN, not "
+        "assumed. Answer from them directly.",
+        "",
+        "NEVER-FABRICATE governs claims about the OUTSIDE WORLD — registry "
+        "numbers, sources, quotes, contract values, filings, people. It does NOT "
+        "mean refusing a fact you have just been given. Refusing something you "
+        "were told is not honesty; it is a wrong answer, and it wastes the "
+        "person's time. \"I cannot verify that\" is the better answer only when "
+        "you genuinely cannot.",
+        "",
+        "You DO have a clock. Asked the time or the date, answer in one line from "
+        "the values above. Do not say you cannot know it. Do not offer to check.",
+        "",
+        "## WHAT YOU CAN DO (answer \"what can you help with\" from this)",
+        "- Company due diligence and beneficial-ownership work",
+        "- Sanctions, PEP and adverse-media screening; country sanctions regimes",
+        "- Export-control classification (ECCN / UK SITCL) and licence questions",
+        "- Country and counterparty risk assessment",
+        "- Reading and reviewing documents you are sent (contracts, filings, NDAs)",
+        "- Reading images and voice notes you send",
+        "- Procurement and tender intelligence; lead and opportunity research",
+        "- Learning from correction — you can be taught, and you remember",
+        "",
+        "## HOW YOU ENGAGE",
+        "- Answer first. Context second, and only if it changes the answer.",
+        "- A one-line question gets a one-line answer. Do not pad a short answer "
+        "into a briefing.",
+        "- Never offer to do a thing you can just do. Do it, then say what you did.",
+        "- You are a colleague, not a search box: it is fine to be warm, to be "
+        "brief, and to have a view. Say what you think, then mark how sure you are.",
+        "- Do not re-ask what you have already been told in this conversation.",
+        "- If you need one thing to proceed, ask for that one thing — not a list.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 async def _build_calibrated_system_prompt(message: str, persona: str = "") -> str:
     """Build the system prompt with calibration + contradictions + structured-
     analysis templates injected.
@@ -2773,7 +2876,9 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
     # Return the compact invariants-only prompt and skip every addendum.
     # Both aria_chat AND aria_chat_stream flow through this function (§13).
     if _compact_prompt_active():
-        return ARIA_SYSTEM_PROMPT_COMPACT
+        # R-F3588 — the compact path returns EARLY, so the clock has to be
+        # attached here too or the 7B serving path keeps the original defect.
+        return ARIA_SYSTEM_PROMPT_COMPACT + _ambient_now_block(compact=True)
 
     addendum_parts = []
 
@@ -3338,7 +3443,8 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
         )
 
     if not addendum_parts:
-        return _base_prompt
+        # R-F3588 — the clock belongs on this path too, not only the assembled one.
+        return _base_prompt + _ambient_now_block()
     final = _base_prompt + "\n\n" + "\n\n".join(addendum_parts)
     # R-F947 — hard safety cap so the system prompt can never grow to eat the
     # context window and truncate an attached document. In document mode the
@@ -3354,7 +3460,13 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
     if len(final) > _cap:
         final = final[:_cap] + "\n\n[System addenda truncated to preserve context-window room.]"
         logger.info("[R-F947/F951] system prompt capped to %d chars (doc_grounded=%s)", _cap, _doc_grounded)
-    return final
+    # R-F3588 — the clock is appended AFTER the cap, deliberately. The trim above
+    # is a TAIL trim (the base constitution is first and must survive), so a clock
+    # appended before it would be the first thing cut on a long prompt — and the
+    # failure would be invisible: ARIA would quietly go back to "I don't have a
+    # live clock" on exactly the long, addendum-heavy conversations where the date
+    # matters most. ~250 chars on top of a 200K cap.
+    return final + _ambient_now_block()
 
 
 # ── Chat audit helper ────────────────────────────────────────────────────────

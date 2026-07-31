@@ -73,9 +73,19 @@ def test_compact_prompt_is_small_and_holds_invariants():
 async def test_builder_returns_compact_when_active(monkeypatch):
     monkeypatch.setenv("ARIA_LLM_URL", "https://pod-8888.proxy.runpod.net/v1")
     out = await ae._build_calibrated_system_prompt("What is ITAR?")
-    assert out == ae.ARIA_SYSTEM_PROMPT_COMPACT
+    # R-F3588 — assert the PROPERTY this guards, not byte equality. The small
+    # model must get the compact base and NO analytical scaffolding; it now also
+    # gets a ~260-char clock, because "I don't have a live clock" was a real
+    # live failure and the 7B path deserves the fix too. The scaffold ban and the
+    # size ceiling — the things that actually derailed it — are unchanged.
+    assert out.startswith(ae.ARIA_SYSTEM_PROMPT_COMPACT)
     assert "PMESII" not in out  # the exact scaffold that hijacked the live reply
     assert len(out) < 6000
+    extra = out[len(ae.ARIA_SYSTEM_PROMPT_COMPACT):]
+    assert len(extra) < 600, (
+        f"the compact path picked up {len(extra)} chars of addendum. R-F1337 exists "
+        f"because extra scaffolding derails the 7B — only the clock belongs here."
+    )
 
 
 @pytest.mark.asyncio
@@ -91,5 +101,7 @@ async def test_compact_applies_in_doc_mode_too(monkeypatch):
     monkeypatch.setenv("ARIA_LLM_URL", "https://pod-8888.proxy.runpod.net/v1")
     msg = '[ATTACHED DOCUMENT: nda.pdf]\nsome text\nreview the NDA for feedback'
     out = await ae._build_calibrated_system_prompt(msg)
-    assert out == ae.ARIA_SYSTEM_PROMPT_COMPACT  # doc review rule is IN the compact prompt
+    assert out.startswith(ae.ARIA_SYSTEM_PROMPT_COMPACT)  # doc review rule is IN the compact prompt
     assert "DOCUMENT REVIEW" in out
+    # R-F3588 — same property check as above: compact base, clock only, no scaffolds.
+    assert len(out[len(ae.ARIA_SYSTEM_PROMPT_COMPACT):]) < 600
