@@ -158,10 +158,10 @@
     <div id="toast" class="toast"></div>
 
     <!-- Create new account (R-F2984: one per account — hidden once a connection exists) -->
-    <div class="create-bar" id="createBar">
-      <input type="text" id="accountName" placeholder="e.g. ARIA Portugal" maxlength="50">
-      <button class="btn btn-primary" id="createBtn">+ Add</button>
-    </div>
+    <form class="create-bar" id="createBar">
+      <input type="text" id="accountName" aria-label="Connection name" placeholder="Optional name (defaults to My WhatsApp)" maxlength="50">
+      <button class="btn btn-primary" id="createBtn" type="submit">+ Add</button>
+    </form>
     <div id="limitNote" class="subtitle" style="display:none;">You have your one WhatsApp connection (the maximum per account). Remove it below to link a different device.</div>
 
     <!-- Refresh -->
@@ -325,8 +325,10 @@
 
     async function createAccount() {
       const input = document.getElementById('accountName');
-      const name = input.value.trim();
-      if (!name) return;
+      // R-F3562 — the placeholder looked like a value, but an empty input made
+      // Add silently return without issuing a request. A name is presentation,
+      // not identity; submit a safe default so the primary action always acts.
+      const name = input.value.trim() || 'My WhatsApp';
       input.value = '';
       const btn = document.getElementById('createBtn');
       btn.disabled = true;
@@ -426,7 +428,10 @@
       const fn = _waActions[btn.dataset.action];
       if (fn) fn(btn.dataset.id);
     });
-    document.getElementById('createBtn').addEventListener('click', () => createAccount());
+    document.getElementById('createBar').addEventListener('submit', (e) => {
+      e.preventDefault();
+      createAccount();
+    });
     document.getElementById('refreshBtn').addEventListener('click', () => refresh());
     document.getElementById('qrCloseBtn').addEventListener('click', () => closeQr());
     document.getElementById('qrModal').addEventListener('click', () => closeQr());
