@@ -7732,6 +7732,33 @@ def _press_hit_is_relevant(title: str, snippet: str, url: str, distinctive_token
     hits = [t for t in distinctive_tokens if t in hay]
     if not hits:
         return False
+    # ── R-F3583 — A NAMESAKE PERSON IN SURNAME-FIRST FORM IS NOT THE COMPANY ──
+    #
+    # LIVE, in a delivered report's Cited sources (dd_acaee511f0f4, Wilson James
+    # Limited — a London security contractor):
+    #   "Roseburg names Wilson, James to board of directors | Woodworking Network"
+    # A US wood-products company appointing an individual called James Wilson.
+    #
+    # R-F3221's two-token rule cannot see it: BOTH distinctive tokens are present, so
+    # it reads as strong aboutness. ORDER cannot see it either — "Wilson, James" runs
+    # wilson→james, the same order as the company, which is why the order test that
+    # fixed R-F3576 and R-F3579 does not transfer here. The one thing separating them
+    # is the COMMA: "Wilson, James" is the surname-first PERSON format — the same
+    # convention Companies House uses, and the same inversion behind R-F3030.
+    #
+    # Narrow and additive: reject ONLY when the title carries the tokens exclusively
+    # as "tok, tok" and NEVER as the plain phrase. "Home - Wilson James" and
+    # "Gary Sullivan - Wilson James Limited | LinkedIn" are unaffected.
+    #
+    # The URL is deliberately NOT consulted: a slug normalises "Wilson, James" to
+    # "wilson-james", destroying the very punctuation the decision rests on.
+    if len(distinctive_tokens) > 1 and len(hits) > 1:
+        _t = _norm(title or "")
+        _esc = [re.escape(_h) for _h in hits]
+        _plain = re.search(r"\b" + r"[\s-]+".join(_esc) + r"\b", _t)
+        _inverted = re.search(r"\b" + r"\s*,\s*".join(_esc) + r"\b", _t)
+        if _inverted and not _plain:
+            return False
     # ── R-F3221 — ONE token is not aboutness when that token is a SURNAME ────
     #
     # THE DEFECT (Rossi, 07101898). The gate returned True on any single token
@@ -12982,6 +13009,22 @@ _POSITIVE_REGISTERS: dict[str, dict] = {
         "not": "it is a voluntary PLEDGE, not a vetting, capability or performance "
                "assessment, and confers no security status",
     },
+    # R-F3585 — the Covenant's SIGNATORY LISTING lives on gov.uk under a path, not on
+    # its own host. LIVE (dd_7d9116dc44fd): the run captured
+    # `www.gov.uk/armed-forces-covenant-businesses/wilson-james-ltd` into press
+    # coverage, and the host-keyed lookup could not see it — a real credential the DD
+    # already held, unreachable.
+    #
+    # The key is HOST + PATH PREFIX, matched only as a prefix. Adding bare `gov.uk`
+    # would make every government page a credential, which is precisely the
+    # domain-match-alone error R-F3093 removed from the adverse filter; this keeps the
+    # register identified by WHAT IT IS rather than by who hosts it.
+    "gov.uk/armed-forces-covenant-businesses": {
+        "register": "Armed Forces Covenant",
+        "attests": "the organisation is listed as a Covenant signatory on GOV.UK",
+        "not": "it is a voluntary PLEDGE, not a vetting, capability or performance "
+               "assessment, and confers no security status",
+    },
     "register.fca.org.uk": {
         "register": "FCA Financial Services Register",
         "attests": "the firm is authorised or registered with the FCA",
@@ -13092,6 +13135,32 @@ def positive_register_findings(sources, subject_tokens: set, *, as_of: str = "")
         if host in _NOT_A_CREDENTIAL:
             continue
         spec = _POSITIVE_REGISTERS.get(host)
+        if not spec:
+            # R-F3585 — a register identified by HOST + PATH PREFIX. Some registers do
+            # not own a host: the Armed Forces Covenant signatory list is a path on
+            # gov.uk. Matched as a path PREFIX on a `/` boundary, so the key names the
+            # register rather than the whole department — keying bare `gov.uk` would
+            # make every government page a credential (the domain-match-alone error
+            # R-F3093 removed from the adverse filter).
+            _path = urlparse(url).path or "/"
+            for _k, _v in _POSITIVE_REGISTERS.items():
+                if "/" not in _k:
+                    continue
+                _kh, _kp = _k.split("/", 1)
+                if host != _kh:
+                    continue
+                _pfx = _kp.rstrip("/") + "/"
+                _rel = _path.lstrip("/")
+                # The path must reach an ENTITY page, not the register's own index.
+                # `/armed-forces-covenant-businesses` is the register existing;
+                # `/armed-forces-covenant-businesses/wilson-james-ltd` is a listing OF
+                # the subject. Crediting the index would manufacture a credential from
+                # the register's mere existence — and the title anchor cannot catch it,
+                # because a search result for the index page is still titled with the
+                # subject's name.
+                if (_rel + "/").startswith(_pfx) and _rel[len(_pfx):].strip("/"):
+                    spec = _v
+                    break
         if not spec:
             continue
         if not _positive_names_subject(s.get("title") or "", subject_tokens,
