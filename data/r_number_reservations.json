@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3600,
+  "next_available": 3601,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30035,6 +30035,16 @@
       "r_number": "R-F3599",
       "title": "the binding panel gives a code but never says which number to text; derive ARIA's number from the live session",
       "claimed_at": "2026-07-31T22:51:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f65d5feb",
+      "notes": null,
+      "shipped_at": "2026-07-31T22:52:52Z"
+    },
+    {
+      "r_number": "R-F3600",
+      "title": "unlink used a raw browser confirm() next to a full modal design system",
+      "claimed_at": "2026-07-31T23:01:08Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

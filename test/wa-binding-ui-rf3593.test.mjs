@@ -228,3 +228,58 @@ test('R-F3599 the mint response carries the destination with the code', () => {
     'the code and its destination must arrive together — a second round trip to '
     + 'learn where to send it is how a user ends up holding a code and guessing');
 });
+
+
+// ── R-F3600 — the confirm dialog belongs to the page, not to the browser ────
+
+test('R-F3600 no raw window.confirm remains in the page script', () => {
+  const src = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const code = src.split(/\r?\n/).filter((l) => !l.trim().startsWith('//')).join('\n');
+  assert.doesNotMatch(code, /(^|[^.\w])confirm\s*\(/,
+    'a raw window.confirm() is back — it renders as OS chrome with the site URL '
+    + 'printed above it, next to a page that already ships a modal system');
+  assert.match(code, /confirmDialog\(/);
+});
+
+test('R-F3600 the dialog reuses the page design system, not bespoke styling', () => {
+  const dlg = html.slice(html.indexOf('id="confirmModal"'), html.indexOf('id="qrModal"'));
+  assert.match(dlg, /class="modal-overlay"/, 'must reuse the existing overlay');
+  assert.match(dlg, /class="modal"/);
+  assert.match(dlg, /class="btn btn-danger"/, 'destructive action needs the danger button style');
+});
+
+test('R-F3600 it is a real dialog for assistive tech', () => {
+  const dlg = html.slice(html.indexOf('id="confirmModal"'), html.indexOf('id="qrModal"'));
+  assert.match(dlg, /role="dialog"/);
+  assert.match(dlg, /aria-modal="true"/);
+  assert.match(dlg, /aria-labelledby="confirmTitle"/);
+});
+
+test('R-F3600 escape and the overlay cancel, and focus starts on Cancel', () => {
+  const src = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const fn = src.slice(src.indexOf('function confirmDialog'), src.indexOf('function confirmDialog') + 1800);
+  assert.match(fn, /e\.key === 'Escape'/, 'Escape must cancel');
+  assert.match(fn, /e\.target === modal/, 'clicking the overlay must cancel');
+  assert.match(fn, /cancel\.focus\(\)/,
+    'focus must start on Cancel — a destructive action one stray Enter away is '
+    + 'exactly what the native dialog allowed');
+});
+
+test('R-F3600 the dialog resolves false by default and cleans up its listeners', () => {
+  const src = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const fn = src.slice(src.indexOf('function confirmDialog'), src.indexOf('function confirmDialog') + 1800);
+  assert.match(fn, /removeEventListener\('keydown'/,
+    'a keydown listener left attached accumulates on every open');
+  assert.match(fn, /close\(false\)/);
+});
+
+test('R-F3600 unlink actually awaits the dialog before calling the API', async () => {
+  // The failure mode of swapping a synchronous confirm() for a Promise is
+  // forgetting the await — the API call then fires regardless of the answer.
+  const src = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const fn = src.slice(src.indexOf('async function unbindHandset'), src.indexOf('async function unbindHandset') + 800);
+  assert.match(fn, /const yes = await confirmDialog\(/);
+  assert.match(fn, /if \(!yes\) return;/, 'the DELETE must not run when the user cancels');
+  assert.ok(fn.indexOf('await confirmDialog') < fn.indexOf("method: 'DELETE'"),
+    'the confirmation must precede the request');
+});

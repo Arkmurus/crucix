@@ -270,6 +270,23 @@
   </div>
 
   <!-- QR Modal -->
+  <!-- R-F3600 — confirm dialog on the page's OWN design system.
+       Unlinking used window.confirm(), which renders as an OS-chrome box with a
+       browser-supplied title, no styling, and the site's URL printed above it —
+       jarring next to the modal system this page already ships. -->
+  <div id="confirmModal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <div class="modal">
+      <div class="modal-wrap">
+        <h2 id="confirmTitle">Are you sure?</h2>
+        <p id="confirmBody"></p>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button id="confirmCancel" class="btn">Cancel</button>
+          <button id="confirmOk" class="btn btn-danger">Confirm</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="qrModal" class="modal-overlay" style="display:none">
     <div class="modal" id="qrModalInner">
       <div class="modal-wrap">
@@ -577,6 +594,39 @@
     document.querySelectorAll('input[name="scope"],input[name="risk"]').forEach((box) => box.addEventListener('change', updateRiskButton));
     document.getElementById('acceptRiskBtn').addEventListener('click', acceptLinkedRisk);
 
+
+    // ── R-F3600 — a confirm dialog that belongs to this page ─────────────────
+    //
+    // Returns a Promise<boolean> so call sites read exactly like the window
+    // .confirm() they replace. Escape and the overlay both cancel, and focus
+    // lands on Cancel — a destructive action should never be one stray Enter
+    // away, which is precisely what the native dialog allowed.
+    function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = true }) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('confirmModal');
+        const ok = document.getElementById('confirmOk');
+        const cancel = document.getElementById('confirmCancel');
+        document.getElementById('confirmTitle').textContent = title;
+        document.getElementById('confirmBody').textContent = body;
+        ok.textContent = confirmLabel;
+        ok.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+        modal.style.display = 'flex';
+        try { cancel.focus(); } catch { /* focus is a nicety, never a blocker */ }
+
+        const close = (result) => {
+          modal.style.display = 'none';
+          ok.onclick = null; cancel.onclick = null; modal.onclick = null;
+          document.removeEventListener('keydown', onKey);
+          resolve(result);
+        };
+        const onKey = (e) => { if (e.key === 'Escape') close(false); };
+        ok.onclick = () => close(true);
+        cancel.onclick = () => close(false);
+        modal.onclick = (e) => { if (e.target === modal) close(false); };
+        document.addEventListener('keydown', onKey);
+      });
+    }
+
     // ── R-F3597 — the binding routes are NOT under the listener proxy ────────
     //
     // apiFetch() prepends `const API = '/api/wa-listener'`. The binding routes
@@ -647,7 +697,13 @@
     }
 
     async function unbindHandset() {
-      if (!confirm('Unlink this handset? ARIA will stop responding to it once verified-only mode is on.')) return;
+      const yes = await confirmDialog({
+        title: 'Unlink this handset?',
+        body: 'ARIA will stop responding to this phone once verified-only mode is on. '
+            + 'You can verify it again at any time with a new code.',
+        confirmLabel: 'Unlink handset',
+      });
+      if (!yes) return;
       try {
         await bindingFetch('/api/wa/binding', { method: 'DELETE' });
         document.getElementById('bindCodeBox').style.display = 'none';
