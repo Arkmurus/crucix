@@ -10170,14 +10170,9 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
     # fails closed (see `_positive_names_subject`): a fabricated credential is worse than
     # a missed one.
     try:
-        _pos_src = []
-        _pos_blob = getattr(report, "adverse_media", None) or {}
-        if isinstance(_pos_blob, dict):
-            for _f in (_pos_blob.get("findings") or []):
-                if isinstance(_f, dict):
-                    _pos_src.append({"url": _f.get("source_url"),
-                                     "title": _f.get("title"),
-                                     "snippet": _f.get("snippet")})
+        # R-F3566 — read EVERY producer populated by now, not `adverse_media`, which
+        # `_run_synthesis` reaches before it is ever assigned.
+        _pos_src = _positive_source_rows(report)
         _pos_tokens = _adverse_subject_tokens(
             report.identity.entity_name or "",
             getattr(report.identity, "aliases", None) or [])
@@ -12969,6 +12964,99 @@ def positive_register_findings(sources, subject_tokens: set, *, as_of: str = "")
     return out
 
 
+def _promote_positives_into_body(body: dict, am_result: dict) -> int:
+    """R-F3566 — promote register credentials once the follow-up finally produces them.
+
+    Fixing synthesis alone would have left the ORIGINALLY INTENDED producer permanently
+    unread: R-F3553 was written to scan `adverse_media["findings"]`, and those only ever
+    exist here, after the out-of-band sweep merges. A consumer moved off a producer, with
+    nothing put back on it, is the same producer/consumer defect inverted.
+
+    Operates on the PERSISTED dict body (not the dataclass) because that is what exists
+    at merge time. Returns how many findings were added, so the caller can log a number
+    rather than an assumption.
+    """
+    ident = body.get("identity")
+    if not isinstance(ident, dict):
+        return 0
+    rows: list[dict] = []
+    for _f in ((am_result or {}).get("findings") or []):
+        if isinstance(_f, dict):
+            _u = str(_f.get("source_url") or _f.get("url") or "").strip()
+            if _u.startswith("http"):
+                rows.append({"url": _u, "title": str(_f.get("title") or ""),
+                             "snippet": str(_f.get("snippet") or "")})
+    if not rows:
+        return 0
+    tokens = _adverse_subject_tokens(ident.get("entity_name") or "",
+                                     ident.get("aliases") or [])
+    fresh = positive_register_findings(
+        rows, tokens, as_of=str(body.get("generated_at") or "")[:10])
+    if not fresh:
+        return 0
+    existing = ident.get("findings")
+    if not isinstance(existing, list):
+        existing = []
+        ident["findings"] = existing
+    # De-dupe against what synthesis already promoted, or the same credential is
+    # reported twice on any run where both producers saw it.
+    seen = {(str(f.get("title") or ""), str(f.get("source") or ""))
+            for f in existing if isinstance(f, dict)}
+    added = 0
+    for f in fresh:
+        key = (f.get("title", ""), f.get("source", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        existing.append(f)
+        added += 1
+    return added
+
+
+def _positive_source_rows(report) -> list[dict]:
+    """R-F3566 — every captured source that EXISTS when the caller asks, normalised.
+
+    THE DEFECT THIS CLOSES. R-F3553 read `report.adverse_media["findings"]` from
+    `_run_synthesis`. `adverse_media` is a `field(default_factory=dict)` and is not
+    assigned until AFTER synthesis returns (R-F2657 decoupled the deep sweep, so it is
+    an out-of-band follow-up). The consumer therefore ran BEFORE its producer on every
+    single report: the input was `{}` -> `.get("findings")` -> None -> an empty list.
+    Not "opportunistic" — INERT, always, by ordering. Measured across six captured
+    reports: `adverse_media` was `{"status": "in_progress"}` in every one.
+
+    That is the same shape as R-F3504 (a UK-only check placed on the non-UK branch) and
+    R-F3515: code that reads correctly and cannot run. A grep for
+    `positive_register_findings` found the call and proved nothing.
+
+    FIELD NAMES ARE LOAD-BEARING HERE, not plumbing. `digital.press_coverage` rows carry
+    the headline in `source`, NOT `title` — and `_positive_names_subject` is TITLE-anchored
+    and FAILS CLOSED on an empty title (R-F3555). Feeding those rows through unmapped
+    would have produced exactly zero findings while looking fixed, replacing a dead path
+    with a silent one. Each producer is mapped explicitly for that reason.
+    """
+    rows: list[dict] = []
+
+    def _add(url, title, snippet) -> None:
+        u = str(url or "").strip()
+        if u.startswith("http"):
+            rows.append({"url": u, "title": str(title or ""), "snippet": str(snippet or "")})
+
+    # Populated DURING the run, so present at synthesis — the fix.
+    for _c in (getattr(getattr(report, "digital", None), "press_coverage", None) or []):
+        if isinstance(_c, dict):
+            _add(_c.get("url"), _c.get("source") or _c.get("title"), _c.get("snippet"))
+
+    # Populated only by the R-F2657 follow-up, so empty at synthesis and real later.
+    # Kept so the SAME helper serves both call sites and neither can drift.
+    _am = getattr(report, "adverse_media", None) or {}
+    if isinstance(_am, dict):
+        for _f in (_am.get("findings") or []):
+            if isinstance(_f, dict):
+                _add(_f.get("source_url") or _f.get("url"), _f.get("title"), _f.get("snippet"))
+
+    return rows
+
+
 def _adverse_subject_tokens(subject_name: str, aliases=None) -> set[str]:
     """R-F3089 — the distinctive tokens an item must share to be ABOUT the subject.
 
@@ -14019,6 +14107,18 @@ async def _run_adverse_media_followup(
                 # R-F2780 — credible adverse findings ESCALATE the stored verdict
                 # (never downgrade). Runs under the same merge lock as the write.
                 _esc = _apply_adverse_media_to_verdict(_body, _am_result)
+                # R-F3566 — the follow-up is the ONLY moment adverse findings exist,
+                # so it is the only place a register credential carried by them can be
+                # promoted. Before the surfaces re-render below, or the new finding
+                # would not reach the rendered report or the index row.
+                try:
+                    _n_pos = _promote_positives_into_body(_body, _am_result)
+                    if _n_pos:
+                        logger.info("[R-F3566] promoted %d positive register finding(s) "
+                                    "for %s from the adverse follow-up", _n_pos, run_id)
+                except Exception as _pp_e:   # noqa: BLE001 — a positive never costs a merge
+                    logger.debug("[R-F3566] positive promotion skipped for %s: %s",
+                                 run_id, _pp_e)
                 # R-F2786 — the follow-up just answered one of the five
                 # customer-critical questions. Keep the stored scorecard and
                 # BLUF in sync; non-GREEN adverse escalations are untouched.
