@@ -5711,9 +5711,17 @@ async def _run_identity(
             # coincidences from the DISPLAYED transparency set. Display-only — the
             # never-false-clean BLOCKING path (fuzzy_screen corroboration) is untouched.
             _subj_disc = _distinctive_tokens(getattr(report.identity, "entity_name", "") or "")
+            # R-F3579 — a REVERSAL is a coincidence too. The token-set test below
+            # cannot see it (the sets overlap fully), so it is checked explicitly.
+            # DISPLAY-ONLY, like R-F2994: the never-false-clean BLOCKING path
+            # (fuzzy_screen corroboration) is untouched, so nothing is suppressed
+            # from the screen itself — only from the transparency list a reader
+            # scans, and the count printed above it.
+            _subj_name_for_order = getattr(report.identity, "entity_name", "") or ""
             _coincidences = [
                 m for m in _real_info
-                if _subj_disc and not (_subj_disc & _distinctive_tokens(m.get("name") or ""))
+                if (_subj_disc and not (_subj_disc & _distinctive_tokens(m.get("name") or "")))
+                or _is_name_reversal(_subj_name_for_order, m.get("name") or "")
             ]
             if _coincidences:
                 _drop_ids = {id(m) for m in _coincidences}
@@ -14120,6 +14128,48 @@ def _distinctive_tokens(name: str) -> set[str]:
         t for t in _re.findall(r"[a-z0-9]+", (name or "").lower())
         if t not in _GENERIC_ENTITY_TOKENS and len(t) > 2
     }
+
+
+def _distinctive_sequence_dd(name: str) -> list[str]:
+    """R-F3579 — the distinctive tokens IN ORDER. `_distinctive_tokens` returns a SET
+    and order is exactly what a reversal defeats."""
+    import re as _re
+    seen: set = set()
+    out: list[str] = []
+    for t in _re.findall(r"[a-z0-9]+", (name or "").lower()):
+        if t in _GENERIC_ENTITY_TOKENS or len(t) <= 2 or t in seen:
+            continue
+        seen.add(t)
+        out.append(t)
+    return out
+
+
+def _is_name_reversal(subject: str, candidate: str) -> bool:
+    """R-F3579 — does the candidate present the SUBJECT's tokens in a different order?
+
+    LIVE (dd_acaee511f0f4, Wilson James Limited): the identity panel read
+    "Sanctions matches 1", and the match was
+        "JAMES WILSON, Alejandro Antonio (score 0.50, ofac_sdn, weak_match)"
+    — an individual on the OFAC SDN list, surfaced against a London security company
+    because its name is two forenames.
+
+    R-F2994's coincidence filter could not see it. That filter drops a candidate
+    sharing NO distinctive token, and {wilson, james} & {james, wilson, alejandro,
+    antonio} is NON-empty, so the reversal passed as a genuine partial match. The
+    same set-blindness as R-F3574/R-F3576 in the FCA matcher, in a third module.
+
+    Compares the order of the SHARED tokens only, exactly as R-F3576 does: extra
+    tokens on the candidate ("Alejandro Antonio") are irrelevant to whether the
+    subject's own tokens were reordered. A single distinctive token has no order to
+    get wrong, so it can never be a reversal.
+    """
+    subj = _distinctive_sequence_dd(subject)
+    if len(subj) < 2:
+        return False
+    cand_shared = [t for t in _distinctive_sequence_dd(candidate) if t in set(subj)]
+    # Only a reversal of the SAME tokens counts; a partial overlap is a different
+    # question the token filter already answers.
+    return bool(cand_shared) and sorted(cand_shared) == sorted(subj) and cand_shared != subj
 
 
 def _scrub_stale_adverse_incomplete(body: dict) -> bool:
