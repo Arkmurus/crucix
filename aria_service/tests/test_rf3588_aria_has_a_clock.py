@@ -101,7 +101,11 @@ def test_the_clock_is_appended_after_the_length_cap():
     src = _ENGINE.read_text(encoding="utf-8")
     cap_idx = src.index("system prompt capped to %d chars")
     tail = src[cap_idx:cap_idx + 900]
-    assert "_ambient_now_block()" in tail, (
+    # R-F3590 — match the CALL, not its argument list. This pinned
+    # `_ambient_now_block()` literally, so threading the speaker through
+    # (`_ambient_now_block(speaker=speaker)`) broke it while the property it
+    # guards — appended AFTER the cap — was completely untouched.
+    assert re.search(r"return final \+ _ambient_now_block\(", tail), (
         "the clock is no longer appended after the truncation cap"
     )
     # and it must not be folded into `final` before the trim

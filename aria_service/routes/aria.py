@@ -6018,6 +6018,31 @@ _BRAVE_QA_EXCLUDE_RE = re.compile(
 # for compatibility with existing test references.
 from ..intel.self_infra_detector import SELF_INFRA_INTROSPECTION_RE as _BRAVE_QA_SELF_INFRA_RE
 
+# R-F3592 — questions ARIA answers from her OWN CURRENT CONTEXT block (R-F3588),
+# which must never be routed to a paid web search.
+#
+# Deliberately NARROW. It matches only a request for the CURRENT instant:
+#   "what time is it", "what is the time in Portugal", "what's the date today",
+#   "what day is it", "what year is it", "current time in Lisbon"
+# It must NOT swallow genuine web questions that merely contain a time word:
+#   "what time does the LSE open", "when did the sanctions take effect",
+#   "what is the deadline for SITCL applications"
+# — those need sources, and over-excluding would send ARIA to answer them from
+# training data, which is the fabrication this product exists to avoid.
+_BRAVE_QA_AMBIENT_RE = re.compile(
+    r"("
+    r"\bwhat(?:'s|\s+is|\s+was)?\s+the\s+(?:current\s+)?(?:time|date|day|year)\b"
+    r"(?!\s+(?:zone|limit|frame|line))"
+    r"|\bwhat\s+time\s+is\s+it\b"
+    r"|\bwhat\s+day\s+is\s+it\b"
+    r"|\bwhat\s+year\s+is\s+it\b"
+    r"|\bcurrent\s+(?:local\s+)?(?:time|date)\b"
+    r"|\btime\s+(?:right\s+)?now\b"
+    r"|\btoday'?s\s+date\b"
+    r")",
+    re.IGNORECASE,
+)
+
 
 def _looks_like_internal_composition(msg: str) -> bool:
     """Detect 'compose me a digest' prompts that must NOT route to deep_research.
@@ -6995,6 +7020,28 @@ def _detect_tool_intent(message: str) -> dict | None:
     if not msg:
         return None
 
+    # ── R-F3592 — NO TOOL FOR A QUESTION SHE ALREADY HOLDS THE ANSWER TO ─────
+    #
+    # Placed FIRST, before every routing branch, and returning None outright.
+    #
+    # The first cut of this fix excluded ambient questions from the brave_answer
+    # branch only — and "What is the time in Portugal?" simply fell through to
+    # deep_research instead. A web search either way, so the defect had moved
+    # rather than gone. Per-branch exclusions cannot work here: there are a dozen
+    # routing branches and the next one added will inherit the same hole.
+    #
+    # Live 2026-07-31: that question was routed to a paid Brave call, came back
+    # with timeanddate.com snippets that did NOT contain the current time (the
+    # page renders its clock in JavaScript, so a crawler sees sunrise and sunset
+    # and nothing else), and ARIA then deadlocked between the tool ANSWER SCOPE
+    # and her own clock, leaking her chain of thought (R-F3591).
+    #
+    # The clock is in her system prompt (R-F3588). Searching for it spends money
+    # and seconds to fetch something this process is already holding, and returns
+    # a worse answer than the one it already has.
+    if _BRAVE_QA_AMBIENT_RE.search(msg):
+        return None
+
     # ── R-F1759 (2026-06-21) — /help command for command discovery ──
     # MUST run before any other intent detection so "/help" always returns
     # the command catalogue regardless of what follows. Without this handler,
@@ -7643,9 +7690,26 @@ def _detect_tool_intent(message: str) -> dict | None:
     # compliance, sanctions screen, internal composition, meta_query).
     # Those paths stay on their current routes; only generic factual
     # lookups divert to Brave.
+    # R-F3592 — DO NOT SEARCH THE WEB FOR THE TIME.
+    #
+    # Live 2026-07-31: "What is the time in Portugal?" matched the factual-QA
+    # shape (question word + linking verb, short, no specialist keyword) and
+    # was routed to brave_answer. It then came back with timeanddate.com
+    # snippets that did NOT state the current time, and ARIA deadlocked
+    # between the tool ANSWER SCOPE and her own clock (R-F3591).
+    #
+    # The clock is in her system prompt (R-F3588). Searching for it spends a
+    # paid Brave call and seconds of latency to fetch something the process
+    # already holds, and the snippets are usually WORSE than the answer —
+    # a timeanddate page renders its clock in JavaScript, so the text a
+    # crawler sees carries sunrise and sunset but not the time.
+    #
+    # Same shape as the existing SELF_INFRA exclusion above it: a question
+    # ARIA can answer from herself must never be sent outward.
     if (
         _BRAVE_QA_TRIGGER_RE.search(msg)
         and not _BRAVE_QA_EXCLUDE_RE.search(msg)
+        and not _BRAVE_QA_AMBIENT_RE.search(msg)
         and not _BRAVE_QA_SELF_INFRA_RE.search(msg)
         and len(msg) < 250
     ):
