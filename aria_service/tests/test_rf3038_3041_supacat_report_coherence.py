@@ -37,9 +37,23 @@ def test_rf3038_both_screen_assignment_sites_stamp_a_date():
     # screen that RAN. A waived screen did not run: stamping `screened_at` would assert
     # that it did, which is precisely the false claim this file exists to prevent. So the
     # count moves and the new site is held to the OPPOSITE rule, asserted below.
-    assert src.count("report.identity.sanctions_screen = ") == 4, (
+    # R-F3535 — the four sites now route through `_record_sanctions_screen`, which
+    # assigns the screen AND runs the evidence shadow, so a new site cannot silently
+    # bypass the shadow. Counting the RECORDER calls preserves this guard's property
+    # exactly (a fifth site must be classified explicitly); only the shape it counts
+    # changed. The bare assignment that remains is the recorder's own.
+    # Count CALLS, not the `def` — a function's signature contains the same text as a
+    # call to it, and matching that inflated this count to 5 on the first cut.
+    _calls = [ln for ln in src.splitlines()
+              if "_record_sanctions_screen(report" in ln
+              and not ln.lstrip().startswith(("def ", "#"))]
+    assert len(_calls) == 4, (
         "if a fifth appears, decide explicitly whether it represents a screen that RAN "
-        "(stamp the date) or one that did not (leave screened_at None) — and assert it here")
+        "(stamp the date) or one that did not (leave screened_at None) — and assert it "
+        f"here. Found: {_calls}")
+    assert src.count("report.identity.sanctions_screen = ") == 1, (
+        "a screen is assigned outside `_record_sanctions_screen` — that site bypasses "
+        "the R-F3535 evidence shadow and makes the agreement data silently partial")
     assert '"screened_at": datetime.now(timezone.utc)' in src      # site 1 (R-F3031)
     assert 'screen["screened_at"] = datetime.now(timezone.utc)' in src  # site 2 (R-F3038)
     # site 3 (R-F3219) — stamped before it is assigned, same never-overwrite rule

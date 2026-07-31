@@ -1956,7 +1956,7 @@ async def _run_identity_person(
         # R-F2416: attempted ≥1 real variant but NONE actually screened → the
         # sanctions/PEP source was unavailable; the screen did NOT run.
         _sanctions_unverified = (not _screen_ok) and bool(_unavailable_variants)
-        report.identity.sanctions_screen = {
+        _screen_blob = {
             "matches": all_matches,
             "variants_screened": screened_variants,
             "source_unavailable": _sanctions_unverified,
@@ -1970,6 +1970,7 @@ async def _run_identity_person(
             # daily; an undated clean is an undatable claim.
             "screened_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
+        _record_sanctions_screen(report, _screen_blob)   # R-F3535
 
         classified = _cm(all_matches, query_name=name)
         worst = classified["worst_severity"]
@@ -3340,7 +3341,7 @@ async def _rescreen_under_registered_name(
         "actionable": max(0, _total - _noise),
         "worst_severity": classified.get("worst_severity"),
     }
-    report.identity.sanctions_screen = screen
+    _record_sanctions_screen(report, screen)   # R-F3535
 
     _worst = classified.get("worst_severity")
     if _worst in ("hard_stop", "red", "amber"):
@@ -3844,7 +3845,7 @@ def _record_waived_screen(report: ARKDDReport, waiver: dict, *, what: str) -> No
     """
     _by = str(waiver.get("waived_by") or "?")
     _why = str(waiver.get("reason") or "")
-    report.identity.sanctions_screen = {
+    _screen_blob = {
         "matches": [],
         "variants_screened": [],
         "verified_sources": [],
@@ -3855,6 +3856,7 @@ def _record_waived_screen(report: ARKDDReport, waiver: dict, *, what: str) -> No
         "waived_at": str(waiver.get("waived_at") or ""),
         "screened_at": None,
     }
+    _record_sanctions_screen(report, _screen_blob)   # R-F3535
     report.identity.data_gaps.append(
         f"{what} WAIVED by {_by}: {_why} — not screened on this run "
         f"(a declined check is not a clear one)"
@@ -4915,6 +4917,35 @@ _SANCTIONS_PRIMARY_LISTS: dict[str, str] = {
 }
 
 
+def _record_sanctions_screen(report, screen: dict) -> None:
+    """R-F3535 — assign the sanctions screen AND run the evidence shadow. ONE place.
+
+    THE DEFECT THIS CLOSES, and it is my own from R-F3510. `sanctions_evidence_shadow`
+    was written to prove the R-F3474 evidence contract reproduces live behaviour before
+    anything depends on it — its docstring says "a caller records it and reads it later".
+    **It had no caller.** A dormant guard against a dormant specification: phase 2 of the
+    consolidation could never be evidence-based, because no evidence was ever collected.
+
+    WHY A RECORDER AND NOT FOUR CALLS. There are FOUR sites that assign
+    `identity.sanctions_screen` — the variant path, the registered-name path, the WAIVER
+    path, and the alias/OFSI path that a company DD actually takes. R-F3038 exists
+    because R-F3031 stamped only the first of them and a live report still could not date
+    its own screen. Wiring the shadow at one site would repeat that exactly, and the
+    disagreement data would be silently partial — which is worse than none, because it
+    would look like coverage.
+
+    The comparison is stored ON the screen under `_evidence_shadow`, so it travels with
+    the stored report and can be read back from any run. Shadow means shadow: no finding,
+    no verdict and no wording changes, and a failure here can never cost a screen.
+    """
+    report.identity.sanctions_screen = screen
+    try:
+        if isinstance(screen, dict):
+            screen["_evidence_shadow"] = sanctions_evidence_shadow(screen)
+    except Exception as _e:  # noqa: BLE001 — a diagnostic must never break a DD
+        logger.debug("[R-F3535] evidence shadow skipped: %s", _e)
+
+
 def sanctions_evidence_shadow(screen: dict) -> dict:
     """R-F3510 — derive the sanctions state through the EVIDENCE CONTRACT, in SHADOW.
 
@@ -5611,7 +5642,7 @@ async def _run_identity(
         # never overwritten if the screen already carries one.
         if isinstance(screen, dict) and not screen.get("screened_at"):
             screen["screened_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        report.identity.sanctions_screen = screen
+        _record_sanctions_screen(report, screen)   # R-F3535
         report.identity.meta.subcalls += 1
 
         matches = screen.get("matches") or []
