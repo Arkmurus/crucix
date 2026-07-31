@@ -38,7 +38,16 @@ def fake_rs(monkeypatch):
     async def scan_keys(pat, count=200):
         return [k for k in list(store) if fnmatch.fnmatch(k, pat)]
 
+    # R-F3532 — the fake must cover get_json_strict too. delete_report now uses the
+    # STRICT read (so an unreadable store is not reported as "report not found"),
+    # and an unpatched strict read means the code under test reads the REAL store
+    # while the test writes to this dict — a fixture that silently tests nothing.
+    async def get_json_strict(k):
+        await asyncio.sleep(0)
+        return store.get(k)
+
     for name, fn in [("set_json", set_json), ("get_json", get_json), ("delete", delete),
+                     ("get_json_strict", get_json_strict),
                      ("scan_json", scan_json), ("scan_keys", scan_keys)]:
         monkeypatch.setattr(rs, name, fn)
     return store
@@ -117,13 +126,19 @@ async def test_delete_report_uses_canonical_vault_key(fake_rs, monkeypatch):
 
     deleted = []
 
+    # R-F3532 — this fake was long-red (recorded in docs/suite_baseline_2026_07_30.md)
+    # because it still modelled delete_case(cid), which R-F2653 REPLACED with
+    # remove_report_from_case(cid, run_id) precisely so one tenant's delete stops
+    # wiping a shared entity's case for everyone. The guard was asserting an API
+    # the code no longer calls, i.e. protecting nothing. Modelled correctly now.
     class _V:
         def list_all(self, limit=500):
             return []
 
-        def delete_case(self, cid):
+        def remove_report_from_case(self, cid, run_id):
             deleted.append(cid)
-            return cid == "company:acme:GB"
+            return {"found": cid == "company:acme:GB", "case_deleted": True,
+                    "remaining_reports": 0}
 
     monkeypatch.setattr(dv, "get_vault", lambda: _V())
     fake_rs[ddo.REPORT_INDEX_KEY] = [
@@ -142,23 +157,68 @@ async def test_delete_report_uses_canonical_vault_key(fake_rs, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_delete_report_false_when_nothing_removed(fake_rs, monkeypatch):
-    """R-F2388 — success True must mean at least one backing store changed."""
+async def test_delete_report_absent_is_success_but_claims_no_removal(fake_rs, monkeypatch):
+    """R-F2388 + R-F3532 — never CLAIM a removal that did not happen, but do not
+    call an already-absent report a failure either.
+
+    R-F2388's protection is intact: every backing-store flag stays False, so no
+    consumer can read this as "a report was removed". What changed is the verdict
+    on a run that is genuinely gone. `ok=False` made an orphan row (an index entry
+    whose blob aged out, or simply a second click) PERMANENTLY undeletable in the
+    UI — the surface reported "Delete did not remove a report" and left the row on
+    screen. The user's goal is that the report is gone; it is.
+    """
     import aria_service.intel.dd_vault as dv
 
     class _V:
         def list_all(self, limit=500):
             return []
 
-        def delete_case(self, cid):
-            return False
+        def remove_report_from_case(self, cid, run_id):
+            return {"found": False, "case_deleted": False, "remaining_reports": 0}
 
     monkeypatch.setattr(dv, "get_vault", lambda: _V())
 
     out = await ddo.delete_report("dd_missing")
 
-    assert out["ok"] is False
+    assert out["ok"] is True
+    assert out["already_absent"] is True
+    # R-F2388's actual invariant — no fabricated removal.
     assert out["blob_deleted"] is False
     assert out["index_entries_removed"] == 0
     assert out["vault_deleted"] is False
-    assert "not found" in out["error"]
+    assert out["error"] == ""
+    assert out["store_error"] == ""
+
+
+@pytest.mark.asyncio
+async def test_delete_report_unreadable_store_is_a_failure_not_a_missing_report(fake_rs, monkeypatch):
+    """R-F3532 — "I could not look" must never be reported as "it is not there".
+
+    The old non-strict read returned None for BOTH, so a wedged state_store told
+    the user their report did not exist. That is the R-F2664 clobber class applied
+    to a delete receipt.
+    """
+    import aria_service.intel.redis_store as rs
+    import aria_service.intel.dd_vault as dv
+
+    class _V:
+        def list_all(self, limit=500):
+            return []
+
+        def remove_report_from_case(self, cid, run_id):
+            return {"found": False, "case_deleted": False, "remaining_reports": 0}
+
+    monkeypatch.setattr(dv, "get_vault", lambda: _V())
+
+    async def _boom(_k):
+        raise RuntimeError("StoreReadError")
+
+    monkeypatch.setattr(rs, "get_json_strict", _boom)
+
+    out = await ddo.delete_report("dd_unreadable")
+
+    assert out["ok"] is False, "an unreadable store must not report success"
+    assert out["already_absent"] is False, "absence was never established"
+    assert out["store_error"] == "RuntimeError"
+    assert "could not be read" in out["error"]

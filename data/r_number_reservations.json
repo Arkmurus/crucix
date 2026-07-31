@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3532,
+  "next_available": 3534,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29365,6 +29365,25 @@
       "commit_sha": "32611899",
       "notes": null,
       "shipped_at": "2026-07-31T07:20:41Z"
+    },
+    {
+      "r_number": "R-F3532",
+      "title": "DD delete removes the whole version chain the UI promises, idempotent on an absent run",
+      "claimed_at": "2026-07-31T07:32:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3533",
+      "title": "rebuild tool: recover vectors instead of re-embedding, and make it resumable",
+      "claimed_at": "2026-07-31T07:43:52Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "93bc66c9",
+      "notes": null,
+      "shipped_at": "2026-07-31T07:47:19Z"
     }
   ]
 }

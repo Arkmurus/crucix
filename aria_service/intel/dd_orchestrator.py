@@ -892,17 +892,19 @@ def _ts_sort_key(entry: dict) -> str:
     return _iso_ts(entry.get("generated_at") or entry.get("created_at") or "")
 
 
-def _collapse_index(index: list, limit: int) -> list:
-    """R-F1980 + R-F1991 — collapse the report index to ONE entry per entity
-    (the latest version). Groups by the NORMALISED, cleaned entity name so the
-    historical noisy duplicates (different URL phrasings) merge too, not just
-    new clean reports. Jurisdiction-safe: two genuinely different same-named
-    entities in different countries stay separate; an entry with no jurisdiction
-    folds into the single populated one for that name (so the Modirum-Gespi
-    entries — 2 'Finland' + 3 blank — become one case file)."""
-    from . import dd_versioning as _ver
+def _group_index(rows: list) -> dict:
+    """R-F3532 — group report-index rows EXACTLY as the library view collapses
+    them: ``{collapse_key: [entries…]}``.
 
-    rows = [e for e in index[:limit] if isinstance(e, dict)]
+    Extracted from ``_collapse_index`` so the list and the DELETE share one
+    definition of "the same report". They did not: the list collapsed an
+    entity's whole version history into ONE row while DELETE removed a single
+    run, so deleting the row surfaced the previous version and the report
+    appeared undeletable (live 2026-07-31: BAE Systems 7 rows, Rolls-Royce 4,
+    Chemring 3 — all shown as one row each). Two functions answering "which
+    runs are this report?" is the defect; this is the single answer.
+    """
+    from . import dd_versioning as _ver
 
     def _name_key(e: dict) -> str:
         clean, _ = _clean_entity_name(e.get("entity_name", "") or "")
@@ -921,12 +923,13 @@ def _collapse_index(index: list, limit: int) -> list:
         if j:
             juris_by_name.setdefault(nk, set()).add(j)
 
-    collapsed: dict[str, dict] = {}
+    groups: dict = {}
     for e in rows:
         nk = _name_key(e)
         if not nk:
-            # un-nameable — fall back to a unique key so it isn't dropped
-            collapsed[e.get("run_id") or id(e)] = dict(e)
+            # un-nameable — its own bucket so it is neither dropped from the
+            # list nor swept into someone else's delete.
+            groups.setdefault(f"__unnamed__|{e.get('run_id') or id(e)}", []).append(e)
             continue
         j = _juris(e)
         if not j:
@@ -934,18 +937,64 @@ def _collapse_index(index: list, limit: int) -> list:
             # blank jurisdiction folds into the single populated one; if there
             # are several distinct ones, keep blank as its own bucket.
             j = next(iter(pop)) if len(pop) == 1 else ""
-        key = f"{nk}|{j}"
-        cur = collapsed.get(key)
-        if cur is None:
-            collapsed[key] = dict(e)
-        else:
-            # R-F2240 — normalize both sides to a str key so a mixed str/float
-            # compare can't raise TypeError (the bug that 500'd the DD library).
-            if _ts_sort_key(e) > _ts_sort_key(cur):
-                collapsed[key] = dict(e)
+        groups.setdefault(f"{nk}|{j}", []).append(e)
+    return groups
+
+
+def _collapse_index(index: list, limit: int) -> list:
+    """R-F1980 + R-F1991 — collapse the report index to ONE entry per entity
+    (the latest version). Groups by the NORMALISED, cleaned entity name so the
+    historical noisy duplicates (different URL phrasings) merge too, not just
+    new clean reports. Jurisdiction-safe: two genuinely different same-named
+    entities in different countries stay separate; an entry with no jurisdiction
+    folds into the single populated one for that name (so the Modirum-Gespi
+    entries — 2 'Finland' + 3 blank — become one case file)."""
+    rows = [e for e in index[:limit] if isinstance(e, dict)]
+    collapsed: dict = {}
+    for key, members in _group_index(rows).items():
+        # R-F2240 — normalize both sides to a str key so a mixed str/float
+        # compare can't raise TypeError (the bug that 500'd the DD library).
+        newest = members[0]
+        for e in members[1:]:
+            if _ts_sort_key(e) > _ts_sort_key(newest):
+                newest = e
+        collapsed[key] = dict(newest)
     result = list(collapsed.values())
     result.sort(key=_ts_sort_key, reverse=True)
     return result[:limit]
+
+
+async def entity_group_run_ids(run_id: str) -> list[str]:
+    """R-F3532 — every run_id the library folds into the SAME row as ``run_id``.
+
+    This is what a user means by "this report": the case as the list shows it,
+    newest first. Used by the delete path so removing the row the user clicked
+    removes the version history the confirm dialog promises to remove.
+
+    Best-effort by construction — on any failure it returns ``[run_id]``, which
+    degrades to the old single-run behaviour rather than raising. It never
+    decides WHO may delete what; the caller ACL-checks each id (versions of one
+    entity can belong to DIFFERENT tenants — live: Chemring's three runs span
+    two owners — so a blind cascade would destroy another tenant's report).
+    """
+    from . import redis_store as rs
+    run_id = (run_id or "").strip()
+    if not run_id:
+        return []
+    try:
+        index = await rs.get_json(REPORT_INDEX_KEY) or []
+        rows = [e for e in index if isinstance(e, dict)]
+        for members in _group_index(rows).values():
+            if any((m.get("run_id") or "") == run_id for m in members):
+                ordered = sorted(members, key=_ts_sort_key, reverse=True)
+                ids = [(m.get("run_id") or "").strip() for m in ordered]
+                ids = [i for i in ids if i]
+                # the clicked run is always part of its own group, even if the
+                # index row lost its run_id
+                return ids if run_id in ids else [run_id, *ids]
+    except Exception as e:
+        logger.debug("entity_group_run_ids failed for %s (falling back to single): %s", run_id, e)
+    return [run_id]
 
 
 async def _enrich_target_from_url(target: dict) -> dict:
@@ -18069,10 +18118,17 @@ async def delete_report(run_id: str) -> dict:
         raise ValueError("run_id required")
     blob_existed = False
     report_blob: dict | None = None
+    # R-F3532 — STRICT read so "the blob is absent" can be told apart from "the
+    # store could not answer". With the non-strict read both looked identical
+    # (None), so a wedged state_store reported "report not found or already
+    # deleted" — telling the user their report does not exist when the truth was
+    # that we could not look. Same class as the R-F2664 clobber.
+    store_error = ""
     try:
-        report_blob = await rs.get_json(REPORT_REDIS_KEY.format(run_id=run_id))
+        report_blob = await rs.get_json_strict(REPORT_REDIS_KEY.format(run_id=run_id))
         blob_existed = await rs.delete(REPORT_REDIS_KEY.format(run_id=run_id))
     except Exception as e:
+        store_error = type(e).__name__
         logger.warning("delete_report blob delete failed for %s: %s", run_id, e)
     removed_from_index = 0
     canonical_ids: set[str] = set()
@@ -18179,15 +18235,33 @@ async def delete_report(run_id: str) -> dict:
         logger.debug("delete_report watchlist cascade failed (non-fatal): %s", e)
 
     removed_any = bool(blob_existed) or removed_from_index > 0 or bool(vault_deleted)
+    # R-F3532 — deleting something that is already gone ACHIEVED the caller's
+    # goal; it is not a failure. The old `ok=False` made an orphan row (an index
+    # entry whose blob had aged out, or a second click) permanently undeletable
+    # in the UI: the surface reported "Delete did not remove a report" and left
+    # the row on screen forever. `already_absent` is only claimed when the store
+    # actually ANSWERED — a read failure stays ok=False and says so.
+    already_absent = bool(
+        not removed_any and not store_error
+        and report_blob is None and removed_from_index == 0 and not vault_deleted
+    )
+    if store_error:
+        error = f"the report store could not be read ({store_error}) — nothing was deleted"
+    elif removed_any or already_absent:
+        error = ""
+    else:
+        error = "report not found or already deleted"
     return {
-        "ok": removed_any,
+        "ok": bool(removed_any or already_absent),
         "run_id": run_id,
         "blob_deleted": bool(blob_existed),
         "index_entries_removed": removed_from_index,
         "vault_deleted": bool(vault_deleted),
+        "already_absent": already_absent,
+        "store_error": store_error,
         "canonical_entity_ids_deleted": sorted(canonical_ids),
         "watchlist_entries_removed": watchlist_removed,
-        "error": "" if removed_any else "report not found or already deleted",
+        "error": error,
     }
 
 

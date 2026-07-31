@@ -785,10 +785,21 @@ def test_dd_reports_delete_removes_row_without_manual_refresh():
     assert "result.vault_deleted" in html, (
         "deleteVerified must accept persistent vault deletion, not only Redis/index deletion"
     )
-    assert "removeDeletedReport(runId)" in html
-    assert "removeDeletedReport(rid)" in html
+    # R-F3532 — assert the PROPERTY (both delete call sites suppress the row
+    # locally), not the exact argument list. These pinned `removeDeletedReport(runId)`
+    # and went red when the receipt was threaded through so the whole deleted
+    # VERSION CHAIN could be suppressed — a change that strengthens the very
+    # behaviour this test protects.
+    import re as _re
+    assert len(_re.findall(r"removeDeletedReport\(runId\b", html)) >= 1
+    assert len(_re.findall(r"removeDeletedReport\(rid\b", html)) >= 1
     assert "_locallyDeletedRunIds.add(runId)" in html
     assert "_locallyDeletedRunIds.has(r.run_id)" in html
+    # R-F3532 — and the suppression must cover every run the cascade removed,
+    # otherwise the previous version resurfaces as the row on the next poll.
+    assert "result.deleted_run_ids" in html, (
+        "only the clicked run is suppressed — an earlier version will come back as the row"
+    )
 
 
 def test_dd_reports_detail_view_vls_wired():

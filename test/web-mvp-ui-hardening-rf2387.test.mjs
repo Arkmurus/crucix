@@ -41,8 +41,14 @@ test('R-F2387 DD delete accepts every verified backend deletion layer', () => {
   assert.match(html, /result\.blob_deleted/);
   assert.match(html, /result\.vault_deleted/);
   assert.match(html, /index_entries_removed/);
-  assert.match(html, /removeDeletedReport\(runId\)/);
-  assert.match(html, /removeDeletedReport\(rid\)/);
+  // R-F3532 — allow the delete receipt argument. The property guarded here is
+  // that BOTH call sites suppress the row locally; the argument list is not the
+  // contract, and pinning it went red on a change that widened the suppression
+  // to the whole deleted version chain.
+  assert.match(html, /removeDeletedReport\(runId\b/);
+  assert.match(html, /removeDeletedReport\(rid\b/);
+  // and the receipt must actually be used, or only the clicked run is suppressed
+  assert.match(html, /result\.deleted_run_ids/);
 });
 
 test('R-F2388 DD delete tombstones local rows during silent refresh', () => {

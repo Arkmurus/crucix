@@ -986,8 +986,9 @@ function renderTable(reports) {
           await loadReports();
           return;
         }
-        removeDeletedReport(runId);
-        Toast.show('Report deleted', 'success');
+        removeDeletedReport(runId, deleted);
+        const outcome = deleteOutcomeMessage(deleted);
+        Toast.show(outcome.msg, outcome.type);
         await loadReports(true);
       } catch (err) { Toast.show('Delete error: ' + err.message, 'error'); btn.classList.remove('is-loading'); btn.disabled = false; btn.innerHTML = orig; }
     });
@@ -995,20 +996,43 @@ function renderTable(reports) {
 }
 
 function deleteVerified(result) {
+  // R-F3532 — `already_absent` is a SUCCESS: the run is genuinely gone (the brain
+  // proved it with a strict read, so this is not a store failure in disguise).
+  // Without it, a second click or an orphan row whose body had aged out reported
+  // "Delete did not remove a report" forever and the row could never be cleared.
   return !!(result && result.ok === true && (
     result.blob_deleted
     || result.vault_deleted
     || Number(result.index_entries_removed || 0) > 0
+    || result.already_absent === true
   ));
 }
 
-function removeDeletedReport(runId) {
+// R-F3532 — say what actually happened. A cascade may legitimately leave earlier
+// versions in place when they belong to another account, and the operator has to
+// know that rather than watch a row reappear with no explanation.
+function deleteOutcomeMessage(result) {
+  const n = Number(result && result.versions_deleted || 0);
+  const skipped = (result && result.skipped_run_ids || []).length;
+  let msg = n > 1 ? ('Report deleted (' + n + ' versions)') : 'Report deleted';
+  if (result && result.already_absent && n === 0) msg = 'Report already removed';
+  if (skipped) msg += ' — ' + skipped + ' earlier version(s) belong to another account and were kept';
+  return { msg: msg, type: skipped ? 'warning' : 'success' };
+}
+
+function removeDeletedReport(runId, result) {
   if (runId) _locallyDeletedRunIds.add(runId);
-  _allReports = (_allReports || []).filter(r => r && r.run_id !== runId);
+  // Suppress EVERY run the cascade removed, not just the one whose button was
+  // clicked: the list row carries the LATEST run's id, so hiding only that id
+  // let the previous version surface as a "new" row on the next poll — which is
+  // exactly what made the report look undeletable.
+  ((result && result.deleted_run_ids) || []).forEach(id => { if (id) _locallyDeletedRunIds.add(id); });
+  _allReports = (_allReports || []).filter(r => r && !_locallyDeletedRunIds.has(r.run_id));
   // R-F2612 — also drop the deleted report's OPTIMISTIC 'running' row, else it
   // lingers in _optimisticRunning (up to its 20-min TTL) and loadReports re-adds
   // it on the next poll → the deleted report "reappears" on the page.
-  _optimisticRunning = (_optimisticRunning || []).filter(r => r && r.run_id !== runId);
+  // R-F3532 — applied to every run the cascade removed, for the same reason.
+  _optimisticRunning = (_optimisticRunning || []).filter(r => r && !_locallyDeletedRunIds.has(r.run_id));
   _expandedRow = null;
   applySearch();
 }
@@ -1601,8 +1625,9 @@ async function toggleDetail(row, runId) {
           await loadReports();
           return;
         }
-        removeDeletedReport(rid);
-        Toast.show('Report deleted', 'success');
+        removeDeletedReport(rid, deleted);
+        const outcome = deleteOutcomeMessage(deleted);
+        Toast.show(outcome.msg, outcome.type);
         await loadReports(true);
       } catch (err) { Toast.show('Delete error: ' + err.message, 'error'); b.disabled = false; b.innerHTML = orig; }
     });

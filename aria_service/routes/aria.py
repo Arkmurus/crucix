@@ -1574,7 +1574,8 @@ async def dd_case_ep(canonical_entity_id: str, include_reports: bool = False,
 
 @router.delete("/dd/report/{run_id}")
 @fail_wire(module="aria", gap_type="engine_failure")
-async def dd_report_delete_ep(run_id: str, user_id: str = "", user_email_domain: str = ""):
+async def dd_report_delete_ep(run_id: str, user_id: str = "", user_email_domain: str = "",
+                              cascade: bool = True):
     """R-F162 (2026-05-11): drop a single DD report + its index entry.
     Needed so operators can clean up bad reports (the 2026-05-10 12:39
     'this company...' case) the validator couldn't catch retroactively.
@@ -1590,10 +1591,79 @@ async def dd_report_delete_ep(run_id: str, user_id: str = "", user_email_domain:
         _acl = await _dd_report_acl_context(dd_orchestrator, run_id, _report)
         if not _dd_report_access_allowed(_acl, user_id, user_email_domain):
             raise HTTPException(status_code=404, detail=f"report not found: {run_id}")
-    try:
-        return await dd_orchestrator.delete_report(run_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+
+    # R-F3532 — delete the CASE the user clicked, not one run of it.
+    #
+    # The library collapses an entity's whole version history into ONE row
+    # (_collapse_index), and the confirm dialog promises "removes the report and
+    # its full version history" — but this endpoint removed a single run, so the
+    # previous version was promoted into the row and the report looked
+    # undeletable. Live 2026-07-31: BAE Systems 7 runs, Rolls-Royce 4, Chemring 3,
+    # each shown as one row; the operator had to delete down to v1 by hand.
+    #
+    # The cascade is ACL-checked PER RUN and never widens access: versions of one
+    # entity can belong to DIFFERENT tenants (live: Chemring's three runs span two
+    # owners), so a blind chain delete would destroy someone else's report — the
+    # R-F2653 mistake, one layer up. A run the caller may not delete is SKIPPED
+    # and reported, never silently touched.
+    if not cascade:
+        candidates = [run_id]
+    else:
+        candidates = await dd_orchestrator.entity_group_run_ids(run_id)
+        if run_id not in candidates:
+            candidates = [run_id, *candidates]
+
+    deleted: list[str] = []
+    skipped: list[str] = []
+    results: list[dict] = []
+    for _rid in candidates:
+        if _rid != run_id:
+            # The clicked run was authorised above (including the blob-less
+            # orphan path). Siblings are authorised from the INDEX owner, which
+            # survives a missing blob, so a cascade cannot reach further than a
+            # direct delete of the same run would.
+            _sib = await dd_orchestrator.get_report(_rid)
+            _sib_acl = await _dd_report_acl_context(dd_orchestrator, _rid, _sib or {})
+            if not _dd_report_access_allowed(_sib_acl, user_id, user_email_domain):
+                skipped.append(_rid)
+                continue
+        try:
+            _res = await dd_orchestrator.delete_report(_rid)
+        except ValueError as e:
+            if _rid == run_id:
+                raise HTTPException(status_code=400, detail=str(e))
+            skipped.append(_rid)
+            continue
+        results.append(_res if isinstance(_res, dict) else {})
+        deleted.append(_rid)
+
+    primary = next((r for r in results if r.get("run_id") == run_id), results[0] if results else {})
+    # Aggregate the per-run receipts so existing consumers (the surface's
+    # deleteVerified, tests, the audit trail) keep reading true values.
+    merged = dict(primary)
+    merged.update({
+        "run_id": run_id,
+        "ok": bool(results) and any(r.get("ok") for r in results),
+        "blob_deleted": any(r.get("blob_deleted") for r in results),
+        "index_entries_removed": sum(int(r.get("index_entries_removed") or 0) for r in results),
+        "vault_deleted": any(r.get("vault_deleted") for r in results),
+        "already_absent": bool(results) and all(r.get("already_absent") for r in results),
+        "store_error": next((r.get("store_error") for r in results if r.get("store_error")), ""),
+        "versions_deleted": len(deleted),
+        "deleted_run_ids": deleted,
+        "skipped_run_ids": skipped,
+        "canonical_entity_ids_deleted": sorted(
+            {c for r in results for c in (r.get("canonical_entity_ids_deleted") or [])}),
+        "watchlist_entries_removed": [
+            w for r in results for w in (r.get("watchlist_entries_removed") or [])],
+    })
+    if skipped:
+        # Never let a partial delete read as a clean one — the row may legitimately
+        # remain visible to its other owner, and the operator has to know why.
+        merged["skipped_reason"] = (
+            f"{len(skipped)} earlier version(s) belong to another account and were left untouched"
+        )
+    return merged
 
 
 @router.post("/dd/admin/reset")

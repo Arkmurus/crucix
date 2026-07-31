@@ -115,8 +115,13 @@ describe('R-F2389 full public web smoke guard', () => {
       'const _locallyDeletedRunIds = new Set();',
       '_locallyDeletedRunIds.add(runId);',
       'filter(r => !r || !_locallyDeletedRunIds.has(r.run_id))',
-      'removeDeletedReport(runId);',
-      'removeDeletedReport(rid);',
+      // R-F3532 — the call now carries the delete receipt so the whole deleted
+      // version chain is suppressed, not only the clicked run. Pinning the exact
+      // `removeDeletedReport(runId);` asserted the argument list rather than the
+      // behaviour and went red on a change that strengthened it.
+      'removeDeletedReport(runId,',
+      'removeDeletedReport(rid,',
+      'result.deleted_run_ids',
     ]);
   });
 
