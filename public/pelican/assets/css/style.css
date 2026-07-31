@@ -1833,6 +1833,25 @@ body {
 	border-radius: 4px;
 }
 
+/* R-F3548 — match the photograph to the complete hero copy/form column.
+   The frame stretches with the row; bottom anchoring keeps the papers on the
+   floor visible if a shorter desktop viewport requires any vertical crop. */
+@media only screen and (min-width: 992px) {
+	.hero .hero-media {
+		align-self: stretch;
+		display: flex;
+	}
+
+	.hero .hero-visual {
+		display: block;
+		width: 100%;
+		height: 100%;
+		margin-top: 0;
+		object-fit: cover;
+		object-position: center bottom;
+	}
+}
+
 /* R-F3301 — the access-request field bar.
    Pelican styles its inputs and button under `.form input` / `.form .submit-button`,
    and this element is `.subscribe-form .lead-form`, so it inherited NOTHING: the

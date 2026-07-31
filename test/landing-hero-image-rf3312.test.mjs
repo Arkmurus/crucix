@@ -20,9 +20,10 @@ import test from 'node:test';
 
 const IMAGES = join('public', 'pelican', 'assets', 'images');
 const INDEX = readFileSync(join('public', 'index.html'), 'utf8');
+const STYLE = readFileSync(join('public', 'pelican', 'assets', 'css', 'style.css'), 'utf8');
 
 const OLD_HERO = join(IMAGES, 'aria-evidence-hero.png');
-const NEW_HERO = join(IMAGES, 'aria-hero-analyst.jpg');
+const NEW_HERO = join(IMAGES, 'aria-hero-analyst-papers.jpg');
 
 /** PNG: width/height are big-endian uint32 at offset 16 in the IHDR chunk. */
 function pngSize(buf) {
@@ -66,7 +67,7 @@ test('R-F3312 the new hero renders in exactly the old hero box', () => {
 test('R-F3312 the hero is wired to the new asset and declares its size', () => {
   const hero = INDEX.match(/<img class="img-fluid hero-visual"[^>]*>/);
   assert.ok(hero, 'the hero <img> is gone or was renamed');
-  assert.match(hero[0], /src="pelican\/assets\/images\/aria-hero-analyst\.jpg"/);
+  assert.match(hero[0], /src="pelican\/assets\/images\/aria-hero-analyst-papers\.jpg"/);
   // width/height let the browser reserve the box before the bytes arrive, so the
   // hero does not jump on load.
   assert.match(hero[0], /width="1353"/);
@@ -75,6 +76,23 @@ test('R-F3312 the hero is wired to the new asset and declares its size', () => {
   assert.doesNotMatch(hero[0], /Evidence sources connected/,
     'the alt text still describes the previous illustration');
   assert.match(hero[0], /alt="[^"]{15,}"/, 'the hero needs real alt text');
+  assert.match(hero[0], /papers spread across the floor/,
+    'the hero description must confirm the requested floor-paper composition');
+});
+
+test('R-F3548 desktop hero photo matches the copy height and keeps the floor visible', () => {
+  assert.match(
+    INDEX,
+    /class="col-md-12 col-lg-6 offset-lg-1 hero-media"[\s\S]*?<img class="img-fluid hero-visual"/,
+    'the hero image column must expose the stretching media frame',
+  );
+
+  const desktopRule = STYLE.match(/@media only screen and \(min-width: 992px\) \{[\s\S]*?\.hero \.hero-media[\s\S]*?\.hero \.hero-visual[\s\S]*?\n\}/);
+  assert.ok(desktopRule, 'the desktop equal-height hero rule is missing');
+  assert.match(desktopRule[0], /align-self:\s*stretch/, 'the image column must match the row height');
+  assert.match(desktopRule[0], /height:\s*100%/, 'the photo must fill the matched-height column');
+  assert.match(desktopRule[0], /object-fit:\s*cover/, 'the photo must remain proportional');
+  assert.match(desktopRule[0], /object-position:\s*center bottom/, 'the crop must retain the papers on the floor');
 });
 
 test('R-F3312 the swap did not disturb the capabilities section', () => {
