@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3589,
+  "next_available": 3592,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29918,14 +29918,44 @@
       "title": "phone-to-account binding: only verified imaria.io users may engage ARIA on WhatsApp",
       "claimed_at": "2026-07-31T20:15:30Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a3335133",
+      "notes": null,
+      "shipped_at": "2026-07-31T20:47:10Z"
     },
     {
       "r_number": "R-F3588",
       "title": "ARIA has no clock in her prompt: she refused a question the server could answer",
       "claimed_at": "2026-07-31T20:23:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a3335133",
+      "notes": null,
+      "shipped_at": "2026-07-31T20:47:13Z"
+    },
+    {
+      "r_number": "R-F3589",
+      "title": "DD attribution fabrication corpus - replay every real fabrication against the live filters",
+      "claimed_at": "2026-07-31T20:38:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "83151587",
+      "notes": null,
+      "shipped_at": "2026-07-31T20:42:17Z"
+    },
+    {
+      "r_number": "R-F3590",
+      "title": "ARIA does not know who she is talking to: thread speaker identity into the chat prompt",
+      "claimed_at": "2026-07-31T20:52:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3591",
+      "title": "ARIA leaked raw chain-of-thought as the answer, and the tool ANSWER SCOPE contradicted her own clock",
+      "claimed_at": "2026-07-31T21:05:00Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

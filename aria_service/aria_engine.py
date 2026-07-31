@@ -2085,6 +2085,10 @@ async def doc_lane_chat(message: str, session_id: str, llm, *, persona: str = ""
     grounding, never less)."""
     # _build_calibrated_system_prompt returns the LEAN compact base for a
     # document-grounded message (R-F2188), so this is a small, fast prompt.
+    # R-F3590 — the document lane has NO identity in scope (doc_lane_chat takes
+    # message/session_id/llm only) and needs none: it reviews an attached
+    # document, where who is asking changes nothing about what the document
+    # says. Passing a name here would have been a NameError at runtime.
     system_prompt = await _build_calibrated_system_prompt(message, persona=persona)
     session = await _get_session(session_id)
     recent = (session.get("messages") or [])[-4:]
@@ -2675,6 +2679,22 @@ def _format_history_user_prompt(history, lang_hint: str, message: str, context: 
             "NOT answer, restate, or continue any earlier/different request. "
             "If the current request is about a specific entity/URL, your answer "
             "must be about THAT subject only.\n"
+            # R-F3591 — CARVE OUT THE AMBIENT CONTEXT, or this scope contradicts
+            # her own clock. Live 2026-07-31: asked the time in Portugal, ARIA ran
+            # a web lookup and then deadlocked between "answer SOLELY from the
+            # tool output" and "you DO have a clock" — visibly, in the reply she
+            # sent: "But wait — can I use that?" She never answered.
+            #
+            # This scope exists to stop TWO things: conversation-history bleed (a
+            # prior DD answering a new question) and training knowledge asserted
+            # as source-backed. Neither applies to a value THIS SERVER computed
+            # and handed her in THIS request. Excluding it made her refuse a fact
+            # she was holding.
+            "The [CURRENT CONTEXT] block in your system prompt — the clock and "
+            "who you are speaking with — is ALWAYS available and is NOT outside "
+            "knowledge: this server computed it for this request. Use it freely, "
+            "including combined with the tool output (the source gives a "
+            "timezone, your clock gives the instant).\n"
             "[/ANSWER SCOPE]"
         )
         return (
@@ -2776,7 +2796,28 @@ def _detect_metacog_domain(message: str) -> str:
 # keys on a stable PREFIX, so a timestamp at the top would bust the cache on
 # every single request and quietly multiply input-token spend against the $300/mo
 # cap (§17).
-def _ambient_now_block(compact: bool = False) -> str:
+# ── R-F3590 — how the speaker is described to ARIA ───────────────────────────
+#
+# Two facts, kept apart on purpose:
+#   * the display NAME is self-declared (a WhatsApp pushName can be anything)
+#   * the bound ACCOUNT is proven (R-F3587: signed in to imaria.io AND holding
+#     the handset)
+#
+# Collapsing them would let a spoofed name read as an identity. The label states
+# which of the two it has, so the model can be friendly with a name while never
+# treating one as authorisation.
+def _speaker_label(user_id: str = "", speaker_name: str = "") -> str:
+    name = (speaker_name or "").strip()[:80]
+    uid = (user_id or "").strip()
+    if name and uid:
+        return f"{name} (verified account {uid})"
+    if name:
+        return f"{name} (display name only — self-declared, NOT verified)"
+    if uid:
+        return f"verified account {uid} (no display name given)"
+    return ""
+
+def _ambient_now_block(compact: bool = False, speaker: str = "") -> str:
     """The context ARIA genuinely HAS, stated plainly, appended to every prompt.
 
     Named for the clock it started as; it now carries the whole ambient class.
@@ -2800,6 +2841,25 @@ def _ambient_now_block(compact: bool = False) -> str:
             "UTC: GMT in winter, BST (UTC+1) from the last Sunday in March to the "
             "last Sunday in October."
         )
+    # ── R-F3590 — WHO SHE IS TALKING TO ─────────────────────────────────────
+    #
+    # Until now the WhatsApp path sent message/session_id and nothing else, so
+    # "do you remember me" and "what's my name" were unanswerable BY
+    # CONSTRUCTION — and under the never-fabricate rule the only honest reply was
+    # a refusal. That is not a memory problem, it is a plumbing problem: the
+    # listener knew the display name and the bound account and never passed them.
+    #
+    # Rendered as CONTEXT, never as authority: a WhatsApp pushName is
+    # self-declared and trivially spoofable, so it is explicitly labelled
+    # unverified unless a binding (R-F3587) backs it. She may greet someone by
+    # name; she may not treat a name as proof of identity for anything that
+    # matters.
+    if speaker:
+        lines += [
+            "",
+            f"- Speaking with: {speaker}",
+        ]
+
     if compact:
         # R-F3588 x R-F1337 — the small-model path gets the CLOCK ONLY.
         #
@@ -2853,12 +2913,19 @@ def _ambient_now_block(compact: bool = False) -> str:
         "brief, and to have a view. Say what you think, then mark how sure you are.",
         "- Do not re-ask what you have already been told in this conversation.",
         "- If you need one thing to proceed, ask for that one thing — not a list.",
+        "- Use the person's name naturally if you have been given one above. If "
+        "you have NOT been given one, say you do not know it rather than "
+        "inventing one or guessing from context.",
+        "- A display name is CONTEXT, not proof of identity. It is self-declared "
+        "and can be changed at will. Never treat it as authorisation for "
+        "anything, and never disclose one person's information to another on the "
+        "strength of a name.",
         "",
     ]
     return "\n".join(lines)
 
 
-async def _build_calibrated_system_prompt(message: str, persona: str = "") -> str:
+async def _build_calibrated_system_prompt(message: str, persona: str = "", speaker: str = "") -> str:
     """Build the system prompt with calibration + contradictions + structured-
     analysis templates injected.
 
@@ -2878,7 +2945,7 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
     if _compact_prompt_active():
         # R-F3588 — the compact path returns EARLY, so the clock has to be
         # attached here too or the 7B serving path keeps the original defect.
-        return ARIA_SYSTEM_PROMPT_COMPACT + _ambient_now_block(compact=True)
+        return ARIA_SYSTEM_PROMPT_COMPACT + _ambient_now_block(compact=True, speaker=speaker)
 
     addendum_parts = []
 
@@ -3444,7 +3511,7 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
 
     if not addendum_parts:
         # R-F3588 — the clock belongs on this path too, not only the assembled one.
-        return _base_prompt + _ambient_now_block()
+        return _base_prompt + _ambient_now_block(speaker=speaker)
     final = _base_prompt + "\n\n" + "\n\n".join(addendum_parts)
     # R-F947 — hard safety cap so the system prompt can never grow to eat the
     # context window and truncate an attached document. In document mode the
@@ -3466,7 +3533,7 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
     # failure would be invisible: ARIA would quietly go back to "I don't have a
     # live clock" on exactly the long, addendum-heavy conversations where the date
     # matters most. ~250 chars on top of a 200K cap.
-    return final + _ambient_now_block()
+    return final + _ambient_now_block(speaker=speaker)
 
 
 # ── Chat audit helper ────────────────────────────────────────────────────────
@@ -3701,6 +3768,7 @@ async def aria_chat(
     intel_data: dict | None = None,
     user_id: str = "",
     persona: str = "",
+    speaker_name: str = "",   # R-F3590 — display name from the channel (self-declared)
 ) -> dict:
     """Multi-turn chat with ARIA, 8-layer context injection (7 intel + neural memory).
 
@@ -3722,7 +3790,7 @@ async def aria_chat(
     try:
         return await _aria_chat_impl(
             message=message, session_id=session_id, llm=llm, intel_data=intel_data,
-            user_id=user_id, persona=persona,
+            user_id=user_id, persona=persona, speaker_name=speaker_name,
         )
     finally:
         _bh_ctx.reset_chat_context(_chat_ctx_token)
@@ -3735,6 +3803,7 @@ async def _aria_chat_impl(
     intel_data: dict | None = None,
     user_id: str = "",
     persona: str = "",
+    speaker_name: str = "",   # R-F3590 — display name from the channel (self-declared)
 ) -> dict:
     """Internal implementation of aria_chat (R-F56 split — public wrapper
     sets the per-turn brain_hook contextvar; this impl is the actual body)."""
@@ -4141,7 +4210,12 @@ async def _aria_chat_impl(
 
     # Build the final system prompt with calibration adjustments learned from
     # past errors. This is the closed loop: confidence calibration → behaviour.
-    system_prompt = await _build_calibrated_system_prompt(message, persona=persona)
+    # R-F3590 §13 — mirrored into BOTH aria_chat and aria_chat_stream. The
+    # stream path is a fork; identity threaded into only one of them would
+    # make ARIA know your name in chat and forget it when streaming.
+    system_prompt = await _build_calibrated_system_prompt(
+        message, persona=persona, speaker=_speaker_label(user_id, speaker_name),
+    )
 
     # Timeout tuning: tool-context chats (deep_research, dd_orchestrate,
     # extract_url) require narrative synthesis over 4-10KB of pre-fetched
@@ -4707,6 +4781,7 @@ async def aria_chat_stream(
     intel_data: dict | None = None,
     user_id: str = "",
     persona: str = "",
+    speaker_name: str = "",   # R-F3590 — display name from the channel (self-declared)
     keep_history: int | None = None,
 ):
     """Streaming variant of aria_chat — yields SSE event dicts.
@@ -4729,7 +4804,7 @@ async def aria_chat_stream(
     try:
         async for _ev in _aria_chat_stream_impl(
             message=message, session_id=session_id, llm=llm, intel_data=intel_data,
-            user_id=user_id, persona=persona, keep_history=keep_history,
+            user_id=user_id, persona=persona, speaker_name=speaker_name, keep_history=keep_history,
         ):
             yield _ev
     finally:
@@ -4743,6 +4818,7 @@ async def _aria_chat_stream_impl(
     intel_data: dict | None = None,
     user_id: str = "",
     persona: str = "",
+    speaker_name: str = "",   # R-F3590 — display name from the channel (self-declared)
     keep_history: int | None = None,
 ):
     """Internal implementation of aria_chat_stream (R-F56 split — public
@@ -5048,7 +5124,12 @@ async def _aria_chat_stream_impl(
     # same call as aria_chat, keeping the two paths in lockstep per §13).
     user_prompt = _format_history_user_prompt(history, lang_hint, message, context)
 
-    system_prompt = await _build_calibrated_system_prompt(message, persona=persona)
+    # R-F3590 §13 — mirrored into BOTH aria_chat and aria_chat_stream. The
+    # stream path is a fork; identity threaded into only one of them would
+    # make ARIA know your name in chat and forget it when streaming.
+    system_prompt = await _build_calibrated_system_prompt(
+        message, persona=persona, speaker=_speaker_label(user_id, speaker_name),
+    )
 
     # ── Stream the LLM response ───────────────────────────────────────
     _has_tool = "[TOOL:" in message or "[I have already run" in message

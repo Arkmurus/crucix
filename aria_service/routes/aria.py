@@ -517,6 +517,12 @@ class ChatRequest(BaseModel):
     user_id: str = ""         # authenticated user ID (injected by Node proxy)
     user_email: str = ""      # R-F2202: JWT-pinned email (Node proxy) → chat-DD company sharing
     user_tier: str = ""       # R-F2767: subscription tier (Node proxy) → per-tier Claude cost attribution
+    # R-F3590 — display name of the person speaking, supplied by the channel
+    # (WhatsApp pushName, web profile name). SELF-DECLARED and trivially
+    # spoofable, so the engine labels it unverified unless a bound account
+    # (R-F3587) accompanies it. Carried so ARIA can use someone's name; never
+    # used for authorisation.
+    speaker_name: str = ""
     auto_tools: bool = True   # auto-detect intent and call investigate/crawl/read tools
     # R-F48a: persona overlay key. Tunes which constitution clauses are
     # weighted most heavily in the system prompt. Recognised values:
@@ -3224,7 +3230,9 @@ _GROUNDING_REPAIR_NOTE = (
     "ONLY for facts a snippet states directly; DEMOTE every other fact to ASSESSED "
     "or DROP it; and name the source of each CONFIRMED fact. If the snippets do not "
     "support a claim, write 'not supported by the provided sources'. Do not add "
-    "outside knowledge.]"
+    "outside knowledge. The [CURRENT CONTEXT] block in your system prompt (clock, "
+    "speaker) is NOT outside knowledge — this server computed it for this request "
+    "and you may always use it (R-F3591).]"
 )
 
 # R-F2406 — repair fires only when a tool-backed, confidence-tagged turn scores
@@ -11239,7 +11247,7 @@ async def chat_ep(req: ChatRequest, request: Request):
                 # a friendly reply instead of "fallback 400". Added
                 # 2026-04-17 22:40 after the PDF upload incident.
                 try:
-                    result = await aria_chat(message_for_llm, session_id, llm, intel, user_id=getattr(req, "user_id", "") or "", persona=getattr(req, "persona", "") or "")
+                    result = await aria_chat(message_for_llm, session_id, llm, intel, user_id=getattr(req, "user_id", "") or "", persona=getattr(req, "persona", "") or "", speaker_name=getattr(req, "speaker_name", "") or "")
                 except Exception as _llm_err:
                     _log.warning(
                         "[chat] aria_chat raised: %s — returning 200 with explanation",
@@ -12832,7 +12840,7 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                 # resets the stall window).
                 _compose_hard_s = float(os.getenv("ARIA_STREAM_TOTAL_HARD_S", "560"))
                 _compose_stall_s = float(os.getenv("ARIA_STREAM_STALL_S", "90"))
-                _agen = aria_chat_stream(message_for_llm, session_id, llm, intel, user_id=user_id, persona=getattr(req, "persona", "") or "", keep_history=getattr(req, "keep_history", None)).__aiter__()
+                _agen = aria_chat_stream(message_for_llm, session_id, llm, intel, user_id=user_id, persona=getattr(req, "persona", "") or "", speaker_name=getattr(req, "speaker_name", "") or "", keep_history=getattr(req, "keep_history", None)).__aiter__()
                 _compose_cut = False
                 while True:
                     _to_cap = _compose_hard_s - (time.monotonic() - _stream_req_t0)
