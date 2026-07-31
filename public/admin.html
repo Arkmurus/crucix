@@ -129,7 +129,21 @@ document.getElementById('btn-test-telegram').addEventListener('click', async fun
 });
 
 document.getElementById('btn-test-email').addEventListener('click', async function() {
-  var to = prompt('Send test email to which address?', '');
+  // R-F3602 — window.prompt() -> the shared Modal.form (R-F3169).
+  //
+  // prompt() takes one unlabelled string, cannot validate, cannot show help
+  // text, and browsers suppress it after the first one in a session. A form
+  // field can be typed `email`, so the browser validates the address before we
+  // spend an SMTP call finding out it was malformed.
+  var _r = await Modal.form({
+    title: 'Send a test email',
+    message: 'ARIA will send one message through the live mail provider to confirm delivery is working.',
+    fields: [{ name: 'to', label: 'Recipient address', type: 'email', required: true,
+               placeholder: 'you@example.com', autofocus: true,
+               help: 'Use an inbox you can actually check. This proves delivery end to end.' }],
+    okLabel: 'Send test email',
+  });
+  var to = _r && _r.to;
   if (!to) return;
   var b = this;
   b.disabled = true;

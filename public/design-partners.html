@@ -211,7 +211,11 @@ function renderProvisioning(p){
 async function setStatus(idx,status){
   var res=await API.post('/api/design-partners/'+idx+'/status',{status:status});
   if(res.ok){ if(res.data&&res.data.provisioning) renderProvisioning(res.data.provisioning); load(); }
-  else{ alert((res.data&&(res.data.detail||res.data.error))||('Failed to update (HTTP '+res.status+')')); }
+  // R-F3602 — alert() -> the shared Modal.info. An OS alert box prints the site
+  // URL above the message, cannot be styled, and blocks the whole tab; browsers
+  // also suppress repeats, so a second failure can vanish entirely.
+  else{ await Modal.info({ title:'Could not update the status', tone:'error', icon:'bi-exclamation-triangle-fill',
+        message:(res.data&&(res.data.detail||res.data.error))||('Failed to update (HTTP '+res.status+')') }); }
 }
 async function issueLogin(idx,btn){
   if(btn){btn.disabled=true;btn.textContent='Issuing…';}
@@ -219,7 +223,8 @@ async function issueLogin(idx,btn){
   if(res.ok&&res.data&&res.data.provisioning){ renderProvisioning(res.data.provisioning); load(); }
   else{
     if(btn){btn.disabled=false;btn.textContent='Issue login';}
-    alert((res.data&&(res.data.detail||res.data.error))||('Failed to issue the login (HTTP '+res.status+')'));
+    await Modal.info({ title:'Could not issue the login', tone:'error', icon:'bi-exclamation-triangle-fill',
+      message:(res.data&&(res.data.detail||res.data.error))||('Failed to issue the login (HTTP '+res.status+')') });
   }
 }
 document.addEventListener('click',function(ev){

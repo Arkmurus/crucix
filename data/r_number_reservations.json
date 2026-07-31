@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3602,
+  "next_available": 3603,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30055,6 +30055,16 @@
       "r_number": "R-F3601",
       "title": "official-number card never shows the number and its disabled state is a live dead link",
       "claimed_at": "2026-07-31T23:08:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "96770e75",
+      "notes": null,
+      "shipped_at": "2026-07-31T23:09:31Z"
+    },
+    {
+      "r_number": "R-F3602",
+      "title": "three genuine raw browser dialogs remain: prompt in admin, two alerts in design-partners",
+      "claimed_at": "2026-07-31T23:19:30Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

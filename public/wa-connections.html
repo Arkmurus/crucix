@@ -175,7 +175,7 @@
       <article class="mode-card recommended">
         <div class="mode-label">Recommended</div>
         <h2><i class="bi bi-whatsapp" aria-hidden="true"></i> Message ARIA directly</h2>
-        <p>Send ARIA a WhatsApp message the normal way — she has her own number. Nothing
+        <p>Send ARIA a WhatsApp message the normal way. She has her own number, Nothing
            on your phone is linked or read; she sees only the messages you send her.</p>
         <!-- R-F3601 — SHOW THE NUMBER, not just a button.
              The button was a wa.me click-to-chat link and worked, but the number
@@ -221,11 +221,11 @@
       <div class="check-list" id="scopeChecks">
         <strong>Choose a limited scope</strong>
         <label><input type="checkbox" name="scope" value="forwarded_or_tagged"> Messages I forward or explicitly tag for ARIA</label>
-        <label><input type="checkbox" disabled> Selected transaction chats only — available after the chat approval interface is reviewed</label>
-        <label><input type="checkbox" disabled> New messages in approved chats — not enabled in this safety-first release</label>
-        <label><input type="checkbox" disabled> Attachments in approved chats — not enabled in this safety-first release</label>
-        <label><input type="checkbox" disabled> Voice notes in approved chats — not enabled in this safety-first release</label>
-        <label><input type="checkbox" disabled> Group chats individually approved — not enabled in this safety-first release</label>
+        <label><input type="checkbox" disabled> Selected transaction chats only (available after the chat approval interface is reviewed</label>
+        <label><input type="checkbox" disabled> New messages in approved chats (not enabled in this safety-first release)</label>
+        <label><input type="checkbox" disabled> Attachments in approved chats (not enabled in this safety-first release)</label>
+        <label><input type="checkbox" disabled> Voice notes in approved chats (not enabled in this safety-first release)</label>
+        <label><input type="checkbox" disabled> Group chats individually approved (not enabled in this safety-first release)</label>
       </div>
       <div class="check-list" id="riskChecks">
         <strong>Confirm every statement</strong>
@@ -685,7 +685,7 @@
         const bound = Boolean(d && d.bound);
         document.getElementById('unbindBtn').style.display = bound ? '' : 'none';
         box.textContent = bound
-          ? `Verified — this account is linked to ${d.identityCount} handset identifier(s) since ${formatTime(d.boundAt)}.`
+          ? `Verified. This account is linked to ${d.identityCount} handset identifier(s) since ${formatTime(d.boundAt)}.`
           : (d && d.pairingPending
               ? `Code issued and waiting. Send it to ARIA${d.ariaNumber ? ` (+${d.ariaNumber})` : ''} on WhatsApp before ${formatTime(d.pairingExpiresAt)}.`
               : `Not verified yet. Generate a code below${d && d.ariaNumber ? `, then send it to +${d.ariaNumber}` : ''}.`);
@@ -709,7 +709,7 @@
         const target = document.getElementById('bindTarget');
         target.textContent = d.ariaNumber
           ? `Send it to ARIA on WhatsApp: +${d.ariaNumber}`
-          : 'ARIA is not connected to WhatsApp right now — the code is valid, but wait until she reconnects before sending it.';
+          : 'ARIA is not connected to WhatsApp right now. The code is valid, but wait until she reconnects before sending it.';
         target.style.color = d.ariaNumber ? '#166534' : '#9a6700';
         document.getElementById('bindExpiry').textContent =
           `Expires ${formatTime(d.expiresAt)} · single use`;
