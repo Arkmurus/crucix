@@ -53,7 +53,7 @@ def configuration_hint() -> str:
         "computational analysis without a separate application to The National Archives "
         "(caselaw.nationalarchives.gov.uk/open-justice-licence). This is a legal "
         "decision, not a credential. Once the position is confirmed, set "
-        "FIND_CASE_LAW_LICENCE_GRANTED=1 — no code change is needed."
+        "FIND_CASE_LAW_LICENCE_GRANTED=1. No code change is needed."
     )
 
 

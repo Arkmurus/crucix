@@ -528,10 +528,11 @@
                coverage that the run is then held to. -->
           <div class="sc-mod-field sc-mod-section" id="dd-r-scope-wrap" style="display:none">
             <label>Paid &amp; licence-gated sources</label>
-            <p class="sc-hint">Choose before running. A ticked source is searched and may be
-              chargeable; an unticked one is recorded as declined by you. A source that
-              cannot run yet can still be ordered &mdash; it is reported as a named gap and
-              is never charged.</p>
+            <p class="sc-hint">Choose before running. Ticking a source that is available
+              searches it, and that search may be chargeable. Ticking one that cannot run
+              yet orders it instead: the report names the blocker, records the section as
+              not searched, and charges nothing. Leaving a box unticked records that you
+              declined it.</p>
             <!-- R-F3465 — no inline layout here: an inline style BEATS the class, so the
                  .dd-src-list spacing set in aria.css was silently overridden. -->
             <div id="dd-r-scope" class="dd-src-list"></div>
@@ -2028,10 +2029,23 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
       wrap.style.display = '';
       box.className = 'dd-src-list';
       box.innerHTML = d.options.map(function (o) {
-        const qs = (o.required_for || []).concat(o.enhances || []);
-        const chips = qs.map(function (q) {
-          return '<span class="dd-src-chip">' + escText(q.question_id) + '</span>';
-        }).join('');
+        // R-F3543 — "Answers" and "Adds depth to" are DIFFERENT claims and were
+        // concatenated under one "Answers" label. Find Case Law was shown as
+        // answering IS-17a directly above a decision line saying another source
+        // already covers it, so the card contradicted itself. A source only
+        // ANSWERS a question when nothing else currently can; otherwise it
+        // enriches an answer we can already get.
+        function chipRow(label, items) {
+          if (!items || !items.length) return '';
+          return '<span class="dd-src-covers">'
+            + '<span class="dd-src-covers-label">' + label + '</span>'
+            + items.map(function (q) {
+                return '<span class="dd-src-chip">' + escText(q.question_id) + '</span>';
+              }).join('')
+            + '</span>';
+        }
+        const chips = chipRow('Answers', o.required_for)
+                    + chipRow('Adds depth to', o.enhances);
         const blocked = !o.available;
         // R-F3450 — an unusable source stays SELECTABLE. Ordering it is a decision only
         // the operator can make, and the run already handles it honestly: the section
@@ -2055,15 +2069,14 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
           + '<span class="dd-src-head"><span class="dd-src-name">' + escText(o.name) + '</span>'
           + pill + '</span>'
           + '<span class="dd-src-decision">' + escText(o.decision) + '</span>'
-          + (chips ? '<span class="dd-src-covers">'
-                     + '<span class="dd-src-covers-label">Answers</span>' + chips + '</span>' : '')
+          + chips
           + (blocked
               ? '<span class="dd-src-note"><b>Why it cannot run yet</b>'
                 + escText(o.unavailable_reason || 'unavailable') + '</span>'
                 + '<span class="dd-src-order">Tick to <b>order it anyway</b>. The report will '
                 + 'record the section as ordered but not searched, name this blocker, and '
-                + 'exclude it from anything chargeable &mdash; an unsearched register is '
-                + 'never reported as a clean one.</span>'
+                + 'exclude it from anything chargeable. An unsearched register is never '
+                + 'reported as a clean one.</span>'
               : '')
           + '</span></label>';
       }).join('');

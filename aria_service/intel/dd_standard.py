@@ -467,7 +467,7 @@ class ResolverSpec:
         if missing:
             return (False, f"credential not set: {', '.join(missing)}")
         if self.access == Access.SUPPLIED.value:
-            return (False, "counterparty-supplied — not an API")
+            return (False, "counterparty-supplied, not an API")
         return (True, "")
 
 
@@ -518,7 +518,7 @@ RESOLVERS: dict[str, ResolverSpec] = {
         access=Access.QUOTA_LIMITED.value,
         note="Monthly allowance. VERIFIED EXHAUSTED 2026-07-29 (HTTP 429: 'This API key "
              "has exceeded its rate limit for the month'), which is the operational "
-             "reason scope selection exists — see Waiver.",
+             "reason scope selection exists. See Waiver.",
         binding=("aria_service.intel.sanctions", "screen_with_aliases"),
         decision_url="https://www.opensanctions.org/api/"),
     "gazette": ResolverSpec(
@@ -542,7 +542,7 @@ RESOLVERS: dict[str, ResolverSpec] = {
         access=Access.KEYED_FREE.value,
         endpoint="/company/{number}/insolvency",
         note="Probed live: returns 404 for a SOLVENT company. 404 means 'no cases', NOT "
-             "an error — an adapter that treats it as a failure creates a false gap.",
+             "an error. An adapter that treats it as a failure creates a false gap.",
         binding=("aria_service.intel.companies_house", "get_insolvency"),
         env_vars=("COMPANIES_HOUSE_API_KEY", )),
     "ch_disqualified": ResolverSpec(
@@ -561,7 +561,7 @@ RESOLVERS: dict[str, ResolverSpec] = {
         endpoint="https://caselaw.nationalarchives.gov.uk/atom.xml?party={name}",
         note="Free, no key, 1000 requests / 5 minutes per IP, and `party` is a full-match "
              "party search. BUT the Open Justice Licence forbids computational analysis "
-             "without a separate application — an operator legal decision before binding.",
+             "without a separate application. This is an operator legal decision before binding.",
         env_vars=("FIND_CASE_LAW_LICENCE_GRANTED", ),
         decision_url="https://caselaw.nationalarchives.gov.uk/open-justice-licence"),
     "court_records": ResolverSpec(
@@ -578,7 +578,7 @@ RESOLVERS: dict[str, ResolverSpec] = {
              "companies and individuals. £6 for one part of the register, up to £10 for "
              "all England & Wales plus the other registers; no free tier and no public "
              "API. A search leaves no footprint and needs no subject consent. Metered "
-             "spend — requires explicit operator approval before binding (§6/§17).",
+             "spend, and requires explicit operator approval before binding (§6/§17).",
         env_vars=("REGISTRY_TRUST_API_KEY", ),
         decision_url="https://www.trustonline.org.uk/"),
     "employment_tribunal": ResolverSpec(
@@ -594,7 +594,7 @@ RESOLVERS: dict[str, ResolverSpec] = {
         "network_walker", "UBO / officer chain traversal", built=True,
         access=Access.KEYED_FREE.value,
         note="walk_network() traverses registry-anchored control edges. Rides whatever "
-             "register answers, so its reach is the register's reach — an unanchored "
+             "register answers, so its reach is the register's reach. An unanchored "
              "corporate controller cannot be walked (R-F3027).",
         binding=("aria_service.intel.network_walker", "walk_network"),
         env_vars=("COMPANIES_HOUSE_API_KEY", )),
@@ -699,7 +699,7 @@ def _read_legal_existence(r: dict, q: "Question") -> Resolution:
         return Resolution(
             q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
             reason="identity was enriched from OSINT/vault because the registry was "
-                   "unavailable on this run — the register was not consulted",
+                   "unavailable on this run. The register was not consulted",
             remedy="re-run when the registry responds; do not rely on this row meanwhile",
         )
     if not status:
@@ -749,7 +749,7 @@ def _read_officer_screen(r: dict, q: "Question") -> Resolution:
             q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
             reason=f"the officer screen ran but could not reach a list "
                    f"({len(gaps)} officer(s) unresolved)",
-            remedy="re-screen when the sanctions source is available — this is not a clearance",
+            remedy="re-screen when the sanctions source is available. This is not a clearance",
         )
     if not screened:
         return _not_run(
@@ -772,7 +772,7 @@ def _read_subject_sanctions(r: dict, q: "Question") -> Resolution:
         return Resolution(
             q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
             reason=str(screen.get("error") or "sanctions source unavailable"),
-            remedy="re-screen when the source is available — an unperformed screen is "
+            remedy="re-screen when the source is available. An unperformed screen is "
                    "not a clearance",
         )
     verified = [s for s in (screen.get("verified_sources") or []) if s]
@@ -811,7 +811,7 @@ def _read_beneficial_ownership(r: dict, q: "Question") -> Resolution:
         return Resolution(
             q.id, EvidenceState.ATTEMPTED_INCONCLUSIVE.value,
             reason="no persons with significant control were returned",
-            remedy="check the PSC exemption register — a lawful exemption and an empty "
+            remedy="check the PSC exemption register. A lawful exemption and an empty "
                    "register are different answers",
         )
     return Resolution(
@@ -915,7 +915,7 @@ def _register_reader(*, sources: tuple[str, ...], gap_needles: tuple[str, ...],
         if unavailable_needles and _gap_mentions(r, *unavailable_needles):
             return Resolution(
                 q.id, EvidenceState.NOT_RUN.value,
-                reason="the register was NOT searched — no configured backend for it",
+                reason="the register was NOT searched: no configured backend for it",
                 remedy=remedy,
             )
         if _gap_mentions(r, *gap_needles):
@@ -936,7 +936,7 @@ _read_insolvency = _register_reader(
     sources=("companies_house.insolvency", "gazette.corporate_insolvency",
              "gazette.personal_insolvency"),
     gap_needles=("insolvency register", "gazette corporate", "personal-insolvency"),
-    remedy="re-run when the insolvency registers respond — an unsearched register is "
+    remedy="re-run when the insolvency registers respond. An unsearched register is "
            "not a clean one",
 )
 
@@ -959,7 +959,7 @@ _read_disqualification = _register_reader(
 _read_tribunal = _register_reader(
     sources=("employment_tribunal.decisions",),
     gap_needles=("employment tribunal",),
-    remedy="re-run when gov.uk responds — no view of claims against this employer",
+    remedy="re-run when gov.uk responds. There is no view of claims against this employer",
 )
 
 _read_ccj = _register_reader(
@@ -1049,7 +1049,7 @@ QUESTIONS: tuple[Question, ...] = (
     _q(id="EI-3", fundamental=3, cluster=Cluster.EXISTENCE_IDENTITY.value,
        tier=Tier.STANDARD.value, applies_to=AppliesTo.INDIVIDUAL.value,
        established_by=EstablishedBy.SUPPLIED.value,
-       text="The individual is who they claim — verified to document and liveness",
+       text="The individual is who they claim, verified to document and liveness",
        pass_condition="An identity document is verified and bound to a live capture",
        resolvers=("idv",), reader=None),
     _q(id="EI-4", fundamental=4, cluster=Cluster.EXISTENCE_IDENTITY.value,
@@ -1296,14 +1296,22 @@ def gated_source_options(entity_type: str = "company", tier: str = "STANDARD") -
         r["required"] = bool(r["required_for"])
         # What the operator is actually being asked. Stated per row so the UI never has
         # to infer intent from the access enum.
+        # R-F3543 — these are read by a person deciding where to spend, so they
+        # state the consequence of each choice rather than a status enum. The old
+        # lines were terse to the point of cryptic ("REQUIRED: usable now; select
+        # to search, decline to waive") and leaned on semicolons and dashes.
         if r["required"] and not r["available"]:
-            r["decision"] = "BLOCKING: these questions cannot be answered without it"
+            r["decision"] = ("Blocking. Nothing else can answer these questions, "
+                             "and this source cannot run yet.")
         elif r["required"] and r["available"]:
-            r["decision"] = "REQUIRED: usable now; select to search, decline to waive"
+            r["decision"] = ("Required. Nothing else can answer these questions. "
+                             "Tick to search it, or leave it to record a waiver.")
         elif r["available"]:
-            r["decision"] = "OPTIONAL: adds depth; another source already covers these"
+            r["decision"] = ("Optional. Another source already answers these. "
+                             "Tick to add depth.")
         else:
-            r["decision"] = "OPTIONAL: unavailable, and something else covers these"
+            r["decision"] = ("Optional. Another source already answers these, and "
+                             "this one cannot run yet.")
 
     return {
         "entity_type": et,
@@ -1399,7 +1407,7 @@ def assess(report: dict, *, tier: str = "STANDARD", waivers: Any = None,
                 reason=f"waived by {wv.waived_by}"
                        + (f" on {wv.waived_at}" if wv.waived_at else "")
                        + f": {wv.reason}",
-                remedy="remove the waiver and re-run to establish this question — "
+                remedy="remove the waiver and re-run to establish this question. "
                        "a waived check is not a clear one"))
             continue
         if q.established_by == EstablishedBy.SUPPLIED.value:

@@ -51,7 +51,7 @@ Sidebar.init('leads');
 // while the page offered exactly one button: Erase. A test asserts every action
 // code below is present in this file, so the two cannot drift apart again.
 var ACTION_CONTROLS = {
-  await_email_verification: 'informational — a live confirmation link is outstanding',
+  await_email_verification: 'informational: a live confirmation link is outstanding',
   resend_verification: 'button[data-action="resend_verification"]',
   mark_operator_verified: 'button[data-action="mark_operator_verified"]',
   request_missing_evidence: 'button[data-action="add_note"] (records what the contact supplied)',
@@ -220,7 +220,7 @@ document.getElementById('leads-tbody').addEventListener('click', async function 
       // different outcome and the operator has to be able to see it.
       Toast.show(sent.data.verification === 'sent'
         ? 'Confirmation link emailed.'
-        : 'Link reissued, but the email could NOT be sent — check SMTP.',
+        : 'Link reissued, but the email could NOT be sent. Check SMTP.',
         sent.data.verification === 'sent' ? 'success' : 'danger');
     } else if (action === 'mark_operator_verified') {
       var attest = await Modal.form({
@@ -231,7 +231,7 @@ document.getElementById('leads-tbody').addEventListener('click', async function 
       });
       if (!attest || !String(attest.note || '').trim()) return;
       if (!await applyAction(leadId, 'mark_operator_verified', { note: attest.note })) return;
-      Toast.show('Recorded — identity is operator-verified.', 'success');
+      Toast.show('Recorded. Identity is operator-verified.', 'success');
     } else if (action === 'assign_owner') {
       if (!await applyAction(leadId, 'assign_owner', {})) return;   // server defaults owner to the actor
       Toast.show('Owner assigned.', 'success');

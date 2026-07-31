@@ -780,13 +780,13 @@ async function loadData() {
     if (critEls.length > 0) {
       kCrit.style.color = '#dc2626';
       const nCrit = corrs0.filter(function (c) { return c.severity === 'critical'; }).length;
-      kCrit.title = critEls.length + ' correlation(s) at high or critical severity (' + nCrit + ' critical) — the same rows listed below';
+      kCrit.title = critEls.length + ' correlation(s) at high or critical severity (' + nCrit + ' critical). These are the same rows listed below.';
     } else { kCrit.style.color = ''; kCrit.title = ''; }
     // Conflict Signals — total signal volume across the correlations listed below.
     const conflictSignals = corrs0.reduce(function (n, c) { return n + (Number(c.signalCount) || 0); }, 0);
     const kConf = document.getElementById('kpi-conflict');
     kConf.textContent = conflictSignals;
-    kConf.title = 'Total signals behind the ' + corrs0.length + ' correlation(s) listed below — collection volume, not corroborated events';
+    kConf.title = 'Total signals behind the ' + corrs0.length + ' correlation(s) listed below. This is collection volume, not corroborated events.';
     // Active Tenders — counted from the SAME signal feed the research panel
     // renders, so the number and the list can never disagree. bdIntelligence
     // counts a different window and was the source of the 1-vs-4 split.
