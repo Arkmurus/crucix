@@ -129,7 +129,7 @@ The more of these you set, the richer ARIA's signal coverage.
 | `WA_LISTENER_PORT` | seenode | LIVE | Internal listener port. |
 | `WA_LISTENER_AUTH_DIR` | seenode | LIVE | Path where Baileys stores session creds. |
 | `WA_LISTENER_GROUP_IDS` | seenode | LIVE | Group JIDs the listener will respond in. |
-| `WA_LISTENER_AUTO_RESPOND` | seenode | LIVE | `1` to auto-respond. |
+| `WA_LISTENER_AUTO_RESPOND` | aria-web only | PARTLY DEAD | **The documented value was wrong**: the code is `(env \|\| 'true').toLowerCase() === 'true'`, so setting `1` evaluates **false** — the opposite of what this row told you to do. R-F3584: the canonical aria-wa listener now IGNORES it entirely (keyword auto-response there is `KEYWORD_AUTO_RESPONSE`, default OFF). Only `lib/whatsapp/waListener.mjs`, embedded in aria-web, still reads it. |
 | `WA_REPLY_ENABLED` | seenode | LIVE | Same family. |
 | `WA_ALERT_GROUP_ID` | seenode | LIVE | Group for autonomous alert pushes. |
 | `WA_ALERT_POLL_MS` | seenode | LIVE | Poll interval. |

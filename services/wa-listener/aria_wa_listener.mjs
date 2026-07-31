@@ -26,7 +26,10 @@
  *   WA_LISTENER_PORT         Port for this service
  *                            Set to: 5070
  *
- *   WA_LISTENER_AUTO_RESPOND  Enable/disable smart auto-responses in groups
+ *   WA_LISTENER_AUTO_RESPOND  IGNORED BY THIS LISTENER (R-F3584). Kept only
+ *                            because lib/whatsapp/waListener.mjs (embedded in
+ *                            aria-web) still reads it. Keyword auto-response
+ *                            here is KEYWORD_AUTO_RESPONSE, default OFF.
  *                            Set to: true (default) or false
  *
  *   Already set — no changes needed:
@@ -293,7 +296,16 @@ async function brainFetchHealth(path, timeoutMs = 8000) {
 const CALLBACK_URL  = process.env.WA_LISTENER_CALLBACK_URL
   || 'http://aria-wa.internal:5070/api/wa-listener/callback';
 const REDIS_URL     = process.env.REDIS_URL              || '';
-const AUTO_RESPOND  = (process.env.WA_LISTENER_AUTO_RESPOND || 'true').toLowerCase() === 'true';
+// R-F3584 — the `AUTO_RESPOND` const that lived here is REMOVED. It read
+// WA_LISTENER_AUTO_RESPOND and was never referenced again anywhere in this
+// file: R-F2061 replaced keyword auto-response with KEYWORD_AUTO_RESPONSE
+// (default OFF) and the old const was left behind. A live fly secret whose
+// name promises control it does not have is the same defect class as a
+// surface describing a capability the code lacks — someone eventually sets
+// it, observes no change, and stops trusting the flags that DO work.
+// NOTE: lib/whatsapp/waListener.mjs (the EMBEDDED aria-web listener) still
+// genuinely reads WA_LISTENER_AUTO_RESPOND, so the env var is not dead
+// globally and the secret is NOT removed from that tier.
 // R-F2061 — RESPOND ONLY WHEN CALLED (operator rule, 2026-06-27). The keyword
 // "smart auto-response" (replying to compliance/risk KEYWORDS with no mention —
 // the uninvited "_ARIA noticed:_ …" messages) is now gated behind its OWN flag,

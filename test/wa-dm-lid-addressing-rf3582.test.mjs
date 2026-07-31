@@ -93,3 +93,30 @@ test('R-F3582 the premise is real: the shipped Baileys uses LID addressing', () 
   const major = parseInt(String(version).replace(/^\D*/, ''), 10);
   assert.ok(major >= 7, `baileys is ${version}; LID addressing arrived with 7.x`);
 });
+
+
+// ── R-F3584 — no env-derived const may be defined and never read ────────────
+
+test('R-F3584 the listener defines no env flag it never reads', () => {
+  // WA_LISTENER_AUTO_RESPOND was a LIVE fly secret whose const was defined and
+  // referenced nowhere — R-F2061 replaced it with KEYWORD_AUTO_RESPONSE and left
+  // the old one behind. A flag that promises control it does not have is the
+  // same class as a surface describing a capability the code lacks: someone sets
+  // it, sees no change, and stops trusting the flags that DO work.
+  const codeOnly = listener
+    .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+    .join('\n');
+
+  const declared = [...codeOnly.matchAll(/^const\s+([A-Z][A-Z0-9_]*)\s*=\s*[^;]*process\.env\./gm)]
+    .map((m) => m[1]);
+  assert.ok(declared.length > 5, `only ${declared.length} env consts found — the scan has drifted`);
+
+  const unread = declared.filter((name) => {
+    const uses = [...codeOnly.matchAll(new RegExp('\\b' + name + '\\b', 'g'))].length;
+    return uses <= 1;   // the declaration itself
+  });
+  assert.deepEqual(unread, [],
+    `these env-derived consts are declared and never read: ${unread.join(', ')}. `
+    + 'Either wire them or delete them — a dead flag is worse than no flag.');
+});
