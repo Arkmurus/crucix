@@ -173,6 +173,50 @@ def _source_facets(source: Any) -> tuple:
     return "external_unclassified", None
 
 
+def count_independent_witnesses(sources: list) -> int:
+    """R-F3547 — independent origins, with propaganda-tier sources collapsed to ONE.
+
+    The single definition of "how many independent witnesses are behind this",
+    shared by the correlation cards and by news corroboration. It existed twice:
+    `signal_correlator._independent_origins` carried the propaganda rule inline
+    while the news grader had no notion of it at all, which is how the same
+    question ended up with two answers — the failure class this codebase keeps
+    paying for.
+
+    Two Telegram war-aggregators rewording one claim present as two publishers
+    with two stories, so the union-find alone cannot merge them. ARIA's own
+    constitution already states these sources' CONTENT IS NOT FACT and may never
+    reach [CONFIRMED] (aria_engine._PROPAGANDA_SOURCE_HINTS, written after the
+    2026-04-09 Lebanon fabrication reached a customer). A rule that calls one of
+    them unconfirmed but two of them corroboration contradicts itself.
+
+    They contribute AT MOST one origin, and only when nothing else is behind the
+    story — never a second witness alongside a real publisher, and never enough
+    on their own to clear a corroboration gate.
+    """
+    try:
+        from ..aria_engine import _looks_like_propaganda_source
+    except Exception:                                   # pragma: no cover
+        # Never inflate on an import failure: fall back to the strict count.
+        return count_independent_origins(sources)
+
+    kept: list = []
+    saw_propaganda = False
+    for s in (sources or []):
+        if isinstance(s, dict):
+            probe = f"{s.get('url') or ''} {s.get('source') or ''} {s.get('publisher') or ''}"
+        else:
+            probe = str(s or "")
+        if _looks_like_propaganda_source(probe):
+            saw_propaganda = True
+            continue
+        kept.append(s)
+    origins = count_independent_origins(kept) if kept else 0
+    if saw_propaganda and origins == 0:
+        return 1
+    return origins
+
+
 def count_independent_origins(sources: list) -> int:
     """R-F2677 — count distinct INDEPENDENT origins as connected components under the
     equivalence: two sources are the SAME origin if they share a PUBLISHER *or* a STORY.

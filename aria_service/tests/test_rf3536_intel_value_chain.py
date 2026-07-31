@@ -192,10 +192,24 @@ def test_genuinely_independent_publishers_still_count():
 
 def test_the_corroboration_rule_reuses_the_constitutional_source_list():
     """One derivation point: the list that says these are never [CONFIRMED] is the
-    same list that says they never corroborate."""
-    src = (_REPO / "aria_service" / "intel" / "signal_correlator.py").read_text(encoding="utf-8")
-    assert "_looks_like_propaganda_source" in src, (
-        "the correlator maintains its own idea of which channels are unreliable"
+    same list that says they never corroborate.
+
+    R-F3547 moved the rule OUT of signal_correlator into
+    dd_independent_verifier.count_independent_witnesses so the correlation cards
+    and news corroboration share it — it previously lived only in the correlator,
+    which is how the news grader ended up with no notion of it at all. The
+    property is unchanged and now stronger; only its home moved.
+    """
+    verifier = (_REPO / "aria_service" / "intel" / "dd_independent_verifier.py").read_text(encoding="utf-8")
+    assert "_looks_like_propaganda_source" in verifier, (
+        "the shared witness count no longer consults the constitutional source list"
+    )
+    correlator = (_REPO / "aria_service" / "intel" / "signal_correlator.py").read_text(encoding="utf-8")
+    assert "count_independent_witnesses" in correlator, (
+        "the correlator no longer uses the shared rule"
+    )
+    assert "_looks_like_propaganda_source" not in correlator, (
+        "the correlator kept its own copy — two definitions of one question"
     )
 
 

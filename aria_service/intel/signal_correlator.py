@@ -610,8 +610,12 @@ def _independent_origins(signals: list[dict]) -> int:
     if not signals:
         return 0
     try:
-        from .dd_independent_verifier import count_independent_origins
-        from ..aria_engine import _looks_like_propaganda_source
+        # R-F3547 — the propaganda-collapse rule moved into
+        # dd_independent_verifier.count_independent_witnesses so the correlation
+        # cards and news corroboration share ONE definition of an independent
+        # witness. It used to live only here, which is how the news grader ended
+        # up with no notion of it at all.
+        from .dd_independent_verifier import count_independent_witnesses
         sources = []
         # R-F3536 — propaganda-tier channels are ONE origin between them, however
         # many of them repost a claim.
@@ -626,22 +630,14 @@ def _independent_origins(signals: list[dict]) -> int:
         # fabrication). A rule that says a claim from one of them is unconfirmed,
         # but two of them are corroboration, contradicts itself. Same list, one
         # derivation point: they collapse into a single synthetic origin.
-        _propaganda_seen = False
         for s in signals:
             loc = (s.get("url") or "").strip() or (s.get("source") or "").strip()
-            if _looks_like_propaganda_source(loc) or _looks_like_propaganda_source(
-                    (s.get("source") or "").strip()):
-                _propaganda_seen = True
-                continue
             story = (s.get("story") or s.get("content_hash") or "").strip()
-            sources.append({"url": loc, "story": story} if story else {"url": loc})
-        origins = int(count_independent_origins(sources)) if sources else 0
-        # Propaganda-tier coverage contributes AT MOST one origin, and only when
-        # nothing else is behind the story — never a second witness alongside a
-        # real one, and never enough on its own to clear a corroboration gate.
-        if _propaganda_seen and origins == 0:
-            origins = 1
-        return origins
+            entry = {"url": loc, "source": (s.get("source") or "").strip()}
+            if story:
+                entry["story"] = story
+            sources.append(entry)
+        return int(count_independent_witnesses(sources))
     except Exception as exc:
         logger.warning(
             "[R-F3487] independence count failed — treating as SINGLE origin "

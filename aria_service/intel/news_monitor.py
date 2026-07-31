@@ -2621,6 +2621,113 @@ async def get_recent_articles(limit: int = 50, category: str = "") -> list[dict]
     return articles
 
 
+# ── R-F3547 — news corroboration ────────────────────────────────────────────
+#
+# `evidence_count >= 2` is what lifts a tier_2 signal to Grade A, and NOTHING
+# ever produced a count above 1 for news: `_build_intel_signal` reads it off the
+# article, and articles are promoted ONE AT A TIME, so no two reports were ever
+# compared. Measured live: conflict_escalation 9 signals, 2 Grade A — and the 7
+# at Grade B could not have reached A by any path. A consumer with no producer.
+#
+# (Two corroboration engines already existed and BOTH have zero production
+# callers — `intel/corroboration.py`, whose fixtures were green while it scored
+# 0/20 on real data, and `intel/news_claims.py`. Nothing here is built on either;
+# this uses `count_independent_witnesses`, the union-find hardened by live evals.)
+#
+# Done on READ, beside the grade it feeds, so every report of one event gets the
+# same answer. Doing it on write would make the first arrival Grade B and the
+# second Grade A for the same event — the incoherence this session keeps closing.
+_CORROBORATION_WINDOW_H = 72
+_MIN_EVENT_OVERLAP = 0.6
+_CORROBORATION_STOPWORDS = frozenset({
+    "after", "against", "amid", "announced", "attack", "attacks", "been", "before",
+    "being", "between", "could", "from", "have", "into", "more", "near", "over",
+    "reported", "reports", "said", "says", "since", "that", "their", "them",
+    "there", "these", "this", "those", "with", "will", "would", "your",
+})
+
+
+def _event_tokens(sig: dict) -> frozenset:
+    text = str(sig.get("decision_summary") or sig.get("title") or "")
+    toks = {t for t in re.findall(r"[a-z0-9]{4,}", text.lower())}
+    return frozenset(toks - _CORROBORATION_STOPWORDS)
+
+
+def _event_bucket(sig: dict) -> str:
+    """Cheap pre-filter. Only signals of the SAME TYPE about the SAME COUNTRY are
+    ever compared, which bounds the cost and removes most cross-event risk."""
+    ents = sig.get("entities") if isinstance(sig.get("entities"), dict) else {}
+    countries = [str(c).strip().lower() for c in (ents.get("countries") or []) if str(c).strip()]
+    return f"{str(sig.get('signal_type') or '').lower()}|{sorted(countries)[0] if countries else ''}"
+
+
+def _same_event(a: dict, b: dict) -> bool:
+    """Conservative: a FALSE corroboration is the fabrication this product exists
+    to prevent, so the bar is deliberately high and the bias is to 'not the same
+    event'. Requires a strong overlap of significant title tokens AND arrival
+    within the window; two escalations days apart are not one event."""
+    ta, tb = _event_tokens(a), _event_tokens(b)
+    if len(ta) < 3 or len(tb) < 3:
+        return False                       # too little text to judge — never merge
+    union = ta | tb
+    if not union:
+        return False
+    if (len(ta & tb) / len(union)) < _MIN_EVENT_OVERLAP:
+        return False
+    da, db = _parse_signal_time(a), _parse_signal_time(b)
+    if da is None or db is None:
+        return False                       # undatable — never merge
+    return abs((da - db).total_seconds()) <= _CORROBORATION_WINDOW_H * 3600
+
+
+def _parse_signal_time(sig: dict):
+    raw = sig.get("detected_at") or sig.get("published") or ""
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _apply_news_corroboration(signals: list) -> list:
+    """Raise `evidence_count` to the number of INDEPENDENT witnesses per event.
+
+    Never lowers a count an adapter asserted: a source that states its own
+    corroboration (a designation carrying two registers) keeps it.
+    """
+    try:
+        from .dd_independent_verifier import count_independent_witnesses
+    except Exception:                                   # pragma: no cover
+        return signals
+
+    buckets: dict = {}
+    for sig in signals:
+        if isinstance(sig, dict):
+            buckets.setdefault(_event_bucket(sig), []).append(sig)
+
+    for members in buckets.values():
+        if len(members) < 2:
+            continue
+        for sig in members:
+            group = [o for o in members if o is sig or _same_event(sig, o)]
+            if len(group) < 2:
+                continue
+            witnesses = count_independent_witnesses([
+                {
+                    "url": str(o.get("url") or (o.get("evidence") or {}).get("url") or ""),
+                    "source": str(o.get("source") or (o.get("evidence") or {}).get("source") or ""),
+                }
+                for o in group
+            ])
+            if witnesses > int(sig.get("evidence_count") or 1):
+                sig["evidence_count"] = witnesses
+                sig["corroboration"] = "corroborated" if witnesses >= 2 else "single-source"
+                if isinstance(sig.get("evidence"), dict):
+                    sig["evidence"]["count"] = witnesses
+                    sig["evidence"]["corroboration"] = sig["corroboration"]
+    return signals
+
+
 @fail_wire(module="news_monitor", gap_type="source_failure")
 async def get_recent_intel_signals(limit: int = 20, grades: str = "") -> dict:
     """Return unique customer-publishable Grade A/B intelligence signals.
@@ -2668,6 +2775,10 @@ async def get_recent_intel_signals(limit: int = 20, grades: str = "") -> dict:
                 signals.append(_normalise_intel_signal(sig))
         except Exception:
             continue
+    # R-F3547 — corroborate BEFORE normalising: _normalise_intel_signal recomputes
+    # the grade from evidence_count, so raising the count here is what lets a
+    # genuinely multi-witness tier_2 report reach Grade A.
+    signals = _apply_news_corroboration(signals)
     normalised = [_normalise_intel_signal(sig) for sig in signals]
     signals = []
     seen_signal_keys: set[str] = set()
