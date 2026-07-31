@@ -101,22 +101,43 @@ by collection health.
 
 ---
 
-## 4. Still open
+## 4. Open list, and what happened to it
 
-1. **`source_key` is null on every served signal** — provenance is stamped
-   server-side and lost before the consumer. Nothing downstream can attribute a
-   signal to its adapter.
-2. **Federal Register OFAC/BIS items are rendered but never graded.** They are
-   official primary sources sitting one adapter away from being Grade-A
-   `sanctions_change` / export-control signals.
-3. **Conflict escalation is stuck at Grade B** because tier-2 news never
-   corroborates. With propaganda-tier now excluded from the origin count, the
-   honest path to Grade A is two genuinely independent publishers.
-4. **The watchlist is empty in production**, so personalisation has nothing to
-   match. The panel now says so; the product still needs onboarding that fills it.
-5. **`natural_hazard` is not publishable but is still collected and graded.**
-   Once a portfolio nexus exists it becomes genuinely valuable — a hazard on a
-   supplier's site is exactly the alarming, specific intel the channel wants.
+1. ~~**`source_key` is null on every served signal**~~ — **CLOSED (R-F3540).**
+   The diagnosis in the first draft was wrong: the field is `promotion_source`,
+   not `source_key`; my probe read the wrong name. The real defect was narrower
+   and real — it was `None` on 69 of 100 signals because it fell back to a
+   `source_key` only two adapters set. Now derived from the adapter registry, so
+   a new adapter is attributable by construction.
+2. ~~**Federal Register OFAC/BIS items are rendered but never graded**~~ —
+   **CLOSED (R-F3545)** for the half that matters. `pushPromotionsToBrain` pushed
+   three lanes and `exportControlActions` reached a widget and stopped. BIS rules
+   now map to tier_1a `sanctions_change`; proven end to end against the live
+   grader: recent → `A`, older → `B`, no named entity → `REJECT`, and
+   `sanctions_change` is publishable on the channel. The OFAC half is
+   deliberately NOT wired: it duplicates the hourly designation diff, which is
+   more precise (the entities themselves, not the announcement).
+3. **Conflict escalation is stuck at Grade B** — **STILL OPEN.** Tier-2 news
+   never corroborates. With propaganda-tier now excluded from the origin count
+   (R-F3536), the honest path to Grade A is two genuinely independent
+   publishers, which needs a corroboration pass this session did not build.
+4. **The watchlist is empty in production** — **OPERATOR ACTION.** The panel now
+   says so and links to the watchlist instead of reporting a failed match; only
+   the operator can populate it.
+5. ~~**`natural_hazard` is graded but unpublishable**~~ — **CLOSED BY DESIGN
+   (R-F3536 + R-F3544).** It reaches Grade A only with a named nexus (an OEM,
+   product or facility), which is the honest rule. The explicit `portfolio_nexus`
+   flag added alongside it was REMOVED in R-F3545: nothing ever passed it, no
+   registered adapter emits an ambient signal so no producer could have fired,
+   and it could not have been honest anyway — this grade is computed once and
+   served to every tenant while "is it in MY portfolio" is per-user. Per-user
+   relevance stays on the dashboard, where the caller's watchlist is known.
+6. **World Bank debarment needs `WORLDBANK_SUBSCRIPTION_KEY`** — **OPERATOR
+   COMMERCIAL DECISION** (§18 class, like ACLED and Registry Trust). The API
+   answers HTTP 401 without it. A probe of `finances.worldbank.org` looking for a
+   free equivalent returned HTTP 200 / 27KB that turned out to be a JavaScript
+   app shell, not JSON: **a 200 with bytes is not a 200 with data.** The gap is
+   surfaced by `missing_credentials()` with the exact env var and fails safe.
 
 ---
 
