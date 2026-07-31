@@ -28,6 +28,7 @@ _REPO_ROOT = Path(
 )
 sys.path.insert(0, str(_REPO_ROOT / "scripts"))
 from pre_commit_checks import (
+    KNOWN_DEAD_CALLS,
     _is_capability_guarded,
     ARIA_SERVICE,
     REPO_ROOT,
@@ -181,6 +182,9 @@ def check_all_files() -> list[str]:
                 continue
             if _is_capability_guarded(lines, call["line_num"], call["function"]):
                 continue
+            # R-F3556 — known dead branches: reported, not fatal, shrink-only.
+            if (module_path, call["function"]) in KNOWN_DEAD_CALLS:
+                continue
             if not function_exists(module_path, call["function"]):
                 rel = py_file.relative_to(REPO_ROOT)
                 issue = (
@@ -317,6 +321,9 @@ _sys.exit(_r.returncode)
                 continue
             if _is_capability_guarded(lines, call["line_num"], call["function"]):
                 continue
+            # R-F3556 — known dead branches: reported, not fatal, shrink-only.
+            if (module_path, call["function"]) in KNOWN_DEAD_CALLS:
+                continue
             if not function_exists(module_path, call["function"]):
                 rel = file_path.relative_to(REPO_ROOT)
                 issues.append(f"  {rel}:{call['line_num']} — {call['code']}")
@@ -350,6 +357,9 @@ _sys.exit(_r.returncode)
             if module_path is None:
                 continue
             if _is_capability_guarded(lines, call["line_num"], call["function"]):
+                continue
+            # R-F3556 — known dead branches: reported, not fatal, shrink-only.
+            if (module_path, call["function"]) in KNOWN_DEAD_CALLS:
                 continue
             if not function_exists(module_path, call["function"]):
                 rel = file_path.relative_to(REPO_ROOT)

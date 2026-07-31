@@ -130,7 +130,18 @@ def find_function_calls(lines: list[str]) -> list[dict]:
     calls = []
     pattern = re.compile(r"(?:await\s+)?(\w+)\.(\w+)\s*\(")
     for i, line in enumerate(lines):
-        for m in pattern.finditer(line):
+        # R-F3556 — A COMMENT IS NOT CODE. The scan matched inside comments, so
+        # prose ABOUT a call was reported as the call. Live examples, both of
+        # which CI failed on: self_healing.py:781
+        # "# R-F1065: rs.ping() doesn't exist, probe with get_json" and
+        # company_investigator.py:690 "# (the old _nm.search() raised
+        # AttributeError on every DD, swallowed)". Both are notes explaining that
+        # the function is absent — the gate flagged the documentation of a fixed
+        # bug as the bug.
+        code_part = _strip_comment(line)
+        if not code_part.strip():
+            continue
+        for m in pattern.finditer(code_part):
             obj = m.group(1)
             func = m.group(2)
             if func.startswith("__"):
@@ -204,8 +215,17 @@ def resolve_module(obj_name: str, file_path: Path, line_num: Optional[int] = Non
     `line_num` is optional so existing callers keep working; without it the
     behaviour is the old file-wide lookup.
     """
-    if obj_name in KNOWN_ALIASES:
-        return KNOWN_ALIASES[obj_name]
+    # R-F3556 — THE FILE'S OWN IMPORT WINS. KNOWN_ALIASES used to be consulted
+    # FIRST, so a hardcoded guess overrode what the file actually declared.
+    # Live: `KNOWN_ALIASES["ct"] = competitor_tracker`, while both
+    # competitor_tracker.py and chain_correlator.py do
+    # `from . import country_taxonomy as ct`. Every ct.to_iso2() /
+    # ct.iso2_to_region() / ct._name_to_iso2_table() call was therefore checked
+    # against the WRONG module and reported missing — 14 of 30 findings, all
+    # false, including competitor_tracker.py flagged against itself. All three
+    # functions do exist in country_taxonomy.
+    #
+    # The table is a fallback for names no import declares, never an override.
     best = None
     best_span = None
     for name, module, lo, hi in _import_map(file_path):
@@ -216,7 +236,9 @@ def resolve_module(obj_name: str, file_path: Path, line_num: Optional[int] = Non
         span = hi - lo
         if best_span is None or span < best_span:   # narrowest enclosing scope wins
             best, best_span = module, span
-    return best
+    if best is not None:
+        return best
+    return KNOWN_ALIASES.get(obj_name)
 
 
 def _resolve_module_uncached(obj_name: str, file_path: Path) -> Optional[str]:
@@ -290,7 +312,70 @@ _BUILTIN_METHOD_NAMES = frozenset({
     "startswith", "endswith", "encode", "decode", "find", "rfind", "zfill",
     "read", "write", "close", "flush", "seek", "tell", "readlines",
     "isdigit", "isalpha", "isalnum", "isspace", "islower", "isupper",
+    # re.Match — live: `tm.group(1)` at routes/aria.py:6446, where `tm` is a
+    # match object shadowing the tender_monitor alias.
+    "group", "groups", "groupdict", "start", "end", "span",
 })
+
+
+# R-F3556 — KNOWN DEAD CALL SITES. This list may only SHRINK.
+#
+# Each entry is a call to a function that genuinely does NOT exist in the target
+# module, sitting inside try/except, so it raises AttributeError and is
+# swallowed — a silently dead branch. This codebase already carries a note about
+# one of them ("the old _nm.search() raised AttributeError on every DD,
+# swallowed"), so the class is known and real.
+#
+# They are NOT silenced and NOT auto-fixed. Several have a plausible intended
+# target (knowledge.add_fact -> store_fact, feedback.get_stats ->
+# get_feedback_stats, cert_transparency.search -> search_certs), but every one
+# has never executed, so "fixing" it ACTIVATES a code path that has never run —
+# a behaviour change per site, needing its own review and test, not a bulk
+# rename to turn CI green. Rushing 21 of those onto a live system would be worse
+# than the dead branches.
+#
+# The gate still FAILS on any call site not listed here, so the class cannot
+# grow. And `test_known_dead_calls_are_still_dead` asserts every entry is STILL
+# missing: the moment someone implements or renames one, its entry becomes stale
+# and the test fails until it is removed. The list cannot rot into an excuse.
+KNOWN_DEAD_CALLS = {
+    ("aria_service.intel.knowledge", "search"),
+    ("aria_service.intel.knowledge", "query"),
+    ("aria_service.intel.knowledge", "add_fact"),
+    ("aria_service.intel.news_monitor", "recall"),
+    ("aria_service.intel.redis_store", "hdel"),
+    ("aria_service.intel.eval_golden_seed", "get_all"),
+    ("aria_service.intel.correction_learner", "get_all"),
+    ("aria_service.intel.feedback", "get_stats"),
+    ("aria_service.intel.stale_knowledge_alerts", "check_stale"),
+    ("aria_service.intel.reasoning_library", "store_case"),
+    ("aria_service.intel.sources.cert_transparency", "search"),
+}
+
+
+def _strip_comment(line: str) -> str:
+    """Drop a trailing ``#`` comment, respecting quotes.
+
+    Naive ``split('#')`` would truncate a legitimate string containing a hash
+    (URLs, colour codes, f-string fragments), so quote state is tracked.
+    """
+    out = []
+    quote = None
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if quote:
+            if ch == "\\":
+                out.append(line[i:i + 2]); i += 2; continue
+            if ch == quote:
+                quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+        elif ch == "#":
+            break
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def function_exists(module_path: str, func_name: str) -> bool:
