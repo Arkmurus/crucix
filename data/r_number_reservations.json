@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3555,
+  "next_available": 3556,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29593,6 +29593,16 @@
       "commit_sha": "7e9bcd66",
       "notes": null,
       "shipped_at": "2026-07-31T11:59:35Z"
+    },
+    {
+      "r_number": "R-F3555",
+      "title": "R-F3553 promoted a document archive as a credential and cross-attributed a filing",
+      "claimed_at": "2026-07-31T12:04:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5d635b2f",
+      "notes": null,
+      "shipped_at": "2026-07-31T12:07:48Z"
     }
   ]
 }
