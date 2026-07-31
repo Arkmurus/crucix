@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3587,
+  "next_available": 3589,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29889,9 +29889,9 @@
       "claimed_at": "2026-07-31T20:00:15Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "89476741",
+      "commit_sha": "756c1577",
       "notes": null,
-      "shipped_at": "2026-07-31T20:02:12Z"
+      "shipped_at": "2026-07-31T20:12:29Z"
     },
     {
       "r_number": "R-F3585",
@@ -29907,6 +29907,25 @@
       "r_number": "R-F3586",
       "title": "WA engagement was open to any sender: gate every path, LID-aware, and never refuse silently",
       "claimed_at": "2026-07-31T20:07:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "756c1577",
+      "notes": null,
+      "shipped_at": "2026-07-31T20:12:29Z"
+    },
+    {
+      "r_number": "R-F3587",
+      "title": "phone-to-account binding: only verified imaria.io users may engage ARIA on WhatsApp",
+      "claimed_at": "2026-07-31T20:15:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3588",
+      "title": "ARIA has no clock in her prompt: she refused a question the server could answer",
+      "claimed_at": "2026-07-31T20:23:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

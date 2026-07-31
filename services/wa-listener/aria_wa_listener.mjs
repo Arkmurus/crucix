@@ -104,6 +104,8 @@ import { createClient } from 'redis';
 import { randomBytes, timingSafeEqual } from 'node:crypto';   // R-F1870/R-F1884: per-job callback token (constant-time compare)
 import { AsyncLocalStorage } from 'node:async_hooks';         // R-F1930 (C1): per-inbound {sock,account} context so secondary numbers reply on themselves
 import { buildOperationalEvent, linkedGrantState, linkedMessageAllowed } from '../../lib/whatsapp/waGovernance.mjs';
+import { extractPairingCode, identitiesFromMessage, newBinding, newPairing,
+         pairingState, publicBindingView, resolveBoundUser } from '../../lib/whatsapp/waBinding.mjs';
 
 // R-F1930 (C1): ambient context for the inbound message pipeline. onMessagesUpsert
 // runs each batch inside _waCtx.run({sock, account}); sendReply reads the store to
@@ -1806,6 +1808,59 @@ function _waIdentityFields(msg = null) {
           'remoteJid', 'remoteJidAlt'].filter((f) => Boolean(k[f]));
 }
 
+// ── R-F3587 — PHONE ↔ ACCOUNT BINDING STORE ─────────────────────────────────
+//
+// Bindings live HERE, in the listener, because this is where the per-message
+// check happens. Putting them in aria-web would mean a cross-service HTTP call
+// on every inbound message — latency on the hot path and a new way for ARIA to
+// go silent when the web tier is redeploying. aria-web stays the AUTHORITY over
+// who may request a binding (only an authenticated session can mint a code); the
+// listener is the authority over which handset actually proved it.
+//
+// Same /data persistence pattern as the accounts metadata (R-F1927): the fly
+// volume survives deploys, and a lost binding file would silently un-verify
+// every user, so it is written atomically and read back on boot.
+const _BINDINGS_FILE = process.env.WA_BINDINGS_FILE || '/data/wa-bindings.json';
+let _waBindings = [];              // [{userId, identities[], boundAt, revokedAt}]
+let _waPendingPairings = [];       // [{userId, code, issuedAt, expiresAt, usedAt}]
+
+function _loadBindings() {
+  try {
+    const raw = fs.readFileSync(_BINDINGS_FILE, 'utf8');
+    const data = JSON.parse(raw);
+    _waBindings = Array.isArray(data.bindings) ? data.bindings : [];
+    _waPendingPairings = Array.isArray(data.pending) ? data.pending : [];
+    console.log(`[ARIA Listener] R-F3587 loaded ${_waBindings.length} WhatsApp binding(s)`);
+  } catch (e) {
+    if (e.code !== 'ENOENT') {
+      // NOT silent: an unreadable binding file un-verifies everyone, which would
+      // look exactly like "ARIA stopped replying" — the R-F3582 failure shape.
+      console.error('[ARIA Listener] R-F3587 binding store unreadable — every user reads as UNVERIFIED:', e.message);
+    }
+    _waBindings = _waBindings || [];
+    _waPendingPairings = _waPendingPairings || [];
+  }
+}
+
+function _persistBindings() {
+  try {
+    const tmp = _BINDINGS_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ bindings: _waBindings, pending: _waPendingPairings }, null, 2));
+    fs.renameSync(tmp, _BINDINGS_FILE);   // atomic — a torn write would drop bindings
+    return true;
+  } catch (e) {
+    console.error('[ARIA Listener] R-F3587 binding persist FAILED:', e.message);
+    return false;
+  }
+}
+_loadBindings();
+
+/** The bound account for this sender, or null. Matching is on ANY identifier the
+ *  message carries, so a phone->LID switch cannot un-verify someone. */
+function _waBoundUser(senderJid, msg = null) {
+  return resolveBoundUser(_waBindings, identitiesFromMessage(senderJid, msg));
+}
+
 // R-F3586 — tell a refused sender ONCE per chat, then stay quiet.
 //
 // A refusal must be visible (silence is what made R-F3582 invisible for hours),
@@ -1830,7 +1885,19 @@ function _waNotifyRefusalOnce(chatId) {
   return true;
 }
 
+// R-F3587 — when this is on, ONLY a verified sender may engage: one who has
+// bound their handset to an imaria.io account, or who is on the bootstrap
+// allow-list. Default OFF so enabling it is a deliberate operator act — turning
+// it on before the operator's own binding is proven would silence ARIA exactly
+// as R-F3582 did, and that is the one mistake this area keeps repeating.
+const WA_REQUIRE_VERIFIED_SENDER = process.env.WA_REQUIRE_VERIFIED_SENDER === '1';
+
 function _waSenderAllowed(senderJid, msg = null) {
+  // A bound account is proof of BOTH directions: signed in to imaria.io to mint
+  // the code, and holding the handset to send it. It authorises regardless of
+  // the allow-list, which exists only to bootstrap the first operator.
+  if (_waBoundUser(senderJid, msg)) return true;
+  if (WA_REQUIRE_VERIFIED_SENDER && !WA_ALLOWED_SENDERS.length) return false;
   if (!WA_ALLOWED_SENDERS.length) {
     if (!_waAllowWarned) {
       _waAllowWarned = true;
@@ -2684,6 +2751,55 @@ async function onMessagesUpsert(sock, account, ev) {
       // listener look identical; a refusal the operator cannot see would repeat
       // that mistake, and it is also how a legitimate sender wrongly blocked by
       // an unmatched LID form would be discovered.
+      // ── R-F3587 — PAIRING: the one thing an UNVERIFIED sender may do ──────
+      //
+      // Checked before the refusal below, because a pairing code is precisely a
+      // message from someone not yet verified. Nothing else is processed: no
+      // LLM call, no brain write, no document read — a stranger can spend a
+      // string comparison and nothing more.
+      //
+      // The message that carries the code IS the identity evidence (see
+      // waBinding.mjs). Whatever identifiers WhatsApp attached here are the ones
+      // this person will arrive with later, so all of them are recorded and the
+      // LID field-name question never has to be guessed at.
+      if (!_waBoundUser(senderJid, msg)) {
+        const _code = extractPairingCode(text);
+        if (_code) {
+          const _pending = _waPendingPairings.find((x) => x && x.code === _code);
+          const _pstate = pairingState(_pending);
+          if (_pstate.valid) {
+            const _b = newBinding({
+              userId: _pending.userId,
+              identities: identitiesFromMessage(senderJid, msg),
+            });
+            if (_b.ok) {
+              _waBindings.push(_b.binding);
+              _pending.usedAt = new Date().toISOString();   // SINGLE USE
+              _persistBindings();
+              console.log(`[ARIA Listener] R-F3587 handset bound to account ${_pending.userId} `
+                + `(${_b.binding.identities.length} identifier form(s) recorded)`);
+              try {
+                await sendReply(chatId,
+                  '✅ Verified. This handset is now linked to your ARIA account — '
+                  + 'you can talk to me normally from here.');
+              } catch { /* the binding stands even if the confirmation fails to send */ }
+              continue;
+            }
+          } else if (_pending) {
+            // A REAL code that is expired or already used. Say which — silence
+            // here would leave the user retyping a code that can never work.
+            try {
+              await sendReply(chatId, _pstate.code === 'already_used'
+                ? '⚠️ That link code has already been used. Generate a new one in ARIA.'
+                : '⚠️ That link code has expired. Generate a new one in ARIA.');
+            } catch { /* best effort */ }
+            continue;
+          }
+          // An unknown 6-digit string is NOT acknowledged: confirming which codes
+          // exist would turn this into an oracle for guessing valid codes.
+        }
+      }
+
       if (!_waSenderAllowed(senderJid, msg)) {
         const _fields = _waIdentityFields(msg).join(',') || '(none)';
         console.warn(`[ARIA Listener] R-F3586 engagement refused: sender not on `
@@ -3671,6 +3787,57 @@ app.put('/api/wa-listener/governance', requireAuth, async (req, res) => {
 });
 
 // Create a new account (returns QR code)
+// ── R-F3587 — binding API. Internal-token only; aria-web is the sole caller and
+// is the tier that knows whether the requester is an authenticated user. The
+// listener deliberately does NOT decide who deserves a code — it only proves
+// which handset answered one.
+// NOTE: no per-route express.json() here — app.use(express.json()) is already
+// registered globally above, so a second parser with a tighter limit never
+// runs and would only look like a protection that is not there.
+app.post('/api/wa-listener/binding/code', requireAuth, (req, res) => {
+  const { userId, code } = req.body || {};
+  const issued = newPairing({ userId, code });
+  if (!issued.ok) return res.status(400).json({ error: issued.code });
+
+  // Supersede any live code for this user. Leaving several outstanding widens
+  // the guessing surface for no benefit — a user only ever needs the latest.
+  _waPendingPairings = _waPendingPairings.filter((x) => x && x.userId !== String(userId));
+  // Drop expired/used entries while we are here, so the file cannot grow forever.
+  const now = Date.now();
+  _waPendingPairings = _waPendingPairings.filter(
+    (x) => x && !x.usedAt && Date.parse(x.expiresAt || '') > now,
+  );
+  _waPendingPairings.push(issued.pairing);
+  if (!_persistBindings()) {
+    return res.status(503).json({ error: 'persist_failed', message: 'Pairing not stored — do not show a code that cannot be honoured.' });
+  }
+  return res.json({ ok: true, expiresAt: issued.pairing.expiresAt });
+});
+
+app.get('/api/wa-listener/binding/:userId', requireAuth, (req, res) => {
+  const uid = String(req.params.userId || '');
+  const b = _waBindings.find((x) => x && x.userId === uid && !x.revokedAt);
+  const pending = _waPendingPairings.find(
+    (x) => x && x.userId === uid && !x.usedAt && Date.parse(x.expiresAt || '') > Date.now(),
+  );
+  return res.json({
+    ...publicBindingView(b),
+    pairingPending: Boolean(pending),
+    pairingExpiresAt: pending ? pending.expiresAt : null,
+  });
+});
+
+app.delete('/api/wa-listener/binding/:userId', requireAuth, (req, res) => {
+  const uid = String(req.params.userId || '');
+  let revoked = 0;
+  for (const b of _waBindings) {
+    if (b && b.userId === uid && !b.revokedAt) { b.revokedAt = new Date().toISOString(); revoked += 1; }
+  }
+  _waPendingPairings = _waPendingPairings.filter((x) => x && x.userId !== uid);
+  _persistBindings();
+  return res.json({ ok: true, revoked });
+});
+
 app.post('/api/wa-listener/accounts', requireAuth, async (req, res) => {
   const { name, governance } = req.body || {};
   const accountId = `wa_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

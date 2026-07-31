@@ -65,6 +65,12 @@ COPY services/wa-listener/log-redact.mjs ./services/wa-listener/log-redact.mjs
 # this exact module so the internal service cannot be reached around web consent.
 COPY lib/whatsapp/waGovernance.mjs ./lib/whatsapp/waGovernance.mjs
 
+# R-F3587 — shared phone<->account binding policy. Both tiers import this exact
+# file so they cannot disagree about who is verified. Without this COPY the
+# listener dies at boot on module-not-found: a total WhatsApp outage, caught
+# before deploy by the R-F2069 import/COPY guard.
+COPY lib/whatsapp/waBinding.mjs ./lib/whatsapp/waBinding.mjs
+
 # Cross-module dependency: the listener imports `../../lib/aria/complianceAudit.mjs`.
 # That file only uses Node stdlib (fs/path/url), so copying just it is safe.
 COPY lib/aria/complianceAudit.mjs ./lib/aria/complianceAudit.mjs

@@ -1402,6 +1402,62 @@ app.get('/api/wa-listener/accounts', requireAuth, async (req, res) => {
 // parser req.body is undefined → JSON.stringify(req.body || {}) forwards `{}`
 // and the user-supplied `name` is dropped (account created with the auto-id as
 // its name). A route-level express.json() runs the parser before the handler.
+// ── R-F3587 — PHONE ↔ ACCOUNT BINDING (aria-web side) ───────────────────────
+//
+// aria-web is the tier that knows who is signed in, so it is the only thing
+// allowed to mint a pairing code. The listener never decides who DESERVES a
+// code; it only proves which handset answered one. Those two halves together
+// are what makes a sender "verified": authenticated session + physical handset.
+app.post('/api/wa/binding/code', requireAuth, express.json({ limit: '8kb' }), async (req, res) => {
+  const user = findUserById(req.user?.userId);
+  if (!user) return res.status(401).json({ error: 'unknown_user' });
+  const code = generateCode();                      // 6 digits, crypto random
+  try {
+    const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/binding/code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': WA_SERVICE_AUTH },
+      body: JSON.stringify({ userId: user.id, code }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return res.status(r.status).json(data);
+    // The code is returned ONLY to the authenticated session that asked for it.
+    return res.json({ ok: true, code, expiresAt: data.expiresAt,
+      instructions: 'Send this code to ARIA on WhatsApp from the handset you want to link.' });
+  } catch (e) {
+    // Never invent a code the listener has not stored — the user would send
+    // something that can never be honoured and conclude ARIA is broken.
+    return res.status(503).json({ error: 'wa_listener_unreachable', detail: e.message });
+  }
+});
+
+app.get('/api/wa/binding', requireAuth, async (req, res) => {
+  const uid = req.user?.userId || '';
+  try {
+    const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/binding/' + encodeURIComponent(uid), {
+      headers: { 'Authorization': WA_SERVICE_AUTH },
+      signal: AbortSignal.timeout(10000),
+    });
+    return res.status(r.status).json(await r.json().catch(() => ({})));
+  } catch (e) {
+    return res.status(503).json({ error: 'wa_listener_unreachable', detail: e.message });
+  }
+});
+
+app.delete('/api/wa/binding', requireAuth, async (req, res) => {
+  const uid = req.user?.userId || '';
+  try {
+    const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/binding/' + encodeURIComponent(uid), {
+      method: 'DELETE',
+      headers: { 'Authorization': WA_SERVICE_AUTH },
+      signal: AbortSignal.timeout(10000),
+    });
+    return res.status(r.status).json(await r.json().catch(() => ({})));
+  } catch (e) {
+    return res.status(503).json({ error: 'wa_listener_unreachable', detail: e.message });
+  }
+});
+
 app.post('/api/wa-listener/accounts', requireAuth, express.json({ limit: '100kb' }), async (req, res) => {
   try {
     const user = findUserById(req.user?.userId);
