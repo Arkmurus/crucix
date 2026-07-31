@@ -16,6 +16,8 @@ Exit code: 0 if all checks pass, 1 if any fail.
 from __future__ import annotations
 
 import json
+import re          # R-F3552 — parse the live sha out of build_rev
+import subprocess  # R-F3552 — git ancestry proof
 import sys
 from pathlib import Path
 
@@ -76,6 +78,47 @@ def fetch_json(client: httpx.Client, url: str, timeout: int = 15) -> dict | str 
         return None
 
 
+def _live_contains_expected(data, expected_sha: str) -> bool:
+    """R-F3552 — is the LIVE sha a descendant of the one this deploy shipped?
+
+    THE CRY-WOLF THIS REMOVES. The check is `expected_sha in build_rev`, a string match.
+    On a shared tree a peer's deploy routinely batches several commits, so the live
+    build_rev is a DESCENDANT of mine rather than mine — and the substring misses. On
+    2026-07-31 that produced:
+
+        FAIL: intel: health check FAILED — response:
+              {'build_rev': 'R-F3548+R-F3549+R-F3550+R-F3551 · sha 18fd5eb8'}
+
+    while `git merge-base --is-ancestor 464a28a8 18fd5eb8` proved the commit WAS live.
+    R-F1478 already fixed one false-fail here (a concurrent ci_deploy overwriting
+    `.last_deploy_sha`); this is the other one. It cost time three times in one session,
+    and per the standing rule a guard that cries wolf gets switched off — which would
+    cost far more than it saves.
+
+    FAILS CLOSED. Ancestry is only accepted when git PROVES it. No git, no repo, an
+    unparseable build_rev, or a non-zero exit all return False: "cannot prove it is live"
+    must never render as "it is live", which is the whole point of a deploy check.
+    """
+    if not expected_sha or not isinstance(data, dict):
+        return False
+    rev = str(data.get("build_rev") or "")
+    m = re.search(r"\bsha\s+([0-9a-f]{7,40})\b", rev) or re.search(r"\b([0-9a-f]{7,40})\b", rev)
+    if not m:
+        return False
+    live = m.group(1)
+    if live.startswith(expected_sha) or expected_sha.startswith(live):
+        return True                     # same commit, differently abbreviated
+    try:
+        r = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", expected_sha, live],
+            cwd=str(Path(__file__).resolve().parent.parent),
+            capture_output=True, timeout=20,
+        )
+        return r.returncode == 0
+    except Exception:                   # noqa: BLE001 — unprovable is NOT proven
+        return False
+
+
 def check_app_health(client: httpx.Client, app_name: str, config: dict, expected_sha: str) -> bool:
     """Check that the app is alive and serving the expected build."""
     print(f"\n--- {app_name}: health check ---")
@@ -91,6 +134,13 @@ def check_app_health(client: httpx.Client, app_name: str, config: dict, expected
             print(f"  PASS: {app_name}: alive (build_rev={rev})")
         else:
             print(f"  PASS: {app_name}: alive (response={data})")
+        return True
+    elif _live_contains_expected(data, expected_sha):
+        # R-F3552 — a peer's batch shipped a DESCENDANT of this commit. The code IS
+        # live; the sha simply moved past it.
+        rev = data.get("build_rev", "?") if isinstance(data, dict) else "?"
+        print(f"  PASS: {app_name}: alive and CONTAINS {expected_sha} "
+              f"(build_rev={rev} — a later batch shipped past this commit)")
         return True
     else:
         print(f"  FAIL: {app_name}: health check FAILED — response: {str(data)[:200]}")
