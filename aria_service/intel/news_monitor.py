@@ -1038,7 +1038,6 @@ def _compute_intel_grade(
     evidence_count: int,
     url: str,
     entities: dict,
-    portfolio_nexus: bool = False,
 ) -> tuple[str, str]:
     """R-F2714 — formal publication grade A|B|C|REJECT for channel intelligence.
 
@@ -1095,10 +1094,22 @@ def _compute_intel_grade(
     # won the channel by default.
     #
     # An earthquake is not a decision unless it touches something you hold.
-    # Grade A therefore requires a NEXUS — a named organisation, product line or
-    # facility, or an explicit portfolio match — not merely a country. Without one
-    # it is situational awareness: real, worth showing, not decision-grade.
-    if stype in _AMBIENT_SIGNAL_TYPES and not (portfolio_nexus or _has_specific_nexus(ents)):
+    # Grade A therefore requires a NEXUS: a named organisation, product line or
+    # facility, not merely a country. Without one it is situational awareness,
+    # which is real and worth showing but is not decision-grade.
+    #
+    # R-F3544 — R-F3536 also took an explicit `portfolio_nexus` flag here, and
+    # NOTHING ever passed it: declared and consumed inside one function, with
+    # `_has_specific_nexus` doing all the work. That is the same
+    # producer-with-no-carrier defect closed elsewhere this session, so it is
+    # removed rather than given a fabricated caller. No registered adapter emits
+    # an ambient signal, so any producer wired to one could never have fired.
+    #
+    # It could not have been made honest anyway: this grade is computed ONCE and
+    # served to every tenant, while "is it in MY portfolio" is per-user. Per-user
+    # relevance stays where it belongs, on the dashboard, which matches the
+    # caller's own watchlist and sorts those signals to the top.
+    if stype in _AMBIENT_SIGNAL_TYPES and not _has_specific_nexus(ents):
         if prio in ("HIGH", "MEDIUM") and credible:
             return "B", "ambient signal: official but no portfolio nexus; situational awareness"
         return "C", "ambient signal with no portfolio nexus"
@@ -1308,6 +1319,7 @@ def _normalise_intel_signal(signal: dict) -> dict:
     sig["evidence"] = normalised_evidence
     # R-F2714 — grade persisted signals on read (recompute, never trust a stale
     # grade: freshness/evidence can change, and pre-R-F2714 signals have none).
+    #
     grade, grade_reason = _compute_intel_grade(
         source_tier=source_tier,
         signal_type=signal_type,

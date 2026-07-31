@@ -143,6 +143,75 @@ function _mapCSLHit(hit) {
   };
 }
 
+// R-F3545 — BIS export-control RULES become graded intel.
+//
+// The Federal Register feed was fetched every sweep, rendered on the dashboard,
+// and promoted nowhere: `pushPromotionsToBrain` pushed opportunities,
+// OpenSanctions and CSL, so `synthesized.exportControlActions` reached a widget
+// and stopped. It is official primary evidence (the US government's publication
+// of record) sitting one mapper away from being Grade-A intelligence, and it is
+// the one alarming class nothing else in ARIA covers: a designation lands in the
+// sanctions diff, but "BIS just rewrote drone export controls" or "the UAE now
+// gets enhanced favourable treatment" appears in no other lane.
+//
+// Typed `sanctions_change` deliberately. It is a change in what you may lawfully
+// ship and to whom, which is the same decision a designation forces, and that
+// signal type already routes to the compliance lane carrying `export_control_risk`
+// (golden_intel_bridge._customer_value_lane).
+const _EC_COUNTRY_HINTS = [
+  'United Arab Emirates', 'Saudi Arabia', 'South Korea', 'North Korea',
+  'United Kingdom', 'Hong Kong', 'Cambodia', 'China', 'Russia', 'Belarus',
+  'Iran', 'Israel', 'India', 'Turkey', 'Ukraine', 'Venezuela', 'Cuba',
+  'Syria', 'Myanmar', 'Nicaragua', 'Pakistan', 'Japan', 'Taiwan',
+];
+
+function _mapExportControlRule(u) {
+  const url = String(u?.url || '').trim();
+  // The channel gate and the grader BOTH require a real evidence URL; a rule we
+  // cannot link to is not publishable, and shipping it without one would fail
+  // closed further downstream anyway.
+  if (!/^https?:\/\//i.test(url)) return null;
+  // Titles arrive with a leading emoji from the shared Federal Register mapper.
+  const title = String(u?.title || '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
+  if (!title) return null;
+  const doc = String(u?.documentNumber || '').trim();
+  const countries = _EC_COUNTRY_HINTS.filter((c) => title.includes(c));
+  const recent = String(u?.priority || '').toLowerCase() === 'high';
+  return {
+    source_key: 'bis_export_controls',
+    source: 'US BIS export-control rule (Federal Register)',
+    signal_type: 'sanctions_change',
+    priority: recent ? 'HIGH' : 'MEDIUM',
+    confidence: 'HIGH',
+    source_tier: 'tier_1a',
+    title,
+    why_it_matters:
+      'A published US export-control rule changes what may lawfully be exported, '
+      + 'to whom, and under which licence exception. Existing licence positions, '
+      + 'quotes and in-flight shipments may no longer be valid.',
+    recommended_action:
+      'Review licence positions and classifications against this rule before '
+      + 'quoting or shipping affected items.',
+    target: countries[0] || 'US export controls',
+    // The named artefact IS the rule: a specific, citable Federal Register
+    // document. Countries are added when the title names one, which is what
+    // makes it findable against a portfolio.
+    entities: { countries, products: [], oems: [], events: doc ? [doc] : [title.slice(0, 80)] },
+    evidence_url: url,
+    url,
+    ref: doc || url,
+    detected_at: u?.timestamp ? new Date(u.timestamp).toISOString() : new Date().toISOString(),
+    evidence_count: 1,
+    category: 'export_control',
+    customer_value: {
+      score: 88,
+      segments: ['compliance_officer', 'defence_exporter', 'broker_or_intermediary'],
+      problems: ['export_control_risk', 'sanctions_risk'],
+      aria_added: ['compliance_implication'],
+    },
+  };
+}
+
 async function _post(source, findings) {
   const url = _ingestUrl();
   if (!url) return { accepted: 0, skipped: 'no ARIA_SERVICE_URL' };
@@ -179,26 +248,33 @@ async function _postParallel(batches) {
 
 // Build findings from a completed sweep + push them to the Python bridge.
 export async function pushPromotionsToBrain(synthesized) {
-  if (!synthesized) return { opportunities: 0, sanctions: 0, csl: 0 };
+  if (!synthesized) return { opportunities: 0, sanctions: 0, csl: 0, exportControls: 0 };
   const opps = (synthesized.opportunities || []).map(_mapOpportunity).filter(Boolean).slice(0, 30);
   const os = synthesized.opensanctions || {};
   const sanctionsEntries = [...(os.preDesignation || []), ...(os.recent || [])].slice(0, 20);
   const sanctions = sanctionsEntries.map(_mapSanctions).filter(Boolean);
   const cslHits = Array.isArray(synthesized.csl?.recent) ? synthesized.csl.recent : [];
   const csl = cslHits.map(_mapCSLHit).filter(Boolean).slice(0, 20);
+  // R-F3545 — the fourth lane. Fetched and rendered since R-F2416, promoted never.
+  const ecUpdates = Array.isArray(synthesized.exportControlActions?.updates)
+    ? synthesized.exportControlActions.updates : [];
+  const exportControls = ecUpdates.map(_mapExportControlRule).filter(Boolean).slice(0, 20);
   const posted = await _postParallel([
     { source: 'bd_intelligence', findings: opps },
     { source: 'opensanctions', findings: sanctions },
     { source: 'trade_gov_csl', findings: csl },
+    { source: 'bis_export_controls', findings: exportControls },
   ]);
   const r1 = posted.bd_intelligence || {};
   const r2 = posted.opensanctions || {};
   const r3 = posted.trade_gov_csl || {};
-  console.log(`[PromotionBridge] pushed opportunities=${r1.accepted || 0} sanctions=${r2.accepted || 0} csl=${r3.accepted || 0}`);
+  const r4 = posted.bis_export_controls || {};
+  console.log(`[PromotionBridge] pushed opportunities=${r1.accepted || 0} sanctions=${r2.accepted || 0} csl=${r3.accepted || 0} export_controls=${r4.accepted || 0}`);
   return {
     opportunities: r1.accepted || 0,
     sanctions: r2.accepted || 0,
     csl: r3.accepted || 0,
+    exportControls: r4.accepted || 0,
     errors: Object.fromEntries(
       Object.entries(posted)
         .filter(([, r]) => r && (r.error || r.status))
@@ -208,4 +284,4 @@ export async function pushPromotionsToBrain(synthesized) {
 }
 
 // exported for unit tests
-export const _test = { _mapOpportunity, _mapSanctions, _mapCSLHit, _postParallel };
+export const _test = { _mapOpportunity, _mapSanctions, _mapCSLHit, _mapExportControlRule, _postParallel };

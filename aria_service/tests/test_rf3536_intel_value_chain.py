@@ -119,9 +119,24 @@ def test_the_same_hazard_becomes_decision_grade_when_it_names_what_it_hits():
     assert grade == "A", "a hazard naming an affected supplier IS a decision"
 
 
-def test_an_explicit_portfolio_match_also_lifts_an_ambient_signal():
-    grade, _ = _grade(portfolio_nexus=True)
-    assert grade == "A"
+def test_the_grader_takes_no_argument_nothing_can_supply():
+    """R-F3544 — R-F3536 added a `portfolio_nexus` flag that no caller ever set.
+
+    Declared and consumed inside one function, with `_has_specific_nexus` doing
+    all the work: the same producer-with-no-carrier defect being closed elsewhere
+    this session, introduced by the fix for it. Removed rather than given a
+    fabricated caller, and it could not have been honest anyway — this grade is
+    computed once and served to every tenant, while "is it in MY portfolio" is
+    per-user, and belongs on the dashboard where the caller's watchlist is known.
+    """
+    import inspect
+    params = set(inspect.signature(_compute_intel_grade).parameters)
+    assert "portfolio_nexus" not in params, (
+        "a grading input exists that no caller supplies"
+    )
+    # and the nexus rule that DOES work is still enforced
+    assert _grade(entities={"countries": ["TR"], "oems": ["Aselsan"]})[0] == "A"
+    assert _grade(entities={"countries": ["TR"]})[0] == "B"
 
 
 def test_a_sanctions_designation_is_still_grade_a_on_source_authority():

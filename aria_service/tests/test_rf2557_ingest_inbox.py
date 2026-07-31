@@ -198,11 +198,17 @@ def test_normalize_exception_contained_to_one_finding(monkeypatch):
     monkeypatch.setattr(bridge, "wire_failure", lambda *a, **k: fails.append(1))
     _orig = bridge._normalize_finding_to_signal
     _n = {"c": 0}
-    def flaky(f):
+    # R-F3545 — the stub must model the REAL signature. R-F3540 threads the
+    # registered adapter name into the normalizer so every signal is attributable
+    # to its producer; a `flaky(f)` stub then raised TypeError for BOTH findings,
+    # turning a containment test into a signature test and reporting invalid==2.
+    # The property under test is unchanged: ONE bad finding must not take the
+    # others down with it.
+    def flaky(f, **kwargs):
         _n["c"] += 1
         if _n["c"] == 1:
             raise ValueError("boom")
-        return _orig(f)
+        return _orig(f, **kwargs)
     monkeypatch.setattr(bridge, "_normalize_finding_to_signal", flaky)
     f1 = _bd_finding(); f1["ref"] = "A"
     f2 = _bd_finding(); f2["ref"] = "B"
