@@ -12849,11 +12849,6 @@ _POSITIVE_REGISTERS: dict[str, dict] = {
         "attests": "the firm is authorised or registered with the FCA",
         "not": "authorisation is not an endorsement of conduct or solvency",
     },
-    "data.fca.org.uk": {
-        "register": "FCA Financial Services Register",
-        "attests": "the firm is authorised or registered with the FCA",
-        "not": "authorisation is not an endorsement of conduct or solvency",
-    },
     "contractsfinder.service.gov.uk": {
         "register": "Contracts Finder (UK public procurement)",
         "attests": "the organisation appears against a published public-sector contract",
@@ -12874,21 +12869,52 @@ _NOT_A_CREDENTIAL = {
     "find-and-update.company-information.service.gov.uk",
     "api.company-information.service.gov.uk",
     "search.gleif.org",
+    # R-F3555 — caught by replaying REAL captured sources through R-F3553 an hour after
+    # shipping it. `data.fca.org.uk` is the FCA's National Storage Mechanism, a DOCUMENT
+    # ARCHIVE of regulatory announcements (/artefacts/NSM/...), not the Financial
+    # Services Register. Presence means the company FILED an announcement — not that it
+    # is authorised. Promoting it manufactured exactly the credential R-F3553 exists to
+    # prevent, on a domain that merely looks regulatory. The register itself is
+    # `register.fca.org.uk` and stays.
+    "data.fca.org.uk",
 }
 
 
-def _positive_names_subject(text: str, subject_tokens: set) -> bool:
-    """STRICT attribution for a positive credential. Fails CLOSED.
+def _positive_names_subject(title: str, subject_tokens: set, *, snippet: str = "") -> bool:
+    """STRICT attribution for a positive credential. Fails CLOSED. TITLE-anchored.
 
     Requires EVERY distinctive token of the subject, where the adverse gate requires any
     one. "Bidvest Noonan (UK) Limited" must not inherit a credential belonging to
-    "Bidvest Group" or "Noonan Services" — and on the reviewed run the SIA entry did
-    resolve to the correct legal entity, which is precisely the distinction worth keeping.
+    "Bidvest Group" or "Noonan Services".
+
+    R-F3555 — THE ALL-TOKEN RULE IS NOT ENOUGH ON ITS OWN, found by replaying REAL
+    captured sources an hour after shipping R-F3553. "Chemring Group PLC" reduces to ONE
+    distinctive token ({chemring}), so "all tokens" silently degenerates into the
+    permissive ANY rule this function was written to avoid — and a document titled
+    "Babcock International Group PLC Notice of Annual General Meeting" was credited to
+    Chemring because the body mentioned it once.
+
+    So the match must be in the TITLE. A register LISTING names its subject in the title;
+    a document that merely mentions the subject in its body is not a listing of it. The
+    snippet is still consulted, but only as corroboration once the title already matches —
+    it can never carry the attribution alone.
     """
     if not subject_tokens:
         return False        # cannot attribute => do not credit (opposite of the adverse rule)
-    blob = str(text or "").lower()
-    return all(t in blob for t in subject_tokens)
+    t = str(title or "").lower()
+    if not t.strip():
+        return False        # no title => nothing to anchor on => do not credit
+    if not all(tok in t for tok in subject_tokens):
+        return False
+    # A title naming a DIFFERENT company as its subject is not this company's listing,
+    # however often ours appears elsewhere on the page.
+    other = _distinctive_tokens(t) - set(subject_tokens)
+    _CORP_SUFFIX = {"plc", "ltd", "limited", "llp", "group", "holdings", "uk"}
+    if other - _CORP_SUFFIX and not any(tok in t.split()[0:4] for tok in subject_tokens):
+        # our name appears, but not in the leading part of the title where a listing
+        # names its subject
+        return False
+    return True
 
 
 def positive_register_findings(sources, subject_tokens: set, *, as_of: str = "") -> list[dict]:
@@ -12917,9 +12943,9 @@ def positive_register_findings(sources, subject_tokens: set, *, as_of: str = "")
         spec = _POSITIVE_REGISTERS.get(host)
         if not spec:
             continue
-        text = f"{s.get('title') or ''} {s.get('snippet') or ''}"
-        if not _positive_names_subject(text, subject_tokens):
-            continue                     # named the register, not the subject
+        if not _positive_names_subject(s.get("title") or "", subject_tokens,
+                                       snippet=s.get("snippet") or ""):
+            continue                     # named the register, or a DIFFERENT company
         key = (spec["register"], url)
         if key in seen:
             continue
