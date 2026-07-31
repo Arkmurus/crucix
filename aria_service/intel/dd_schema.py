@@ -86,6 +86,44 @@ class EntityType(str, Enum):
 #: rules, and saying so is the entire point of pinning it.
 DD_VERDICT_LOGIC_VERSION = "2026.07.30"
 
+#: R-F3546 — the POLICY BUNDLE, and why one version number was not enough.
+#:
+#: THE FINDING, from an operator review of four reports issued within ~2 hours of each
+#: other. The same evidence situations were decided by DIFFERENT policies, and nothing on
+#: the documents said so:
+#:   * waived sanctions      -> "AMBER, proceed with enhanced DD" vs "NOT CLEARED"
+#:   * unreadable accounts   -> a stale WEAK verdict at CONFIRMED grade vs a principled
+#:                              UNKNOWN with the never-false-clean refusal
+#:   * export control        -> "NOT ASSESSED" vs "civilian or unclassified"
+#:   * adverse-media sweep   -> 30/48 templates, then 12/48, unexplained
+#:
+#: Most of that was same-day fixes landing between runs, which is expected during Phase
+#: 0 — but the system had NO WAY TO SAY SO. Two documents 94 minutes apart silently
+#: embodied different rule sets, and neither a client nor an auditor could tell a
+#: deliberate change from drift. THAT is the defect: not the variation, the silence.
+#:
+#: R-F3496 pinned `verdict_logic_version` and that was the right instinct, but a verdict
+#: is only one component. A report's behaviour is also decided by which sources were
+#: attempted and how evidence was graded, and those move independently. So the stamp is a
+#: BUNDLE, and every cross-run behavioural difference should be attributable to a delta
+#: in one of its parts.
+DD_POLICY_BUNDLE = {
+    "verdict_logic": DD_VERDICT_LOGIC_VERSION,
+    "evidence_standard": "R-F3474",       # the four-axis contract
+    "adverse_media_templates": "R-F3516",  # coverage counted from RESULTS, not queries
+    "ownership_walk": "R-F3542",           # anchored PSC hops; directors are not owners
+}
+
+
+def dd_policy_bundle_line() -> str:
+    """One line naming the rules a report was issued under, for the document face.
+
+    Deliberately compact and deliberately UNCONDITIONAL: a version that only prints when
+    something looks wrong is not a version, it is an alert — and the whole point is that
+    two clean-looking reports can differ.
+    """
+    return " · ".join(f"{k}={v}" for k, v in DD_POLICY_BUNDLE.items())
+
 
 def verdict_logic_status(report) -> dict:
     """R-F3496 — under which rules was this read, and do they match the rules that issued it?
@@ -876,6 +914,12 @@ class ARKDDReport:
                 f"({_dr.get('answered', 0)}/{_dr.get('required', 5)} — "
                 f"{_dr.get('completion_pct', 0)}%)*"
             )
+            # R-F3546 — the rules this report was issued under, on its face. Four
+            # reports issued within ~2 hours decided the same evidence situations
+            # differently and nothing on them said so, which makes deliberate change
+            # indistinguishable from drift. Unconditional by design: a version that
+            # only appears when something looks wrong is an alert, not a version.
+            lines.append(f"<sub>Policy bundle: {dd_policy_bundle_line()}</sub>")
             _qcap = 2 if concise else 5
             for _q in list((_dr.get("questions") or {}).values())[:_qcap]:
                 _answered = bool(_q.get("answered"))
