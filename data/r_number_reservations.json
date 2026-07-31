@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3594,
+  "next_available": 3597,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29975,6 +29975,36 @@
       "r_number": "R-F3593",
       "title": "binding UI: let a signed-in user link their handset so verified-only can be enabled safely",
       "claimed_at": "2026-07-31T22:04:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8dc0eb05",
+      "notes": null,
+      "shipped_at": "2026-07-31T22:12:57Z"
+    },
+    {
+      "r_number": "R-F3594",
+      "title": "R-F3555 chemring replay test encoded an unreachable-register LIMITATION as the spec",
+      "claimed_at": "2026-07-31T22:07:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "19bedb32",
+      "notes": null,
+      "shipped_at": "2026-07-31T22:11:35Z"
+    },
+    {
+      "r_number": "R-F3595",
+      "title": "source-window test breaks on unrelated comment edits - assert the property not a byte offset",
+      "claimed_at": "2026-07-31T22:10:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "19bedb32",
+      "notes": null,
+      "shipped_at": "2026-07-31T22:11:35Z"
+    },
+    {
+      "r_number": "R-F3596",
+      "title": "aria-wa /data inodes 100pc exhausted by the Baileys LID cache; nothing watched it and a failed persist left stale in-memory state",
+      "claimed_at": "2026-07-31T22:24:51Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

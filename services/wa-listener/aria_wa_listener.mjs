@@ -1814,6 +1814,53 @@ function _waIdentityFields(msg = null) {
           'remoteJid', 'remoteJidAlt'].filter((f) => Boolean(k[f]));
 }
 
+// ── R-F3596 — WATCH THE INODES, NOT JUST THE BYTES ──────────────────────────
+//
+// Live incident 2026-07-31: /data on aria-wa hit 64512/64512 inodes (100%) with
+// 645MB of BYTES still free, so every write failed ENOSPC while any
+// disk-space check would have reported the volume nearly empty. Cause: Baileys 7
+// writes one `lid-mapping-<jid>.json` per contact and never prunes — 47,619 of
+// them across ten orphaned QR-linked accounts, 80% of every inode on the volume.
+//
+// Nothing noticed. WhatsApp auth updates, account metadata and the R-F3587
+// binding store were all failing silently; wa-accounts-meta.json had been
+// truncated to 2 bytes, which is why the listener restored zero accounts. The
+// boot fsck line said "64512/64512 files" in every deploy log and nobody read it.
+//
+// So: check on a timer, report to the brain on BOTH branches (§21a), and say
+// INODES explicitly — a "disk full" alert on a volume with 645MB free is the
+// kind of contradiction that gets an alert dismissed.
+const _INODE_WARN_PCT = 80;
+function _checkVolumeHeadroom() {
+  try {
+    const _dataDir = path.dirname(_ACCOUNTS_DIR);   // /data — the volume, not the subdir
+    const s = fs.statfsSync(_dataDir);
+    if (!s.files) return;                       // fs reports no inode accounting
+    const usedPct = 100 * (1 - s.ffree / s.files);
+    const bytesFreeMb = (s.bavail * s.bsize) / 1048576;
+    if (usedPct >= _INODE_WARN_PCT) {
+      console.error(
+        `[ARIA Listener] R-F3596 ${_dataDir} INODES ${usedPct.toFixed(1)}% used `
+        + `(${s.ffree} free of ${s.files}) while ${bytesFreeMb.toFixed(0)}MB of bytes remain. `
+        + `Writes will fail ENOSPC despite free space. Usual cause: Baileys `
+        + `lid-mapping-*.json accumulating under the auth dirs.`,
+      );
+      _waBrainSignal('wa_volume_inodes_critical',
+        `aria-wa ${_dataDir} inodes ${usedPct.toFixed(1)}% used, ${s.ffree} free; `
+        + `${bytesFreeMb.toFixed(0)}MB bytes free. Writes failing ENOSPC.`,
+        { inodes_used_pct: Number(usedPct.toFixed(1)), inodes_free: s.ffree, bytes_free_mb: Math.round(bytesFreeMb) });
+    }
+  } catch (e) {
+    console.warn('[ARIA Listener] R-F3596 volume headroom check failed:', e.message);
+  }
+}
+
+// R-F3596 — run it, or it is just a function. Once at boot (the volume can
+// already be full before we start — it was) and hourly after. `unref` so it
+// never holds the process open, matching the other periodic work here.
+setTimeout(_checkVolumeHeadroom, 30 * 1000).unref?.();
+setInterval(_checkVolumeHeadroom, 60 * 60 * 1000).unref?.();
+
 // ── R-F3587 — PHONE ↔ ACCOUNT BINDING STORE ─────────────────────────────────
 //
 // Bindings live HERE, in the listener, because this is where the per-message
@@ -3825,6 +3872,13 @@ app.post('/api/wa-listener/binding/code', requireAuth, (req, res) => {
   );
   _waPendingPairings.push(issued.pairing);
   if (!_persistBindings()) {
+    // R-F3596 — ROLL BACK. The push above stays in memory otherwise, so the
+    // caller is told "not stored" while the listener WOULD honour the code until
+    // the next restart. Found live: the mint returned 503 persist_failed and the
+    // status endpoint simultaneously reported pairingPending:true. Two surfaces
+    // disagreeing about the same fact is worse than either answer alone — the
+    // user retries a code that already works, then loses it on the next deploy.
+    _waPendingPairings = _waPendingPairings.filter((x) => x !== issued.pairing);
     return res.status(503).json({ error: 'persist_failed', message: 'Pairing not stored — do not show a code that cannot be honoured.' });
   }
   return res.json({ ok: true, expiresAt: issued.pairing.expiresAt });
