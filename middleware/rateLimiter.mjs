@@ -269,7 +269,10 @@ export function applySecurityHeaders(app) {
         fontSrc:     ["'self'", 'fonts.gstatic.com'],
         imgSrc:      ["'self'", 'data:', 'blob:'],
         connectSrc:  ["'self'", 'wss:', 'https:'],
-        frameSrc:    ["'none'"],
+        // R-F3559 — the public model card embeds the same-origin, authenticated
+        // WhatsApp manager. Keep third-party frames blocked while permitting that
+        // owner-scoped surface to render.
+        frameSrc:    ["'self'"],
         objectSrc:   ["'none'"],
         // R-F2604: base-uri stops a <base> tag hijacking relative script/href URLs;
         // frame-ancestors 'self' is the CSP-native clickjacking guard; form-action

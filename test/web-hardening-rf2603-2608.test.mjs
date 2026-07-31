@@ -34,6 +34,7 @@ describe('R-F2604 — CSP hardened; dead no-op removed', () => {
   it('CSP declares base-uri / frame-ancestors / form-action', () => {
     assert.ok(/baseUri:\s*\["'self'"\]/.test(RATELIMIT), 'baseUri directive missing');
     assert.ok(/frameAncestors:\s*\["'self'"\]/.test(RATELIMIT), 'frameAncestors directive missing');
+    assert.ok(/frameSrc:\s*\["'self'"\]/.test(RATELIMIT), 'same-origin authenticated embeds must be permitted');
     assert.ok(/formAction:\s*\["'self'"\]/.test(RATELIMIT), 'formAction directive missing');
   });
   it('dead content-length-limit no-op middleware is gone', () => {
