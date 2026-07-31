@@ -5727,6 +5727,31 @@ async def _run_identity(
                 _drop_ids = {id(m) for m in _coincidences}
                 _real_info = [m for m in _real_info if id(m) not in _drop_ids]
             _noise_info_n = len([m for m in _info_matches if m.get("noise_filtered")]) + len(_coincidences)
+            # ── R-F3581 — FEED THE ARITHMETIC BACK, or the panel contradicts the report.
+            #
+            # PROVEN on dd_7b37d9a5e3cd, verifying R-F3579: the finding correctly read
+            # "Sanctions/PEP screen — no entity-name match" while the identity chip
+            # printed "1". `_sanctions_match_metric` renders from
+            # `match_classification`, which is persisted BEFORE this filter runs, so a
+            # coincidence dropped here was invisible to it — one screen, two numbers,
+            # and the alarming one wins the reader's eye.
+            #
+            # That is precisely the defect R-F3090 exists to prevent ("persist the
+            # arithmetic so every surface renders the filtered truth instead of
+            # re-deriving a raw count"). R-F2994's coincidence drop had the same gap
+            # from the day it shipped; R-F3579 only made it visible by producing a
+            # report where the two surfaces disagreed out loud.
+            #
+            # The chip already has the honest rendering — with actionable=0 and
+            # noise>0 it prints "none — N name-overlap match(es) filtered", which
+            # ACCOUNTS for the dropped hit rather than hiding it. It just was never
+            # given the numbers.
+            if _coincidences:
+                _mc = screen.get("match_classification")
+                if isinstance(_mc, dict):
+                    _mc["noise_filtered"] = int(_mc.get("noise_filtered") or 0) + len(_coincidences)
+                    _mc["actionable"] = max(
+                        0, int(_mc.get("total") or 0) - int(_mc["noise_filtered"]))
             if _real_info:
                 _info_detail_parts = [classified["summary"]]
                 for _im in _real_info[:5]:
