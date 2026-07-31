@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3549,
+  "next_available": 3550,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29531,6 +29531,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3549",
+      "title": "evidence grade gates clearance but is never defined for the reader",
+      "claimed_at": "2026-07-31T11:16:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "464a28a8",
+      "notes": null,
+      "shipped_at": "2026-07-31T11:20:31Z"
     }
   ]
 }
