@@ -705,7 +705,43 @@ function rowStatusPill(r, sev) {
     return '<span class="dd-pill" style="background:#7c3aed;color:#fff"><i class="bi bi-hourglass-split"></i> Running</span>';
   if (r && r.status === 'failed')
     return '<span class="dd-pill" style="background:#dc2626;color:#fff"><i class="bi bi-x-circle"></i> Failed</span>';
-  return severityPill(sev);
+  return severityPill(sev) + clearancePill(r);
+}
+
+/**
+ * R-F3544 — the CLEARANCE badge, shown beside the risk badge.
+ *
+ * THE DEFECT, from the delivered Bidvest Noonan report (dd_75d996233394): the list
+ * showed a GREEN badge while the report's own assessment read "NOT CLEARED — ... this
+ * report cannot state whether blocking risk exists", coverage 3/5. The colour and the
+ * text answer DIFFERENT questions — risk aggregates adverse SIGNALS ("did anything bad
+ * surface?"), clearance asks "is there enough evidence to clear this?" — and the
+ * visually dominant element carried the permissive one. A client who skims sees green
+ * and proceeds on a report whose own words cannot clear them.
+ *
+ * TWO LABELLED BADGES, not a recoloured one. R-F2786 separates risk from clearance BY
+ * DESIGN (its test asserts risk stays GREEN under the comment "observed risk remains
+ * separate"); capping the colour was tried as R-F3537 and reverted because it overrode
+ * that design and lost information. Labelling keeps both facts and makes neither
+ * mistakable for the other.
+ *
+ * SILENT WHEN UNKNOWN. Reports written before R-F3544 carry no clearance field, and a
+ * badge reading "unknown" on every historical row is noise that trains people to ignore
+ * the new one. Absent → render nothing.
+ */
+function clearancePill(r) {
+  if (!r) return '';
+  const ready = r.clearance_ready;
+  if (ready !== true && ready !== false) return '';   // tri-state: absent = not measured
+  const a = r.coverage_answered, q = r.coverage_required;
+  const cov = (a !== undefined && a !== null && q) ? ' ' + a + '/' + q : '';
+  if (ready === true) {
+    return '<span class="dd-pill green" title="Decision-critical coverage is complete'
+         + ' and the evidence meets the reliance bar">Clearance: READY' + escText(cov) + '</span>';
+  }
+  return '<span class="dd-pill amber_light" title="Not a finding of risk — there is not'
+       + ' enough evidence to clear this entity. See the decision-readiness scorecard.">'
+       + 'Clearance: NOT AVAILABLE' + escText(cov) + '</span>';
 }
 
 /**

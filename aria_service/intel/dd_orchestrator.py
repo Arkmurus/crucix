@@ -11165,6 +11165,28 @@ async def _persist_report(report: ARKDDReport) -> None:
                 "severity": report.risk_classification,
                 "risk": report.risk_classification,
                 "risk_classification": report.risk_classification,
+                # ── R-F3544 — CLEARANCE travels with the risk colour ──────────
+                #
+                # THE DEFECT, from the delivered Bidvest Noonan report
+                # (dd_75d996233394): the list showed a GREEN badge while the report's
+                # own assessment said "NOT CLEARED — ... this report cannot state
+                # whether blocking risk exists", coverage 3/5. The colour and the text
+                # answer DIFFERENT questions — risk aggregates adverse SIGNALS, clearance
+                # asks whether there is enough evidence to clear — and the visually
+                # dominant element carried the permissive one. A client who skims sees
+                # green and proceeds on a report whose own words cannot clear them.
+                #
+                # R-F2786 separates those two BY DESIGN (its test asserts
+                # `risk_classification == "GREEN"` under the comment "observed risk
+                # remains separate"), and capping the colour would override a considered
+                # design — I tried that as R-F3537 and reverted it. The right fix is to
+                # SHIP BOTH FACTS so the surface can label them, which it could not do
+                # before: the index row carried no clearance at all, so the badge had
+                # nothing to render but the colour.
+                "clearance_ready": (report.decision_readiness or {}).get("clearance_ready"),
+                "clearance_status": (report.decision_readiness or {}).get("status"),
+                "coverage_answered": (report.decision_readiness or {}).get("answered"),
+                "coverage_required": (report.decision_readiness or {}).get("required"),
                 "created_at": report.generated_at,
                 # R-F573: case-file fields. Nullable so pre-R-F573
                 # entries still load cleanly.
