@@ -1,6 +1,6 @@
 # §21 brain-wiring backlog — triaged 2026-07-28
 
-**50 intel modules** flagged by `scripts/ci/wiring_audit.py`. CI blocks on this by
+**26 intel modules** flagged (was 50; see R-F3563 below) by `scripts/ci/wiring_audit.py`. CI blocks on this by
 operator decision: honest red until triaged.
 
 ## How the number moved
@@ -13,6 +13,7 @@ operator decision: honest red until triaged.
 | R-F3386 | 54 | wired the EE/NO registry adapters for real (tranche 1) |
 | R-F3388 | 50 | dd_independent_verifier (tranche 3) — it failed OPEN on every error path, manufacturing independence |
 | R-F3387 | 51 | verification layer: citation_verifier, claim_grounding, corroboration (tranche 2) — and two of them were reporting CLEAN on crash |
+| R-F3563 | 26 | NO-WIRING tier CLOSED: 14 modules wired for real, 14 pure transforms exempted with a per-module reason |
 
 Three corrections were attempted and reverted or rejected on measurement — recorded
 so they are not re-attempted:
@@ -98,3 +99,51 @@ like `grounding_reward` (R-F2033). Do NOT bulk-exempt.
 - `intel/multi_lang/shell_reviewer.py` — no wiring at all (fns=1, try=0, net=n)
 - `intel/multi_lang/sql_reviewer.py` — no wiring at all (fns=1, try=0, net=n)
 - `intel/multi_lang/ts_js_reviewer.py` — no wiring at all (fns=1, try=0, net=n)
+
+
+---
+
+## R-F3563 (2026-07-31) — the NO-WIRING tier is closed: 50 → 26
+
+CI's `test` job reached this gate for the first time in two months (R-F3556 fixed
+the quadratic pre-commit hang that had been failing before it). Every module that
+had **no sink of any kind** is now resolved, one at a time — no batch exemption.
+
+**WIRED FOR REAL (14).** Each at its actual success and failure branches:
+
+| module | where |
+|---|---|
+| find_case_law | `search_by_party` — success, HTTP-error and exception branches, by hand |
+| employment_tribunal, fca_register, gazette, registry_trust | `@wired` on the search/lookup entry |
+| scraper: generic_adapter, orchestrator, playwright_engine, procurement_adapters | `@wired` on `fetch` / `fetch_portal` |
+| quota_client, phase_gates, registry_coverage | `@wired` on the primary operation |
+| dd_evidence_recorder | success receipt + the swallowed-exception branch — its own docstring warns a corpus of happy paths is the failure mode |
+| audit_trail | persist success, and a failed flush now raises AND signals |
+| loop_monitor | **breach** signal (loop starved) + **healthy** signal, both rate-limited to 5 min |
+
+`loop_monitor` is the one worth reading twice: `record_lag` runs once a second, so
+a per-sample signal would flood the ledgers exactly as `cost_tracker` and
+`grounding_reward` would — which is why those two are already exempt. The event
+worth telling the brain is a *breach*, not a sample.
+
+**EXEMPTED AS PURE TRANSFORMS (14), each with a stated reason** in
+`WIRING_EXEMPT_MODULES`. §21a asks whether a path's success and failure reach the
+brain; that question only has meaning for a path that DOES something externally.
+A pure function of its arguments has no failure the brain can act on:
+
+- 7 `multi_lang` reviewers (docker, go, rust, shell, sql, ts_js, yaml) — static
+  analysers over source text handed to them
+- `facts` ("regex-based fact extractor — zero LLM"), `structured` (parses HTML it
+  is GIVEN; the *fetch* is the wired path), `normalise` (pure string work)
+- `dd_independence_eval` (offline scoring harness), `ais_gap_detector` (computes
+  gaps from a track it is handed)
+- `log_redaction` — runs INSIDE the logging filter chain, so wiring it would be
+  recursive: a brain signal from a log filter re-enters logging
+
+**WHAT REMAINS: 26, all one-branch.** Every one has wiring infrastructure already
+and emits on exactly one side — `wire_failure` without `wire_success`, or the
+reverse. That is a different and more delicate problem than "no sink at all":
+deciding what SUCCESS means for `memory_wal`, or what FAILURE means for
+`deal_pipeline`, is a per-module judgement, and a mechanical `wire_success()` at
+the end of each function would be precisely the cosmetic wiring §21a exists to
+prevent. It is real work, not a formality, and it is the next tranche.

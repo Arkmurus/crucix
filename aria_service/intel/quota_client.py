@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any
+from .engine_wiring import wired  # R-F3557 (§21a)
 
 logger = logging.getLogger("aria.quota_client")
 
@@ -37,6 +38,7 @@ class QuotaExceeded(Exception):
         self.cap = cap
 
 
+@wired(module="quota_client", summary="DD quota consumed", gap_type="engine_failure")
 async def consume_dd_quota(user_id: str, *, kind: str = "ddRun") -> dict[str, Any]:
     """Consume one unit of `kind` for `user_id`. Returns the verdict dict.
 

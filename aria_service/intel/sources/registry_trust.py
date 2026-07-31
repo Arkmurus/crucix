@@ -166,6 +166,10 @@ def _match(row: dict, key: str, postcode: str) -> bool:
     return (not rp) or rp == postcode.replace(" ", "").upper()
 
 
+from ..engine_wiring import wired  # R-F3557 (§21a)
+
+
+@wired(module="registry_trust", summary="Registry Trust CCJ search completed", gap_type="source_failure")
 async def search_judgments(name: str, *, postcode: str = "",
                            jurisdiction: str = "GB") -> dict:
     """Search the CCJ register for ``name``.

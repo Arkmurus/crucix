@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from urllib.parse import urlparse
+from ..engine_wiring import wired  # R-F3557 (§21a)
 
 logger = logging.getLogger("aria.scraper.orchestrator")
 
@@ -48,6 +49,7 @@ def detect_portal(url: str) -> str | None:
     return None
 
 
+@wired(module="scraper_orchestrator", summary="scraper routed and fetched a URL", gap_type="source_failure")
 async def fetch(url: str, *, timeout: float = 45.0) -> dict:
     """Route + fetch. Returns a unified dict shape for the caller."""
     portal_id = detect_portal(url)

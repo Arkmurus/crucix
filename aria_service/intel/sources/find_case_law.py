@@ -30,6 +30,7 @@ import os
 import re
 from typing import Any
 from xml.etree import ElementTree as ET
+from ..engine_wiring import wire_failure, wire_success  # R-F3557 (§21a)
 
 logger = logging.getLogger(__name__)
 
@@ -110,13 +111,22 @@ async def search_by_party(name: str, *, limit: int = _MAX) -> dict:
             )
         if resp.status_code != 200:
             result["reason"] = f"http_{resp.status_code}"
+            wire_failure(module="find_case_law",
+                         detail=f"case-law search HTTP {resp.status_code}",
+                         gap_type="source_failure", source="find_case_law:search_by_party")
             return result
         result["judgments"] = parse_atom(resp.text, limit=limit)
         result["count"] = len(result["judgments"])
         result["searched"] = True
+        wire_success(module="find_case_law",
+                     summary=f"case-law party search returned {result['count']} judgment(s)",
+                     source_id="find_case_law:search_by_party")
         return result
     except Exception as e:
         logger.warning("[R-F3442] find_case_law search failed: %s", e)
+        wire_failure(module="find_case_law",
+                     detail=f"case-law search failed: {type(e).__name__}",
+                     gap_type="source_failure", source="find_case_law:search_by_party")
         result["reason"] = f"error:{type(e).__name__}"
         result["detail"] = str(e)[:200]
         return result

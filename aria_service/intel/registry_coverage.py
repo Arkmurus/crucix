@@ -38,6 +38,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
+from .engine_wiring import wired  # R-F3557 (§21a)
 
 logger = logging.getLogger("aria.registry_coverage")
 
@@ -315,6 +316,7 @@ def _status_for(entry: dict) -> tuple[bool | None, str]:
     return None, "unproven"
 
 
+@wired(module="registry_coverage", summary="registry coverage computed", gap_type="engine_failure")
 async def coverage() -> dict[str, Any]:
     """Full inventory: every jurisdiction, its adapter, and its observed liveness.
 

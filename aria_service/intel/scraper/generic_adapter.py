@@ -25,10 +25,12 @@ from __future__ import annotations
 import logging
 
 from . import playwright_engine as _pe
+from ..engine_wiring import wired  # R-F3557 (§21a)
 
 logger = logging.getLogger("aria.scraper.generic_adapter")
 
 
+@wired(module="scraper_generic_adapter", summary="generic Playwright fetch completed", gap_type="source_failure")
 async def fetch(url: str, *, wait_for: str = "networkidle", timeout: float = 45.0) -> dict:
     """Fetch any URL through Playwright. Returns a dict with html, text,
     title, status, ok, blocked, error — ready for downstream extractors."""

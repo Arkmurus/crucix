@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3561,
+  "next_available": 3564,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29647,6 +29647,37 @@
       "r_number": "R-F3560",
       "title": "close the gate_a wiring backlog - wire the real failures, exempt the pure",
       "claimed_at": "2026-07-31T13:02:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a51c28ce",
+      "notes": null,
+      "shipped_at": "2026-07-31T13:28:04Z"
+    },
+    {
+      "r_number": "R-F3561",
+      "title": "wiring backlog: the gate anchored a count from a DIFFERENT instrument",
+      "claimed_at": "2026-07-31T13:20:27Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-07-31T13:28:53Z",
+      "abandon_reason": "hypothesis refuted on measurement: wiring_audit.py is a thin wrapper importing the SAME check_wiring_present, so there is no second instrument. The real cause is peer R-F3557's uncommitted exemptions moving the count 39->26; re-anchoring the bound belongs with that R-number, not a separate one."
+    },
+    {
+      "r_number": "R-F3562",
+      "title": "make WhatsApp add connection live and observable",
+      "claimed_at": "2026-07-31T13:21:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1b059313",
+      "notes": null,
+      "shipped_at": "2026-07-31T13:31:43Z"
+    },
+    {
+      "r_number": "R-F3563",
+      "title": "close the §21a no-wiring tier: 14 modules wired, 14 pure transforms exempted with reasons",
+      "claimed_at": "2026-07-31T13:40:56Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

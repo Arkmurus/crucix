@@ -116,9 +116,14 @@ def test_rf3382_the_live_tree_matches_the_recorded_triage():
     intel = ROOT / "aria_service" / "intel"
     issues = check_wiring_present(sorted(intel.rglob("*.py")))
     flagged = {i.strip().split(":")[0] for i in issues}
-    assert 40 <= len(flagged) <= 60, (
-        f"flagged module count is {len(flagged)}; it was 56 when triaged on "
-        f"2026-07-28 (72 before R-F3381, 68 after). A large move means either the "
-        f"backlog was worked or the detector changed — both need the backlog doc "
-        f"regenerated, not this bound widened."
+    # R-F3563 — 50 -> 26: the NO-WIRING tier is closed (14 modules wired for
+    # real, 14 pure transforms exempted with a per-module reason). The remaining
+    # 26 are all ONE-BRANCH cases. The upper bound RATCHETS DOWN with the
+    # backlog and must never be widened; docs/wiring_backlog_2026_07_28.md was
+    # regenerated in the same change, which is what this bound guards.
+    assert 20 <= len(flagged) <= 26, (
+        f"flagged module count is {len(flagged)}; it was 26 after R-F3563 "
+        f"(56 at the 2026-07-28 triage, 72 before R-F3381). A large move means "
+        f"either the backlog was worked or the detector changed — both need the "
+        f"backlog doc regenerated, not this bound widened."
     )

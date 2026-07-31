@@ -38,6 +38,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
+from ..engine_wiring import wired  # R-F3557 (§21a)
 
 logger = logging.getLogger("aria.scraper.procurement_adapters")
 
@@ -190,6 +191,7 @@ async def _extract_rows(
 
 # ── Public API ─────────────────────────────────────────────────────────────
 
+@wired(module="procurement_adapters", summary="procurement portal fetch completed", gap_type="source_failure")
 async def fetch_portal(
     portal_id: str,
     *,

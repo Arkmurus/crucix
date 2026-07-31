@@ -43,6 +43,9 @@ RECORDING_DIR = pathlib.Path("data/eval/dd_recordings")
 RECORDING_RETENTION_CLASS = "cdd_evidence"
 
 
+from .engine_wiring import wire_failure, wire_success  # R-F3557 (§21a)
+
+
 def is_recording() -> bool:
     """Opt-in, per run. A normal customer DD records nothing."""
     return str(os.getenv("ARIA_DD_RECORD_EVIDENCE", "")).strip().lower() in {
@@ -106,9 +109,19 @@ def record_source_results(
                         encoding="utf-8")
         logger.info("[R-F3512] recorded %d source responses for run %s",
                     len(payload["sources"]), run_id)
+        wire_success(module="dd_evidence_recorder",
+                     summary=f"captured {len(payload['sources'])} source response(s) for the gold corpus",
+                     source_id="dd_evidence_recorder:record_source_results")
         return {"recorded": True, "path": str(path),
                 "sources": sorted(payload["sources"]),
                 "erasure_reachable": payload["erasure_reachable"]}
     except Exception as e:  # noqa: BLE001 — a capture must never cost a report
         logger.debug("[R-F3512] recording skipped: %s", e)
+        # R-F3557 — the swallow is correct (a capture must not cost a report) but
+        # it must not be SILENT: a corpus that quietly stops recording looks
+        # identical to one with nothing to record.
+        wire_failure(module="dd_evidence_recorder",
+                     detail=f"evidence capture failed: {type(e).__name__}",
+                     gap_type="engine_failure",
+                     source="dd_evidence_recorder:record_source_results")
         return {"recorded": False, "reason": f"{type(e).__name__}: {e}"}

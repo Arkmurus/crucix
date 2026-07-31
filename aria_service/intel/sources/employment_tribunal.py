@@ -114,6 +114,10 @@ def _side_of(subject: str, parsed: dict) -> str:
     return "neither"
 
 
+from ..engine_wiring import wired  # R-F3557 (§21a)
+
+
+@wired(module="employment_tribunal", summary="employment-tribunal decision search completed", gap_type="source_failure")
 async def search_decisions(
     name: str,
     *,

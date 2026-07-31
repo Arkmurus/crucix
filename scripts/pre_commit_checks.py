@@ -98,6 +98,35 @@ WIRING_EXEMPT_MODULES = {
     # would flood the brain ledgers; it already persists its own metrics. Same class
     # as grounding_reward — a utility/ledger, not an engine with success/failure runs.
     "cost_tracker",
+    # ── R-F3557 — PURE TRANSFORMS. Triaged one by one, not batch-exempted. ──
+    #
+    # §21a asks whether a code path's SUCCESS and FAILURE reach the brain. That
+    # question only has meaning for a path that DOES something externally: a
+    # fetch, a store write, an engine run. A pure function of its arguments has
+    # no failure the brain could act on — it returns a value, or raises to a
+    # caller that is itself wired. Wiring these would add noise to the ledgers
+    # and would make the audit's green tick mean less, not more.
+    #
+    # Every module below was read and classified individually; the ones with a
+    # real external effect were WIRED instead, under the same R-number.
+    #
+    # Pure static analysers over source text handed to them:
+    "docker_reviewer", "go_reviewer", "rust_reviewer", "shell_reviewer",
+    "sql_reviewer", "ts_js_reviewer", "yaml_reviewer",
+    # "Regex-based fact extractor — zero LLM": text in, facts out.
+    "facts",
+    # "Structured-HTML extractor": parses HTML it is GIVEN; the fetch that
+    # obtained that HTML is the path that carries the wiring.
+    "structured",
+    # "Name normalisation shared across all sanctions sources": pure string work.
+    "normalise",
+    # Offline scoring harness for the C-3 corroboration eval — not a live path.
+    "dd_independence_eval",
+    # Computes transponder gaps from an AIS track it is handed.
+    "ais_gap_detector",
+    # log_redaction runs INSIDE the logging filter chain. Wiring it would be
+    # recursive: emitting a brain signal from a log filter re-enters logging.
+    "log_redaction",
 }
 
 # R-F1961 — THIS file (and any future pattern-authoring file) literally contains

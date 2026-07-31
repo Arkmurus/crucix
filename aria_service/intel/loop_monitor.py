@@ -30,6 +30,7 @@ plus a plain-dict snapshot. Safe to import anywhere.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from collections import deque
 
@@ -43,9 +44,25 @@ _INTERVAL_S = 1.0
 
 def record_lag(lag_ms: float) -> None:
     """Record one lag sample. Pure; used by the loop and directly by tests."""
-    global _LAST_SAMPLE_AT
+    global _LAST_SAMPLE_AT, _BREACH_WIRED_AT
     _SAMPLES.append(float(lag_ms))
     _LAST_SAMPLE_AT = time.time()
+    # R-F3557 — §21a wiring for a monitor is not "report every sample": this runs
+    # once a second, so per-sample signals would flood the ledgers exactly as
+    # cost_tracker and grounding_reward would (both exempt for that reason). The
+    # event worth telling the brain is a BREACH — the loop genuinely starved —
+    # and it is rate-limited so a sustained stall is one signal, not hundreds.
+    if float(lag_ms) >= _BREACH_MS:
+        now = time.time()
+        if now - _BREACH_WIRED_AT >= _BREACH_COOLDOWN_S:
+            _BREACH_WIRED_AT = now
+            try:
+                from .engine_wiring import wire_failure
+                wire_failure(module="loop_monitor",
+                             detail=f"event-loop lag {float(lag_ms):.0f}ms exceeded {_BREACH_MS:.0f}ms",
+                             gap_type="engine_failure", source="loop_monitor:record_lag")
+            except Exception:
+                pass
 
 
 def _percentile(sorted_vals: list[float], p: float) -> float:
@@ -53,6 +70,12 @@ def _percentile(sorted_vals: list[float], p: float) -> float:
         return 0.0
     k = max(0, min(len(sorted_vals) - 1, int(round((p / 100.0) * (len(sorted_vals) - 1)))))
     return sorted_vals[k]
+
+
+_BREACH_MS = float(os.getenv("ARIA_LOOP_LAG_BREACH_MS", "500"))
+_BREACH_COOLDOWN_S = 300.0
+_BREACH_WIRED_AT = 0.0
+_HEALTHY_WIRED_AT = 0.0
 
 
 def snapshot() -> dict:
@@ -65,6 +88,7 @@ def snapshot() -> dict:
                  exactly the condition that inflates searches 4-5x
       unknown  — no samples yet (monitor not started / just booted)
     """
+    global _HEALTHY_WIRED_AT
     vals = list(_SAMPLES)
     if not vals:
         return {"status": "unknown", "samples": 0}
@@ -76,6 +100,20 @@ def snapshot() -> dict:
         status = "busy"
     else:
         status = "starved"
+    # R-F3557 — the SUCCESS side of §21a for a monitor: "the loop is turning" is
+    # real observability, not a formality. Rate-limited for the same reason the
+    # breach signal is: this is read often, and a per-read signal would flood.
+    if status == "healthy":
+        now = time.time()
+        if now - _HEALTHY_WIRED_AT >= _BREACH_COOLDOWN_S:
+            _HEALTHY_WIRED_AT = now
+            try:
+                from .engine_wiring import wire_success
+                wire_success(module="loop_monitor",
+                             summary=f"event loop healthy (p95 {p95:.0f}ms over {len(vals)} samples)",
+                             source_id="loop_monitor:snapshot")
+            except Exception:
+                pass
     return {
         "status": status,
         "samples": len(vals),

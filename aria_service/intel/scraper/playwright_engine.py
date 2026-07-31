@@ -41,6 +41,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
+from ..engine_wiring import wired  # R-F3557 (§21a)
 
 logger = logging.getLogger("aria.scraper.playwright_engine")
 
@@ -175,6 +176,7 @@ async def _cleanup_browser(playwright, browser, context, page) -> None:
 
 # ── Public API ─────────────────────────────────────────────────────────────
 
+@wired(module="playwright_engine", summary="Playwright fetch completed", gap_type="source_failure")
 async def fetch(
     url: str,
     *,

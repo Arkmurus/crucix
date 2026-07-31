@@ -77,6 +77,9 @@ def _flush() -> None:
         logger.debug("audit_trail: flush failed: %s", e)
 
 
+from .engine_wiring import wire_failure, wire_success  # R-F3557 (§21a)
+
+
 def audit(
     organ: str,
     file: str,
@@ -108,11 +111,21 @@ def audit(
         "detail": detail[:1000] if detail else "",
         "verified_by": verified_by[:200] if verified_by else "",
     }
-    _load()
-    _audit_buffer.append(entry)
-    _dirty = True
-    _flush()
+    try:
+        _load()
+        _audit_buffer.append(entry)
+        _dirty = True
+        _flush()
+    except Exception as exc:  # R-F3557 — an audit trail that fails to persist
+        # silently is worse than none: the record it is trusted to hold is gone.
+        wire_failure(module="audit_trail",
+                     detail=f"audit entry failed to persist: {type(exc).__name__}",
+                     gap_type="engine_failure", source="audit_trail:audit")
+        raise
     logger.info("[audit] %s %s %s: %s", organ, change_type, file, summary[:80])
+    wire_success(module="audit_trail",
+                 summary=f"audit entry recorded: {organ}/{change_type} {r_number}",
+                 source_id="audit_trail:audit")
 
 
 def get_history(organ: Optional[str] = None,

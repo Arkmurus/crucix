@@ -201,6 +201,10 @@ async def search_insolvency(
                          module="sources.gazette")
 
 
+from ..engine_wiring import wired  # R-F3557 (§21a)
+
+
+@wired(module="gazette", summary="Gazette insolvency/notice search completed", gap_type="source_failure")
 async def search_all(name: str, *, limit: int = _MAX_RESULTS) -> dict:
     """Corporate AND personal insolvency in one call.
 

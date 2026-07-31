@@ -54,6 +54,7 @@ from __future__ import annotations
 import logging
 import time
 from typing import Any
+from .engine_wiring import wired  # R-F3557 (§21a)
 
 logger = logging.getLogger("aria.intel.phase_gates")
 
@@ -99,6 +100,7 @@ def _gate(
     return rec
 
 
+@wired(module="phase_gates", summary="phase gates measured", gap_type="engine_failure")
 async def compute_phase_gates() -> dict:
     """Measure all 7 Phase A exit gates from LIVE probes.
 

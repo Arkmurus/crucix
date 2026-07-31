@@ -17,6 +17,7 @@ import logging
 import os
 import re   # R-F3025 — postcode normalisation at module scope
 from typing import Any
+from .engine_wiring import wired  # R-F3557 (§21a)
 
 logger = logging.getLogger("aria.intel.fca_register")
 
@@ -140,6 +141,7 @@ def _postcode_corroborates(subject_pc: str, row: dict) -> bool | None:
     return sp == rp
 
 
+@wired(module="fca_register", summary="FCA register firm lookup completed", gap_type="source_failure")
 async def lookup_firm(name: str, *, timeout_s: float = 10.0, postcode: str = "") -> dict[str, Any]:
     """Look up a firm's FCA authorisation status by name. Honest, never fabricated.
 
