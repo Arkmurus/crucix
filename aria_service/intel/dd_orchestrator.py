@@ -13295,7 +13295,7 @@ def compose_decision_bluf(readiness: dict, name: str) -> dict:
                 f"completed, and ALL {readiness.get('required', 5)} decision-critical "
                 f"questions are ANSWERED. Coverage is complete; what falls short is "
                 f"evidence STRENGTH — corroboration grade {_grade}, below the A "
-                f"required to rely on this report for counterparty clearance. Several "
+                f"required to rely on this report to clear this entity. Several "
                 f"claims rest on a single source. This is a corroboration gap, NOT a "
                 f"missing check."
             ),
@@ -13343,6 +13343,20 @@ def compose_decision_bluf(readiness: dict, name: str) -> dict:
         k == "sanctions_export_control" and _q.get("sanctions_evidenced") is not True
         for k, _q in unanswered
     )
+    # ── R-F3538 — say what the EVIDENCE supports, not what the reader should do ──
+    #
+    # The wording assumed one purpose: "the standard contracting path is NOT available",
+    # "do not rely on this report for counterparty clearance", "obtain independent
+    # commercial DD". A DD is run for many reasons — investment, acquisition, supplier
+    # onboarding, KYC/AML, insurance, partnership, journalism, internal audit — and a
+    # report that prescribes a CONTRACTING process is telling most readers about a
+    # decision they are not making. Worse, it invites the mirror error: a reader who is
+    # not contracting may conclude the caveat does not apply to them.
+    #
+    # The evidence statement is identical in every case and is the part ARIA can actually
+    # attest: which decision-critical questions are unanswered, and that the report
+    # therefore does not support a clearance decision. What to DO about that is the
+    # reader's call, and depends on a purpose ARIA was never told.
     if _sanctions_open:
         _bottom = (
             f"🟡 NOT CLEARED — for {name}, the check whose purpose is to find "
@@ -13350,22 +13364,25 @@ def compose_decision_bluf(readiness: dict, name: str) -> dict:
             f"satisfied, so this report cannot state whether blocking risk exists. "
             f"Coverage: {_coverage_clause(readiness)}. Unresolved: {open_clause}. "
             "Each is explained on the decision-readiness scorecard. This is not a "
-            "clean bill and the standard contracting path is NOT available."
+            "clean bill: the evidence gathered does not support a clearance decision "
+            "on this entity, for any purpose."
         )
     else:
         _bottom = (
             f"🟡 NOT CLEARED — {name} has no blocking risk in the checks that "
             f"completed, but {_coverage_clause(readiness)}. Unresolved: "
             f"{open_clause}. Each is explained on the decision-readiness scorecard. "
-            "This is not a clean bill and the standard contracting path is NOT "
-            "available."
+            "This is not a clean bill: the evidence gathered does not support a "
+            "clearance decision on this entity, for any purpose."
         )
     return {
         "bottom_line": _bottom,
         "recommendation": (
-            "Do not rely on this report for counterparty clearance. Resolve every item "
-            "in the decision-readiness scorecard, then re-run or obtain independent "
-            "commercial DD."
+            "Do not rely on this report to clear this entity. Resolve every item in "
+            "the decision-readiness scorecard and re-run, or commission independent "
+            "due diligence. What that means for your decision depends on why the "
+            "check was run — this report states the evidence position, not the "
+            "commercial one."
         ),
         "next_actions": actions or ["Complete all five decision-critical DD checks"],
     }
