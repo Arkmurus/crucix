@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 import re
+from functools import lru_cache          # R-F3556 — see _module_function_names
 from pathlib import Path
 from typing import Optional
 
@@ -145,8 +146,81 @@ def find_function_calls(lines: list[str]) -> list[dict]:
     return calls
 
 
-def resolve_module(obj_name: str, file_path: Path) -> Optional[str]:
-    """Resolve a short object name to its full module path."""
+@lru_cache(maxsize=None)
+def _import_map(file_path: Path) -> tuple:
+    """Imports as ``(local_name, module_path, lo_line, hi_line)`` bindings.
+
+    R-F3556 — two defects, one function.
+
+    SPEED: `resolve_module` re-read and re-`ast.parse()`d THE FILE BEING SCANNED
+    once per call site, so a large file was fully parsed as many times as it had
+    calls (aria_engine.py: 844). Built once per file now.
+
+    SCOPE: it was also a flat, file-wide map, so a FUNCTION-LOCAL alias leaked
+    across the whole file. Live example: dd_orchestrator.py:3676 has
+    `from . import researcher as _r` inside one function, while line 2963 uses
+    `_r` as a local dict in a different function 700 lines earlier — and the
+    checker reported "Function 'get()' not found in aria_service.intel.researcher".
+    That was the CI `test` job's "FUNCTION VERIFICATION FAILED", i.e. the gate was
+    failing on correct code. A guard that cries wolf gets switched off.
+
+    A module-level import binds for the whole file; a nested one binds only
+    within its enclosing function or class.
+    """
+    bindings: list = []
+    try:
+        tree = ast.parse(file_path.read_text(encoding="utf-8"))
+    except (SyntaxError, OSError):
+        return ()
+
+    def _walk(node, lo: int, hi: int) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                # Nested scope: its imports bind only inside its own line span.
+                _walk(child, child.lineno, getattr(child, "end_lineno", None) or hi)
+                continue
+            if isinstance(child, ast.ImportFrom):
+                base = child.module or ""
+                for alias in child.names:
+                    bindings.append((
+                        alias.asname or alias.name,
+                        f"aria_service.intel.{base}.{alias.name}" if base
+                        else f"aria_service.intel.{alias.name}",
+                        lo, hi,
+                    ))
+            elif isinstance(child, ast.Import):
+                for alias in child.names:
+                    bindings.append((alias.asname or alias.name, alias.name, lo, hi))
+            else:
+                _walk(child, lo, hi)
+
+    _walk(tree, 0, 10 ** 9)
+    return tuple(bindings)
+
+
+def resolve_module(obj_name: str, file_path: Path, line_num: Optional[int] = None) -> Optional[str]:
+    """Resolve a short object name to its full module path at a given line.
+
+    `line_num` is optional so existing callers keep working; without it the
+    behaviour is the old file-wide lookup.
+    """
+    if obj_name in KNOWN_ALIASES:
+        return KNOWN_ALIASES[obj_name]
+    best = None
+    best_span = None
+    for name, module, lo, hi in _import_map(file_path):
+        if name != obj_name:
+            continue
+        if line_num is not None and not (lo <= line_num <= hi):
+            continue
+        span = hi - lo
+        if best_span is None or span < best_span:   # narrowest enclosing scope wins
+            best, best_span = module, span
+    return best
+
+
+def _resolve_module_uncached(obj_name: str, file_path: Path) -> Optional[str]:
+    """Reference implementation kept so the cached path can be proved equivalent."""
     if obj_name in KNOWN_ALIASES:
         return KNOWN_ALIASES[obj_name]
     try:
@@ -167,23 +241,86 @@ def resolve_module(obj_name: str, file_path: Path) -> Optional[str]:
     return None
 
 
-def function_exists(module_path: str, func_name: str) -> bool:
-    """Check if a function exists in a module by parsing its AST."""
+@lru_cache(maxsize=None)
+def _module_function_names(module_path: str) -> Optional[frozenset]:
+    """Every function/method name defined in a module. None = module not found.
+
+    R-F3556 — this used to be inlined in `function_exists`, which meant a FULL
+    `ast.parse()` of the target module for EVERY CALL SITE. Measured on the real
+    tree: aria_engine.py took 94.6s for its 844 calls (~112ms each) and main.py
+    88.2s for 876. Only 37 of 588 files completed in 230s, so
+    `pre-commit --check-all` ran for HOURS — which is what hung every CI run.
+
+    Cached because it is pure within a run: the files do not change while the
+    scan is executing.
+    """
     parts = module_path.split(".")
     for base in [ARIA_SERVICE, REPO_ROOT]:
         file_path = base / f"{'/'.join(parts[1:] if parts[0] == 'aria_service' else parts)}.py"
         if file_path.exists():
             try:
-                source = file_path.read_text(encoding="utf-8")
-                tree = ast.parse(source)
-                for node in ast.walk(tree):
-                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        if node.name == func_name:
-                            return True
+                tree = ast.parse(file_path.read_text(encoding="utf-8"))
             except SyntaxError:
-                pass
-            return False
-    return True  # Can't find module — pass through
+                return frozenset()
+            # R-F3556 — CLASSES COUNT. Only FunctionDef/AsyncFunctionDef were
+            # collected, so instantiating an imported class was reported as a
+            # missing function: "Function 'DealContext()' not found", plus
+            # UniversalWebCrawler and ARIADeceptionAnalyser. A constructor call
+            # is the commonest thing a module exports after a function.
+            return frozenset(
+                node.name for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            )
+    return None
+
+
+# R-F3556 — names that are container/str/protocol methods, never a module-level
+# API anyone means to verify. They appear here only when a LOCAL variable shadows
+# an import alias in the same scope (live: `nm` is news_monitor at module level
+# and a local string inside a function, so `nm.upper()` was reported as
+# "Function 'upper()' not found in aria_service.intel.news_monitor").
+# Scope tracking cannot fix that case — the shadowing is an assignment, not an
+# import — so the honest filter is on the method name itself.
+_BUILTIN_METHOD_NAMES = frozenset({
+    "get", "keys", "values", "items", "pop", "popitem", "setdefault", "update",
+    "append", "extend", "insert", "remove", "index", "count", "sort", "reverse",
+    "add", "discard", "union", "intersection", "difference", "copy", "clear",
+    "upper", "lower", "title", "casefold", "capitalize", "strip", "lstrip",
+    "rstrip", "split", "rsplit", "splitlines", "join", "replace", "format",
+    "startswith", "endswith", "encode", "decode", "find", "rfind", "zfill",
+    "read", "write", "close", "flush", "seek", "tell", "readlines",
+    "isdigit", "isalpha", "isalnum", "isspace", "islower", "isupper",
+})
+
+
+def function_exists(module_path: str, func_name: str) -> bool:
+    """Check if a function exists in a module by parsing its AST."""
+    if func_name in _BUILTIN_METHOD_NAMES:
+        return True          # a container/str method, not a module API claim
+    names = _module_function_names(module_path)
+    if names is None:
+        return True  # Can't find module — pass through
+    return func_name in names
+
+
+def _is_capability_guarded(lines: list, line_num: int, func_name: str) -> bool:
+    """True when the call is guarded by an explicit `hasattr(...)` probe.
+
+    R-F3556 — an OPTIONAL capability, deliberately probed before use, is correct
+    code and must not be reported as a missing function. Live example
+    (entity_resolver.py:154):
+
+        if hasattr(intel_ledger, "search_signals"):
+            res = intel_ledger.search_signals(query)
+
+    `search_signals` genuinely does not exist in intel_ledger — and the author
+    handled exactly that. Flagging it is the checker misreading a deliberate
+    fallback as a defect.
+    """
+    lo = max(0, line_num - 6)
+    window = "\n".join(lines[lo:line_num])
+    return f'hasattr(' in window and f'"{func_name}"' in window or \
+           f"hasattr(" in window and f"'{func_name}'" in window
 
 
 def check_builtin_shadowing(files: list[Path]) -> list[str]:

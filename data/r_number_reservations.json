@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3556,
+  "next_available": 3560,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29603,6 +29603,42 @@
       "commit_sha": "5d635b2f",
       "notes": null,
       "shipped_at": "2026-07-31T12:07:48Z"
+    },
+    {
+      "r_number": "R-F3556",
+      "title": "pre-commit --check-all is quadratic: AST re-parsed per call site, hanging CI for hours with no job timeout",
+      "claimed_at": "2026-07-31T12:26:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3557",
+      "title": "positive promoter reads only adverse media - misses the layers that capture credentials",
+      "claimed_at": "2026-07-31T12:33:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3558",
+      "title": "wire entity_group_run_ids to the brain - R-F1783 gate red",
+      "claimed_at": "2026-07-31T12:38:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3559",
+      "title": "restore authenticated WhatsApp QR manager under model card",
+      "claimed_at": "2026-07-31T12:38:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

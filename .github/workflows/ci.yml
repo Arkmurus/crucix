@@ -18,6 +18,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # R-F3556 — a job with no timeout runs to GitHub's 6-HOUR default. The
+    # pre-commit gate was quadratic (AST re-parsed per call site) and hung
+    # every run, so runs stacked up and NONE ever completed. A hang must fail
+    # fast and free the runner, not silently block the whole pipeline.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,6 +96,11 @@ jobs:
   # visibility (continue-on-error) until triaged green, then flip to blocking.
   web-security:
     runs-on: ubuntu-latest
+    # R-F3556 — a job with no timeout runs to GitHub's 6-HOUR default. The
+    # pre-commit gate was quadratic (AST re-parsed per call site) and hung
+    # every run, so runs stacked up and NONE ever completed. A hang must fail
+    # fast and free the runner, not silently block the whole pipeline.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 

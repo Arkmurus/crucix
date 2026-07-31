@@ -28,6 +28,7 @@ _REPO_ROOT = Path(
 )
 sys.path.insert(0, str(_REPO_ROOT / "scripts"))
 from pre_commit_checks import (
+    _is_capability_guarded,
     ARIA_SERVICE,
     REPO_ROOT,
     check_builtin_shadowing,   # R-F1958 — was CALLED (line ~195) but NOT imported → NameError crashed the whole checker on every run, so NO checks ran even before the hooks-path orphaning. Import it so the checker completes.
@@ -175,8 +176,10 @@ def check_all_files() -> list[str]:
         lines = content.splitlines()
         calls = find_function_calls(lines)
         for call in calls:
-            module_path = resolve_module(call["object"], py_file)
+            module_path = resolve_module(call["object"], py_file, call.get("line_num"))
             if module_path is None:
+                continue
+            if _is_capability_guarded(lines, call["line_num"], call["function"]):
                 continue
             if not function_exists(module_path, call["function"]):
                 rel = py_file.relative_to(REPO_ROOT)
@@ -309,8 +312,10 @@ _sys.exit(_r.returncode)
         added_lines = extract_added_lines(diff)
         calls = find_function_calls(added_lines)
         for call in calls:
-            module_path = resolve_module(call["object"], file_path)
+            module_path = resolve_module(call["object"], file_path, call.get("line_num"))
             if module_path is None:
+                continue
+            if _is_capability_guarded(lines, call["line_num"], call["function"]):
                 continue
             if not function_exists(module_path, call["function"]):
                 rel = file_path.relative_to(REPO_ROOT)
@@ -341,8 +346,10 @@ _sys.exit(_r.returncode)
         added_lines = extract_added_lines(diff)
         calls = find_direct_function_calls(added_lines)
         for call in calls:
-            module_path = resolve_module(call["object"], file_path)
+            module_path = resolve_module(call["object"], file_path, call.get("line_num"))
             if module_path is None:
+                continue
+            if _is_capability_guarded(lines, call["line_num"], call["function"]):
                 continue
             if not function_exists(module_path, call["function"]):
                 rel = file_path.relative_to(REPO_ROOT)
