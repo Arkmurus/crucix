@@ -68,6 +68,11 @@ def _safe_default_for(name: str) -> str:
     return _OPENAI_COMPAT_SAFE_DEFAULT.get(name, "")
 
 
+# R-F3591 — above this, `reasoning_content` is DELIBERATION, not an answer.
+# Live leak was 2K+ chars of internal monologue published verbatim; R-F3033's
+# legitimate case ("The answer is 42.") is 18. 600 sits far from both.
+_REASONING_ANSWER_MAX = 600
+
 class OpenAICompatProvider(LLMProvider):
     """Generic OpenAI-compatible chat completions provider."""
 
@@ -246,15 +251,67 @@ class OpenAICompatProvider(LLMProvider):
         # That is strictly worse than the HTTP 400 this migration replaces,
         # so it has to be caught here, at the ONE place the wire is parsed.
         _text = (_msg.get("content") or "").strip()
-        if not _text:
-            _text = (_msg.get("reasoning_content") or "").strip()
-            if _text:
-                logger.info(
-                    "[R-F3033] %s (%s) returned empty content; using "
-                    "reasoning_content (%d chars). Raise max_tokens to give "
-                    "the answer room after the reasoning.",
-                    self.name, _eff_model, len(_text),
+
+        # ── R-F3591 — REASONING IS A DIAGNOSTIC, NEVER THE ANSWER ────────────
+        #
+        # R-F3033 correctly identified that an empty `content` on an HTTP 200 was
+        # being booked as a silent success, and fixed it by SERVING
+        # `reasoning_content` instead. That trades a silent empty answer for a
+        # leaked one, and the leak is worse.
+        #
+        # Live 2026-07-31, operator asked "What is the time in Portugal?" and
+        # received ARIA's raw chain of thought: "The user asks... I need to answer
+        # from the snippets only. Let me look at what the snippets actually
+        # contain... But wait — can I use that?" — truncated mid-word at
+        # "CONFIRMED (W" because the budget ran out DURING the reasoning. It
+        # exposed the prompt's internals (ANSWER SCOPE, snippet numbering, the
+        # grounding rules) to a user, and never answered the question.
+        #
+        # Empty content is still detected, and still fails loudly — that half of
+        # R-F3033 stands. What changes is that the failure raises a RETRYABLE
+        # error so the chain retries or falls to the next provider, instead of
+        # publishing deliberation as prose. The reasoning is logged (truncated)
+        # for diagnosis, where it belongs.
+        _reasoning = (_msg.get("reasoning_content") or "").strip()
+        if not _text and _reasoning:
+            _fr_reason = choice.get("finish_reason") or "unknown"
+            # TRUNCATED, or long enough to be DELIBERATION rather than an answer.
+            #
+            # R-F3033's fixture is the legitimate case this must preserve: a model
+            # that puts a short, complete answer ("The answer is 42.") in
+            # reasoning_content and nothing in content. Raising on that would
+            # throw away a good answer.
+            #
+            # The live leak was the opposite: 2K+ characters of "The user asks…
+            # Let me look at what the snippets actually contain… But wait — can I
+            # use that?", cut mid-word because the budget ran out. finish_reason
+            # =='length' proves truncation; length alone catches an untruncated
+            # ramble. Either way it is deliberation, and deliberation is never the
+            # answer.
+            _truncated = str(_fr_reason).lower() == "length"
+            if _truncated or len(_reasoning) > _REASONING_ANSWER_MAX:
+                logger.warning(
+                    "[R-F3591] %s (%s) spent its budget reasoning: content EMPTY, "
+                    "reasoning_content %d chars, finish_reason=%s. Failing over "
+                    "rather than serving the chain of thought. Head: %.300s",
+                    self.name, _eff_model, len(_reasoning), _fr_reason, _reasoning,
                 )
+                raise ProviderError(
+                    self.name,
+                    (f"reasoning consumed the token budget (model={_eff_model}, "
+                     f"finish_reason={_fr_reason}, reasoning={len(_reasoning)} chars) "
+                     f"— no answer was produced. Raise max_tokens to leave room "
+                     f"after the reasoning."),
+                    kind="other",
+                    retryable=True,
+                )
+            # Short and complete: the model simply used the other field.
+            _text = _reasoning
+            logger.info(
+                "[R-F3033] %s (%s) returned empty content; using a SHORT complete "
+                "reasoning_content (%d chars) as the answer.",
+                self.name, _eff_model, len(_reasoning),
+            )
 
         if not _text:
             # Nothing usable anywhere. RAISE rather than return "" so the
