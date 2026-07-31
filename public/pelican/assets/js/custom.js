@@ -130,11 +130,20 @@ $(document).ready(function() {
     var name = $.trim($('#lead-name').val());
     var email = $.trim($('#lead-email').val());
     var useCase = $.trim($('#lead-use-case').val());
+    // R-F3531 — organisation, jurisdiction and role are graded by the intake
+    // assessment, so they have to be collected and sent. They were neither.
+    var company = $.trim($('#lead-company').val());
+    var country = $.trim($('#lead-country').val());
+    var role = $.trim($('#lead-role').val());
     var $button = $form.find('button[type="submit"]');
 
     $response.removeClass('is-success is-error');
     if (!name || !email || email.indexOf('@') < 1 || !useCase) {
       $response.addClass('is-error').text('Please enter your name, a valid work email and your primary use case.');
+      return;
+    }
+    if (!company || !country || !role) {
+      $response.addClass('is-error').text('Please add your organisation, primary jurisdiction and role so we can assess the request.');
       return;
     }
 
@@ -146,11 +155,24 @@ $(document).ready(function() {
       data: JSON.stringify({
         name: name,
         email: email,
-        use_case: useCase
+        use_case: useCase,
+        company: company,
+        country: country,
+        role: role
       })
-    }).done(function() {
+    }).done(function(data) {
       $form[0].reset();
-      $response.addClass('is-success').text('Thank you. Your request has been recorded.');
+      // Say what actually happened (§22). "Check your email" is a lie when the
+      // confirmation could not be sent, and it would leave the visitor waiting
+      // for a message that is never coming.
+      var verification = data && data.verification;
+      var message = 'Thank you. Your request has been recorded.';
+      if (verification === 'sent') {
+        message += ' Please confirm your address using the link we have just emailed you.';
+      } else if (verification === 'not_sent') {
+        message += ' We could not send the confirmation email — we will follow up directly.';
+      }
+      $response.addClass('is-success').text(message);
     }).fail(function(xhr) {
       var message = xhr.responseJSON && xhr.responseJSON.error;
       $response.addClass('is-error').text(message || 'We could not record your request. Please try again shortly.');

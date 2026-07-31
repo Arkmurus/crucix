@@ -70,7 +70,7 @@ import {
 import { tierAllows } from './lib/billing/quotas.mjs';
 import { DEFAULT_TIER } from './lib/billing/tiers.mjs';
 import { initIncidentsStore } from './lib/status/store.mjs';
-import { sendVerificationEmail, sendVerificationSuccessEmail, sendPasswordResetEmail, sendPasswordChangedNotification, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail, isConfigured as smtpIsConfigured } from './lib/auth/email.mjs';
+import { sendVerificationEmail, sendVerificationSuccessEmail, sendPasswordResetEmail, sendPasswordChangedNotification, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail, sendLeadVerificationEmail, isConfigured as smtpIsConfigured } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
 // R-F3328 — approving a design partner issues them a real login (see the module
 // header: before this, approval wrote a status label and nothing else).
@@ -2707,6 +2707,12 @@ function _ariaHeaders(extra = {}) {
 // like every other route) and forwards the lead to the aria-intel brain with the
 // service token; GET /api/leads is admin-only (leads are PII) and lists them for
 // the operator. The viewing surface is public/leads.html.
+// R-F3531 — every field the assessment GRADES must survive every hop. This
+// proxy previously rebuilt the body from three fields, so organisation,
+// jurisdiction and role were dropped here even when the form sent them: the
+// brain read `body.get("company")` from a payload that could never contain it,
+// and every lead was stuck at 1/4 facts forever. Keep this list in step with
+// relationship_intelligence.INTAKE_FIELDS — a test asserts it.
 app.post('/api/leads', async (req, res) => {
   try {
     if (!ARIA_SERVICE_URL) return res.status(503).json({ ok: false, error: 'Lead capture is temporarily unavailable.' });
@@ -2714,28 +2720,132 @@ app.post('/api/leads', async (req, res) => {
     const name = String(body.name || '').trim().slice(0, 200);
     const email = String(body.email || '').trim().slice(0, 200);
     const useCase = String(body.use_case || body.useCase || '').trim().slice(0, 120);
+    const company = String(body.company || '').trim().slice(0, 200);
+    const country = String(body.country || '').trim().slice(0, 100);
+    const role = String(body.role || '').trim().slice(0, 160);
     if (!name || !email.includes('@')) {
       return res.status(400).json({ ok: false, error: 'A name and a valid email are required.' });
     }
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 12000);
+    let r, data;
     try {
-      const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/leads/inbound`, {
+      r = await fetch(`${ARIA_SERVICE_URL}/api/aria/leads/inbound`, {
         method: 'POST',
         headers: _ariaHeaders(),
-        body: JSON.stringify({ name, email, use_case: useCase, source: 'landing' }),
+        body: JSON.stringify({ name, email, use_case: useCase, company, country, role, source: 'landing' }),
         signal: ctrl.signal,
       });
-      const data = await r.json().catch(() => ({}));
-      // Relay the brain's honest verdict — do NOT fake a success on failure (§22).
-      return res.status(r.ok ? 200 : (r.status || 502)).json(
-        r.ok ? { ok: true } : { ok: false, error: data.error || 'Could not record your details right now.' }
-      );
+      data = await r.json().catch(() => ({}));
     } finally {
       clearTimeout(timer);
     }
+    // Relay the brain's honest verdict — do NOT fake a success on failure (§22).
+    // Kept in the exact `if (!r.ok) return res.status(r.status || 502)` shape the
+    // R-F2581 status-preservation contract recognises: this route now has work to
+    // do on the success path (sending the confirmation), so it cannot use the
+    // single-expression ternary form, and inventing a third spelling would fail a
+    // guard that is right to be strict about status masking.
+    if (!r.ok) return res.status(r.status || 502).json({ ok: false, error: data?.error || 'Could not record your details right now.' });
+    // The plaintext challenge exists only in this variable, for one send. It is
+    // never logged and never returned to the browser — the reply says whether a
+    // mail went out, which is all the visitor needs and all they may know.
+    const verification = await _mailLeadVerification(req, {
+      leadId: data?.lead_id, name, email, challenge: data?.verification,
+      alreadyVerified: !!data?.already_verified,
+    });
+    return res.status(200).json({ ok: true, verification });
   } catch (e) {
     return res.status(502).json({ ok: false, error: 'Could not reach the lead service. Please try again shortly.' });
+  }
+});
+
+// Send one ownership-confirmation link. Returns the honest outcome string that
+// the landing page and the operator surface both render: 'sent' | 'not_sent' |
+// 'not_required'. Never throws — a mail failure must not lose a recorded lead,
+// but it must never be reported as a send either (§22).
+async function _mailLeadVerification(req, { leadId, name, email, challenge, alreadyVerified }) {
+  if (alreadyVerified) return 'not_required';
+  const token = challenge?.token;
+  if (!leadId || !token) return 'not_required';
+  if (!smtpIsConfigured) {
+    console.warn('[leads] SMTP not configured — confirmation link NOT sent for a recorded access request');
+    return 'not_sent';
+  }
+  try {
+    const link = `${_portalBase(req)}/lead-verify.html?lead=${encodeURIComponent(leadId)}&token=${encodeURIComponent(token)}`;
+    const expiresOn = challenge?.expires_at
+      ? new Date(challenge.expires_at).toUTCString().replace(/ GMT$/, ' UTC')
+      : '';
+    const result = await sendLeadVerificationEmail({ to: email, recipientName: name, link, expiresOn });
+    return result?.sent ? 'sent' : 'not_sent';
+  } catch (e) {
+    console.warn('[leads] confirmation send failed:', e?.message || e);
+    return 'not_sent';
+  }
+}
+
+// PUBLIC by necessity — the person confirming their address has no account.
+// The single-use token IS the credential; the brain returns one generic failure
+// for every rejection so this cannot be used to enumerate who applied.
+app.post('/api/leads/verify', async (req, res) => {
+  try {
+    if (!ARIA_SERVICE_URL) return res.status(503).json({ ok: false, error: 'Verification is temporarily unavailable.' });
+    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/leads/inbound/verify`, {
+      method: 'POST',
+      headers: _ariaHeaders(),
+      body: JSON.stringify({
+        lead_id: String(req.body?.lead_id || '').slice(0, 64),
+        token: String(req.body?.token || '').slice(0, 256),
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+    const data = await r.json().catch(() => ({}));
+    return res.status(r.status).json(data);
+  } catch (e) {
+    return res.status(502).json({ ok: false, error: 'Could not reach the verification service. Please try again shortly.' });
+  }
+});
+
+// Operator actions. `actor` is stamped from the authenticated JWT and the
+// client-supplied value is discarded — an attestation must name the operator
+// who actually made it, not whoever the browser claims.
+app.patch('/api/leads/:leadId', requireAdmin, async (req, res) => {
+  try {
+    if (!ARIA_SERVICE_URL) return res.status(503).json({ ok: false, error: 'aria service unavailable' });
+    const actor = req.user?.email || req.user?.userId || '';
+    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/leads/inbound/${encodeURIComponent(req.params.leadId)}`, {
+      method: 'PATCH',
+      headers: _ariaHeaders(),
+      body: JSON.stringify({ ...(req.body || {}), actor }),
+      signal: AbortSignal.timeout(12000),
+    });
+    const data = await r.json().catch(() => ({}));
+    return res.status(r.status).json(data);
+  } catch (e) {
+    return res.status(502).json({ ok: false, error: 'Could not reach the lead service.' });
+  }
+});
+
+app.post('/api/leads/:leadId/resend-verification', requireAdmin, async (req, res) => {
+  try {
+    if (!ARIA_SERVICE_URL) return res.status(503).json({ ok: false, error: 'aria service unavailable' });
+    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/leads/inbound/${encodeURIComponent(req.params.leadId)}/reverify`, {
+      method: 'POST',
+      headers: _ariaHeaders(),
+      signal: AbortSignal.timeout(12000),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return res.status(r.status).json(data);
+    const verification = await _mailLeadVerification(req, {
+      leadId: data?.lead_id, name: data?.name, email: data?.email,
+      challenge: data?.verification, alreadyVerified: false,
+    });
+    // Report the SEND, not the token issue. "Link reissued but not emailed" is a
+    // different outcome from "sent" and the operator has to be able to see it.
+    return res.status(200).json({ ok: true, verification });
+  } catch (e) {
+    return res.status(502).json({ ok: false, error: 'Could not reach the lead service.' });
   }
 });
 

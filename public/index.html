@@ -53,6 +53,15 @@
                     <input id="lead-name" type="text" name="name" placeholder="Full name" autocomplete="name" maxlength="200" required>
                     <label class="sr-only" for="lead-email">Work email</label>
                     <input class="mail" id="lead-email" type="email" name="email" placeholder="Work email" autocomplete="email" maxlength="200" required>
+                    <!-- R-F3531 — organisation, jurisdiction and role are the three
+                         facts the intake assessment grades but never used to ask for,
+                         so every request sat permanently at 1 of 4 facts supplied. -->
+                    <label class="sr-only" for="lead-company">Organisation</label>
+                    <input class="lead-wide" id="lead-company" type="text" name="company" placeholder="Organisation" autocomplete="organization" maxlength="200" required>
+                    <label class="sr-only" for="lead-country">Primary jurisdiction</label>
+                    <input class="lead-half-left" id="lead-country" type="text" name="country" placeholder="Primary jurisdiction" autocomplete="country-name" maxlength="100" required>
+                    <label class="sr-only" for="lead-role">Your role</label>
+                    <input id="lead-role" type="text" name="role" placeholder="Your role" autocomplete="organization-title" maxlength="160" required>
                     <label class="sr-only" for="lead-use-case">Primary use case</label>
                     <select id="lead-use-case" name="use_case" required>
                       <option value="" selected disabled>Primary use case</option>

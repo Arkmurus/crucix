@@ -37,7 +37,10 @@ def test_unverified_request_is_explainable_and_cannot_be_priority():
         role="Compliance Director",
     )
 
-    assert result["schema_version"] == "1.1.0"
+    # Pinned deliberately, not derived from the module: a schema change must be
+    # a conscious edit here. 1.1.0 → 1.2.0 at R-F3531, which added the trust
+    # transitions, trust_is_established and next_action_code.
+    assert result["schema_version"] == "1.2.0"
     assert result["trust_state"] == "submitted_unverified"
     assert result["readiness"] == "needs_verification"
     assert "priority" not in result

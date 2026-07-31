@@ -87,7 +87,16 @@ console.log('\n2. No new status-masking proxy without review (ratchet)');
 //     reviewed. They are carried into the count so the ratchet works again;
 //     whoever owns vetting should confirm their error handling relays upstream
 //     status the way this note does for the site above.
-const BESPOKE_BASELINE = 24;
+// R-F3531 (24 -> 27). Three new lead-workflow proxies, all REVIEWED against the
+// masking rule and all relaying the upstream status verbatim:
+//   * POST /api/leads/verify              → `res.status(r.status).json(data)`
+//   * PATCH /api/leads/:leadId            → `res.status(r.status).json(data)`
+//   * POST /api/leads/:leadId/resend-verification
+//        → `if (!r.ok) return res.status(r.status).json(data)`, then 200 only
+//          after the send is attempted, reporting sent/not_sent honestly.
+// None of the three answers a 401/403/4xx with a hardcoded 500/502 or a bare
+// res.json(), which is the drift this ratchet exists to catch.
+const BESPOKE_BASELINE = 27;
 const bespoke = (SRC.match(/fetch\(\s*`\$\{ARIA_SERVICE_URL\}/g) || []).length;
 check(
   `bespoke ARIA_SERVICE_URL fetches == ${BESPOKE_BASELINE} (found ${bespoke})`,

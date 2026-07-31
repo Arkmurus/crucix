@@ -39,8 +39,12 @@ check('collects a bounded supported use case instead of fabricating a generic on
   /id="lead-use-case"[\s\S]{0,700}Compliance advisory/.test(INDEX) &&
   /var useCase =/.test(LANDING_JS) && /use_case:\s*useCase/.test(LANDING_JS) &&
   !/use_case:\s*'ARIA landing page'/.test(LANDING_JS));
+// R-F3531 — was `.done(function()`; the handler now takes the response body so
+// it can report whether the confirmation email actually went out. Pinning the
+// empty argument list asserted the WORDING, not the property, and went red on a
+// change that preserved the property exactly.
 check('only shows success after the request resolves',
-  /\.done\(function\(\)[\s\S]{0,220}request has been recorded/.test(LANDING_JS));
+  /\.done\(function\([a-z]*\)[\s\S]{0,420}request has been recorded/.test(LANDING_JS));
 check('surfaces a failure branch (retry) instead of faking success',
   /\.fail\(function\(xhr\)[\s\S]{0,260}(try again|try again shortly)/i.test(LANDING_JS));
 // the old fire-and-forget "Thanks" (unconditional) must be gone
@@ -53,8 +57,21 @@ check('POST /api/leads is PUBLIC (no requireAuth/requireAdmin on the POST)',
   /app\.post\('\/api\/leads',\s*async/.test(SERVER));
 check('POST forwards to aria-intel /api/aria/leads/inbound with service headers',
   /\/api\/aria\/leads\/inbound`,\s*\{[\s\S]{0,120}headers: _ariaHeaders\(\)/.test(SERVER));
+// R-F3531 — this check used to scan the WHOLE FILE for `r.ok ? { ok: true } : …`.
+// When the leads handler stopped using that exact expression the check stayed
+// GREEN, because an unrelated route (the application form, ~line 3084) still
+// contained it. A guard that can be satisfied by code it is not guarding proves
+// nothing, so it is now scoped to the leads handler and asserts the property:
+// an upstream failure is relayed, never converted into a success.
+const LEADS_POST = SERVER.slice(
+  SERVER.indexOf("app.post('/api/leads'"),
+  SERVER.indexOf('async function _mailLeadVerification'));
+check('the leads POST block was located (guard is not scanning an empty slice)',
+  LEADS_POST.length > 200 && LEADS_POST.includes('/api/aria/leads/inbound'));
 check('POST relays the brain verdict — no fake success on upstream failure',
-  /r\.ok \? \{ ok: true \} : \{ ok: false/.test(SERVER));
+  /if \(!r\.ok\) return res\.status\(r\.status \|\| 502\)[\s\S]{0,120}ok: false/.test(LEADS_POST));
+check('the success reply is reached only AFTER the failure branch has returned',
+  LEADS_POST.indexOf('if (!r.ok) return res.status') < LEADS_POST.indexOf('return res.status(200).json({ ok: true'));
 check('GET /api/leads is admin-gated (requireAdmin)',
   /app\.get\('\/api\/leads',\s*requireAdmin/.test(SERVER));
 check('DELETE /api/leads/:leadId is admin-gated and forwarded as DELETE',

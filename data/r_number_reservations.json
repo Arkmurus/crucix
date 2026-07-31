@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3531,
+  "next_available": 3532,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29355,6 +29355,15 @@
       "commit_sha": "21cc5bf4",
       "notes": null,
       "shipped_at": "2026-07-30T22:59:46Z"
+    },
+    {
+      "r_number": "R-F3531",
+      "title": "lead intake coherence - carry every graded fact, provable trust, operator workflow",
+      "claimed_at": "2026-07-31T06:39:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

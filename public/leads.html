@@ -6,6 +6,14 @@
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/aria.css?v=15">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+  <style>
+    .lead-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .lead-actions .sc-btn { padding: 4px 10px; font-size: 12px; }
+    .lead-trust { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .lead-trust-unverified { background: rgba(220,38,38,0.10); color: var(--sc-red, #dc2626); }
+    .lead-trust-verified { background: rgba(22,163,74,0.12); color: #16a34a; }
+    .lead-notes { margin: 6px 0 0; padding: 0; list-style: none; font-size: 11px; color: var(--sc-muted); }
+  </style>
 </head>
 <body>
 <div id="sidebar-placeholder"></div>
@@ -13,7 +21,7 @@
 <main id="app-main">
   <div class="sc-page-header">
     <h1 class="sc-page-title"><i class="bi bi-person-check"></i> Relationship Intelligence</h1>
-    <p class="sc-page-sub">Evidence-led triage of access requests. Submitted details remain unverified until a human or verification control confirms them.</p>
+    <p class="sc-page-sub">Evidence-led triage of access requests. Submitted details remain unverified until the contact confirms their address or an operator records an out-of-band check.</p>
   </div>
 
   <div id="leads-summary" style="margin-bottom:14px;color:var(--sc-muted);font-size:13px"></div>
@@ -22,18 +30,35 @@
     <div style="overflow-x:auto">
       <table class="sc-table">
         <thead>
-          <tr><th>Received</th><th>Contact</th><th>Use case</th><th>Trust</th><th>Triage</th><th>Evidence gaps</th><th>Next action</th><th>Data control</th></tr>
+          <tr><th>Received</th><th>Contact</th><th>Use case</th><th>Trust</th><th>Triage</th><th>Evidence gaps</th><th>Next action</th><th>Workflow</th></tr>
         </thead>
         <tbody id="leads-tbody"></tbody>
       </table>
     </div>
   </div>
 </main>
-<script src="js/app.js?v=10"></script>
+<script src="js/app.js?v=11"></script>
 <script src="js/sidebar.js?v=13"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('leads');
+
+// R-F3531 — the surface side of the coherence contract.
+//
+// Every value in relationship_intelligence.OperatorAction must be satisfiable
+// HERE, and each is mapped to the control that satisfies it. Before this, the
+// assessment recommended "verify email ownership, then assign a human owner"
+// while the page offered exactly one button: Erase. A test asserts every action
+// code below is present in this file, so the two cannot drift apart again.
+var ACTION_CONTROLS = {
+  await_email_verification: 'informational — a live confirmation link is outstanding',
+  resend_verification: 'button[data-action="resend_verification"]',
+  mark_operator_verified: 'button[data-action="mark_operator_verified"]',
+  request_missing_evidence: 'button[data-action="add_note"] (records what the contact supplied)',
+  assign_owner: 'button[data-action="assign_owner"]',
+  review_and_decide: 'button[data-action="set_stage"]'
+};
+var LIFECYCLE_STAGES = ['NEW', 'CONTACTED', 'QUALIFYING', 'ACCEPTED', 'DECLINED'];
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -48,6 +73,50 @@ function words(value) {
   return String(value || '—').replace(/_/g, ' ');
 }
 
+function trustCell(lead, assessment) {
+  var state = assessment.trust_state || 'submitted_unverified';
+  var established = assessment.trust_is_established === true;
+  var html = '<span class="lead-trust ' + (established ? 'lead-trust-verified' : 'lead-trust-unverified') + '">'
+    + esc(words(state)) + '</span>';
+  if (established && lead.verified_at) {
+    html += '<br><span class="text-muted" style="font-size:11px">' + fmtDate(lead.verified_at)
+      + (lead.verified_by ? ' · ' + esc(lead.verified_by) : '') + '</span>';
+  } else if (lead.verification && lead.verification.pending) {
+    // Say WHY it is still unverified — a link is out and has not been used yet.
+    html += '<br><span class="text-muted" style="font-size:11px">link expires ' + fmtDate(lead.verification.expires_at) + '</span>';
+  } else {
+    html += '<br><span class="text-muted" style="font-size:11px">no live link</span>';
+  }
+  return html;
+}
+
+function workflowCell(lead) {
+  var stage = lead.lifecycle_stage || 'NEW';
+  var owner = lead.owner || '';
+  var id = esc(lead.lead_id);
+  var established = lead.assessment && lead.assessment.trust_is_established === true;
+  var html = '<div class="text-muted" style="font-size:11px;margin-bottom:6px">'
+    + esc(stage) + (owner ? ' · ' + esc(owner) : ' · unowned') + '</div>'
+    + '<div class="lead-actions">';
+  if (!established) {
+    html += '<button type="button" class="sc-btn" data-action="resend_verification" data-lead-id="' + id + '">Resend link</button>'
+      + '<button type="button" class="sc-btn" data-action="mark_operator_verified" data-lead-id="' + id + '">Mark verified</button>';
+  }
+  html += '<button type="button" class="sc-btn" data-action="assign_owner" data-lead-id="' + id + '">'
+    + (owner ? 'Reassign' : 'Assign to me') + '</button>'
+    + '<button type="button" class="sc-btn" data-action="add_note" data-lead-id="' + id + '">Add note</button>'
+    + '<button type="button" class="sc-btn" data-action="set_stage" data-lead-id="' + id + '">Stage</button>'
+    + '<button type="button" class="sc-btn sc-btn-danger" data-action="erase" data-lead-id="' + id + '">Erase</button>'
+    + '</div>';
+  var notes = Array.isArray(lead.notes) ? lead.notes.slice(-3) : [];
+  if (notes.length) {
+    html += '<ul class="lead-notes">' + notes.map(function (n) {
+      return '<li>· ' + esc(n && n.text ? n.text : '') + '</li>';
+    }).join('') + '</ul>';
+  }
+  return html;
+}
+
 async function load() {
   var stateEl = document.getElementById('leads-state');
   var contentEl = document.getElementById('leads-content');
@@ -56,22 +125,30 @@ async function load() {
   var res = await API.probe('/api/leads');
   if (res.status === 403) {
     stateEl.className = '';
+    stateEl.style.display = '';
+    contentEl.style.display = 'none';
     stateEl.innerHTML = '<p class="text-muted">This page is admin-only. Your account can\'t view inbound leads.</p>';
     return;
   }
   if (!res.ok || res.status === 0 || res.isErrorEnvelope || res.data == null) {
     stateEl.className = '';
+    stateEl.style.display = '';
+    contentEl.style.display = 'none';
     var why = res.timedOut ? 'the request timed out' : (res.status ? ('HTTP ' + res.status) : 'the service is unreachable');
     stateEl.innerHTML = '<p class="text-muted">Couldn\'t load leads: ' + why + '. The page is up but live data is unavailable. Retry shortly.</p>';
     return;
   }
   var data = res.data;
   var leads = Array.isArray(data.leads) ? data.leads : [];
+  var verified = leads.filter(function (l) { return l.assessment && l.assessment.trust_is_established; }).length;
   document.getElementById('leads-summary').textContent =
     leads.length + ' shown' + (data.total != null ? ' · ' + data.total + ' total' : '') +
+    ' · ' + verified + ' with confirmed identity' +
     ' · Readiness is derived from supplied evidence, never a conversion score.';
   if (!leads.length) {
     stateEl.className = '';
+    stateEl.style.display = '';
+    contentEl.style.display = 'none';
     stateEl.innerHTML = '<p class="text-muted">No leads yet. New sign-ups from the landing page appear here.</p>';
     return;
   }
@@ -83,43 +160,108 @@ async function load() {
     return '<tr>' +
       '<td style="white-space:nowrap">' + fmtDate(l.created_at) + '</td>' +
       '<td><strong>' + esc(l.name) + '</strong><br><a href="mailto:' + esc(l.email) + '">' + esc(l.email) + '</a>' +
-      (l.company ? '<br><span class="text-muted">' + esc(l.company) + '</span>' : '') + '</td>' +
+      (l.company ? '<br><span class="text-muted">' + esc(l.company) + '</span>' : '') +
+      (l.role || l.country ? '<br><span class="text-muted" style="font-size:11px">' +
+        esc([l.role, l.country].filter(Boolean).join(' · ')) + '</span>' : '') + '</td>' +
       '<td>' + esc(l.use_case || '—') + '</td>' +
-      '<td>' + esc(words(a.trust_state || 'submitted_unverified')) + '</td>' +
-      '<td><strong>' + esc(words(a.readiness || a.priority || 'needs_verification')) + '</strong><br>' +
+      '<td>' + trustCell(l, a) + '</td>' +
+      '<td><strong>' + esc(words(a.readiness || 'needs_verification')) + '</strong><br>' +
       '<span class="text-muted">' +
       esc(completeness.supplied == null ? '—' : completeness.supplied + '/' + completeness.required + ' facts') +
       '</span></td>' +
       '<td>' + (gaps.length ? gaps.map(words).map(esc).join('<br>') : 'None recorded') + '</td>' +
       '<td>' + esc(a.next_best_action || 'Review the submitted evidence.') + '</td>' +
-      '<td><button type="button" class="sc-btn sc-btn-danger lead-erase" data-lead-id="' +
-      esc(l.lead_id) + '">Erase</button></td>' +
+      '<td>' + workflowCell(l) + '</td>' +
       '</tr>';
   }).join('');
   stateEl.style.display = 'none';
   contentEl.style.display = '';
 }
 
+// One PATCH per named action. The server stamps the actor from the JWT; the
+// browser never names the operator, so an attestation cannot be forged here.
+async function applyAction(leadId, action, extra) {
+  var result = await API.patch('/api/leads/' + encodeURIComponent(leadId), Object.assign({ action: action }, extra || {}));
+  if (!result.ok || !result.data || result.data.ok !== true) {
+    Toast.show((result.data && result.data.error) || 'That action could not be applied.', 'danger');
+    return false;
+  }
+  return true;
+}
+
 document.getElementById('leads-tbody').addEventListener('click', async function (event) {
-  var button = event.target.closest('.lead-erase');
+  var button = event.target.closest('button[data-action]');
   if (!button) return;
   var leadId = button.getAttribute('data-lead-id');
-  var confirmed = await Modal.confirm({
-    title: 'Erase access request?',
-    message: 'This permanently removes the stored contact request. This action cannot be undone.',
-    okLabel: 'Erase permanently',
-    danger: true
-  });
-  if (!confirmed) return;
+  var action = button.getAttribute('data-action');
   button.disabled = true;
-  var result = await API.del('/api/leads/' + encodeURIComponent(leadId));
-  if (!result.ok || !result.data || result.data.erasure_complete !== true) {
+  try {
+    if (action === 'erase') {
+      var confirmed = await Modal.confirm({
+        title: 'Erase access request?',
+        message: 'This permanently removes the stored contact request. This action cannot be undone.',
+        okLabel: 'Erase permanently',
+        danger: true
+      });
+      if (!confirmed) return;
+      var result = await API.del('/api/leads/' + encodeURIComponent(leadId));
+      if (!result.ok || !result.data || result.data.erasure_complete !== true) {
+        Toast.show((result.data && result.data.error) || 'Erasure could not be proved.', 'danger');
+        return;
+      }
+      Toast.show('Access request erased and verified.', 'success');
+    } else if (action === 'resend_verification') {
+      var sent = await API.post('/api/leads/' + encodeURIComponent(leadId) + '/resend-verification', {});
+      if (!sent.ok || !sent.data || sent.data.ok !== true) {
+        Toast.show((sent.data && sent.data.error) || 'The confirmation link could not be reissued.', 'danger');
+        return;
+      }
+      // Report the SEND, not the issue — "reissued but not emailed" is a
+      // different outcome and the operator has to be able to see it.
+      Toast.show(sent.data.verification === 'sent'
+        ? 'Confirmation link emailed.'
+        : 'Link reissued, but the email could NOT be sent — check SMTP.',
+        sent.data.verification === 'sent' ? 'success' : 'danger');
+    } else if (action === 'mark_operator_verified') {
+      var attest = await Modal.form({
+        title: 'Record an out-of-band check',
+        message: 'This marks the contact as operator-verified. It is stored against your account as an attestation, so record what you actually checked.',
+        okLabel: 'Mark verified',
+        fields: [{ name: 'note', label: 'What did you verify, and how?', type: 'textarea', rows: 3, required: true, autofocus: true }]
+      });
+      if (!attest || !String(attest.note || '').trim()) return;
+      if (!await applyAction(leadId, 'mark_operator_verified', { note: attest.note })) return;
+      Toast.show('Recorded — identity is operator-verified.', 'success');
+    } else if (action === 'assign_owner') {
+      if (!await applyAction(leadId, 'assign_owner', {})) return;   // server defaults owner to the actor
+      Toast.show('Owner assigned.', 'success');
+    } else if (action === 'add_note') {
+      var noted = await Modal.form({
+        title: 'Add a note',
+        message: 'Notes are stored with the request and are erased with it.',
+        okLabel: 'Save note',
+        fields: [{ name: 'note', label: 'Note', type: 'textarea', rows: 3, required: true, autofocus: true }]
+      });
+      if (!noted || !String(noted.note || '').trim()) return;
+      if (!await applyAction(leadId, 'add_note', { note: noted.note })) return;
+      Toast.show('Note saved.', 'success');
+    } else if (action === 'set_stage') {
+      var staged = await Modal.form({
+        title: 'Set workflow stage',
+        okLabel: 'Set stage',
+        fields: [{
+          name: 'stage', label: 'Stage', type: 'select', required: true, autofocus: true,
+          options: LIFECYCLE_STAGES.map(function (s) { return { value: s, label: s }; })
+        }]
+      });
+      if (!staged || !staged.stage) return;
+      if (!await applyAction(leadId, 'set_stage', { stage: staged.stage })) return;
+      Toast.show('Stage updated.', 'success');
+    }
+    await load();
+  } finally {
     button.disabled = false;
-    Toast.show((result.data && result.data.error) || 'Erasure could not be proved.', 'danger');
-    return;
   }
-  Toast.show('Access request erased and verified.', 'success');
-  await load();
 });
 
 load();

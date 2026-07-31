@@ -158,6 +158,28 @@ const API = {
     }
   },
 
+  // R-F3531 — real PATCH. The lead workflow applies ONE named action per call
+  // (assign owner, add note, set stage, attest); tunnelling that through PUT
+  // would misdescribe a partial update as a whole-record replacement, and the
+  // route it talks to is registered as app.patch.
+  async patch(path, body) {
+    try {
+      const r = await fetch(this.BASE + path, {
+        method: 'PATCH',
+        headers: this.headers(),
+        body: JSON.stringify(body)
+      });
+      if (r.status === 401) { this._handle401(); return { ok: false, status: 401, data: {} }; }
+      let data = {};
+      try { data = await r.json(); } catch { data = {}; }
+      this._maybeRotate(r.status, data);   // R-F3332
+      return { ok: r.ok, status: r.status, data };
+    } catch (e) {
+      console.error('API.patch error:', path, e);
+      return { ok: false, status: 0, data: { error: 'Network error.' } };
+    }
+  },
+
   async del(path) {
     try {
       const r = await fetch(this.BASE + path, {

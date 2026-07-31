@@ -20647,6 +20647,36 @@ _LEADS_USE_CASES = {
 }
 
 
+def _lead_view(rec: dict) -> dict:
+    """Serve one lead with a LIVE assessment and a redacted challenge.
+
+    R-F3531 — two properties, both structural:
+
+    1. The assessment is re-derived from the record on every read. The stored
+       copy is a snapshot; a pure function of the record cannot disagree with it
+       unless the record was mutated without re-assessing or the schema moved,
+       and in both cases the derived answer is the correct one. This is what
+       stops the surface showing a stale verdict after a state change.
+    2. The verification challenge NEVER leaves the brain, not even as a digest.
+       The operator surface needs to know whether a link is live and when it
+       lapses — it has no use for the material itself, so it does not get it.
+    """
+    from ..intel import relationship_intelligence as _ri
+    challenge = rec.get("verification") if isinstance(rec.get("verification"), dict) else None
+    view = {
+        **rec,
+        "assessment": _ri.assess_record(rec),
+        "lifecycle_stage": rec.get("lifecycle_stage") or "NEW",
+        "submission_count": int(rec.get("submission_count") or 1),
+        "notes": rec.get("notes") if isinstance(rec.get("notes"), list) else [],
+        "verification": {
+            "pending": _ri.verification_is_pending(challenge),
+            "expires_at": (challenge or {}).get("expires_at", ""),
+        },
+    }
+    return view
+
+
 @router.post("/leads/inbound")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def leads_inbound_create_ep(request: Request):
@@ -20680,37 +20710,65 @@ async def leads_inbound_create_ep(request: Request):
     lead_id = "lead_" + hashlib.sha256(email.lower().encode()).hexdigest()[:16]
     from ..intel import relationship_intelligence as _ri
     now = datetime.now(timezone.utc).isoformat()
+    verification_token = ""
     try:
         existing = await rs.get_json(_LEADS_INBOUND_KEY.format(lead_id=lead_id))
         if not isinstance(existing, dict):
             existing = {}
-        assessment = _ri.assess_new_access_request(
-            name=name,
-            email=email,
-            use_case=use_case,
-            company=str(body.get("company") or "").strip()[:200],
-            country=str(body.get("country") or "").strip()[:100],
-            role=str(body.get("role") or "").strip()[:160],
-            trust_state=_ri.TrustState.SUBMITTED_UNVERIFIED,
-            assessed_at=now,
-        )
+        # R-F3531 — a re-submission must never LOSE evidence or trust. Merge
+        # supplied-over-stored: someone re-submitting a short form after a full
+        # one previously wiped their organisation/jurisdiction/role back to a gap.
+        company = str(body.get("company") or "").strip()[:200] or str(existing.get("company") or "")
+        country = str(body.get("country") or "").strip()[:100] or str(existing.get("country") or "")
+        role = str(body.get("role") or "").strip()[:160] or str(existing.get("role") or "")
+        trust_state = _ri.coerce_trust_state(existing.get("trust_state"))
+
+        # Only an UNVERIFIED contact is challenged, and only when the live link
+        # is not still fresh — an immediate resubmission must not invalidate the
+        # link already sitting in the contact's inbox, nor mail them again, while
+        # a resubmission after the reissue window DOES mint a new link so a lost
+        # email is self-recoverable.
+        challenge = existing.get("verification") if isinstance(existing.get("verification"), dict) else None
+        if trust_state not in _ri.VERIFIED_TRUST_STATES and not _ri.challenge_is_reusable(challenge):
+            verification_token, challenge = _ri.issue_verification_challenge()
+        elif trust_state in _ri.VERIFIED_TRUST_STATES:
+            challenge = None
+
         record = {
             "lead_id": lead_id,
             "name": name,
             "email": email,
-            "use_case": use_case,
+            "use_case": use_case or str(existing.get("use_case") or ""),
             "source": source,
-            "company": str(body.get("company") or "").strip()[:200],
-            "country": str(body.get("country") or "").strip()[:100],
-            "role": str(body.get("role") or "").strip()[:160],
+            "company": company,
+            "country": country,
+            "role": role,
+            "trust_state": trust_state.value,
+            "verified_at": existing.get("verified_at") or "",
+            "verified_by": existing.get("verified_by") or "",
+            "verification": challenge,
             "lifecycle_stage": existing.get("lifecycle_stage") or "NEW",
             "owner": existing.get("owner") or "",
             "notes": existing.get("notes") if isinstance(existing.get("notes"), list) else [],
             "created_at": existing.get("created_at") or now,
             "updated_at": now,
             "submission_count": int(existing.get("submission_count") or 0) + 1,
-            "assessment": assessment,
         }
+        # Derive from the record itself so the stored assessment can never
+        # disagree with the stored facts (single derivation point).
+        assessment = _ri.assess_new_access_request(
+            name=record["name"],
+            email=record["email"],
+            use_case=record["use_case"],
+            company=record["company"],
+            country=record["country"],
+            role=record["role"],
+            trust_state=trust_state,
+            owner=record["owner"],
+            verification_pending=_ri.verification_is_pending(challenge),
+            assessed_at=now,
+        )
+        record["assessment"] = assessment
         await rs.set_json(_LEADS_INBOUND_KEY.format(lead_id=lead_id), record)
         await rs.zadd(_LEADS_INBOUND_INDEX, datetime.now(timezone.utc).timestamp(), lead_id)
         _ri.record_persisted_access_request(assessment)
@@ -20732,7 +20790,20 @@ async def leads_inbound_create_ep(request: Request):
     # Deliberately no brain_hook.absorb here.  A public submission is an
     # unverified event, not durable market or relationship knowledge.  The
     # assessment module emits non-PII operational health telemetry instead.
-    return {"ok": True, "lead_id": lead_id}
+    #
+    # R-F3531 — the plaintext challenge is returned ONCE, to the caller of this
+    # endpoint only.  That caller is aria-web's server-side proxy holding the
+    # service token (this route is never reachable anonymously); the proxy mails
+    # the link and must never relay the token to the public browser client.
+    return {
+        "ok": True,
+        "lead_id": lead_id,
+        "already_verified": assessment.get("trust_is_established", False),
+        "verification": (
+            {"token": verification_token, "expires_at": (record.get("verification") or {}).get("expires_at", "")}
+            if verification_token else None
+        ),
+    }
 
 
 @router.get("/leads/inbound")
@@ -20748,25 +20819,7 @@ async def leads_inbound_list_ep(limit: int = 100):
     for lid in ids:
         rec = await rs.get_json(_LEADS_INBOUND_KEY.format(lead_id=lid))
         if isinstance(rec, dict):
-            # Legacy records pre-date the evidence-led assessment.  Derive it
-            # at read time without silently rewriting historical intake data.
-            if not isinstance(rec.get("assessment"), dict):
-                from ..intel import relationship_intelligence as _ri
-                rec = {
-                    **rec,
-                    "assessment": _ri.assess_access_request(
-                        name=str(rec.get("name") or ""),
-                        email=str(rec.get("email") or ""),
-                        use_case=str(rec.get("use_case") or ""),
-                        company=str(rec.get("company") or ""),
-                        country=str(rec.get("country") or ""),
-                        role=str(rec.get("role") or ""),
-                        trust_state=_ri.TrustState.SUBMITTED_UNVERIFIED,
-                    ),
-                    "lifecycle_stage": rec.get("lifecycle_stage") or "NEW",
-                    "submission_count": int(rec.get("submission_count") or 1),
-                }
-            leads.append(rec)
+            leads.append(_lead_view(rec))
     total = await rs.zcard(_LEADS_INBOUND_INDEX)
     return {"leads": leads, "count": len(leads), "total": total}
 
@@ -20775,11 +20828,10 @@ async def leads_inbound_list_ep(limit: int = 100):
 @fail_wire(module="aria", gap_type="data_protection_violation")
 async def leads_inbound_delete_ep(lead_id: str):
     """Erase one access request and return a strict read-back receipt."""
-    import re
     from fastapi.responses import JSONResponse
     from ..intel import relationship_intelligence as _ri
 
-    if not re.fullmatch(r"lead_[0-9a-f]{16}", str(lead_id or "")):
+    if not _valid_lead_id(lead_id):
         return JSONResponse({"ok": False, "error": "Invalid lead identifier."}, status_code=400)
 
     key = _LEADS_INBOUND_KEY.format(lead_id=lead_id)
@@ -20817,6 +20869,202 @@ async def leads_inbound_delete_ep(lead_id: str):
         "record_deleted": True,
         "index_removed": index_removed,
     }
+
+
+# ── R-F3531 — the controls that let a request actually ADVANCE ───────────────
+# Before this, `trust_state` was hardcoded at every call site and nothing in the
+# tree ever wrote EMAIL_VERIFIED or OPERATOR_VERIFIED, so `readiness` was a
+# constant and two thirds of the state machine was unreachable code. These three
+# endpoints are the missing transitions: a control the CONTACT completes, and two
+# the OPERATOR performs. Every one of them re-derives the assessment from the
+# mutated record, so the served verdict can never lag the state.
+
+
+def _valid_lead_id(lead_id: Any) -> bool:
+    """One shape check for every lead route (the id is a sha256 prefix)."""
+    import re
+    return bool(re.fullmatch(r"lead_[0-9a-f]{16}", str(lead_id or "")))
+
+
+@router.post("/leads/inbound/verify")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def leads_inbound_verify_ep(request: Request):
+    """Complete the email-ownership challenge issued at intake.
+
+    Reached from the public confirmation page via aria-web. Every failure mode
+    returns ONE generic message with one status: a caller must not be able to
+    tell "no such request" from "wrong token" from "expired", or the endpoint
+    becomes an oracle for enumerating who has requested access. The real reason
+    is wired to the brain, where only the operator can see it.
+    """
+    from fastapi.responses import JSONResponse
+    from ..intel import relationship_intelligence as _ri
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    lead_id = str(body.get("lead_id") or "").strip()
+    token = str(body.get("token") or "").strip()
+
+    def _reject(reason: str):
+        _ri.record_verification_rejected(reason)
+        return JSONResponse(
+            {"ok": False, "verified": False,
+             "error": "This confirmation link is not valid or has expired."},
+            status_code=400,
+        )
+
+    if not _valid_lead_id(lead_id) or not token:
+        return _reject("malformed_request")
+
+    key = _LEADS_INBOUND_KEY.format(lead_id=lead_id)
+    record = await rs.get_json_strict(key)
+    if not isinstance(record, dict):
+        return _reject("unknown_lead")
+
+    # Idempotent by design: mail clients prefetch, people double-click, and a
+    # contact who confirms twice must see success, not an error.
+    if _ri.coerce_trust_state(record.get("trust_state")) in _ri.VERIFIED_TRUST_STATES:
+        return {"ok": True, "verified": True, "already_verified": True}
+
+    ok, reason = _ri.check_verification_token(record.get("verification"), token)
+    if not ok:
+        return _reject(reason)
+
+    now = datetime.now(timezone.utc).isoformat()
+    record["trust_state"] = _ri.TrustState.EMAIL_VERIFIED.value
+    record["verified_at"] = now
+    record["verified_by"] = "email_challenge"
+    record["verification"] = None          # single use — consumed, not reusable
+    record["updated_at"] = now
+    record["assessment"] = _ri.assess_record(record, assessed_at=now)
+    await rs.set_json(key, record)
+    _ri.record_email_verified(record["assessment"])
+    return {"ok": True, "verified": True, "already_verified": False}
+
+
+@router.post("/leads/inbound/{lead_id}/reverify")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def leads_inbound_reverify_ep(lead_id: str):
+    """Issue a fresh ownership challenge. Returns the plaintext token ONCE.
+
+    Operator-triggered (aria-web gates it with requireAdmin and mails the link).
+    Issuing a new challenge invalidates the previous one by replacement.
+    """
+    from fastapi.responses import JSONResponse
+    from ..intel import relationship_intelligence as _ri
+
+    if not _valid_lead_id(lead_id):
+        return JSONResponse({"ok": False, "error": "Invalid lead identifier."}, status_code=400)
+    key = _LEADS_INBOUND_KEY.format(lead_id=lead_id)
+    record = await rs.get_json_strict(key)
+    if not isinstance(record, dict):
+        return JSONResponse({"ok": False, "error": "Access request not found."}, status_code=404)
+    if _ri.coerce_trust_state(record.get("trust_state")) in _ri.VERIFIED_TRUST_STATES:
+        return JSONResponse(
+            {"ok": False, "error": "This contact is already verified."}, status_code=400
+        )
+
+    token, challenge = _ri.issue_verification_challenge()
+    now = datetime.now(timezone.utc).isoformat()
+    record["verification"] = challenge
+    record["updated_at"] = now
+    record["assessment"] = _ri.assess_record(record, assessed_at=now)
+    await rs.set_json(key, record)
+    _ri.record_operator_action("resend_verification", readiness=record["assessment"].get("readiness", ""))
+    return {
+        "ok": True,
+        "lead_id": lead_id,
+        "email": record.get("email", ""),
+        "name": record.get("name", ""),
+        "verification": {"token": token, "expires_at": challenge["expires_at"]},
+    }
+
+
+_LEAD_OPERATOR_ACTIONS = {"assign_owner", "add_note", "set_stage", "mark_operator_verified"}
+
+
+@router.patch("/leads/inbound/{lead_id}")
+@fail_wire(module="aria", gap_type="engine_failure")
+async def leads_inbound_update_ep(lead_id: str, request: Request):
+    """Apply one operator action to an access request.
+
+    ``actor`` is stamped by aria-web from the authenticated JWT, never chosen by
+    the browser. An operator attestation with no named attester is refused: an
+    unattributable "I checked this" is not evidence, and this record is the audit
+    trail for why an unverified contact was granted trust.
+    """
+    from fastapi.responses import JSONResponse
+    from ..intel import relationship_intelligence as _ri
+
+    if not _valid_lead_id(lead_id):
+        return JSONResponse({"ok": False, "error": "Invalid lead identifier."}, status_code=400)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    action = str(body.get("action") or "").strip()
+    if action not in _LEAD_OPERATOR_ACTIONS:
+        return JSONResponse(
+            {"ok": False, "error": f"Unsupported action. Expected one of: {', '.join(sorted(_LEAD_OPERATOR_ACTIONS))}."},
+            status_code=400,
+        )
+    actor = str(body.get("actor") or "").strip()[:200]
+
+    key = _LEADS_INBOUND_KEY.format(lead_id=lead_id)
+    record = await rs.get_json_strict(key)
+    if not isinstance(record, dict):
+        return JSONResponse({"ok": False, "error": "Access request not found."}, status_code=404)
+
+    now = datetime.now(timezone.utc).isoformat()
+    notes = record.get("notes") if isinstance(record.get("notes"), list) else []
+
+    if action == "assign_owner":
+        owner = str(body.get("owner") or actor).strip()[:200]
+        if not owner:
+            return JSONResponse({"ok": False, "error": "An owner is required."}, status_code=400)
+        record["owner"] = owner
+    elif action == "add_note":
+        text = str(body.get("note") or "").strip()[:2000]
+        if not text:
+            return JSONResponse({"ok": False, "error": "A note cannot be empty."}, status_code=400)
+        notes = ([*notes, {"at": now, "by": actor or "operator", "text": text}])[-50:]
+        record["notes"] = notes
+    elif action == "set_stage":
+        stage = str(body.get("stage") or "").strip().upper()
+        if stage not in _ri.LIFECYCLE_STAGES:
+            return JSONResponse(
+                {"ok": False, "error": f"Unknown stage. Expected one of: {', '.join(_ri.LIFECYCLE_STAGES)}."},
+                status_code=400,
+            )
+        record["lifecycle_stage"] = stage
+    else:  # mark_operator_verified
+        if not actor:
+            return JSONResponse(
+                {"ok": False,
+                 "error": "An operator attestation requires an identified operator."},
+                status_code=400,
+            )
+        reason = str(body.get("note") or "").strip()[:2000]
+        if not reason:
+            return JSONResponse(
+                {"ok": False,
+                 "error": "Record what was checked out of band — an attestation without a basis is not evidence."},
+                status_code=400,
+            )
+        record["trust_state"] = _ri.TrustState.OPERATOR_VERIFIED.value
+        record["verified_at"] = now
+        record["verified_by"] = actor
+        record["verification"] = None      # a live link is moot once attested
+        record["notes"] = ([*notes, {"at": now, "by": actor, "text": f"Operator attestation: {reason}"}])[-50:]
+
+    record["updated_at"] = now
+    record["assessment"] = _ri.assess_record(record, assessed_at=now)
+    await rs.set_json(key, record)
+    _ri.record_operator_action(action, readiness=record["assessment"].get("readiness", ""))
+    return {"ok": True, "lead": _lead_view(record)}
 
 
 @router.get("/compliance/file/{deal_id}")

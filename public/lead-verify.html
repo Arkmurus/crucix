@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- The single-use token travels in the query string, so no referrer may leave
+       this page carrying it, and it is stripped from the address bar as soon as
+       it has been spent. -->
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Confirm your email | ARIA</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/aria.css?v=15">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+  <style>
+    .lv-wrap { max-width: 560px; margin: 8vh auto; padding: 0 20px; }
+    .lv-card { border: 1px solid var(--sc-border, #e7e3da); border-radius: 10px; padding: 28px; background: var(--sc-panel, #fff); }
+    .lv-title { margin: 0 0 10px; font-size: 22px; }
+    .lv-body { color: var(--sc-muted, #5f5c55); font-size: 14px; line-height: 1.6; }
+    .lv-actions { margin-top: 20px; }
+    /* Verified against aria.css during review: there is no `.text-danger` in
+       this design system, so an error would have rendered as ordinary body
+       text. --sc-red is a real token (aria.css :root). */
+    .lv-error { color: var(--sc-red, #dc2626); font-weight: 600; }
+  </style>
+</head>
+<body>
+<main class="lv-wrap">
+  <div class="lv-card">
+    <h1 class="lv-title"><i class="bi bi-envelope-check"></i> Confirm your email</h1>
+    <div id="lv-body" class="lv-body">
+      <p>Confirming this address completes your ARIA access request. Until it is
+         confirmed, the request stays unverified and is not progressed.</p>
+    </div>
+    <div id="lv-actions" class="lv-actions">
+      <button id="lv-confirm" type="button" class="sc-btn sc-btn-primary">Confirm my email</button>
+    </div>
+  </div>
+</main>
+<script>
+// This page is deliberately PUBLIC and carries no auth — the person confirming
+// their address has no account. The single-use token is the only credential.
+//
+// Confirmation happens on a BUTTON, never on page load. Mail security scanners
+// and link prefetchers issue a GET on every URL in a message; verifying on load
+// would let a scanner confirm the address on the recipient's behalf, which is
+// exactly the fact being proven. A POST driven by a click cannot be prefetched.
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var leadId = params.get('lead') || '';
+  var token = params.get('token') || '';
+  var bodyEl = document.getElementById('lv-body');
+  var actionsEl = document.getElementById('lv-actions');
+  var button = document.getElementById('lv-confirm');
+
+  function finish(html, isError) {
+    bodyEl.innerHTML = '<p' + (isError ? ' class="lv-error"' : '') + '>' + html + '</p>';
+    actionsEl.innerHTML = '<a class="sc-btn" href="/">Back to imaria.io</a>';
+  }
+
+  if (!leadId || !token) {
+    finish('This confirmation link is incomplete. Please open the link exactly as it appears in the email.', true);
+    return;
+  }
+
+  button.addEventListener('click', async function () {
+    button.disabled = true;
+    button.textContent = 'Confirming…';
+    var res;
+    try {
+      res = await fetch('/api/leads/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_id: leadId, token: token })
+      });
+    } catch (e) {
+      button.disabled = false;
+      button.textContent = 'Confirm my email';
+      finish('We could not reach the confirmation service. Please try again shortly.', true);
+      return;
+    }
+    var data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+
+    // Spend the token from the address bar either way — it is single-use, and a
+    // link left in browser history is a credential left lying around.
+    try { window.history.replaceState({}, '', window.location.pathname); } catch (e) {}
+
+    if (res.ok && data && data.verified) {
+      finish(data.already_verified
+        ? 'This address was already confirmed. Nothing further is needed.'
+        : 'Thank you — your email address is confirmed. Your access request is now with our team.');
+      return;
+    }
+    finish((data && data.error) || 'This confirmation link is not valid or has expired.', true);
+  });
+})();
+</script>
+</body>
+</html>

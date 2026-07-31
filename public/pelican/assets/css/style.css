@@ -1876,7 +1876,20 @@ body {
 .lead-form input::-webkit-input-placeholder { color: #9aa6b2; font-weight: 400; }
 .lead-form input::placeholder { color: #9aa6b2; font-weight: 400; }
 
-.lead-form input:first-of-type {
+/* R-F3531 — the bar now carries six fields, so separators are declared per
+   element instead of by `:first-of-type`. That selector only ever drew the one
+   divider between name and email; every field added after it would have run
+   edge to edge with no rule between them. */
+.lead-form input {
+	border-bottom: 1px solid #eef1f6;
+}
+
+.lead-form .lead-wide {
+	grid-column: 1 / -1;
+}
+
+.lead-form input#lead-name,
+.lead-form input.lead-half-left {
 	border-right: 1px solid #eef1f6;
 }
 
@@ -1888,7 +1901,8 @@ body {
 .lead-form select {
 	grid-column: 1 / -1;
 	padding-right: 38px;
-	border-top: 1px solid #eef1f6;
+	/* R-F3531 — the inputs above now draw their own bottom rule; keeping a
+	   border-top here too would double the line under the last text field. */
 	background-color: #ffffff;
 	background-image: linear-gradient(45deg, transparent 50%, #657482 50%),
 		linear-gradient(135deg, #657482 50%, transparent 50%);
