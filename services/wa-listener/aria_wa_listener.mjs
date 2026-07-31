@@ -1764,17 +1764,85 @@ function _jidUser(jid) {
   return (at === -1 ? raw : raw.slice(0, at)).split(':')[0];
 }
 
-function _waSenderAllowed(senderJid) {
+// R-F3586 — EVERY identifier the message carries, not just one.
+//
+// With Baileys 7 the same person can appear as `<phone>@s.whatsapp.net` OR as
+// `<lid>@lid`, and an allow-list written as phone numbers cannot match the LID
+// form. Matching on a single field would refuse legitimate senders the moment
+// WhatsApp hands us the LID shape — the same class of failure as R-F3582, where
+// one hard-coded jid suffix silenced every DM.
+//
+// Baileys is NOT a well-known-stdlib exemption, and this listener's node_modules
+// are not installed locally, so the exact alt-field names are UNVERIFIED. Rather
+// than code against a guess, every plausible carrier is collected and any match
+// authorises; `_waIdentityFields()` reports which ones were actually present so
+// the real shape is learned from production instead of assumed.
+function _waSenderIdentities(senderJid, msg = null) {
+  const out = new Set();
+  const add = (v) => {
+    const raw = String(v || '').trim();
+    if (!raw) return;
+    out.add(raw);
+    out.add(_jidUser(raw));
+  };
+  add(senderJid);
+  const k = msg?.key || {};
+  // Known Baileys fields plus the PN/LID alternates newer versions attach.
+  for (const f of ['participant', 'participantAlt', 'participantPn', 'senderPn',
+                   'remoteJid', 'remoteJidAlt']) {
+    if (k[f]) add(k[f]);
+  }
+  if (msg?.participant) add(msg.participant);
+  out.delete('');
+  return [...out];
+}
+
+/** Which identity fields the message actually carried — NAMES ONLY, never values
+ *  (R-F3578 removed phone/chat identifiers from these paths). Used to diagnose a
+ *  refusal without logging who was refused. */
+function _waIdentityFields(msg = null) {
+  const k = msg?.key || {};
+  return ['participant', 'participantAlt', 'participantPn', 'senderPn',
+          'remoteJid', 'remoteJidAlt'].filter((f) => Boolean(k[f]));
+}
+
+// R-F3586 — tell a refused sender ONCE per chat, then stay quiet.
+//
+// A refusal must be visible (silence is what made R-F3582 invisible for hours),
+// but replying to every message from an unauthorised number turns ARIA into an
+// amplifier: anyone could bounce traffic off her, and a loop between two bots
+// would run forever. One notice per chat per hour is the smallest thing that is
+// still honest.
+const _waRefusalNotified = new Map();   // chatId -> last notice ts
+const _WA_REFUSAL_NOTICE_MS = 60 * 60 * 1000;
+function _waNotifyRefusalOnce(chatId) {
+  const key = String(chatId || '');
+  const now = Date.now();
+  const last = _waRefusalNotified.get(key);
+  if (last && now - last < _WA_REFUSAL_NOTICE_MS) return false;
+  _waRefusalNotified.set(key, now);
+  // Bound the map — an unauthorised flood must not grow memory without limit.
+  if (_waRefusalNotified.size > 500) {
+    for (const [k, ts] of _waRefusalNotified) {
+      if (now - ts > _WA_REFUSAL_NOTICE_MS) _waRefusalNotified.delete(k);
+    }
+  }
+  return true;
+}
+
+function _waSenderAllowed(senderJid, msg = null) {
   if (!WA_ALLOWED_SENDERS.length) {
     if (!_waAllowWarned) {
       _waAllowWarned = true;
-      console.warn('[wa] WA_ALLOWED_SENDERS unset - compliance commands open to ALL senders. Set it (comma-sep numbers) to restrict.');
+      console.warn('[wa] WA_ALLOWED_SENDERS unset — ARIA engages ANY sender who knows this '
+        + 'number: free-text chat, documents, images, voice notes and every /command '
+        + 'including /teach and /correct, which WRITE INTO HER PERMANENT MEMORY (§7, no '
+        + 'eviction). Set it (comma-separated numbers) to restrict.');
     }
     return true;
   }
-  const jid = String(senderJid || '');
-  const num = jid.split('@')[0].split(':')[0];
-  return WA_ALLOWED_SENDERS.includes(jid) || WA_ALLOWED_SENDERS.includes(num);
+  const identities = _waSenderIdentities(senderJid, msg);
+  return identities.some((id) => WA_ALLOWED_SENDERS.includes(id));
 }
 
 // ── Compliance command handlers ─────────────────────────────────────────────
@@ -2596,6 +2664,42 @@ async function onMessagesUpsert(sock, account, ev) {
         _jidUser(senderJid) ||
         'Unknown';
 
+      // ── R-F3586 — ONE AUTHORISATION GATE, BEFORE ANY ENGAGEMENT ───────────
+      //
+      // `_waSenderAllowed` existed but was consulted in only TWO places:
+      // handleCommand() and the keyword auto-response (default OFF). The path
+      // that actually answers people — free text -> askARIA -> sendReply — had
+      // NO sender check at all, and neither did the document, image or voice
+      // paths. So anyone who knew this number got unlimited LLM engagement on
+      // the $300/mo budget (CLAUDE.md §17), and, worse, could run /teach and
+      // /correct, which WRITE INTO ARIA'S PERMANENT MEMORY — a store that by
+      // §7 never evicts. That is a knowledge-poisoning vector, not just spend.
+      //
+      // Gated here, once, above every branch, so a future path cannot be added
+      // below and silently inherit no protection.
+      //
+      // NOT SILENT. When the allow-list is configured and a sender is refused,
+      // ARIA says so once per chat instead of ignoring them. Today's R-F3582
+      // outage was invisible precisely because a dropped message and a broken
+      // listener look identical; a refusal the operator cannot see would repeat
+      // that mistake, and it is also how a legitimate sender wrongly blocked by
+      // an unmatched LID form would be discovered.
+      if (!_waSenderAllowed(senderJid, msg)) {
+        const _fields = _waIdentityFields(msg).join(',') || '(none)';
+        console.warn(`[ARIA Listener] R-F3586 engagement refused: sender not on `
+          + `WA_ALLOWED_SENDERS. identity fields present: [${_fields}] `
+          + `— if a legitimate sender is being refused, the allow-list is probably `
+          + `written in a form (phone vs LID) that this message does not carry.`);
+        if (_waNotifyRefusalOnce(chatId)) {
+          try {
+            await sendReply(chatId,
+              'This ARIA number is restricted to verified users. If you should have '
+              + 'access, ask the operator to add you.');
+          } catch { /* refusal notice is best-effort; never block the drop */ }
+        }
+        continue;
+      }
+
       // T0★ — unique request_id from the WA message key (R-F1411)
       const requestId = msg.key.id || `wa_${senderJid.replace(/[^a-zA-Z0-9_]/g, '')}_${Date.now()}`;
 
@@ -3159,7 +3263,7 @@ async function onMessagesUpsert(sock, account, ev) {
         // R-F1870 (audit DD-27): gate the auto-response on the SAME per-sender
         // allow-list that handleCommand uses, so an unauthorized group member
         // can't trigger a compliance assessment just by posting trigger keywords.
-        if (trigger.triggered && _waSenderAllowed(senderJid) && shouldAutoRespond(chatId, trigger.keywords) && _checkAutoRespondRateLimit(chatId)) {
+        if (trigger.triggered && _waSenderAllowed(senderJid, msg) && shouldAutoRespond(chatId, trigger.keywords) && _checkAutoRespondRateLimit(chatId)) {
           const categoryLabel = {
             compliance: 'compliance/export control',
             opportunity: 'business development/procurement',

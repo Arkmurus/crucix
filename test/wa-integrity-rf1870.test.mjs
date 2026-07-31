@@ -90,8 +90,13 @@ await check('DD-19: auto-response session namespaced by senderJid, not chatId', 
 });
 
 // ── DD-27 static: auto-response gated by the sender allow-list ───────────────
-await check('DD-27: auto-response gated by _waSenderAllowed(senderJid)', () => {
-  assert.ok(/trigger\.triggered && _waSenderAllowed\(senderJid\) &&/.test(SRC),
+// R-F3586 — assert the PROPERTY, not the argument list. This pinned the exact
+// call `_waSenderAllowed(senderJid)`, so passing the full message for LID-aware
+// identity matching failed it while the gating it guards got STRICTER. The rule
+// is "the auto-response is gated by the sender allow-list", however the sender
+// is identified.
+await check('DD-27: auto-response gated by the sender allow-list', () => {
+  assert.ok(/trigger\.triggered && _waSenderAllowed\(senderJid(,\s*msg)?\) &&/.test(SRC),
     'auto-response not gated by the sender allow-list');
 });
 

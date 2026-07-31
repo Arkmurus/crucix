@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3586,
+  "next_available": 3587,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29878,23 +29878,35 @@
       "title": "relevance filter admits a namesake PERSON in surname-first form",
       "claimed_at": "2026-07-31T19:53:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8c96d591",
+      "notes": null,
+      "shipped_at": "2026-07-31T20:03:02Z"
     },
     {
       "r_number": "R-F3584",
       "title": "WA_LISTENER_AUTO_RESPOND: remove the dead const from the canonical listener; the docs also documented the wrong value",
       "claimed_at": "2026-07-31T20:00:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "89476741",
+      "notes": null,
+      "shipped_at": "2026-07-31T20:02:12Z"
     },
     {
       "r_number": "R-F3585",
       "title": "Armed Forces Covenant listing lives on gov.uk path not its own host - credential unreachable",
       "claimed_at": "2026-07-31T20:00:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8c96d591",
+      "notes": null,
+      "shipped_at": "2026-07-31T20:03:03Z"
+    },
+    {
+      "r_number": "R-F3586",
+      "title": "WA engagement was open to any sender: gate every path, LID-aware, and never refuse silently",
+      "claimed_at": "2026-07-31T20:07:18Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
