@@ -398,6 +398,13 @@ class IdentitySection:
     # checkable explanation is not the same as undisclosed ownership, and the
     # difference is decision-critical (R-F2830).
     psc_exemptions: dict = field(default_factory=dict)
+    #: R-F3542 — the OWNERSHIP chain walked upward through corporate PSCs, anchored at
+    #: every hop by `identification.registration_number`. Deliberately separate from
+    #: `network.ubo_chain`, which despite its name holds the DIRECTORSHIP walk and
+    #: contains no ownership relationship at all (the R-F3539 category error). Carries
+    #: `complete` + `gaps`, because a chain that stops early and says nothing is
+    #: indistinguishable from one that reached the top.
+    psc_ownership_chain: dict = field(default_factory=dict)
     ghost_score: dict = field(default_factory=dict)       # from due_diligence_playbooks.score_ghost_indicators
     findings: list[Finding] = field(default_factory=list)
     data_gaps: list[str] = field(default_factory=list)

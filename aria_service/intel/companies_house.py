@@ -787,6 +787,157 @@ async def get_psc(company_number: str) -> list[dict]:
     return out
 
 
+# ── R-F3542 — the SECOND PSC HOP: an actual ownership walk ───────────────────
+#
+# THE GAP, observed on four consecutive delivered reports. `get_psc` returns the
+# subject's PSCs and R-F2726 carefully preserves `identification.registration_number`
+# for corporate ones — the ANCHOR that makes a control edge Grade A. **Nothing ever
+# called `get_psc` again with it.** The chain stopped at hop one, so a corporate PSC was
+# as far as ARIA could ever see, and "who ultimately owns this" had no answer.
+#
+# On Bidvest Noonan (dd_75d996233394) the corporate PSC Crane Midco Limited (06648599)
+# was walkable in Companies House and terminates at a JSE-listed parent — a clean,
+# decision-relevant UBO answer ("controlled by a listed group; no individual UBO above
+# threshold") that the report simply never went and got.
+#
+# NOT the same thing as `network_walker.walk_ubo_chain`, which despite its name walks
+# DIRECTORSHIPS (officers → their other appointments) and emits nothing that is an
+# ownership relationship. That is the R-F3539 category error. This walks OWNERSHIP only.
+#
+# HONESTY PROPERTIES, each of which is a way the walk can stop:
+#   * ANCHORED ONLY. A hop is taken only via `identification.registration_number`.
+#     Resolving a controller by NAME is the fabrication R-F2703/R-F2726 removed.
+#   * NON-UK IS A DECLARED GAP. Companies House holds UK companies; a corporate PSC
+#     registered elsewhere ends the walk WITH A NAMED REASON, never silently.
+#   * CYCLES AND CAPS ARE DECLARED. A truncated walk that reads as complete is a false
+#     clean about ownership, so `complete` is False and `gaps` says which limit bit.
+# An unanchored or foreign controller therefore leaves the chain INCOMPLETE — which is
+# the honest answer, and the one R-F3027's `controlled_by_unanchored` already relies on.
+_PSC_WALK_MAX_HOPS = 4
+_PSC_WALK_MAX_NODES = 20
+
+#: Companies House registration numbers are UK-only. `country_registered` is free text
+#: ("England", "United Kingdom", "Scotland", "Wales", "Northern Ireland", "England and
+#: Wales"), so match generously — a false NON-UK reading only costs a declared gap,
+#: whereas a false UK reading would send a lookup for a company that is not there.
+_UK_REGISTERED_MARKERS = ("united kingdom", "england", "wales", "scotland",
+                          "northern ireland", "great britain", "uk", "gb")
+
+
+def _psc_is_corporate(p: dict) -> bool:
+    return "corporate" in str(p.get("kind") or "").lower()
+
+
+def _psc_registered_uk(ident: dict) -> bool | None:
+    """True/False/None — None means the register did not say, which is NOT 'not UK'."""
+    where = " ".join(str(ident.get(k) or "") for k in
+                     ("country_registered", "place_registered")).strip().lower()
+    if not where:
+        return None
+    return any(m in where for m in _UK_REGISTERED_MARKERS)
+
+
+async def walk_psc_ownership(company_number: str, *,
+                             max_hops: int = _PSC_WALK_MAX_HOPS,
+                             max_nodes: int = _PSC_WALK_MAX_NODES) -> dict:
+    """Walk the OWNERSHIP chain upward via corporate PSCs, anchored at every hop.
+
+    Returns::
+
+        {"root": "<regno>", "nodes": [...], "edges": [...], "ultimate": [...],
+         "gaps": [...], "complete": bool, "hops_walked": int}
+
+    `complete` is True only when every branch ended at a natural terminus — an
+    individual/legal-person PSC, or a company with NO corporate PSC. Any cap, cycle,
+    missing anchor or foreign registry sets it False and records a gap, because a chain
+    that stops early and says nothing is indistinguishable from one that reached the top.
+    """
+    root = str(company_number or "").strip()
+    if not root:
+        return {"root": "", "nodes": [], "edges": [], "ultimate": [], "complete": False,
+                "gaps": ["no company number supplied"], "hops_walked": 0}
+
+    nodes: list[dict] = []
+    edges: list[dict] = []
+    ultimate: list[dict] = []
+    gaps: list[str] = []
+    seen: set[str] = {root}
+    frontier = [(root, 0)]
+    hops_walked = 0
+    complete = True
+
+    while frontier:
+        regno, hop = frontier.pop(0)
+        if hop >= max_hops:
+            complete = False
+            gaps.append(
+                f"ownership walk stopped at hop {hop} for {regno} — max_hops={max_hops} "
+                "reached; the chain above this point is NOT established")
+            continue
+        try:
+            pscs = await get_psc(regno) or []
+        except Exception as e:  # noqa: BLE001 — a failed hop is a GAP, never a silent end
+            complete = False
+            gaps.append(f"could not read PSCs of {regno}: {type(e).__name__}")
+            continue
+
+        current = [p for p in pscs if p.get("is_current")]
+        nodes.append({"company_number": regno, "hop": hop, "psc_count": len(current)})
+        hops_walked = max(hops_walked, hop)
+
+        if not current:
+            # A company with no PSC is a terminus, but an EMPTY PSC register is also
+            # what an exempt or non-compliant company looks like — say which is unknown
+            # rather than presenting it as "ownership fully traced".
+            gaps.append(f"{regno} lists no current PSC — terminus, or an empty/exempt "
+                        "register; not evidence of no owner")
+            continue
+
+        for p in current:
+            name = str(p.get("name") or "").strip()
+            if not _psc_is_corporate(p):
+                ultimate.append({"name": name, "kind": p.get("kind"),
+                                 "via": regno, "hop": hop + 1,
+                                 "natures_of_control": p.get("natures_of_control") or []})
+                continue
+
+            ident = p.get("identification") or {}
+            nxt = str(ident.get("registration_number") or "").strip()
+            uk = _psc_registered_uk(ident)
+
+            if not nxt:
+                complete = False
+                gaps.append(
+                    f"corporate PSC {name!r} of {regno} has NO registration number — "
+                    "not anchorable, so the chain above it is not established "
+                    "(resolving it by name would be a guess)")
+                continue
+            if uk is False:
+                complete = False
+                gaps.append(
+                    f"corporate PSC {name!r} of {regno} is registered outside the UK "
+                    f"({ident.get('country_registered') or ident.get('place_registered')}) "
+                    "— Companies House cannot be walked further; use the home registry")
+                continue
+
+            edges.append({"from": regno, "to": nxt, "controller_name": name,
+                          "hop": hop + 1, "anchored": True,
+                          "natures_of_control": p.get("natures_of_control") or []})
+            if nxt in seen:
+                complete = False
+                gaps.append(f"ownership cycle detected at {nxt} — walk stopped")
+                continue
+            if len(seen) >= max_nodes:
+                complete = False
+                gaps.append(f"ownership walk stopped — max_nodes={max_nodes} reached")
+                continue
+            seen.add(nxt)
+            frontier.append((nxt, hop + 1))
+
+    return {"root": root, "nodes": nodes, "edges": edges, "ultimate": ultimate,
+            "gaps": gaps, "complete": complete, "hops_walked": hops_walked}
+
+
 # ── R-F3404 — three free endpoints the DD has never consulted ────────────────
 #
 # All three are on the key already deployed, cost nothing per call, and were PROBED live

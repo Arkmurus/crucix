@@ -6539,6 +6539,48 @@ async def _run_identity(
     # branch only; see `_explain_empty_psc_register` for why that could never fire.
     await _explain_empty_psc_register(report)
 
+    # ── R-F3542 — WALK the ownership chain, don't stop at hop one ────────────
+    #
+    # `get_psc` has always returned the subject's corporate PSCs with an anchoring
+    # registration number (R-F2726), and nothing ever called it again with one. So the
+    # chain stopped at hop one and "who ultimately owns this" had no answer on four
+    # consecutive delivered reports. On Bidvest Noonan the corporate PSC Crane Midco
+    # Limited (06648599) was walkable and terminates at a listed parent.
+    #
+    # Placed HERE, at the converged identity point, for the R-F3515 reason: the
+    # PSC-exemption block was first written inside one jurisdiction branch and could
+    # never fire. Same converged site, same single call, same reachability.
+    _own_reg = str(report.identity.registration_number or "").strip()
+    if _own_reg and str(report.identity.jurisdiction_iso2 or "").upper() in ("GB", "UK", ""):
+        try:
+            from . import companies_house as _ch_own
+            _chain = await _ch_own.walk_psc_ownership(_own_reg)
+            report.identity.psc_ownership_chain = _chain if isinstance(_chain, dict) else {}
+            # Every stop is DECLARED. A truncated chain that reads as complete is a
+            # false clean on the most consequential question in the report.
+            for _g in (_chain.get("gaps") or [])[:4]:
+                report.identity.data_gaps.append(f"Ownership chain: {_g}")
+            _ult = _chain.get("ultimate") or []
+            if _chain.get("complete") and _ult:
+                report.identity.findings.append(Finding(
+                    severity="info",
+                    title=("Ownership chain traced to its ultimate holder(s): "
+                           + "; ".join(str(u.get("name")) for u in _ult[:3])),
+                    detail=(
+                        "Walked upward through corporate PSCs, anchored at every hop by "
+                        "the controller's own Companies House registration number — not "
+                        "by name matching. "
+                        + "; ".join(
+                            f"{e.get('from')} → {e.get('to')} ({e.get('controller_name')})"
+                            for e in (_chain.get("edges") or [])[:4])
+                        + f". {len(_ult)} ultimate holder(s) identified."),
+                    source="companies_house.walk_psc_ownership:R-F3542",
+                    confidence="CONFIRMED",
+                    source_tier="OFFICIAL",
+                ))
+        except Exception as _own_e:  # noqa: BLE001 — never cost a report
+            logger.debug("[R-F3542] ownership walk skipped: %s", _own_e)
+
     # ── 1c. Ghost-score from available signals ──
     # Feed whatever we've collected into the programmatic scorer. The
     # scorer treats MISSING keys as data gaps, so only include keys
