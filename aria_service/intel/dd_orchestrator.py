@@ -10155,6 +10155,37 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
                 confidence="ASSESSED",
             ))
 
+    # ── R-F3553 — PROMOTE the positive register evidence already captured ─────
+    #
+    # Four consecutive delivered reports carried T1 positives in the citation list — an
+    # SIA Approved Contractor entry for the correct legal entity, an Armed Forces
+    # Covenant listing, a gov.uk supplier record — and promoted none of them. A report
+    # that names every gap and no verified credential gives a systematically negative
+    # picture built from a complete evidence set.
+    #
+    # Runs HERE because it needs the adverse-media sweep's captured sources, which is the
+    # only place external URLs with title+snippet accumulate. Attribution is STRICT and
+    # fails closed (see `_positive_names_subject`): a fabricated credential is worse than
+    # a missed one.
+    try:
+        _pos_src = []
+        _pos_blob = getattr(report, "adverse_media", None) or {}
+        if isinstance(_pos_blob, dict):
+            for _f in (_pos_blob.get("findings") or []):
+                if isinstance(_f, dict):
+                    _pos_src.append({"url": _f.get("source_url"),
+                                     "title": _f.get("title"),
+                                     "snippet": _f.get("snippet")})
+        _pos_tokens = _adverse_subject_tokens(
+            report.identity.entity_name or "",
+            getattr(report.identity, "aliases", None) or [])
+        for _pf in positive_register_findings(
+                _pos_src, _pos_tokens,
+                as_of=str(getattr(report, "generated_at", "") or "")[:10]):
+            report.identity.findings.append(Finding(**_pf))
+    except Exception as _pos_e:  # noqa: BLE001 — a positive must never cost a report
+        logger.debug("[R-F3553] positive register promotion skipped: %s", _pos_e)
+
     # ── 6b1a. R-F3455 — the report must not contradict its own cited sources ──
     try:
         _am_blob = getattr(report, "adverse_media", None) or {}
@@ -12770,6 +12801,143 @@ def _adverse_is_index_page(f) -> bool:
     except IndexError:
         return True          # bare official domain, no record path — an index by definition
     return bool(_ADVERSE_INDEX_PATH_RE.search("/" + path))
+
+
+# ── R-F3553 — PROMOTE the positive register evidence the report already holds ──
+#
+# THE GAP, on four consecutive delivered reports. The citation list carried T1 positives
+# directly relevant to the decision — an SIA Approved Contractor Scheme entry for the
+# correct legal entity, an Armed Forces Covenant listing, a gov.uk supplier record — and
+# not one was promoted to a finding. The evidence was fetched, stored, and never said.
+#
+# A DD that reports only what is wrong is not neutral, it is skewed: the same report that
+# names an unresolved gap should name a verified credential, or the reader is given a
+# systematically negative picture built from a complete evidence set.
+#
+# THE DIRECTION IS INVERTED FROM ADVERSE MEDIA, and that is the whole design.
+# `_adverse_names_subject` is deliberately PERMISSIVE (any shared distinctive token) and
+# FAILS OPEN, because for adverse items a missed hit is the expensive error. For a
+# CREDENTIAL the expensive error is the opposite: asserting that a company holds SIA
+# approval when the page merely mentions it is a fabricated credential — the R-F3089
+# name-coincidence class pointing the other way, and arguably worse, because a false
+# clean is at least an absence while a false credential is an invention.
+#
+# So positives require ALL of the subject's distinctive tokens and FAIL CLOSED when the
+# subject cannot be tokenised. A missed credential costs a shorter report; a fabricated
+# one costs the product.
+#
+# CURATED, NEVER PATTERN-MATCHED. "Any gov.uk URL is a credential" is exactly the
+# domain-match-alone error R-F3093 removed from the adverse filter. Each register is
+# listed with what its presence ACTUALLY attests and what it explicitly does NOT — an
+# Armed Forces Covenant signature is a public pledge, not a vetting outcome, and a report
+# that blurs the two manufactures assurance.
+_POSITIVE_REGISTERS: dict[str, dict] = {
+    "services.sia.homeoffice.gov.uk": {
+        "register": "SIA Approved Contractor Scheme",
+        "attests": "the organisation held ACS approval as a security supplier",
+        "not": "it is NOT a vetting outcome for any individual, and says nothing about "
+               "staff screening on a particular contract",
+    },
+    "armedforcescovenant.gov.uk": {
+        "register": "Armed Forces Covenant",
+        "attests": "the organisation has signed the Covenant pledge",
+        "not": "it is a voluntary PLEDGE, not a vetting, capability or performance "
+               "assessment, and confers no security status",
+    },
+    "register.fca.org.uk": {
+        "register": "FCA Financial Services Register",
+        "attests": "the firm is authorised or registered with the FCA",
+        "not": "authorisation is not an endorsement of conduct or solvency",
+    },
+    "data.fca.org.uk": {
+        "register": "FCA Financial Services Register",
+        "attests": "the firm is authorised or registered with the FCA",
+        "not": "authorisation is not an endorsement of conduct or solvency",
+    },
+    "contractsfinder.service.gov.uk": {
+        "register": "Contracts Finder (UK public procurement)",
+        "attests": "the organisation appears against a published public-sector contract",
+        "not": "a contract award is not a due-diligence outcome and does not imply "
+               "current good standing",
+    },
+    "find-tender.service.gov.uk": {
+        "register": "Find a Tender (UK/EU public procurement)",
+        "attests": "the organisation appears against a published procurement notice",
+        "not": "a notice is not a due-diligence outcome",
+    },
+}
+
+#: Registries that are the BASE identity source, not a credential. Presence in Companies
+#: House is not an achievement, and promoting it would drown the real positives — which
+#: is how a signal becomes noise and then gets ignored.
+_NOT_A_CREDENTIAL = {
+    "find-and-update.company-information.service.gov.uk",
+    "api.company-information.service.gov.uk",
+    "search.gleif.org",
+}
+
+
+def _positive_names_subject(text: str, subject_tokens: set) -> bool:
+    """STRICT attribution for a positive credential. Fails CLOSED.
+
+    Requires EVERY distinctive token of the subject, where the adverse gate requires any
+    one. "Bidvest Noonan (UK) Limited" must not inherit a credential belonging to
+    "Bidvest Group" or "Noonan Services" — and on the reviewed run the SIA entry did
+    resolve to the correct legal entity, which is precisely the distinction worth keeping.
+    """
+    if not subject_tokens:
+        return False        # cannot attribute => do not credit (opposite of the adverse rule)
+    blob = str(text or "").lower()
+    return all(t in blob for t in subject_tokens)
+
+
+def positive_register_findings(sources, subject_tokens: set, *, as_of: str = "") -> list[dict]:
+    """Build findings for T1 register hits that PROVABLY name the subject.
+
+    `sources` is an iterable of {url, title, snippet} — whatever the run already
+    captured. Returns finding-shaped dicts; the caller decides where they land.
+
+    Each finding states the register, what presence attests, what it does NOT, and AS OF
+    WHEN. An undated credential is the freshness defect in reverse: a lapsed approval
+    reported without a date reads as current.
+    """
+    from urllib.parse import urlparse
+
+    out: list[dict] = []
+    seen: set = set()
+    for s in (sources or []):
+        if not isinstance(s, dict):
+            continue
+        url = str(s.get("url") or s.get("source_url") or "").strip()
+        if not url.startswith("http"):
+            continue
+        host = urlparse(url).netloc.lower()
+        if host in _NOT_A_CREDENTIAL:
+            continue
+        spec = _POSITIVE_REGISTERS.get(host)
+        if not spec:
+            continue
+        text = f"{s.get('title') or ''} {s.get('snippet') or ''}"
+        if not _positive_names_subject(text, subject_tokens):
+            continue                     # named the register, not the subject
+        key = (spec["register"], url)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "severity": "info",
+            "title": f"{spec['register']}: the subject appears on this register",
+            "detail": (
+                f"{spec['attests'].capitalize()}, as captured "
+                f"{('on ' + as_of) if as_of else 'during this run'}. "
+                f"Scope: {spec['not']}. Verify at the register before relying on it — "
+                f"a listing captured today can lapse."
+            ),
+            "source": f"{spec['register']} [from {url}]",
+            "confidence": "CONFIRMED",
+            "source_tier": "OFFICIAL",
+        })
+    return out
 
 
 def _adverse_subject_tokens(subject_name: str, aliases=None) -> set[str]:

@@ -837,6 +837,7 @@ def _psc_registered_uk(ident: dict) -> bool | None:
     return any(m in where for m in _UK_REGISTERED_MARKERS)
 
 
+@fail_wire(module="companies_house", gap_type="api_missing")
 async def walk_psc_ownership(company_number: str, *,
                              max_hops: int = _PSC_WALK_MAX_HOPS,
                              max_nodes: int = _PSC_WALK_MAX_NODES) -> dict:
