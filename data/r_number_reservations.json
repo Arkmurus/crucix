@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3573,
+  "next_available": 3576,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29768,9 +29768,39 @@
       "title": "compliance/risk answered LOW for any country not in a hardcoded set, while the curated sanctions engine sat dark",
       "claimed_at": "2026-07-31T15:06:17Z",
       "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5a65e984",
+      "notes": null,
+      "shipped_at": "2026-07-31T15:19:01Z"
+    },
+    {
+      "r_number": "R-F3573",
+      "title": "the dead-code gate reported 0 on a tree with 19 never-imported and 45 test-only modules",
+      "claimed_at": "2026-07-31T16:31:52Z",
+      "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3574",
+      "title": "FCA name match is order-blind: Wilson James Limited matched James Wilson at 1.00",
+      "claimed_at": "2026-07-31T16:32:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "35d0915e",
+      "notes": null,
+      "shipped_at": "2026-07-31T16:41:46Z"
+    },
+    {
+      "r_number": "R-F3575",
+      "title": "register host match fails on www. prefix so credentials are never promoted",
+      "claimed_at": "2026-07-31T16:32:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "35d0915e",
+      "notes": null,
+      "shipped_at": "2026-07-31T16:41:46Z"
     }
   ]
 }

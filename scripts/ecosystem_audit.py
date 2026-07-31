@@ -32,6 +32,95 @@ DEAD_CODE_EXEMPT = {
     # "Remove after first gold is verified" — deliberate, not rot.
     "seeded_defect",
 }
+# ── R-F3573 — ORPHAN BASELINE. These lists may only SHRINK. ─────────────────
+#
+# The dead-code gate above reported **0 dead modules on a tree with 64 orphans**
+# because it substring-matched names (a mention in a comment counted) and, since
+# R-F3381, counted the TEST corpus as a referrer. check_orphan_modules() reads
+# the import graph instead and keeps the two states apart.
+#
+# The debt is pre-existing and real, so it is PINNED rather than gated to zero —
+# a gate that fails on day one gets muted, and then it protects nothing. Any
+# module that becomes newly orphaned FAILS the build; anything fixed must be
+# deleted from these lists (the audit prints FIXED: for entries that have gone).
+#
+# Spot-verified 2026-07-31, the instrument is not crying wolf: audit_trail.py's
+# only apparent referrer is `case.audit_trail.append(...)`, a dict FIELD, not the
+# module. continuous_learner (R-F1064, "Cost-Free Continuous Learning Engine"),
+# github_search (R-F1061 OSINT) and tenant_namespace (R-F81, a MULTI-TENANT
+# ISOLATION primitive) are likewise built, tested and unreachable.
+ORPHAN_BASELINE_NEVER = {
+    'intel/audit_trail.py',
+    'intel/brain_signal_consumer.py',
+    'intel/continuous_learner.py',
+    'intel/dd_case_library.py',
+    'intel/engagement.py',
+    'intel/geoip_lookup.py',
+    'intel/github_search.py',
+    'intel/global_defence_knowledge.py',
+    'intel/global_export_control.py',
+    'intel/kaspersky_mitigation.py',
+    'intel/osint_email_breach.py',
+    'intel/portal_knowledge.py',
+    'intel/sipri_knowledge.py',
+    'intel/sources/worldbank_documents.py',
+    'intel/tenant_namespace.py',
+    'intel/vetting_standard_knowledge.py',
+    'utils/command_cache.py',
+}
+
+# Imported ONLY by the test suite. Not automatically wrong — dd_independence_eval
+# is an offline scoring harness and seeded_defect is a deliberate coder target —
+# but a test-only ENGINE is dead code that happens to own a test. Each needs its
+# own decision; three of these (behavioural_anomaly, quarantine_network,
+# credential_self_destruct) are SECURITY subsystems with no production caller.
+ORPHAN_BASELINE_TEST_ONLY = {
+    'autonomous/autonomous_deploy.py',
+    'env_bootstrap.py',
+    'intel/antivirus.py',
+    'intel/behavioural_anomaly.py',
+    'intel/brave_answers.py',
+    'intel/coder_canary.py',
+    'intel/corroboration.py',
+    'intel/credential_self_destruct.py',
+    'intel/dd_independence_eval.py',
+    'intel/dependency_integrity.py',
+    'intel/eu_sanctions_ingest.py',
+    'intel/infra_health.py',
+    'intel/intel_expander.py',
+    'intel/intel_quality.py',
+    'intel/knowledge_learner.py',
+    'intel/llm_builder.py',
+    'intel/llm_pipeline.py',
+    'intel/multi_lang_coder.py',
+    'intel/multi_user_os.py',
+    'intel/news_claims.py',
+    'intel/performance_optimizer.py',
+    'intel/product_page.py',
+    'intel/protective_reply_drafter.py',
+    'intel/provenance_watermark.py',
+    'intel/public_api.py',
+    'intel/quarantine_network.py',
+    'intel/regional_compliance.py',
+    'intel/self_protection.py',
+    'intel/sipri_ingest.py',
+    'intel/strategic_evolution.py',
+    'intel/system_health.py',
+    'intel/training_orchestrator.py',
+    'intel/truth_verifier.py',
+    'intel/uk_ofsi_ingest.py',
+    'intel/un_sanctions_ingest.py',
+    'intel/wa_formatter.py',
+    'intel/wiring_harness.py',
+    'learning/deepseek_clients.py',
+    'learning/held_out_split.py',
+    'learning/pair_builder.py',
+    'llm/local_llm.py',
+    'utils/powershell_master.py',
+    'vetting/packs/builtin.py',
+    'writers/writer_orchestrator.py',
+}
+
 SKIP_FILES = {"__init__.py", "conftest.py"}
 ARIA_SERVICE = REPO_ROOT / "aria_service"
 
@@ -240,6 +329,96 @@ def scan_brain_hook_registry() -> dict:
 
 
 # ── 10. Dead code check ────────────────────────────────────────────────
+
+def _imported_stems(path: Path) -> set[str]:
+    """Module stems this file actually IMPORTS, read from the AST.
+
+    R-F3573 — a substring scan cannot tell an import from a mention. Every one of
+    behavioural_anomaly, quarantine_network and credential_self_destruct "matched"
+    only because `wiring_harness.py` lists them in a gap_type registry and
+    `capability_gaps.py` names one in a COMMENT. Three security subsystems with no
+    caller read as live because their names appear in a comment.
+    """
+    stems: set[str] = set()
+    try:
+        tree = ast.parse(_read_file(path))
+    except Exception:
+        return stems
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                stems.add(alias.name.split(".")[-1])
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                stems.add(node.module.split(".")[-1])
+            for alias in node.names:
+                stems.add(alias.name.split(".")[-1])
+        elif isinstance(node, ast.Call):
+            # importlib.import_module("pkg.mod") — a real, resolvable import.
+            try:
+                func = ast.unparse(node.func)
+            except Exception:
+                continue
+            if "import_module" in func:
+                for arg in node.args:
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        stems.add(arg.value.split(".")[-1])
+    return stems
+
+
+def check_orphan_modules(modules: list[Path]) -> dict[str, list[str]]:
+    """Modules nothing imports, split by WHO still imports them.
+
+    R-F3573 — `check_dead_code` reported **0 dead modules on a tree with 64
+    orphans** (19 imported by nothing at all, 45 imported only by the test
+    suite). Two compounding reasons, and the second was introduced as a fix:
+
+      1. SUBSTRING, NOT IMPORT. `if mod_name not in all_source` matches a name in
+         a comment, a docstring, a log string or a registry key. See
+         `_imported_stems` above for the three security subsystems this hid.
+
+      2. TESTS COUNTED AS PRODUCTION. R-F3381 added the test corpus to the
+         haystack because a scoring harness used only by tests was being called
+         dead — correct as far as it went, but it collapsed two different states
+         into one. A test-only HARNESS is fine; a test-only ENGINE is dead code
+         that happens to own a test, and after R-F3381 the gate could not tell
+         them apart. Kept separate here rather than picking one answer.
+
+    Returns {"never_imported": [...], "test_only": [...]}.
+    """
+    prod_imports: set[str] = set()
+    for mod in modules:
+        prod_imports |= _imported_stems(mod)
+
+    test_imports: set[str] = set()
+    for tf in scan_test_files():
+        test_imports |= _imported_stems(tf)
+
+    never_imported: list[str] = []
+    test_only: list[str] = []
+    for mod in modules:
+        stem = mod.stem
+        if stem.startswith("_") or stem in ("main", "config"):
+            continue
+        if stem in DEAD_CODE_EXEMPT:
+            continue
+        # Entry points are EXECUTED, never imported — `python -m aria_service.cli.x`
+        # and the standalone TUI client. Absence of an importer is their normal
+        # state, not rot.
+        if any(part in ("cli", "static", "scripts") for part in mod.parts):
+            continue
+        if stem in prod_imports:
+            continue
+        # R-F3573 — POSIX separators, always. `str(Path)` yields backslashes on
+        # Windows and forward slashes on the Linux CI runner, so a baseline pinned
+        # from a dev machine would match NOTHING in CI and report all 61 entries
+        # as newly orphaned — a gate that fails 100% of the time on the platform
+        # that actually runs it.
+        (test_only if stem in test_imports else never_imported).append(
+            mod.relative_to(ARIA_SERVICE).as_posix()
+        )
+    return {"never_imported": sorted(never_imported), "test_only": sorted(test_only)}
+
 
 def check_dead_code(modules: list[Path]) -> list[str]:
     """Check for modules that are never imported anywhere."""
@@ -478,6 +657,35 @@ def main() -> dict:
     for d in dead[:30]:
         print(f"    {d}")
 
+    # 10b. Orphan modules — R-F3573. The check above reported 0 on a tree with
+    # 64 orphans; this one reads the IMPORT GRAPH. Pinned, not gated to zero:
+    # the debt is real and pre-existing, so it may only SHRINK.
+    print("\n--- 10b. Orphan Module Check (import graph) ---")
+    orphans = check_orphan_modules(modules)
+    results["orphan_modules"] = orphans
+    never, test_only = orphans["never_imported"], orphans["test_only"]
+    print(f"  Imported by NOTHING: {len(never)} (baseline {len(ORPHAN_BASELINE_NEVER)})")
+    for d in never:
+        mark = " " if d in ORPHAN_BASELINE_NEVER else " *NEW*"
+        print(f"    {d}{mark}")
+    print(f"  Imported ONLY by tests: {len(test_only)} (baseline {len(ORPHAN_BASELINE_TEST_ONLY)})")
+    new_never = sorted(set(never) - ORPHAN_BASELINE_NEVER)
+    new_test_only = sorted(set(test_only) - ORPHAN_BASELINE_TEST_ONLY)
+    results["orphan_regressions"] = new_never + new_test_only
+    if new_never or new_test_only:
+        print(f"  REGRESSION — {len(new_never + new_test_only)} module(s) newly orphaned:")
+        for d in new_never + new_test_only:
+            print(f"    NEW: {d}")
+    # Anti-rot: an entry that is no longer orphaned must be REMOVED from the
+    # baseline, or the list decays into a permanent excuse. Reported, not fatal,
+    # so a genuine fix is never punished — but it is loud.
+    fixed = sorted((ORPHAN_BASELINE_NEVER | ORPHAN_BASELINE_TEST_ONLY)
+                   - set(never) - set(test_only))
+    if fixed:
+        print(f"  {len(fixed)} baseline entry(ies) NO LONGER orphaned — remove them:")
+        for d in fixed:
+            print(f"    FIXED: {d}")
+
     # 11. Bug patterns
     print("\n--- 11. Bug Pattern Check ---")
     bugs = check_bug_patterns(modules)
@@ -534,5 +742,17 @@ if __name__ == "__main__":
         exit_code = 1
     if main_results.get("dead_modules"):
         print(f"FAIL: {len(main_results['dead_modules'])} dead modules")
+        exit_code = 1
+    # R-F3573 — only a REGRESSION fails. The 61 pre-existing orphans are pinned
+    # in ORPHAN_BASELINE_*; gating on the total would make this red on day one
+    # and it would be muted within a week. A module that becomes newly
+    # unreachable is a different thing: it is a change someone just made.
+    if main_results.get("orphan_regressions"):
+        regressions = main_results["orphan_regressions"]
+        print(f"FAIL: {len(regressions)} module(s) newly orphaned — nothing imports them:")
+        for d in regressions:
+            print(f"       {d}")
+        print("       Either wire it into a caller, or — if it is an entry point or a")
+        print("       deliberate harness — add it to ORPHAN_BASELINE_* WITH ITS REASON.")
         exit_code = 1
     sys.exit(exit_code)
