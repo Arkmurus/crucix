@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3536,
+  "next_available": 3537,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29398,6 +29398,16 @@
       "r_number": "R-F3535",
       "title": "the R-F3510 sanctions evidence shadow has no caller",
       "claimed_at": "2026-07-31T08:23:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "33a66fe3",
+      "notes": null,
+      "shipped_at": "2026-07-31T08:40:42Z"
+    },
+    {
+      "r_number": "R-F3536",
+      "title": "intel value chain: anchored tender matching, ambient re-grade, propaganda corroboration, procurement off the intel channel, dashboard coherence",
+      "claimed_at": "2026-07-31T08:37:39Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
