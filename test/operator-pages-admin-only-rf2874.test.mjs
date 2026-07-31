@@ -24,13 +24,14 @@ import assert from 'node:assert/strict';
 import {
   OPERATOR_VIEW_PAGES,
   OPERATOR_ADMIN_PAGES,
+  AUTHENTICATED_PAGES,
   navPagesForRole,
   operatorPageFor,
 } from '../lib/auth/operatorPages.mjs';
 
 const ADMIN_ONLY = ['/aria-brain', '/aria-brain.html', '/sources.html',
                     '/vault.html', '/vault.htm', '/admin.html',
-                    '/wa-connections.html', '/leads.html'];
+                    '/leads.html'];
 
 test('R-F2874: brain, source health and vault are in the ADMIN table', () => {
   const adminRoutes = OPERATOR_ADMIN_PAGES.map(([r]) => r);
@@ -94,7 +95,7 @@ test('R-F2874: NEGATIVE CONTROL — poweruser keeps the pages it should have', (
 });
 
 test('R-F2874: every page still resolves to a real file', () => {
-  for (const [route, file] of [...OPERATOR_VIEW_PAGES, ...OPERATOR_ADMIN_PAGES]) {
+  for (const [route, file] of [...AUTHENTICATED_PAGES, ...OPERATOR_VIEW_PAGES, ...OPERATOR_ADMIN_PAGES]) {
     assert.ok(typeof file === 'string' && file.endsWith('.html'),
       `${route} must map to an .html file, got ${file}`);
   }

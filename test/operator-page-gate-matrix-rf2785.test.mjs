@@ -22,7 +22,8 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
-  OPERATOR_VIEW_PAGES, OPERATOR_ADMIN_PAGES, requiredRoleForPage,
+  AUTHENTICATED_PAGES, OPERATOR_VIEW_PAGES, OPERATOR_ADMIN_PAGES,
+  operatorPageFor, requiredRoleForPage,
 } from '../lib/auth/operatorPages.mjs';
 import { roleSatisfies } from '../lib/auth/roles.mjs';
 
@@ -36,11 +37,10 @@ const ROLES_UNDER_TEST = ['anonymous', 'viewer', 'support', 'poweruser', 'admin'
 
 /** What the live gate does: requirePageRole(...allowed) → roleSatisfies, else redirect. */
 function pageAllows(role, route) {
-  const needed = requiredRoleForPage(route);
-  if (needed === null) return true;                       // not an operator page
+  const page = operatorPageFor(route);
+  if (page === null) return true;                         // not a gated page
   if (role === 'anonymous') return false;                 // → /signin.html
-  const allowed = needed === 'admin' ? ['admin'] : ['poweruser', 'admin'];
-  return roleSatisfies(role, allowed);
+  return roleSatisfies(role, page.roles);
 }
 
 describe('R-F2785 operator page gate matrix', () => {
@@ -91,9 +91,18 @@ describe('R-F2785 operator page gate matrix', () => {
     }
   });
 
-  it('the destructive pages are admin-only — vault, WA pairing, user management', () => {
-    for (const route of ['/vault.html', '/vault.htm', '/wa-connections.html', '/admin.html']) {
+  it('the destructive operator pages are admin-only', () => {
+    for (const route of ['/vault.html', '/vault.htm', '/admin.html']) {
       assert.equal(requiredRoleForPage(route), 'admin', `${route} must require admin`);
+    }
+  });
+
+  it('WhatsApp pairing is available to every authenticated role but never anonymous', () => {
+    const route = '/wa-connections.html';
+    assert.equal(AUTHENTICATED_PAGES.some(([r]) => r === route), true);
+    assert.equal(pageAllows('anonymous', route), false);
+    for (const role of ['viewer', 'support', 'poweruser', 'admin']) {
+      assert.equal(pageAllows(role, route), true, `${role} must reach their owner-scoped WA manager`);
     }
   });
 

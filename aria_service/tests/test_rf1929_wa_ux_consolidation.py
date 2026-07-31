@@ -10,6 +10,7 @@ is operational information and belongs only on the authenticated manager.
 from __future__ import annotations
 
 import pathlib
+import re
 
 PUBLIC = pathlib.Path(__file__).resolve().parents[2] / "public"
 MODEL_CARD = (PUBLIC / "model-card.html").read_text(encoding="utf-8", errors="ignore")
@@ -21,10 +22,20 @@ def test_model_card_has_no_primitive_wa_flow():
     assert 'data-action="createAccount"' not in MODEL_CARD, "the inline create widget must be gone"
 
 
-def test_public_model_card_exposes_no_wa_inventory_or_manager_link():
+def test_public_model_card_embeds_only_the_canonical_authenticated_manager():
     assert "/api/wa-listener/accounts" not in MODEL_CARD
     assert 'id="wa-accounts"' not in MODEL_CARD
-    assert "/wa-connections.html" not in MODEL_CARD
+    assert 'data-src="/wa-connections.html"' in MODEL_CARD
+    assert 'id="mc-wa-signed-out"' in MODEL_CARD
+    assert 'id="mc-wa-manager" hidden' in MODEL_CARD
+    assert "frame.src = frame.dataset.src" in MODEL_CARD
+    assert "localStorage.getItem('crucix_token')" in MODEL_CARD
+
+
+def test_anonymous_model_card_does_not_eagerly_request_the_qr_manager():
+    assert not re.search(r'<iframe[^>]*\ssrc="/wa-connections\.html"', MODEL_CARD)
+    assert "if (!token) return" in MODEL_CARD
+    assert "/signin.html?next=%2Fmodel-card.html%23whatsapp-connections" in MODEL_CARD
 
 
 def test_dedicated_manager_still_present_and_polished():

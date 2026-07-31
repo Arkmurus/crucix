@@ -68,6 +68,22 @@
 
     .mc-footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--sc-border); font-size: 12px; color: var(--sc-muted); }
     .mc-footer a { color: var(--sc-prime); }
+    .mc-wa-panel {
+      margin-top: 22px; padding: 20px; border: 1px solid var(--sc-border);
+      border-radius: 12px; background: var(--sc-card); box-shadow: var(--sc-shadow);
+    }
+    .mc-wa-panel h3 { margin: 0 0 8px; color: var(--sc-heading); font-size: 18px; }
+    .mc-wa-panel p { margin: 0; }
+    .mc-wa-action {
+      display: inline-flex; margin-top: 14px; padding: 9px 16px; border-radius: 7px;
+      background: var(--sc-prime); color: #fff; text-decoration: none; font-size: 13px;
+      font-weight: 650;
+    }
+    .mc-wa-action:hover { color: #fff; background: var(--sc-prime-dark); }
+    .mc-wa-frame {
+      display: block; width: 100%; min-height: 720px; margin-top: 16px;
+      border: 1px solid var(--sc-border); border-radius: 10px; background: #faf9f5;
+    }
     body.public-document #app-main { margin-left: 0; padding: 0; }
     .mc-public-nav { margin-bottom: 34px; }
     .mc-public-nav a {
@@ -255,10 +271,40 @@
   <p>Reports are reviewed and may be added to an internal issue or mistake ledger to support investigation and improvement. Do not include unnecessary personal or classified information in a report. See the privacy policy for how personal data is handled.</p>
 
   <h2 class="mc-h2" id="channel-limitations">12. Channel limitations</h2>
-  <p>When optional messaging channels such as WhatsApp are enabled, the channel provider processes message and account metadata under its own terms and privacy arrangements. Channel transport can introduce additional availability, confidentiality and retention risks. Users should not submit classified information, export-controlled technical data, credentials or unnecessary sensitive personal data through a messaging channel. Connection details and operational status are available only through authenticated administration surfaces, not this public model card.</p>
+  <p>When optional messaging channels such as WhatsApp are enabled, the channel provider processes message and account metadata under its own terms and privacy arrangements. Channel transport can introduce additional availability, confidentiality and retention risks. Users should not submit classified information, export-controlled technical data, credentials or unnecessary sensitive personal data through a messaging channel. The connection manager below is available only to authenticated users; account inventory and QR data are never returned to anonymous visitors.</p>
+
+  <section class="mc-wa-panel" id="whatsapp-connections" aria-labelledby="mc-wa-title">
+    <h3 id="mc-wa-title">WhatsApp connection and QR code</h3>
+    <div id="mc-wa-signed-out">
+      <p>Sign in to link your WhatsApp account, view its live connection status, or scan a time-limited QR code.</p>
+      <a class="mc-wa-action" href="/signin.html?next=%2Fmodel-card.html%23whatsapp-connections">Sign in to connect WhatsApp</a>
+    </div>
+    <div id="mc-wa-manager" hidden>
+      <p>Your authenticated WhatsApp connection manager is shown below. QR codes are scoped to your account and expire automatically.</p>
+      <iframe class="mc-wa-frame" id="mc-wa-frame" data-src="/wa-connections.html" title="Authenticated WhatsApp connection and QR manager"></iframe>
+    </div>
+    <noscript><p>JavaScript is required to open the authenticated WhatsApp connection manager.</p></noscript>
+  </section>
+
+  <script>
+  // R-F3559 — keep the public model card public while mounting the canonical,
+  // owner-scoped QR manager only for a browser that has an ARIA login token.
+  // The iframe URL is stored in data-src so anonymous visits do not request it.
+  (function mountWhatsAppManager() {
+    var token = localStorage.getItem('crucix_token') || '';
+    if (!token) return;
+    var signedOut = document.getElementById('mc-wa-signed-out');
+    var manager = document.getElementById('mc-wa-manager');
+    var frame = document.getElementById('mc-wa-frame');
+    if (!manager || !frame) return;
+    if (signedOut) signedOut.hidden = true;
+    manager.hidden = false;
+    frame.src = frame.dataset.src;
+  })();
+  </script>
 
   <div class="mc-footer">
-    Model card last revised: 29 July 2026 (R-F3405 evidence and disclosure review). Operator: Arkmurus Limited, company number 16028039. Contact <a href="mailto:support@imaria.io">support@imaria.io</a>.
+    Model card last revised: 31 July 2026 (R-F3559 authenticated WhatsApp connection access). Operator: Arkmurus Limited, company number 16028039. Contact <a href="mailto:support@imaria.io">support@imaria.io</a>.
     <br>
     Companion documents: <a href="/about/privacy.html">Privacy policy</a> · <a href="/about/terms.html">Terms of service</a> · <a href="/api/status">Service status</a> · <a href="/account.html">Account &amp; billing</a>
   </div>

@@ -25,11 +25,12 @@ test('audit claims distinguish tamper evidence from truth and service verificati
   assert.doesNotMatch(card, /Every output ARIA produces is appended/);
 });
 
-test('public model card exposes no WhatsApp connection inventory', () => {
+test('public model card exposes no WhatsApp inventory and lazy-loads its authenticated manager', () => {
   assert.doesNotMatch(card, /\/api\/wa-listener\/accounts/);
   assert.doesNotMatch(card, /id="wa-accounts"/);
-  assert.doesNotMatch(card, /\/wa-connections\.html/);
-  assert.match(card, /authenticated administration surfaces/);
+  assert.match(card, /data-src="\/wa-connections\.html"/);
+  assert.doesNotMatch(card, /<iframe[^>]*\ssrc="\/wa-connections\.html"/);
+  assert.match(card, /available only to authenticated users/);
 });
 
 test('public adversarial metric includes its sample size or says it is unavailable', () => {
