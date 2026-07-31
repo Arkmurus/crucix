@@ -68,11 +68,36 @@ def test_the_rf3025_partial_coincidence_is_still_rejected():
         "EFT Consult Ltd", "EFT Consultancy Services Limited") < fr._min_name_match()
 
 
-def test_a_candidate_with_extra_tokens_is_not_penalised_as_a_permutation():
-    """Only a REORDERING is penalised; a superset is a different question that the
-    set score and threshold already answer."""
+def test_a_candidate_with_extra_tokens_in_the_SAME_order_still_identifies():
+    """Extra tokens are the threshold's job, not the order check's — but only when
+    the SHARED tokens keep the subject's order.
+
+    R-F3576 CORRECTED THIS TEST. It previously asserted that any extra-token
+    candidate must not be penalised, which is what let the live defect through: the
+    FCA embeds the postcode in the name field, so the real candidate was
+    "James Wilson (Postcode: BB3 0DB)" — a reversal PLUS three extra tokens. The
+    test encoded the defect as the specification.
+    """
     assert fr._name_match_score(
         "Wilson James Limited", "Wilson James Aviation Limited") >= fr._min_name_match()
+
+
+def test_the_LIVE_candidate_string_is_rejected():
+    """PROVE RED against R-F3574's first cut, which returned 1.000 here and left the
+    accusation in a re-run of the real DD."""
+    assert fr._name_match_score(
+        "Wilson James Limited", "James Wilson (Postcode: BB3 0DB)") < fr._min_name_match()
+
+
+def test_the_same_order_survives_an_embedded_postcode():
+    """The fix must not reject the genuine firm just because FCA appends a postcode."""
+    assert fr._name_match_score(
+        "Wilson James Limited", "Wilson James (Postcode: EC1A 1AA)") >= fr._min_name_match()
+
+
+def test_a_single_distinctive_token_name_cannot_be_a_permutation():
+    """One token has no order to get wrong; penalising it would break ordinary firms."""
+    assert fr._name_match_score("Barclays Bank PLC", "Barclays Bank UK PLC") >= fr._min_name_match()
 
 
 # ── R-F3575 ───────────────────────────────────────────────────────────────────

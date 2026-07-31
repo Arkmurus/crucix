@@ -130,11 +130,27 @@ def _name_match_score(query: str, name: str) -> float:
         return 0.0
     score = len(qd & nd) / len(qd)
     if score >= 1.0:
-        qs, ns = _distinctive_sequence(query), _distinctive_sequence(name)
-        # Only a REORDERING is penalised. A candidate carrying extra distinctive
-        # tokens ("Wilson James Aviation") is a different question, already handled by
-        # the set score and the threshold.
-        if qs and ns and qs != ns and sorted(qs) == sorted(ns):
+        # R-F3576 — COMPARE THE ORDER OF THE SHARED TOKENS, not the whole sequences.
+        #
+        # R-F3574's first cut required `sorted(qs) == sorted(ns)` before treating a
+        # match as a permutation, and it did NOT fix the live defect. The FCA returns
+        # the postcode INSIDE the name field:
+        #     Name = "James Wilson (Postcode: BB3 0DB)"
+        # so the candidate carried three extra tokens (postcode, bb3, 0db), the sets
+        # were not equal, the permutation branch never ran, and the reversed name kept
+        # its perfect 1.000. Re-running the DD on the live build proved the accusation
+        # was still there.
+        #
+        # Worse, I had written a test asserting that extra-token candidates must NOT be
+        # penalised — encoding the defect as the specification. It is corrected, not
+        # relaxed.
+        #
+        # The honest question is only ever: in what ORDER does the candidate present
+        # the tokens the SUBJECT is made of? Extra tokens are irrelevant to that, and
+        # are already the threshold's job.
+        qs = _distinctive_sequence(query)
+        ns_shared = [t for t in _distinctive_sequence(name) if t in set(qs)]
+        if len(qs) > 1 and ns_shared and ns_shared != qs:
             return _PERMUTED_NAME_SCORE
     return score
 
