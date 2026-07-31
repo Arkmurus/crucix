@@ -29361,9 +29361,10 @@
       "title": "lead intake coherence - carry every graded fact, provable trust, operator workflow",
       "claimed_at": "2026-07-31T06:39:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "32611899",
+      "notes": null,
+      "shipped_at": "2026-07-31T07:20:41Z"
     }
   ]
 }
