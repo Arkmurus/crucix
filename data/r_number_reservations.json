@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3570,
+  "next_available": 3571,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29698,9 +29698,10 @@
       "title": "wiring audit: a failure-side sink must SATISFY the failure branch, and aliased wire imports must count",
       "claimed_at": "2026-07-31T14:14:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "29c0100b",
+      "notes": null,
+      "shipped_at": "2026-07-31T14:45:06Z"
     },
     {
       "r_number": "R-F3566",
@@ -29734,6 +29735,15 @@
       "r_number": "R-F3569",
       "title": "systematic register credential sweep - stop relying on incidental capture",
       "claimed_at": "2026-07-31T14:38:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3570",
+      "title": "AIS gap analysis ran on a silently truncated track",
+      "claimed_at": "2026-07-31T14:40:47Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

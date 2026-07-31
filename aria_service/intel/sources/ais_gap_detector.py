@@ -128,16 +128,36 @@ def detect_gaps(
     a debug log; the function never raises on bad input.
     """
     cleaned: list[dict[str, Any]] = []
+    # R-F3570 — COUNT what is discarded. Dropping a malformed position is right; doing
+    # it silently is not. A track that arrives half-corrupt was analysed as though it
+    # were complete, so the caller read "2 gaps" from 50 of 100 positions exactly as it
+    # would from a full track — a gap between two surviving points can also be an
+    # artefact of the points removed between them. An AIS gap is evidence of possible
+    # dark activity, so understating BOTH the coverage and the uncertainty is the
+    # false-clean shape in miniature.
+    _dropped = 0
     for p in positions or []:
         try:
             ts = float(p.get("timestamp"))
             lat = float(p.get("lat"))
             lon = float(p.get("lon"))
         except (TypeError, ValueError):
+            _dropped += 1
             continue
         if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            _dropped += 1
             continue
         cleaned.append({"timestamp": ts, "lat": lat, "lon": lon})
+
+    _submitted = len(positions or [])
+    _track_quality = {
+        "positions_submitted": _submitted,
+        "positions_used": len(cleaned),
+        "positions_dropped": _dropped,
+    }
+    # Only a MATERIAL loss earns a signal — one bad ping in a thousand is noise, and a
+    # signal that fires on everything gets ignored.
+    _degraded = bool(_dropped) and (_dropped / _submitted) >= 0.10 if _submitted else False
 
     if len(cleaned) < 2:
         return {
@@ -146,8 +166,8 @@ def detect_gaps(
             "total_gaps":    0,
             "longest_gap_h": 0.0,
             "score":         0,
-            "signals":       ["insufficient_position_data"]
-                              if len(cleaned) < 2 else [],
+            "signals":       ["insufficient_position_data"],
+            "track_quality": _track_quality,
         }
 
     cleaned.sort(key=lambda x: x["timestamp"])
@@ -190,7 +210,12 @@ def detect_gaps(
             "total_gaps":    0,
             "longest_gap_h": 0.0,
             "score":         0,
-            "signals":       ["no_gaps_detected_within_threshold"],
+            # R-F3570 — this is the CLEAN verdict, so it is where a silently
+            # truncated track does the most damage: "no gaps" from a degraded
+            # track must not read like "no gaps" from a complete one.
+            "signals":       ["no_gaps_detected_within_threshold"]
+                              + (["degraded_track_coverage"] if _degraded else []),
+            "track_quality": _track_quality,
         }
 
     # Score: aggregate suspicion. Cap at 100.
@@ -221,5 +246,6 @@ def detect_gaps(
         "total_gaps":    len(gaps),
         "longest_gap_h": longest["duration_h"],
         "score":         round(score, 1),
-        "signals":       signals,
+        "signals":       signals + (["degraded_track_coverage"] if _degraded else []),
+        "track_quality": _track_quality,
     }

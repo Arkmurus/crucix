@@ -7955,6 +7955,96 @@ async def _multi_query_search(name_for_search: str, target: dict) -> list:
     return merged
 
 
+#: R-F3569 — how many results to take per register. A statutory listing either names
+#: the subject or it does not; asking for more only buys near-duplicates and budget.
+_REGISTER_SWEEP_PER_HOST = 3
+_REGISTER_SWEEP_CONCURRENCY = 3
+
+
+async def _register_credential_sweep(name_for_search: str, target: dict) -> tuple[list, dict]:
+    """R-F3569 — ASK each curated register whether the subject is on it.
+
+    THE GAP THIS CLOSES. R-F3553/R-F3566 promote a register credential only if some
+    OTHER search happened to return that page. The sweeps that run are adverse ones —
+    they query wrongdoing terms — so an SIA Approved Contractor listing or an Armed
+    Forces Covenant signature is surfaced by luck, not by design. A DD that can only
+    find fault by construction is not neutral, and the operator asked for exactly this.
+
+    ONE site-scoped query per register, so cost is bounded and legible: 6 hosts x 3
+    results, run concurrently, each best-effort. A failed register never fails the DD.
+
+    Returns (evidence_rows, meta). The META IS NOT OPTIONAL: an empty result list must
+    be distinguishable from a sweep that never ran, or "no credentials found" becomes an
+    unverified absence — the same false-clean shape this file fights everywhere else.
+    """
+    from . import web_search
+
+    hosts = [h for h in _POSITIVE_REGISTERS if h not in _NOT_A_CREDENTIAL]
+    meta: dict = {"queried": [], "answered": [], "failed": [], "hits": 0,
+                  "framework_version": "R-F3569 register sweep"}
+    if not (name_for_search or "").strip():
+        meta["skipped_reason"] = "no subject name to query"
+        return [], meta
+
+    sem = asyncio.Semaphore(_REGISTER_SWEEP_CONCURRENCY)
+
+    async def _one(host: str):
+        async with sem:
+            try:
+                res = await web_search.search(
+                    f'site:{host} "{name_for_search}"',
+                    max_results=_REGISTER_SWEEP_PER_HOST)
+                return host, (res or []), None
+            except Exception as _e:      # noqa: BLE001 — one register never fails the DD
+                return host, [], _e
+
+    out: list = []
+    seen_urls: set = set()
+    for host, res, err in await asyncio.gather(*[_one(h) for h in hosts]):
+        meta["queried"].append(host)
+        if err is not None:
+            meta["failed"].append(host)
+            logger.debug("[R-F3569] register sweep %s failed: %s", host, err)
+            continue
+        meta["answered"].append(host)
+        for r in res:
+            u = str(getattr(r, "url", "") or "").strip()
+            # A backend can return anything; only keep what is genuinely ON the register.
+            if not u.startswith("http") or host not in u.lower():
+                continue
+            if u in seen_urls:
+                continue
+            seen_urls.add(u)
+            out.append(Evidence(
+                source=str(getattr(r, "title", "") or "")[:300],
+                source_tier="OFFICIAL",
+                url=u,
+                snippet=str(getattr(r, "snippet", "") or "")[:400],
+                retrieved_at=datetime.now(timezone.utc).isoformat(),
+            ))
+    meta["hits"] = len(out)
+
+    try:
+        from .engine_wiring import wire_success, wire_failure
+        if meta["answered"]:
+            wire_success(
+                module="dd_register_sweep",
+                summary=f"{len(meta['answered'])}/{len(hosts)} registers answered, "
+                        f"{len(out)} listing(s) for {name_for_search[:60]}",
+                detail=f"failed={meta['failed']}", entity_name=name_for_search[:80],
+                source_id="dd_orchestrator:R-F3569")
+        else:
+            wire_failure(
+                module="dd_register_sweep",
+                detail=f"NO register answered for {name_for_search[:80]} "
+                       f"({len(hosts)} queried) — positive evidence is unavailable, "
+                       f"not absent",
+                gap_type="source_failure", source="dd_orchestrator:_register_credential_sweep")
+    except Exception:                    # noqa: BLE001
+        pass
+    return out, meta
+
+
 def _coerce_entity_text(raw: object) -> str:
     """R-F3258 — an entity name that reaches the search layer must be a string.
 
@@ -8201,6 +8291,21 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                             len(_primary), _site[:80])
         report.digital.press_coverage = press[:15]
         report.digital.source_tier_breakdown = tier_counts
+        # R-F3569 — ask the registers DIRECTLY. Runs here, in the layer that already
+        # searches: `_run_synthesis` is capped at 10s (see the wait_for at its call
+        # site), so six web queries could never live there.
+        try:
+            _reg_rows, _reg_meta = await _register_credential_sweep(name_for_search, target)
+            report.digital.register_checks = _reg_rows
+            report.digital.register_checks_meta = _reg_meta
+            if _reg_meta.get("failed"):
+                report.digital.data_gaps.append(
+                    "R-F3569: register(s) did not answer — "
+                    f"{', '.join(_reg_meta['failed'])}; positive evidence from these is "
+                    "UNAVAILABLE, not absent"
+                )
+        except Exception as _rs_e:       # noqa: BLE001 — a positive never costs a report
+            logger.debug("[R-F3569] register sweep skipped: %s", _rs_e)
         if _dropped_irrelevant:
             report.digital.data_gaps.append(
                 f"R-F1631: {_dropped_irrelevant} search result(s) excluded as not "
@@ -13041,18 +13146,48 @@ def _positive_source_rows(report) -> list[dict]:
         if u.startswith("http"):
             rows.append({"url": u, "title": str(title or ""), "snippet": str(snippet or "")})
 
+    def _get(obj, *names):
+        """R-F3568 — read a field from EITHER shape.
+
+        THE BUG THIS FIXES, in my own R-F3566, one commit later. `press_coverage` is
+        declared `list[Evidence]` — a DATACLASS — so on the live path every row is an
+        `Evidence`, not a dict. The first cut guarded on `isinstance(_c, dict)` and
+        therefore skipped all of them: a fix for an inert path that was itself inert.
+        Proven: `_positive_source_rows` returned 0 rows for a real `Evidence`.
+
+        It passed 16 tests because I built the fixtures from the SERIALISED report
+        JSON, where the same rows are dicts. Constructed fixtures test what you
+        already believe — the live object was never in the loop. Both shapes are
+        handled here, and the tests now drive the real dataclass.
+        """
+        for n in names:
+            v = obj.get(n) if isinstance(obj, dict) else getattr(obj, n, None)
+            if v:
+                return v
+        return None
+
+    # R-F3569 — the DELIBERATE register checks come first: they are the rows this
+    # scan exists for, where press_coverage only ever carried them by accident.
+    _dig = getattr(report, "digital", None)
+    for _c in (getattr(_dig, "register_checks", None) or []):
+        if _c is None or isinstance(_c, (str, int, float)):
+            continue
+        _add(_get(_c, "url"), _get(_c, "source", "title"), _get(_c, "snippet"))
+
     # Populated DURING the run, so present at synthesis — the fix.
     for _c in (getattr(getattr(report, "digital", None), "press_coverage", None) or []):
-        if isinstance(_c, dict):
-            _add(_c.get("url"), _c.get("source") or _c.get("title"), _c.get("snippet"))
+        if _c is None or isinstance(_c, (str, int, float)):
+            continue
+        _add(_get(_c, "url"), _get(_c, "source", "title"), _get(_c, "snippet"))
 
     # Populated only by the R-F2657 follow-up, so empty at synthesis and real later.
     # Kept so the SAME helper serves both call sites and neither can drift.
     _am = getattr(report, "adverse_media", None) or {}
     if isinstance(_am, dict):
         for _f in (_am.get("findings") or []):
-            if isinstance(_f, dict):
-                _add(_f.get("source_url") or _f.get("url"), _f.get("title"), _f.get("snippet"))
+            if _f is None or isinstance(_f, (str, int, float)):
+                continue
+            _add(_get(_f, "source_url", "url"), _get(_f, "title", "source"), _get(_f, "snippet"))
 
     return rows
 

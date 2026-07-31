@@ -225,3 +225,55 @@ def test_the_followup_call_site_is_reachable_and_correctly_ordered():
         "promotion runs AFTER the surfaces are synced, so the new finding would not "
         "appear in the rendered report"
     )
+
+
+# ── R-F3568: the LIVE object shape, not the serialised one ───────────────────
+#
+# R-F3566 passed 16 tests and was INERT on the live path. `press_coverage` is
+# declared `list[Evidence]` — a dataclass — and the helper guarded on
+# `isinstance(_c, dict)`, so it skipped every real row. The fixtures were built
+# from the SERIALISED report JSON, where the same rows are dicts, so the live
+# object was never in the loop. These tests drive the REAL dataclass.
+
+from aria_service.intel.dd_schema import Evidence  # noqa: E402
+
+
+def _evidence_report(items):
+    return types.SimpleNamespace(
+        digital=types.SimpleNamespace(press_coverage=items), adverse_media={})
+
+
+def test_real_evidence_dataclass_rows_are_read():
+    """PROVE RED against the R-F3566 cut: this returned 0 rows."""
+    rep = _evidence_report([Evidence(
+        source="Acme Security Group Approved Contractor Scheme",
+        url=_SIA, snippet="holds ACS approval")])
+    rows = dd._positive_source_rows(rep)
+    assert len(rows) == 1, "the live Evidence row was skipped — the fix is inert"
+    assert rows[0]["title"] == "Acme Security Group Approved Contractor Scheme"
+    assert rows[0]["url"] == _SIA
+
+
+def test_a_real_evidence_row_promotes_end_to_end():
+    """CAPABILITY on the LIVE shape, not the serialised one."""
+    rows = dd._positive_source_rows(_evidence_report([Evidence(
+        source="Acme Security Group Approved Contractor Scheme",
+        url=_SIA, snippet="holds ACS approval")]))
+    out = dd.positive_register_findings(rows, {"acme", "security"}, as_of="2026-07-31")
+    assert len(out) == 1, "a live register listing was not promoted"
+
+
+def test_evidence_with_no_url_is_skipped_not_crashed():
+    rep = _evidence_report([Evidence(source="No link here", url=None, snippet=None)])
+    assert dd._positive_source_rows(rep) == []
+
+
+def test_both_shapes_work_side_by_side():
+    """The persisted path serialises to dicts; both must keep working."""
+    rep = _evidence_report([
+        Evidence(source="Acme A", url="https://a.example/1", snippet="x"),
+        {"source": "Acme B", "url": "https://b.example/2", "snippet": "y"},
+    ])
+    rows = dd._positive_source_rows(rep)
+    assert {r["url"] for r in rows} == {"https://a.example/1", "https://b.example/2"}
+    assert {r["title"] for r in rows} == {"Acme A", "Acme B"}

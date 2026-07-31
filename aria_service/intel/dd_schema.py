@@ -560,6 +560,14 @@ class DigitalSection:
     web_footprint: dict = field(default_factory=dict)            # from search_multilingual
     people: list[dict] = field(default_factory=list)             # R-F1816: investigated named individuals (deep_researcher recursive person drill-down)
     press_coverage: list[Evidence] = field(default_factory=list)
+    # R-F3569 — POSITIVE register listings, checked deliberately rather than hoped for.
+    # Kept OUT of press_coverage: a statutory register listing is not press, and folding
+    # it in would both mislabel it and inflate the press count the report prints.
+    register_checks: list[Evidence] = field(default_factory=list)
+    # "We asked" and "the source answered" are separate facts (R-F3516). Without this,
+    # an empty `register_checks` cannot be told apart from a sweep that never ran — the
+    # absence-of-evidence trap the DD exists to avoid.
+    register_checks_meta: dict = field(default_factory=dict)
     procurement_history: list[dict] = field(default_factory=list)
     exhibition_presence: list[dict] = field(default_factory=list)
     knowledge_base_hits: list[dict] = field(default_factory=list)  # existing RAG hits
