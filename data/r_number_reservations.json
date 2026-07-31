@@ -29519,9 +29519,10 @@
       "title": "news corroboration: evidence_count derived from independent witnesses so a corroborated tier-2 report can reach Grade A",
       "claimed_at": "2026-07-31T11:00:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "444b33f3",
+      "notes": null,
+      "shipped_at": "2026-07-31T11:59:35Z"
     },
     {
       "r_number": "R-F3548",
@@ -29558,9 +29559,10 @@
       "title": "CI tests the Python production does not run; orjson is an undeclared hard dependency",
       "claimed_at": "2026-07-31T11:22:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "db1d4437",
+      "notes": null,
+      "shipped_at": "2026-07-31T11:59:35Z"
     },
     {
       "r_number": "R-F3552",
@@ -29587,9 +29589,10 @@
       "title": "protobufjs ACE cleared: override the git-pinned libsignal copy to the patched 7.6.5 baileys already uses",
       "claimed_at": "2026-07-31T11:51:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7e9bcd66",
+      "notes": null,
+      "shipped_at": "2026-07-31T11:59:35Z"
     }
   ]
 }
