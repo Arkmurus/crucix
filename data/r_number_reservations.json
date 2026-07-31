@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3552,
+  "next_available": 3553,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29561,6 +29561,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3552",
+      "title": "deploy health check cries wolf when a peer batch ships a descendant",
+      "claimed_at": "2026-07-31T11:33:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f405702c",
+      "notes": null,
+      "shipped_at": "2026-07-31T11:35:24Z"
     }
   ]
 }
