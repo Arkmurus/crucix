@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3571,
+  "next_available": 3573,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29718,32 +29718,55 @@
       "title": "wire the SUCCESS branch of the 15 one-branch intel engines; exempt the wiring machinery itself",
       "claimed_at": "2026-07-31T14:23:51Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9f377182",
+      "notes": null,
+      "shipped_at": "2026-07-31T14:58:13Z"
     },
     {
       "r_number": "R-F3568",
       "title": "R-F3566 was inert on the live path: press_coverage holds Evidence objects, not dicts",
       "claimed_at": "2026-07-31T14:36:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c69e4e0b",
+      "notes": null,
+      "shipped_at": "2026-07-31T14:51:05Z"
     },
     {
       "r_number": "R-F3569",
       "title": "systematic register credential sweep - stop relying on incidental capture",
       "claimed_at": "2026-07-31T14:38:11Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c69e4e0b",
+      "notes": null,
+      "shipped_at": "2026-07-31T14:51:05Z"
     },
     {
       "r_number": "R-F3570",
       "title": "AIS gap analysis ran on a silently truncated track",
       "claimed_at": "2026-07-31T14:40:47Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c69e4e0b",
+      "notes": null,
+      "shipped_at": "2026-07-31T14:51:06Z"
+    },
+    {
+      "r_number": "R-F3571",
+      "title": "one check consumed 3 of 10 key-findings slots - roll-up crowding",
+      "claimed_at": "2026-07-31T14:52:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8f635f41",
+      "notes": null,
+      "shipped_at": "2026-07-31T14:56:37Z"
+    },
+    {
+      "r_number": "R-F3572",
+      "title": "compliance/risk answered LOW for any country not in a hardcoded set, while the curated sanctions engine sat dark",
+      "claimed_at": "2026-07-31T15:06:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

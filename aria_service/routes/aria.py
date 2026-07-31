@@ -19994,7 +19994,36 @@ async def compliance_risk_ep(req: RiskRequest):
         "côte d'ivoire": "CI", "uganda": "UG", "indonesia": "ID", "vietnam": "VN", "colombia": "CO",
         "peru": "PE", "saudi arabia": "SA", "uae": "AE", "united arab emirates": "AE", "jordan": "JO",
     }
-    iso = country_input.upper() if len(country_input) == 2 else NAME_TO_ISO.get(country_input.lower(), country_input.upper()[:2])
+    # ── R-F3572 — AN ISO CODE IS NOT A NAME PREFIX ──────────────────────────
+    #
+    # This was:
+    #     iso = ... else NAME_TO_ISO.get(name, country_input.upper()[:2])
+    # so any country missing from the hand-map got the FIRST TWO LETTERS OF ITS
+    # NAME as its ISO code, and those collide with real codes belonging to other
+    # countries. Measured: "Nepal" -> "NE", which is NIGER, which is in
+    # HIGH_RISK — so Nepal was reported HIGH RISK by name, carrying another
+    # country's verdict. Also "Chile" -> "CH" (Switzerland), "Sweden" -> "SW",
+    # "Portugal" -> "PO", each then classified on a code that is not theirs.
+    #
+    # Resolution order, and NO fallback: the endpoint's own curated map, then the
+    # canonical country_taxonomy resolver. If neither knows the country, the ISO
+    # is UNRESOLVED and set-membership must not be consulted at all — a guessed
+    # code produces a confident verdict about the wrong country, which is worse
+    # than no verdict.
+    if len(country_input) == 2 and country_input.isalpha():
+        iso = country_input.upper()
+    else:
+        iso = NAME_TO_ISO.get(country_input.lower())
+        if not iso:
+            try:
+                from ..intel import country_taxonomy as _ct
+                iso = _ct.to_iso2(country_input)
+            except Exception:
+                _log.debug("[compliance/risk] iso resolution failed", exc_info=True)
+                iso = None
+    # Sentinel that can never match a real ISO2, so the set lookups below are
+    # simply all-miss rather than needing a guard at each one.
+    iso = iso or "??"
 
     EMBARGOED = {"RU","BY","IR","KP","SY","CU","VE","CF","CD","ER","IQ","LY","ML","SO","SS","SD","YE","AF","HT","MM","NI","ZW","CN"}
     HIGH_RISK = {"GW","CM","NE","BF","TD","PK","EG","TR","IN","ET"}
@@ -20013,9 +20042,69 @@ async def compliance_risk_ep(req: RiskRequest):
         regimes = ["Standard licensing"]
         notes = f"{country_input} permits standard defence exports but requires SITCL with end-use certificate."
     else:
-        level, score = "LOW", 20
+        # ── R-F3572 — AN UNLISTED COUNTRY IS UNASSESSED, NOT LOW-RISK ────────
+        #
+        # This branch returned level="LOW", score=20 and the sentence
+        # "{country} is a low-risk destination. Standard export controls apply."
+        # for EVERY country absent from the three hardcoded sets above — which is
+        # most of the world. That is an assertion the endpoint has no basis for:
+        # the sets are a partial hand-list, so "not in the list" means NOT
+        # CHECKED, and it was being rendered as CHECKED AND CLEAR.
+        #
+        # It is user-facing. aria_wa_listener.mjs:1815 puts this straight into a
+        # WhatsApp reply as "🟢 Risk level: LOW", so a defence operator asking
+        # about an uncovered destination was told it was low-risk by name.
+        # That is the false-clean shape the sanctions work exists to prevent.
+        #
+        # UNKNOWN is not a new contract: aria_wa_listener.mjs:1816 already reads
+        # `d.risk_level || d.level || 'UNKNOWN'`, its emoji map already falls
+        # through to ⚪, and server.mjs:3713 emits `risk_level: 'UNKNOWN'` in its
+        # own offline fallback. Every consumer was built for it; this endpoint
+        # simply never sent it.
+        level, score = "UNKNOWN", None
         regimes = []
-        notes = f"{country_input} is a low-risk destination. Standard export controls apply."
+        notes = (
+            f"{country_input} is not covered by ARIA's curated country-sanctions "
+            f"set or its embargo/high-risk lists, so NO risk determination has "
+            f"been made. This is an absence of assessment, not a clean result — "
+            f"check OFSI, the EU consolidated list, UN Security Council measures "
+            f"and the ECJU rating directly before acting."
+        )
+
+    # ── R-F3572 — use the CURATED regimes when we actually hold them ─────────
+    #
+    # intel/country_sanctions.py holds 25 SanctionsRegime records across 11
+    # countries with the real instruments, regime types, exceptions and source
+    # citations, and its docstring calls format_regime_answer "the PRIMARY answer
+    # for 'is [country] under sanctions?' questions". NOTHING CALLED IT — verified
+    # repo-wide, the module was referenced only by its own tests, a gap_type
+    # registry entry and a comment. Meanwhile this endpoint, the live one, served
+    # the generic strings ["UN SC", "EU restrictive measures", "UK OFSI"].
+    #
+    # So the answer is upgraded where the curated data exists, and the hardcoded
+    # sets stay as the floor for the countries it does not cover yet. Additive
+    # only: every existing field keeps its meaning and type.
+    regime_detail: list[dict] = []
+    try:
+        from ..intel import country_sanctions as _cs
+        _curated = _cs.format_regime_answer(country_input)
+    except Exception:
+        _log.debug("[compliance/risk] curated sanctions lookup failed", exc_info=True)
+        _curated = None
+
+    if _curated and _curated.get("found"):
+        regime_detail = _curated.get("regimes") or []
+        # Real instrument citations replace the generic labels.
+        regimes = [
+            f"{(r.get('source') or '').upper()}: {r.get('regime_type', '').replace('_', ' ')}"
+            for r in regime_detail
+        ] or regimes
+        # A curated comprehensive regime or arms embargo outranks the hand-list.
+        if _curated.get("has_comprehensive") or _curated.get("has_arms_embargo"):
+            level, score = "HIGH", max(score or 0, 90)
+        elif _curated.get("has_targeted") and level == "UNKNOWN":
+            level, score = "MEDIUM", 55
+        notes = _curated.get("summary") or notes
 
     return {
         "country": country_input,
@@ -20024,8 +20113,22 @@ async def compliance_risk_ep(req: RiskRequest):
         "level": level,
         "score": score,
         "sanctions_regimes": regimes,
+        # R-F3572 — the curated per-regime records (instruments, exceptions,
+        # citations). Empty when ARIA holds no curated entry for the country,
+        # which is itself the honest signal that the answer is list-based.
+        "regime_detail": regime_detail,
+        "assessed": level != "UNKNOWN",
         "embargoes": ["UN/EU/UK arms embargo"] if iso in EMBARGOED else [],
-        "export_controls": "SITCL + end-user certificate" if level != "LOW" else "Standard SITCL",
+        # R-F3572 — "LOW" is no longer reachable and that is the point: the three
+        # sets above enumerate RISK, never safety, so nothing in this endpoint can
+        # establish that a country IS low-risk. The branch is kept because the
+        # field is part of a contract WhatsApp and the web tier both render, and
+        # a curated low-risk source would legitimately restore it.
+        "export_controls": (
+            "SITCL + end-user certificate" if level in ("HIGH", "MEDIUM")
+            else "Unknown — country not assessed" if level == "UNKNOWN"
+            else "Standard SITCL"
+        ),
         "notes": notes,
         "disclaimer": "Advisory only. Confirm with current Foreign Office guidance and ECJU rating before action.",
     }
