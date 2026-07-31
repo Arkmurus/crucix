@@ -283,3 +283,64 @@ test('R-F3600 unlink actually awaits the dialog before calling the API', async (
   assert.ok(fn.indexOf('await confirmDialog') < fn.indexOf("method: 'DELETE'"),
     'the confirmation must precede the request');
 });
+
+
+// ── R-F3601 — the official-number card ──────────────────────────────────────
+
+function governanceRuntime(official) {
+  const listeners = new Map();
+  const elements = new Map();
+  const mk = (id) => ({
+    id, textContent: '', innerHTML: '', href: '', value: '', disabled: false,
+    style: { display: 'none' }, classList: { add() {}, remove() {} },
+    _attrs: {},
+    setAttribute(k, v) { this._attrs[k] = v; },
+    removeAttribute(k) { delete this._attrs[k]; },
+    addEventListener(t, f) { listeners.set(`${id}:${t}`, f); },
+    closest() { return null; },
+  });
+  const doc = {
+    getElementById(id) { if (!elements.has(id)) elements.set(id, mk(id)); return elements.get(id); },
+    createElement: () => mk('tmp'),
+    querySelectorAll: () => [],
+  };
+  const src = script.slice(script.indexOf('function renderGovernance'), script.indexOf('function updateRiskButton'));
+  const ctx = vm.createContext({
+    console, document: doc, formatTime: () => 'x',
+    governance: { official, linked: { active: false, status: 'not_configured', scopes: [] } },
+    accounts: [],
+  });
+  vm.runInContext(src + '\nrenderGovernance();', ctx, { filename: 'renderGovernance' });
+  return elements;
+}
+
+test('R-F3601 a configured number is SHOWN, not just linked', () => {
+  const els = governanceRuntime({ enabled: true, number: '+351932015591' });
+  assert.equal(els.get('officialNumber').textContent, '+351932015591',
+    'the number never appeared on the page — a user wanting to save the contact '
+    + 'or message from another device had no way to find it');
+  assert.equal(els.get('officialNumber').style.display, '');
+});
+
+test('R-F3601 the button is a real wa.me click-to-chat deep link', () => {
+  const els = governanceRuntime({ enabled: true, number: '+351 932 015 591' });
+  assert.equal(els.get('officialLink').href, 'https://wa.me/351932015591',
+    'wa.me requires digits only — spaces or a leading + break the link');
+});
+
+test('R-F3601 an unconfigured number leaves an INERT control, not a live dead link', () => {
+  const els = governanceRuntime({ enabled: false, number: null });
+  const link = els.get('officialLink');
+  assert.equal(link._attrs['aria-disabled'], 'true');
+  assert.equal(link.style.pointerEvents, 'none',
+    'aria-disabled tells a screen reader the control is unavailable and does '
+    + 'NOTHING to a mouse — the anchor stayed clickable and navigated to "#"');
+  assert.equal(els.get('officialNumber').style.display, 'none');
+});
+
+test('R-F3601 enabled-but-empty is treated as unconfigured', () => {
+  // Trusting `enabled` alone would render "+" and a wa.me link to nowhere.
+  const els = governanceRuntime({ enabled: true, number: '' });
+  assert.equal(els.get('officialLink').style.pointerEvents, 'none');
+  assert.equal(els.get('officialNumber').style.display, 'none');
+});

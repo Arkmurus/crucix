@@ -175,7 +175,14 @@
       <article class="mode-card recommended">
         <div class="mode-label">Recommended</div>
         <h2><i class="bi bi-whatsapp" aria-hidden="true"></i> Message ARIA directly</h2>
-        <p>Use ARIA's official WhatsApp number. ARIA sees only what you deliberately send to her.</p>
+        <p>Send ARIA a WhatsApp message the normal way — she has her own number. Nothing
+           on your phone is linked or read; she sees only the messages you send her.</p>
+        <!-- R-F3601 — SHOW THE NUMBER, not just a button.
+             The button was a wa.me click-to-chat link and worked, but the number
+             itself never appeared anywhere on the page. A user who wants to save
+             the contact, or message her from a different device, had no way to
+             find it — which is exactly how the operator ended up asking. -->
+        <div id="officialNumber" class="governance-status" style="display:none;margin:10px 0;font-weight:600"></div>
         <a id="officialLink" class="btn btn-primary" href="#" aria-disabled="true">Official number unavailable</a>
       </article>
       <article class="mode-card">
@@ -355,10 +362,29 @@
         ? `Linked-device permission active until ${formatTime(governance.linked.expiresAt)}. Scope: ${governance.linked.scopes.join(', ')}.`
         : `Linked-device access is not active (${governance?.linked?.state || 'consent required'}). No QR can be generated.`;
       const official = document.getElementById('officialLink');
-      if (governance?.official?.enabled) {
-        official.textContent = 'Message ARIA on WhatsApp';
-        official.href = 'https://wa.me/' + governance.official.number.replace(/[^0-9]/g, '');
+      const officialNum = document.getElementById('officialNumber');
+      const digits = String(governance?.official?.number || '').replace(/[^0-9]/g, '');
+      if (governance?.official?.enabled && digits) {
+        official.textContent = 'Open WhatsApp chat with ARIA';
+        official.href = 'https://wa.me/' + digits;
         official.removeAttribute('aria-disabled');
+        official.style.pointerEvents = '';
+        // R-F3601 — the number in plain text, selectable and copyable. The
+        // wa.me link only helps on a device that has WhatsApp installed; on a
+        // desktop browser it is the number itself the user needs.
+        officialNum.textContent = '+' + digits;
+        officialNum.style.display = '';
+      } else {
+        // R-F3601 — a DEAD LINK, disarmed. aria-disabled tells a screen reader
+        // the control is unavailable and does nothing whatsoever to a mouse:
+        // the anchor stayed clickable and navigated to "#". Announce it AND
+        // make it inert, or the two disagree.
+        official.textContent = 'Official number not configured';
+        official.href = '#';
+        official.setAttribute('aria-disabled', 'true');
+        official.style.pointerEvents = 'none';
+        official.style.opacity = '0.55';
+        officialNum.style.display = 'none';
       }
     }
 

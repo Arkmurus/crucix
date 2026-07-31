@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3601,
+  "next_available": 3602,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30045,6 +30045,16 @@
       "r_number": "R-F3600",
       "title": "unlink used a raw browser confirm() next to a full modal design system",
       "claimed_at": "2026-07-31T23:01:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "76e39ea9",
+      "notes": null,
+      "shipped_at": "2026-07-31T23:02:26Z"
+    },
+    {
+      "r_number": "R-F3601",
+      "title": "official-number card never shows the number and its disabled state is a live dead link",
+      "claimed_at": "2026-07-31T23:08:28Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
