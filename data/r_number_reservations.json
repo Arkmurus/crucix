@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3546,
+  "next_available": 3548,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29503,6 +29503,25 @@
       "commit_sha": "913e5e07",
       "notes": null,
       "shipped_at": "2026-07-31T10:24:22Z"
+    },
+    {
+      "r_number": "R-F3546",
+      "title": "policy bundle version is not on the document face",
+      "claimed_at": "2026-07-31T10:58:16Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f4aa10f6",
+      "notes": null,
+      "shipped_at": "2026-07-31T11:01:10Z"
+    },
+    {
+      "r_number": "R-F3547",
+      "title": "news corroboration: evidence_count derived from independent witnesses so a corroborated tier-2 report can reach Grade A",
+      "claimed_at": "2026-07-31T11:00:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
