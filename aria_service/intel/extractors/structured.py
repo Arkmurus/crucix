@@ -34,6 +34,60 @@ from urllib.parse import urlparse
 logger = logging.getLogger("aria.extractors.structured")
 
 
+# ── R-F3564 — this extractor was DARK on every failure path ──────────────────
+#
+# THE DEFECT. `extract()` runs six sub-extractors, and every one of them caught
+# Exception, wrote `logger.debug(...)`, and substituted an EMPTY result. §21a is
+# explicit that "logged to console / except: pass" is DARK, not wired — but the
+# real cost is not the missing gate tick, it is what the caller then believes.
+#
+# `researcher.extract_url_deep` feeds these results onto the DD evidence path.
+# `tables = []` after a crash is BYTE-IDENTICAL to `tables = []` from a page that
+# genuinely has no tables. So a broken extractor manufactures an ABSENCE OF
+# EVIDENCE that reads as EVIDENCE OF ABSENCE — the false-clean class the DD
+# product exists to prevent — and nothing anywhere would have said so.
+#
+# Wiring the FAILURE side is cheap and safe: wire_failure is fire-and-forget,
+# deduped 1h (R-F66) and capped at 500 (R-F1669), so a page that breaks on every
+# crawl records once an hour, not once a page. That dedup is why the
+# "wiring this would flood the ledgers" objection — correct for grounding_reward
+# (R-F2033) and cost_tracker (R-F2103) — does not apply here.
+def _part_failed(part: str, exc: Exception) -> None:
+    """One sub-extractor died. Log as before, and TELL THE BRAIN."""
+    logger.debug("[extractors.structured] %s failed: %s", part, exc)
+    try:
+        from ..engine_wiring import wire_failure
+        wire_failure(
+            module="extractors_structured",
+            detail=f"{part} extraction failed: {type(exc).__name__}: {exc}"[:400],
+            gap_type="engine_failure",
+            source="extractors/structured.py",
+        )
+    except Exception:                       # noqa: BLE001
+        pass    # a wiring failure must never break extraction (R-F2149 class)
+
+
+def _run_succeeded(counts: dict) -> None:
+    """Report WHAT WAS ACTUALLY EXTRACTED, as counts.
+
+    The count is the point, not the tick. `wire_success` with no payload cannot
+    distinguish "ran and found 12 tables" from "ran and found nothing", which is
+    the same blindness this R-number is closing — and is exactly the shape
+    docs/wiring_backlog_2026_07_28.md prescribes for a module that deliberately
+    swallows so an outage cannot crash a DD.
+    """
+    try:
+        from ..engine_wiring import wire_success
+        wire_success(
+            module="extractors_structured",
+            summary="structured extraction completed",
+            detail=" ".join(f"{k}={v}" for k, v in sorted(counts.items())),
+            confidence="CONFIRMED",
+        )
+    except Exception:                       # noqa: BLE001
+        pass
+
+
 def _parse_html(html: str):
     """Single-dispatch HTML parser with lxml preferred + html.parser fallback.
 
@@ -328,43 +382,49 @@ def extract(html: str, *, base_url: str = "") -> dict:
 
     soup = _parse_html(html)
     if soup is None:
+        # TOTAL failure — bs4 absent or both parsers rejected the document. The
+        # caller receives the same `empty` dict as a blank page, so this must be
+        # said out loud or the DD records a clean absence it never verified.
+        _part_failed("html_parse", RuntimeError("HTML could not be parsed"))
         return empty
 
     try:
         tables = _extract_tables(soup)
     except Exception as e:
-        logger.debug("[extractors.structured] tables failed: %s", e)
+        _part_failed("tables", e)
         tables = []
 
     try:
         json_ld = _extract_json_ld(soup)
     except Exception as e:
-        logger.debug("[extractors.structured] json_ld failed: %s", e)
+        _part_failed("json_ld", e)
         json_ld = []
 
     try:
         microdata = _extract_microdata(soup)
     except Exception as e:
-        logger.debug("[extractors.structured] microdata failed: %s", e)
+        _part_failed("microdata", e)
         microdata = []
 
     try:
         og, tw, meta_generic = _extract_meta(soup)
     except Exception as e:
-        logger.debug("[extractors.structured] meta failed: %s", e)
+        _part_failed("meta", e)
         og, tw, meta_generic = {}, {}, {}
 
     try:
         schema_types = _extract_schema_types(json_ld, microdata)
-    except Exception:
+    except Exception as e:
+        _part_failed("schema_types", e)
         schema_types = []
 
     try:
         links_outbound = _extract_outbound_links(soup, base_url=base_url)
-    except Exception:
+    except Exception as e:
+        _part_failed("links_outbound", e)
         links_outbound = []
 
-    return {
+    out = {
         "tables": tables,
         "json_ld": json_ld,
         "microdata": microdata,
@@ -374,3 +434,5 @@ def extract(html: str, *, base_url: str = "") -> dict:
         "schema_org": schema_types,
         "links_outbound": links_outbound,
     }
+    _run_succeeded({k: len(v) for k, v in out.items()})
+    return out

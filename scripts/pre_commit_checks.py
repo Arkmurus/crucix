@@ -113,11 +113,20 @@ WIRING_EXEMPT_MODULES = {
     # Pure static analysers over source text handed to them:
     "docker_reviewer", "go_reviewer", "rust_reviewer", "shell_reviewer",
     "sql_reviewer", "ts_js_reviewer", "yaml_reviewer",
-    # "Regex-based fact extractor — zero LLM": text in, facts out.
-    "facts",
-    # "Structured-HTML extractor": parses HTML it is GIVEN; the fetch that
-    # obtained that HTML is the path that carries the wiring.
-    "structured",
+    # R-F3564 — `facts` and `structured` were exempted here as pure transforms and
+    # are now WIRED instead, so the entries are gone. The justification was
+    # "the fetch that obtained that HTML is the path that carries the wiring".
+    # Measured, nothing carried it: BOTH modules re-raise ZERO exceptions —
+    # structured swallows 13 and facts 6, each to a `logger.debug` and an EMPTY
+    # substitute — and researcher.extract_url_deep, the only caller, swallowed the
+    # outer call too. Nothing propagated to any wired frame.
+    #
+    # They are also not pure: they feed the DD evidence path, where `tables = []`
+    # after a crash is byte-identical to `tables = []` from a page with no tables.
+    # A broken extractor therefore manufactured an unverified absence — including
+    # of reg_numbers and ceos — which is the false-clean class the DD exists to
+    # prevent. The purity test in docs/wiring_backlog_2026_07_28.md is "no network,
+    # no try/except"; 13 and 6 try/except blocks fail it.
     # "Name normalisation shared across all sanctions sources": pure string work.
     "normalise",
     # Offline scoring harness for the C-3 corroboration eval — not a live path.

@@ -45,6 +45,45 @@ from typing import Any
 logger = logging.getLogger("aria.extractors.facts")
 
 
+# ── R-F3564 — every extractor failure here was swallowed to a debug log ──────
+#
+# `_try` wraps TEN extractors, among them `_extract_reg_numbers` and
+# `_extract_ceos`. A silent failure in either strips registration numbers or
+# named officers out of a DD, and the report then reads "not found" — a claim
+# nothing verified. The empty list a crash produces is indistinguishable from
+# the empty list a page with no such data produces, so the DD cannot tell the
+# difference and neither could the brain.
+#
+# Failure-side wiring is deduped 1h (R-F66) and capped at 500 (R-F1669), so a
+# systematically broken extractor reports once an hour rather than once a page.
+def _fact_part_failed(part: str, exc: Exception) -> None:
+    logger.debug("[facts] %s failed: %s", part, exc)
+    try:
+        from ..engine_wiring import wire_failure
+        wire_failure(
+            module="extractors_facts",
+            detail=f"{part} extraction failed: {type(exc).__name__}: {exc}"[:400],
+            gap_type="engine_failure",
+            source="extractors/facts.py",
+        )
+    except Exception:                       # noqa: BLE001
+        pass    # wiring must never break extraction
+
+
+def _facts_run_succeeded(counts: dict) -> None:
+    """Report the COUNTS extracted, so "ran and found nothing" is legible."""
+    try:
+        from ..engine_wiring import wire_success
+        wire_success(
+            module="extractors_facts",
+            summary="fact extraction completed",
+            detail=" ".join(f"{k}={v}" for k, v in sorted(counts.items())),
+            confidence="CONFIRMED",
+        )
+    except Exception:                       # noqa: BLE001
+        pass
+
+
 # ── Dates ──────────────────────────────────────────────────────────────────
 # We capture multiple date forms and normalise to ISO (YYYY-MM-DD) where
 # possible. Year-only mentions go into founded/headcount context, not dates.
@@ -558,30 +597,37 @@ def extract(text: str, *, base_url: str = "") -> dict:
     try:
         emails, phones, urls = _extract_contacts(text)
     except Exception as e:
-        logger.debug("[facts] contacts failed: %s", e)
+        _fact_part_failed("contacts", e)
         emails, phones, urls = [], [], []
 
-    def _try(fn, default):
+    def _try(fn, default, field: str):
+        """`field` is the OUTPUT KEY, passed explicitly and not derived from
+        `fn.__name__`. The consumer needs to know WHICH FACT was lost —
+        "reg_numbers" maps to a DD line, an internal function name does not — and
+        a derived name degrades to "<lambda>" the moment the callable is wrapped
+        or swapped, which is exactly when the label matters most."""
         try:
             return fn(text)
         except Exception as e:
-            logger.debug("[facts] %s failed: %s", fn.__name__, e)
+            _fact_part_failed(field, e)
             return default
 
-    return {
-        "dates": _try(_extract_dates, []),
-        "amounts": _try(_extract_amounts, []),
+    out = {
+        "dates": _try(_extract_dates, [], "dates"),
+        "amounts": _try(_extract_amounts, [], "amounts"),
         "emails": emails,
         "phones": phones,
         "urls": urls,
-        "entities": _try(_extract_entity_mentions, []),
-        "founded": _try(_extract_founded, []),
-        "revenue": _try(_extract_revenue, []),
-        "headcount": _try(_extract_headcount, []),
-        "reg_numbers": _try(_extract_reg_numbers, []),
-        "ceos": _try(_extract_ceos, []),
-        "addresses": _try(_extract_addresses, []),
+        "entities": _try(_extract_entity_mentions, [], "entities"),
+        "founded": _try(_extract_founded, [], "founded"),
+        "revenue": _try(_extract_revenue, [], "revenue"),
+        "headcount": _try(_extract_headcount, [], "headcount"),
+        "reg_numbers": _try(_extract_reg_numbers, [], "reg_numbers"),
+        "ceos": _try(_extract_ceos, [], "ceos"),
+        "addresses": _try(_extract_addresses, [], "addresses"),
     }
+    _facts_run_succeeded({k: len(v) for k, v in out.items()})
+    return out
 
 
 def _empty_result() -> dict:

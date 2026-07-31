@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3564,
+  "next_available": 3565,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29678,6 +29678,15 @@
       "r_number": "R-F3563",
       "title": "close the §21a no-wiring tier: 14 modules wired, 14 pure transforms exempted with reasons",
       "claimed_at": "2026-07-31T13:40:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3564",
+      "title": "DD evidence extractors swallow every failure - a broken extractor is indistinguishable from an empty page",
+      "claimed_at": "2026-07-31T14:01:59Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

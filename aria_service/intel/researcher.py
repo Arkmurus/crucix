@@ -38,6 +38,27 @@ from .wire import fail_wire  # R-F1789 §21 brain-wiring
 logger = logging.getLogger("aria.researcher")
 
 
+def _extractor_unavailable(which: str, exc: Exception, url: str = "") -> None:
+    """R-F3564 — a zero-LLM extractor produced nothing; say so.
+
+    These extractors feed the DD evidence path. When one is unavailable the
+    caller keeps its pre-initialised empty lists, which are byte-identical to a
+    genuinely empty page — so without this the run records an unverified absence
+    as though it were a checked one.
+    """
+    try:
+        from .engine_wiring import wire_failure
+        wire_failure(
+            module="researcher",
+            detail=f"{which} extractor unavailable for {url or 'unknown url'}: "
+                   f"{type(exc).__name__}: {exc}"[:400],
+            gap_type="source_failure",
+            source="researcher.extract_url_deep",
+        )
+    except Exception:                       # noqa: BLE001
+        pass
+
+
 def _search_hit_to_dict(hit: Any) -> dict:
     """Normalize web-search hits at DD/research boundaries.
 
@@ -3348,7 +3369,13 @@ async def extract_url_deep(url: str, max_pages: int = 5, timeout: float = 15.0) 
                 }
                 extractor_schema_types = s_out.get("schema_org", [])
             except Exception as _e:
+                # R-F3564 — the OUTER swallow. structured.extract() wires its own
+                # per-part failures, but if the whole call dies (or the module is
+                # absent) nothing inside it runs, so this branch is the only place
+                # the loss can be reported. Silence here left the DD evidence path
+                # with empty tables/schema and no reason recorded.
                 logger.debug("structured extractor failed: %s", _e)
+                _extractor_unavailable("structured", _e, url)
         # facts.extract runs over the aggregated TEXT across all pages
         # — more signal than single-page since /about/team/contact
         # often each carry a different fragment of the company story.
@@ -3356,8 +3383,12 @@ async def extract_url_deep(url: str, max_pages: int = 5, timeout: float = 15.0) 
             extractor_facts = _facts.extract(full_text, base_url=url)
         except Exception as _e:
             logger.debug("facts extractor failed: %s", _e)
-    except ImportError:
-        pass  # extractors package not deployed — graceful degrade
+            _extractor_unavailable("facts", _e, url)
+    except ImportError as _ie:
+        # "extractors package not deployed" is a DEPLOY defect, not a graceful
+        # degrade: every crawl silently loses reg numbers, officers and tables.
+        # Degrading gracefully is right; degrading SILENTLY is what this fixes.
+        _extractor_unavailable("extractors_package", _ie, url)
 
     # ── Track C: auto-ingest to RAG so future turns don't re-crawl ──
     # Behind ARIA_DEEP_EXTRACT_AUTO_INGEST env var (default ON). When
