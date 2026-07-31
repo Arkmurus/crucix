@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3538,
+  "next_available": 3541,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29420,6 +29420,34 @@
       "r_number": "R-F3537",
       "title": "GREEN banner rendered over a NOT CLEARED assessment",
       "claimed_at": "2026-07-31T08:59:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3538",
+      "title": "DD assessment wording assumes a contracting purpose",
+      "claimed_at": "2026-07-31T09:08:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "26f74b19",
+      "notes": null,
+      "shipped_at": "2026-07-31T09:13:12Z"
+    },
+    {
+      "r_number": "R-F3539",
+      "title": "directors counted as beneficial owners - ownership scorecard answered YES on officers",
+      "claimed_at": "2026-07-31T09:16:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3540",
+      "title": "OFAC diff read from the working canonical store; credential-less source surfaced not skipped; provenance derived from the registry",
+      "claimed_at": "2026-07-31T09:19:46Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

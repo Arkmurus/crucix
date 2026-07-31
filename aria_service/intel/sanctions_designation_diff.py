@@ -72,6 +72,7 @@ def _record_id(source: str, rec: dict) -> str:
 # citation at all.
 _SOURCE_LABELS: dict[str, str] = {
     "ofac": "OFAC SDN",
+    "canon:ofac_sdn": "OFAC SDN",
     "un": "UN Security Council",
     "fcdo": "UK FCDO",
     "worldbank": "World Bank Debarment",
@@ -79,6 +80,7 @@ _SOURCE_LABELS: dict[str, str] = {
 }
 _SOURCE_CITATIONS: dict[str, str] = {
     "ofac": "https://sanctionssearch.ofac.treas.gov/",
+    "canon:ofac_sdn": "https://sanctionssearch.ofac.treas.gov/",
     "un": "https://www.un.org/securitycouncil/sanctions/information",
     "fcdo": "https://www.gov.uk/government/publications/financial-sanctions-consolidated-list-of-targets",
     "worldbank": "https://www.worldbank.org/en/projects-operations/procurement/debarred-firms",
@@ -104,11 +106,21 @@ async def _loaders() -> list[tuple[str, Callable]]:
     """(source, full-list loader). Imported lazily so a broken source module can't
     break this module's import."""
     out: list[tuple[str, Callable]] = []
-    try:
-        from .sources import ofac_sdn
-        out.append(("ofac", ofac_sdn._load_records))
-    except Exception:
-        logger.debug("[%s] ofac_sdn unavailable", _MODULE, exc_info=True)
+    # R-F3540 — OFAC comes from the CANONICAL STORE, not the legacy live loader.
+    #
+    # Verified against the live box 2026-07-31: the legacy loader's feed is dead.
+    #   https://www.treasury.gov/ofac/downloads/sdn.xml
+    #     -> 302 -> sanctionslistservice.ofac.treas.gov/.../sdn.xml -> 403
+    #   https://www.treasury.gov/ofac/downloads/sdn_enhanced.xml -> 404
+    # so `_load_records()` returned 0 records, the dead-fetch guard skipped the
+    # source every run ("unhealthy_fetch", count 0), and the world's most
+    # important sanctions list was NOT being watched for new designations at all.
+    #
+    # The canonical ingest reaches OFAC successfully and independently: 18,959
+    # rows loaded OK at 04:12 today and daily before that (refresh_log). It is
+    # already the screening floor (R-F3529), so the diff now reads the same store
+    # the screen trusts instead of a second, broken fetch of the same list.
+    # `canon:ofac_sdn` baselines silently on its first run and watches from then on.
     try:
         from .sources import un_sc_sanctions
         out.append(("un", un_sc_sanctions._load_records))
@@ -126,17 +138,15 @@ async def _loaders() -> list[tuple[str, Callable]]:
     # designation could never become intel. Enumerating the store means a regime
     # added there is watched automatically rather than needing a second edit here.
     #
-    # `ofac_sdn` is deliberately SKIPPED: it is the same regime as the live "ofac"
-    # loader above under a different id scheme, and adding it would both duplicate
-    # every US alert and, on its first run, baseline 18,959 rows as a separate
-    # source. Each NEW source baselines silently on its first run (`prior is None`
-    # emits nothing), which is exactly why adding lists here is safe.
+    # R-F3540 corrected R-F3534 here: `ofac_sdn` was excluded to avoid duplicating
+    # the legacy live "ofac" loader, but that loader's feed turned out to be dead
+    # (see the note above), so the exclusion left OFAC watched by NOTHING. The
+    # legacy loader is gone and the canonical row set is the single OFAC watcher.
+    # Each NEW source baselines silently on its first run (`prior is None` emits
+    # nothing), which is exactly why adding lists here is safe.
     try:
         from .sanctions_canonical import store as _canon
-        _already = {"ofac_sdn"}
         for src in _canon.list_sources():
-            if src in _already:
-                continue
             out.append((f"canon:{src}", _make_canonical_loader(_canon, src)))
     except Exception:
         logger.debug("[%s] canonical store unavailable", _MODULE, exc_info=True)
@@ -144,12 +154,47 @@ async def _loaders() -> list[tuple[str, Callable]]:
     # World Bank debarment: not a sanctions regime, but for a defence/procurement
     # customer a newly debarred supplier is the same decision — do not bid, do not
     # contract. It is global by construction (every Bank-financed project).
+    #
+    # R-F3540 — registered ONLY when its credential is present. Verified live
+    # 2026-07-31: without WORLDBANK_SUBSCRIPTION_KEY the API answers HTTP 401, the
+    # loader returns an empty cache, and the dead-fetch guard logged
+    # "unhealthy_fetch" plus a wire_failure on EVERY run — an operator-pending
+    # credential rendered as a recurring engine fault. A source we have chosen not
+    # to pay for is not a failure; it is an absent source, and it is surfaced as
+    # such by `missing_credentials()` instead of crying wolf hourly.
     try:
         from .sources import worldbank_debarred
-        out.append(("worldbank", worldbank_debarred._load_records))
+        if worldbank_debarred._subscription_key():
+            out.append(("worldbank", worldbank_debarred._load_records))
+        else:
+            logger.debug("[%s] worldbank_debarred skipped — %s not set",
+                         _MODULE, worldbank_debarred._API_KEY_ENV)
     except Exception:
         logger.debug("[%s] worldbank_debarred unavailable", _MODULE, exc_info=True)
     return out
+
+
+def missing_credentials() -> list[dict]:
+    """Sources this lane COULD watch but cannot, and the exact operator action.
+
+    Surfaced rather than silently skipped: an absent list is a coverage gap the
+    operator must be able to see and price, not something the lane quietly
+    pretends does not exist (§18/§19e).
+    """
+    gaps: list[dict] = []
+    try:
+        from .sources import worldbank_debarred
+        if not worldbank_debarred._subscription_key():
+            gaps.append({
+                "source": "worldbank",
+                "label": source_label("worldbank"),
+                "env_var": worldbank_debarred._API_KEY_ENV,
+                "detail": "World Bank debarment API returns HTTP 401 without a "
+                          "subscription key; newly debarred suppliers are not watched.",
+            })
+    except Exception:
+        pass
+    return gaps
 
 
 def _make_canonical_loader(canon_store, source: str) -> Callable:

@@ -285,7 +285,7 @@ def _finding_dedup_key(finding: dict) -> str:
     ])
 
 
-def _normalize_finding_to_signal(finding: dict) -> dict | None:
+def _normalize_finding_to_signal(finding: dict, *, source_name: str = "") -> dict | None:
     """Package one authoritative finding into the exact news_monitor signal schema.
 
     Returns None only if the finding lacks the minimum to be a signal at all
@@ -363,7 +363,19 @@ def _normalize_finding_to_signal(finding: dict) -> dict | None:
         "published": _clean(finding.get("published")),
         "detected_at": detected_at,
         "promoted_by": _MODULE,
-        "promotion_source": _clean(finding.get("source_key") or finding.get("source")),
+        # R-F3540 — provenance is DERIVED from the registry, not hand-set per
+        # adapter. It was `finding.source_key or finding.source`, and only two of
+        # the registered adapters set `source_key`, so 69 of 100 live signals had
+        # NO attributable producer: when a bad signal reaches a customer there was
+        # no way to tell which adapter emitted it. `register_adapter(name, fn)`
+        # already knows the name and `promote_findings` already receives it — it
+        # simply was not carried the last hop into the signal. A new adapter is now
+        # attributable by construction rather than by remembering to stamp a field.
+        "promotion_source": (
+            _clean(finding.get("source_key"))
+            or _clean(source_name)
+            or _clean(finding.get("source"))
+        ),
         "entities": entities,
         "evidence": {
             "source": source,
@@ -428,7 +440,7 @@ async def promote_findings(findings: list[dict], *, source_name: str) -> dict:
         # Per-finding guard: a single malformed finding (esp. from the external
         # ingest boundary) must never abort the pass or drop other drained items.
         try:
-            signal = _normalize_finding_to_signal(finding)
+            signal = _normalize_finding_to_signal(finding, source_name=source_name)
         except Exception as exc:
             result["invalid"] += 1
             logger.warning("[%s] normalize failed (%s): %s", _MODULE, source_name, exc)

@@ -240,3 +240,37 @@ def test_an_empty_watchlist_is_reported_as_empty_not_as_no_match():
         "have not told ARIA what they care about"
     )
     assert "window._wlMatcherSize" in html
+
+
+# ── R-F3540 — provenance is derived, not hand-set ────────────────────────────
+
+
+def test_every_signal_is_attributable_to_the_adapter_that_produced_it():
+    """69 of 100 live signals had NO attributable producer.
+
+    `promotion_source` fell back to `finding.source_key`, which only two of the
+    registered adapters set. `register_adapter(name, fn)` already knows the name
+    and `promote_findings` already receives it — it simply was not carried the
+    last hop into the signal, so when a bad signal reached a customer there was
+    no way to tell which adapter emitted it.
+    """
+    from aria_service.intel.golden_intel_bridge import _normalize_finding_to_signal as norm
+    finding = {
+        "title": "Entity designated", "signal_type": "sanctions_change",
+        "why_it_matters": "why", "recommended_action": "act",
+        "evidence_url": "https://sanctionssearch.ofac.treas.gov/",
+        "source": "OFAC SDN designation",
+    }
+    assert norm(dict(finding), source_name="sanctions_diff")["promotion_source"] == "sanctions_diff"
+    # an adapter that DOES stamp its own key keeps it
+    assert norm(dict(finding, source_key="explicit"), source_name="sanctions_diff")["promotion_source"] == "explicit"
+    # and with neither, it still degrades to something rather than None
+    assert norm(dict(finding))["promotion_source"] == "OFAC SDN designation"
+
+
+def test_the_adapter_name_is_threaded_from_the_registry_to_the_signal():
+    """Guard the CARRIER, not just the helper — the last hop was the defect."""
+    src = (_REPO / "aria_service" / "intel" / "golden_intel_bridge.py").read_text(encoding="utf-8")
+    assert "_normalize_finding_to_signal(finding, source_name=source_name)" in src, (
+        "the adapter name is known at the call site and still not passed on"
+    )

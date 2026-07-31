@@ -52,18 +52,47 @@ def test_loaders_cover_every_regime_the_canonical_store_holds(monkeypatch):
     assert "canon:eu_consolidated" in sources, (
         "the EU consolidated list is in ARIA's own store and still unwatched"
     )
-    assert "worldbank" in sources, "a newly debarred supplier is the same decision as a designation"
-    for legacy in ("ofac", "un", "fcdo"):
+    assert "canon:ofac_sdn" in sources, "OFAC — the most important list — is unwatched"
+    for legacy in ("un", "fcdo"):
         assert legacy in sources, f"{legacy} coverage was dropped"
 
 
-def test_ofac_is_not_watched_twice_under_two_id_schemes(monkeypatch):
-    """canon:ofac_sdn would duplicate every US alert AND baseline 18,959 rows."""
+def test_ofac_is_watched_exactly_once_and_via_the_working_fetch(monkeypatch):
+    """R-F3540 — corrected on live evidence.
+
+    R-F3534 excluded canon:ofac_sdn to avoid duplicating the legacy live `ofac`
+    loader. Probing the box showed that loader's feed is DEAD —
+    treasury.gov/ofac/downloads/sdn.xml 302s to a 403 and sdn_enhanced.xml 404s —
+    so it returned 0 records and the dead-fetch guard skipped OFAC on every run.
+    The exclusion meant OFAC was watched by nothing at all. The canonical ingest
+    reaches OFAC fine (18,959 rows loaded OK daily), so the diff reads that.
+    """
     from aria_service.intel.sanctions_canonical import store as canon
     monkeypatch.setattr(canon, "list_sources", lambda: ["ofac_sdn", "eu_consolidated"])
     sources = [s for s, _ in _run(sdd._loaders())]
-    assert "canon:ofac_sdn" not in sources
-    assert sum(1 for s in sources if "ofac" in s) == 1
+    assert sum(1 for s in sources if "ofac" in s) == 1, "OFAC is watched twice or not at all"
+    assert "ofac" not in sources, "the dead legacy OFAC loader is still registered"
+
+
+def test_a_credential_less_source_is_surfaced_not_silently_skipped(monkeypatch):
+    """R-F3540 — World Bank answers 401 without a key. Registering it anyway made
+    the lane log an 'unhealthy_fetch' failure every single run for a source we
+    have simply not paid for. An absent source is a coverage gap, not a fault."""
+    from aria_service.intel.sources import worldbank_debarred as wb
+    monkeypatch.setattr(wb, "_subscription_key", lambda: "")
+    sources = [s for s, _ in _run(sdd._loaders())]
+    assert "worldbank" not in sources, "a source that cannot authenticate is still registered"
+
+    gaps = sdd.missing_credentials()
+    assert any(g["env_var"] == "WORLDBANK_SUBSCRIPTION_KEY" for g in gaps), (
+        "the missing credential is invisible to the operator"
+    )
+
+    monkeypatch.setattr(wb, "_subscription_key", lambda: "a-key")
+    assert "worldbank" in [s for s, _ in _run(sdd._loaders())], (
+        "the source does not come back when the credential is provided"
+    )
+    assert sdd.missing_credentials() == []
 
 
 def test_a_new_source_baselines_silently_instead_of_flooding(monkeypatch):

@@ -2093,6 +2093,51 @@ def _is_subject_node(h) -> bool:
     return False
 
 
+#: R-F3539 — roles that are NOT ownership, however they reach a holder list.
+#:
+#: THE CATEGORY ERROR. `network_walker.walk_ubo_chain` is named for ownership but its own
+#: docstring describes a DIRECTORSHIP walk: "fetch the entity's officers/directors → screen
+#: each officer → for each officer, fetch their OTHER corporate appointments → recurse".
+#: Every node it emits carries role "director" or "cross_linked". Not one is an ownership
+#: relationship, yet `ubo_chain` is one of the three sources the ownership gate consults,
+#: and the holder test excluded only the SUBJECT — so a company's own directors satisfied
+#: "Ownership and control: ANSWERED".
+#:
+#: Observed on four consecutive delivered reports. On Bidvest Noonan (dd_75d996233394) the
+#: corporate PSC Crane Midco Limited (06648599) was never traversed to its own parent,
+#: while four people who are CRANE MIDCO'S OFFICERS were listed as traversed parties and
+#: counted as holders. R-F3027 saw this exact thing — its comment reads "what the report
+#: called a 3-deep UBO chain was the subject plus its two DIRECTORS, who are not beneficial
+#: owners at all" — and fixed one symptom (untraversed controllers) without removing the
+#: category error underneath.
+#:
+#: A directorship is not ownership. Someone who runs a company may own none of it, and
+#: someone who owns all of it may hold no office. Answering an OWNERSHIP question with
+#: OFFICER names is a misrepresentation of the evidence, not merely a display bug.
+#:
+#: EXCLUSION, NOT ALLOW-LIST, and deliberately so: PSC entries arrive from
+#: `identity.shareholders` (Companies House `psc`) often carrying no `role` at all, and an
+#: allow-list would silently discard genuine owners — trading a false ANSWERED for a false
+#: UNANSWERED. Only relationships PROVEN not to be ownership are removed.
+_NON_OWNERSHIP_ROLE_MARKERS = ("director", "secretary", "officer", "cross_linked",
+                               "cross-linked", "appointment", "manager")
+
+
+def _is_non_ownership_node(h) -> bool:
+    """True when this node's relationship to the subject is not one of OWNERSHIP.
+
+    Checks `role` only. A PSC `kind` such as
+    "corporate-entity-person-with-significant-control" contains none of these markers and
+    is therefore never excluded.
+    """
+    if not isinstance(h, dict):
+        return False
+    role = str(h.get("role") or "").strip().lower()
+    if not role:
+        return False          # unknown relationship — do NOT assume it is a directorship
+    return any(m in role for m in _NON_OWNERSHIP_ROLE_MARKERS)
+
+
 def _named_holders(holders) -> list[str]:
     """R-F3463 — the holder names that satisfy `_has_named_holder`, for DISPLAY.
 
@@ -2111,6 +2156,8 @@ def _named_holders(holders) -> list[str]:
         return out
     for h in holders:
         if _is_subject_node(h):
+            continue
+        if _is_non_ownership_node(h):     # R-F3539 — a director is not an owner
             continue
         name = h.get("name") if isinstance(h, dict) else h
         if isinstance(name, str) and len(name.strip()) >= 2 and _substantive_value(name):
@@ -2131,6 +2178,8 @@ def _has_named_holder(holders) -> bool:
     for h in holders:
         if _is_subject_node(h):
             continue                     # the subject is not evidence of its own ownership
+        if _is_non_ownership_node(h):    # R-F3539 — nor are its directors/officers
+            continue
         name = h.get("name") if isinstance(h, dict) else h
         if isinstance(name, str) and len(name.strip()) >= 2 and _substantive_value(name):
             return True
