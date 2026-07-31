@@ -49,7 +49,24 @@ function managerRuntime() {
   const context = vm.createContext({
     console,
     document: {
-      getElementById(id) { return elements.get(id); },
+      // R-F3593 — MINT ON DEMAND instead of enumerating ids.
+      //
+      // The fixed list rotted twice in one session: R-F3578 added six governance
+      // ids and R-F3593 added eight binding ids, and each time an id the page
+      // queried returned undefined, so `.addEventListener` threw at SCRIPT LOAD
+      // and every assertion below became unreachable. The test was failing on the
+      // stub's incompleteness, never on the behaviour it guards.
+      getElementById(id) {
+        if (!elements.has(id)) {
+          elements.set(id, {
+            id, value: '', textContent: '', innerHTML: '', disabled: false,
+            style: { display: 'none' }, classList: { add() {}, remove() {} },
+            addEventListener(type, fn) { listeners.set(`${id}:${type}`, fn); },
+            closest() { return null; },
+          });
+        }
+        return elements.get(id);
+      },
       createElement() { return { textContent: '', innerHTML: '' }; },
       // R-F3578 review — the governance UI reads the risk/scope checkboxes at
       // load time (wa-connections.html:554). Without this the whole script

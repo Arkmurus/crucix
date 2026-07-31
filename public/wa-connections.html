@@ -185,6 +185,28 @@
       </article>
     </section>
 
+    <!-- R-F3593 — verify THIS handset against your ARIA account.
+         Distinct from the linked-device flow above: that one lets ARIA read YOUR
+         WhatsApp; this one proves who is TALKING to ARIA's own number, so
+         verified-only mode can be turned on without locking anyone out. -->
+    <section id="bindPanel" class="risk-panel">
+      <h2>Verify my handset with ARIA</h2>
+      <p>ARIA only engages people she can identify. Generate a code here, then send
+         it to ARIA on WhatsApp <strong>from the handset you want to verify</strong>.
+         Being signed in proves the account; sending the code proves the phone.</p>
+      <div id="bindStatus" class="governance-status">Checking…</div>
+      <div class="risk-actions">
+        <button id="bindCodeBtn" class="btn btn-primary">Generate my link code</button>
+        <button id="bindRefreshBtn" class="btn">Refresh status</button>
+        <button id="unbindBtn" class="btn btn-danger" style="display:none">Unlink this handset</button>
+      </div>
+      <div id="bindCodeBox" style="display:none;margin-top:14px;padding:14px;border:1px dashed #25d366;border-radius:10px;background:#f7fff9">
+        <div style="font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:#57534b">Send this to ARIA on WhatsApp</div>
+        <div id="bindCode" style="font-size:2rem;font-weight:700;letter-spacing:.35em;margin:6px 0">------</div>
+        <div id="bindExpiry" style="font-size:.8rem;color:#57534b"></div>
+      </div>
+    </section>
+
     <section id="riskPanel" class="risk-panel">
       <h2>Important information before linking ARIA</h2>
       <p>This mode is optional, unsupported by WhatsApp, time-limited to 30 days and revocable. ARIA cannot guarantee continuity or intercept native-app messages before they are sent.</p>
@@ -553,6 +575,63 @@
 
     document.querySelectorAll('input[name="scope"],input[name="risk"]').forEach((box) => box.addEventListener('change', updateRiskButton));
     document.getElementById('acceptRiskBtn').addEventListener('click', acceptLinkedRisk);
+
+    // ── R-F3593 — handset verification ────────────────────────────────────
+    // The code is shown ONLY to the session that requested it, and the server
+    // never returns one it failed to store (R-F3587) — a code the listener does
+    // not hold could never be honoured, and the user would conclude ARIA is
+    // broken rather than that the request failed.
+    async function refreshBinding() {
+      const box = document.getElementById('bindStatus');
+      try {
+        const d = await apiFetch('/api/wa/binding');
+        const bound = Boolean(d && d.bound);
+        document.getElementById('unbindBtn').style.display = bound ? '' : 'none';
+        box.textContent = bound
+          ? `Verified — this account is linked to ${d.identityCount} handset identifier(s) since ${formatTime(d.boundAt)}.`
+          : (d && d.pairingPending
+              ? `Code issued and waiting. Send it to ARIA on WhatsApp before ${formatTime(d.pairingExpiresAt)}.`
+              : 'Not verified yet. Generate a code below.');
+      } catch (e) {
+        // Never claim "not verified" when the check itself failed — that would
+        // read as a security state we did not actually observe.
+        box.textContent = `Could not check verification status: ${e.message}`;
+      }
+    }
+
+    async function generateBindCode() {
+      const btn = document.getElementById('bindCodeBtn');
+      btn.disabled = true;
+      try {
+        const d = await apiFetch('/api/wa/binding/code', { method: 'POST' });
+        document.getElementById('bindCode').textContent = d.code;
+        document.getElementById('bindExpiry').textContent =
+          `Expires ${formatTime(d.expiresAt)} · single use`;
+        document.getElementById('bindCodeBox').style.display = '';
+        await refreshBinding();
+      } catch (e) {
+        showError(`Could not generate a link code: ${e.message}`);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function unbindHandset() {
+      if (!confirm('Unlink this handset? ARIA will stop responding to it once verified-only mode is on.')) return;
+      try {
+        await apiFetch('/api/wa/binding', { method: 'DELETE' });
+        document.getElementById('bindCodeBox').style.display = 'none';
+        await refreshBinding();
+      } catch (e) {
+        showError(`Could not unlink: ${e.message}`);
+      }
+    }
+
+    document.getElementById('bindCodeBtn').addEventListener('click', generateBindCode);
+    document.getElementById('bindRefreshBtn').addEventListener('click', refreshBinding);
+    document.getElementById('unbindBtn').addEventListener('click', unbindHandset);
+    refreshBinding();
+
     document.getElementById('pauseBtn').addEventListener('click', () => changeLinkedState('pause'));
     document.getElementById('revokeBtn').addEventListener('click', () => changeLinkedState('revoke'));
 

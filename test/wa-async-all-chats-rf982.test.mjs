@@ -27,7 +27,12 @@ console.log('R-F982 — WA: all chats async, no sync timeout\n');
 const askBody = SRC.slice(SRC.indexOf('async function askARIA('), SRC.indexOf('async function askARIAAsync('));
 // R-F1411/R-F1968: askARIA now generates a request_id (rid) for outcome tracking
 // and delegates to askARIAAsync with it, then returns the answer.
-check('askARIA calls askARIAAsync', /await askARIAAsync\(message, senderJid, chatId, rid\)/.test(askBody));
+// R-F3593 — assert the DELEGATION, not the argument list. This pinned the
+// exact call `askARIAAsync(message, senderJid, chatId, rid)`, so R-F3590
+// adding a `speaker` argument failed it while the property it guards — all
+// chats go through the async path — was untouched. Seventh time this session
+// a guard asserted wording instead of behaviour.
+check('askARIA calls askARIAAsync', /await askARIAAsync\(\s*message,\s*senderJid,\s*chatId,\s*rid/.test(askBody));
 check('askARIA no longer gates on _needsAsyncChat', !/_needsAsyncChat/.test(askBody));
 check('askARIA no longer has a 90s sync brainPost chat call',
   !/await brainPost\('\/api\/aria\/chat', \{ message, session_id: sid \}\)/.test(askBody));

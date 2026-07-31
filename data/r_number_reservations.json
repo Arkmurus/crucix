@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3593,
+  "next_available": 3594,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29965,6 +29965,16 @@
       "r_number": "R-F3592",
       "title": "a question about the current time routed to a web search: the server holds the clock",
       "claimed_at": "2026-07-31T21:43:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d2c46426",
+      "notes": null,
+      "shipped_at": "2026-07-31T21:58:08Z"
+    },
+    {
+      "r_number": "R-F3593",
+      "title": "binding UI: let a signed-in user link their handset so verified-only can be enabled safely",
+      "claimed_at": "2026-07-31T22:04:28Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
