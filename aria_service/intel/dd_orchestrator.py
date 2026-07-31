@@ -13043,7 +13043,19 @@ def positive_register_findings(sources, subject_tokens: set, *, as_of: str = "")
         url = str(s.get("url") or s.get("source_url") or "").strip()
         if not url.startswith("http"):
             continue
-        host = urlparse(url).netloc.lower()
+        # R-F3575 — NORMALISE THE HOST. The curated keys are bare
+        # ("services.sia.homeoffice.gov.uk") and the real world serves `www.`.
+        #
+        # LIVE (dd_acaee511f0f4, Wilson James Limited): the R-F3569 sweep found the
+        # genuine SIA Approved Contractor listing and every hit came back as
+        # `www.services.sia.homeoffice.gov.uk`, so the exact-key lookup missed all four
+        # and ZERO credentials were promoted. The sweep tolerated the prefix (it does a
+        # substring containment check) while the consumer demanded an exact key — the
+        # two halves disagreed about what a host is, and the half that decides what the
+        # reader sees was the strict one. A port is stripped for the same reason.
+        host = urlparse(url).netloc.lower().split(":")[0]
+        if host.startswith("www."):
+            host = host[4:]
         if host in _NOT_A_CREDENTIAL:
             continue
         spec = _POSITIVE_REGISTERS.get(host)

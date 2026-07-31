@@ -80,16 +80,63 @@ _GENERIC_FIRM_TOKENS = frozenset({
 })
 
 
+def _distinctive_sequence(text: str) -> list[str]:
+    """R-F3574 — the distinctive tokens IN ORDER, which the set score discards."""
+    seen: set = set()
+    out: list[str] = []
+    import re
+    for tok in (t for t in re.split(r"[^a-z0-9]+", (text or "").lower()) if t):
+        if tok in _GENERIC_FIRM_TOKENS or tok in seen:
+            continue
+        seen.add(tok)
+        out.append(tok)
+    return out
+
+
+#: R-F3574 — a permutation of the same tokens is capped here: below the 0.75
+#: identification threshold, but still above _MIN_NAME_MATCH_CORROBORATED (0.34), so a
+#: matching postcode can still identify a firm whose name is merely written differently.
+_PERMUTED_NAME_SCORE = 0.5
+
+
 def _name_match_score(query: str, name: str) -> float:
     """Distinctive-token overlap of the query firm name against a candidate row.
     Ignores generic corporate suffixes so 'Schroder ...' beats a same-suffix
-    stranger. 0.0 == no distinctive overlap (probably a different firm)."""
+    stranger. 0.0 == no distinctive overlap (probably a different firm).
+
+    R-F3574 — ORDER IS PART OF IDENTITY, and a set intersection throws it away.
+
+    LIVE (dd_acaee511f0f4, Wilson James Limited, reg 02269560, a London security
+    contractor): the report carried an AMBER finding reading "FCA Register: James
+    Wilson (Postcode: BB3 0DB) — No longer registered as an Appointed Representative
+    (FRN 806769). NOT currently authorised — verify before any regulated dealing."
+    James Wilson is an individual in Blackburn. The subject is a company in London.
+
+    R-F3025's threshold could not catch it. `{wilson, james} & {james, wilson}` is the
+    FULL set, so the score was 1.000 — a perfect identification of a reversed name.
+    The gate was working exactly as designed and the measure underneath it was blind.
+
+    Reversal is not a spelling variant: "Wilson James Ltd" and "James Wilson Ltd" are
+    routinely different companies, and for person-style names the order IS the name.
+    So a permutation scores `_PERMUTED_NAME_SCORE` — below the identification
+    threshold, above the corroborated one, which leaves a matching postcode able to
+    identify a genuine firm written in a different order while a bare name reversal
+    can no longer accuse anyone.
+    """
     q, n = _norm_tokens(query), _norm_tokens(name)
     qd = (q - _GENERIC_FIRM_TOKENS) or q
     nd = (n - _GENERIC_FIRM_TOKENS) or n
     if not qd:
         return 0.0
-    return len(qd & nd) / len(qd)
+    score = len(qd & nd) / len(qd)
+    if score >= 1.0:
+        qs, ns = _distinctive_sequence(query), _distinctive_sequence(name)
+        # Only a REORDERING is penalised. A candidate carrying extra distinctive
+        # tokens ("Wilson James Aviation") is a different question, already handled by
+        # the set score and the threshold.
+        if qs and ns and qs != ns and sorted(qs) == sorted(ns):
+            return _PERMUTED_NAME_SCORE
+    return score
 
 
 # ── R-F3025 — ATTRIBUTION GATE ───────────────────────────────────────────────
