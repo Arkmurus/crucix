@@ -1741,6 +1741,17 @@ function _waCmdRateLimited(userId, cmd, now = Date.now()) {
 // set the env to restrict on this compliance product).
 const WA_ALLOWED_SENDERS = (process.env.WA_ALLOWED_SENDERS || '').split(',').map(s => s.trim()).filter(Boolean);
 let _waAllowWarned = false;
+// R-F3582 — strip ANY jid domain, not just the phone form. With Baileys 7 a user
+// is addressed by LID (`<id>@lid`) as well as by phone (`<phone>@s.whatsapp.net`),
+// so the old `.replace('@s.whatsapp.net','')` left a literal "@lid" in text that
+// reaches ARIA's records and the operator's screen. One definition, so the four
+// call sites cannot drift apart again.
+function _jidUser(jid) {
+  const raw = String(jid || '');
+  const at = raw.lastIndexOf('@');
+  return (at === -1 ? raw : raw.slice(0, at)).split(':')[0];
+}
+
 function _waSenderAllowed(senderJid) {
   if (!WA_ALLOWED_SENDERS.length) {
     if (!_waAllowWarned) {
@@ -1850,7 +1861,7 @@ async function handleCommand(cmd, args, senderJid, requestId = null) {
       const topic = a.slice(0, colonIdx).trim();
       const fact  = a.slice(colonIdx + 1).trim();
       if (!fact) return '⚠️ Please include the fact after the colon.';
-      const senderDisplay = senderJid.replace('@s.whatsapp.net', '').replace('@g.us', '');
+      const senderDisplay = _jidUser(senderJid);
       try {
         await brainPost('/api/aria/knowledge/fact', {
           topic,
@@ -1883,7 +1894,7 @@ async function handleCommand(cmd, args, senderJid, requestId = null) {
         await brainPost('/api/aria/knowledge/fact', {
           topic: wrong.slice(0, 60),
           content: right,
-          source: `correction_by:${senderJid.replace('@s.whatsapp.net', '')}`,
+          source: `correction_by:${_jidUser(senderJid)}`,
           confidence: 'CONFIRMED',
         }).catch(() => {});
         return `✅ *Correction recorded.*\n*Was:* ${wrong}\n*Should be:* ${right}\n\nI've updated my knowledge and recorded this as a training correction. Thank you — this makes me better.`;
@@ -1901,7 +1912,7 @@ async function handleCommand(cmd, args, senderJid, requestId = null) {
       try {
         await brainPost('/api/aria/brain/signal', {   // R-F887 — was /api/brain/signal (404)
           content: `Feedback (${sentiment}): ${notes || 'No notes'}`,
-          source: `feedback:${senderJid.replace('@s.whatsapp.net', '')}`,
+          source: `feedback:${_jidUser(senderJid)}`,
           signal_type: 'user_feedback',
           metadata: { sentiment, notes, sender: senderJid, channel: 'whatsapp_listener' },
         });
@@ -2479,9 +2490,43 @@ async function onMessagesUpsert(sock, account, ev) {
       // A DM jid ends in @s.whatsapp.net; non-group/non-DM jids (status@broadcast,
       // @newsletter, etc.) are still dropped. DMs are treated as an implicit
       // mention below so plain text reaches the chat path without the name.
+      // ── R-F3582 — A 1:1 CHAT IS NOT ALWAYS @s.whatsapp.net ANY MORE ────────
+      //
+      // Live symptom (operator, 2026-07-31): ARIA answers in groups and is
+      // completely silent on a direct message. Live evidence from aria-wa: two
+      // `inbound accepted type=group` events and NOT ONE `type=direct`, while
+      // the Baileys log showed "Closing open session in favor of incoming prekey
+      // bundle" — a 1:1 session being established. So the DM reached the socket
+      // and this line discarded it.
+      //
+      // Cause: we run Baileys 7.0.0-rc13, and modern WhatsApp addresses users by
+      // LID (`<id>@lid`) as well as by phone jid (`<phone>@s.whatsapp.net`).
+      // `_isDM` tested only the phone form, so an @lid direct chat matched
+      // NEITHER predicate and fell through the `continue` below. The repo had no
+      // occurrence of "@lid" anywhere.
+      //
+      // A group chat is always @g.us; @lid identifies a USER, so a non-group
+      // @lid chat is a 1:1. Broadcast/newsletter/status jids keep their own
+      // suffixes and are still dropped, which is why this stays an allow-list.
       const _isGroup = chatId.endsWith('@g.us');
-      const _isDM    = chatId.endsWith('@s.whatsapp.net');
-      if (!_isGroup && !(WA_DM_ENABLED && _isDM)) continue;
+      const _isDM    = chatId.endsWith('@s.whatsapp.net') || chatId.endsWith('@lid');
+      if (!_isGroup && !(WA_DM_ENABLED && _isDM)) {
+        // R-F3582 — DO NOT DROP A MESSAGE CLASS SILENTLY. That silence is the
+        // real defect: an addressing scheme we do not recognise looked exactly
+        // like "no message arrived", and it cost a live, user-visible outage on
+        // the support channel with nothing in the logs to find.
+        //
+        // Only the SUFFIX is logged, never the identifier — R-F3578 removed
+        // phone/chat identifiers from these paths and this must not reintroduce
+        // one. `status@broadcast` and `@newsletter` are expected and stay quiet.
+        const _suffix = chatId.includes('@') ? chatId.slice(chatId.lastIndexOf('@')) : '(no-jid)';
+        if (_suffix !== '@broadcast' && _suffix !== '@newsletter') {
+          console.warn(`[ARIA Listener] R-F3582 dropped an unrecognised chat type: jid suffix "${_suffix}" `
+            + `(isGroup=false, isDM=false, WA_DM_ENABLED=${WA_DM_ENABLED}). If this is a real 1:1 or group `
+            + `form, add it to the predicates above — a silently dropped class reads as "she never replied".`);
+        }
+        continue;
+      }
 
       // Filter to target groups if specified (groups only — never gates DMs)
       if (_isGroup && TARGET_GROUPS.length && !TARGET_GROUPS.includes(chatId)) continue;
@@ -2536,7 +2581,7 @@ async function onMessagesUpsert(sock, account, ev) {
       const senderJid  = msg.key.participant || msg.key.remoteJid || '';
       const senderName =
         msg.pushName ||
-        senderJid.replace('@s.whatsapp.net','').replace('@g.us','') ||
+        _jidUser(senderJid) ||
         'Unknown';
 
       // T0★ — unique request_id from the WA message key (R-F1411)

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3582,
+  "next_available": 3584,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -29828,9 +29828,10 @@
       "title": "ARIA WA governed dual channel foundation",
       "claimed_at": "2026-07-31T17:13:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6c2bb549",
+      "notes": null,
+      "shipped_at": "2026-07-31T18:15:43Z"
     },
     {
       "r_number": "R-F3579",
@@ -29856,6 +29857,25 @@
       "r_number": "R-F3581",
       "title": "coincidence drops never reached match_classification - chip said 1, finding said none",
       "claimed_at": "2026-07-31T17:53:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8afde99a",
+      "notes": null,
+      "shipped_at": "2026-07-31T18:17:36Z"
+    },
+    {
+      "r_number": "R-F3582",
+      "title": "DMs silently dropped - Baileys 7 LID addressing (@lid) matches neither the group nor the DM predicate",
+      "claimed_at": "2026-07-31T19:52:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3583",
+      "title": "relevance filter admits a namesake PERSON in surname-first form",
+      "claimed_at": "2026-07-31T19:53:49Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

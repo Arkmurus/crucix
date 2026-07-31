@@ -37,8 +37,16 @@ check('WA_DM_ENABLED flag exists and defaults ON (env-reversible)',
 check('routing computes _isGroup / _isDM',
   SRC.includes("const _isGroup = chatId.endsWith('@g.us')") &&
   SRC.includes("const _isDM    = chatId.endsWith('@s.whatsapp.net')"));
+// R-F3582 — assert the PROPERTY, not the exact one-liner. This pinned the
+// literal `if (!_isGroup && !(WA_DM_ENABLED && _isDM)) continue;`, so adding a
+// log line to the drop branch failed it while the routing rule was untouched.
+// The rule this guards is "non-group non-DM jids are dropped, and DMs pass only
+// when WA_DM_ENABLED" — the CONDITION plus a continue, however the body is
+// written. Pinning the wording turns any comment or diagnostic into a red build
+// and teaches people to edit the test instead of thinking.
 check('non-group non-DM jids still dropped; DMs pass only when WA_DM_ENABLED',
-  SRC.includes('if (!_isGroup && !(WA_DM_ENABLED && _isDM)) continue;'));
+  /if\s*\(!_isGroup\s*&&\s*!\(WA_DM_ENABLED\s*&&\s*_isDM\)\)/.test(SRC) &&
+  /if\s*\(!_isGroup\s*&&\s*!\(WA_DM_ENABLED\s*&&\s*_isDM\)\)[\s\S]{0,1200}?continue;/.test(SRC));
 check('TARGET_GROUPS filter no longer gates DMs (group-scoped)',
   SRC.includes('if (_isGroup && TARGET_GROUPS.length'));
 
