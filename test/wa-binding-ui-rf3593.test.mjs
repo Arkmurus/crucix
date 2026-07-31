@@ -17,7 +17,7 @@ import vm from 'node:vm';
 const html = fs.readFileSync(new URL('../public/wa-connections.html', import.meta.url), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
 
-function runtime({ bindingResponse } = {}) {
+function runtime({ bindingResponse, mintExtra } = {}) {
   const listeners = new Map();
   const elements = new Map();
   const ids = [
@@ -43,7 +43,22 @@ function runtime({ bindingResponse } = {}) {
     console,
     confirm: () => true,
     document: {
-      getElementById(id) { return elements.get(id); },
+      // R-F3599 — MINT ON DEMAND. This file enumerated ids and rotted the moment
+      // R-F3599 added `bindTarget`: three tests failed on the stub being
+      // incomplete, not on the behaviour they guard. Same fix already applied to
+      // wa-model-card-add-live-rf3562 — a fixed id list cannot survive a page
+      // that grows.
+      getElementById(id) {
+        if (!elements.has(id)) {
+          elements.set(id, {
+            id, value: '', textContent: '', innerHTML: '', disabled: false,
+            style: { display: 'none' }, classList: { add() {}, remove() {} },
+            addEventListener(type, fn) { listeners.set(`${id}:${type}`, fn); },
+            closest() { return null; },
+          });
+        }
+        return elements.get(id);
+      },
       createElement() { return { textContent: '', innerHTML: '' }; },
       querySelectorAll() { return checkboxes; },
     },
@@ -53,7 +68,7 @@ function runtime({ bindingResponse } = {}) {
       // Exact-match the stub too: a prefixed URL must NOT be served a happy
       // response, or the test keeps passing while the page 404s.
       const body = String(url) === '/api/wa/binding/code'
-        ? { ok: true, code: '445566', expiresAt: '2026-07-31T23:00:00Z' }
+        ? { ok: true, code: '445566', expiresAt: '2026-07-31T23:00:00Z', ...(mintExtra || {}) }
         : String(url) === '/api/wa/binding'
           ? (bindingResponse ?? { bound: false, pairingPending: false })
           : { accounts: [] };
@@ -171,4 +186,45 @@ test('R-F3598 every URL the page requests for binding is absolute and correct', 
     assert.ok(['/api/wa/binding', '/api/wa/binding/code'].includes(String(c.url)),
       `unexpected binding URL: ${c.url}`);
   }
+});
+
+
+// ── R-F3599 — a code with no destination is not a flow ──────────────────────
+
+test('R-F3599 the code box tells the user WHICH number to text', async () => {
+  const { listeners, elements } = runtime({ mintExtra: { ariaNumber: '351912345678' } });
+  await listeners.get('bindCodeBtn:click')();
+  const target = elements.get('bindTarget').textContent;
+  assert.match(target, /\+351912345678/,
+    'the code was shown without a destination — the operator asked exactly this: '
+    + '"how would users know which number to text once they receive the code?"');
+});
+
+test('R-F3599 an offline ARIA is stated, never papered over with a stale number', async () => {
+  const { listeners, elements } = runtime({ mintExtra: { ariaNumber: '' } });
+  await listeners.get('bindCodeBtn:click')();
+  const target = elements.get('bindTarget').textContent;
+  assert.match(target, /not connected/i);
+  assert.doesNotMatch(target, /\+\d/, 'no number may be printed when there is none');
+});
+
+test('R-F3599 the number is DERIVED from the live session, not an env var', () => {
+  const listener = fs.readFileSync(new URL('../services/wa-listener/aria_wa_listener.mjs', import.meta.url), 'utf8');
+  const code = listener.split(/\r?\n/).filter((l) => !l.trim().startsWith('//')).join('\n');
+  const i = code.indexOf('function _waOwnNumber');
+  const body = code.slice(i, i + 500);
+  assert.match(body, /sock\?\.user\?\.id/, 'must read the live session identity');
+  assert.match(body, /isConnected/, 'a disconnected session must yield no number');
+  assert.doesNotMatch(body, /process\.env/,
+    'a hand-set variable drifts from what ARIA is actually reachable on — that is '
+    + 'the declared-capability-flag-drift class');
+});
+
+test('R-F3599 the mint response carries the destination with the code', () => {
+  const listener = fs.readFileSync(new URL('../services/wa-listener/aria_wa_listener.mjs', import.meta.url), 'utf8');
+  const i = listener.indexOf("return res.json({ ok: true, expiresAt: issued.pairing.expiresAt");
+  assert.ok(i > 0, 'mint response not found');
+  assert.match(listener.slice(i, i + 160), /ariaNumber/,
+    'the code and its destination must arrive together — a second round trip to '
+    + 'learn where to send it is how a user ends up holding a code and guessing');
 });

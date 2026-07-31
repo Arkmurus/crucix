@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3599,
+  "next_available": 3600,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30025,6 +30025,16 @@
       "r_number": "R-F3598",
       "title": "binding UI 404: apiFetch prefixes /api/wa-listener and my test asserted includes() so it passed",
       "claimed_at": "2026-07-31T22:38:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d3e15f78",
+      "notes": null,
+      "shipped_at": "2026-07-31T22:39:10Z"
+    },
+    {
+      "r_number": "R-F3599",
+      "title": "the binding panel gives a code but never says which number to text; derive ARIA's number from the live session",
+      "claimed_at": "2026-07-31T22:51:08Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

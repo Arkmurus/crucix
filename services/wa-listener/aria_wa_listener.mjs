@@ -3482,6 +3482,28 @@ app.use(express.json());
 
 // Health — unauthenticated (for Fly.io health checks)
 // R-F1153 — also probes the brain so a disconnected brain is visible in health
+// ── R-F3599 — WHICH NUMBER DO I TEXT? ───────────────────────────────────────
+//
+// The binding panel handed a user a code and never said where to send it, and
+// the "official number" card read "Official number unavailable" because
+// ARIA_WHATSAPP_OFFICIAL_NUMBER was never set. A code with no destination is not
+// a flow.
+//
+// DERIVED FROM THE LIVE SESSION, not from an env var. Baileys puts the connected
+// identity on sock.user.id, so this IS the number ARIA is reachable on — it
+// cannot drift from reality the way a hand-set variable can (the
+// declared-capability-flag-drift class). If she is not connected there is no
+// number, and the surface must say so rather than print a stale one.
+function _waOwnNumber() {
+  try {
+    if (!isConnected || !sock?.user?.id) return '';
+    // "351912345678:12@s.whatsapp.net" -> "351912345678"
+    return String(sock.user.id).split('@')[0].split(':')[0].trim();
+  } catch {
+    return '';
+  }
+}
+
 app.get('/health', async (_req, res) => {
   let brainOk = false;
   try {
@@ -3881,7 +3903,9 @@ app.post('/api/wa-listener/binding/code', requireAuth, (req, res) => {
     _waPendingPairings = _waPendingPairings.filter((x) => x !== issued.pairing);
     return res.status(503).json({ error: 'persist_failed', message: 'Pairing not stored — do not show a code that cannot be honoured.' });
   }
-  return res.json({ ok: true, expiresAt: issued.pairing.expiresAt });
+  // R-F3599 — return the destination WITH the code. Two round trips to learn
+  // where to send it is how a user ends up with a code and no idea what to do.
+  return res.json({ ok: true, expiresAt: issued.pairing.expiresAt, ariaNumber: _waOwnNumber() });
 });
 
 app.get('/api/wa-listener/binding/:userId', requireAuth, (req, res) => {
@@ -3894,6 +3918,8 @@ app.get('/api/wa-listener/binding/:userId', requireAuth, (req, res) => {
     ...publicBindingView(b),
     pairingPending: Boolean(pending),
     pairingExpiresAt: pending ? pending.expiresAt : null,
+    // R-F3599 — the destination for the code, from the live session.
+    ariaNumber: _waOwnNumber(),
   });
 });
 

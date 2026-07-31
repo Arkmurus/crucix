@@ -203,6 +203,7 @@
       <div id="bindCodeBox" style="display:none;margin-top:14px;padding:14px;border:1px dashed #25d366;border-radius:10px;background:#f7fff9">
         <div style="font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:#57534b">Send this to ARIA on WhatsApp</div>
         <div id="bindCode" style="font-size:2rem;font-weight:700;letter-spacing:.35em;margin:6px 0">------</div>
+        <div id="bindTarget" style="font-size:.95rem;font-weight:600;margin:4px 0 6px"></div>
         <div id="bindExpiry" style="font-size:.8rem;color:#57534b"></div>
       </div>
     </section>
@@ -610,8 +611,8 @@
         box.textContent = bound
           ? `Verified — this account is linked to ${d.identityCount} handset identifier(s) since ${formatTime(d.boundAt)}.`
           : (d && d.pairingPending
-              ? `Code issued and waiting. Send it to ARIA on WhatsApp before ${formatTime(d.pairingExpiresAt)}.`
-              : 'Not verified yet. Generate a code below.');
+              ? `Code issued and waiting. Send it to ARIA${d.ariaNumber ? ` (+${d.ariaNumber})` : ''} on WhatsApp before ${formatTime(d.pairingExpiresAt)}.`
+              : `Not verified yet. Generate a code below${d && d.ariaNumber ? `, then send it to +${d.ariaNumber}` : ''}.`);
       } catch (e) {
         // Never claim "not verified" when the check itself failed — that would
         // read as a security state we did not actually observe.
@@ -625,6 +626,15 @@
       try {
         const d = await bindingFetch('/api/wa/binding/code', { method: 'POST' });
         document.getElementById('bindCode').textContent = d.code;
+        // R-F3599 — a code with no destination is not a flow. The number comes
+        // from ARIA's LIVE session, so it cannot be a stale env var; when she is
+        // offline there IS no number and the panel says that rather than
+        // printing one that may not be reachable.
+        const target = document.getElementById('bindTarget');
+        target.textContent = d.ariaNumber
+          ? `Send it to ARIA on WhatsApp: +${d.ariaNumber}`
+          : 'ARIA is not connected to WhatsApp right now — the code is valid, but wait until she reconnects before sending it.';
+        target.style.color = d.ariaNumber ? '#166534' : '#9a6700';
         document.getElementById('bindExpiry').textContent =
           `Expires ${formatTime(d.expiresAt)} · single use`;
         document.getElementById('bindCodeBox').style.display = '';
