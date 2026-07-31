@@ -127,6 +127,21 @@ def archive_entry(entry: dict) -> None:
             gap_type="archive_failure",
             source="dd_case_archive:archive_entry",
         )
+    else:
+        # §21a SUCCESS branch — `wire_success` was already imported at the top of
+        # this module and never called, so the cold tier could only ever report
+        # its failures. That matters here specifically: this mirror is what
+        # survives the 7-day Redis window, and a brain that only hears about
+        # archive failures cannot tell "archiving fine" from "archiving stopped".
+        wire_success(
+            module="dd_case_archive",
+            summary=f"archived case {entry.get('entity_name') or entry.get('run_id')}",
+            detail=f"run_id={entry.get('run_id')} version={entry.get('version_number')} "
+                   f"jurisdiction={entry.get('jurisdiction')}",
+            entity_name=str(entry.get("entity_name") or "")[:120],
+            confidence="CONFIRMED",
+            source_id=f"dd_case_archive:{entry.get('run_id')}",
+        )
 
 
 def lookup_by_canonical_id(canonical_entity_id: str) -> list[dict]:

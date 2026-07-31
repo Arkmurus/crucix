@@ -30,7 +30,7 @@ Design notes:
   silently discards without a WARNING (no silent forget, §21).
 """
 from __future__ import annotations
-from .engine_wiring import wire_failure
+from .engine_wiring import wire_failure, wire_success
 
 import asyncio
 import json
@@ -211,10 +211,37 @@ async def drain(store_fact: Callable[..., Any], max_items: int = 500) -> dict:
                 except OSError:
                     pass
         await asyncio.to_thread(_requeue)
+        # §21a SUCCESS branch. Gated on `processed` so the routine no-op drain
+        # (empty WAL, which is the healthy steady state) does not signal on every
+        # cycle — the loop_monitor precedent from R-F3563: signal the event, not
+        # the sample. A drain that actually recovered facts IS the event.
+        if processed:
+            wire_success(
+                module="memory_wal",
+                summary=f"WAL drain recovered {processed - len(still_failing)} of {processed} fact(s)",
+                detail=f"remaining={len(still_failing)} drained_total={_stats['drained']} "
+                       f"retry_failed={_stats['retry_failed']} trimmed={_stats['trimmed']}",
+                confidence="CONFIRMED",
+                source_id="memory_wal:drain",
+            )
         return {"retried": processed, "remaining": len(still_failing),
                 "drained_total": _stats["drained"]}
     except Exception as e:
+        # R-F3567 — this returned an error dict and logged. @fail_wire cannot see
+        # it: the exception is swallowed here, so the decorator never fires. The
+        # WAL is ARIA's "never forget a fact" guarantee (§7), and a drain that
+        # keeps failing silently is that guarantee quietly not holding.
         logger.error("[memory_wal] drain failed: %s", e)
+        try:
+            wire_failure(
+                module="memory_wal",
+                detail=f"WAL drain FAILED ({type(e).__name__}): {str(e)[:200]} — "
+                       f"pending facts are not reaching the knowledge store",
+                gap_type="engine_failure",
+                source="memory_wal:drain",
+            )
+        except Exception:
+            logger.debug("[memory_wal] brain wiring failed", exc_info=True)
         return {"error": str(e)[:200]}
     finally:
         _drain_in_progress = False

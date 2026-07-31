@@ -1,7 +1,10 @@
 # §21 brain-wiring backlog — triaged 2026-07-28
 
-**26 intel modules** flagged (was 50; see R-F3563 below) by `scripts/ci/wiring_audit.py`. CI blocks on this by
-operator decision: honest red until triaged.
+**CLOSED at R-F3567 (2026-07-31).** `scripts/ci/wiring_audit.py` exits 0: every intel
+module reaches the brain on both branches, or carries its own stated exemption.
+History below, kept because the number moved for four different reasons and only
+two of them were work. CI blocked on this gate by operator decision from
+2026-07-28 — honest red until triaged — and it is now honest green.
 
 ## How the number moved
 
@@ -227,3 +230,78 @@ exactly the cosmetic wiring §21a exists to prevent.
 removed both exemptions on measurement — 13 and 6 swallowed exceptions
 respectively, feeding the DD evidence path. Classified from docstrings rather than
 from the code; the measurement was right.
+
+
+---
+
+## R-F3567 (2026-07-31) — CLOSED: 17 → 0
+
+The last tranche, and the count moved for three separate reasons that are worth
+keeping apart.
+
+**One more detector class (5 modules).** `brain_hook.absorb(..., success=True)` is
+an explicit SUCCESS report, and the scan had it in the same token list as
+`@fail_wire` — i.e. treated as failure-side. §21a's own definition names
+`brain_hook.absorb` as a qualifying sink. So `calibration_auto_tune.py:284` and
+`registration_check.py:411` were being told to add a success signal they already
+emit, and `compliance_workflow`, `brain_hook_bg` and `sipri_ingest` the same via
+`success=<expr>` and `absorb_silent`. Now read from the AST with the direction
+taken from the kwarg: `True` → success, `False` → failure, a computed expression →
+both (the same contract `@wired` provides). The sink names are enumerated from
+`brain_hook.py` rather than guessed — `absorb_silent` is `absorb` under a quieter
+name and `sipri_ingest` wires its entire success branch through it.
+
+**Ten engines wired at their real success branch.** Not mechanically, and not at
+the accessors — `get_quarantine_status`, `list_cases`, `pending_count` and
+friends are polled and have no outcome the brain can act on, so signalling them
+would bury the events that matter:
+
+| module | success event | why there |
+|---|---|---|
+| `behavioural_anomaly` | anomaly **persisted** | `check_anomaly` runs on every action; a persisted anomaly is rare and real |
+| `content_scanner` | file scanned **clean** | with only the threat signal, a scanner that stopped running looked identical to one finding nothing |
+| `country_sanctions` | `format_regime_answer` resolved | the primary "is X sanctioned?" path, not the per-read index lookup |
+| `credential_self_destruct` | credential provisioned with a TTL | security-relevant and low-volume, unlike the per-read accessor |
+| `dd_case_archive` | case archived | `wire_success` was already imported and never called |
+| `eval_judge` | judge graded | not on the deterministic short-circuit, which spends nothing |
+| `memory_wal` | drain **recovered** facts | gated on work done; the empty drain is the healthy steady state and runs on a timer |
+| `quarantine_network` | module released | closes the lifecycle whose other three states already signal |
+| `sources/eccn_lookup` | control-list **hit** | a hit proves the list is loaded and matching (the R-F3105 concern) |
+| `zefix` | CH registry answered and parsed | zero rows is still a successful check |
+
+**Four real defects found while wiring**, each a silent-failure path the audit had
+pointed at without naming:
+
+- `behavioural_anomaly.log_anomaly` — the SECURITY audit write was
+  `except Exception: pass`. The anomaly was reported to the brain while its
+  durable record quietly did not exist.
+- `credential_self_destruct.store_credential_with_ttl` — a failed VALUE write
+  logged a warning and still returned an entry with `is_valid=True`. The vault
+  said stored; the secret was not retrievable until first use.
+- `memory_wal.drain` — a top-level `except` returned an error dict. `@fail_wire`
+  cannot see it (the exception is swallowed), so ARIA's §7 "never forget a fact"
+  guarantee could stop holding silently.
+- `zefix.search_company` — an unparseable 200 from LINDAS returned `[]`, which to
+  every caller is identical to "no such company": a clean CH registry check that
+  never parsed.
+
+**Two exemptions, stated individually.** `wire.py` IS the failure transport — it
+defines `@fail_wire`, and its own docstring carries design constraint #1 from the
+§20 review: *"FAILURE-ONLY — never wire_success on every call (would wedge the
+loop)."* Adding one would contradict the rule it implements and reintroduce the
+per-call flood R-F1664 removed. `wiring_harness.py` is the enforcement harness for
+this same audit and matched only because its AST scanner carries the decorator
+name as a string to search for.
+
+**Zero is the one result that must not be trusted.** A green gate and a broken
+detector look identical from outside, so the ratchet assertion is now paired with
+`test_rf3567_the_audit_is_not_vacuous` (the detector still flags a known-unwired
+and a known-half-wired module) and `test_rf3567_the_scan_actually_reaches_the_intel_tree`
+(>200 modules actually scanned). Separately,
+`test_rf3567_success_branch_actually_fires.py` CALLS seven of the newly-wired
+paths for real and asserts the brain saw them — the audit is textual and cannot
+tell a reachable `wire_success` from one sitting after an early return. Verified
+by removing a signal and watching that test fail.
+
+A module appearing in this gate again is new debt: wire it, or exempt it with its
+own reason. Do not batch-exempt, and do not widen a bound.

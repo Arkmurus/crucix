@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
 from .wire import fail_wire  # R-F1789 §21 brain-wiring
-from .engine_wiring import wired, wire_failure
+from .engine_wiring import wired, wire_failure, wire_success
 
 logger = logging.getLogger("aria.intel.country_sanctions")
 
@@ -762,6 +762,24 @@ def format_regime_answer(country: str, source: str | None = None) -> dict:
             parts.append(f"  Exception: {r.exceptions[:200]}")
 
     summary = "\n".join(parts)
+
+    # §21a SUCCESS branch — this is the PRIMARY answer path for "is <country>
+    # under sanctions?", so the brain needs to see it answering, not only
+    # failing. Wired on the resolved answer rather than inside lookup_country:
+    # that is a pure in-memory index read called from several places, and a
+    # signal per read would flood the ledgers without adding an outcome.
+    try:
+        wire_success(
+            module="country_sanctions",
+            summary=f"{country}: {len(regimes)} sanctions regime(s), worst={worst_type}",
+            detail=f"comprehensive={has_comprehensive} arms_embargo={has_arms_embargo} "
+                   f"targeted={has_targeted} source_filter={source or 'all'}",
+            entity_name=str(country)[:120],
+            confidence="CONFIRMED",
+            source_id="country_sanctions:format_regime_answer",
+        )
+    except Exception:
+        logger.debug("[country_sanctions] brain wiring failed", exc_info=True)
 
     return {
         "country": country,

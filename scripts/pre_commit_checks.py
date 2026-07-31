@@ -136,6 +136,23 @@ WIRING_EXEMPT_MODULES = {
     # log_redaction runs INSIDE the logging filter chain. Wiring it would be
     # recursive: emitting a brain signal from a log filter re-enters logging.
     "log_redaction",
+    # ── R-F3567 — THE WIRING MACHINERY ITSELF. Same class as engine_wiring and
+    # brain_hook at the top of this set, which have always been exempt; these two
+    # were simply never added.
+    #
+    # wire.py IS the failure transport — it is the module that defines
+    # @fail_wire. Its own docstring records design constraint #1, agreed at the
+    # §20 review: "FAILURE-ONLY — never wire_success on every call (would wedge
+    # the loop). Success stays at path-level entry points only (§21a)." Adding a
+    # wire_success to it would contradict the rule it exists to implement, and
+    # per-call success telemetry from the wrapper on every wired callable is
+    # precisely the flood R-F1664 removed.
+    "wire",
+    # wiring_harness.py is the ENFORCEMENT harness (Gates A-E) for this same
+    # audit — an ast-based scanner. It matches only because its own scanner
+    # carries the decorator name as a string literal to search for; it runs no
+    # engine and reaches nothing external.
+    "wiring_harness",
 }
 
 # R-F1961 — THIS file (and any future pattern-authoring file) literally contains
@@ -536,6 +553,57 @@ def _wiring_call_aliases(content: str) -> dict:
     return out
 
 
+#: Brain sinks that report an OUTCOME rather than being failure-side by nature.
+#: These are brain_hook's four public sink functions (brain_hook.py:571, 993,
+#: 1155, 1186) plus the private forwarder brain_hook_bg calls. Enumerated from
+#: that module rather than guessed — `absorb_silent` is the same sink as
+#: `absorb` under a quieter name and sipri_ingest.py:214 wires its success
+#: branch entirely through it.
+_DIRECTIONAL_SINKS = (
+    "absorb", "absorb_silent", "observe_self_event",
+    "record_signal", "_record_signal",
+)
+
+
+def _absorb_success_directions(content: str) -> set[str]:
+    """Which §21a branches an `absorb(..., success=...)` call actually reports.
+
+    R-F3567 — `brain_hook.absorb` is listed in §21a as a qualifying sink and is
+    DIRECTIONAL: the call states which branch it is reporting. Lumping it in with
+    `@fail_wire` (failure-side by construction) made the gate tell
+    calibration_auto_tune.py and registration_check.py to add a success signal
+    they already emit.
+
+      success=True    -> the SUCCESS branch
+      success=False   -> the FAILURE branch
+      success=<expr>  -> BOTH: the value is computed from the outcome, which is
+                        the same contract `@wired` provides
+      (no kwarg)      -> neither; nothing is claimed about direction
+
+    AST-based, so `success=True` inside a docstring, a comment or a log string
+    cannot count.
+    """
+    found: set[str] = set()
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return found
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = ast.unparse(node.func).split(".")[-1]
+        if name not in _DIRECTIONAL_SINKS:
+            continue
+        for kw in node.keywords:
+            if kw.arg != "success":
+                continue
+            if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, bool):
+                found.add("success" if kw.value.value else "failure")
+            else:
+                found.update(("success", "failure"))
+    return found
+
+
 def check_wiring_present(files: list[Path]) -> list[str]:
     """Check that every changed intel module has at least one wire_success or wire_failure call (brain wiring).
 
@@ -668,6 +736,20 @@ def check_wiring_present(files: list[Path]) -> list[str]:
         # satisfy has_wire_success. That was the R-F3382 clamp (72 -> 52) and it
         # is not being re-introduced — this credits one direction only.
         if has_other_sink:
+            has_wire_failure = True
+
+        # R-F3567 — `absorb(success=...)` IS DIRECTIONAL, and the token list above
+        # treats it as failure-side. §21a's own definition names brain_hook.absorb
+        # as a qualifying sink, and the call carries an explicit `success=` kwarg
+        # saying WHICH branch it reports. Live: calibration_auto_tune.py:284 and
+        # registration_check.py:411 both call `absorb(..., success=True)` — an
+        # explicit success report to the brain — and were told to add a second
+        # success signal. Read from the AST, so a `success=` inside a string or a
+        # comment cannot count.
+        _absorbed = _absorb_success_directions(content)
+        if "success" in _absorbed:
+            has_wire_success = True
+        if "failure" in _absorbed:
             has_wire_failure = True
 
         if not has_wire_success and not has_wire_failure:

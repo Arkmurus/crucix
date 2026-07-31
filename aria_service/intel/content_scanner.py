@@ -601,6 +601,23 @@ async def scan_file(
 
         return result
 
+    # §21a SUCCESS branch — the scan ran to completion and cleared the file.
+    # This is the half that matters for a security scanner: with only the
+    # threat signal wired, a scanner that had silently stopped running looked
+    # exactly like a scanner finding nothing. Signalling the clean verdict is
+    # what makes those two distinguishable on /api/aria/brain/stats.
+    try:
+        from .engine_wiring import wire_success
+        wire_success(
+            module="content_scanner",
+            summary="file scanned clean",
+            detail=f"{file_path.name} passed all content checks",
+            confidence="CONFIRMED",
+            source_id=f"content_scanner:{file_path.name}",
+        )
+    except Exception:
+        logger.debug("[content_scanner] brain wiring failed", exc_info=True)
+
     return ScanResult(safe=True, file_path=file_path)
 
 

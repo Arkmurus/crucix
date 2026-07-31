@@ -305,6 +305,12 @@ async def log_anomaly(anomaly: AnomalyResult) -> None:
     if not anomaly.anomaly:
         return
 
+    from .engine_wiring import wire_failure, wire_success
+
+    # R-F3567 — this persist was `except Exception: pass`. A SECURITY audit
+    # record failing to write is exactly the event that must not be silent:
+    # the anomaly would be reported to the brain below while the durable trail
+    # of it quietly did not exist.
     try:
         from . import redis_store as rs
         log = await rs.get_json(_ANOMALY_LOG_KEY) or []
@@ -315,12 +321,36 @@ async def log_anomaly(anomaly: AnomalyResult) -> None:
             "details": anomaly.details,
         })
         await rs.set_json(_ANOMALY_LOG_KEY, log[:ANOMALY_LOG_MAX], ex=86400 * 30)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("[behavioural_anomaly] anomaly audit write failed", exc_info=True)
+        try:
+            wire_failure(
+                module="behavioural_anomaly",
+                detail=f"anomaly audit log write FAILED ({type(exc).__name__}): "
+                       f"the detection stands but its durable record does not",
+                gap_type="engine_failure",
+                source="behavioural_anomaly:log_anomaly",
+            )
+        except Exception:
+            logger.debug("[behavioural_anomaly] brain wiring failed", exc_info=True)
+    else:
+        # §21a SUCCESS branch. Deliberately here and not in check_anomaly:
+        # check_anomaly runs on EVERY action, so a per-check signal would flood
+        # the ledgers (the loop_monitor precedent from R-F3563 — signal the
+        # breach, not the sample). A persisted anomaly is a real, rare event.
+        try:
+            wire_success(
+                module="behavioural_anomaly",
+                summary=f"anomaly recorded ({anomaly.confidence} confidence)",
+                detail=anomaly.reason[:200],
+                confidence="ASSESSED",
+                source_id=f"behavioural_anomaly:{anomaly.details.get('module', 'unknown')}",
+            )
+        except Exception:
+            logger.debug("[behavioural_anomaly] brain wiring failed", exc_info=True)
 
     # Wire to brain
     try:
-        from .engine_wiring import wire_failure
         wire_failure(
             module="behavioural_anomaly",
             detail=f"Anomaly detected: {anomaly.reason} (confidence: {anomaly.confidence})",

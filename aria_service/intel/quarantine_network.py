@@ -392,6 +392,23 @@ async def release_module(module_name: str) -> dict[str, Any]:
         "timestamp": now,
     })
 
+    # §21a SUCCESS branch — a module returning to service closes the quarantine
+    # lifecycle whose other three states (flag / safe / destructive) already
+    # signal. Wired here rather than on the accessors: get_quarantine_status and
+    # is_quarantined are polled and have no outcome the brain can act on, so a
+    # signal on those would bury the four events that matter.
+    try:
+        from .engine_wiring import wire_success
+        wire_success(
+            module="quarantine_network",
+            summary=f"released {module_name} from quarantine",
+            detail=f"module restored to normal operation at {now}",
+            confidence="CONFIRMED",
+            source_id=f"quarantine_network:{module_name}",
+        )
+    except Exception:
+        logger.debug("[quarantine_network] brain wiring failed", exc_info=True)
+
     return entry
 
 

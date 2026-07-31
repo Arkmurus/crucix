@@ -43,7 +43,7 @@ from typing import Any
 
 import httpx
 
-from .engine_wiring import wire_failure
+from .engine_wiring import wire_failure, wire_success
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +157,18 @@ async def search_company(name: str, *, limit: int = 5) -> list[dict[str, Any]]:
 
     try:
         rows = (payload or {}).get("results", {}).get("bindings", []) or []
-    except Exception:
+    except Exception as exc:                      # noqa: BLE001 — degrade, never raise
+        # R-F3567 — this was a bare `return []`. An unparseable 200 from the
+        # registry is indistinguishable from "no such company" to every caller,
+        # which is the false-clean shape: a DD run would record a clean CH
+        # registry check that never actually parsed.
+        wire_failure(
+            module="zefix",
+            detail=f"LINDAS returned an unparseable result body: {type(exc).__name__}"[:400],
+            gap_type="source_failure",
+            source="zefix:search_company",
+        )
+        logger.warning("[zefix] unparseable LINDAS payload", exc_info=True)
         return []
 
     out: list[dict[str, Any]] = []
@@ -179,4 +190,15 @@ async def search_company(name: str, *, limit: int = 5) -> list[dict[str, Any]]:
             "jurisdiction": "CH",
         })
     logger.info("[zefix] CH registry search '%s' -> %d record(s)", name[:60], len(out))
+    # §21a SUCCESS branch — the registry answered and the body parsed. Zero rows
+    # is still a successful check (the company is genuinely not on the CH
+    # register); it is the failure branches above that must never look like this.
+    wire_success(
+        module="zefix",
+        summary=f"CH registry search returned {len(out)} record(s)",
+        detail=f"query='{name[:60]}' limit={limit}",
+        entity_name=name[:120],
+        confidence="CONFIRMED",
+        source_id="zefix:search_company",
+    )
     return out

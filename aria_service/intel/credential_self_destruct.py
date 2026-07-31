@@ -118,7 +118,41 @@ async def store_credential_with_ttl(
             "value": credential_value,
         }, ex=ttl_s + GRACE_PERIOD_S + 3600)  # Extra buffer
     except Exception as e:
+        # R-F3567 — this logged a warning and still returned an entry with
+        # is_valid=True. The vault metadata says the credential is stored while
+        # its VALUE never landed, so the caller believes it holds a working
+        # credential and only finds out at first use. A split write is exactly
+        # the failure the brain has to know about.
         logger.warning("[credential_self_destruct] Value store failed: %s", e)
+        try:
+            from .engine_wiring import wire_failure
+            wire_failure(
+                module="credential_self_destruct",
+                detail=(
+                    f"credential '{credential_id}' registered in the vault but its "
+                    f"VALUE write FAILED ({type(e).__name__}) — the entry reads valid "
+                    f"and the secret is not retrievable"
+                ),
+                gap_type="engine_failure",
+                source="credential_self_destruct:store_credential_with_ttl",
+            )
+        except Exception:
+            logger.debug("[credential_self_destruct] brain wiring failed", exc_info=True)
+    else:
+        # §21a SUCCESS branch — provisioning a credential with a self-destruct
+        # TTL is a security-relevant, low-volume event, unlike the per-read
+        # accessor below which must stay unsignalled.
+        try:
+            from .engine_wiring import wire_success
+            wire_success(
+                module="credential_self_destruct",
+                summary=f"credential '{credential_id}' stored with a {ttl_s}s TTL",
+                detail=f"grace_period_s={GRACE_PERIOD_S}",
+                confidence="CONFIRMED",
+                source_id=f"credential_self_destruct:{credential_id}",
+            )
+        except Exception:
+            logger.debug("[credential_self_destruct] brain wiring failed", exc_info=True)
 
     logger.info(
         "[credential_self_destruct] Stored credential '%s' with TTL %ds",

@@ -172,6 +172,24 @@ def lookup_by_keyword(
                 "must be confirmed by a licensed export-control counsel."
             ),
         })
+    # §21a SUCCESS branch — gated on `out` so a routine no-match lookup does not
+    # signal on every screened item. The distinction this makes visible is the
+    # one R-F3105 was written about: with only the failure branch wired, a
+    # screener whose dataset silently emptied and a screener genuinely finding
+    # nothing produce the same brain trace. A recorded HIT proves the control
+    # list is loaded and matching.
+    if out:
+        try:
+            from ..engine_wiring import wire_success
+            wire_success(
+                module="sources.eccn_lookup",
+                summary=f"{len(out)} ECCN control-list match(es)",
+                detail="top=" + ", ".join(h["eccn"] for h in out[:3]),
+                confidence="ASSESSED",
+                source_id="sources:eccn_lookup:lookup_by_keyword",
+            )
+        except Exception:
+            pass
     return out
 
 

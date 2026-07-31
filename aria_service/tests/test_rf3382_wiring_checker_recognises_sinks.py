@@ -116,22 +116,57 @@ def test_rf3382_the_live_tree_matches_the_recorded_triage():
     intel = ROOT / "aria_service" / "intel"
     issues = check_wiring_present(sorted(intel.rglob("*.py")))
     flagged = {i.strip().split(":")[0] for i in issues}
-    # R-F3565 — 26 -> 17: NINE of the 26 were the DETECTOR, not the tree.
-    # Two classes, both demanding work that was already done: an aliased import
-    # (`wire_failure as _wf`) was invisible to a literal substring scan, and
-    # `@fail_wire` — a genuine failure-side sink — did not credit the FAILURE
-    # branch when a wire_success was already present. The deliberate asymmetry
-    # survives: a failure sink still never satisfies the SUCCESS branch (that
-    # was the reverted R-F3382 clamp, 72 -> 52).
-    # R-F3563 — 50 -> 26: the NO-WIRING tier is closed (14 modules wired for
-    # real, 14 pure transforms exempted with a per-module reason). The remaining
-    # 17 are all ONE-BRANCH cases: each has a real failure sink and no success
-    # signal. The upper bound RATCHETS DOWN with the backlog and must never be
-    # widened; docs/wiring_backlog_2026_07_28.md is regenerated in the same
-    # change, which is what this bound guards.
-    assert 12 <= len(flagged) <= 17, (
-        f"flagged module count is {len(flagged)}; it was 17 after R-F3565 "
-        f"(26 after R-F3563, 56 at the 2026-07-28 triage, 72 before R-F3381). "
-        f"A large move means either the backlog was worked or the detector "
-        f"changed — both need the backlog doc regenerated, not this bound widened."
+    # R-F3567 — THE BACKLOG IS CLOSED: 17 -> 0. Every remaining module was
+    # triaged individually: 10 engines wired at their real success branch, one
+    # detector class fixed (`absorb(success=True)` is a SUCCESS report, not a
+    # failure-side sink), and 2 modules exempted because they ARE the wiring
+    # machinery. History: 72 -> 56 -> 50 -> 26 (R-F3563) -> 17 (R-F3565) -> 0.
+    #
+    # A count of zero is the one result that must never be taken on trust — it
+    # is indistinguishable from a detector that stopped detecting. The
+    # non-vacuity tests in this file and in test_rf3556_precommit_gate.py are
+    # what make it mean something, so this bound is paired with them and a
+    # regression must show up as a NEW name here, not as a widened number.
+    assert len(flagged) == 0, (
+        f"{len(flagged)} module(s) are missing a §21 brain-wiring branch: "
+        f"{sorted(flagged)}. The backlog was closed at R-F3567; a module "
+        f"appearing here is new debt. Wire its success AND failure branch, or "
+        f"— if it genuinely does nothing externally — add it to "
+        f"WIRING_EXEMPT_MODULES with its own stated reason. Do not batch-exempt."
+    )
+
+
+def test_rf3567_the_audit_is_not_vacuous():
+    """A gate that reports zero must be shown to still be capable of reporting.
+
+    The wiring audit went green at R-F3567 for the first time. Green because the
+    work was done and green because the scan broke look identical from the
+    outside, so the detector is exercised against a module that is definitely
+    unwired and one that is definitely half-wired.
+    """
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        d = pathlib.Path(td) / "intel"
+        d.mkdir(parents=True)
+        bare = d / "definitely_unwired.py"
+        bare.write_text("def run():\n    return 1\n", encoding="utf-8")
+        half = d / "definitely_half_wired.py"
+        half.write_text(
+            "from .engine_wiring import wire_success\n"
+            "def run():\n    wire_success(module='m', summary='ok')\n",
+            encoding="utf-8",
+        )
+        issues = check_wiring_present([bare, half])
+    assert len(issues) == 2, f"the detector missed a known-bad module: {issues}"
+    assert any("NO brain wiring found" in i for i in issues), issues
+    assert any("NO wire_failure" in i for i in issues), issues
+
+
+def test_rf3567_the_scan_actually_reaches_the_intel_tree():
+    """The other way a zero can lie: scanning an empty file list."""
+    intel = ROOT / "aria_service" / "intel"
+    scanned = [p for p in intel.rglob("*.py") if "tests" not in p.parts]
+    assert len(scanned) > 200, (
+        f"only {len(scanned)} intel modules found — the audit's input has "
+        f"collapsed, which would make its green result meaningless"
     )

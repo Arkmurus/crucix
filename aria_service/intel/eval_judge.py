@@ -37,7 +37,7 @@ import os
 import re
 from typing import Any
 
-from .engine_wiring import wire_failure
+from .engine_wiring import wire_failure, wire_success
 
 logger = logging.getLogger("aria.eval.judge")
 
@@ -169,6 +169,17 @@ async def judge_answer(
         )
         return {"ok": False, "verdict": "unscored", "reason": "unparseable judge reply"}
 
+    # §21a SUCCESS branch — the judge graded. Wired here rather than on the
+    # deterministic short-circuit above: that path spends no LLM call and has no
+    # outcome the brain can act on, so signalling it would dilute the judge's
+    # real success rate on /api/aria/brain/stats.
+    wire_success(
+        module="eval_judge",
+        summary=f"judge graded: {parsed['verdict']}",
+        detail=f"score={VERDICT_SCORES[parsed['verdict']]} grounded={parsed['grounded']}",
+        confidence="ASSESSED",
+        source_id=f"eval_judge:{getattr(result, 'model', '') or 'unknown'}",
+    )
     return {
         "ok": True,
         "verdict": parsed["verdict"],
