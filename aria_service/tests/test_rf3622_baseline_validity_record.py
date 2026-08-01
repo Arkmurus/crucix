@@ -28,6 +28,7 @@ tree moved.
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
 import pathlib
 import subprocess
@@ -252,3 +253,68 @@ def test_a_valid_run_still_reports_real_new_failures(tmp_path):
     assert "VALID=YES" in out, out[-1200:]
     assert proc.returncode == 1, f"a real new failure on a VALID run must still fail the gate\n{out[-1200:]}"
     assert "NEW FAILURES" in out
+
+
+# ── R-F3625: the tool must be able to produce the number the doc publishes ───
+
+def test_single_process_mode_exists_and_is_the_section_16_measurement(tmp_path):
+    """The committed tool could only produce a segmented FLOOR, while CLAUDE.md §16 and
+    docs/suite_baseline.md quote the SINGLE-PROCESS figure. So the authoritative number
+    was not reproducible by the authoritative tool — the same shape as R-F3622, in a
+    different place: the tool measured a different thing than the doc published.
+    """
+    tests_dir = tmp_path / "t"
+    tests_dir.mkdir()
+    (tests_dir / "test_a.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    (tests_dir / "test_b.py").write_text("def test_bad():\n    assert False\n", encoding="utf-8")
+    baseline = tmp_path / "baseline.json"
+
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--single-process", "--record",
+         "--tests-dir", str(tests_dir), "--baseline", str(baseline), "--timeout", "30"],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    out = proc.stdout + proc.stderr
+    assert "ONE pytest process" in out, out[-1200:]
+    assert "VALID=YES" in out, out[-1200:]
+    assert proc.returncode == 0, out[-1200:]
+
+    rec = json.loads(baseline.read_text(encoding="utf-8"))
+    assert rec["totals"]["failed"] == 1 and rec["totals"]["passed"] == 1, rec["totals"]
+    assert "test_b.py::test_bad" in rec["failures"], rec["failures"]
+    # The recorded metadata must describe the run that actually happened. Recording a
+    # single-process measurement under the segmented FLOOR caveat would understate its
+    # authority and invite someone to re-measure a number that was already correct.
+    assert "single pytest process" in rec["method"], rec["method"]
+    assert "FLOOR" not in rec["caveat"], rec["caveat"]
+
+
+def test_segmented_mode_still_labels_itself_a_floor(tmp_path):
+    """The counterpart: a segmented record must KEEP the caveat, or its number gets
+    quoted as the §16 figure it cannot be."""
+    tests_dir = tmp_path / "t"
+    tests_dir.mkdir()
+    (tests_dir / "test_a.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    baseline = tmp_path / "baseline.json"
+
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--record", "--tests-dir", str(tests_dir),
+         "--baseline", str(baseline), "--segment-size", "5", "--timeout", "30"],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    assert proc.returncode == 0, (proc.stdout + proc.stderr)[-1200:]
+    rec = json.loads(baseline.read_text(encoding="utf-8"))
+    assert "FLOOR" in rec["caveat"]
+    assert "segments" in rec["method"]
+
+
+def test_a_dead_single_process_run_is_not_reported_as_zero_failures():
+    """An external kill produces no pytest summary. Parsing that as 0 failed / 0 passed
+    and publishing it would be a fabricated clean run — the exact never-false-clean rule
+    this repo applies to its intel sources, applied to its own measurement.
+    """
+    mod = _load()
+    src = inspect.getsource(mod._run_single_process)
+    assert "hung" in src
+    # The guard: no 'passed' AND no 'failed' in the output => hung, not clean.
+    assert '"passed" not in out' in src and '"failed" not in out' in src, src[-400:]

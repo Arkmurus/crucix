@@ -157,6 +157,50 @@ def _run_segment(files: list[pathlib.Path], timeout_s: int, tests_dir: pathlib.P
     return failed, passed, failures, hung
 
 
+def _run_single_process(tests_dir: pathlib.Path, timeout_s: int) -> tuple[int, int, list[str], bool]:
+    """R-F3625 — ONE pytest process over the whole suite: the §16 measurement itself.
+
+    This script could only ever produce a SEGMENTED floor, and its own docstring says
+    so ("149 segmented vs 165 single-process, i.e. 16 invisible"). But the number
+    CLAUDE.md §16 and docs/suite_baseline.md actually quote is the SINGLE-PROCESS one.
+    So the committed tool could not reproduce the figure the repo treats as
+    authoritative — which is the same defect as R-F3622 (the measurement lived
+    somewhere the tool wasn't), just in a different place: the tool measured a
+    different thing than the doc published.
+
+    A segmented run cannot see order-dependent failures because each segment gets a
+    fresh interpreter; state leaked by test A into test B only bites when both run in
+    one process. That is not a rounding difference — it is a whole failure CLASS
+    (see the order-dependent-tests work, R-F3449).
+
+    Command is the documented §16 one, plus `-rf`:
+        python -m pytest aria_service/tests/ -q --tb=line -p no:cacheprovider --timeout=600
+    `-rf` only forces the failure summary to print so the failure SET can be extracted;
+    it changes no collection, no ordering and no execution. The repo's doctrine is to
+    diff the failure set, not the count, and without it there is no set to diff.
+
+    Returns (failed, passed, failures, hung) — same shape as _run_segment.
+    """
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", str(tests_dir),
+         "-q", "--tb=line", "-p", "no:cacheprovider", f"--timeout={timeout_s}", "-rf"],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    out = proc.stdout + proc.stderr
+    failed = passed = 0
+    for n, kind in _COUNTS.findall(out):
+        if kind == "failed":
+            failed = int(n)
+        elif kind == "passed":
+            passed = int(n)
+    failures = [_normalise(line[len("FAILED "):].split(" ")[0], tests_dir)
+                for line in out.splitlines() if line.startswith("FAILED ")]
+    # No summary at all means the process died (external kill / wedge), NOT a clean
+    # run. Treating that as "0 failures" would publish a fabricated pass.
+    hung = "Timeout ++" in out or ("passed" not in out and "failed" not in out)
+    return failed, passed, failures, hung
+
+
 def compare(observed: list[str], known: set[str], complete: bool) -> tuple[list[str], list[str] | None]:
     """R-F3377 — the §16 gate itself, extracted so it can be PROVEN to fire.
 
@@ -190,6 +234,12 @@ def main() -> int:
                          "so the GATE itself can be exercised without running the real suite)")
     ap.add_argument("--baseline", type=pathlib.Path, default=BASELINE,
                     help="baseline file to compare against (tests point this at a fixture)")
+    ap.add_argument("--single-process", action="store_true",
+                    help="R-F3625: run the WHOLE suite in one pytest process — the actual "
+                         "CLAUDE.md §16 measurement. Slower and vulnerable to an external "
+                         "kill on this box, but it is the only mode that can see "
+                         "order-dependent failures, which a segmented run structurally "
+                         "cannot. Use this for the authoritative number.")
     args = ap.parse_args()
 
     # R-F3622 — snapshot BEFORE anything runs.
@@ -197,14 +247,30 @@ def main() -> int:
     print(f"tree {hash_before} @ {subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], cwd=ROOT, capture_output=True, text=True).stdout.strip()}")
 
     files = sorted(args.tests_dir.glob("test_*.py"))
-    segments = [files[i:i + args.segment_size] for i in range(0, len(files), args.segment_size)]
-    if args.max_segments:
-        segments = segments[:args.max_segments]
-    print(f"{len(files)} test files -> {len(segments)} segments of {args.segment_size}")
-
     total_f = total_p = 0
     all_failures: list[str] = []
     hung_segments: list[int] = []
+    segments: list[list[pathlib.Path]] = []
+
+    if args.single_process:
+        # R-F3625 — the §16 measurement. One process, so order-dependent failures are
+        # VISIBLE; a segmented run gives each chunk a fresh interpreter and cannot see
+        # them at all.
+        print(f"{len(files)} test files -> ONE pytest process (§16 mode, "
+              f"per-test timeout {args.timeout}s)", flush=True)
+        total_f, total_p, all_failures, hung = _run_single_process(args.tests_dir, args.timeout)
+        if hung:
+            hung_segments.append(0)
+            print("WEDGE: no pytest summary — the process died or hung. This is NOT "
+                  "'zero failures'; the run produced no measurement.")
+        print(f"  {total_f} failed, {total_p} passed", flush=True)
+    else:
+        segments = [files[i:i + args.segment_size] for i in range(0, len(files), args.segment_size)]
+        if args.max_segments:
+            segments = segments[:args.max_segments]
+        print(f"{len(files)} test files -> {len(segments)} segments of {args.segment_size} "
+              f"(FLOOR — order-dependent failures are invisible; use --single-process "
+              f"for the §16 number)")
     for idx, seg in enumerate(segments):
         if idx < args.resume_from:
             continue
@@ -278,9 +344,19 @@ def main() -> int:
                                           cwd=ROOT, capture_output=True, text=True).stdout.strip(),
             "commit": subprocess.run(["git", "rev-parse", "--short", "HEAD"],
                                      cwd=ROOT, capture_output=True, text=True).stdout.strip(),
-            "method": "foreground segments (background pytest is killed externally on this box)",
-            "caveat": "segmented runs cannot see order-dependent failures; historical 149 "
-                      "segmented vs 165 single-process. This is a FLOOR.",
+            # R-F3625 — the method and its caveat must describe the run that actually
+            # happened. Recording a single-process measurement under the segmented
+            # caveat would understate its authority; recording a segmented one without
+            # the caveat would overstate it. Either way the reader is misled about what
+            # the number can see.
+            "method": ("single pytest process (CLAUDE.md §16 measurement)"
+                       if args.single_process
+                       else "foreground segments (background pytest is killed externally on this box)"),
+            "caveat": ("order-dependent failures ARE visible in this mode; this is the "
+                       "authoritative §16 figure, not a floor."
+                       if args.single_process
+                       else "segmented runs cannot see order-dependent failures; historical 149 "
+                            "segmented vs 165 single-process. This is a FLOOR."),
             # R-F3622 — the validity record travels WITH the number. A reader must
             # not have to trust that whoever recorded it checked.
             "valid": True,
