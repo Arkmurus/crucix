@@ -159,6 +159,33 @@ because fallback.py hands the backup the identical budget.
 **Live-smoked on the operator's own question** (Bulgaria travel risk): a real
 answer, `degraded=None`.
 
+**R-F3629 (live @ 5d8e4fb1).** Closed the two items R-F3627 left open. The
+deepseek-v4 context window was understated 16x — MEASURED from the API's own 400
+body (flash 1,048,576; pro 1,048,565), not read off a doc, and the first probe
+was discarded as inconclusive (64,094 tokens, under the recorded limit). The
+catch worth remembering: 65,536 was ALSO, unstated, the thing bounding spend, so
+correcting it would have 16x'd worst-case prompt cost as a side effect —
+capability (`_CONTEXT_WINDOWS`) and permission (`ARIA_MAX_PROMPT_TOKENS`) are now
+separate. Also: R-F3627's retry gave each attempt the full `timeout`, doubling
+the caller's clock; both attempts now share one deadline.
+
+**R-F3630 — WRITTEN, VERIFIED ON TARGET, NOT SHIPPED. Handed off 2026-08-01.**
+Root cause PROVEN by arithmetic: R-F3588 deliberately appends `_ambient_now_block`
+AFTER the doc-mode length cap so a tail-trim cannot delete the clock (correct, and
+~250 chars at the time). R-F3590 grew that block to 2,283 chars, so
+20,000 + 61 + 2,283 = 22,344 — exactly what the R-F947/R-F2188/R-F2196 guards have
+been reporting, red and unread. The cap stopped bounding the prompt; that cap
+exists because a bloated prompt once truncated a customer's contract mid-clause
+(Korvera UTS, 2026-05-27). Fix RESERVES the appendix instead of exempting it, so
+both invariants hold at once, with an ERROR if it ever grows enough to starve the
+constitution. 24/24 on the affected guards, compile gate 0 broken.
+**Why it is not shipped:** the wide sweep surfaced 8 test names never run in
+earlier selections, and the clean-worktree run that would attribute them was still
+in flight at session close. Shipping before that diff would be an unverified
+claim. Work preserved as a patch in the session scratchpad AND left uncommitted in
+`aria_service/aria_engine.py` + `tests/test_rf3588_aria_has_a_clock.py` — a peer
+agent is active in this tree, so do NOT `git add -A` over it.
+
 Ran alongside two peers (a second Claude and Codex) in one tree, so every commit
 was staged file-by-file rather than with `git add -A`.
 
