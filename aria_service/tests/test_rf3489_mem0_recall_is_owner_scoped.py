@@ -41,6 +41,11 @@ from aria_service.intel import mem0
 # long run returns a DIFFERENT function's body (measured 2026-07-31).
 from ._source_probe import function_source
 
+# R-F3605 — `from . import X` resolves from the PARENT PACKAGE ATTRIBUTE,
+# not sys.modules. Patching sys.modules alone is a no-op once anything has
+# imported the target, which is why this file passed alone and failed in-suite.
+from ._module_stub import stub_submodule
+
 
 @pytest.fixture
 def cache(monkeypatch):
@@ -58,7 +63,7 @@ def cache(monkeypatch):
         _cache = {"facts": facts}
 
     import sys
-    monkeypatch.setitem(sys.modules, "aria_service.intel.knowledge", _K)
+    stub_submodule(monkeypatch, "aria_service.intel.knowledge", _K)
     monkeypatch.setenv("ARIA_MEM0_ENABLED", "1")
     monkeypatch.delenv("ARIA_MEM0_RECALL_UNOWNED", raising=False)
     return facts

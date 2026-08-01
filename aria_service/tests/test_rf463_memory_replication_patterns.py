@@ -14,6 +14,11 @@ from __future__ import annotations
 
 import pytest
 
+# R-F3605 — `from . import X` resolves from the PARENT PACKAGE ATTRIBUTE,
+# not sys.modules. Patching sys.modules alone is a no-op once anything has
+# imported the target, which is why this file passed alone and failed in-suite.
+from ._module_stub import stub_submodule
+
 
 def test_rf463_critical_keys_now_include_brain_anchors():
     from aria_service.learning.memory_replication import _CRITICAL_KEYS
@@ -97,7 +102,7 @@ async def _async_run_daily_backup_picks_up_pattern_keys(monkeypatch):
     # `from ..intel import redis_store as rs` resolves via sys.modules,
     # so this is the correct place to patch. monkeypatch.setitem ensures
     # the original is restored after the test.
-    monkeypatch.setitem(sys.modules, "aria_service.intel.redis_store", _FakeRS)
+    stub_submodule(monkeypatch, "aria_service.intel.redis_store", _FakeRS)
     # Also patch the function's __globals__ directly so its lazy import
     # `from ..intel import redis_store as rs` uses our fake regardless
     # of import order with other tests.

@@ -14,6 +14,11 @@ from __future__ import annotations
 import asyncio
 import pytest
 
+# R-F3605 — `from . import X` resolves from the PARENT PACKAGE ATTRIBUTE,
+# not sys.modules. Patching sys.modules alone is a no-op once anything has
+# imported the target, which is why this file passed alone and failed in-suite.
+from ._module_stub import stub_submodule
+
 
 def test_rf468_no_explicit_ttl_in_invalidate_path():
     """Static-source guard: the invalidate() function must not call
@@ -64,7 +69,7 @@ def test_rf468_runtime_persistence_uses_no_ttl(monkeypatch):
     # Patch redis_store in sys.modules. The relative import
     # `from . import redis_store as rs` resolves via sys.modules,
     # so this is the correct place to patch.
-    monkeypatch.setitem(sys.modules, "aria_service.intel.redis_store", _FakeRS)
+    stub_submodule(monkeypatch, "aria_service.intel.redis_store", _FakeRS)
     # Also patch the module's internal _invalidated_set helper which
     # does its own lazy import of redis_store.
     from aria_service.intel import mistake_ledger as _ml
