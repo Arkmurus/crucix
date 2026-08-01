@@ -13,7 +13,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { generateInfographicCard, uploadSvgAsPhoto } = await import('../lib/telegram/channelMedia.mjs');
+// R-F3609 renamed uploadSvgAsPhoto -> sendSvgCard: the old name claimed to upload
+// while it actually PUBLISHED, and both callers then sent the file_id a second time.
+// The rasterisation assertions below are unchanged and still the point of this file.
+const { generateInfographicCard, sendSvgCard } = await import('../lib/telegram/channelMedia.mjs');
 
 const TENDER = {
   title: 'Hungary - Surveillance and security systems and devices - K2637 videomegfigyelo rendsz. amortizacios csereje',
@@ -100,7 +103,7 @@ test('R-F2903: the upload sends PNG, never image/svg+xml', async () => {
   };
   try {
     const svg = generateInfographicCard(TENDER);
-    const res = await uploadSvgAsPhoto({ botToken: 'T', chatId: '-100' }, svg, 'card.svg');
+    const res = await sendSvgCard({ botToken: 'T', chatId: '-100' }, svg, { filename: 'card.svg' });
     assert.equal(res.ok, true, `upload failed: ${res.error}`);
     assert.match(seenBody, /Content-Type: image\/png/,
       'Telegram rejects SVG — the payload must be rasterised PNG');
@@ -126,7 +129,7 @@ test('R-F2903: the multipart payload preserves the PNG BYTES intact', async () =
   };
   try {
     const svg = generateInfographicCard(TENDER);
-    const res = await uploadSvgAsPhoto({ botToken: 'T', chatId: '-100' }, svg, 'card.png');
+    const res = await sendSvgCard({ botToken: 'T', chatId: '-100' }, svg, { filename: 'card.png' });
     assert.equal(res.ok, true);
     assert.ok(Buffer.isBuffer(body), 'multipart body must be a Buffer — a string corrupts binary');
     const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);   // \x89PNG\r\n\x1a\n
@@ -142,7 +145,7 @@ test('R-F2903: an unrasterisable card fails cleanly so the post still goes text-
   const original = globalThis.fetch;
   globalThis.fetch = async () => { throw new Error('should not reach Telegram'); };
   try {
-    const res = await uploadSvgAsPhoto({ botToken: 'T', chatId: '-100' }, 'not an svg at all');
+    const res = await sendSvgCard({ botToken: 'T', chatId: '-100' }, 'not an svg at all');
     assert.equal(res.ok, false);
     assert.equal(res.error, 'svg_rasterise_failed');
   } finally { globalThis.fetch = original; }
