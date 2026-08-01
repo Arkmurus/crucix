@@ -317,6 +317,22 @@ class TenderAlert:
     relevance_reasons: list[str] = field(default_factory=list)
     matched_products: list[str] = field(default_factory=list)
     detected_at: str = ""            # ISO timestamp
+    # R-F3621 — an AWARD notice is not a tender, and TED publishes both here.
+    #
+    # `_crawl_ted` already ASKED for `notice-type` and then never read it, so a
+    # contract award notice (`can-standard` — who WON) became an indistinguishable
+    # `active_tender`. Measured live 2026-08-01 on the defence CPV query: of 50
+    # notices, 27 were `cn-standard` (open tender) and 21 were `can-standard`
+    # (award) — 340 awards in the 14-day window. R-F3536 then banned
+    # `active_tender` from the Telegram channel while explicitly wanting to KEEP
+    # awards ("an award is who WON, which is market intelligence, unlike an open
+    # tender"), so it banned the very thing it meant to keep.
+    #
+    # Defaults are empty so every other portal crawler is unaffected.
+    notice_type: str = ""            # eForms notice-type, e.g. cn-standard / can-standard
+    award_winners: list[str] = field(default_factory=list)  # deduped, order-preserved
+    award_value: str = ""            # numeric as published — NO currency, see below
+    award_date: str = ""             # winner-decision-date
 
     def __post_init__(self):
         if not self.detected_at:
@@ -481,6 +497,71 @@ def _ted_i18n_pick_str(value: object, prefer: tuple = ("eng", "fra", "deu")) -> 
     return ""
 
 
+# R-F3621 — eForms notice types that mean "this contract has been AWARDED".
+# `can-standard` is the standard contract award notice; `can-modif` announces a
+# modification to an already-awarded contract. `veat` (voluntary ex-ante
+# transparency) is deliberately EXCLUDED: it announces an INTENT to award directly
+# without a call for competition, so treating it as an award would report a
+# contract that may never be signed.
+_TED_AWARD_NOTICE_TYPES = frozenset({"can-standard", "can-modif"})
+
+
+def _ted_i18n_pick_list(value: object, prefer: tuple = ("eng", "fra", "deu")) -> list[str]:
+    """R-F3621 — pick a LIST from an i18n map, deduped and order-preserved.
+
+    `winner-name` comes back as {"slk": ["Datacomp s.r.o.", "Datacomp s.r.o."]} —
+    one entry per awarded LOT, so the same supplier repeats when it won several
+    lots, and a framework agreement legitimately carries several distinct winners.
+    `_ted_i18n_pick_str` would join those into "Datacomp s.r.o. Datacomp s.r.o.",
+    which reads as a mangled name rather than one supplier winning twice.
+    """
+    if not isinstance(value, dict):
+        raw = value if isinstance(value, list) else [value]
+    else:
+        raw = None
+        for lang in prefer:
+            if value.get(lang):
+                raw = value[lang]
+                break
+        if raw is None:
+            raw = next((v for v in value.values() if v), [])
+    if not isinstance(raw, list):
+        raw = [raw]
+    seen: list[str] = []
+    for item in raw:
+        name = str(item or "").strip()[:160]
+        if name and name not in seen:
+            seen.append(name)
+    return seen[:8]
+
+
+def _ted_award_value(value: object) -> str:
+    """R-F3621 — the published contract value, or "" when it cannot be trusted.
+
+    TED exposes `total-value` as a bare number and exposes NO currency field —
+    probed 2026-08-01: total-value-currency / tender-value-currency /
+    notice-currency / currency are all rejected as unknown fields. So the amount
+    is reported WITHOUT a unit and the consumer must not invent one; assuming EUR
+    because the notice is European is exactly the fabrication this codebase exists
+    to prevent.
+
+    Values below 1000 are dropped rather than published: the live sample included
+    `total-value: 4` on a boat-supply framework, which is a lot count or a
+    malformed field, not a contract value. A wrong number is worse than no number.
+    """
+    if isinstance(value, list):
+        value = next((v for v in value if v not in (None, "")), None)
+    if value in (None, ""):
+        return ""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if amount < 1000:
+        return ""
+    return f"{amount:,.0f}"
+
+
 # ── Portal crawlers ──────────────────────────────────────────────────────────
 
 
@@ -540,6 +621,13 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
                 "classification-cpv",
                 "deadline-receipt-tender-date-lot",
                 "links",
+                # R-F3621 — award payload. Field names verified against the live
+                # API on 2026-08-01 (unknown names are rejected outright, so these
+                # were probed one at a time rather than guessed). Empty on an open
+                # tender notice, populated on can-standard / can-modif.
+                "winner-name",
+                "total-value",
+                "winner-decision-date",
             ],
             "limit": min(max_results, 50),
             "page": 1,
@@ -633,6 +721,25 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
                 if not tender_url and publication_number:
                     tender_url = f"https://ted.europa.eu/en/notice/-/detail/{publication_number}"
 
+                # R-F3621 — read the notice-type this crawler has always requested
+                # and never used. An award notice carries a WINNER; a tender does not.
+                notice_type = notice.get("notice-type")
+                if isinstance(notice_type, list):
+                    notice_type = notice_type[0] if notice_type else ""
+                notice_type = str(notice_type or "").strip().lower()
+
+                award_winners: list[str] = []
+                award_value = ""
+                award_date = ""
+                if notice_type in _TED_AWARD_NOTICE_TYPES:
+                    award_winners = _ted_i18n_pick_list(notice.get("winner-name", {}))
+                    award_value = _ted_award_value(notice.get("total-value"))
+                    decided = notice.get("winner-decision-date") or []
+                    if isinstance(decided, list):
+                        decided = next((d for d in decided if d), "")
+                    # Strip the +HH:MM offset for a clean, unambiguous date.
+                    award_date = str(decided or "")[:10]
+
                 t = TenderAlert(
                     id="",
                     portal="TED",
@@ -646,6 +753,10 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
                     deadline=deadline,
                     publication_date=pub_date,
                     url=tender_url,
+                    notice_type=notice_type,
+                    award_winners=award_winners,
+                    award_value=award_value,
+                    award_date=award_date,
                 )
                 tenders.append(t)
             except Exception as e:

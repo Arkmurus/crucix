@@ -609,26 +609,78 @@ async def _tender_adapter() -> list[dict]:
         country = _clean(d.get("country"))
         value = _clean(d.get("value_estimate")) or "undisclosed"
         deadline = _clean(d.get("deadline")) or "unspecified"
-        why = (f"{buyer or 'Buyer undisclosed'} ({country or 'n/a'}) — value {value}, "
-               f"deadline {deadline}."
-               + (f" Matched products: {', '.join(matched[:4])}." if matched else ""))
+
+        # R-F3621 — an AWARD is a different signal from a TENDER, and until now both
+        # were emitted as `active_tender`.
+        #
+        # R-F3536 removed `active_tender` from the Telegram channel on the operator's
+        # instruction ("a tender is a published notice anyone can subscribe to... it is
+        # a WORKFLOW item") while explicitly KEEPING `contract_award` ("an award is who
+        # WON, which is market intelligence"). But nothing produced contract_award, so
+        # the ban swept up the awards too and the channel lost its supply: measured
+        # 2026-08-01, contract_award existed only as 2 classifier_template news items,
+        # which R-F2899 refuses. Live TED carried 340 defence award notices in the same
+        # 14-day window, all of them arriving here mislabelled.
+        #
+        # The winner, the buyer and the decision date come from the notice itself, so
+        # the why-text is item-specific by construction and earns `source_adapter`
+        # provenance honestly (R-F2930) rather than by assertion.
+        winners = [w for w in (d.get("award_winners") or []) if str(w or "").strip()]
+        is_award = bool(winners)
+        if is_award:
+            award_value = _clean(d.get("award_value"))
+            award_date = _clean(d.get("award_date"))
+            if len(winners) == 1:
+                who = f"{winners[0]} won this contract"
+            else:
+                who = f"Awarded to {len(winners)} suppliers: {', '.join(winners[:3])}" + (
+                    f" and {len(winners) - 3} more" if len(winners) > 3 else "")
+            why = (
+                f"{who} from {buyer or 'an undisclosed buyer'}"
+                f"{f' ({country})' if country else ''}."
+                # NO currency: TED publishes total-value with no currency field
+                # (probed 2026-08-01), and inferring EUR from "it is a European
+                # notice" would be an invented unit on a customer-facing number.
+                + (f" Contract value {award_value} (currency as published — see the notice)."
+                   if award_value else "")
+                + (f" Decision {award_date}." if award_date else "")
+                + (f" Scope: {', '.join(matched[:4])}." if matched else "")
+            )
+            action = ("Map the incumbent — check whether this displaces a current supplier, "
+                      "and diary the renewal window.")
+            signal_type = "contract_award"
+            category = "contract_award"
+        else:
+            why = (f"{buyer or 'Buyer undisclosed'} ({country or 'n/a'}) — value {value}, "
+                   f"deadline {deadline}."
+                   + (f" Matched products: {', '.join(matched[:4])}." if matched else ""))
+            action = "Assess bid/no-bid — review scope, eligibility and deadline."
+            signal_type = "active_tender"
+            category = "procurement"
 
         findings.append({
             "source_key": "tender_monitor",
             "source": f"Procurement: {portal or 'portal'}",
-            "signal_type": "active_tender",
+            "signal_type": signal_type,
             "priority": priority,
             "confidence": confidence,
             "score": score,
             "source_tier": tier,
             "title": _clean(d.get("title")),
             "why_it_matters": why,
-            "recommended_action": "Assess bid/no-bid — review scope, eligibility and deadline.",
-            "target": buyer or country or portal,
+            "recommended_action": action,
+            # The WINNER is the subject of an award; the buyer is the subject of a
+            # tender. Getting this wrong would put the wrong entity in the channel
+            # post's "Target" line and in the dedup key.
+            "target": (winners[0] if is_award and winners else (buyer or country or portal)),
             "entities": {
                 "countries": [country] if country else [],
                 "products": list(matched)[:6],
-                "oems": [],
+                # R-F3621 — the winning supplier IS the named entity of an award.
+                # intel_grade requires a named entity, and leaving this empty would
+                # have graded the most entity-rich signal the bridge produces as if
+                # it named nobody.
+                "oems": list(winners)[:6] if is_award else [],
             },
             "evidence_url": url,
             "url": url,
@@ -636,7 +688,7 @@ async def _tender_adapter() -> list[dict]:
             "detected_at": _clean(d.get("detected_at")),
             "published": _clean(d.get("publication_date")),
             "evidence_count": 1,
-            "category": "procurement",
+            "category": category,
         })
     return findings
 
