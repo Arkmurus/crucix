@@ -161,6 +161,58 @@ describe('R-F3609 — the Golden Intel card is published exactly once', () => {
   });
 });
 
+describe('R-F3609 — publishSignal (the admin/manual lane) had the identical bug', () => {
+  // The scheduled cron is not the only caller. publishSignal - reached by
+  // /api/admin/channel/post and /api/admin/channel/media/post-with-image - did the
+  // same upload-then-send-again, so this lane ALSO posted two copies. A fix applied
+  // to one call site and not the other is the "fixed the instance, missed the class"
+  // failure; both are pinned here.
+  it('publishSignal sends ONE captioned card and no duplicate', async () => {
+    const { publishSignal } = await import('../lib/telegram/channelPublisher.mjs');
+
+    const res = await publishSignal({
+      title: 'Sanctions designation on a monitored counterparty',
+      summary: 'An entity in an active pipeline was designated under the EU consolidated list today.',
+      source: 'EU Official Journal',
+      severity: 'high',
+      timestamp: new Date().toISOString(),
+    }, bot, { generateImage: true, registerKeyword: false, crossPostLinkedIn: false });
+
+    assert.equal(res?.ok, true, `publish failed: ${res?.error}`);
+    assert.equal(photoCalls().length, 1,
+      `one captioned card - ${photoCalls().length} sendPhoto calls means the duplicate is back`);
+    assert.equal(textCalls().length, 0,
+      'the post rides as the caption; a separate text message would be a third copy of the same words');
+
+    const body = Buffer.isBuffer(photoCalls()[0].opts.body)
+      ? photoCalls()[0].opts.body.toString('latin1')
+      : String(photoCalls()[0].opts.body);
+    assert.match(body, /name="caption"/);
+  });
+
+  it('publishSignal falls back to text when the card cannot be sent', async () => {
+    const { publishSignal } = await import('../lib/telegram/channelPublisher.mjs');
+    const saved = global.fetch;
+    global.fetch = async (url, opts = {}) => {
+      if (String(url).includes('/sendPhoto')) {
+        calls.push({ url: String(url), opts });
+        return new Response('nope', { status: 400 });
+      }
+      return saved(url, opts);
+    };
+    try {
+      const res = await publishSignal({
+        title: 'Second designation on a monitored counterparty',
+        summary: 'Card send will fail; the intel must still reach the channel as text.',
+        source: 'EU Official Journal', severity: 'high', timestamp: new Date().toISOString(),
+      }, bot, { generateImage: true, registerKeyword: false, crossPostLinkedIn: false });
+
+      assert.equal(res?.ok, true, 'the post must not be lost when only the card fails');
+      assert.equal(textCalls().length, 1, 'exactly one text post, no duplicate');
+    } finally { global.fetch = saved; }
+  });
+});
+
 describe('R-F3609 — the misnamed symbol is gone, not aliased', () => {
   it('channelMedia no longer exports uploadSvgAsPhoto', async () => {
     const media = await import('../lib/telegram/channelMedia.mjs');

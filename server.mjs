@@ -5441,7 +5441,14 @@ app.post('/webhook', async (req, res) => {
     const update = req.body;
     if (!update || !update.message) { res.sendStatus(200); return; }
     if (telegramAlerter && telegramAlerter.isConfigured) {
-      await telegramAlerter._handleMessage(update.message);
+      // R-F3617 — go through the SAME dispatcher the polling loop uses. This called
+      // `_handleMessage` directly, which skips `_handleChannelKeyword` entirely: on a
+      // webhook deployment every public subscriber reply would be dropped, which is
+      // exactly the R-F3610 defect arriving through the other transport. Dormant
+      // today (no webhook is set), and that is why it would not have been noticed.
+      // `dispatchMessage` still enforces the allow-list before `_handleMessage`, and
+      // `_handleMessage` re-checks it (R-F1821) — the security posture is unchanged.
+      await telegramAlerter.dispatchMessage(update.message);
     }
     res.sendStatus(200);
   } catch (error) {
