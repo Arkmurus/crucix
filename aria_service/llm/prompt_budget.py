@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Tuple
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
@@ -42,10 +43,24 @@ _CONTEXT_WINDOWS: dict[str, int] = {
     # ending mid-word at "...the Angol" — which is verbatim what she then
     # reported back ("your message cut off after 'Ango...'"). Every non-DD
     # LLM call ran that way from the migration until this fix.
+    # R-F3629 (2026-08-01) — the v4 windows were understated 16x. MEASURED
+    # against the live API from inside aria-intel, not read off a doc:
+    #   flash: HTTP 200 at prompt_tokens=200,094 (so 65,536 was already false),
+    #          then HTTP 400 "This model's maximum context length is 1048576
+    #          tokens. However, you requested 1050110 tokens"
+    #   pro:   HTTP 400 "...maximum context length is 1048565 tokens"
+    # The API names its own ceiling in the 400 body, which is why an oversized
+    # request is the cheapest honest probe: a rejected request bills nothing.
+    # Note pro is ELEVEN tokens lower than flash — recorded exactly rather than
+    # rounded, because this number is a truncation boundary and rounding UP
+    # would 400 the very calls it exists to prevent.
+    # deepseek-chat is RETIRED (R-F3032) and deepseek-reasoner was NOT probed —
+    # both keep the old conservative value. Do not "tidy" them to 1M on the
+    # strength of the two that were measured.
     "deepseek-chat":            65536,
     "deepseek-reasoner":        65536,
-    "deepseek-v4-flash":        65536,
-    "deepseek-v4-pro":          65536,
+    "deepseek-v4-flash":      1048576,
+    "deepseek-v4-pro":        1048565,
     # Groq
     "llama-3.3-70b-versatile":  131072,
     "llama-3.1-70b-versatile":  131072,
@@ -76,6 +91,42 @@ _CONTEXT_WINDOWS: dict[str, int] = {
     # ARIA-LLM (sovereign)
     "aria-llm-v0.1":            32768,
 }
+
+# ── R-F3629 — CAPABILITY IS NOT PERMISSION ──────────────────────────────────
+#
+# The 65,536 above was WRONG as a capability number, and it was simultaneously
+# doing a second, unstated job: capping spend. Correcting it to the measured
+# 1,048,576 therefore raises the worst-case prompt of every DeepSeek call 16x
+# — silently, as a side effect of a correctness fix, on the provider that
+# serves nearly everything (§17: the $300/mo cap is real).
+#
+# That is the SAME defect R-F3627 just removed one module over: one integer
+# doing two jobs, so tuning it for one purpose breaks the other. Fixing it here
+# by leaving the window understated would keep the conflation and keep lying
+# about the model; fixing it by raising the window alone would drop the cost
+# guard entirely. So the two jobs are separated: `_CONTEXT_WINDOWS` states what
+# the model CAN accept, and this states what we are WILLING TO SEND.
+#
+# Deliberately set far above any legitimate ARIA prompt — the constitution runs
+# ~20k tokens, history is capped (R-F944), and an attached contract is ~15k — so
+# this never binds on the normal path. It is a runaway guard (a pathological
+# document, a history leak), not a routine constraint, and it logs at WARNING
+# when it bites so the cause is visible rather than silently truncated away.
+# Raise it with ARIA_MAX_PROMPT_TOKENS if a real workload ever needs more.
+def _max_prompt_tokens() -> int:
+    """Spend ceiling on prompt size, independent of model capability."""
+    raw = os.getenv("ARIA_MAX_PROMPT_TOKENS", "").strip()
+    if raw:
+        try:
+            n = int(raw)
+            if n > 0:
+                return n
+        except ValueError:
+            logger.warning("ARIA_MAX_PROMPT_TOKENS=%r is not an int — using default", raw)
+    return _DEFAULT_MAX_PROMPT_TOKENS
+
+
+_DEFAULT_MAX_PROMPT_TOKENS = 120_000
 
 # Default context window for unknown models — conservative
 _DEFAULT_CONTEXT_WINDOW = 8192
@@ -186,6 +237,17 @@ def enforce_budget(
     """
     context_window = get_context_window(model)
     prompt_budget = context_window - reserved_output
+
+    # R-F3629 — the spend ceiling, applied AFTER the capability. Only ever
+    # LOWERS, and only bites on a runaway prompt (see _max_prompt_tokens).
+    _spend_cap = _max_prompt_tokens()
+    if prompt_budget > _spend_cap:
+        logger.debug(
+            "Prompt budget for '%s' capped %d -> %d by ARIA_MAX_PROMPT_TOKENS "
+            "(model capability is not the constraint here)",
+            model, prompt_budget, _spend_cap,
+        )
+        prompt_budget = _spend_cap
 
     if prompt_budget <= 0:
         logger.warning(

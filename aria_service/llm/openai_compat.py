@@ -5,6 +5,7 @@ All use the same /v1/chat/completions endpoint format.
 from __future__ import annotations
 
 import os
+import time
 import httpx
 import logging
 from .provider import LLMProvider, LLMResult, ProviderError
@@ -145,6 +146,11 @@ _REASONING_MODEL_MARKERS = ("deepseek-v4", "deepseek-reasoner", "o1-", "o3-")
 # branch "other" already did — no cooldown behaviour changes.
 KIND_REASONING_TRUNCATED = "reasoning_truncated"
 
+# R-F3629 — below this many seconds left on the caller's clock, the escalation
+# is not started at all. A larger budget takes LONGER to generate, so a retry
+# squeezed into the last moments is the least likely of all to succeed.
+_MIN_RETRY_SECONDS = 15.0
+
 
 def _is_reasoning_model(model: str | None) -> bool:
     """True when `model` spends part of max_tokens on reasoning before content."""
@@ -279,14 +285,41 @@ class OpenAICompatProvider(LLMProvider):
         # prompt budget both see the model that will actually serve.
         _eff_model = model if (model and not str(model).startswith("claude")) else self._model
 
+        # R-F3629 — THE ESCALATION SHARES THE CALLER'S CLOCK, IT DOES NOT DOUBLE IT.
+        #
+        # R-F3627 gave each attempt the full `timeout`, so complete() could take
+        # 2x what the caller asked for. `timeout` is a contract — the chain sizes
+        # its own per-provider budget from it (fallback.py `per_call`) and callers
+        # above set it against a user-facing deadline. A retry that silently
+        # doubles the wall clock is a second defect wearing the first one's fix.
+        _deadline = time.monotonic() + timeout
+        # Only ever read on attempt 1, which is reachable only via the except
+        # branch that sets it. Initialised anyway so a future edit to the loop
+        # cannot turn a provider failure into a NameError.
+        _last_truncation: ProviderError | None = None
         for _attempt in (0, 1):
             _budget = self._resolve_completion_budget(
                 _eff_model, max_tokens, attempt=_attempt,
             )
+            _remaining = _deadline - time.monotonic()
+            if _attempt > 0:
+                # Nothing left worth dialling for. Mirrors the chain's own
+                # _PROVIDER_MIN_BUDGET reasoning: a call that cannot finish is
+                # worse than an honest failure, because it burns the deadline
+                # and still returns nothing.
+                if _remaining < _MIN_RETRY_SECONDS and _last_truncation is not None:
+                    logger.warning(
+                        "[R-F3629] %s (%s) reasoned past its budget, but only "
+                        "%.1fs of the caller's %.1fs timeout remains — failing "
+                        "honestly rather than starting a call that cannot finish.",
+                        self.name, _eff_model, _remaining, timeout,
+                    )
+                    raise _last_truncation
             try:
                 return await self._one_completion(
                     system_prompt, user_message,
-                    eff_model=_eff_model, max_tokens=_budget, timeout=timeout,
+                    eff_model=_eff_model, max_tokens=_budget,
+                    timeout=max(_remaining, _MIN_RETRY_SECONDS),
                 )
             except ProviderError as e:
                 _curable = (
@@ -298,10 +331,12 @@ class OpenAICompatProvider(LLMProvider):
                 )
                 if not _curable:
                     raise
+                _last_truncation = e
                 logger.warning(
                     "[R-F3627] %s (%s) spent its %d-token budget reasoning; "
-                    "retrying ONCE with doubled headroom. %s",
-                    self.name, _eff_model, _budget, e,
+                    "retrying ONCE with doubled headroom (%.1fs of %.1fs left). %s",
+                    self.name, _eff_model, _budget,
+                    _deadline - time.monotonic(), timeout, e,
                 )
         # Unreachable: the loop either returns or raises on the final attempt.
         raise ProviderError(self.name, "completion escalation fell through", kind="other")
