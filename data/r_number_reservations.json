@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3638,
+  "next_available": 3639,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30420,6 +30420,15 @@
       "commit_sha": "8f164e23",
       "notes": null,
       "shipped_at": "2026-08-01T21:45:40Z"
+    },
+    {
+      "r_number": "R-F3638",
+      "title": "coder liveness probe cannot see the fix_gap lane gate",
+      "claimed_at": "2026-08-01T22:27:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

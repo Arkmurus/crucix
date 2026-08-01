@@ -366,11 +366,27 @@ async def self_introspect_context_block(message: str) -> str:
     except Exception as _ae:
         logger.debug("R-F961 autonomous_status_ep failed: %s", _ae)
 
-    # R-F1435: probe coder status via heartbeat + blackout detector.
+    # R-F1435: probe coder LOOP liveness via heartbeat + blackout detector.
     # The coder ticks its heartbeat every 30s (coder_entrypoint._heartbeat_ticker).
-    # If the heartbeat exists and is fresh (< 2x interval), the coder is running.
-    # This fixes the proprioception bug where self_introspect reported
-    # ARIA_CODER_ENABLED=0 (dormant) while the coder was actively fixing gaps.
+    #
+    # R-F3638 — HEARTBEAT FRESHNESS IS NOT "SHE IS FIXING CODE". This probe read
+    # the heartbeat ALONE and rendered "running: True ... it detects gaps, plans
+    # fixes, writes code, and stages improvements. Do NOT report it as dormant."
+    # That instruction was written in the R-F996..R-F3064 era when ARIA_CODER_ENABLED
+    # gated NOTHING, so heartbeat-fresh really did imply fixing. R-F3064 then armed
+    # the switch at self_coder.fix_gap and INVERTED the situation — but the probe and
+    # its NOTE were never updated, so a paused lane still read as active.
+    #
+    # Live on 2026-08-01 with ARIA_CODER_ENABLED='0': the loop scanned and claimed a
+    # gap, then `fix_gap REFUSED ... coder_disabled` — while an operator briefing the
+    # same evening cited "ARIA-Coder running, heartbeat age 6s" as evidence of "true
+    # autonomous operation" and recommended marketing a "self-coding autonomous
+    # engine". A probe that cannot see the gate manufactures a capability claim.
+    #
+    # The ticker runs unconditionally, so LOOP-ALIVE and FIX-LANE-ENABLED are two
+    # independent facts and both must be reported. The lane is resolved through the
+    # SAME predicate fix_gap gates on (safety.is_coder_lane_enabled) — never a second
+    # copy of the env read, which is how the two drifted in the first place.
     _coder_status: dict[str, object] = {}
     try:
         from .self_restart import get_blackout_status as _gbs
@@ -380,16 +396,25 @@ async def self_introspect_context_block(message: str) -> str:
         if _coder_agent:
             _age = _coder_agent.get("heartbeat_age_s", float("inf"))
             _coder_status = {
-                "running": _age < 120,  # heartbeat < 2min = actively ticking
+                "loop_alive": _age < 120,  # heartbeat < 2min = ticker is running
                 "heartbeat_age_s": _age,
                 "blackout_count": _coder_agent.get("blackout_count", 0),
                 "recovery_count": _coder_agent.get("recovery_count", 0),
             }
         else:
-            _coder_status = {"running": False, "reason": "no heartbeat registered"}
+            _coder_status = {"loop_alive": False, "reason": "no heartbeat registered"}
     except Exception as _ce:
         logger.debug("R-F1435 coder status probe failed: %s", _ce)
-        _coder_status = {"running": False, "reason": f"probe failed: {_ce}"}
+        _coder_status = {"loop_alive": False, "reason": f"probe failed: {_ce}"}
+
+    # R-F3638 — tri-state: True/False = measured, None = COULD NOT MEASURE. An
+    # unresolvable switch must never render as "enabled" (CLAUDE.md never-false-clean).
+    try:
+        from ..autonomous.safety import is_coder_lane_enabled as _icle
+        _coder_status["fix_lane_enabled"] = bool(_icle())
+    except Exception as _le:
+        logger.debug("R-F3638 coder lane probe failed: %s", _le)
+        _coder_status["fix_lane_enabled"] = None
 
     lines = [
         "\n\n[TOOL: self_introspect — auto-fired by R-F595 capability detector]",
@@ -465,22 +490,43 @@ async def self_introspect_context_block(message: str) -> str:
                                             "tasks_fired_24h")):
             lines.append("  - (autonomy fields UNAVAILABLE — do not fabricate task counts)")
 
-    # R-F1435: coder status — fixes the proprioception bug where
-    # self_introspect reported ARIA_CODER_ENABLED=0 (dormant) while the
-    # coder was actively fixing gaps. Probed via heartbeat freshness.
+    # R-F1435 + R-F3638: coder status. TWO independent facts — the loop can tick
+    # forever with the fix lane switched off, and that combination is exactly what
+    # produced a false "self-improving system" claim in an operator briefing.
+    # Never collapse them back into one "running" line.
+    _lane = _coder_status.get("fix_lane_enabled")
     lines.append("")
     lines.append("CODER STATUS (ARIA-Coder — autonomous self-coding engine):")
-    if _coder_status.get("running"):
-        lines.append(f"  - running: True (heartbeat age {_coder_status.get('heartbeat_age_s', '?'):.0f}s)")
+    if _coder_status.get("loop_alive"):
+        lines.append(f"  - loop_alive: True (heartbeat age {_coder_status.get('heartbeat_age_s', '?'):.0f}s)")
         lines.append(f"  - blackout_count: {_coder_status.get('blackout_count', 0)}")
         lines.append(f"  - recovery_count: {_coder_status.get('recovery_count', 0)}")
-        lines.append("  - NOTE: the coder IS actively running — it detects gaps, plans fixes, "
-                     "writes code, and stages improvements. Do NOT report it as dormant.")
+        if _lane is True:
+            lines.append("  - fix_lane_enabled: True (ARIA_CODER_ENABLED)")
+            lines.append("  - NOTE: loop alive AND fix lane enabled — the coder detects gaps, "
+                         "plans fixes, writes code, and stages improvements. Do NOT report it "
+                         "as dormant.")
+        elif _lane is False:
+            lines.append("  - fix_lane_enabled: False (ARIA_CODER_ENABLED is not 1)")
+            lines.append("  - ⚠ THE LOOP TICKS BUT NOTHING IS BEING FIXED. self_coder.fix_gap "
+                         "refuses every autonomous gap with failure_reason='coder_disabled'. "
+                         "A fresh heartbeat here means the ticker is alive, NOT that code is "
+                         "being written.")
+            lines.append("  - If asked whether you self-improve autonomously right now, the "
+                         "answer is NO — the lane is PAUSED by the operator. Do NOT cite the "
+                         "heartbeat, the gap scan, or this loop as evidence of autonomous "
+                         "self-coding, and do NOT put it in any capability or marketing claim.")
+        else:
+            lines.append("  - fix_lane_enabled: UNKNOWN (could not resolve ARIA_CODER_ENABLED)")
+            lines.append("  - You CANNOT conclude the coder is applying fixes. Say the fix lane "
+                         "state could not be measured this turn.")
     else:
         _reason = _coder_status.get("reason", "unknown")
-        lines.append(f"  - running: False ({_reason})")
-        lines.append("  - NOTE: the coder is NOT running. It starts automatically when "
+        lines.append(f"  - loop_alive: False ({_reason})")
+        lines.append("  - NOTE: the coder loop is NOT running. It starts automatically when "
                      "ARIA_INTERNAL_TOKEN is set and the process boots.")
+        if _lane is False:
+            lines.append("  - fix_lane_enabled: False as well (ARIA_CODER_ENABLED is not 1).")
 
     # Retention — the explicit "no TTL" anchor so the LLM can never
     # reintroduce an 18-month TTL claim.

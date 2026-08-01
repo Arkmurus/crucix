@@ -687,9 +687,18 @@ class ARIACoder:
         #
         # operator_initiated=True is exempt: that is a human explicitly asking
         # for this fix now (R-F824), which is consent, not the autonomous lane.
+        # R-F3638 — the predicate itself now lives in safety.is_coder_lane_enabled
+        # so the self_introspect PROBE resolves the same switch this GATE does.
+        # The probe used to read heartbeat freshness alone, so a lane paused here
+        # still rendered as "the coder IS actively running ... plans fixes, writes
+        # code" and ARIA reported active self-improvement while every gap was
+        # refused below. One predicate, two readers, no drift.
         if not operator_initiated:
-            _enabled = (os.getenv("ARIA_CODER_ENABLED", "") or "").strip().lower()
-            if _enabled not in ("1", "true", "yes"):
+            from aria_service.autonomous.safety import (
+                CODER_LANE_VAR, is_coder_lane_enabled,
+            )
+            if not is_coder_lane_enabled():
+                _enabled = (os.getenv(CODER_LANE_VAR, "") or "").strip().lower()
                 logger.info(
                     "[aria_coder] fix_gap REFUSED for %s — ARIA_CODER_ENABLED=%r "
                     "(the autonomous coder lane is off). Set it to 1, or call "

@@ -637,6 +637,35 @@ _paused_inproc: bool = False
 _task_paused_inproc: dict[str, bool] = {}
 
 
+# ── R-F3638 — the coder-lane switch, resolved in ONE place ────────────────
+# `ARIA_CODER_ENABLED` is the operator's consent for the AUTONOMOUS coder lane.
+# It does NOT stop the coder LOOP: coder_entrypoint.start_aria_coder() has had
+# no env gate since R-F996, so run_forever() and the 30s heartbeat ticker run
+# whenever ARIA_INTERNAL_TOKEN is set. R-F3064 put the real gate at the one
+# chokepoint every fix funnels through — self_coder.fix_gap.
+#
+# Two readers must never disagree about this value: the GATE (fix_gap, which
+# refuses the work) and the PROBE (self_introspect_guard, which tells ARIA what
+# to say about herself). Before R-F3638 the probe could not see the gate at all
+# — it read heartbeat freshness only, so a paused lane rendered as
+# "running: True ... it detects gaps, plans fixes, writes code, and stages
+# improvements", and ARIA reported active self-improvement in an operator
+# briefing while every gap was being refused `coder_disabled`. Both callers now
+# resolve the switch HERE so the probe cannot drift from the gate again.
+CODER_LANE_VAR = "ARIA_CODER_ENABLED"
+_CODER_LANE_TRUTHY = ("1", "true", "yes")
+
+
+def is_coder_lane_enabled() -> bool:
+    """True when the operator has consented to the autonomous coder lane.
+
+    Sync and env-only by design: the introspection probe calls this on a chat
+    turn and must not await a store read. The truthy set is R-F3064's gate
+    verbatim — change it HERE, never at a call site.
+    """
+    return (os.getenv(CODER_LANE_VAR, "") or "").strip().lower() in _CODER_LANE_TRUTHY
+
+
 @fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def is_engine_paused() -> bool:
     """Global engine kill switch. When True, NO tasks fire.
