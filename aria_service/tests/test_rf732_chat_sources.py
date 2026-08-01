@@ -18,6 +18,11 @@ from __future__ import annotations
 
 import inspect
 
+# R-F3597 — resolve source BY NAME through the current AST. `inspect.getsource`
+# slices the file at the IMPORTED line numbers, so a concurrent edit during a
+# long run returns a DIFFERENT function's body (measured 2026-07-31).
+from ._source_probe import function_source
+
 
 def test_extract_tool_citation():
     """`[from <tool>:<run_id>]` → type=tool with tool + run_id captured."""
@@ -187,7 +192,7 @@ def test_rf732_wiring_present_in_aria_chat_impl():
     dict is returned in `_aria_chat_impl`. Catches accidental revert."""
     from aria_service import aria_engine
 
-    src = inspect.getsource(aria_engine._aria_chat_impl)
+    src = function_source(aria_engine, "_aria_chat_impl")
     assert "R-F732" in src
     assert "chat_sources" in src
     assert '"sources"' in src or "'sources'" in src
@@ -198,7 +203,7 @@ def test_rf732_wiring_present_in_aria_chat_stream_impl():
     in `_aria_chat_stream_impl`. Per CLAUDE.md §13 stream-bypass rule."""
     from aria_service import aria_engine
 
-    src = inspect.getsource(aria_engine._aria_chat_stream_impl)
+    src = function_source(aria_engine, "_aria_chat_stream_impl")
     assert "R-F732" in src
     assert "chat_sources" in src
     assert "sources" in src

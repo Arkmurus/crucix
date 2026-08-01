@@ -36,6 +36,11 @@ import pytest
 
 from aria_service.intel import mem0
 
+# R-F3597 — resolve source BY NAME through the current AST. `inspect.getsource`
+# slices the file at the IMPORTED line numbers, so a concurrent edit during a
+# long run returns a DIFFERENT function's body (measured 2026-07-31).
+from ._source_probe import function_source
+
 
 @pytest.fixture
 def cache(monkeypatch):
@@ -122,7 +127,7 @@ def test_both_chat_paths_are_threaded():
 def test_the_store_path_records_an_owner():
     """Without this the read-side scope would simply withhold everything forever."""
     import inspect
-    src = inspect.getsource(mem0.summarise_and_store)
+    src = function_source(mem0, "summarise_and_store")
     assert "owner_key" in src
     assert ':owner_{_own}"' in src or ":owner_" in src
 

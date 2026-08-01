@@ -29,6 +29,11 @@ from __future__ import annotations
 
 import inspect
 
+# R-F3597 — resolve source BY NAME through the current AST. `inspect.getsource`
+# slices the file at the IMPORTED line numbers, so a concurrent edit during a
+# long run returns a DIFFERENT function's body (measured 2026-07-31).
+from ._source_probe import function_source
+
 
 def test_propaganda_guard_signature_matches_chat_wiring():
     """R-F733: chat wiring calls `propaganda_guard.guard(response_text)`
@@ -81,7 +86,7 @@ def test_rf733_wiring_present_in_aria_chat_impl():
     AND `_aria_chat_stream_impl`. Catches accidental revert / rebase drop."""
     from aria_service import aria_engine
 
-    src = inspect.getsource(aria_engine._aria_chat_impl)
+    src = function_source(aria_engine, "_aria_chat_impl")
     assert "R-F733" in src, (
         "R-F733: guard wiring missing from `_aria_chat_impl`. The "
         "marker `R-F733` should appear in the function body. If a "
@@ -91,7 +96,7 @@ def test_rf733_wiring_present_in_aria_chat_impl():
     assert "propaganda_guard" in src
     assert "tool_claim_guard" in src
 
-    stream_src = inspect.getsource(aria_engine._aria_chat_stream_impl)
+    stream_src = function_source(aria_engine, "_aria_chat_stream_impl")
     assert "R-F733" in stream_src, (
         "R-F733: stream-path guard wiring missing from "
         "`_aria_chat_stream_impl`. Per CLAUDE.md §13 stream-bypass "
