@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3618,
+  "next_available": 3621,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30186,32 +30186,65 @@
       "title": "sovereign timeout is swallowed by kw so R-F1365 fast-failover never bound the sovereign",
       "claimed_at": "2026-08-01T07:19:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "37ac0c01",
+      "notes": null,
+      "shipped_at": "2026-08-01T07:38:19Z"
     },
     {
       "r_number": "R-F3615",
       "title": "quarantine R-F3033-era chain-of-thought absorbed as facts, never delete per section 7",
       "claimed_at": "2026-08-01T07:19:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "37ac0c01",
+      "notes": null,
+      "shipped_at": "2026-08-01T07:38:20Z"
     },
     {
       "r_number": "R-F3616",
       "title": "sustained provider failure rate must page, not only total exhaustion",
       "claimed_at": "2026-08-01T07:19:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "37ac0c01",
+      "notes": null,
+      "shipped_at": "2026-08-01T07:38:20Z"
     },
     {
       "r_number": "R-F3617",
       "title": "Telegram webhook transport bypasses the public-keyword dispatch that polling uses",
       "claimed_at": "2026-08-01T07:22:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2ad8cb6c",
+      "notes": null,
+      "shipped_at": "2026-08-01T07:38:44Z"
+    },
+    {
+      "r_number": "R-F3618",
+      "title": "admin is exempt from quota on 3 of 4 sites: _quotaBlock meters the chat lane at free-tier caps",
+      "claimed_at": "2026-08-01T07:30:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2ad8cb6c",
+      "notes": null,
+      "shipped_at": "2026-08-01T07:38:44Z"
+    },
+    {
+      "r_number": "R-F3619",
+      "title": "roleSatisfies: admin is a superset of support and poweruser but NOT viewer",
+      "claimed_at": "2026-08-01T07:32:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2ad8cb6c",
+      "notes": null,
+      "shipped_at": "2026-08-01T07:38:45Z"
+    },
+    {
+      "r_number": "R-F3620",
+      "title": "four forks of is-this-about-ARIA; the narrowest guards tool routing so she web-searched herself",
+      "claimed_at": "2026-08-01T07:38:22Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
