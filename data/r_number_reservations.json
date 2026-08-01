@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3637,
+  "next_available": 3638,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30409,6 +30409,16 @@
       "commit_sha": "3c614f57",
       "notes": null,
       "shipped_at": "2026-08-01T21:42:54Z"
+    },
+    {
+      "r_number": "R-F3637",
+      "title": "training corpus is untracked so no run is attributable and contamination cannot be proven",
+      "claimed_at": "2026-08-01T21:44:22Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8f164e23",
+      "notes": null,
+      "shipped_at": "2026-08-01T21:45:40Z"
     }
   ]
 }
