@@ -205,6 +205,13 @@ def get_gap_type(module: str, func_name: str = "") -> str:
 # match basename "aria.py", silently defeating the exemption once routes wire).
 # Use "*" for function_name to exempt ALL functions in a module.
 HARD_EXEMPT: dict[str, dict[str, str]] = {
+    # R-F3626 — added by R-F3608. PURE: str→bool predicate over string prefixes.
+    # No I/O, no store, total over its input (empty string returns False). It is a
+    # CLASSIFIER used to decide whether text may be absorbed as knowledge; wiring it
+    # would fire a brain signal on every ordinary "is this a degraded reply?" check.
+    "reasoning_library.py": {
+        "is_degraded_or_error_response": "PURE — str→bool predicate, no I/O, total over its input",
+    },
     # routes/aria.py — ASYNC GENERATORS + STREAM endpoints
     "aria.py": {
         "chat_stream_ep": "ASYNC GENERATOR — wrapping breaks SSE streaming (§13)",
@@ -243,7 +250,16 @@ HARD_EXEMPT: dict[str, dict[str, str]] = {
     # key per file; duplicate dict keys would silently overwrite each other).
     "anthropic.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)",
                      "is_configured": "@property — config check"},
-    "aria_llm_provider.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)"},
+    "aria_llm_provider.py": {
+        "stream": "ASYNC GENERATOR — LLM token stream (§13)",
+        # R-F3626 — added by R-F3606. PURE: int in, int out. No I/O, no store, no
+        # network. It cannot fail in a way the brain could act on — a bad input is
+        # already handled internally by returning the ceiling, which is the SAFE
+        # value, not a swallowed error. A @fail_wire here would emit proprioception
+        # noise for an event that never happens, and §21's value depends on a brain
+        # signal meaning something.
+        "clamp_for_sovereign": "PURE — int→int clamp, no I/O; bad input returns the safe ceiling",
+    },
     "fallback.py": {"stream": "ASYNC GENERATOR — LLM token stream (§13)",
                     "is_configured": "@property — config check",
                     # R-F3429 — accessors, MERGED into this entry rather than given
