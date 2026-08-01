@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3632,
+  "next_available": 3633,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30359,6 +30359,16 @@
       "commit_sha": "8eb0668e",
       "notes": null,
       "shipped_at": "2026-08-01T17:52:14Z"
+    },
+    {
+      "r_number": "R-F3632",
+      "title": "wellformed-baseline test hardcoded the segmented FLOOR caveat; single-process records turn it red",
+      "claimed_at": "2026-08-01T18:00:57Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "35195158",
+      "notes": null,
+      "shipped_at": "2026-08-01T18:01:31Z"
     }
   ]
 }
