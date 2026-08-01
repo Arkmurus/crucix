@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3624,
+  "next_available": 3625,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30280,6 +30280,16 @@
       "commit_sha": "46eadcb5",
       "notes": null,
       "shipped_at": "2026-08-01T08:12:36Z"
+    },
+    {
+      "r_number": "R-F3624",
+      "title": "suite_baseline printed VALID=NO then emitted a §16 verdict from the invalid run anyway",
+      "claimed_at": "2026-08-01T09:06:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bf9075f4",
+      "notes": null,
+      "shipped_at": "2026-08-01T09:08:43Z"
     }
   ]
 }
