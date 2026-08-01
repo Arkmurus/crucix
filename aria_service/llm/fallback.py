@@ -30,6 +30,22 @@ logger = logging.getLogger("aria.llm.fallback")
 # call clears it immediately, so this TTL only matters when nothing calls at all.
 _CHAIN_EXHAUSTION_TTL_S = float(os.getenv("ARIA_LLM_EXHAUSTION_TTL_S", "120"))
 
+# ── R-F3613 (2026-08-01) — a total outage must PAGE the operator ─────────────
+#
+# Recording an outage is not the same as reporting it. On 2026-08-01 the chain
+# failed on every turn for hours; the gap was filed, the health metric moved,
+# and the operator still found out by asking ARIA in WhatsApp and getting a
+# degraded reply. CLAUDE.md §19e names that the worst outcome: "a blocker the
+# operator has to find himself".
+#
+# COOLDOWN IS LOAD-BEARING, NOT POLISH. A dead chain exhausts on EVERY call —
+# 258 consecutive failures were measured on 2026-07-25 — so an un-throttled
+# alert would fire hundreds of WhatsApp messages and become its own incident.
+# One page per window; the window is deliberately long because the SECOND alert
+# carries almost no information the first did not.
+_CHAIN_ALERT_COOLDOWN_S = float(os.getenv("ARIA_LLM_CHAIN_ALERT_COOLDOWN_S", "900"))
+_last_chain_alert_at: float = 0.0
+
 
 # ── R-F2917: context-scoped provider preference ──────────────────────────────
 # Operator directive 2026-07-23: DD runs on Claude, EVERYTHING else on DeepSeek.
@@ -622,23 +638,10 @@ class FallbackProvider(LLMProvider):
         # daily spend line read $0.00 — a dead limb that looked like a quiet day.
         # R-F3477 — record the OUTCOME so get_health() stops reporting a healthy
         # chain during a total outage.
-        self._record_chain_exhausted()
-        try:
-            from ..intel.engine_wiring import wire_failure as _wf
-            _tried = ", ".join(p.name for p in order) or "<none>"
-            _wf(
-                module="llm_chain_exhausted",
-                detail=(
-                    f"ALL LLM providers failed — no provider served this call. "
-                    f"tried=[{_tried}] attempts={attempted} "
-                    f"prefer_provider={prefer_provider or '<none>'} "
-                    f"last_error={str(last_error)[:200]}"
-                ),
-                gap_type="llm_provider_failure",
-                source="llm_chain_exhausted",
-            )
-        except Exception:
-            pass
+        # R-F3613 — one shared handler, mirrored into the stream fork below.
+        self._on_chain_exhausted(
+            order, attempted, prefer_provider, last_error, path="complete",
+        )
 
         if isinstance(last_error, ProviderError):
             raise last_error
@@ -713,6 +716,17 @@ class FallbackProvider(LLMProvider):
             except Exception as e:
                 self._record_failure(provider, stats, e)
                 last_error = e
+
+        # R-F3613 §13 MIRROR — this fork previously raised WITHOUT recording the
+        # exhaustion or wiring it. Consequences, all silent: get_health()
+        # .resilient stayed True through a streaming outage, no gap was filed,
+        # and R-F3612's self_introspect block would have told the operator the
+        # chain was fine. Web chat streams, so this was the likelier fork to be
+        # hit — the §13 stream-bypass rule exists for exactly this.
+        # No preference concept on the stream path (see _stream_order above).
+        self._on_chain_exhausted(
+            _stream_order, attempted, "", last_error, path="stream",
+        )
 
         if isinstance(last_error, ProviderError):
             raise last_error
@@ -803,6 +817,131 @@ class FallbackProvider(LLMProvider):
     def _record_chain_exhausted(self) -> None:
         """Every provider failed for one request — the chain is NOT resilient."""
         self._chain_exhausted_at = time.time()
+
+    def _on_chain_exhausted(
+        self,
+        order: list,
+        attempted: int,
+        prefer_provider: str,
+        last_error: Exception | None,
+        *,
+        path: str,
+    ) -> None:
+        """R-F3613 — THE one place a total chain outage is handled.
+
+        Called from BOTH complete() and stream(). Before this, the whole
+        treatment lived inline in complete() only, so the §13 stream fork could
+        exhaust every provider while `_chain_exhausted_at` was never set — which
+        left `get_health().resilient` reporting True during a streaming outage,
+        filed no gap, and (post R-F3612) would have shown the operator a
+        self_introspect block saying the chain was fine. Web chat streams, so
+        that fork is not a corner case.
+
+        Three things happen, in increasing order of how loudly they shout:
+          1. record the outcome  -> get_health().resilient goes False (R-F3477)
+          2. wire the failure    -> gap + health metric (R-F3036)
+          3. PAGE THE OPERATOR   -> §19e, cooldown-guarded
+
+        Never raises: the caller is already on its failure path and is about to
+        raise the provider error. An alerting bug must not replace the real one.
+        """
+        self._record_chain_exhausted()
+        tried = ", ".join(p.name for p in order) or "<none>"
+        detail = (
+            f"ALL LLM providers failed — no provider served this call "
+            f"(path={path}). tried=[{tried}] attempts={attempted} "
+            f"prefer_provider={prefer_provider or '<none>'} "
+            f"last_error={str(last_error)[:200]}"
+        )
+        try:
+            from ..intel.engine_wiring import wire_failure as _wf
+            _wf(
+                module="llm_chain_exhausted",
+                detail=detail,
+                gap_type="llm_provider_failure",
+                source="llm_chain_exhausted",
+            )
+        except Exception:
+            pass
+        try:
+            self._alert_operator_chain_down(tried, attempted, last_error, path)
+        except Exception:
+            logger.debug("[R-F3613] operator alert dispatch failed", exc_info=True)
+
+    def _alert_operator_chain_down(
+        self, tried: str, attempted: int,
+        last_error: Exception | None, path: str,
+    ) -> None:
+        """Send the §19e operator page for a total LLM outage.
+
+        Deliberately does NOT use the LLM — it is the thing that is down. This
+        is a plain HTTP POST to the WA app (R-F839 points WANotifier at the live
+        ARIA_WA_INTERNAL_URL, not the retired Seenode bridge).
+
+        Message shape follows §19e: what is DONE, what is STUCK, WHY, and the
+        exact ACTION needed — the operator should not have to interpret it.
+        """
+        global _last_chain_alert_at
+        now = time.time()
+        if now - _last_chain_alert_at < _CHAIN_ALERT_COOLDOWN_S:
+            return  # already paged this window — see the cooldown rationale above
+        _last_chain_alert_at = now
+
+        text = (
+            "🚨 BLOCKED: LLM chain — every provider failed.\n\n"
+            f"STUCK: no provider served the last request (path={path}, "
+            f"attempts={attempted}).\n"
+            f"TRIED: {tried}\n"
+            f"WHY: {str(last_error)[:300] or 'unknown'}\n\n"
+            "IMPACT: chat, DD and research answers are degraded until a provider "
+            "recovers.\n"
+            "ACTION: check provider credit/cooldown — "
+            "POST /api/aria/admin/llm/cooldown/clear (operator token) clears a "
+            "stale cooldown after a top-up; GET /api/aria/health/perf shows the "
+            "live chain.\n"
+            f"(further alerts suppressed for {int(_CHAIN_ALERT_COOLDOWN_S)}s)"
+        )
+
+        def _send():
+            async def _run():
+                try:
+                    from ..autonomous.wa_notifier import WANotifier
+                    n = WANotifier()
+                    if not n.is_configured:
+                        # §21a — an unconfigured alert channel is a DARK path.
+                        # Say so in the brain rather than failing silently, or
+                        # the next outage pages nobody and nothing records why.
+                        from ..intel.engine_wiring import wire_failure as _wf
+                        _wf(
+                            module="llm_chain_alert",
+                            detail=("LLM chain exhausted but the operator alert "
+                                    "channel is NOT configured (need "
+                                    "ARIA_WA_INTERNAL_URL + ARIA_INTERNAL_TOKEN "
+                                    "+ ARIA_CODER_WA_GROUP_ID) — nobody was paged"),
+                            gap_type="llm_provider_failure",
+                            source="llm_chain_alert:unconfigured",
+                        )
+                        return
+                    outcome = await n.notify(text)
+                    from ..intel.engine_wiring import wire_success as _ws, wire_failure as _wf
+                    if str(outcome).startswith("ok"):
+                        _ws(module="llm_chain_alert",
+                            summary="operator paged: LLM chain exhausted",
+                            source_id="llm_chain_alert:sent")
+                    else:
+                        _wf(module="llm_chain_alert",
+                            detail=f"operator page NOT delivered: {outcome}",
+                            gap_type="llm_provider_failure",
+                            source="llm_chain_alert:send_failed")
+                except Exception as exc:  # pragma: no cover — never propagate
+                    logger.warning("[R-F3613] operator alert failed: %s", exc)
+            return _run()
+
+        try:
+            from ..intel.engine_wiring import _dispatch_fire_and_forget as _d
+            _d(_send)
+        except Exception:
+            logger.debug("[R-F3613] alert dispatcher unavailable", exc_info=True)
 
     def _record_chain_success(self) -> None:
         """A request was served. Clear immediately: proof beats a stale flag."""
