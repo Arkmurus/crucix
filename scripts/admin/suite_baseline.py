@@ -107,6 +107,35 @@ def tree_hash() -> str:
             digest.update(b"<missing>")
     return digest.hexdigest()[:16]
 
+
+def dirty_measured_files() -> list[str]:
+    """R-F3631 - tracked aria_service/**/*.py with UNCOMMITTED changes.
+
+    tree_hash() reads the WORKING TREE, which is right: it must notice a mid-run
+    edit whether or not anyone committed it. But --record separately stamps
+    `commit: <git rev-parse HEAD>`, and on a dirty tree those two disagree about
+    what was measured - the hash describes the files that ran, the sha describes a
+    commit that does NOT contain them.
+
+    Observed 2026-08-01: a run stamped `commit: 28b49e5a` while a peer agent's
+    uncommitted work sat in aria_engine.py. Checking that sha out reproduces a
+    different suite than the number describes. A baseline nobody can reproduce is
+    the defect R-F3622 exists to prevent, arriving through a second door: not a
+    tree that moved in TIME, but one that differs in SPACE from its own label.
+    """
+    out = subprocess.run(
+        ["git", "status", "--porcelain", "--", "aria_service"],
+        cwd=ROOT, capture_output=True, text=True,
+    ).stdout.splitlines()
+    dirty = []
+    for line in out:
+        status, _, path = line.partition(" ")[0], None, line[3:].strip()
+        if line.startswith("??"):
+            continue          # untracked is outside the hashed set - must not block
+        if path.endswith(".py"):
+            dirty.append(path)
+    return sorted(dirty)
+
 _SUMMARY = re.compile(r"(?:(\d+) failed,? )?(?:\d+ )?(?:passed|error)")
 _COUNTS = re.compile(r"(\d+) (failed|passed)")
 
@@ -244,6 +273,7 @@ def main() -> int:
 
     # R-F3622 — snapshot BEFORE anything runs.
     hash_before = tree_hash()
+    _dirty = dirty_measured_files()
     print(f"tree {hash_before} @ {subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], cwd=ROOT, capture_output=True, text=True).stdout.strip()}")
 
     files = sorted(args.tests_dir.glob("test_*.py"))
@@ -321,6 +351,26 @@ def main() -> int:
     # own exit 2, so "you tried to record garbage" stays distinguishable from "the
     # measurement was invalid". Putting the general check first would make this branch
     # unreachable.
+    # R-F3631 - a dirty tree cannot be labelled with a commit.
+    #
+    # Scoped to the REAL baseline deliberately, not carved out to make tests pass. The
+    # harm is specific: docs/suite_baseline.json is the authoritative record and stamps
+    # `commit`, so a dirty tree makes it name a sha that does not contain what ran.
+    # Recording to a fixture path in a temp dir makes no such claim, and a guard that
+    # fired there would make the tool's own tests depend on whether an UNRELATED file
+    # happened to be dirty - which is how a guard earns a reputation for crying wolf
+    # and gets switched off.
+    _recording_the_real_baseline = args.baseline.resolve() == BASELINE.resolve()
+    if args.record and _dirty and _recording_the_real_baseline:
+        print()
+        print("refusing --record: %d tracked aria_service .py file(s) have "
+              "UNCOMMITTED changes, so `commit` would name a sha that does not "
+              "contain what ran:" % len(_dirty))
+        for f in _dirty[:10]:
+            print(f"  ~ {f}")
+        print("  Commit or stash them, then re-run. The measurement itself is fine "
+              "- it is the LABEL that would be a lie.")
+        return 2
     if args.record and not valid:
         print("refusing --record: a baseline measured while the tree moved is not a baseline")
         return 2
