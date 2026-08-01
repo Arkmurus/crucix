@@ -1,9 +1,31 @@
 # R-F3611 — the Golden Intel allowlist declares four signal types nothing can produce
 
-**Status:** GAP RECORDED, not fixed. Live gap id `d5a03b78-1033-4670-83c2-c5279c6ec77e`
-(`missing_capability`, source `claude_review_r_f3611`), verified present in the brain's
-gap ledger on 2026-08-01. Closing it needs a **producer**, which is feature work, not a
-gate change.
+**Status: PARTIALLY CLOSED — one of the four now has a producer, three do not. The gap
+stays OPEN, deliberately.**
+
+| type | producer | status |
+|---|---|---|
+| `contract_award` | `_tender_adapter` via TED `can-standard` | ✅ **CLOSED by R-F3621** |
+| `conflict_escalation` | none (news_monitor → `classifier_template`) | ❌ open |
+| `competitor_activity` | none (news_monitor → `classifier_template`) | ❌ open |
+| `budget_movement` | none — never emitted at all | ❌ open |
+
+Live gap id `d5a03b78-1033-4670-83c2-c5279c6ec77e` (`missing_capability`, source
+`claude_review_r_f3611`), verified present in the brain's gap ledger 2026-08-01.
+**It is NOT being marked resolved.** Three of the four types still cannot publish, and
+resolving on a partial fix is the false-clean this codebase exists to prevent — the
+same shape as R-F3027 ("fixed the instance, missed the class").
+
+**R-F3621 — what closed `contract_award`, and why it was never a missing-data problem.**
+`_crawl_ted` had always ASKED TED for `notice-type` and never read it, so a contract
+award notice (`can-standard` — who WON) arrived as an indistinguishable
+`active_tender`. R-F3536 then banned `active_tender` while explicitly wanting to keep
+awards, so it banned the very thing it meant to preserve. Measured on the live API:
+of 50 defence notices, 27 were open tenders and **21 were awards**, with 340 awards in
+the 14-day window and a named winner on every one sampled. The data was never missing;
+it was mislabelled. Awards now emit `contract_award` with the winner as target and an
+item-specific why (who won, from whom, value, decision date), which earns
+`source_adapter` provenance honestly and grades **A**.
 
 **Found during:** the Telegram channel + intel-sharing deep review of 2026-08-01, which
 also shipped R-F3609 (card double-send) and R-F3610 (public replies dropped).
