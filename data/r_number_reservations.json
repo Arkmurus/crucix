@@ -30076,9 +30076,10 @@
       "title": "the mode cards are a CHOICE not a CTA: drop the wa.me button, keep the number to text",
       "claimed_at": "2026-07-31T23:49:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "50cf5a8a",
+      "notes": null,
+      "shipped_at": "2026-07-31T23:56:09Z"
     }
   ]
 }

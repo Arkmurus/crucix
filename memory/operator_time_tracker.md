@@ -56,6 +56,7 @@ not from the trailer. See [[two-agents-one-tree-hazard]] and
 | Date | Shipped (mine) | Operator hours | pace_ratio | Cumulative |
 |---|---|---|---|---|
 | 2026-07-30 | **33** | **12.0** (operator-supplied) | **2.75** | **2.75** (33 / 12.0) |
+| 2026-07-31 -> 08-01 | **35** | _operator-pending_ | _pending_ | _pending_ |
 
 Cumulative equals the row because this is the first recorded session — the file
 did not exist before today, and earlier sessions were deliberately not back-filled
@@ -137,3 +138,61 @@ Grouped by workstream, with the outcome rather than the diff:
 - **DD screen endpoints** (`/explore-deep`, `/sanctions/rca`,
   `/sanctions/divergence`) were 502ing; that was the peer's SIGSEGV crash loop,
   not endpoint latency as I first claimed. Healthy after their R-F3530: 0.2–1.3s.
+
+
+### 2026-07-31 -> 08-01 - what the session actually produced
+
+**35 R-numbers shipped, all live-verified.** Hours are NOT recorded: the operator
+supplies them, and inventing a number here would corrupt the one metric this file
+exists to hold. pace_ratio stays pending until they do.
+
+Ran alongside two peers (a second Claude and Codex) in one tree, so every commit
+was staged file-by-file rather than with `git add -A`.
+
+**The four that mattered most, each found by running the thing rather than reading it:**
+
+- **CI went green for the first time in two months.** The blocking wiring audit
+  was demanding work already done (R-F3565: aliased imports and `@fail_wire`
+  invisible to a literal scan), then the real backlog was closed 17 -> 0
+  (R-F3567), surfacing four silent-failure paths on the way.
+- **DMs to ARIA were silently dropped for weeks.** Baileys 7 addresses users by
+  LID (`<id>@lid`) and the DM predicate tested only `@s.whatsapp.net`, so every
+  direct message matched neither branch and vanished with no log (R-F3582).
+  Groups worked, which is why it read as "DMs are broken" rather than "an
+  addressing scheme is unhandled".
+- **aria-wa's volume was 100% INODES with 645MB of bytes free** (R-F3596).
+  47,619 Baileys `lid-mapping` cache files across ten orphaned accounts. Every
+  write was failing ENOSPC - bindings, auth updates, account metadata - and any
+  byte-based disk check called the volume nearly empty. The boot fsck line said
+  `64512/64512 files` in every deploy log all evening.
+- **ARIA engaged anyone who knew her number**, including `/teach` and `/correct`
+  which write to a memory that never evicts (R-F3586). Now gated on one
+  authorisation point, with phone-to-account binding behind it (R-F3587/3593).
+
+**Two of my own fixes were wrong and were corrected the same session:**
+
+- R-F3577 wired a consumer to a **retired transport** - nothing writes that Redis
+  key. I verified the producer FUNCTION was called and never that it still writes
+  the KEY, and my test asserted the key appears in a file where it survives only
+  in a stale comment. Reverted by R-F3580.
+- R-F3588 gave ARIA a clock and created a contradiction with the tool ANSWER
+  SCOPE; she deadlocked and leaked her chain of thought to the operator.
+  Corrected by R-F3591/3592.
+
+**The dominant defect class, named:** NINE tests this session asserted WORDING
+rather than the property - exact argument lists, one-liners, enumerated element
+ids, substring URL matches. Each was green while the thing it guarded was broken
+or had legitimately changed. Two were mine, one was Codex's, the rest predated
+the session. Worth a deliberate pass of its own; it is not a series of slips.
+
+**Standing operator items opened here:**
+
+- `WA_REQUIRE_VERIFIED_SENDER=1` and `WA_ALLOWED_SENDERS=447786866459` are LIVE.
+  The operator's own handset binding was **revoked** at 22:57 (testing the unlink
+  dialog), so that admin number is currently the only thing reaching ARIA.
+  Re-binding via `/wa-connections.html` would cover it by both routes.
+- ~12,000 inodes of session material remain under ten orphaned `wa-accounts`
+  dirs. Reclaimable, but deleting real WhatsApp credentials is an operator call.
+- Gate A / Meta Cloud API is NOT signed off - the official gateway does not exist
+  yet and `/api/whatsapp` is a deprecated Twilio route. Twilio is not needed;
+  the next build is the direct Meta webhook around ARIA's real number.
