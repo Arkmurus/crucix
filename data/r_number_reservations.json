@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3636,
+  "next_available": 3637,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30375,9 +30375,10 @@
       "title": "make access request workflow coherent",
       "claimed_at": "2026-08-01T18:07:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5cf46fb5",
+      "notes": null,
+      "shipped_at": "2026-08-01T18:43:00Z"
     },
     {
       "r_number": "R-F3634",
@@ -30398,6 +30399,16 @@
       "commit_sha": "a4bcdb05",
       "notes": null,
       "shipped_at": "2026-08-01T18:28:31Z"
+    },
+    {
+      "r_number": "R-F3636",
+      "title": "ARIA_LLM_SHADOW and PROMOTION_STAGE are two switches for one state; health publishes both with no precedence",
+      "claimed_at": "2026-08-01T21:40:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3c614f57",
+      "notes": null,
+      "shipped_at": "2026-08-01T21:42:54Z"
     }
   ]
 }
