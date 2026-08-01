@@ -19,6 +19,7 @@ snapshot stale. Every one is a compliance question where the date is load-bearin
 from __future__ import annotations
 
 import ast
+import asyncio
 import pathlib
 import re
 
@@ -72,45 +73,84 @@ def test_missing_tzdata_degrades_honestly_instead_of_raising(monkeypatch):
     assert "BST" in block, "the fallback must still let her derive UK time"
 
 
-def test_every_return_path_of_the_prompt_builder_carries_the_clock():
-    """Three returns, and the compact one SHORT-CIRCUITS before the addenda.
-    Missing any of them leaves that serving path with the original defect."""
-    tree = ast.parse(_ENGINE.read_text(encoding="utf-8"))
-    fn = next(
-        n for n in ast.walk(tree)
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and n.name == "_build_calibrated_system_prompt"
-    )
-    returns = [ast.unparse(r) for r in ast.walk(fn) if isinstance(r, ast.Return)]
-    assert len(returns) >= 3, f"expected >=3 return paths, found {len(returns)}"
-    missing = [r for r in returns if "_ambient_now_block" not in r]
-    assert not missing, (
-        f"these prompt return paths have no clock: {missing}. Every path that can "
-        f"serve a chat must carry it, or that path keeps answering "
-        f"'I don't have a live clock'."
-    )
+# ── R-F3630 — THESE TWO ARE NOW BEHAVIOURAL ─────────────────────────────────
+#
+# Both guards below used to assert on SOURCE TEXT: one AST-matched the literal
+# name `_ambient_now_block` inside every `return`, the other indexed a log
+# string and regex'd the exact expression `return final + _ambient_now_block(`.
+#
+# They have now broken TWICE on refactors that left the property untouched —
+# R-F3590 threading `speaker=` through (see the note it left in this file), and
+# R-F3630 reserving the appendix so it is computed into a local first. Twice is
+# the signal: they were pinning the WORDING, not the property.
+#
+# A source grep also cannot see the thing that actually matters here — whether
+# the clock SURVIVES the trim. Building the prompt can. So both are driven
+# through the real builder now, including the over-cap path.
+_CLOCK_MARKERS = ("UTC now:", "CURRENT CONTEXT")
+
+_DOC_MSG = ("Please review this agreement. [ATTACHED DOCUMENT: c.docx]\n"
+            "body text\n[END ATTACHED DOCUMENT]")
+_PLAIN_MSG = "Give me an export-control assessment of this deal"
 
 
-def test_the_clock_is_appended_after_the_length_cap():
-    """THE TRAP. The system prompt is TAIL-trimmed to a cap (the base
-    constitution is first and must survive), so a clock appended BEFORE the trim
-    is the first thing cut on a long prompt — and the regression would be
-    invisible: ARIA reverts to 'I can't know the time' on exactly the long,
-    addendum-heavy conversations where the date matters most.
+def _has_clock(prompt: str) -> bool:
+    return all(m in prompt for m in _CLOCK_MARKERS)
+
+
+def test_every_return_path_of_the_prompt_builder_carries_the_clock(monkeypatch):
+    """Drive each SERVING path and assert the clock is really in the prompt.
+
+    The compact/doc path short-circuits before the addenda, so it is a distinct
+    return; missing the clock on any of them leaves that path answering
+    "I don't have a live clock".
     """
-    src = _ENGINE.read_text(encoding="utf-8")
-    cap_idx = src.index("system prompt capped to %d chars")
-    tail = src[cap_idx:cap_idx + 900]
-    # R-F3590 — match the CALL, not its argument list. This pinned
-    # `_ambient_now_block()` literally, so threading the speaker through
-    # (`_ambient_now_block(speaker=speaker)`) broke it while the property it
-    # guards — appended AFTER the cap — was completely untouched.
-    assert re.search(r"return final \+ _ambient_now_block\(", tail), (
-        "the clock is no longer appended after the truncation cap"
+    import aria_service.aria_engine as ae
+
+    async def _cal():
+        return {}
+    monkeypatch.setattr(ae, "_get_cached_calibration", _cal)
+
+    for label, msg in (("document mode", _DOC_MSG), ("plain chat", _PLAIN_MSG)):
+        prompt = asyncio.run(ae._build_calibrated_system_prompt(msg))
+        assert _has_clock(prompt), f"{label} prompt reached the model with no clock"
+        assert prompt.rstrip().endswith(
+            ae._ambient_now_block(speaker=None).rstrip()[-60:]
+        ), f"{label}: the clock must be the TAIL of the prompt"
+
+
+def test_the_clock_survives_the_length_cap(monkeypatch):
+    """THE TRAP, now proven by construction rather than by reading the source.
+
+    The prompt is TAIL-trimmed (the base constitution is first and must survive),
+    so a clock folded in before the trim is the first thing cut — and the
+    regression would be invisible: ARIA reverts to "I can't know the time" on
+    exactly the long, addendum-heavy conversations where the date matters most.
+
+    Forces an addendum far larger than the cap and asserts the clock is STILL
+    there afterwards.
+    """
+    import aria_service.aria_engine as ae
+    import aria_service.intel.contract_review_principles as _cr
+
+    async def _cal():
+        return {}
+    monkeypatch.setattr(ae, "_get_cached_calibration", _cal)
+    monkeypatch.setattr(_cr, "detect_review_intent", lambda m: True)
+    monkeypatch.setattr(_cr, "addendum", lambda: "Y" * 400_000)
+
+    prompt = asyncio.run(ae._build_calibrated_system_prompt(_DOC_MSG))
+
+    assert "truncated to preserve context-window room" in prompt, (
+        "this test is only meaningful on the TRIMMED path — the cap did not fire"
     )
-    # and it must not be folded into `final` before the trim
-    assert not re.search(r"final = _base_prompt \+ [^\n]*_ambient_now_block", src), (
-        "the clock is being built into `final` before the cap — it will be trimmed away"
+    assert _has_clock(prompt), (
+        "the clock was trimmed away by the length cap — it must be appended after it"
+    )
+    # R-F3630 — and the trim must now bound the WHOLE prompt, appendix included.
+    assert len(prompt) <= 20_000, (
+        f"doc-mode prompt is {len(prompt)} chars against a 20,000 cap — the "
+        f"post-cap appendix is escaping the bound again"
     )
 
 

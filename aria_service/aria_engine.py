@@ -142,6 +142,12 @@ async def _update_mastery_honestly(
 MAX_TURNS = 80            # 80 exchanges retained per session (160 messages)
 MAX_CONTEXT_CHARS = 20000 # context budget for intelligence layers (bumped to fit RAG)
 
+# R-F3630 — the least system-prompt BODY worth sending once the post-cap appendix
+# has been reserved. If reserving the appendix would leave less than this, the
+# appendix itself has become the problem and that is logged as an ERROR rather
+# than silently starving the constitution. See _build_calibrated_system_prompt.
+_MIN_PROMPT_BODY_CHARS = 2_000
+
 # ── System Prompts ───────────────────────────────────────────────────────────
 
 ARIA_SYSTEM_PROMPT = """You are ARIA — the Arkmurus Research Intelligence Agent.
@@ -3544,16 +3550,57 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "", speak
     # drops 150K→20K: a ~5K prompt (compact + persona + premise-verifier) with
     # headroom, leaving the whole context window for the document itself.
     _cap = 20_000 if _doc_grounded else 200_000
-    if len(final) > _cap:
-        final = final[:_cap] + "\n\n[System addenda truncated to preserve context-window room.]"
-        logger.info("[R-F947/F951] system prompt capped to %d chars (doc_grounded=%s)", _cap, _doc_grounded)
-    # R-F3588 — the clock is appended AFTER the cap, deliberately. The trim above
-    # is a TAIL trim (the base constitution is first and must survive), so a clock
-    # appended before it would be the first thing cut on a long prompt — and the
-    # failure would be invisible: ARIA would quietly go back to "I don't have a
-    # live clock" on exactly the long, addendum-heavy conversations where the date
-    # matters most. ~250 chars on top of a 200K cap.
-    return final + _ambient_now_block(speaker=speaker)
+
+    # ── R-F3630 — RESERVE THE APPENDIX, DO NOT EXEMPT IT ─────────────────────
+    #
+    # R-F3588 appends the ambient-now block AFTER the cap, deliberately: the trim
+    # is a TAIL trim, so a block placed before it would be the first thing cut,
+    # and ARIA would quietly go back to "I don't have a live clock" on exactly the
+    # long conversations where the date matters most. That reasoning is right and
+    # is preserved.
+    #
+    # What was wrong is that "after the cap" was also treated as "free". At
+    # R-F3588 the block was ~250 chars against a 200K cap — invisible. R-F3590
+    # ("ARIA did not know who she was talking to") grew it to 2,283 by adding the
+    # speaker-identity and display-name rules, and against the 20K DOC cap that is
+    # an 11% overshoot. Measured: 20,000 + 61 (truncation note) + 2,283 = 22,344,
+    # which is exactly what the R-F947/R-F2188/R-F2196 guards have been reporting.
+    #
+    # So the cap stopped bounding the prompt, silently, and the guard that should
+    # have caught it went red and stayed red rather than being read. The failure
+    # mode this protects against is real and customer-facing: R-F947 exists
+    # because a bloated system prompt truncated a customer's contract mid-clause
+    # (Korvera UTS, 2026-05-27).
+    #
+    # Both invariants can hold at once — RESERVE the appendix instead of exempting
+    # it. The appendix always survives (R-F3588) AND the total is bounded by _cap
+    # (R-F947/R-F951/R-F2188). An exemption trades one for the other; a reservation
+    # does not.
+    _now_block = _ambient_now_block(speaker=speaker)
+    _trunc_note = "\n\n[System addenda truncated to preserve context-window room.]"
+    _body_cap = _cap - len(_now_block) - len(_trunc_note)
+
+    if _body_cap < _MIN_PROMPT_BODY_CHARS:
+        # The appendix has grown enough to crowd out the constitution itself.
+        # Keep the appendix (it carries never-fabricate + identity rules), keep a
+        # floor of body, and SAY the invariant no longer holds — never silently.
+        logger.error(
+            "[R-F3630] the post-cap prompt appendix is %d chars against a %d cap "
+            "(doc_grounded=%s) — it can no longer be reserved without starving the "
+            "constitution. Total prompt WILL exceed the cap. Shrink the ambient "
+            "block or raise the cap deliberately.",
+            len(_now_block), _cap, _doc_grounded,
+        )
+        _body_cap = _MIN_PROMPT_BODY_CHARS
+
+    if len(final) > _body_cap:
+        final = final[:_body_cap] + _trunc_note
+        logger.info(
+            "[R-F947/F951/F3630] system prompt body capped to %d chars "
+            "(cap=%d, appendix=%d, doc_grounded=%s)",
+            _body_cap, _cap, len(_now_block), _doc_grounded,
+        )
+    return final + _now_block
 
 
 # ── Chat audit helper ────────────────────────────────────────────────────────
