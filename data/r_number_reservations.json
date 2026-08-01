@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3625,
+  "next_available": 3626,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30290,6 +30290,16 @@
       "commit_sha": "bf9075f4",
       "notes": null,
       "shipped_at": "2026-08-01T09:08:43Z"
+    },
+    {
+      "r_number": "R-F3625",
+      "title": "suite_baseline cannot reproduce the single-process number CLAUDE.md quotes - only a segmented floor",
+      "claimed_at": "2026-08-01T09:10:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4a88cd97",
+      "notes": null,
+      "shipped_at": "2026-08-01T09:13:36Z"
     }
   ]
 }
