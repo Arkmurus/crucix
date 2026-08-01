@@ -9216,6 +9216,25 @@ async def _execute_tool(
             lines.append(f"\nBUILD: {perf.get('build_rev', '')}")
             lines.append(f"STATUS: {perf.get('status', 'unknown')}  "
                          f"MODE: {perf.get('operating_mode', 'unknown')}")
+
+            # R-F3612 — LLM CHAIN HEALTH. This handler read inventory/retention/
+            # build/status and dropped perf["llm_providers"] entirely, so
+            # "what issues are you experiencing?" was answered on 2026-08-01 with
+            # "currently healthy" during a TOTAL chat outage. Shared renderer with
+            # the auto-fired guard block so the two surfaces cannot drift.
+            try:
+                from ..intel.self_introspect_guard import (
+                    llm_chain_health_lines as _r3612_chain,
+                    zero_activity_warning_lines as _r3612_zero,
+                )
+                lines += _r3612_chain(perf)
+                lines += _r3612_zero(verify)
+            except Exception as _r3612_e:
+                lines.append(
+                    "\nLLM CHAIN HEALTH: UNAVAILABLE "
+                    f"({str(_r3612_e)[:100]}) — do NOT report the chain healthy."
+                )
+
             if verify:
                 lines.append(f"VERIFICATION 24h: {verify}")
             if autonomy:
@@ -9238,6 +9257,12 @@ async def _execute_tool(
                 "  3. DO NOT estimate counts. If a field is UNAVAILABLE, say so.\n"
                 "  4. DO cite the build_rev when explaining what version "
                 "produced this snapshot.\n"
+                "  5. (R-F3612) If asked what is WRONG / what issues you are "
+                "experiencing, read LLM CHAIN HEALTH above FIRST. If resilient "
+                "is False, or the chain exhausted recently, or it is UNAVAILABLE, "
+                "you MUST report that as a current issue. Never answer 'no "
+                "issues' from counters that are merely zero — zero activity is "
+                "a symptom, not a clean bill of health.\n"
             )
             return "\n".join(lines)
 

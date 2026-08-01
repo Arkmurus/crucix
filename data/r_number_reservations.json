@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3609,
+  "next_available": 3613,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30106,23 +30106,62 @@
       "title": "completion budget must follow the provider that actually serves, not the sovereign merely being configured",
       "claimed_at": "2026-08-01T06:22:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f5afa6fb",
+      "notes": null,
+      "shipped_at": "2026-08-01T06:46:45Z"
     },
     {
       "r_number": "R-F3607",
       "title": "a reasoning model must never be sent a max_tokens too small to clear its own reasoning",
       "claimed_at": "2026-08-01T06:22:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f5afa6fb",
+      "notes": null,
+      "shipped_at": "2026-08-01T06:46:45Z"
     },
     {
       "r_number": "R-F3608",
       "title": "degraded-mode replies must not be absorbed as PROBABLE facts via brain_hook",
       "claimed_at": "2026-08-01T06:22:43Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f5afa6fb",
+      "notes": null,
+      "shipped_at": "2026-08-01T06:46:46Z"
+    },
+    {
+      "r_number": "R-F3609",
+      "title": "Telegram card double-send: uploadSvgAsPhoto posts, so every Grade A published the card twice",
+      "claimed_at": "2026-08-01T06:38:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3610",
+      "title": "Telegram public supergroup replies silently dropped: the alerter never knew its own channel id",
+      "claimed_at": "2026-08-01T06:38:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3611",
+      "title": "Gap: R-F3536 allowlist declares four signal types no adapter can produce with source_adapter provenance",
+      "claimed_at": "2026-08-01T06:38:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3612",
+      "title": "self_introspect is blind to the LLM chain - health/perf produces providers and the block drops it",
+      "claimed_at": "2026-08-01T06:46:51Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

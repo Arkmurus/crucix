@@ -63,6 +63,35 @@ _CAPABILITY_KEYWORDS = re.compile(
         r"\bhow\s+do\s+you\s+(?:work|operate|function)\b"
     r"|"
         r"\baria.{0,30}(?:capabilit\w*|sources?|signals?|architecture|tasks?\s+scheduled)\b"
+    r"|"
+        # R-F3612 (2026-08-01) — "WHAT IS WRONG WITH YOU", in its natural forms.
+        #
+        # This is THE question this whole incident was asked in, twice, and the
+        # detector missed BOTH:
+        #   "Aria, what are the issue with your current command centre?"
+        #   "what is the current issues you are experiencing with your system?"
+        # Neither matches "your <noun>" (system / command centre were not in the
+        # noun list) nor any other branch, so the auto-fired /health/perf block
+        # was never injected for the one question that most needs it.
+        #
+        # Anchored on a fault word FOLLOWED, within one clause, by a reference to
+        # ARIA herself — so "issues with the contract" does not fire while
+        # "issues ... you are experiencing" and "issue with your ..." both do.
+        # Per this module's contract false positives are cheap (one in-process
+        # health call), and a miss here is what produced a false clean.
+        r"\b(?:issues?|problems?|faults?|failures?|errors?|wrong|broken|"
+        r"degraded|not\s+working|malfunction\w*)\b"
+        r"[^.?!]{0,60}?\b(?:with\s+)?(?:you|your)\b"
+    r"|"
+        # Reverse word order ("are you experiencing any problems?"). Anchored on
+        # ARIA as the SUBJECT of the verb rather than on mere proximity, so
+        # "can you list the problems in this contract" does NOT fire a health
+        # probe into an unrelated work turn.
+        r"\b(?:are|is)\s+you\s+(?:\w+\s+){0,2}"
+        r"(?:experienc\w+|having|seeing|hitting|suffer\w+)\b"
+    r"|"
+        r"\byou(?:'re|\s+are)\s+(?:\w+\s+){0,2}"
+        r"(?:broken|down|degraded|failing|offline|not\s+working|malfunction\w*)\b"
     r")",
     re.IGNORECASE,
 )
@@ -152,6 +181,140 @@ def _build_deploy_lines() -> list[str]:
             f"BUILD / DEPLOY: UNAVAILABLE (probe failed: {str(e)[:80]}) — "
             "say so honestly; do NOT invent a version or loop count.",
         ]
+
+
+def llm_chain_health_lines(perf: dict | None = None) -> list[str]:
+    """R-F3612 (2026-08-01) — the LLM CHAIN section of self-introspection.
+
+    THE DEFECT THIS CLOSES. On 2026-08-01 the operator asked ARIA, twice,
+    "what issues are you experiencing with your system?" while EVERY chat turn
+    was failing (R-F3606: a 800-token cap starved deepseek-v4-* into returning
+    empty content). She answered "the system is currently healthy ... 0 warnings,
+    0 blocking events". That was not a hallucination — it was a faithful reading
+    of a block with NO LLM-chain section in it. `health_perf_ep` PRODUCES
+    `llm_providers` (routes/aria.py:26487) and BOTH self_introspect surfaces
+    dropped it on the floor: a producer with no carrier.
+
+    A sibling tool already had it — `meta_query` renders "LLM FALLBACK CHAIN
+    (currently serving you)" from `get_health()`. So ARIA could see her own chain
+    only if she happened to pick the other tool. This is the shared renderer both
+    self_introspect surfaces now use, so they cannot drift apart again.
+
+    WHY `llm_providers` ALONE IS NOT ENOUGH — and this is the whole point.
+    `fallback.get_provider_status()` reports
+    ``available = configured and breaker_state != "OPEN"``. During the outage
+    DeepSeek was configured and its breaker never opened (R-F3591 raises a
+    RETRYABLE per-call error), so that field read ``available: True`` for the
+    entire outage. Rendering it by itself would have moved the false clean, not
+    removed it. The authoritative signal is `FallbackLLM.get_health()`, whose
+    `resilient` flag R-F3477 deliberately tied to OUTCOMES rather than to
+    cooldown timestamps, precisely so a chain that just failed every provider
+    cannot report healthy. So we prefer get_health() and treat config/breaker
+    state as secondary colour.
+
+    NEVER-FALSE-CLEAN: if neither source can be read, this renders UNAVAILABLE
+    and tells the model in words not to report the chain healthy. "Could not
+    measure" is not "measured and fine" — the same tri-state rule that the Phase
+    A gate work established after three gates were certified by an absence.
+    """
+    lines: list[str] = ["", "LLM CHAIN HEALTH (the subsystem that answers you):"]
+
+    health: dict = {}
+    probe_error = ""
+    try:
+        from ..main import app as _app
+        cur = getattr(getattr(_app, "state", None), "llm_provider", None)
+        seen: set[int] = set()
+        for _ in range(10):
+            if cur is None or id(cur) in seen:
+                break
+            seen.add(id(cur))
+            if hasattr(cur, "get_health"):
+                health = cur.get_health() or {}
+                break
+            cur = getattr(cur, "_inner", None) or getattr(cur, "inner", None)
+    except Exception as exc:
+        probe_error = str(exc)[:140]
+
+    if health:
+        _resilient = health.get("resilient")
+        lines.append(f"  - serving_provider: {health.get('serving_provider') or 'none'}")
+        lines.append(f"  - active_providers: {health.get('active_providers') or []}")
+        lines.append(f"  - resilient: {_resilient}")
+        for cp in (health.get("cooling_providers") or []):
+            lines.append(
+                f"  - COOLING: {cp.get('name')} ({cp.get('reason')}, "
+                f"{int(cp.get('seconds_remaining') or 0)}s remaining)"
+            )
+        # Key verified against fallback.get_health() (fallback.py:857) — an
+        # invented name here would render an outage as silence.
+        _age = health.get("last_exhaustion_age_s")
+        if _age is not None:
+            lines.append(
+                f"  - ⚠ CHAIN EXHAUSTED {_age}s ago — every provider failed a real "
+                f"request. This IS a current issue; report it."
+            )
+        if _resilient is False:
+            lines.append(
+                "  - ⚠ resilient=False — the chain is NOT healthy right now. If asked "
+                "'what issues are you experiencing', THIS is the answer. Do not say "
+                "'no issues'."
+            )
+        elif _resilient is None:
+            lines.append("  - resilient: UNKNOWN (not measured) — do NOT report healthy.")
+    else:
+        lines.append(
+            f"  - UNAVAILABLE — could not read the live chain"
+            + (f" ({probe_error})" if probe_error else "")
+        )
+        lines.append(
+            "  - You CANNOT conclude the LLM chain is healthy from this. Say the "
+            "chain state could not be measured this turn."
+        )
+
+    # Secondary: configured slots + breaker state. Colour only — see docstring
+    # for why this must never be read as proof the chain is serving.
+    providers = ((perf or {}).get("llm_providers") or {}) if perf else {}
+    if providers:
+        for name, st in providers.items():
+            if not isinstance(st, dict):
+                continue
+            lines.append(
+                f"  - slot {name}: configured={st.get('configured')} "
+                f"breaker={st.get('breaker_state')}"
+            )
+        lines.append(
+            "  - NOTE: a slot showing configured=True with no OPEN breaker does NOT "
+            "prove it is answering — it only means a key is set and no breaker "
+            "tripped. A provider can fail every call without opening a breaker "
+            "(R-F3606). Judge health by `resilient` above, not by these slots."
+        )
+    return lines
+
+
+def zero_activity_warning_lines(verify: dict | None) -> list[str]:
+    """R-F3612 — a flatlined counter is a SYMPTOM, not a clean bill of health.
+
+    The operator's 2026-08-01 reply cited "0 new blocking disagreements, 0
+    warnings, and 0 verified or unverified facts ... all zero" as EVIDENCE the
+    system was fine. A working ARIA verifies facts continuously, so an all-zero
+    24h window means the pipeline produced nothing — which is exactly what a
+    total LLM outage looks like from here. Reading that as health is the same
+    absence-as-proof error that certified three Phase A gates on empty keys.
+    """
+    if not isinstance(verify, dict) or not verify:
+        return []
+    numeric = [v for v in verify.values() if isinstance(v, (int, float))]
+    if not numeric or any(v for v in numeric):
+        return []
+    return [
+        "",
+        "⚠ ZERO-ACTIVITY WARNING: every verification counter for the last 24h is 0.",
+        "  That is NOT evidence of health — a healthy ARIA verifies facts "
+        "continuously. All-zero means either nothing ran or the measurement is "
+        "broken. Report it as a POSSIBLE ISSUE to investigate; never cite it as "
+        "proof that there are no issues.",
+    ]
 
 
 async def self_introspect_context_block(message: str) -> str:
@@ -266,6 +429,13 @@ async def self_introspect_context_block(message: str) -> str:
     # R-F1611 — BUILD / DEPLOY proprioception (see _build_deploy_lines).
     lines += _build_deploy_lines()
 
+    # R-F3612 — LLM CHAIN HEALTH. Placed HIGH because "what is wrong with you?"
+    # is answered from the top of this block, and the chain is the subsystem
+    # most likely to be the answer. Its absence is why a total outage was
+    # reported as "currently healthy" on 2026-08-01.
+    lines += llm_chain_health_lines(perf)
+    lines += zero_activity_warning_lines(perf.get("verification_24h") or {})
+
     lines += ["", "INVENTORY:"]
 
     for key in ("knowledge_facts", "ledger_signals", "rag_chunks",
@@ -359,7 +529,11 @@ async def self_introspect_context_block(message: str) -> str:
         "ANSWER POLICY (R-F595 + Clause 25): quote ONLY the values above. "
         "Do NOT state any count, TTL, or policy not in this block. If a "
         "capability isn't covered, say 'I don't have live visibility into "
-        "<X> in this turn — calling self_introspect did not surface it'."
+        "<X> in this turn — calling self_introspect did not surface it'. "
+        "(R-F3612) When asked what is WRONG with you, answer from LLM CHAIN "
+        "HEALTH first: resilient=False, a recent exhaustion, or UNAVAILABLE is "
+        "a CURRENT ISSUE and must be reported. Never infer 'no issues' from "
+        "counters that are simply zero."
     )
 
     return "\n".join(lines)
