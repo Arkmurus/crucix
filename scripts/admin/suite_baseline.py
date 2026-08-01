@@ -234,9 +234,34 @@ def main() -> int:
               " not diff it. Re-run on a quiet tree. See R-F3597 for why a corrupted run"
               " still produces a plausible-looking number.")
 
+    # R-F3624 — an invalid run must produce NO verdict at all, not just no record.
+    #
+    # R-F3622 stopped an invalid run being RECORDED and stopped there. Observed on the
+    # very first real use (2026-08-01): the script printed `VALID=NO`, told the reader
+    # to "DISCARD this result — do not publish it and do not diff it" — and then diffed
+    # it anyway, emitting a 20-item "NEW FAILURES (20) — CLAUDE.md section 16" list and
+    # exiting 1. A §16 gate verdict computed from data the tool has just declared
+    # invalid is exactly the plausible-looking wrong answer R-F3597 is about, one layer
+    # up: someone would have gone hunting twenty regressions that may not exist.
+    #
+    # (The invalidating change was peer commit 46eadcb5 adding a tracked test file
+    # mid-run — so the failure SET genuinely shifted under the run: files collected in
+    # later segments were not the files collected in earlier ones.)
+    #
+    # Exit 3, distinct from 0 (clean) / 1 (real new failures) / 2 (refused to record),
+    # so a caller — CI included — can tell "the measurement failed" from "the code
+    # failed". Those must never collapse into one signal.
+    # Order matters: --record on an invalid run is the MORE specific case and keeps its
+    # own exit 2, so "you tried to record garbage" stays distinguishable from "the
+    # measurement was invalid". Putting the general check first would make this branch
+    # unreachable.
     if args.record and not valid:
         print("refusing --record: a baseline measured while the tree moved is not a baseline")
         return 2
+    if not valid:
+        print("\nNo verdict: the run is invalid, so neither the count nor the failure-set "
+              "diff means anything. Re-run on a quiet tree.")
+        return 3
     if args.record and args.max_segments:
         print("refusing --record on a truncated run: it would erase every failure "
               "in the segments that never ran")

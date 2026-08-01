@@ -175,3 +175,80 @@ def test_record_does_not_clobber_the_real_baseline(tmp_path):
     )
     after = real.read_bytes() if real.exists() else None
     assert after == before, "recording against a fixture must not touch the real baseline"
+
+
+def test_an_invalid_run_emits_no_section_16_verdict(tmp_path):
+    """R-F3624 — VALID=NO must suppress the DIFF, not just the record.
+
+    Observed on the harness's first real use (2026-08-01): it printed "DISCARD this
+    result — do not publish it and do not diff it" and then diffed it anyway, emitting
+    "NEW FAILURES (20) — CLAUDE.md section 16" and exiting 1. A gate verdict computed
+    from data the tool has just declared invalid is the same plausible-looking wrong
+    answer R-F3597 is about, one layer up — someone would go hunting twenty regressions
+    that may not exist.
+
+    Exit 3 keeps "the measurement failed" distinct from "the code failed" (exit 1).
+    Collapsing those two is how a broken measurement gets actioned as a regression.
+    """
+    tests_dir = tmp_path / "t"
+    tests_dir.mkdir()
+    target = ROOT / "aria_service" / "intel" / "golden_intel_bridge.py"
+    original = target.read_bytes()
+    # This fixture BOTH moves the tree and produces a genuine new failure, so the test
+    # proves the verdict is suppressed even when there is a real one to report.
+    (tests_dir / "test_moves_and_fails.py").write_text(
+        "import pathlib\n"
+        f"TARGET = pathlib.Path(r'{target}')\n"
+        "def test_touch():\n"
+        "    TARGET.write_bytes(TARGET.read_bytes() + b'# rf3624 mid-run\\n')\n"
+        "def test_fails():\n"
+        "    assert False\n",
+        encoding="utf-8",
+    )
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text('{"failures": []}', encoding="utf-8")
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "--tests-dir", str(tests_dir),
+             "--baseline", str(baseline), "--segment-size", "5", "--timeout", "30"],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+    finally:
+        target.write_bytes(original)
+
+    out = proc.stdout + proc.stderr
+    assert "VALID=NO" in out, out[-1200:]
+    assert proc.returncode == 3, (
+        f"expected 3 (measurement invalid), got {proc.returncode} — 1 would mean the "
+        f"corrupted run was reported as a real regression\n{out[-1200:]}"
+    )
+    assert "NEW FAILURES" not in out, "an invalid run must emit no section-16 verdict"
+    assert "FIXED since" not in out
+
+
+def test_a_valid_run_still_reports_real_new_failures(tmp_path):
+    """The suppression above must not disable the gate itself.
+
+    Without this, returning 3 unconditionally would pass the test above while silently
+    switching §16 off — the failure mode this repo has hit before (a guard that cries
+    wolf gets disabled; a guard that never fires is worse).
+    """
+    tests_dir = tmp_path / "t"
+    tests_dir.mkdir()
+    (tests_dir / "test_real_regression.py").write_text(
+        "def test_ok():\n    assert True\n\ndef test_regressed():\n    assert False\n",
+        encoding="utf-8",
+    )
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text('{"failures": []}', encoding="utf-8")
+
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--tests-dir", str(tests_dir),
+         "--baseline", str(baseline), "--segment-size", "5", "--timeout", "30"],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    out = proc.stdout + proc.stderr
+    assert "VALID=YES" in out, out[-1200:]
+    assert proc.returncode == 1, f"a real new failure on a VALID run must still fail the gate\n{out[-1200:]}"
+    assert "NEW FAILURES" in out
