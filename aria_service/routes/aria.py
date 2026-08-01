@@ -235,7 +235,28 @@ async def _get_predictor_blocks_24h_cached(ttl_s: float = 120.0) -> int:
 # bypass auth entirely (public-bypass paths, tests without the auth dep) — an
 # external API caller always runs auth, which sets it False.
 from contextvars import ContextVar as _ContextVar
-_auth_is_internal_var: "_ContextVar[bool]" = _ContextVar("aria_auth_is_internal", default=True)
+# R-F3628 — ONE declaration of the default, named so nothing has to mirror it.
+# tests/conftest.py::_reset_auth_internal_contextvar used to hardcode `var.set(True)`
+# with the comment "the declared default". That is a COPY of this value living in the
+# harness, and the copy wins: flipping the line below would have left every test still
+# forced to True, so a security-default change would have been invisible to its own
+# suite. The conftest now derives this constant instead.
+#
+# VALUE UNCHANGED (True) — deliberately. Flipping it to False is the eventual goal
+# (every reader is `if not ...get(): <deny>`, so True GRANTS to any context where the
+# setter never ran), but it is NOT free: measured 2026-08-01, three tests inherit the
+# permissive start and go red —
+#   test_rf1820_dd_report_ownership::test_dd_report_admin_no_filter_ok
+#   test_rf2097_dd_vault_ownership::test_rf2097_dd_case_cross_tenant_404
+#   test_rf2097_dd_vault_ownership::test_rf2097_dd_vault_search_filtered
+# They exercise admin/no-filter paths WITHOUT declaring internal, i.e. the same
+# inherit-don't-declare shape this change removes from production. Fix them to set the
+# var explicitly, then flip this one line — the conftest now follows it automatically,
+# which was the actual blocker and is what this change removes.
+_AUTH_INTERNAL_DEFAULT = True
+_auth_is_internal_var: "_ContextVar[bool]" = _ContextVar(
+    "aria_auth_is_internal", default=_AUTH_INTERNAL_DEFAULT
+)
 
 # Router-wide bearer-token enforcement. The require_aria_token dependency
 # is defined below; the forward reference works because FastAPI resolves
@@ -450,6 +471,10 @@ def require_aria_token(request: Request) -> None:
                 "fails closed (R-F1566)."
             )
             _AUTH_WARNING_LOGGED = True
+        # R-F3628 — DECLARE the permissive posture instead of inheriting it. This is
+        # the only path that legitimately wants it (local dev, no tokens, no
+        # enforcement); production with missing tokens raises 503 above (R-F1566).
+        _auth_is_internal_var.set(True)
         return
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.lower().startswith("bearer "):

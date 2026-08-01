@@ -60,7 +60,7 @@ class _internal:
 
 # ── The default itself, pinned so step 3 is a visible diff ───────────────────
 
-def test_the_contextvar_default_is_currently_permissive():
+def test_the_default_has_exactly_one_declaration():
     """The whole of R-F3628 in one assertion.
 
     A security-relevant ContextVar whose default GRANTS access is safe only while the
@@ -68,9 +68,11 @@ def test_the_contextvar_default_is_currently_permissive():
     the one that must be deliberately updated — which is the point: the change becomes
     a reviewed decision instead of an invisible behavioural shift.
     """
-    assert VAR.get() is True, (
-        "routes/aria.py:238 default. If this is now False, R-F3628 step 3 has landed — "
-        "update this test and confirm the in-process callers below were re-checked."
+    assert VAR.get() is _aria._AUTH_INTERNAL_DEFAULT, (
+        "the running value must track the DECLARED constant. conftest derives it now "
+        "instead of hardcoding a copy, so flipping _AUTH_INTERNAL_DEFAULT changes the "
+        "suite with it. Before R-F3628 the harness forced True regardless, which would "
+        "have hidden a change to the real default from its own tests."
     )
 
 
@@ -138,7 +140,7 @@ async def test_none_and_empty_set_are_not_interchangeable():
 
 # ── The in-process caller the docstring calls out ────────────────────────────
 
-def test_a_caller_that_never_ran_auth_inherits_the_permissive_default():
+def test_a_caller_that_never_ran_auth_follows_the_declared_default():
     """routes/aria.py:1268-1271 says the default is True "for auth-bypass callers
     (tests / public-bypass), so their behaviour is unchanged".
 
@@ -150,6 +152,8 @@ def test_a_caller_that_never_ran_auth_inherits_the_permissive_default():
     """
     victim = {"user_id": "someone-else"}
     # No _internal() block: this is a bare call, exactly like an in-process caller.
-    assert _aria._dd_report_access_allowed(victim, "") is True, (
-        "a caller that never ran auth is currently treated as INTERNAL"
+    assert _aria._dd_report_access_allowed(victim, "") is _aria._AUTH_INTERNAL_DEFAULT, (
+        "a caller that never ran auth inherits the declared default. While that is True "
+        "this is a GRANT — the exposure R-F3628 exists to close. Flip the constant and "
+        "this assertion follows it, which is the point."
     )

@@ -209,7 +209,12 @@ def _reset_auth_internal_contextvar():
     mod = _sys.modules.get("aria_service.routes.aria")
     var = getattr(mod, "_auth_is_internal_var", None) if mod is not None else None
     if var is not None:
-        var.set(True)          # the declared default; start every test unrestricted
+        # R-F3628 — DERIVE the default, never mirror it. This was `var.set(True)`
+        # commented "the declared default", i.e. a hardcoded copy of
+        # routes/aria.py's value. The copy wins over the declaration, so flipping the
+        # real default would have left the whole suite forced to the old value and the
+        # change invisible to its own tests. Absent constant => fail closed.
+        var.set(getattr(mod, "_AUTH_INTERNAL_DEFAULT", False))
     yield
 
 
