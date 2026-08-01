@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3628,
+  "next_available": 3630,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30320,6 +30320,24 @@
       "commit_sha": "0869114c",
       "notes": null,
       "shipped_at": "2026-08-01T12:10:32Z"
+    },
+    {
+      "r_number": "R-F3628",
+      "title": "the internal-token cross-tenant DD branch has never executed - pin it before rotation activates it",
+      "claimed_at": "2026-08-01T17:04:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3629",
+      "title": "deepseek-v4 context window measured 1048576 not 65536; separate cost cap from capability; escalation shares the caller timeout",
+      "claimed_at": "2026-08-01T17:08:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
