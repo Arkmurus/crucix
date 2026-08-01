@@ -30246,9 +30246,10 @@
       "title": "four forks of is-this-about-ARIA; the narrowest guards tool routing so she web-searched herself",
       "claimed_at": "2026-08-01T07:38:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3269aa47",
+      "notes": null,
+      "shipped_at": "2026-08-01T08:27:12Z"
     },
     {
       "r_number": "R-F3621",
@@ -30258,6 +30259,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3622",
+      "title": "suite baseline validity harness lived in a session scratchpad and is gone - commit it",
+      "claimed_at": "2026-08-01T07:54:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "dae009b2",
+      "notes": null,
+      "shipped_at": "2026-08-01T08:27:33Z"
     },
     {
       "r_number": "R-F3623",
