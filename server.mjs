@@ -4298,10 +4298,32 @@ app.get('/api/aria/verify/:verification_id', requireAuth, (req, res, next) => {
 // localhost bypass have no JWT userId → enforceQuota exempts them). Returns the
 // checkAndConsume verdict when the cap is hit. Keeps the load-bearing exemption
 // in one place; see lib/billing/enforce.mjs.
+// R-F3618 — an admin is NOT a metered customer, and this was the one quota site
+// that still metered them.
+//
+// roles.mjs states the model outright: "Billing TIER (free/pro/proIntel) is orthogonal
+// and gates customer features only." R-F2981 applied that to the DD orchestrate route
+// (server.mjs, `_ddPrivileged`) and to the brain-side consume route
+// (`isPrivileged(_user)`), after the operator's own admin account — which has no
+// `tier` field and therefore defaults to FREE — was blocked mid-demo by 'ddRun cap
+// 5/5'. It missed `_quotaBlock`, even though the comment above claims this helper
+// "keeps the load-bearing exemption in one place".
+//
+// So the identical defect survived on the chat lane: an admin was capped at the free
+// tier's messagesPerDay: 50. Surfaced 2026-08-01 when a second admin was created with
+// an explicit `tier: "free"` and the operator asked whether the admin role grants full
+// access. It did not.
+//
+// Fixing it HERE rather than at the two call sites is the point: this is the shared
+// helper, so any future metered web route inherits the exemption instead of
+// re-discovering the bug. The §17 $300/mo LLM cap remains the hard backstop, and
+// non-privileged users stay tier-capped exactly as before.
 async function _quotaBlock(req, kind) {
   const uid = req.user?.userId;
-  const tier = uid ? (findUserById(uid)?.tier) : null;
-  return enforceQuota(uid, tier, kind);
+  if (!uid) return null;   // system / internal token / localhost bypass — unchanged
+  const user = findUserById(uid);
+  if (isPrivileged(user)) return null;
+  return enforceQuota(uid, user?.tier, kind);
 }
 
 app.post('/api/aria/dd/orchestrate', requireAuth, async (req, res) => {
