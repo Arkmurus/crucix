@@ -310,7 +310,7 @@ def check_magic_bytes(data: bytes, claimed_type: str) -> Optional[dict[str, Any]
     Benign family mismatches return None so the caller can route on the real type
     — which is what test_rf450_docx_renamed_as_pdf_routes_to_docx_parser and
     test_rf450_generic_zip_renamed_as_pdf_does_not_invoke_pdf_parser have been
-    asserting (long-red, docs/suite_baseline_2026_07_30.md:204-205).
+    asserting (long-red, docs/suite_baseline.md).
     """
     expected_magic = MAGIC_BYTES.get(claimed_type.lower(), [])
     if not expected_magic:

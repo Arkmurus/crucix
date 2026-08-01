@@ -126,7 +126,7 @@ async def test_delete_report_uses_canonical_vault_key(fake_rs, monkeypatch):
 
     deleted = []
 
-    # R-F3532 — this fake was long-red (recorded in docs/suite_baseline_2026_07_30.md)
+    # R-F3532 — this fake was long-red (recorded in docs/suite_baseline.md)
     # because it still modelled delete_case(cid), which R-F2653 REPLACED with
     # remove_report_from_case(cid, run_id) precisely so one tenant's delete stops
     # wiping a shared entity's case for everyone. The guard was asserting an API

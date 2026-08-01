@@ -11,7 +11,7 @@ claimed extension and the sniffed magic, and ``scan_file``/``scan_bytes`` block 
 any threat. So a JPEG saved as ``.png`` — which browsers and operating systems
 produce constantly — was refused as malware.
 
-Two long-red guards in docs/suite_baseline_2026_07_30.md:204-205 have been
+Two long-red guards in docs/suite_baseline.md have been
 asserting exactly this for months:
 
     test_rf450_generic_zip_renamed_as_pdf_does_not_invoke_pdf_parser
