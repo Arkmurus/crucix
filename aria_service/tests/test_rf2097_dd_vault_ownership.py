@@ -21,7 +21,15 @@ def _make_app():
     from aria_service.routes import aria as aria_routes
 
     app = FastAPI()
-    app.dependency_overrides[aria_routes._router_auth_dep] = lambda: None
+    # R-F3628 — this override replaces require_aria_token, so the setter never runs
+    # and the request used to INHERIT the ContextVar default. These cases assert the
+    # admin/internal posture ('no user_id is unrestricted'), so declare it instead of
+    # relying on what the default happens to be. ASYNC deliberately: a sync dependency
+    # runs in a threadpool and the .set() would not reach the endpoint (R-F2456).
+    async def _auth_override_internal():
+        aria_routes._auth_is_internal_var.set(True)
+
+    app.dependency_overrides[aria_routes._router_auth_dep] = _auth_override_internal
     app.include_router(aria_routes.router)
     app.state.llm_provider = SimpleNamespace(is_configured=True, name="fake")
     app.state.current_data = None

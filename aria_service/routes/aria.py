@@ -242,7 +242,7 @@ from contextvars import ContextVar as _ContextVar
 # forced to True, so a security-default change would have been invisible to its own
 # suite. The conftest now derives this constant instead.
 #
-# VALUE UNCHANGED (True) — deliberately. Flipping it to False is the eventual goal
+# FAIL-CLOSED (R-F3628). Flipping this was the goal
 # (every reader is `if not ...get(): <deny>`, so True GRANTS to any context where the
 # setter never ran), but it is NOT free: measured 2026-08-01, three tests inherit the
 # permissive start and go red —
@@ -253,7 +253,7 @@ from contextvars import ContextVar as _ContextVar
 # inherit-don't-declare shape this change removes from production. Fix them to set the
 # var explicitly, then flip this one line — the conftest now follows it automatically,
 # which was the actual blocker and is what this change removes.
-_AUTH_INTERNAL_DEFAULT = True
+_AUTH_INTERNAL_DEFAULT = False
 _auth_is_internal_var: "_ContextVar[bool]" = _ContextVar(
     "aria_auth_is_internal", default=_AUTH_INTERNAL_DEFAULT
 )

@@ -52,6 +52,10 @@ async def test_dd_report_owner_ok(ddstore):
 
 @pytest.mark.asyncio
 async def test_dd_report_admin_no_filter_ok(ddstore):
+    # R-F3628 — a direct in-process call: require_aria_token never runs, so this used
+    # to inherit the ContextVar default. The test is ABOUT the admin/internal path, so
+    # state it rather than depend on the default being permissive.
+    A._auth_is_internal_var.set(True)
     out = await A.dd_report_ep(run_id="r1", user_id="")  # admin / autonomous path
     assert out["run_id"] == "r1"
 
