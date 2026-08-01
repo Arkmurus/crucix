@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3633,
+  "next_available": 3635,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30369,6 +30369,25 @@
       "commit_sha": "35195158",
       "notes": null,
       "shipped_at": "2026-08-01T18:01:31Z"
+    },
+    {
+      "r_number": "R-F3633",
+      "title": "make access request workflow coherent",
+      "claimed_at": "2026-08-01T18:07:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3634",
+      "title": "chain health reports the full chain while dispatch walks a preference-filtered order",
+      "claimed_at": "2026-08-01T18:10:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b8c19516",
+      "notes": null,
+      "shipped_at": "2026-08-01T18:12:57Z"
     }
   ]
 }
