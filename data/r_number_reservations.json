@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3627,
+  "next_available": 3628,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30310,6 +30310,15 @@
       "commit_sha": "78dc769f",
       "notes": null,
       "shipped_at": "2026-08-01T09:56:58Z"
+    },
+    {
+      "r_number": "R-F3627",
+      "title": "reasoning models: reserve the answer budget, retry the same provider with headroom",
+      "claimed_at": "2026-08-01T10:59:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

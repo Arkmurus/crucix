@@ -100,9 +100,50 @@ _REASONING_ANSWER_MAX = 600
 # reasoning model and has the opposite, latency-driven constraint.
 _REASONING_MIN_COMPLETION_TOKENS = 2048
 
+
+# ── R-F3627 — THE FLOOR WAS STILL A CAP ON THINKING + ANSWER ─────────────────
+#
+# R-F3607 (above) raised a too-small budget to a floor. That closed the 800-token
+# case and NOTHING MORE, because the quantity it floors is still the COMBINED
+# reasoning+content budget. The caller is expressing "how long an ANSWER do I
+# want"; the model spends that same allowance thinking first. So every floor is
+# just a bigger cliff, and the failure recurs at the new number.
+#
+# Live 2026-08-01, ~6 hours after R-F3606 raised chat 800 -> 4000:
+#   [deepseek_backup] reasoning consumed the token budget
+#   (model=deepseek-v4-pro, finish_reason=length, reasoning=13527 chars)
+# 13,527 chars / 4,000 tokens = 3.38 chars-per-token — the ENTIRE raised budget,
+# spent thinking, content empty. The same arithmetic that proved R-F3606's
+# diagnosis (3,455 chars on an 800 cap) now disproves its remedy. Note both
+# samples are CONDITIONED ON FAILURE: a turn whose reasoning ended early never
+# raises, so these observations are a lower bound on how long the model thinks,
+# never evidence that it stops at some number.
+#
+# The structural fix is to stop treating one integer as two things. On a
+# reasoning model the caller's `max_tokens` is RESERVED for the answer, and
+# headroom for the thinking is added ON TOP. DeepSeek V4 carries a 1M context
+# (vendored vendor doc: awesome-deepseek-agent-main/docs/cherry_studio.md:41),
+# and `max_tokens` is a ceiling the model stops short of, so headroom on an easy
+# turn is billed at exactly zero. Reasoning effort itself is NOT a lever here:
+# DeepSeek exposes only `high` and `max` (docs/oh-my-pi.md:93), so the model
+# cannot be asked to think less — only to be given room to finish.
+_REASONING_HEADROOM_TOKENS = 8192
+
+# The escalation ceiling. Bounds the retry below so a pathological turn cannot
+# walk the budget up indefinitely, and keeps the total inside the smallest
+# context window this file records for a reasoning model (prompt_budget.py).
+_REASONING_MAX_COMPLETION_TOKENS = 32768
+
 # Substrings of model ids that emit `reasoning_content` before the answer.
 # Kept as fragments so a point release (deepseek-v4-pro-0801) is still matched.
 _REASONING_MODEL_MARKERS = ("deepseek-v4", "deepseek-reasoner", "o1-", "o3-")
+
+# R-F3627 — the ProviderError kind for "the budget died during deliberation".
+# A distinct kind is what lets the ONE escalation below fire on the one failure
+# it can actually cure, and nothing else. fallback.py classifies only
+# ("auth", "billing") and "rate_limit" specially, so this lands in the same soft
+# branch "other" already did — no cooldown behaviour changes.
+KIND_REASONING_TRUNCATED = "reasoning_truncated"
 
 
 def _is_reasoning_model(model: str | None) -> bool:
@@ -111,23 +152,30 @@ def _is_reasoning_model(model: str | None) -> bool:
     return any(marker in m for marker in _REASONING_MODEL_MARKERS)
 
 
-def _floor_completion_budget(model: str | None, max_tokens: int) -> int:
-    """Raise `max_tokens` to the reasoning floor when `model` reasons. Never lowers."""
+def _floor_completion_budget(model: str | None, max_tokens: int, *, attempt: int = 0) -> int:
+    """The wire budget for `max_tokens` worth of ANSWER from `model`.
+
+    Classic model: unchanged — its answer is the whole completion, and raising
+    the ceiling would be an unrequested cost increase.
+
+    Reasoning model: `max_tokens` is reserved for the answer and reasoning
+    headroom is added on top, so the answer cannot be crowded out by the
+    thinking that precedes it (R-F3627). `attempt` doubles the headroom for the
+    single escalation retry in complete(). Never lowers; never exceeds
+    _REASONING_MAX_COMPLETION_TOKENS.
+    """
     if not _is_reasoning_model(model):
         return max_tokens
     try:
         n = int(max_tokens)
     except (TypeError, ValueError):
-        return _REASONING_MIN_COMPLETION_TOKENS
+        n = _REASONING_MIN_COMPLETION_TOKENS
     if n < _REASONING_MIN_COMPLETION_TOKENS:
-        logger.warning(
-            "[R-F3607] %s is a reasoning model and max_tokens=%d cannot fit "
-            "reasoning + an answer; raising to %d. A budget this small returns "
-            "empty content with finish_reason='length'.",
-            model, n, _REASONING_MIN_COMPLETION_TOKENS,
-        )
-        return _REASONING_MIN_COMPLETION_TOKENS
-    return n
+        n = _REASONING_MIN_COMPLETION_TOKENS
+    headroom = _REASONING_HEADROOM_TOKENS * (2 ** max(0, int(attempt)))
+    total = min(n + headroom, _REASONING_MAX_COMPLETION_TOKENS)
+    # Never lower what the caller asked for, even at the ceiling.
+    return max(total, n)
 
 class OpenAICompatProvider(LLMProvider):
     """Generic OpenAI-compatible chat completions provider."""
@@ -178,10 +226,17 @@ class OpenAICompatProvider(LLMProvider):
             return bool(self._model)
         return bool(self._api_key)
 
-    def _resolve_completion_budget(self, eff_model: str | None, max_tokens: int) -> int:
+    def _resolve_completion_budget(
+        self, eff_model: str | None, max_tokens: int, *, attempt: int = 0,
+    ) -> int:
         """R-F3607 — the completion budget the model that ACTUALLY serves can
         work with. One place, so complete() and the inherited stream() (§13)
         cannot drift.
+
+        R-F3627 — `attempt` selects the escalation rung. LLMProvider.stream()
+        delegates to complete() (provider.py:127) and this class does not
+        override it, so the streaming fork inherits the whole treatment —
+        budget AND retry — with no second implementation to drift.
 
         Deliberately does NOT apply the sovereign ceiling, even though the
         chain can hold a sovereign slot named 'aria_llm' under SHADOW /
@@ -189,7 +244,7 @@ class OpenAICompatProvider(LLMProvider):
         would truncate generated code (R-F904 / §21c). The sovereign's chat
         ceiling is applied by model_router, which knows the call is chat.
         """
-        return _floor_completion_budget(eff_model, max_tokens)
+        return _floor_completion_budget(eff_model, max_tokens, attempt=attempt)
 
     @fail_wire(module="openai_compat", gap_type="engine_failure", control_flow_exempt=("ProviderError",))
     async def complete(
@@ -201,6 +256,20 @@ class OpenAICompatProvider(LLMProvider):
         timeout: float = 0,
         model: str | None = None,   # R-F2768 — accept the routing override (a Claude id is ignored)
     ) -> LLMResult:
+        """R-F3627 — at most TWO attempts, and only ever for the one failure a
+        second attempt can cure.
+
+        This is deliberately NOT a retry count. Retrying a truncated reasoning
+        turn on the NEXT PROVIDER — which is all the chain could do before — is
+        structurally incapable of succeeding: fallback.py forwards the caller's
+        max_tokens unchanged, so the backup model inherits the identical budget
+        and dies at the identical point. That is exactly what the 2026-08-01
+        page recorded (attempts=1, both DeepSeek entries listed, chain
+        exhausted). The escalation below retries the SAME provider with the one
+        parameter the error itself names as deficient, once, bounded by
+        _REASONING_MAX_COMPLETION_TOKENS — a root-cause correction of the
+        request, not a hope that the same request fares better.
+        """
         timeout = timeout or self._default_timeout
 
         # R-F2768 — accept the per-call routing override but NEVER send a Claude
@@ -209,15 +278,65 @@ class OpenAICompatProvider(LLMProvider):
         # R-F3606: resolved HERE (was below) so the budget rules and the R-F1236
         # prompt budget both see the model that will actually serve.
         _eff_model = model if (model and not str(model).startswith("claude")) else self._model
-        max_tokens = self._resolve_completion_budget(_eff_model, max_tokens)
+
+        for _attempt in (0, 1):
+            _budget = self._resolve_completion_budget(
+                _eff_model, max_tokens, attempt=_attempt,
+            )
+            try:
+                return await self._one_completion(
+                    system_prompt, user_message,
+                    eff_model=_eff_model, max_tokens=_budget, timeout=timeout,
+                )
+            except ProviderError as e:
+                _curable = (
+                    getattr(e, "kind", "") == KIND_REASONING_TRUNCATED
+                    and _attempt == 0
+                    # A second call is pointless once the ceiling is already the
+                    # budget — nothing would change about the request.
+                    and _budget < _REASONING_MAX_COMPLETION_TOKENS
+                )
+                if not _curable:
+                    raise
+                logger.warning(
+                    "[R-F3627] %s (%s) spent its %d-token budget reasoning; "
+                    "retrying ONCE with doubled headroom. %s",
+                    self.name, _eff_model, _budget, e,
+                )
+        # Unreachable: the loop either returns or raises on the final attempt.
+        raise ProviderError(self.name, "completion escalation fell through", kind="other")
+
+    async def _one_completion(
+        self,
+        system_prompt: str,
+        user_message: str,
+        *,
+        eff_model: str | None,
+        max_tokens: int,
+        timeout: float,
+    ) -> LLMResult:
+        """ONE request/response cycle at a FIXED budget (R-F3627).
+
+        Extracted from complete() so both escalation attempts run byte-identical
+        logic. Deliberately not decorated with @fail_wire: complete() carries the
+        wire, and wiring here as well would file two gaps for one user-visible
+        failure and count the curable first attempt as an outage.
+        """
+        _eff_model = eff_model
 
         # R-F1236: Enforce prompt budget before sending — prevents HTTP 413
         # (Request Too Large) on models with smaller context windows.
+        # R-F3627 — pass the EFFECTIVE model. R-F3606 resolved _eff_model early
+        # so "the R-F1236 prompt budget [sees] the model that will actually
+        # serve", but this call still read self._model, so a per-call routing
+        # override was budgeted against the configured model's window instead of
+        # the serving one. The reserve is now also materially larger, which is
+        # what makes the mismatch worth correcting rather than noting.
         try:
             from .prompt_budget import enforce_budget
             system_prompt, user_message = enforce_budget(
                 system_prompt, user_message,
-                model=self._model,
+                model=_eff_model or self._model,
                 reserved_output=max_tokens,
             )
         except Exception:
@@ -373,10 +492,14 @@ class OpenAICompatProvider(LLMProvider):
                 raise ProviderError(
                     self.name,
                     (f"reasoning consumed the token budget (model={_eff_model}, "
-                     f"finish_reason={_fr_reason}, reasoning={len(_reasoning)} chars) "
-                     f"— no answer was produced. Raise max_tokens to leave room "
-                     f"after the reasoning."),
-                    kind="other",
+                     f"finish_reason={_fr_reason}, reasoning={len(_reasoning)} chars, "
+                     f"max_tokens={max_tokens}) — no answer was produced."),
+                    # R-F3627 — a DISTINCT kind. This failure is a request-shape
+                    # problem on a healthy, paid, reachable provider, and it is
+                    # the only one the escalation in complete() can cure. Telling
+                    # it apart from generic "other" is what stops the chain from
+                    # burning its fallback on a budget the fallback also inherits.
+                    kind=KIND_REASONING_TRUNCATED,
                     retryable=True,
                 )
             # Short and complete: the model simply used the other field.

@@ -282,13 +282,31 @@ def test_reasoning_models_are_detected():
     assert not _is_reasoning_model(None)
 
 
+# ── SUPERSEDED BY R-F3627 (2026-08-01, same day) ────────────────────────────
+#
+# The three assertions below pinned EXACT EQUALITY with the floor — i.e. that a
+# reasoning model is sent precisely `max(caller, 2048)` combined tokens. That
+# contract was disproven within hours by the live page it was meant to prevent:
+# deepseek-v4-pro spent a full 4,000-token budget on reasoning alone
+# (13,527 chars, finish_reason=length) and produced no answer.
+#
+# The defect was never the size of the number — it was that ONE number had to
+# cover the thinking AND the answer, so every value is a cliff. R-F3627 reserves
+# the caller's budget for the answer and adds reasoning headroom on top. These
+# now assert the PROPERTY that must hold at any tuning (the model can always
+# outlast its own reasoning) rather than an arithmetic identity that changes
+# whenever the headroom is retuned.
+
+
 def test_small_budget_is_floored_for_a_reasoning_model():
-    assert _floor_completion_budget("deepseek-v4-flash", 800) == _REASONING_MIN_COMPLETION_TOKENS
-    assert _floor_completion_budget("deepseek-v4-flash", 16) == _REASONING_MIN_COMPLETION_TOKENS
+    assert _floor_completion_budget("deepseek-v4-flash", 800) >= _REASONING_MIN_COMPLETION_TOKENS
+    assert _floor_completion_budget("deepseek-v4-flash", 16) >= _REASONING_MIN_COMPLETION_TOKENS
 
 
 def test_floor_never_lowers_and_never_touches_classic_models():
-    assert _floor_completion_budget("deepseek-v4-flash", 8000) == 8000
+    assert _floor_completion_budget("deepseek-v4-flash", 8000) >= 8000, (
+        "the caller's answer budget must never be LOWERED"
+    )
     assert _floor_completion_budget("gpt-4", 16) == 16, (
         "a classic model returns its answer in `content`; raising its budget "
         "would be an unrequested cost increase"
@@ -306,7 +324,10 @@ def test_a_small_budget_caller_can_no_longer_starve_a_reasoning_model(monkeypatc
                              base_url="https://api.deepseek.com")
     res = _run(p.complete("sys", "usr", max_tokens=1000))
     assert res.text.strip(), "a 1000-token caller was starved into an empty answer"
-    assert seen["max_tokens"] == _REASONING_MIN_COMPLETION_TOKENS
+    # R-F3627 — was `== _REASONING_MIN_COMPLETION_TOKENS`. The property that
+    # matters is that the wire budget outlasts the model's reasoning, not that
+    # it equals one particular constant.
+    assert seen["max_tokens"] > _REASONING_TOKEN_COST
 
 
 # ── R-F3608 — a failure surface is never absorbed as knowledge ───────────────

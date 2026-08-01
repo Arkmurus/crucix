@@ -255,14 +255,32 @@ def test_an_unconfigured_alert_channel_is_reported_not_silent():
     assert "wire_failure" in src or "_wf" in src
 
 
-def test_the_page_states_action_not_just_symptom():
+def test_the_page_states_action_not_just_symptom(monkeypatch):
     """§19e requires DONE / STUCK / WHY / ACTION — an operator should not have
-    to interpret the page."""
-    import inspect
-    src = inspect.getsource(fb.FallbackProvider._alert_operator_chain_down)
-    for token in ("STUCK", "WHY", "ACTION", "TRIED"):
-        assert token in src, f"the page must state {token}"
-    assert "cooldown/clear" in src, "the page must name the concrete remedy"
+    to interpret the page.
+
+    R-F3627 — this grepped `inspect.getsource(_alert_operator_chain_down)` for
+    the literal "TRIED". That is a claim about a variable name in one function,
+    not about what the operator receives: renaming the label to the honest
+    "CALLED" broke it while the page got strictly better. Build the REAL page
+    and assert on the text that is actually sent.
+    """
+    chain = _chain()
+    sent: list[str] = []
+    monkeypatch.setattr(chain, "_dispatch_operator_page",
+                        lambda text, *, source: sent.append(text))
+
+    err = ProviderError("deepseek", "Insufficient Balance", kind="billing",
+                        retryable=False)
+    chain._on_chain_exhausted(chain.providers, 2, "", err, path="complete",
+                              called=["deepseek", "deepseek_backup"])
+
+    assert sent, "an exhausted chain must page the operator"
+    page = sent[0]
+    for token in ("STUCK", "WHY", "IMPACT", "ACTION"):
+        assert token in page, f"the page must state {token}:\n{page}"
+    assert "deepseek" in page, "the page must name who was called"
+    assert "cooldown/clear" in page, "the page must name the concrete remedy"
 
 
 def test_alerting_failure_cannot_replace_the_real_error(monkeypatch):

@@ -102,7 +102,14 @@ def test_the_error_names_the_actual_cause():
     message must say the budget went on reasoning."""
     src = _COMPAT.read_text(encoding="utf-8")
     assert "reasoning consumed the token budget" in src
-    assert "Raise max_tokens" in src, "the message must state the fix"
+    # R-F3627 — was `assert "Raise max_tokens" in src`. That sentence was
+    # ADVICE TO A HUMAN, and it is now stale: the provider raises its own budget
+    # and escalates once before giving up, so telling the reader to do it by
+    # hand points at work already done. What the message must still carry is the
+    # evidence needed to diagnose it — which model, why it stopped, how long it
+    # thought, and what budget it had.
+    for token in ("model=", "finish_reason=", "reasoning=", "max_tokens="):
+        assert token in src, f"the message must report {token} for diagnosis"
 
 
 def test_provider_error_is_importable_and_retryable_is_a_real_field():

@@ -19,6 +19,7 @@ from typing import Optional
 
 from .provider import LLMProvider, LLMResult, ProviderError
 from .factory import create_llm_provider
+from .openai_compat import KIND_REASONING_TRUNCATED  # R-F3627 — cause-aware paging
 
 from ..intel.wire import fail_wire  # R-F1789 §21 brain-wiring
 
@@ -510,6 +511,7 @@ class FallbackProvider(LLMProvider):
         """
         last_error = None
         attempted = 0
+        called: list[str] = []   # R-F3627 — who was actually DIALLED, not merely listed
 
         # R-F1366 — per-call provider preference (see docstring).
         # R-F2917 — when the caller did not pass one explicitly, fall back to the
@@ -612,6 +614,7 @@ class FallbackProvider(LLMProvider):
 
             try:
                 attempted += 1
+                called.append(provider.name)
                 stats["calls"] = stats.get("calls", 0) + 1
                 # R-F2933 — a per-call routed model is provider-SPECIFIC. When a
                 # DD prefers Claude and the call degrades to DeepSeek, forwarding
@@ -652,6 +655,7 @@ class FallbackProvider(LLMProvider):
         # R-F3613 — one shared handler, mirrored into the stream fork below.
         self._on_chain_exhausted(
             order, attempted, prefer_provider, last_error, path="complete",
+            called=called,
         )
 
         if isinstance(last_error, ProviderError):
@@ -684,6 +688,7 @@ class FallbackProvider(LLMProvider):
         """
         last_error = None
         attempted = 0
+        called: list[str] = []   # R-F3627 §13 mirror — see complete()
 
         # R-F2922 — streaming is the CHAT path and has no preference concept, so
         # it walked self.providers directly. With Claude in the chain that meant
@@ -709,6 +714,7 @@ class FallbackProvider(LLMProvider):
 
             try:
                 attempted += 1
+                called.append(provider.name)
                 stats["calls"] = stats.get("calls", 0) + 1
                 # R-F2933 — same provider-specific-model guard as complete().
                 _fwd_model = model
@@ -737,6 +743,7 @@ class FallbackProvider(LLMProvider):
         # No preference concept on the stream path (see _stream_order above).
         self._on_chain_exhausted(
             _stream_order, attempted, "", last_error, path="stream",
+            called=called,
         )
 
         if isinstance(last_error, ProviderError):
@@ -837,6 +844,7 @@ class FallbackProvider(LLMProvider):
         last_error: Exception | None,
         *,
         path: str,
+        called: list[str] | None = None,
     ) -> None:
         """R-F3613 — THE one place a total chain outage is handled.
 
@@ -857,7 +865,22 @@ class FallbackProvider(LLMProvider):
         raise the provider error. An alerting bug must not replace the real one.
         """
         self._record_chain_exhausted()
-        tried = ", ".join(p.name for p in order) or "<none>"
+        # R-F3627 — "TRIED" used to list every provider in the chain ORDER,
+        # including ones skipped as cooling and never dialled. On 2026-08-01 the
+        # operator page therefore read "TRIED: deepseek, deepseek_backup" when
+        # exactly ONE call had been made — the `attempts=1` beside it was the
+        # only hint, and it contradicted the sentence next to it. §22: a status
+        # line states what happened, so name who was CALLED and who was SKIPPED.
+        if called is None:
+            # A caller that did not record who it dialled. Say exactly that
+            # rather than inferring — deriving "skipped" from an absent list
+            # would fabricate the very claim this change exists to remove.
+            tried = (", ".join(p.name for p in order) or "<none>") + " (dialled set not recorded)"
+        else:
+            _skipped = [p.name for p in order if p.name not in called]
+            tried = ", ".join(called) or "<none — every provider was cooling>"
+            if _skipped:
+                tried += f" (SKIPPED, cooling: {', '.join(_skipped)})"
         detail = (
             f"ALL LLM providers failed — no provider served this call "
             f"(path={path}). tried=[{tried}] attempts={attempted} "
@@ -950,18 +973,49 @@ class FallbackProvider(LLMProvider):
             return  # already paged this window — see the cooldown rationale above
         _last_chain_alert_at = now
 
+        # R-F3627 — THE ACTION MUST MATCH THE CAUSE.
+        #
+        # This line was unconditional: "check provider credit/cooldown … clear a
+        # stale cooldown after a top-up". On 2026-08-01 the cause was a request
+        # too small for the model's own reasoning, on a healthy, paid, reachable
+        # provider — so the page's own WHY line ("reasoning consumed the token
+        # budget") contradicted its ACTION line, and the ACTION pointed at a
+        # lever that could not have helped. A page that names the wrong remedy
+        # costs more operator time than no page: it is acted on.
+        _kind = getattr(last_error, "kind", "") or ""
+        if _kind == KIND_REASONING_TRUNCATED:
+            action = (
+                "ACTION: this is NOT a credit or cooldown problem — the provider "
+                "is healthy and answering, but the completion budget is too small "
+                "to hold the model's reasoning AND its answer. Clearing a cooldown "
+                "will NOT help. R-F3627 reserves the answer and escalates once; if "
+                "you are seeing this, the escalation ceiling itself was hit — raise "
+                "_REASONING_MAX_COMPLETION_TOKENS (llm/openai_compat.py)."
+            )
+        elif _kind in ("billing", "auth"):
+            action = (
+                "ACTION: provider credit or key — "
+                "POST /api/aria/admin/llm/cooldown/clear (operator token) clears "
+                "the cooldown after a top-up; a 24h billing cooldown does NOT "
+                "clear on restart (R-F3513)."
+            )
+        else:
+            action = (
+                "ACTION: check provider credit/cooldown — "
+                "POST /api/aria/admin/llm/cooldown/clear (operator token) clears a "
+                "stale cooldown after a top-up."
+            )
+
         text = (
             "🚨 BLOCKED: LLM chain — every provider failed.\n\n"
             f"STUCK: no provider served the last request (path={path}, "
             f"attempts={attempted}).\n"
-            f"TRIED: {tried}\n"
+            f"CALLED: {tried}\n"
             f"WHY: {str(last_error)[:300] or 'unknown'}\n\n"
             "IMPACT: chat, DD and research answers are degraded until a provider "
             "recovers.\n"
-            "ACTION: check provider credit/cooldown — "
-            "POST /api/aria/admin/llm/cooldown/clear (operator token) clears a "
-            "stale cooldown after a top-up; GET /api/aria/health/perf shows the "
-            "live chain.\n"
+            f"{action}\n"
+            "GET /api/aria/health/perf shows the live chain.\n"
             f"(further alerts suppressed for {int(_CHAIN_ALERT_COOLDOWN_S)}s)"
         )
 

@@ -137,23 +137,70 @@ class TestEnforceBudget:
 class TestIntegrationWithProvider:
     """Test that prompt budget integrates with OpenAICompatProvider."""
 
-    def test_provider_calls_enforce_budget(self):
-        """OpenAICompatProvider.complete() should call enforce_budget."""
-        from aria_service.llm.openai_compat import OpenAICompatProvider
+    def test_provider_calls_enforce_budget(self, monkeypatch):
+        """A provider call must actually run the prompt through enforce_budget.
 
-        # Create a provider with a fake key (won't actually call the API)
-        provider = OpenAICompatProvider(
+        R-F3627 — this asserted `"enforce_budget" in inspect.getsource(complete)`.
+        That is a claim about where a string appears, not about what runs: it
+        broke the moment complete() was split into an escalation loop plus
+        _one_completion(), even though the budget was still enforced on every
+        single request. A source grep also cannot tell a live call from one
+        sitting in a comment or a dead branch. Assert the behaviour instead —
+        drive a real complete() and prove enforce_budget was invoked.
+        """
+        import aria_service.llm.openai_compat as oc
+        from aria_service.llm.prompt_budget import enforce_budget as _real
+
+        provider = oc.OpenAICompatProvider(
             name="test",
             api_key="test-key",
             model="gemma2-9b-it",  # small context window
         )
 
-        # The enforce_budget call happens inside complete() before the API call.
-        # We can verify the import path works by checking the source code.
-        import inspect
-        source = inspect.getsource(provider.complete)
-        assert "enforce_budget" in source
-        assert "prompt_budget" in source
+        seen = {}
+
+        def _spy(system_prompt, user_message, *, model, reserved_output):
+            seen["model"] = model
+            seen["reserved_output"] = reserved_output
+            return _real(system_prompt, user_message, model=model,
+                         reserved_output=reserved_output)
+
+        monkeypatch.setattr("aria_service.llm.prompt_budget.enforce_budget", _spy)
+
+        class _Resp:
+            status_code = 200
+            text = "stub"
+
+            def json(self):
+                return {"choices": [{"message": {"content": "ok"},
+                                     "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                        "model": "gemma2-9b-it"}
+
+        class _Client:
+            def __init__(self, *a, **k):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, *a, **k):
+                return _Resp()
+
+        monkeypatch.setattr(oc.httpx, "AsyncClient", _Client)
+
+        import asyncio
+        res = asyncio.run(provider.complete("sys", "usr", max_tokens=128))
+
+        assert res.text == "ok"
+        assert seen, "enforce_budget was never called on the request path"
+        assert seen["model"] == "gemma2-9b-it", (
+            "the budget must be computed for the model that actually serves"
+        )
+        assert seen["reserved_output"] == 128
 
     def test_enforce_budget_imports_cleanly(self):
         """The prompt_budget module should import without errors."""
