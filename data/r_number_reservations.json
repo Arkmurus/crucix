@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3626,
+  "next_available": 3627,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30300,6 +30300,16 @@
       "commit_sha": "4a88cd97",
       "notes": null,
       "shipped_at": "2026-08-01T09:13:36Z"
+    },
+    {
+      "r_number": "R-F3626",
+      "title": "R-F3606/3608 added two pure public functions that trip the wiring gate - exempt them honestly",
+      "claimed_at": "2026-08-01T09:54:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "78dc769f",
+      "notes": null,
+      "shipped_at": "2026-08-01T09:56:58Z"
     }
   ]
 }
