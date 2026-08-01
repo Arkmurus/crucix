@@ -83,13 +83,16 @@ check('leads.html fetches /api/leads via status-aware probe', /API\.probe\('\/ap
 check('distinguishes 403 (not admin) from a load failure',
   /res\.status === 403/.test(LEADS) && /admin-only/.test(LEADS));
 check('distinguishes a load failure from a real empty list',
-  /Couldn\\?'t load leads/.test(LEADS) && /No leads yet/.test(LEADS));
-check('renders evidence-led trust, triage, gaps and next action',
-  /Relationship Intelligence/.test(LEADS) &&
+  /Couldn\\?'t load leads/.test(LEADS) && /No access requests yet/.test(LEADS));
+check('states the operator job and renders contactability, gaps and next action',
+  /Access Requests/.test(LEADS) && /owned, auditable access decision/.test(LEADS) &&
   /trust_state/.test(LEADS) && /readiness/.test(LEADS) &&
   /a\.gaps/.test(LEADS) && /next_best_action/.test(LEADS));
-check('does not misrepresent triage as conversion probability',
-  /never a conversion score/i.test(LEADS) && !/\/100/.test(LEADS));
+check('offers a structured details action that can clear assessed gaps',
+  /data-action="update_details"/.test(LEADS) &&
+  /applyAction\(leadId, 'update_details', details\)/.test(LEADS));
+check('does not overstate mailbox confirmation as identity verification',
+  /mailbox confirmed/i.test(LEADS) && !/confirmed identity/i.test(LEADS) && !/\/100/.test(LEADS));
 check('erasure UI requires a verified erasure receipt',
   /API\.del\('\/api\/leads\/'/.test(LEADS) &&
   /erasure_complete !== true/.test(LEADS) &&

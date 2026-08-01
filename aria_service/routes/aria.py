@@ -21291,7 +21291,9 @@ async def leads_inbound_reverify_ep(lead_id: str):
     }
 
 
-_LEAD_OPERATOR_ACTIONS = {"assign_owner", "add_note", "set_stage", "mark_operator_verified"}
+_LEAD_OPERATOR_ACTIONS = {
+    "assign_owner", "add_note", "update_details", "set_stage", "mark_operator_verified",
+}
 
 
 @router.patch("/leads/inbound/{lead_id}")
@@ -21341,6 +21343,24 @@ async def leads_inbound_update_ep(lead_id: str, request: Request):
             return JSONResponse({"ok": False, "error": "A note cannot be empty."}, status_code=400)
         notes = ([*notes, {"at": now, "by": actor or "operator", "text": text}])[-50:]
         record["notes"] = notes
+    elif action == "update_details":
+        # Structured facts must update the fields the assessment reads. Notes
+        # are context only; treating a note as evidence left the gap unchanged.
+        limits = {"use_case": 120, "company": 200, "country": 100, "role": 160}
+        supplied = False
+        for field, limit in limits.items():
+            if field not in body:
+                continue
+            value = str(body.get(field) or "").strip()[:limit]
+            if value:
+                record[field] = value
+                supplied = True
+        if not supplied:
+            _ri.record_operator_action_rejected(action, "no_structured_details")
+            return JSONResponse(
+                {"ok": False, "error": "Supply at least one request detail to update."},
+                status_code=400,
+            )
     elif action == "set_stage":
         stage = str(body.get("stage") or "").strip().upper()
         if stage not in _ri.LIFECYCLE_STAGES:
@@ -21348,6 +21368,21 @@ async def leads_inbound_update_ep(lead_id: str, request: Request):
                 {"ok": False, "error": f"Unknown stage. Expected one of: {', '.join(_ri.LIFECYCLE_STAGES)}."},
                 status_code=400,
             )
+        if stage == "ACCEPTED":
+            current = _ri.assess_record(record, assessed_at=now)
+            blockers = []
+            if not current.get("trust_is_established"):
+                blockers.append("confirm the contact's mailbox or record an out-of-band check")
+            if current.get("gaps"):
+                blockers.append("complete the required request details")
+            if not str(record.get("owner") or "").strip():
+                blockers.append("assign an owner")
+            if blockers:
+                _ri.record_operator_action_rejected(action, "acceptance_prerequisites_missing")
+                return JSONResponse(
+                    {"ok": False, "error": "Cannot accept this request yet: " + "; ".join(blockers) + "."},
+                    status_code=409,
+                )
         record["lifecycle_stage"] = stage
     else:  # mark_operator_verified
         if not actor:

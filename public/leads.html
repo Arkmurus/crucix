@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Relationship Intelligence | ARIA</title>
+  <title>Access Requests | ARIA</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
   <link rel="stylesheet" href="css/aria.css?v=15">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
@@ -20,8 +20,8 @@
 <div id="header-placeholder"></div>
 <main id="app-main">
   <div class="sc-page-header">
-    <h1 class="sc-page-title"><i class="bi bi-person-check"></i> Relationship Intelligence</h1>
-    <p class="sc-page-sub">Evidence-led triage of access requests. Submitted details remain unverified until the contact confirms their address or an operator records an out-of-band check.</p>
+    <h1 class="sc-page-title"><i class="bi bi-inbox"></i> Access Requests</h1>
+    <p class="sc-page-sub">Turn each website request into an owned, auditable access decision. Mailbox confirmation proves control of the address only; organisation, role and use case remain contact-supplied until independently checked.</p>
   </div>
 
   <div id="leads-summary" style="margin-bottom:14px;color:var(--sc-muted);font-size:13px"></div>
@@ -30,7 +30,7 @@
     <div style="overflow-x:auto">
       <table class="sc-table">
         <thead>
-          <tr><th>Received</th><th>Contact</th><th>Use case</th><th>Trust</th><th>Triage</th><th>Evidence gaps</th><th>Next action</th><th>Workflow</th></tr>
+          <tr><th>Received</th><th>Requester</th><th>Request</th><th>Contactability</th><th>Review status</th><th>Missing details</th><th>Required next step</th><th>Decision workflow</th></tr>
         </thead>
         <tbody id="leads-tbody"></tbody>
       </table>
@@ -54,7 +54,7 @@ var ACTION_CONTROLS = {
   await_email_verification: 'informational: a live confirmation link is outstanding',
   resend_verification: 'button[data-action="resend_verification"]',
   mark_operator_verified: 'button[data-action="mark_operator_verified"]',
-  request_missing_evidence: 'button[data-action="add_note"] (records what the contact supplied)',
+  complete_request_details: 'button[data-action="update_details"]',
   assign_owner: 'button[data-action="assign_owner"]',
   review_and_decide: 'button[data-action="set_stage"]'
 };
@@ -77,7 +77,7 @@ function trustCell(lead, assessment) {
   var state = assessment.trust_state || 'submitted_unverified';
   var established = assessment.trust_is_established === true;
   var html = '<span class="lead-trust ' + (established ? 'lead-trust-verified' : 'lead-trust-unverified') + '">'
-    + esc(words(state)) + '</span>';
+    + esc(established ? 'mailbox confirmed' : 'mailbox unconfirmed') + '</span>';
   if (established && lead.verified_at) {
     html += '<br><span class="text-muted" style="font-size:11px">' + fmtDate(lead.verified_at)
       + (lead.verified_by ? ' · ' + esc(lead.verified_by) : '') + '</span>';
@@ -104,8 +104,9 @@ function workflowCell(lead) {
   }
   html += '<button type="button" class="sc-btn" data-action="assign_owner" data-lead-id="' + id + '">'
     + (owner ? 'Reassign' : 'Assign to me') + '</button>'
+    + '<button type="button" class="sc-btn" data-action="update_details" data-lead-id="' + id + '">Complete details</button>'
     + '<button type="button" class="sc-btn" data-action="add_note" data-lead-id="' + id + '">Add note</button>'
-    + '<button type="button" class="sc-btn" data-action="set_stage" data-lead-id="' + id + '">Stage</button>'
+    + '<button type="button" class="sc-btn" data-action="set_stage" data-lead-id="' + id + '">Record decision</button>'
     + '<button type="button" class="sc-btn sc-btn-danger" data-action="erase" data-lead-id="' + id + '">Erase</button>'
     + '</div>';
   var notes = Array.isArray(lead.notes) ? lead.notes.slice(-3) : [];
@@ -143,13 +144,13 @@ async function load() {
   var verified = leads.filter(function (l) { return l.assessment && l.assessment.trust_is_established; }).length;
   document.getElementById('leads-summary').textContent =
     leads.length + ' shown' + (data.total != null ? ' · ' + data.total + ' total' : '') +
-    ' · ' + verified + ' with confirmed identity' +
-    ' · Readiness is derived from supplied evidence, never a conversion score.';
+    ' · ' + verified + ' with confirmed mailbox' +
+    ' · ' + leads.filter(function (l) { return !l.owner; }).length + ' awaiting an owner';
   if (!leads.length) {
     stateEl.className = '';
     stateEl.style.display = '';
     contentEl.style.display = 'none';
-    stateEl.innerHTML = '<p class="text-muted">No leads yet. New sign-ups from the landing page appear here.</p>';
+    stateEl.innerHTML = '<p class="text-muted">No access requests yet. New website requests will appear here for verification, ownership and a recorded decision.</p>';
     return;
   }
   document.getElementById('leads-tbody').innerHTML = leads.map(function (l) {
@@ -165,7 +166,7 @@ async function load() {
         esc([l.role, l.country].filter(Boolean).join(' · ')) + '</span>' : '') + '</td>' +
       '<td>' + esc(l.use_case || '—') + '</td>' +
       '<td>' + trustCell(l, a) + '</td>' +
-      '<td><strong>' + esc(words(a.readiness || 'needs_verification')) + '</strong><br>' +
+      '<td><strong>' + esc(a.readiness === 'ready_for_review' ? 'ready for decision' : words(a.readiness || 'needs_verification')) + '</strong><br>' +
       '<span class="text-muted">' +
       esc(completeness.supplied == null ? '—' : completeness.supplied + '/' + completeness.required + ' facts') +
       '</span></td>' +
@@ -245,10 +246,26 @@ document.getElementById('leads-tbody').addEventListener('click', async function 
       if (!noted || !String(noted.note || '').trim()) return;
       if (!await applyAction(leadId, 'add_note', { note: noted.note })) return;
       Toast.show('Note saved.', 'success');
+    } else if (action === 'update_details') {
+      var details = await Modal.form({
+        title: 'Complete request details',
+        message: 'Record facts supplied by the requester. This clears the corresponding missing-detail flags; it does not independently verify the claims.',
+        okLabel: 'Save details',
+        fields: [
+          { name: 'use_case', label: 'Specific use case', type: 'text', maxlength: 120 },
+          { name: 'company', label: 'Organisation', type: 'text', maxlength: 200 },
+          { name: 'country', label: 'Primary jurisdiction', type: 'text', maxlength: 100 },
+          { name: 'role', label: 'Role or decision capacity', type: 'text', maxlength: 160 }
+        ]
+      });
+      if (!details) return;
+      if (!await applyAction(leadId, 'update_details', details)) return;
+      Toast.show('Request details updated and review status recalculated.', 'success');
     } else if (action === 'set_stage') {
       var staged = await Modal.form({
-        title: 'Set workflow stage',
-        okLabel: 'Set stage',
+        title: 'Record workflow decision',
+        message: 'Accepted requires a confirmed mailbox, complete request details and an assigned owner. Declined remains available at any point.',
+        okLabel: 'Save decision',
         fields: [{
           name: 'stage', label: 'Stage', type: 'select', required: true, autofocus: true,
           options: LIFECYCLE_STAGES.map(function (s) { return { value: s, label: s }; })

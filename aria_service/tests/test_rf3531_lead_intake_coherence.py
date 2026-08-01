@@ -375,6 +375,73 @@ def test_empty_note_is_refused_and_notes_are_bounded():
     assert notes[-1]["text"] == "note 54"
 
 
+def test_capability_structured_details_clear_real_gaps_but_notes_do_not():
+    """R-F3633: the operator's recommended action must advance the record.
+
+    The old page said to put missing facts in Add note, but the assessor reads
+    structured fields, so the visible gap could never clear through that path.
+    """
+    body, created = _create(
+        slug="complete-details", use_case="Other", company="", country="", role="",
+    )
+    lead_id = created["lead_id"]
+    _run(A.leads_inbound_verify_ep(_req({
+        "lead_id": lead_id, "token": created["verification"]["token"],
+    })))
+
+    noted = _body(_run(A.leads_inbound_update_ep(lead_id, _req({
+        "action": "add_note",
+        "note": "Needs sanctions monitoring for UK supplier onboarding; Acme; UK; Director",
+        "actor": "ops@imaria.io",
+    }))))
+    assert noted["lead"]["assessment"]["evidence_completeness"]["supplied"] == 0
+
+    updated = _body(_run(A.leads_inbound_update_ep(lead_id, _req({
+        "action": "update_details",
+        "use_case": "Sanctions monitoring for UK supplier onboarding",
+        "company": "Acme Ltd",
+        "country": "United Kingdom",
+        "role": "Procurement Director",
+        "actor": "ops@imaria.io",
+    }))))
+    lead = updated["lead"]
+    assert lead["assessment"]["gaps"] == []
+    assert lead["assessment"]["evidence_completeness"] == {
+        "supplied": 4, "required": 4, "is_complete": True,
+    }
+    assert lead["assessment"]["next_action_code"] == "assign_owner"
+
+
+def test_capability_access_cannot_be_accepted_before_review_prerequisites(monkeypatch):
+    """R-F3633: an ACCEPTED label must mean the workflow was completed."""
+    failures = []
+    monkeypatch.setattr(ri, "wire_failure", lambda **kw: failures.append(kw))
+    body, created = _create(
+        slug="accept-gate", use_case="Other", company="", country="", role="",
+    )
+    refused = _run(A.leads_inbound_update_ep(created["lead_id"], _req({
+        "action": "set_stage", "stage": "ACCEPTED", "actor": "ops@imaria.io",
+    })))
+    assert refused.status_code == 409
+    error = _body(refused)["error"]
+    assert "confirm the contact's mailbox" in error
+    assert "complete the required request details" in error
+    assert "assign an owner" in error
+    assert _fetch(created["lead_id"])["lifecycle_stage"] == "NEW"
+    assert any("acceptance_prerequisites_missing" in item["detail"] for item in failures)
+
+
+def test_access_request_surface_names_its_job_and_structured_control():
+    """The page should explain an operator job, not imply opaque intelligence."""
+    page = (_REPO / "public" / "leads.html").read_text(encoding="utf-8")
+    assert "Access Requests" in page
+    assert "owned, auditable access decision" in page
+    assert 'data-action="update_details"' in page
+    assert "confirmed mailbox" in page
+    assert "confirmed identity" not in page
+    assert "Relationship Intelligence" not in page
+
+
 # ── Re-submission must never lose ground ─────────────────────────────────────
 
 

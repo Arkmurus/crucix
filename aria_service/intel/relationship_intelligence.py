@@ -36,7 +36,7 @@ from typing import Any
 from .engine_wiring import wire_failure, wire_success
 
 
-ASSESSMENT_SCHEMA_VERSION = "1.2.0"
+ASSESSMENT_SCHEMA_VERSION = "1.3.0"
 
 #: Every field the intake pipeline must carry end to end (form → aria-web →
 #: brain → assessment).  A fact this module grades but the pipeline cannot
@@ -103,7 +103,7 @@ class OperatorAction(str, Enum):
     AWAIT_EMAIL_VERIFICATION = "await_email_verification"
     RESEND_VERIFICATION = "resend_verification"
     MARK_OPERATOR_VERIFIED = "mark_operator_verified"
-    REQUEST_MISSING_EVIDENCE = "request_missing_evidence"
+    COMPLETE_REQUEST_DETAILS = "complete_request_details"
     ASSIGN_OWNER = "assign_owner"
     REVIEW_AND_DECIDE = "review_and_decide"
 
@@ -112,12 +112,7 @@ _FREE_EMAIL_DOMAINS = frozenset({
     "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com",
     "yahoo.com", "icloud.com", "proton.me", "protonmail.com", "aol.com",
 })
-_SPECIFIC_USE_CASES = frozenset({
-    "defence brokerage",
-    "compliance advisory",
-    "financial advisory",
-    "government / institutional",
-})
+_NON_SPECIFIC_USE_CASES = frozenset({"", "other", "use case"})
 
 
 @dataclass(frozen=True)
@@ -228,12 +223,12 @@ def assess_access_request(
         ))
 
     normalized_use_case = str(use_case or "").strip().lower()
-    if normalized_use_case in _SPECIFIC_USE_CASES:
+    if normalized_use_case not in _NON_SPECIFIC_USE_CASES:
         factors.append(EvidenceFactor(
             code="SPECIFIC_USE_CASE",
             label="Specific supported use case",
             basis="submitted_assertion",
-            detail="The visitor selected a use case ARIA is designed to support; the assertion is not independently verified.",
+            detail="The requester supplied a concrete use case; the assertion is not independently verified.",
         ))
     else:
         gaps.append("specific_use_case")
@@ -292,22 +287,22 @@ def assess_access_request(
             )
     elif gaps:
         readiness = IntakeReadiness.INCOMPLETE
-        action = OperatorAction.REQUEST_MISSING_EVIDENCE
+        action = OperatorAction.COMPLETE_REQUEST_DETAILS
         next_action = (
-            "Identity is confirmed. Ask the contact for: "
+            "Mailbox ownership is confirmed. Collect and record: "
             + ", ".join(gap.replace("_", " ") for gap in gaps)
-            + ", then record it with “Add note”."
+            + ". Use “Complete details” so the request can advance."
         )
     elif not has_owner:
         readiness = IntakeReadiness.READY_FOR_REVIEW
         action = OperatorAction.ASSIGN_OWNER
-        next_action = "Evidence is complete and identity confirmed. Use “Assign to me” to take ownership."
+        next_action = "Minimum context is complete and the mailbox is confirmed. Use “Assign to me” to own the follow-up."
     else:
         readiness = IntakeReadiness.READY_FOR_REVIEW
         action = OperatorAction.REVIEW_AND_DECIDE
         next_action = (
-            "Owned and complete. Review the submitted facts and advance the stage "
-            "to Accepted or Declined."
+            "The request has an owner, confirmed mailbox and minimum context. "
+            "Record the access decision as Accepted or Declined."
         )
 
     return {
@@ -500,6 +495,16 @@ def record_operator_action(action: str, *, readiness: str = "") -> None:
         module="inbound_leads",
         summary=f"operator advanced access request; action={action}; readiness={readiness or 'unknown'}",
         source_id="relationship_intelligence:record_operator_action",
+    )
+
+
+def record_operator_action_rejected(action: str, reason: str) -> None:
+    """Wire a refused operator transition without emitting contact PII."""
+    wire_failure(
+        module="inbound_leads",
+        detail=f"operator action rejected; action={action}; reason={reason}",
+        gap_type="invalid_state_transition",
+        source="relationship_intelligence",
     )
 
 
