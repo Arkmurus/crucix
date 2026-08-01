@@ -56,7 +56,7 @@ not from the trailer. See [[two-agents-one-tree-hazard]] and
 | Date | Shipped (mine) | Operator hours | pace_ratio | Cumulative |
 |---|---|---|---|---|
 | 2026-07-30 | **33** | **12.0** (operator-supplied) | **2.75** | **2.75** (33 / 12.0) |
-| 2026-07-31 -> 08-01 | **35** | _operator-pending_ | _pending_ | _pending_ |
+| 2026-07-31 -> 08-01 | **36** | _operator-pending_ | _pending_ | _pending_ |
 
 Cumulative equals the row because this is the first recorded session — the file
 did not exist before today, and earlier sessions were deliberately not back-filled
@@ -142,9 +142,22 @@ Grouped by workstream, with the outcome rather than the diff:
 
 ### 2026-07-31 -> 08-01 - what the session actually produced
 
-**35 R-numbers shipped, all live-verified.** Hours are NOT recorded: the operator
+**36 R-numbers shipped, all live-verified.** Hours are NOT recorded: the operator
 supplies them, and inventing a number here would corrupt the one metric this file
 exists to hold. pace_ratio stays pending until they do.
+
+**R-F3627 (added later on 08-01, after the operator reported chat still down).**
+The WhatsApp page "BLOCKED: LLM chain - every provider failed" was recurring ~15
+min apart - which is the ALERT SUPPRESSION WINDOW, not the failure rate; chat was
+failing on every hard question. Root cause: on deepseek-v4-* `max_tokens` is a
+COMBINED reasoning+content budget, so R-F3606's 800 -> 4000 raise and R-F3607's
+2048 floor both moved the cliff instead of removing it, and the failure returned
+~6h later at the new number (13,527 chars of reasoning against a 4,000-token cap).
+The caller's budget is now RESERVED for the answer with reasoning headroom added
+on top, plus ONE bounded same-provider escalation - failing over could never work,
+because fallback.py hands the backup the identical budget.
+**Live-smoked on the operator's own question** (Bulgaria travel risk): a real
+answer, `degraded=None`.
 
 Ran alongside two peers (a second Claude and Codex) in one tree, so every commit
 was staged file-by-file rather than with `git add -A`.
