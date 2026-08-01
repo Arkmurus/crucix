@@ -18,8 +18,41 @@ sha 0c3e853d   tree b4dd74f5f106b0eb (identical before AND after)
 python -m pytest aria_service/tests/ -q --tb=line -p no:cacheprovider --timeout=600
 ```
 
-Measured by `scratchpad/measure.py`, which snapshots a SHA-256 over every tracked
-`aria_service/**/*.py` before and after the run and prints `VALID=YES|NO`.
+**⚠️ This figure is STALE as of 2026-08-01 and must be re-measured before it is quoted
+again.** Eight R-numbers landed after `0c3e853d` (R-F3605, R-F3609/3610/3611,
+R-F3617/3618/3619, R-F3620, R-F3621) and at least one previously-red test has turned
+green. The number above describes a tree that no longer exists. Re-measure on a QUIET
+tree — see below — and replace this block; do not add a fourth baseline file.
+
+**R-F3622 — how to measure it, and why the old instruction did not work.**
+This section used to read *"Measured by `scratchpad/measure.py`, which snapshots a
+SHA-256 over every tracked `aria_service/**/*.py` before and after the run and prints
+`VALID=YES|NO`."* **That file never existed in the repo.** It was written into a
+session scratchpad and went with the session, so the one number this repo treats as
+authoritative could not be reproduced by anyone — and the check that made it
+trustworthy was not part of the committed tool that records baselines.
+
+The validity check now lives in that tool, `scripts/admin/suite_baseline.py`:
+
+```
+python scripts/admin/suite_baseline.py            # run + diff the FAILURE SET, prints VALID=YES|NO
+python scripts/admin/suite_baseline.py --record   # re-record docs/suite_baseline.json
+```
+
+It hashes every tracked `aria_service/**/*.py` before and after the run, prints
+`VALID=YES|NO`, and **refuses to `--record` when the tree moved** — a baseline measured
+while the code under test changed is not a baseline. `VALID=NO` means DISCARD, not
+publish.
+
+Two limits, both load-bearing when you quote a number:
+
+- That script runs **foreground segments**, which cannot see order-dependent failures
+  (the repo's own record is 149 segmented vs 165 single-process). It measures a
+  **FLOOR**.
+- The `112` above came from a **single-process** run of the command shown, which is the
+  §16 figure. To reproduce THAT, run the command directly and bracket it with
+  `python -c "import sys; sys.path.insert(0,'scripts/admin'); ..."` — or simply record
+  the segmented floor and say so. Do not present a segmented count as the §16 number.
 
 ### Why the validity record exists — read this before quoting any number
 

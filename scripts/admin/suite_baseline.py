@@ -50,6 +50,7 @@ that caveat into the file it produces.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import re
@@ -59,6 +60,52 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TESTS = ROOT / "aria_service" / "tests"
 BASELINE = ROOT / "docs" / "suite_baseline.json"
+
+
+# ── R-F3622: the validity record, and why it lives HERE now ──────────────────
+#
+# docs/suite_baseline.md says its 2026-08-01 figure was "measured by
+# scratchpad/measure.py, which snapshots a SHA-256 over every tracked
+# aria_service/**/*.py before and after the run and prints VALID=YES|NO".
+#
+# That file does not exist. It was written into a session scratchpad and went
+# with the session — so the ONE number the repo treats as authoritative could not
+# be reproduced by anybody, and the check that made it trustworthy was not part
+# of the tool that records baselines. This script (R-F3373) is that tool, and it
+# had no validity check at all: it would happily `--record` a run corrupted by a
+# peer commit landing mid-flight.
+#
+# The corruption is real and documented (R-F3597): `inspect.getsource` slices the
+# file from disk using line numbers captured at IMPORT. On a tree two agents
+# share, a mid-run commit shifts those lines and it returns a DIFFERENT
+# function's body — silently, because the wrong slice is still valid Python. Two
+# attempts at the 2026-08-01 baseline were destroyed that way, reading 147 and
+# 110 for a suite whose real figure was ~110 throughout.
+#
+# So: hash the tree before and after, print VALID=YES|NO, and REFUSE to --record
+# when it is NO. A number nobody can reproduce is not a baseline, and a baseline
+# recorded from a corrupted run is worse than none.
+def tree_hash() -> str:
+    """SHA-256 over every tracked aria_service/**/*.py, path and content.
+
+    Tracked-only and content-addressed: an untracked scratch file or a peer's
+    unstaged edit elsewhere in the repo must not invalidate a run, but any change
+    to the code under test must.
+    """
+    listing = subprocess.run(
+        ["git", "ls-files", "aria_service/**/*.py"],
+        cwd=ROOT, capture_output=True, text=True,
+    ).stdout.split()
+    digest = hashlib.sha256()
+    for rel in sorted(listing):
+        digest.update(rel.encode("utf-8"))
+        try:
+            digest.update((ROOT / rel).read_bytes())
+        except OSError:
+            # A file that vanished mid-run is itself a change — record it as one
+            # rather than skipping it, or a deletion would read as a clean tree.
+            digest.update(b"<missing>")
+    return digest.hexdigest()[:16]
 
 _SUMMARY = re.compile(r"(?:(\d+) failed,? )?(?:\d+ )?(?:passed|error)")
 _COUNTS = re.compile(r"(\d+) (failed|passed)")
@@ -145,6 +192,10 @@ def main() -> int:
                     help="baseline file to compare against (tests point this at a fixture)")
     args = ap.parse_args()
 
+    # R-F3622 — snapshot BEFORE anything runs.
+    hash_before = tree_hash()
+    print(f"tree {hash_before} @ {subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], cwd=ROOT, capture_output=True, text=True).stdout.strip()}")
+
     files = sorted(args.tests_dir.glob("test_*.py"))
     segments = [files[i:i + args.segment_size] for i in range(0, len(files), args.segment_size)]
     if args.max_segments:
@@ -172,12 +223,32 @@ def main() -> int:
     if hung_segments:
         print(f"WEDGE: segments {hung_segments} produced no summary — a test is hanging the run.")
 
+    # R-F3622 — the validity record. Printed on EVERY run, not just --record, so
+    # a number can never be quoted out of an unvalidated run.
+    hash_after = tree_hash()
+    valid = hash_after == hash_before
+    print(f"\nVALID={'YES' if valid else 'NO'}  tree {hash_before} -> {hash_after}")
+    if not valid:
+        print("  The code under test CHANGED while the suite was running (a peer commit,"
+              " a checkout, a stash pop). DISCARD this result — do not publish it and do"
+              " not diff it. Re-run on a quiet tree. See R-F3597 for why a corrupted run"
+              " still produces a plausible-looking number.")
+
+    if args.record and not valid:
+        print("refusing --record: a baseline measured while the tree moved is not a baseline")
+        return 2
     if args.record and args.max_segments:
         print("refusing --record on a truncated run: it would erase every failure "
               "in the segments that never ran")
         return 2
     if args.record:
-        BASELINE.write_text(json.dumps({
+        # R-F3622 — write to args.baseline, not the module constant.
+        # `--baseline` was honoured when COMPARING and ignored when RECORDING, so a
+        # test that exercised the record path against a fixture would silently
+        # overwrite docs/suite_baseline.json — the real one. That made the recording
+        # half of this tool effectively untestable without collateral damage, which
+        # is why it shipped without the validity check above.
+        args.baseline.write_text(json.dumps({
             "recorded_at": subprocess.run(["git", "log", "-1", "--date=short", "--pretty=%ad"],
                                           cwd=ROOT, capture_output=True, text=True).stdout.strip(),
             "commit": subprocess.run(["git", "rev-parse", "--short", "HEAD"],
@@ -185,11 +256,19 @@ def main() -> int:
             "method": "foreground segments (background pytest is killed externally on this box)",
             "caveat": "segmented runs cannot see order-dependent failures; historical 149 "
                       "segmented vs 165 single-process. This is a FLOOR.",
+            # R-F3622 — the validity record travels WITH the number. A reader must
+            # not have to trust that whoever recorded it checked.
+            "valid": True,
+            "tree_hash": hash_before,
             "totals": {"failed": total_f, "passed": total_p,
                        "total": total_f + total_p, "files": len(files)},
             "failures": observed,
         }, indent=1) + "\n", encoding="utf-8", newline="\n")
-        print(f"recorded -> {BASELINE.relative_to(ROOT)}")
+        try:
+            _shown = args.baseline.resolve().relative_to(ROOT)
+        except ValueError:
+            _shown = args.baseline
+        print(f"recorded -> {_shown}")
         return 0
 
     if not args.baseline.exists():

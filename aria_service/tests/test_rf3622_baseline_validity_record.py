@@ -1,0 +1,177 @@
+"""R-F3622 — a suite baseline must carry a validity record, and a corrupted run
+must not be recordable.
+
+WHY THIS EXISTS
+---------------
+`docs/suite_baseline.md` states that its authoritative 2026-08-01 figure was
+"measured by `scratchpad/measure.py`, which snapshots a SHA-256 over every tracked
+aria_service/**/*.py before and after the run and prints VALID=YES|NO".
+
+That file does not exist. It was written into a session scratchpad and went with the
+session. So the one number the repo treats as authoritative could not be reproduced
+by anyone, and the check that made it trustworthy was not part of
+`scripts/admin/suite_baseline.py` — the committed tool that actually records
+baselines. That tool would happily `--record` a run corrupted mid-flight by a peer
+commit.
+
+The corruption is real (R-F3597): `inspect.getsource` slices the file from disk using
+line numbers captured at IMPORT, so a mid-run commit makes it return a DIFFERENT
+function's body — silently, because the wrong slice is still valid Python. Two
+attempts at the 2026-08-01 baseline were destroyed that way, reading 147 and 110 for
+a suite whose real figure was ~110 throughout.
+
+These tests pin the three properties that make the number trustworthy: the hash is
+content-addressed, VALID is reported on every run, and `--record` REFUSES when the
+tree moved.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import pathlib
+import subprocess
+import sys
+
+import pytest
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / "scripts" / "admin" / "suite_baseline.py"
+
+
+def _load():
+    spec = importlib.util.spec_from_file_location("_suite_baseline_rf3622", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_script_the_doc_points_at_actually_exists():
+    # The whole defect: docs/suite_baseline.md cited a tool that had been deleted
+    # with its session. Whatever the doc names must be a committed, runnable file.
+    assert SCRIPT.exists(), "the baseline recorder must be committed, not session-local"
+    doc = (ROOT / "docs" / "suite_baseline.md").read_text(encoding="utf-8", errors="replace")
+    assert "scripts/admin/suite_baseline.py" in doc, (
+        "docs/suite_baseline.md must point at the committed recorder, not a scratchpad path"
+    )
+
+
+def test_tree_hash_is_stable_and_content_addressed(tmp_path):
+    mod = _load()
+    first = mod.tree_hash()
+    assert first == mod.tree_hash(), "two reads of an unchanged tree must agree"
+    assert len(first) == 16 and all(c in "0123456789abcdef" for c in first)
+
+
+def test_tree_hash_changes_when_a_tracked_file_changes():
+    # The property that makes VALID meaningful. Mutate a tracked file, hash, restore.
+    mod = _load()
+    target = ROOT / "aria_service" / "intel" / "golden_intel_bridge.py"
+    original = target.read_bytes()
+    before = mod.tree_hash()
+    try:
+        target.write_bytes(original + b"\n# rf3622 transient probe\n")
+        assert mod.tree_hash() != before, (
+            "a mid-run edit to the code under test MUST invalidate the run — this is "
+            "exactly the R-F3597 corruption the check exists to catch"
+        )
+    finally:
+        target.write_bytes(original)
+    assert mod.tree_hash() == before, "the probe must leave no trace"
+
+
+def test_untracked_files_do_not_invalidate_a_run(tmp_path):
+    # A scratch file or a peer's untracked WIP elsewhere must not make every run
+    # read as corrupted — a check that always fires gets switched off.
+    mod = _load()
+    before = mod.tree_hash()
+    scratch = ROOT / "aria_service" / "intel" / "_rf3622_untracked_probe.py"
+    try:
+        scratch.write_text("# untracked\n", encoding="utf-8")
+        assert mod.tree_hash() == before
+    finally:
+        scratch.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize("flag", ["--record"])
+def test_record_refuses_when_the_tree_moved(tmp_path, flag):
+    """`--record` on a moved tree must exit 2 and write nothing.
+
+    Driven as a subprocess against a FIXTURE tests dir (the script supports
+    --tests-dir/--baseline for exactly this), so the gate is exercised without
+    running the real suite. The tree is moved by touching a tracked file while the
+    fixture segment runs.
+    """
+    tests_dir = tmp_path / "t"
+    tests_dir.mkdir()
+    target = ROOT / "aria_service" / "intel" / "golden_intel_bridge.py"
+    original = target.read_bytes()
+    # A fixture test whose act of running mutates a TRACKED file — i.e. the tree
+    # moves between the before- and after-snapshot, exactly as a peer commit does.
+    (tests_dir / "test_moves_the_tree.py").write_text(
+        "import pathlib\n"
+        f"TARGET = pathlib.Path(r'{target}')\n"
+        "def test_touch():\n"
+        "    TARGET.write_bytes(TARGET.read_bytes() + b'\\n# rf3622 mid-run\\n')\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    baseline = tmp_path / "baseline.json"
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), flag, "--tests-dir", str(tests_dir),
+             "--baseline", str(baseline), "--segment-size", "5", "--timeout", "30"],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+    finally:
+        target.write_bytes(original)
+
+    out = proc.stdout + proc.stderr
+    assert "VALID=NO" in out, out[-1500:]
+    assert proc.returncode == 2, f"expected refusal exit 2, got {proc.returncode}\n{out[-1500:]}"
+    assert not baseline.exists(), "a baseline must NOT be written from a corrupted run"
+
+
+def test_valid_is_reported_on_a_clean_run(tmp_path):
+    """A quiet tree reports VALID=YES, and --record stamps it into the file.
+
+    Without this the refusal above could pass vacuously by always reporting NO.
+    """
+    tests_dir = tmp_path / "t"
+    tests_dir.mkdir()
+    (tests_dir / "test_quiet.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    baseline = tmp_path / "baseline.json"
+
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--record", "--tests-dir", str(tests_dir),
+         "--baseline", str(baseline), "--segment-size", "5", "--timeout", "30"],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    out = proc.stdout + proc.stderr
+    assert "VALID=YES" in out, out[-1500:]
+    assert proc.returncode == 0, out[-1500:]
+
+    # R-F3622 — --record must write to --baseline. It used to write the module
+    # constant regardless, so exercising the record path against a fixture would
+    # overwrite docs/suite_baseline.json. Assert the fixture got it and the real
+    # baseline was left alone.
+    assert baseline.exists(), "--record must honour --baseline"
+    recorded = json.loads(baseline.read_text(encoding="utf-8"))
+    assert recorded.get("valid") is True, "the validity record must travel with the number"
+    assert recorded.get("tree_hash"), "the tree hash must be recorded so it can be re-checked"
+
+
+def test_record_does_not_clobber_the_real_baseline(tmp_path):
+    real = ROOT / "docs" / "suite_baseline.json"
+    before = real.read_bytes() if real.exists() else None
+    tests_dir = tmp_path / "t"
+    tests_dir.mkdir()
+    (tests_dir / "test_quiet.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    subprocess.run(
+        [sys.executable, str(SCRIPT), "--record", "--tests-dir", str(tests_dir),
+         "--baseline", str(tmp_path / "fixture.json"), "--segment-size", "5", "--timeout", "30"],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    after = real.read_bytes() if real.exists() else None
+    assert after == before, "recording against a fixture must not touch the real baseline"
