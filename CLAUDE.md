@@ -101,10 +101,32 @@ Unpushed commits aren't deployed. After commit, YOU deploy directly to fly.io:
 **Linux/macOS (bash):**
   `./scripts/deploy.sh --all`   (batches all pending R-numbers, avoids cold-boot storms)
 
-**Fallback (any platform, when the script is broken):**
-  1. Add `[deploy]` to the commit message so CI auto-deploys on push
-  2. Then push: `git push origin main`
-  3. Verify live: `curl https://aria-intel.fly.dev/health/live` — confirm `build_rev` matches your commit SHA
+**Fallback (any platform, when the script is broken, or when a PEER has uncommitted work):**
+
+⚠️ **A `[deploy]` COMMIT MESSAGE DOES NOTHING.** This section told you to add `[deploy]`
+and push. It is FALSE and cost a live deploy on 2026-08-01: R-F3634 was pushed with the
+tag, no workflow ran, and the fix sat un-deployed while the operator was told it was in
+flight. `.github/workflows/deploy-fly.yml` has **no `push:` trigger** — only
+`workflow_dispatch`. The `if:` guard checking for `[deploy]` in the commit message is
+real code and is **unreachable by construction**; R-F3238 found this and recorded it in
+a workflow comment, but nobody corrected THIS file, which is the one every session reads.
+
+  1. Dispatch the workflow — it builds from the **pushed SHA** and never touches the
+     working tree, so a peer's uncommitted work cannot be stashed, shipped or lost:
+     ```
+     git push origin main
+     gh workflow run deploy-fly.yml --ref main -f reason="<auditable justification>"
+     gh run list --workflow=deploy-fly.yml --limit 1     # confirm it STARTED
+     ```
+     `reason` is required and audited. Confirm the run's `headSha` is YOUR commit.
+  2. Verify live: `curl https://aria-intel.fly.dev/health/live` — confirm `build_rev`
+     matches your commit SHA. **A dispatched run is not a deploy until this passes.**
+
+**When to prefer dispatch over `deploy.ps1`:** `deploy.ps1` builds from the WORKING TREE.
+With a peer agent active and files dirty, it would ship their untested WIP to production;
+`-CleanHead` stashes their work and has been observed DESTROYING it while reporting
+success (see `two-agents-one-tree-hazard`). Dispatch is the correct route whenever
+`git status --porcelain -- aria_service` is non-empty and the changes are not yours.
 
 **NEVER use raw `flyctl deploy`** — it bypasses the push guard, build_rev verification, and batching. The only exception is an emergency hotfix where BOTH deploy scripts are broken.
 
