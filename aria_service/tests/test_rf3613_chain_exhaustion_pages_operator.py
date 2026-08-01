@@ -171,15 +171,20 @@ def test_the_page_is_rate_limited(monkeypatch):
         fb, "_CHAIN_ALERT_COOLDOWN_S", 900.0, raising=False,
     )
     import aria_service.intel.engine_wiring as ew
-    # NB: _dispatch_fire_and_forget is SHARED — wire_failure uses it for BOTH
-    # its sinks, so counting every dispatch counts the wiring too (that read 59
-    # for 25 calls and was a broken instrument, not a broken cooldown). The
-    # alert dispatches a named `_send` closure; the wiring dispatches lambdas.
-    def _count(factory):
-        if getattr(factory, "__name__", "") == "_send":
-            dispatched.append("sent")
-
-    monkeypatch.setattr(ew, "_dispatch_fire_and_forget", _count, raising=True)
+    # Count only the OUTAGE page. Two reasons this is not simply
+    # "count every dispatch":
+    #   - _dispatch_fire_and_forget is SHARED (wire_failure uses it for BOTH its
+    #     sinks), which once read 59 for 25 calls — a broken instrument, not a
+    #     broken cooldown;
+    #   - R-F3616's pre-outage redundancy page also dispatches, legitimately,
+    #     on its own separate window.
+    monkeypatch.setattr(
+        fb.FallbackProvider, "_dispatch_operator_page",
+        lambda self, text, *, source: (
+            dispatched.append("sent") if source == "llm_chain_exhausted" else None
+        ),
+        raising=True,
+    )
 
     chain = _chain()
     for _ in range(25):
@@ -196,15 +201,20 @@ def test_the_cooldown_reopens_after_the_window(monkeypatch):
     dispatched: list[str] = []
     monkeypatch.setattr(fb, "_CHAIN_ALERT_COOLDOWN_S", 900.0, raising=False)
     import aria_service.intel.engine_wiring as ew
-    # NB: _dispatch_fire_and_forget is SHARED — wire_failure uses it for BOTH
-    # its sinks, so counting every dispatch counts the wiring too (that read 59
-    # for 25 calls and was a broken instrument, not a broken cooldown). The
-    # alert dispatches a named `_send` closure; the wiring dispatches lambdas.
-    def _count(factory):
-        if getattr(factory, "__name__", "") == "_send":
-            dispatched.append("sent")
-
-    monkeypatch.setattr(ew, "_dispatch_fire_and_forget", _count, raising=True)
+    # Count only the OUTAGE page. Two reasons this is not simply
+    # "count every dispatch":
+    #   - _dispatch_fire_and_forget is SHARED (wire_failure uses it for BOTH its
+    #     sinks), which once read 59 for 25 calls — a broken instrument, not a
+    #     broken cooldown;
+    #   - R-F3616's pre-outage redundancy page also dispatches, legitimately,
+    #     on its own separate window.
+    monkeypatch.setattr(
+        fb.FallbackProvider, "_dispatch_operator_page",
+        lambda self, text, *, source: (
+            dispatched.append("sent") if source == "llm_chain_exhausted" else None
+        ),
+        raising=True,
+    )
 
     chain = _chain()
     with pytest.raises(ProviderError):
@@ -226,7 +236,9 @@ def test_the_alert_never_uses_the_llm():
     """Paging through the LLM during an LLM outage would be circular. Pin it:
     the alert path must reach the WA notifier and nothing model-shaped."""
     import inspect
-    src = inspect.getsource(fb.FallbackProvider._alert_operator_chain_down)
+    # R-F3616 moved the send into the SHARED sender so the outage page and the
+    # pre-outage page cannot drift. Assert the property at its real home.
+    src = inspect.getsource(fb.FallbackProvider._dispatch_operator_page)
     assert "wa_notifier" in src
     for forbidden in ("self.complete", "self.stream", "llm.complete"):
         assert forbidden not in src, f"the alert must not call {forbidden}"
@@ -237,7 +249,7 @@ def test_an_unconfigured_alert_channel_is_reported_not_silent():
     unconfigured alerter is a dark path that only reveals itself in the outage
     it was built for."""
     import inspect
-    src = inspect.getsource(fb.FallbackProvider._alert_operator_chain_down)
+    src = inspect.getsource(fb.FallbackProvider._dispatch_operator_page)
     assert "is_configured" in src
     assert "nobody was paged" in src
     assert "wire_failure" in src or "_wf" in src

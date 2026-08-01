@@ -650,6 +650,28 @@ async def absorb(
     #       refuse to cache an external-search answer about our own
     #       infrastructure (the operator's own diagnostic tooling is the
     #       authoritative source, not a Brave summary)
+    # ── R-F3615 — (c) DELIBERATION IS NOT A FACT ────────────────────────
+    # Same memory-poisoning vector as (a), different payload. R-F3033
+    # (2026-07-25..07-31) served a reasoning model's `reasoning_content` as the
+    # answer, so for six days any module absorbing its own LLM output could
+    # store raw chain of thought. Live proof, from the operator's 2026-08-01
+    # transcript, served back as a "verified fact":
+    #   contract_intelligence:detail: "── Self-review window 1/1 ── We need
+    #   answer audit. Need follow instructions. Need inspect window text..."
+    # R-F3608 closed the aria_chat path by name; this closes the CLASS at the
+    # one chokepoint every module shares.
+    try:
+        from .deliberation_guard import looks_like_deliberation as _r3615
+        if _r3615(detail or "") or _r3615(summary or ""):
+            logger.warning(
+                "[R-F3615] brain_hook.absorb REFUSED — content is model "
+                "deliberation, not a finding (module=%s, %d chars)",
+                module, len(detail or summary or ""),
+            )
+            return {"skipped": True, "reason": "deliberation_not_a_fact"}
+    except Exception:
+        logger.debug("[R-F3615] deliberation guard failed (non-fatal)", exc_info=True)
+
     try:
         from . import self_infra_detector as _sid
         gate_text = " ".join(filter(None, [summary or "", detail or "", entity_name or ""]))

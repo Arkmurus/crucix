@@ -46,6 +46,11 @@ _CHAIN_EXHAUSTION_TTL_S = float(os.getenv("ARIA_LLM_EXHAUSTION_TTL_S", "120"))
 _CHAIN_ALERT_COOLDOWN_S = float(os.getenv("ARIA_LLM_CHAIN_ALERT_COOLDOWN_S", "900"))
 _last_chain_alert_at: float = 0.0
 
+# R-F3616 — the PRE-outage page (redundancy lost) has its OWN window, so a
+# "no fallback left" warning can never suppress the "everything is down" page
+# that may follow it minutes later. Two different claims, two different clocks.
+_last_redundancy_alert_at: float = 0.0
+
 
 # ── R-F2917: context-scoped provider preference ──────────────────────────────
 # Operator directive 2026-07-23: DD runs on Claude, EVERYTHING else on DeepSeek.
@@ -381,6 +386,12 @@ class FallbackProvider(LLMProvider):
             )
         except Exception:
             pass
+
+        # R-F3616 — the PRE-OUTAGE signal (see _check_redundancy_lost).
+        try:
+            self._check_redundancy_lost()
+        except Exception:
+            logger.debug("[R-F3616] redundancy check failed", exc_info=True)
 
     # ── F68: Redis cooldown mirror (HARD cooldowns only) ────────────────
 
@@ -868,6 +879,58 @@ class FallbackProvider(LLMProvider):
         except Exception:
             logger.debug("[R-F3613] operator alert dispatch failed", exc_info=True)
 
+    def _check_redundancy_lost(self) -> None:
+        """R-F3616 (2026-08-01) — page BEFORE the outage, not only during it.
+
+        R-F3613 pages when EVERY provider has failed. By then the user has
+        already had a degraded reply — which is precisely how 2026-08-01 was
+        discovered. The state worth catching is the one just before: the chain
+        has been configured with a fallback, and that fallback is gone, so a
+        single further failure is a total outage.
+
+        WHY THIS TRIGGER AND NOT A FAILURE RATE. §14 is explicit that a cooling
+        provider served by a fallback is "operational, never degraded", and a
+        raw failure-rate alarm would contradict it — paging every time the chain
+        did exactly what it was built to do. Losing REDUNDANCY is a different
+        claim, and an honest one: the chain is still serving, and it now has no
+        second chance. The message says exactly that, so it can never be read as
+        "ARIA is down" when she is not.
+
+        Silent by construction on a single-provider chain: with nothing to lose,
+        there is no redundancy to report losing. That is a real limitation, not
+        an oversight — a one-provider chain is a standing single point of
+        failure and belongs in configuration review, not in a per-call alert.
+        """
+        global _last_redundancy_alert_at
+        if len(self.providers) < 2:
+            return  # no redundancy existed — nothing to lose (see docstring)
+
+        now = time.time()
+        active = [p.name for p in self.providers
+                  if not self._should_skip(self._stats.get(p.name, {}))]
+        if len(active) != 1:
+            return  # 0 -> that is the R-F3613 outage path; 2+ -> still redundant
+
+        if now - _last_redundancy_alert_at < _CHAIN_ALERT_COOLDOWN_S:
+            return
+        _last_redundancy_alert_at = now
+
+        cooling = [p.name for p in self.providers if p.name not in active]
+        logger.warning(
+            "[R-F3616] LLM chain redundancy LOST — only %s remains; cooling: %s",
+            active[0], ", ".join(cooling) or "<none>",
+        )
+        text = (
+            "⚠️ STALLED: LLM chain has no fallback left.\n\n"
+            f"STILL SERVING: {active[0]} (answers are NOT degraded right now)\n"
+            f"UNAVAILABLE: {', '.join(cooling) or '<none>'}\n\n"
+            "WHY THIS MATTERS: one more provider failure is a total outage.\n"
+            "ACTION: check credit/cooldown on the unavailable provider(s) — "
+            "POST /api/aria/admin/llm/cooldown/clear (operator token) after a "
+            "top-up; GET /api/aria/health/perf shows the live chain."
+        )
+        self._dispatch_operator_page(text, source="llm_chain_redundancy_lost")
+
     def _alert_operator_chain_down(
         self, tried: str, attempted: int,
         last_error: Exception | None, path: str,
@@ -902,6 +965,19 @@ class FallbackProvider(LLMProvider):
             f"(further alerts suppressed for {int(_CHAIN_ALERT_COOLDOWN_S)}s)"
         )
 
+        self._dispatch_operator_page(text, source="llm_chain_exhausted")
+
+    def _dispatch_operator_page(self, text: str, *, source: str) -> None:
+        """R-F3613/R-F3616 — THE one operator-paging send.
+
+        Both pages (total outage, and redundancy lost) go through here so the
+        delivery semantics, the §21a wiring and the unconfigured-channel
+        handling cannot drift apart — the drift that produced this session's
+        other defects.
+
+        Never uses the LLM: on the outage path it is the thing that is down.
+        Never raises: the caller is on a failure path already.
+        """
         def _send():
             async def _run():
                 try:
@@ -914,10 +990,10 @@ class FallbackProvider(LLMProvider):
                         from ..intel.engine_wiring import wire_failure as _wf
                         _wf(
                             module="llm_chain_alert",
-                            detail=("LLM chain exhausted but the operator alert "
-                                    "channel is NOT configured (need "
-                                    "ARIA_WA_INTERNAL_URL + ARIA_INTERNAL_TOKEN "
-                                    "+ ARIA_CODER_WA_GROUP_ID) — nobody was paged"),
+                            detail=(f"{source}: operator alert channel is NOT "
+                                    "configured (need ARIA_WA_INTERNAL_URL + "
+                                    "ARIA_INTERNAL_TOKEN + ARIA_CODER_WA_GROUP_ID)"
+                                    " — nobody was paged"),
                             gap_type="llm_provider_failure",
                             source="llm_chain_alert:unconfigured",
                         )
@@ -926,11 +1002,11 @@ class FallbackProvider(LLMProvider):
                     from ..intel.engine_wiring import wire_success as _ws, wire_failure as _wf
                     if str(outcome).startswith("ok"):
                         _ws(module="llm_chain_alert",
-                            summary="operator paged: LLM chain exhausted",
+                            summary=f"operator paged: {source}",
                             source_id="llm_chain_alert:sent")
                     else:
                         _wf(module="llm_chain_alert",
-                            detail=f"operator page NOT delivered: {outcome}",
+                            detail=f"operator page NOT delivered ({source}): {outcome}",
                             gap_type="llm_provider_failure",
                             source="llm_chain_alert:send_failed")
                 except Exception as exc:  # pragma: no cover — never propagate

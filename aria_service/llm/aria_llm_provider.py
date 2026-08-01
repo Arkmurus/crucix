@@ -51,6 +51,38 @@ except ImportError:
 _DEFAULT_TIMEOUT = 120.0   # vLLM 70B can take 5-15s for a long completion
 
 
+def _effective_timeout(timeout: float | None) -> float:
+    """R-F3614 (2026-08-01) — honour the caller's per-call budget.
+
+    THE DEFECT. `complete()` and `stream()` ended in `**_kw`, with no `timeout`
+    parameter. model_router._sovereign_complete has always passed
+    `timeout=_sovereign_timeout(timeout)` — and it landed in `_kw` and was
+    DISCARDED, so every sovereign call ran on the 120s client default.
+
+    R-F1365's stated purpose was "cap the per-provider budget at
+    ARIA_LLM_TIMEOUT (default 40s) so a slow/stuck 14B fails over to the funded
+    DeepSeek fallback fast instead of burning 120s". It never did that. Worse,
+    because the cap was applied at the CALLER (aria_engine) instead, the only
+    provider it ever actually bound was DeepSeek — the opposite of the intent
+    (R-F3606 removed that half).
+
+    So a stuck sovereign burned the full 120s before failover, silently, for as
+    long as the two-track router has existed. This closes the loop: the value
+    the router already computes is now the value the socket uses.
+
+    Guards a nonsense timeout rather than trusting the caller: <=0 or a
+    non-number falls back to the default instead of creating a client that
+    times out instantly (or never).
+    """
+    if timeout is None:
+        return _DEFAULT_TIMEOUT
+    try:
+        t = float(timeout)
+    except (TypeError, ValueError):
+        return _DEFAULT_TIMEOUT
+    return t if t > 0 else _DEFAULT_TIMEOUT
+
+
 @fail_wire(module="aria_llm_provider", gap_type="engine_failure")
 def is_configured() -> bool:
     return bool((os.getenv("ARIA_LLM_URL") or "").strip())
@@ -141,6 +173,7 @@ async def complete(
     system: str = "",
     max_tokens: int = 2048,
     temperature: float = 0.3,
+    timeout: float | None = None,   # R-F3614 — was swallowed by **_kw
     **_kw: Any,
 ) -> dict[str, Any]:
     """Single completion against the ARIA-LLM vLLM endpoint."""
@@ -206,7 +239,7 @@ async def complete(
 
     t_start = time.time()
     try:
-        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_effective_timeout(timeout)) as client:
             resp = await client.post(
                 _aria_llm_url.chat_completions_url(base), headers=headers, json=body,
             )
@@ -289,6 +322,7 @@ async def stream(
     system: str = "",
     max_tokens: int = 2048,
     temperature: float = 0.3,
+    timeout: float | None = None,   # R-F3614 — was swallowed by **_kw
     **_kw: Any,
 ) -> AsyncIterator[str]:
     """Streaming generator. Used for /chat/stream end-to-end."""
@@ -323,7 +357,7 @@ async def stream(
     t_start = time.time()
     tokens_out = 0
     try:
-        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_effective_timeout(timeout)) as client:
             async with client.stream(
                 "POST", _aria_llm_url.chat_completions_url(base),
                 headers=headers, json=body,

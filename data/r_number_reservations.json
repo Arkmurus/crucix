@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3614,
+  "next_available": 3618,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30175,6 +30175,43 @@
       "r_number": "R-F3613",
       "title": "total LLM chain exhaustion must PAGE the operator, not just be recorded",
       "claimed_at": "2026-08-01T07:05:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d1b158c8",
+      "notes": null,
+      "shipped_at": "2026-08-01T07:19:41Z"
+    },
+    {
+      "r_number": "R-F3614",
+      "title": "sovereign timeout is swallowed by kw so R-F1365 fast-failover never bound the sovereign",
+      "claimed_at": "2026-08-01T07:19:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3615",
+      "title": "quarantine R-F3033-era chain-of-thought absorbed as facts, never delete per section 7",
+      "claimed_at": "2026-08-01T07:19:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3616",
+      "title": "sustained provider failure rate must page, not only total exhaustion",
+      "claimed_at": "2026-08-01T07:19:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3617",
+      "title": "Telegram webhook transport bypasses the public-keyword dispatch that polling uses",
+      "claimed_at": "2026-08-01T07:22:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

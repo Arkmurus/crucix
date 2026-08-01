@@ -1822,7 +1822,37 @@ def _rank_knowledge_facts(query: str, limit: int) -> list[dict]:
             scored.append((score, f))
 
     scored.sort(key=lambda x: x[0], reverse=True)
-    return [fact for _, fact in scored[: max(1, min(limit, 200))]]
+    ranked = [fact for _, fact in scored[: max(1, min(limit, 200))]]
+
+    # ── R-F3615 — QUARANTINE, NOT DELETION ──────────────────────────────────
+    # The R-F3033 window (2026-07-25..07-31) let modules absorb a reasoning
+    # model's chain of thought as knowledge. R-F3615's write-side guard in
+    # brain_hook.absorb stops NEW rows; these are the ones already stored, and
+    # they surfaced live on 2026-08-01 rendered as "verified facts".
+    #
+    # They are FILTERED FROM RECALL, never removed. §7 is binding — ARIA has
+    # infinite memory: no TTL, no prune, no eviction. The rows stay on disk and
+    # stay auditable; they simply stop being served as established fact. That is
+    # reversible, which deleting them would not be.
+    #
+    # Filtered HERE rather than in search_knowledge() because both the rendered
+    # block and the programmatic consumer (search_fact_records) rank through
+    # this function — fixing only the renderer would leave the other serving
+    # deliberation, which is the producer/consumer split that caused several of
+    # this session's other defects.
+    try:
+        from .deliberation_guard import looks_like_deliberation as _r3615
+        kept = [f for f in ranked if not _r3615(f.get("content") or "")]
+        if len(kept) != len(ranked):
+            logger.warning(
+                "[R-F3615] quarantined %d deliberation row(s) from recall "
+                "(retained on disk per §7, not served as fact)",
+                len(ranked) - len(kept),
+            )
+        return kept
+    except Exception:
+        logger.debug("[R-F3615] recall quarantine failed (non-fatal)", exc_info=True)
+        return ranked
 
 
 @fail_wire(module="knowledge", gap_type="engine_failure")
