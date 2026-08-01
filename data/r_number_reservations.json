@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3635,
+  "next_available": 3636,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30388,6 +30388,16 @@
       "commit_sha": "b8c19516",
       "notes": null,
       "shipped_at": "2026-08-01T18:12:57Z"
+    },
+    {
+      "r_number": "R-F3635",
+      "title": "CLAUDE.md 11 claimed [deploy] auto-deploys; the workflow has no push trigger - guard the disagreement",
+      "claimed_at": "2026-08-01T18:27:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a4bcdb05",
+      "notes": null,
+      "shipped_at": "2026-08-01T18:28:31Z"
     }
   ]
 }
