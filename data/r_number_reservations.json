@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3622,
+  "next_available": 3624,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30254,6 +30254,15 @@
       "r_number": "R-F3621",
       "title": "TED award notices are labelled active_tender, so R-F3536 banned the awards it meant to keep",
       "claimed_at": "2026-08-01T07:43:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3623",
+      "title": "developer software architecture reference",
+      "claimed_at": "2026-08-01T08:09:54Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
