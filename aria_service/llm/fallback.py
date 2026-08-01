@@ -1097,9 +1097,25 @@ class FallbackProvider(LLMProvider):
         is available to serve the next request.
         """
         now = time.time()
+        # R-F3634 — report the order DISPATCH WILL ACTUALLY WALK.
+        #
+        # complete() and stream() both build their order as
+        #     [p for p in self.providers if p.name.lower() not in preference_only_providers()]
+        # (R-F3034: Anthropic is reserved for DD, so a general chat call must never
+        # fall onto it and burn Claude spend). This health summary did NOT apply that
+        # filter, so it advertised a chain the request could not use.
+        #
+        # Live 2026-08-01 that cost real diagnostic time: five operator pages said
+        # "every provider failed ... attempts=2, CALLED: deepseek, deepseek_backup"
+        # while /health reported chain_order [deepseek, anthropic, deepseek_backup],
+        # all three active, none cooling. Anthropic looked silently broken. It was not
+        # — it is deliberately unreachable on that path. The dispatcher was right and
+        # the surface describing it was wrong, which is the worst way round.
+        _pref_only = preference_only_providers()
+        _general = [p for p in self.providers if (p.name or "").lower() not in _pref_only]
         active: list[str] = []
         cooling: list[dict] = []
-        for p in self.providers:
+        for p in _general:
             s = self._stats.get(p.name, {})
             cd = s.get("cooldown_until", 0)
             if cd > now:
@@ -1110,7 +1126,7 @@ class FallbackProvider(LLMProvider):
                 })
             else:
                 active.append(p.name)
-        chain_order = [p.name for p in self.providers]
+        chain_order = [p.name for p in _general]
         # R-F3477 — `resilient` must follow OUTCOMES, not chain membership.
         # It used to be `len(active) > 0`, where "active" only means a provider's
         # cooldown timestamp has passed. Live 2026-07-30 that reported
@@ -1128,6 +1144,21 @@ class FallbackProvider(LLMProvider):
             "primary_active": bool(active and chain_order and active[0] == chain_order[0]),
             "serving_provider": active[0] if active else None,
             "chain_order": chain_order,
+            # Surfaced SEPARATELY, not hidden: these exist and are reachable, but
+            # only when a caller names them (DD asks for anthropic by preference).
+            # Folding them into chain_order overstates general-path redundancy;
+            # omitting them entirely would hide a configured provider.
+            "preference_only_providers": sorted(
+                p.name for p in self.providers
+                if (p.name or "").lower() in _pref_only
+            ),
+            # R-F3634 — DISTINCT VENDORS on the general path. `deepseek` and
+            # `deepseek_backup` are two entries and ONE vendor: a vendor-side
+            # timeout takes both, so failing over between them cannot help. Two
+            # entries read as redundancy; this says how much there really is.
+            "general_vendor_depth": len({
+                (p.name or "").lower().split("_")[0] for p in _general
+            }),
         }
 
 

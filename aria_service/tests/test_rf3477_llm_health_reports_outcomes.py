@@ -95,12 +95,55 @@ class TestResilientFollowsOutcomes:
         assert chain.get_health()["resilient"] is True
 
     def test_cooling_alone_still_means_resilient(self, monkeypatch):
-        """§14 unchanged: a cooling provider is the fallback chain WORKING."""
-        chain = _chain(monkeypatch)
+        """§14 unchanged: a cooling provider is the fallback chain WORKING.
+
+        R-F3634 — the chain here is deepseek + deepseek_backup, i.e. two providers on
+        the GENERAL path. It used to be deepseek + anthropic, which passed only because
+        get_health() counted Anthropic toward general resilience. It must not: R-F3034
+        reserves Anthropic for DD, and complete()/stream() exclude it from the order
+        they walk, so a cooling deepseek with only Anthropic behind it leaves the
+        general path with NOTHING to serve. Reporting resilient=True there is the exact
+        false clean this file exists to prevent — R-F3477's own case, one layer out.
+        """
+        chain = _chain(monkeypatch, names=("deepseek", "deepseek_backup"))
         chain._stats["deepseek"]["cooldown_until"] = time.time() + 3600
         health = chain.get_health()
         assert health["resilient"] is True
         assert health["cooling_providers"][0]["name"] == "deepseek"
+
+    def test_a_dd_only_provider_does_not_count_as_general_resilience(self, monkeypatch):
+        """R-F3634 — the defect the case above was hiding.
+
+        Five operator pages on 2026-08-01 said "every provider failed ... attempts=2,
+        CALLED: deepseek, deepseek_backup" while /health advertised a three-deep chain
+        including anthropic, all active, none cooling. Anthropic read as silently
+        broken; it is deliberately unreachable on that path. The dispatcher was right
+        and the surface describing it was wrong.
+        """
+        chain = _chain(monkeypatch, names=("deepseek", "anthropic"))
+        health = chain.get_health()
+        assert "anthropic" not in health["chain_order"], (
+            "chain_order must be the order dispatch WALKS, not every configured provider"
+        )
+        assert "anthropic" not in health["active_providers"]
+        assert health["preference_only_providers"] == ["anthropic"], (
+            "surfaced separately — it exists and DD reaches it by name; hiding it "
+            "entirely would be the opposite error"
+        )
+        chain._stats["deepseek"]["cooldown_until"] = time.time() + 3600
+        assert chain.get_health()["resilient"] is False, (
+            "with the only general provider cooling, a DD-only provider must not make "
+            "the general path look servable"
+        )
+
+    def test_two_entries_from_one_vendor_are_depth_one(self, monkeypatch):
+        """`deepseek` + `deepseek_backup` look like redundancy and are not: a
+        vendor-side timeout takes both, so failing over between them cannot help.
+        That is what produced five 'every provider failed' pages in five hours."""
+        chain = _chain(monkeypatch, names=("deepseek", "deepseek_backup"))
+        assert chain.get_health()["general_vendor_depth"] == 1
+        chain2 = _chain(monkeypatch, names=("deepseek", "openai"))
+        assert chain2.get_health()["general_vendor_depth"] == 2
 
 
 # ── the cache miss counter must count cache events ──────────────────────────
