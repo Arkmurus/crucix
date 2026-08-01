@@ -80,7 +80,21 @@ def _primary_all() -> bool:
 
 
 def _shadow() -> bool:
-    return _truthy(os.getenv("ARIA_LLM_SHADOW"))
+    """R-F3636 — DERIVED from the stage, never read independently.
+
+    This used to be `_truthy(os.getenv("ARIA_LLM_SHADOW"))`, a SECOND switch for a
+    state promotion_stage() already owns. route_decision then combined them as
+    `if _shadow() or stage == "shadow"`, so two env vars could disagree and the code
+    silently privileged whichever was truthy — while get_health() published BOTH with
+    no precedence.
+
+    Live 2026-08-01: ARIA_LLM_PROMOTION_STAGE=shadow, ARIA_LLM_SHADOW=0,
+    ARIA_LLM_CANARY_PCT=50. Reading `shadow: false` beside `canary_pct: 50` says she is
+    serving half of chat. She is not — the OR short-circuits on stage. I misread it
+    that way myself before tracing line 312, which is the point: a config that needs a
+    code trace to interpret is not a config.
+    """
+    return promotion_stage() == "shadow"
 
 
 def _capture_enabled() -> bool:
@@ -99,6 +113,13 @@ def promotion_stage() -> str:
     synthesis to sovereign, with DeepSeek fallback on error. ``off`` forces
     DeepSeek while keeping the endpoint configured for probes.
     """
+    # R-F3636 — the legacy ARIA_LLM_SHADOW is an INPUT to the stage, never a bypass
+    # and never overridable. Deriving the stage the other way round (letting
+    # STAGE=canary win over an explicit SHADOW=1) would START SERVING USERS for anyone
+    # relying on the older flag to hold the model back. The conservative flag wins;
+    # that is the only direction that is safe to get wrong.
+    if _truthy(os.getenv("ARIA_LLM_SHADOW")):
+        return "shadow"
     raw = (os.getenv("ARIA_LLM_PROMOTION_STAGE") or "shadow").strip().lower()
     aliases = {
         "0": "off",
@@ -309,7 +330,10 @@ def route_decision(message: str = "", context: str = "", *, canary_key: str = ""
     stage = promotion_stage()
     if stage == "off":
         return "deepseek"
-    if _shadow() or stage == "shadow":
+    # R-F3636 — ONE source. `_shadow()` now derives from `stage`, so the old OR was
+    # `stage == "shadow" or stage == "shadow"`. Behaviour is identical; what changes is
+    # that there is no longer a second switch able to disagree with the first.
+    if stage == "shadow":
         return "shadow"
     if stage == "serve":
         return "sovereign"
@@ -726,8 +750,12 @@ def summary() -> dict[str, Any]:
         "purpose": "R-F2410 two-track: sovereign for grounded synthesis, DeepSeek coverage/fallback",
         "sovereign_configured": sovereign_configured(),
         "two_track_active": two_track_active(),
+        # R-F3636 — report the EFFECTIVE mode, plus the raw input, clearly labelled.
+        # Publishing two independent-looking switches with no precedence is what made
+        # this unreadable: a reader cannot tell which one the router obeyed.
         "promotion_stage": promotion_stage(),
-        "shadow": _shadow(),
+        "shadow": _shadow(),                       # derived: stage == "shadow"
+        "shadow_env_override": _truthy(os.getenv("ARIA_LLM_SHADOW")),
         "canary_pct": _canary_pct(),
         "primary_all": _primary_all(),
         "router_disabled": _router_disabled(),
