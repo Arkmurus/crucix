@@ -63,35 +63,6 @@ _CAPABILITY_KEYWORDS = re.compile(
         r"\bhow\s+do\s+you\s+(?:work|operate|function)\b"
     r"|"
         r"\baria.{0,30}(?:capabilit\w*|sources?|signals?|architecture|tasks?\s+scheduled)\b"
-    r"|"
-        # R-F3612 (2026-08-01) — "WHAT IS WRONG WITH YOU", in its natural forms.
-        #
-        # This is THE question this whole incident was asked in, twice, and the
-        # detector missed BOTH:
-        #   "Aria, what are the issue with your current command centre?"
-        #   "what is the current issues you are experiencing with your system?"
-        # Neither matches "your <noun>" (system / command centre were not in the
-        # noun list) nor any other branch, so the auto-fired /health/perf block
-        # was never injected for the one question that most needs it.
-        #
-        # Anchored on a fault word FOLLOWED, within one clause, by a reference to
-        # ARIA herself — so "issues with the contract" does not fire while
-        # "issues ... you are experiencing" and "issue with your ..." both do.
-        # Per this module's contract false positives are cheap (one in-process
-        # health call), and a miss here is what produced a false clean.
-        r"\b(?:issues?|problems?|faults?|failures?|errors?|wrong|broken|"
-        r"degraded|not\s+working|malfunction\w*)\b"
-        r"[^.?!]{0,60}?\b(?:with\s+)?(?:you|your)\b"
-    r"|"
-        # Reverse word order ("are you experiencing any problems?"). Anchored on
-        # ARIA as the SUBJECT of the verb rather than on mere proximity, so
-        # "can you list the problems in this contract" does NOT fire a health
-        # probe into an unrelated work turn.
-        r"\b(?:are|is)\s+you\s+(?:\w+\s+){0,2}"
-        r"(?:experienc\w+|having|seeing|hitting|suffer\w+)\b"
-    r"|"
-        r"\byou(?:'re|\s+are)\s+(?:\w+\s+){0,2}"
-        r"(?:broken|down|degraded|failing|offline|not\s+working|malfunction\w*)\b"
     r")",
     re.IGNORECASE,
 )
@@ -109,12 +80,27 @@ def detect_self_capability_question(message: str) -> bool:
     diagnostic (the 2026-05-26 incident).
 
     R-F1046 — wired to brain via _wire_introspect_hit() on every detection.
+
+    R-F3620 — the "what is wrong with you" branch that R-F3612 added inline here
+    was a FOURTH fork of "is this question about ARIA?", and the forks disagreed:
+    this one said True for "issue with your command centre" while the TOOL-ROUTING
+    predicate said False, so ARIA injected a correct health block AND still ran a
+    web search — answering from Alienware support forums. The definition now lives
+    once, in self_infra_detector; this consults it at BROAD strictness because a
+    false positive here costs only an in-process health call.
     """
     if not message or not isinstance(message, str):
         return False
     if _CAPABILITY_KEYWORDS.search(message):
         _wire_introspect_hit(message)
         return True
+    try:
+        from .self_infra_detector import is_self_fault_report
+        if is_self_fault_report(message, strict=False):
+            _wire_introspect_hit(message)
+            return True
+    except Exception:  # pragma: no cover — never fail detection over an import
+        logger.debug("R-F3620 fault-report delegation failed", exc_info=True)
     try:
         from .self_infra_detector import is_self_state_query
         result = is_self_state_query(message)

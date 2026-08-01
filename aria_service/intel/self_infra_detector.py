@@ -247,6 +247,101 @@ def is_self_state_query(message: str | None) -> bool:
     return bool(SELF_STATE_AVAILABILITY_RE.search(message))
 
 
+# ── R-F3620 (2026-08-01) — THE FAULT-REPORT QUESTION, DEFINED ONCE ───────────
+#
+# LIVE INCIDENT. The operator asked, in WhatsApp, during the R-F3606 total chat
+# outage:
+#     "Aria, what are the issue with your current command centre?"
+# ARIA ran a WEB SEARCH and answered from consumer-hardware forum posts about
+# *Alienware Command Center* — error code 0x803F8001 — while her own LLM chain
+# was failing every call.
+#
+# That is a ROUTING failure, not a search failure. `_detect_tool_intent`
+# (routes/aria.py) has an R-F399 branch whose own comment says it "MUST run
+# before any web-search path", gated on is_capability_introspection_query().
+# It returned False, so the question fell through to web search.
+#
+# ROOT CAUSE — A FORKED MEASURE, AND THE NARROWEST FORK GUARDED THE MOST
+# CONSEQUENTIAL DECISION. Four predicates independently answered "is this
+# question about ARIA?", and they disagreed on the operator's exact words:
+#     is_capability_introspection_query  (TOOL ROUTING) -> False   <- web search
+#     is_self_state_query                (fabrication gates) -> False
+#     self_introspect_guard.detect_self_capability_question -> True
+#     an inline pattern added by R-F3612 this same day       -> True
+# R-F918 had already extended the routing predicate precisely so self-state
+# questions "land on /health/perf rather than fabricating a web-searched
+# diagnostic" — the intent was right; the fault-report phrasing simply was not
+# covered. CLAUDE.md §1 names this disease in the phase gates: there must be ONE
+# measure. R-F3612 (mine, hours earlier) widened only the context-block fork and
+# left routing untouched, which added a fourth. This is the single definition;
+# self_introspect_guard now delegates here instead of keeping its own copy.
+#
+# TWO STRICTNESSES, ONE DEFINITION — because the cost of a false positive is
+# genuinely different, and pretending otherwise would break real work:
+#   STRICT gates TOOL ROUTING. A false positive SUPPRESSES a legitimate web
+#     search, so a fault word is not enough: it must attach to a noun that can
+#     only mean ARIA's own machinery, or to "you" directly. This is what keeps
+#     "what problems are there with your supplier?" and "what's wrong with your
+#     analysis of the tender?" routing to real research, where they belong.
+#   BROAD gates the injected context block, whose own module contract states
+#     false positives are cheap (one in-process /health/perf call).
+#
+# Availability phrasings ("why are you down?", "are you ok?") are NOT duplicated
+# here — SELF_STATE_AVAILABILITY_RE already owns them and both predicates are
+# consulted as a disjunction. Verified before writing this, rather than assumed.
+_FAULT_WORD = (r"(?:issues?|problems?|faults?|failures?|errors?|wrong|broken|"
+               r"degraded|not\s+working|malfunction\w*|down)")
+
+# Nouns that, following "your", can only denote ARIA's own machinery.
+_SELF_SYSTEM_NOUN = (r"(?:system|command\s+cent(?:re|er)|brain|chain|engine|"
+                     r"setup|stack|pipeline|memory|tooling|infrastructure|"
+                     r"platform|llm|model|architecture|side)")
+
+SELF_FAULT_REPORT_STRICT_RE: re.Pattern[str] = re.compile(
+    "(?:"
+        # "issue with your current command centre", "problems with your system"
+        + r"\b" + _FAULT_WORD + r"\b[^.?!]{0,40}?\byour\s+(?:\w+\s+){0,2}"
+        + _SELF_SYSTEM_NOUN + r"\b"
+    + "|"
+        # "what's wrong with you", "any issues with you today"
+        + r"\b" + _FAULT_WORD + r"\b[^.?!]{0,40}?\bwith\s+you\b"
+    + "|"
+        # "are you experiencing any problems", "you are having issues"
+        + r"\b(?:are\s+you|you\s+are|you're)\s+(?:\w+\s+){0,2}"
+          r"(?:experienc\w+|having|hitting|suffer\w+)\b"
+    + "|"
+        # "you're broken", "you are degraded"
+        + r"\byou(?:'re|\s+are)\s+(?:\w+\s+){0,2}" + _FAULT_WORD + r"\b"
+    + ")",
+    re.IGNORECASE,
+)
+
+SELF_FAULT_REPORT_BROAD_RE: re.Pattern[str] = re.compile(
+    "(?:"
+        + r"\b" + _FAULT_WORD + r"\b[^.?!]{0,60}?\b(?:with\s+)?(?:you|your)\b"
+    + "|"
+        + r"\b(?:are\s+you|you\s+are|you're)\s+(?:\w+\s+){0,2}"
+          r"(?:experienc\w+|having|hitting|suffer\w+)\b"
+    + ")",
+    re.IGNORECASE,
+)
+
+
+def is_self_fault_report(message: str | None, *, strict: bool = True) -> bool:
+    """True when the user is asking what is WRONG WITH ARIA.
+
+    strict=True  (default, and what TOOL ROUTING must use): requires the fault
+        to attach to ARIA's own machinery or to "you". Keeps third-party fault
+        questions ("issues with your supplier") on the research path.
+    strict=False (context injection): proximity is enough; a false positive
+        costs one in-process health call.
+    """
+    if not message:
+        return False
+    rx = SELF_FAULT_REPORT_STRICT_RE if strict else SELF_FAULT_REPORT_BROAD_RE
+    return bool(rx.search(message))
+
+
 # ── R-F1587 (2026-06-15) — self gap-analysis / system-audit request ──────────
 #
 # Live WhatsApp miss 2026-06-15: the operator asked for a "system gap analysis"
@@ -324,6 +419,12 @@ def is_capability_introspection_query(message: str | None) -> bool:
     return bool(
         SELF_CAPABILITY_INTROSPECTION_RE.search(message)
         or SELF_STATE_AVAILABILITY_RE.search(message)
+        # R-F3620 — "what are the issue with your current command centre?"
+        # matched none of the above and was answered from Alienware support
+        # forums during a total outage. STRICT: a fault question routes here
+        # only when it is about ARIA's own machinery, so third-party fault
+        # questions still reach real research.
+        or SELF_FAULT_REPORT_STRICT_RE.search(message)
         or is_self_analysis_request(message)  # R-F1587
     )
 

@@ -167,17 +167,36 @@ def test_rf399_router_imports_capability_detector():
 
 def test_rf399_router_returns_self_introspect_tool():
     """When the detector fires, the router must return the
-    self_introspect tool — not deep_research, not spawn_research_task."""
-    src = _src()
-    intent_idx = src.find("def _detect_tool_intent")
-    assert intent_idx > 0
-    block = src[intent_idx:intent_idx + 2500]
-    assert '"tool": "self_introspect"' in block
-    assert "_reason" in block
-    assert "capability_introspection_rf399" in block, (
-        "R-F399: the dispatch tag '_reason' is missing — operator can't "
-        "see in logs that the new router fired."
-    )
+    self_introspect tool — not deep_research, not spawn_research_task.
+
+    R-F3620 — THIS TEST WAS RED FOR MONTHS AND TAUGHT PEOPLE TO IGNORE IT.
+    It used to slice a FIXED 2500-character window after `def
+    _detect_tool_intent` and grep it for the literal `"tool": "self_introspect"`.
+    The branch sits ~3000 characters in, so the window simply stopped reaching
+    it as the function grew — nothing was broken, the ruler was too short. It
+    then sat in docs/suite_baseline.md among the known failures, which is
+    exactly how a guard that cries wolf gets switched off: when ARIA really DID
+    web-search herself on 2026-08-01 (Alienware Command Center support forums),
+    this test was already red and told nobody.
+
+    Now it asserts the PROPERTY by driving the real router. A window that
+    cannot see the branch is not a weaker test — it is a test of nothing.
+    """
+    from aria_service.routes.aria import _detect_tool_intent
+
+    for q in ("how many facts do you have?",
+              "what are your capabilities?",
+              "Aria, what are the issue with your current command centre?"):
+        intent = _detect_tool_intent(q)
+        assert intent is not None, f"no tool intent for {q!r}"
+        assert intent.get("tool") == "self_introspect", (
+            f"{q!r} routed to {intent.get('tool')!r} — capability questions "
+            f"must not reach deep_research / spawn_research_task / web search"
+        )
+        assert intent.get("_reason"), (
+            "the dispatch tag '_reason' is missing — the operator cannot see "
+            "in logs which branch fired"
+        )
 
 
 def test_rf399_router_fires_before_spawn_research_task():
