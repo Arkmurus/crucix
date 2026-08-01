@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3631,
+  "next_available": 3632,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30349,6 +30349,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3631",
+      "title": "suite_baseline stamps commit=HEAD even on a DIRTY tree - the recorded sha is not what ran",
+      "claimed_at": "2026-08-01T17:50:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8eb0668e",
+      "notes": null,
+      "shipped_at": "2026-08-01T17:52:14Z"
     }
   ]
 }
