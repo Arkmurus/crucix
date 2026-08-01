@@ -143,7 +143,36 @@ def test_rf3377_the_recorded_baseline_is_wellformed():
     assert data["failures"], "an empty baseline would mark every known failure as NEW"
     assert len(data["failures"]) == len(set(data["failures"])), "duplicate entries"
     assert data["totals"]["failed"] == len(data["failures"])
-    assert "FLOOR" in data["caveat"], (
-        "the segmented-run caveat must travel WITH the number, or it will be "
-        "quoted as the single-process baseline"
-    )
+    # R-F3632 — the caveat must MATCH THE METHOD, not equal one hardcoded string.
+    #
+    # This asserted `"FLOOR" in caveat` unconditionally, written when segmented was the
+    # only mode. R-F3625 added --single-process, which is the actual §16 measurement and
+    # for which FLOOR is FALSE — so recording a correct single-process baseline turned
+    # this guard red, and a guard that goes red for doing the right thing gets deleted
+    # or, worse, "fixed" by dropping the assertion entirely.
+    #
+    # Deriving it from `method` keeps the original intent — the caveat travels WITH the
+    # number so it cannot be misquoted — and is STRICTER than before: it now also
+    # catches a single-process record that wrongly carries the FLOOR caveat, which the
+    # old form could not see.
+    method = data.get("method", "")
+    caveat = data.get("caveat", "")
+    if "single" in method.lower():
+        assert "FLOOR" not in caveat, (
+            "a single-process run SEES order-dependent failures; calling it a FLOOR "
+            "understates it and invites a needless re-measure"
+        )
+        assert "authoritative" in caveat.lower() or "§16" in caveat, (
+            "the §16 figure must say so, or a reader cannot tell it from the floor"
+        )
+    else:
+        assert "FLOOR" in caveat, (
+            "the segmented-run caveat must travel WITH the number, or it will be "
+            "quoted as the §16 baseline it is not"
+        )
+
+    # R-F3622/R-F3631 — the validity record must travel with the number too. A baseline
+    # with no proof it was measured on a still tree is the thing those R-numbers exist
+    # to prevent; asserting the fields here stops a hand-written file passing as one.
+    assert data.get("valid") is True, "a recorded baseline must carry valid=True"
+    assert data.get("tree_hash"), "a recorded baseline must carry the tree hash"
