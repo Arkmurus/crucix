@@ -12407,6 +12407,20 @@ async def chat_ep(req: ChatRequest, request: Request):
         try:
             from ..intel import brain_hook as _bh655
             _bh655_final_text = (result.get("response") if isinstance(result, dict) else None) or response_text or ""
+            # R-F3608 — NEVER absorb a failure surface as knowledge. This path
+            # booked the degraded-mode banner with success=True/PROBABLE, so
+            # every outage taught itself to the brain and the NEXT outage
+            # retrieved it and served it back as a "verified fact" (live
+            # 2026-08-01). reasoning_library owns the shared predicate; do not
+            # re-implement it here — the inline copy is what drifted before.
+            from ..intel.reasoning_library import is_degraded_or_error_response as _r3608_is_bad
+            if _r3608_is_bad(_bh655_final_text):
+                _log.info(
+                    "[R-F3608] skipping brain_hook absorb — response is a "
+                    "degraded/error surface, not knowledge (%d chars)",
+                    len(_bh655_final_text),
+                )
+                _bh655_final_text = ""
             if _bh655_final_text.strip():
                 import asyncio as _aio655
                 async def _r655_absorb_bg():

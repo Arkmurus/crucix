@@ -88,6 +88,52 @@ def _max_model_len() -> int:
         return 32768
 
 
+# R-F3606 (2026-08-01) — R-F1360's latency ceiling, moved to the boundary that
+# OWNS it.
+#
+# The 7B/14B sovereign serves at ~10 tok/s on the bf16 shim, so a 4000-token
+# completion takes 150-250s and blows the chat timeout. R-F1360 enforced that by
+# making the CALLER (aria_engine._completion_max_tokens) return 800 whenever a
+# sovereign URL was merely CONFIGURED — which capped DeepSeek instead, because
+# DeepSeek is what actually serves under SHADOW/TWO-TRACK. That produced a total
+# chat outage on 2026-08-01 (see R-F3606 in aria_engine.py).
+#
+# SCOPE — CHAT ONLY. APPLIED BY model_router, NOT HERE. (Do not "tidy" this by
+# calling it inside complete()/stream(); that was tried and it is wrong.)
+#
+# R-F1360's constraint is a CHAT constraint — its own words are "past the 120s
+# chat timeout". The self-coder also calls this module, and it legitimately asks
+# for max_tokens=8192 to generate a whole file (see R-F1363 and its test). An
+# unconditional 800-token ceiling here TRUNCATES generated code — precisely the
+# truncating-fix class that R-F904 exists to block and that CLAUDE.md §21c warns
+# must be fixed before self-deploy is safe.
+#
+# So the ceiling is applied at the chat call sites in model_router
+# (_sovereign_complete + the stream_synthesis sovereign branch), which are the
+# §13 chat pair. Batch/coder callers reaching this module directly are untouched.
+SOVEREIGN_COMPLETION_CEILING = 800
+
+
+def clamp_for_sovereign(max_tokens: int) -> int:
+    """Cap a CHAT completion budget to what the sovereign can generate inside
+    the chat timeout. Only ever lowers — a caller asking for less than the
+    ceiling is honoured as-is.
+
+    Call this from chat paths only. Batch callers (self-coder, training export)
+    need large budgets and must not be clamped."""
+    try:
+        n = int(max_tokens)
+    except (TypeError, ValueError):
+        return SOVEREIGN_COMPLETION_CEILING
+    if n > SOVEREIGN_COMPLETION_CEILING:
+        logger.info(
+            "[R-F3606] clamped sovereign completion %d→%d tokens (~10 tok/s "
+            "would exceed the chat timeout)", n, SOVEREIGN_COMPLETION_CEILING,
+        )
+        return SOVEREIGN_COMPLETION_CEILING
+    return n
+
+
 @fail_wire(module="aria_llm_provider", gap_type="engine_failure")
 async def complete(
     prompt: str,

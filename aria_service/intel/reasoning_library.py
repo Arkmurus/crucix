@@ -625,6 +625,37 @@ def _looks_like_periodic_brief(q_lower: str) -> bool:
     return bool(_PERIODIC_BRIEF_RE.search(q_lower))
 
 
+# R-F3608 (2026-08-01) — ONE definition of "this text is a FAILURE, not an
+# answer", because two call sites disagreed and the one without the guard
+# poisoned the brain.
+#
+# `record_response` below has refused to cache degraded/error replies since
+# R-F655's sibling fix. The R-F655 brain_hook absorb in routes/aria.py did NOT
+# have the same guard, and absorbed the degraded text with
+# `success=True, confidence="PROBABLE"`.
+#
+# Live 2026-08-01 (operator WhatsApp, "Tony is flying to Bulgaria"): the reply
+# ARIA served contained, as a "verified fact", a PREVIOUS degraded reply —
+#   [PROBABLE] aria_chat:detail: ⚠️ ARIA degraded mode — LLM error: [deepseek_backup]…
+# Each outage therefore wrote itself into the knowledge base, and the next
+# outage retrieved it and printed it back. The damage COMPOUNDS per occurrence.
+#
+# Exported (not underscore-private) precisely so the absorb path can share it:
+# a second inline copy is how the two drifted in the first place.
+def is_degraded_or_error_response(text: str) -> bool:
+    """True when ``text`` is an ARIA failure surface rather than an answer.
+
+    Covers the degraded-mode banner, the error prefixes, and the local_brain
+    fallback header. Never store, cache, or absorb one of these as knowledge.
+    """
+    if not text:
+        return False
+    t = text.strip()
+    if t.startswith(("⚠️", "❌", "ARIA encountered")):
+        return True
+    return "degraded mode" in t.lower()
+
+
 @fail_wire(module="reasoning_library", gap_type="engine_failure")
 async def record_response(
     question: str,
@@ -643,12 +674,10 @@ async def record_response(
     if not question or not response or len(question.strip()) < 5 or len(response.strip()) < 20:
         return {"recorded": False, "reason": "too short"}
 
-    # Don't store error/fallback responses
-    if response.startswith(("⚠️", "❌", "ARIA encountered")):
-        return {"recorded": False, "reason": "error response"}
-    # Don't store degraded mode responses (already from local data)
-    if "degraded mode" in response.lower():
-        return {"recorded": False, "reason": "already degraded"}
+    # Don't store error/fallback or degraded-mode responses (R-F3608: this is
+    # now the SHARED predicate, so the brain_hook absorb path cannot drift).
+    if is_degraded_or_error_response(response):
+        return {"recorded": False, "reason": "error or degraded response"}
 
     # Don't cache greetings / liveness probes / identity questions — their
     # answers are context-dependent and not safe to reuse (incident 2026-04-08).

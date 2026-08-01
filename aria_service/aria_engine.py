@@ -2506,13 +2506,33 @@ def _completion_max_tokens(message: str) -> int:
     Briefs get 8000; everything else keeps 4000 (latency/cost unchanged for the
     common case). Reuses the R-F864 periodic-brief detector so 'cache it?',
     'serve it?' and 'how long?' all agree on what a brief is."""
-    # R-F1360: when the sovereign 7B is serving (bf16 shim, ~10 tok/s), a
-    # 4000-token completion takes 150-250s → past the 120s chat timeout →
-    # aria-intel times out aria_llm → degraded mode. Cap the sovereign path to
-    # 800 tokens (~80s, inside the timeout); a lean answer also suits a 7B. The
-    # full cloud chain (DeepSeek etc.) keeps the 4000/8000 budgets.
-    if _compact_prompt_active():
-        return 800
+    # R-F3606 (2026-08-01) — THE CALLER EXPRESSES INTENT; THE PROVIDER ENFORCES
+    # ITS OWN LIMITS. This function no longer guesses a budget from whether a
+    # sovereign endpoint happens to be CONFIGURED.
+    #
+    # It used to `return 800` whenever `_compact_prompt_active()` — which is true
+    # merely because ARIA_LLM_URL is set (aria_engine.py:707-720). But the
+    # sovereign is NOT the chain primary: under both SHADOW and the R-F2410
+    # TWO-TRACK default, DeepSeek serves the chat turn (fallback.py:951-969).
+    # Only ARIA_LLM_PRIMARY_ALL=1 puts the sovereign at the head, and it is unset.
+    #
+    # So the 7B's latency cap was being applied to DeepSeek — and deepseek-v4-*
+    # are REASONING models that fill `reasoning_content` BEFORE writing a single
+    # character of `content`. 800 tokens (~3,440 chars) is consumed entirely by
+    # the reasoning, `content` comes back EMPTY with finish_reason='length', and
+    # R-F3591 correctly refuses to serve the chain of thought → the backup model
+    # inherits the SAME 800 cap → chain exhausted → degraded mode.
+    #
+    # Live 2026-08-01 (operator WhatsApp, "Tony is flying to Bulgaria"): reasoning
+    # 3455 chars on deepseek-v4-flash and 3676 on deepseek-v4-pro. 800 tokens ×
+    # ~4.3 chars/token = ~3,440. Both land exactly on the cap — the arithmetic IS
+    # the proof. This was a deterministic 100% chat outage, not an intermittent one.
+    #
+    # R-F1360's concern remains REAL and is preserved — but it is enforced where
+    # it belongs, at the sovereign's own boundary (aria_llm_provider.clamp_for_
+    # sovereign), so it binds in EVERY mode the sovereign actually serves
+    # (PRIMARY_ALL, SHADOW, canary/two-track) instead of binding whichever
+    # provider happened to be called while a URL was set.
     try:
         from .intel.reasoning_library import _looks_like_periodic_brief
         if message and _looks_like_periodic_brief(message.lower()):
@@ -4226,20 +4246,25 @@ async def _aria_chat_impl(
     # failure (rate-limit, 500 error). 2026-04-11 Hanwha incident:
     # the first attempt at 75s was too tight and both Anthropic and
     # DeepSeek timed out mid-generation.
-    # R-F1365 — when the sovereign 14B is chain-primary, cap the per-provider
-    # budget at ARIA_LLM_TIMEOUT (default 40s) so a slow/stuck 14B fails over to
-    # the funded DeepSeek fallback fast instead of burning 120s. The fallback
-    # gives DeepSeek its OWN full 40s afterwards (ample for DeepSeek). The coder
-    # path passes its own explicit 120s and is unaffected by this chat-only cap.
-    if _compact_prompt_active():
-        try:
-            _llm_timeout = float((os.getenv("ARIA_LLM_TIMEOUT") or "40").strip())
-            if _llm_timeout < 10:
-                _llm_timeout = 40.0
-        except (TypeError, ValueError):
-            _llm_timeout = 40.0
-    else:
-        _llm_timeout = 100.0 if "[TOOL:" in message or "[I have already run" in message else 120.0
+    # R-F3606 — the R-F1365 sovereign cap was removed from HERE for the same
+    # reason as the token budget above: gated on `_compact_prompt_active()`, it
+    # applied a sovereign-tuned 40s to whichever provider actually served, and
+    # that is DeepSeek in every live mode (SHADOW / TWO-TRACK).
+    #
+    # Its stated intent ("cap the per-provider budget ... so a slow/stuck 14B
+    # fails over fast") was never achieved anyway: model_router._sovereign_
+    # complete passes `timeout=_sovereign_timeout(timeout)` to
+    # aria_llm_provider.complete(), whose signature is
+    # `(prompt, *, system, max_tokens, temperature, **_kw)` — it has NO timeout
+    # parameter, so the value is swallowed by **_kw and the sovereign runs on
+    # httpx's _DEFAULT_TIMEOUT=120.0 regardless. The cap therefore only ever
+    # bound DeepSeek — the exact opposite of what it was written to do.
+    #
+    # Removing it restores DeepSeek's full budget and changes NOTHING for the
+    # sovereign (still 120s, as it always effectively was). Making the sovereign
+    # honour a real per-call timeout is a separate defect, surfaced not silently
+    # fixed here. ARIA_LLM_TIMEOUT remains live via model_router._sovereign_timeout.
+    _llm_timeout = 100.0 if "[TOOL:" in message or "[I have already run" in message else 120.0
 
     _log_chat_payload_telemetry(
         path="chat", session_id=session_id,
@@ -5147,17 +5172,13 @@ async def _aria_chat_stream_impl(
         system_prompt=system_prompt, user_prompt=user_prompt,
         intel_context=context, history=history, raw_message=message,
     )
-    # R-F1365 — sovereign 14B gets a short per-provider budget so a slow stream
-    # fails over to the funded DeepSeek fallback fast (see the /chat path above).
-    if _compact_prompt_active():
-        try:
-            _stream_timeout = float((os.getenv("ARIA_LLM_TIMEOUT") or "40").strip())
-            if _stream_timeout < 10:
-                _stream_timeout = 40.0
-        except (TypeError, ValueError):
-            _stream_timeout = 40.0
-    else:
-        _stream_timeout = 120.0
+    # R-F3606 §13 mirror — the R-F1365 sovereign cap is removed here for exactly
+    # the reason given on the /chat path above: it applied a sovereign-tuned 40s
+    # to DeepSeek, which is what actually serves. On THIS path it was even more
+    # clearly inert for the sovereign — model_router.stream_synthesis calls
+    # `aria_llm_provider.stream(...)` with no timeout argument at all (it, too,
+    # ends in **_kw and runs on _DEFAULT_TIMEOUT=120.0).
+    _stream_timeout = 120.0
     try:
         # R-F2410 §13 mirror — two-track router on the stream path. URL unset ->
         # byte-identical pass-through to llm.stream (DeepSeek).

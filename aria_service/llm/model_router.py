@@ -330,10 +330,19 @@ async def _sovereign_complete(
     system: str, user: str, *, max_tokens: int, timeout: float,
 ) -> LLMResult | None:
     """One sovereign completion -> LLMResult, or None on any failure (caller
-    falls back to DeepSeek). aria_llm_provider already wires its own failures."""
+    falls back to DeepSeek). aria_llm_provider already wires its own failures.
+
+    R-F3606 — THE sovereign chat chokepoint: every sovereign completion on the
+    chat path (routed turns and the shadow-compare) goes through here, so this
+    is where R-F1360's latency ceiling is applied. It is deliberately NOT
+    applied inside aria_llm_provider, which the self-coder also calls with
+    max_tokens=8192 for whole-file generation (R-F1363).
+    """
     try:
         r = await aria_llm_provider.complete(
-            user, system=system, max_tokens=max_tokens, timeout=timeout,
+            user, system=system,
+            max_tokens=aria_llm_provider.clamp_for_sovereign(max_tokens),
+            timeout=timeout,
         )
     except Exception as e:  # network/timeout/etc.
         logger.warning("[model_router] sovereign complete raised: %s", e)
@@ -661,9 +670,11 @@ async def stream_synthesis(
     emitted = False
     full = ""
     try:
+        # R-F3606 §13 mirror — same chat-only latency ceiling as _sovereign_complete.
         async for piece in aria_llm_provider.stream(
             user_message, system=system_prompt,
-            max_tokens=max_tokens, temperature=0.3,
+            max_tokens=aria_llm_provider.clamp_for_sovereign(max_tokens),
+            temperature=0.3,
         ):
             if piece:
                 emitted = True

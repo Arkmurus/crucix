@@ -73,6 +73,62 @@ def _safe_default_for(name: str) -> str:
 # legitimate case ("The answer is 42.") is 18. 600 sits far from both.
 _REASONING_ANSWER_MAX = 600
 
+
+# ── R-F3607 — A REASONING MODEL MUST BE ABLE TO AFFORD ITS OWN REASONING ─────
+#
+# On a reasoning model `max_tokens` covers reasoning_content + content, and the
+# reasoning is emitted FIRST. So a budget large enough for an answer on a
+# classic model can be too small to produce ANY answer here: the reasoning
+# consumes all of it, `content` returns empty with finish_reason='length', and
+# R-F3591 (correctly) refuses to serve the chain of thought.
+#
+# That is what took chat down on 2026-08-01 — an 800-token cap intended for the
+# sovereign 7B reached deepseek-v4-flash, whose reasoning alone ran 3455 chars
+# (~800 tokens). Both the primary AND the backup model inherited the same cap,
+# so the whole chain failed identically and the fallback could not save it.
+#
+# R-F3606 fixes the caller that set 800. This is the STRUCTURAL guarantee that
+# no future caller can reintroduce the class: the floor is enforced at the one
+# place the request is built, so it covers every caller of every reasoning
+# model — including small-budget helpers like llm/structured.py (max_tokens
+# default 1000), which would fail the same way and has never been exercised
+# against a reasoning model.
+#
+# It only ever RAISES a budget, and max_tokens is a ceiling rather than a
+# target, so a model that needs fewer tokens still returns early and costs the
+# same. The sovereign is exempt (handled by clamp_for_sovereign) — it is not a
+# reasoning model and has the opposite, latency-driven constraint.
+_REASONING_MIN_COMPLETION_TOKENS = 2048
+
+# Substrings of model ids that emit `reasoning_content` before the answer.
+# Kept as fragments so a point release (deepseek-v4-pro-0801) is still matched.
+_REASONING_MODEL_MARKERS = ("deepseek-v4", "deepseek-reasoner", "o1-", "o3-")
+
+
+def _is_reasoning_model(model: str | None) -> bool:
+    """True when `model` spends part of max_tokens on reasoning before content."""
+    m = (model or "").strip().lower()
+    return any(marker in m for marker in _REASONING_MODEL_MARKERS)
+
+
+def _floor_completion_budget(model: str | None, max_tokens: int) -> int:
+    """Raise `max_tokens` to the reasoning floor when `model` reasons. Never lowers."""
+    if not _is_reasoning_model(model):
+        return max_tokens
+    try:
+        n = int(max_tokens)
+    except (TypeError, ValueError):
+        return _REASONING_MIN_COMPLETION_TOKENS
+    if n < _REASONING_MIN_COMPLETION_TOKENS:
+        logger.warning(
+            "[R-F3607] %s is a reasoning model and max_tokens=%d cannot fit "
+            "reasoning + an answer; raising to %d. A budget this small returns "
+            "empty content with finish_reason='length'.",
+            model, n, _REASONING_MIN_COMPLETION_TOKENS,
+        )
+        return _REASONING_MIN_COMPLETION_TOKENS
+    return n
+
 class OpenAICompatProvider(LLMProvider):
     """Generic OpenAI-compatible chat completions provider."""
 
@@ -122,6 +178,19 @@ class OpenAICompatProvider(LLMProvider):
             return bool(self._model)
         return bool(self._api_key)
 
+    def _resolve_completion_budget(self, eff_model: str | None, max_tokens: int) -> int:
+        """R-F3607 — the completion budget the model that ACTUALLY serves can
+        work with. One place, so complete() and the inherited stream() (§13)
+        cannot drift.
+
+        Deliberately does NOT apply the sovereign ceiling, even though the
+        chain can hold a sovereign slot named 'aria_llm' under SHADOW /
+        PRIMARY_ALL. That chain serves the self-coder too, and capping it at 800
+        would truncate generated code (R-F904 / §21c). The sovereign's chat
+        ceiling is applied by model_router, which knows the call is chat.
+        """
+        return _floor_completion_budget(eff_model, max_tokens)
+
     @fail_wire(module="openai_compat", gap_type="engine_failure", control_flow_exempt=("ProviderError",))
     async def complete(
         self,
@@ -133,6 +202,14 @@ class OpenAICompatProvider(LLMProvider):
         model: str | None = None,   # R-F2768 — accept the routing override (a Claude id is ignored)
     ) -> LLMResult:
         timeout = timeout or self._default_timeout
+
+        # R-F2768 — accept the per-call routing override but NEVER send a Claude
+        # model id to an OpenAI-compatible API (it would 400). A non-Claude
+        # override (e.g. an explicit OpenAI model) is honoured; else configured.
+        # R-F3606: resolved HERE (was below) so the budget rules and the R-F1236
+        # prompt budget both see the model that will actually serve.
+        _eff_model = model if (model and not str(model).startswith("claude")) else self._model
+        max_tokens = self._resolve_completion_budget(_eff_model, max_tokens)
 
         # R-F1236: Enforce prompt budget before sending — prevents HTTP 413
         # (Request Too Large) on models with smaller context windows.
@@ -150,10 +227,7 @@ class OpenAICompatProvider(LLMProvider):
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
 
-        # R-F2768 — accept the per-call routing override but NEVER send a Claude
-        # model id to an OpenAI-compatible API (it would 400). A non-Claude
-        # override (e.g. an explicit OpenAI model) is honoured; else configured.
-        _eff_model = model if (model and not str(model).startswith("claude")) else self._model
+        # (_eff_model resolved above — R-F3606.)
         payload = {
             "model": _eff_model,
             "max_tokens": max_tokens,

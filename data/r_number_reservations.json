@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3604,
+  "next_available": 3609,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30080,6 +30080,53 @@
       "commit_sha": "50cf5a8a",
       "notes": null,
       "shipped_at": "2026-07-31T23:56:09Z"
+    },
+    {
+      "r_number": "R-F3604",
+      "title": "consolidate three suite baselines into one authoritative doc with a provable validity record",
+      "claimed_at": "2026-08-01T05:46:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b04e1b0a",
+      "notes": null,
+      "shipped_at": "2026-08-01T05:52:02Z"
+    },
+    {
+      "r_number": "R-F3605",
+      "title": "sys.modules stubbing is defeated by the parent-package attribute - mem0 recall silently returned empty",
+      "claimed_at": "2026-08-01T06:04:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "109d7eca",
+      "notes": null,
+      "shipped_at": "2026-08-01T06:06:50Z"
+    },
+    {
+      "r_number": "R-F3606",
+      "title": "completion budget must follow the provider that actually serves, not the sovereign merely being configured",
+      "claimed_at": "2026-08-01T06:22:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3607",
+      "title": "a reasoning model must never be sent a max_tokens too small to clear its own reasoning",
+      "claimed_at": "2026-08-01T06:22:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3608",
+      "title": "degraded-mode replies must not be absorbed as PROBABLE facts via brain_hook",
+      "claimed_at": "2026-08-01T06:22:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

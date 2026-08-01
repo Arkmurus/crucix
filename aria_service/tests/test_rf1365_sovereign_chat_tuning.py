@@ -8,7 +8,22 @@ circuit tripped) → degraded chat. Fix: when sovereign is active, trim the
 context budget (default 6000) and cap the per-provider timeout (default 40s) so
 a slow 14B fails over to the funded DeepSeek fallback fast.
 
-These are gated on _compact_prompt_active(); the full cloud chain is unchanged.
+R-F3606 (2026-08-01) CORRECTION: the premise in the paragraph above — "the
+sovereign 14B is chain-primary (ARIA_LLM_URL set)" — was FALSE in production.
+Under both SHADOW and the R-F2410 TWO-TRACK default, DeepSeek is chain primary
+and the sovereign is not in the chain at all (fallback.py:951-969); only
+ARIA_LLM_PRIMARY_ALL=1 makes it primary, and that is unset. So the two knobs
+gated on _compact_prompt_active() were tuning DEEPSEEK, not the sovereign:
+
+  - the 800-token completion cap starved deepseek-v4-* (reasoning models) into
+    returning empty content → total chat outage 2026-08-01;
+  - the 40s timeout cap only ever bound DeepSeek, because
+    aria_llm_provider.complete()/stream() have NO timeout parameter (**_kw
+    swallows it) and always ran on _DEFAULT_TIMEOUT=120.0.
+
+Both are now enforced at the sovereign's own boundary, where they bind the
+sovereign in every mode and cannot reach another provider. The context trim
+remains gated on _compact_prompt_active() and is unchanged.
 """
 import importlib
 import os
@@ -30,13 +45,37 @@ def test_compact_active_gates_on_aria_llm_url(monkeypatch):
     assert e._compact_prompt_active() is False
 
 
-def test_sovereign_caps_completion_tokens(monkeypatch):
+def test_sovereign_cap_is_enforced_where_the_sovereign_ACTUALLY_serves(monkeypatch):
+    """R-F3606 — this test previously asserted `_completion_max_tokens(...) == 800`
+    whenever ARIA_LLM_URL was set, which PINNED THE DEFECT AS THE DESIGN.
+
+    The property R-F1360/R-F1365 actually care about is "the sovereign is not
+    asked for more tokens than it can generate inside the chat timeout". Setting
+    the caller-side budget to 800 did not achieve that property — it capped
+    whichever provider served, and under SHADOW/TWO-TRACK that is DeepSeek, whose
+    v4 reasoning models then returned EMPTY content (finish_reason='length') and
+    took chat down completely on 2026-08-01.
+
+    So assert the PROPERTY, at the boundary where it is real, not the old number.
+    """
     e = _fresh_engine()
+    from aria_service.llm.aria_llm_provider import (
+        clamp_for_sovereign, SOVEREIGN_COMPLETION_CEILING,
+    )
+
+    # 1. A configured-but-not-serving sovereign must NOT starve the cloud chain.
     monkeypatch.setenv("ARIA_LLM_URL", "http://fake:8888/v1")
-    # R-F1360 sovereign output cap stays in force
-    assert e._completion_max_tokens("hello") == 800
+    assert e._completion_max_tokens("hello") == 4000, (
+        "a sovereign that is merely CONFIGURED must not cap DeepSeek's budget — "
+        "that is the 2026-08-01 outage"
+    )
     monkeypatch.delenv("ARIA_LLM_URL", raising=False)
     assert e._completion_max_tokens("hello") == 4000
+
+    # 2. The sovereign cap itself is still enforced — at the sovereign boundary.
+    assert SOVEREIGN_COMPLETION_CEILING == 800
+    assert clamp_for_sovereign(4000) == 800, "R-F1360's ceiling must still bind"
+    assert clamp_for_sovereign(500) == 500, "the clamp must only ever LOWER"
 
 
 def test_explicit_compact_flag_overrides(monkeypatch):
