@@ -44,10 +44,29 @@ NO_SOURCE_AXES = {"tooluse_trace_unavailable", "tooluse_challenge_unavailable"}
 
 
 def _rows():
+    """Every TRACE row in the tool-use corpora.
+
+    R-F3650 — selection is by SCHEMA, not by filename. This glob was written when
+    `aria_tooluse_*.jsonl` meant "an SFT trace corpus", and it now also matches
+    `aria_tooluse_dpo_v1.jsonl`, whose 13 rows are PREFERENCE PAIRS
+    (`prompt`/`chosen`/`rejected`) with no `messages` key at all — so these tests
+    died with `KeyError: 'messages'` on any machine that had run a DPO build.
+    The file is untracked, which is why the failure is invisible in CI and absent
+    from the suite baseline: it appears only after a real cycle produces pairs.
+
+    A preference pair is a legitimately different artefact, so it is skipped. A
+    row that is NEITHER a trace nor a pair is still yielded, so a genuinely
+    malformed corpus row keeps failing loudly instead of being filtered away.
+    """
     for f in glob.glob(str(ROOT / "data" / "training" / "aria_tooluse_*.jsonl")):
         for line in Path(f).read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                yield json.loads(line)
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if isinstance(row, dict) and "messages" not in row \
+                    and "chosen" in row and "rejected" in row:
+                continue          # a DPO preference pair, not a trace
+            yield row
 
 
 # --------------------------------------------------------------------------
