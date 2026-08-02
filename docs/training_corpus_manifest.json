@@ -1,0 +1,413 @@
+{
+ "recorded_at_commit": "d49f6185",
+ "note": "The corpus itself is untracked by design (size). This manifest is the PIN: a training run records these sha256s so a checkpoint can be attributed to exact inputs.",
+ "golden_set_prompts": 500,
+ "golden_set_source": "aria-intel live store (500 entries @ /data/aria_state.db:state.value; frozen pin a07b6af760ad7f441621ab6f95541f102626ad309cd2b83d6168a13c8d81a515 count=500)",
+ "contamination": "none",
+ "totals": {
+  "files": 57,
+  "rows": 31485,
+  "unparseable_rows": 0
+ },
+ "files": [
+  {
+   "file": "_grpo_kw_v2.sidecar.jsonl",
+   "sha256": "afbc08932967bf09515cfeccdf16de97",
+   "rows": 435,
+   "unparseable_rows": 0,
+   "bytes": 101935
+  },
+  {
+   "file": "_mini_sft_smoke.jsonl",
+   "sha256": "0a222a7fd06198d2e7c2b75c25bd883f",
+   "rows": 10,
+   "unparseable_rows": 0,
+   "bytes": 75632
+  },
+  {
+   "file": "_v04_sample.jsonl",
+   "sha256": "1c22e3bb7476460d8cd461a33cc90758",
+   "rows": 10,
+   "unparseable_rows": 0,
+   "bytes": 23046
+  },
+  {
+   "file": "aria_dd_depth_v05.jsonl",
+   "sha256": "19197289f8b690a90637081063d92abf",
+   "rows": 599,
+   "unparseable_rows": 0,
+   "bytes": 2425221
+  },
+  {
+   "file": "aria_dd_depth_v05_dpo.jsonl",
+   "sha256": "e30dce9310f29bbee8f95276ab0346da",
+   "rows": 599,
+   "unparseable_rows": 0,
+   "bytes": 2266091
+  },
+  {
+   "file": "aria_dd_depth_v05_sample.jsonl",
+   "sha256": "5f09cfebf21e1725688ce99b6f1e1b52",
+   "rows": 16,
+   "unparseable_rows": 0,
+   "bytes": 66046
+  },
+  {
+   "file": "aria_dd_depth_v05_sample_dpo.jsonl",
+   "sha256": "c6049da6ae31371c253fc83d7a60bb04",
+   "rows": 16,
+   "unparseable_rows": 0,
+   "bytes": 62070
+  },
+  {
+   "file": "aria_dd_framework_v06.jsonl",
+   "sha256": "6758bce061ca95ddeb0352121427613b",
+   "rows": 400,
+   "unparseable_rows": 0,
+   "bytes": 563927
+  },
+  {
+   "file": "aria_dd_framework_v06_dpo.jsonl",
+   "sha256": "f7c9112b0f0d3b43580c5fa10122df4e",
+   "rows": 400,
+   "unparseable_rows": 0,
+   "bytes": 437290
+  },
+  {
+   "file": "aria_dd_framework_v06_sample.jsonl",
+   "sha256": "6c2dace462c629d5b10a6fa42075d622",
+   "rows": 18,
+   "unparseable_rows": 0,
+   "bytes": 25303
+  },
+  {
+   "file": "aria_dd_framework_v06_sample_dpo.jsonl",
+   "sha256": "8fb569be4158570567e2308b55c12dd5",
+   "rows": 18,
+   "unparseable_rows": 0,
+   "bytes": 19512
+  },
+  {
+   "file": "aria_dd_framework_v07.jsonl",
+   "sha256": "1d920a3cb53ddb6f9f249519d4c9a2a5",
+   "rows": 1800,
+   "unparseable_rows": 0,
+   "bytes": 2653615
+  },
+  {
+   "file": "aria_dd_framework_v07_dpo.jsonl",
+   "sha256": "feb22329224aed33c5ff0866edc7eff4",
+   "rows": 1800,
+   "unparseable_rows": 0,
+   "bytes": 2033319
+  },
+  {
+   "file": "aria_dd_framework_v07_sample.jsonl",
+   "sha256": "f68417582eb3567fe42efef8aeed0205",
+   "rows": 20,
+   "unparseable_rows": 0,
+   "bytes": 29877
+  },
+  {
+   "file": "aria_dd_framework_v07_sample_dpo.jsonl",
+   "sha256": "decaf54b4de0749847309a312ea081e6",
+   "rows": 20,
+   "unparseable_rows": 0,
+   "bytes": 23144
+  },
+  {
+   "file": "aria_dpo_pairs_v1.jsonl",
+   "sha256": "b32e95d6ad71b315a97b2efbc2e8ca8f",
+   "rows": 469,
+   "unparseable_rows": 0,
+   "bytes": 2913365
+  },
+  {
+   "file": "aria_dpo_pairs_v1_str.jsonl",
+   "sha256": "9c17fe3828e989c9b48df6a972d14f40",
+   "rows": 469,
+   "unparseable_rows": 0,
+   "bytes": 2832255
+  },
+  {
+   "file": "aria_grounded_dpo_v2_widen.jsonl",
+   "sha256": "f03dd2445726f3063e00a2f540bdd695",
+   "rows": 1598,
+   "unparseable_rows": 0,
+   "bytes": 9203396
+  },
+  {
+   "file": "aria_grounded_v05_merged.jsonl",
+   "sha256": "2e2885ed7f4d28340aa6aa6a09037e64",
+   "rows": 1998,
+   "unparseable_rows": 0,
+   "bytes": 8349782
+  },
+  {
+   "file": "aria_grounded_v06_new.jsonl",
+   "sha256": "38f06631d791f6d9aff2d55a46b2a7df",
+   "rows": 797,
+   "unparseable_rows": 0,
+   "bytes": 3092897
+  },
+  {
+   "file": "aria_grounded_v06_new.jsonl.partial.jsonl",
+   "sha256": "cd734f7426cae69e50659a74b4d11a23",
+   "rows": 797,
+   "unparseable_rows": 0,
+   "bytes": 3109524
+  },
+  {
+   "file": "aria_grounded_v07_new.jsonl",
+   "sha256": "a70722368df5de1933d445d30e4d989c",
+   "rows": 384,
+   "unparseable_rows": 0,
+   "bytes": 1448166
+  },
+  {
+   "file": "aria_grounded_v07_new.jsonl.partial.jsonl",
+   "sha256": "2d8ff377060044f88446919106115b29",
+   "rows": 386,
+   "unparseable_rows": 0,
+   "bytes": 1456174
+  },
+  {
+   "file": "aria_grounded_v1.jsonl",
+   "sha256": "bc59d0ac0b87726c71a1ceea76a2f1da",
+   "rows": 664,
+   "unparseable_rows": 0,
+   "bytes": 2842653
+  },
+  {
+   "file": "aria_grounded_v1.jsonl.partial.jsonl",
+   "sha256": "32dc520470caf10465eb5c63df6cebc9",
+   "rows": 689,
+   "unparseable_rows": 0,
+   "bytes": 2630256
+  },
+  {
+   "file": "aria_grounded_v2.jsonl",
+   "sha256": "86c719ba862179b0d46cab8aaa9e72c8",
+   "rows": 1405,
+   "unparseable_rows": 0,
+   "bytes": 5708308
+  },
+  {
+   "file": "aria_grounded_v3.jsonl",
+   "sha256": "c11e720d86566dc4366397cba4a8ba02",
+   "rows": 1399,
+   "unparseable_rows": 0,
+   "bytes": 5924561
+  },
+  {
+   "file": "aria_grpo_prompts_v1.jsonl",
+   "sha256": "1484c6f4962e3565a4475ad28255f717",
+   "rows": 664,
+   "unparseable_rows": 0,
+   "bytes": 5266079
+  },
+  {
+   "file": "aria_sft_distill_500.jsonl",
+   "sha256": "a131277352031b4aee2276a49bde1c32",
+   "rows": 434,
+   "unparseable_rows": 0,
+   "bytes": 835685
+  },
+  {
+   "file": "aria_sft_distill_500_prefilter.jsonl",
+   "sha256": "904334b0a8fddc72ad0f2f954573f915",
+   "rows": 499,
+   "unparseable_rows": 0,
+   "bytes": 977957
+  },
+  {
+   "file": "aria_sft_distill_batch1.jsonl",
+   "sha256": "d11010005ec6fcdd76c6e7eec15845d1",
+   "rows": 100,
+   "unparseable_rows": 0,
+   "bytes": 229370
+  },
+  {
+   "file": "aria_sft_distill_batch2.jsonl",
+   "sha256": "d3dc827e73e7039de34080359d61d37d",
+   "rows": 399,
+   "unparseable_rows": 0,
+   "bytes": 748587
+  },
+  {
+   "file": "aria_sft_distill_v04.jsonl",
+   "sha256": "c49a839afe76f41ee66a605274c7f43b",
+   "rows": 689,
+   "unparseable_rows": 0,
+   "bytes": 1328102
+  },
+  {
+   "file": "aria_sft_distill_v04_failuremodes.jsonl",
+   "sha256": "ea1f0c85c7179ce27f452b4ef32b18b5",
+   "rows": 286,
+   "unparseable_rows": 0,
+   "bytes": 561420
+  },
+  {
+   "file": "aria_sft_distill_v04_failuremodes_clean.jsonl",
+   "sha256": "1868651319fd4447bab281c1a660b13f",
+   "rows": 255,
+   "unparseable_rows": 0,
+   "bytes": 492417
+  },
+  {
+   "file": "aria_tooluse_adverse_v1.jsonl",
+   "sha256": "97cb0387b0605364b2f32a2f31808b8a",
+   "rows": 93,
+   "unparseable_rows": 0,
+   "bytes": 561890
+  },
+  {
+   "file": "aria_tooluse_challenge_v1.jsonl",
+   "sha256": "7eae5d76ed2fd85a3513f79937be34e3",
+   "rows": 116,
+   "unparseable_rows": 0,
+   "bytes": 447242
+  },
+  {
+   "file": "aria_tooluse_contradiction_v1.jsonl",
+   "sha256": "3b5fc8ced49264490a1bb2fd309d03bd",
+   "rows": 89,
+   "unparseable_rows": 0,
+   "bytes": 651910
+  },
+  {
+   "file": "aria_tooluse_dpo_v1.jsonl",
+   "sha256": "d243fba2a44f024f5f999a13cd7dc8f7",
+   "rows": 13,
+   "unparseable_rows": 0,
+   "bytes": 73450
+  },
+  {
+   "file": "aria_tooluse_multihop_v1.jsonl",
+   "sha256": "d51c1275b46d825fd339be6eae62e76f",
+   "rows": 42,
+   "unparseable_rows": 0,
+   "bytes": 371729
+  },
+  {
+   "file": "aria_tooluse_news_v1.jsonl",
+   "sha256": "6c96735ba420d585c0215303bb994a5b",
+   "rows": 40,
+   "unparseable_rows": 0,
+   "bytes": 257110
+  },
+  {
+   "file": "aria_tooluse_person_v1.jsonl",
+   "sha256": "569458a8750542a42604dbacfe1ea004",
+   "rows": 30,
+   "unparseable_rows": 0,
+   "bytes": 87368
+  },
+  {
+   "file": "aria_tooluse_resolution_v1.jsonl",
+   "sha256": "36195213829d3f093dd6db16d7cb8f76",
+   "rows": 63,
+   "unparseable_rows": 0,
+   "bytes": 276971
+  },
+  {
+   "file": "aria_tooluse_unavailable_v1.jsonl",
+   "sha256": "6a86bfb0c1ebb32ab2463ce38e51ece4",
+   "rows": 28,
+   "unparseable_rows": 0,
+   "bytes": 120092
+  },
+  {
+   "file": "aria_tooluse_v1.jsonl",
+   "sha256": "ecfa21587077e2797a941c9110a36220",
+   "rows": 155,
+   "unparseable_rows": 0,
+   "bytes": 565216
+  },
+  {
+   "file": "aria_train_689_openbook.jsonl",
+   "sha256": "5f68d9f1ae537c3de916ffa3df3ca313",
+   "rows": 689,
+   "unparseable_rows": 0,
+   "bytes": 2383677
+  },
+  {
+   "file": "aria_train_689_questions.jsonl",
+   "sha256": "94fb2320cb18831f797b86fd849c6e18",
+   "rows": 689,
+   "unparseable_rows": 0,
+   "bytes": 171699
+  },
+  {
+   "file": "aria_train_v06_new_questions.jsonl",
+   "sha256": "d4f532a658c26d64eefc7553fa9e10ec",
+   "rows": 797,
+   "unparseable_rows": 0,
+   "bytes": 141061
+  },
+  {
+   "file": "aria_train_v06_openbook.jsonl",
+   "sha256": "f249474139b7414006b83ed2b1f0b8b3",
+   "rows": 797,
+   "unparseable_rows": 0,
+   "bytes": 2629178
+  },
+  {
+   "file": "aria_train_v07_openbook.jsonl",
+   "sha256": "3b7bc11060b6b8fcd659624437e5b2dc",
+   "rows": 386,
+   "unparseable_rows": 0,
+   "bytes": 1253913
+  },
+  {
+   "file": "aria_train_v07_questions.jsonl",
+   "sha256": "e109508c0cfa69c3c7c42ed57c0d571d",
+   "rows": 405,
+   "unparseable_rows": 0,
+   "bytes": 80739
+  },
+  {
+   "file": "aria_train_v07_questions_clean.jsonl",
+   "sha256": "a1d16393af99966e78dce522777176dd",
+   "rows": 386,
+   "unparseable_rows": 0,
+   "bytes": 76991
+  },
+  {
+   "file": "aria_v06_merged.jsonl",
+   "sha256": "7ce0f137b5e8affefb0b0f30a664f0d3",
+   "rows": 1799,
+   "unparseable_rows": 0,
+   "bytes": 6488488
+  },
+  {
+   "file": "aria_v07_merged.jsonl",
+   "sha256": "ca0aaafbd0e532a2e87cdc1bbce7b3d4",
+   "rows": 3599,
+   "unparseable_rows": 0,
+   "bytes": 9142103
+  },
+  {
+   "file": "grpo_grounded_prompts_v2.jsonl",
+   "sha256": "4277d59cbac3a8f0d648aa1f8da51e0c",
+   "rows": 664,
+   "unparseable_rows": 0,
+   "bytes": 4898402
+  },
+  {
+   "file": "mined_code_fixes_train.jsonl",
+   "sha256": "24894ccf6b31a7a221039fa6464f080a",
+   "rows": 28,
+   "unparseable_rows": 0,
+   "bytes": 10782217
+  },
+  {
+   "file": "mined_code_fixes_verified.jsonl",
+   "sha256": "640955f69d5ab977c8a573114752622a",
+   "rows": 35,
+   "unparseable_rows": 0,
+   "bytes": 23800781
+  }
+ ]
+}
