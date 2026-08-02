@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3640,
+  "next_available": 3644,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30435,6 +30435,43 @@
       "r_number": "R-F3639",
       "title": "training pre-flight: bridge corpus and golden set so the section 24 gate can actually run",
       "claimed_at": "2026-08-02T10:34:40Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "69fccd1d",
+      "notes": null,
+      "shipped_at": "2026-08-02T10:40:48Z"
+    },
+    {
+      "r_number": "R-F3640",
+      "title": "gate 5 measures env only, so it cannot see the runtime override that has autonomy on",
+      "claimed_at": "2026-08-02T12:33:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3641",
+      "title": "sanctions refusal returns omit the screened key so 8 consumers read a refused screen as performed",
+      "claimed_at": "2026-08-02T12:33:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3642",
+      "title": "person DD screens operator-supplied names as free_text so the shape heuristic refuses them",
+      "claimed_at": "2026-08-02T12:33:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3643",
+      "title": "JSONResponse undefined in the LLM cooldown clear operator lever",
+      "claimed_at": "2026-08-02T12:33:28Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

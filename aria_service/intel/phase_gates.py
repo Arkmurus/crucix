@@ -279,21 +279,62 @@ async def compute_phase_gates() -> dict:
         auto = _first_env("ARIA_AUTONOMOUS_ENABLED", "AUTONOMOUS_ENABLED")
         harvest = _first_env("ARIA_OUTPUT_HARVEST_ENABLED", "HARVEST_ENABLED")
         level = _first_env("ARIA_AUTONOMY_LEVEL", "AUTONOMY_LEVEL")
+
+        # R-F3640 — the autonomy master switch is NOT env-only, so reading env alone
+        # measured the wrong surface. `engine.is_enabled()` documents the precedence:
+        # a durable override at crucix:autonomous:enabled_override wins over the env
+        # var in BOTH directions ("1" force-enables, "0" force-disables), and it is the
+        # designed control plane — /autonomous/enable exists so the switch can flip
+        # without a redeploy (the 2026-04-18 wrong-environment incident in engine.py).
+        #
+        # Live on aria-intel 2026-08-02: ARIA_AUTONOMOUS_ENABLED=0 while the override
+        # is "1" and the engine is genuinely running at L3 (98 tasks, ticking). The gate
+        # reported OPEN for a capability that was ON — a false NEGATIVE. It is the mirror
+        # of the fabricated passes this file keeps removing, and it is fixed the same way:
+        # by measuring MORE, never by assuming. The source is reported per-var so a pass
+        # earned by the override can never be mistaken for a pass earned by the secret.
+        auto_ok: bool | None
+        auto_src: str
+        try:
+            # get_STRICT, matching engine.refresh_runtime_override() exactly: the
+            # override is written with rs.set() as a bare string, so the json layer in
+            # get_json_strict would be a second interpretation of the same value — and
+            # it swallows a parse failure into None, which here would silently fall
+            # back to env and reproduce the very false negative this fixes.
+            override = await rs.get_strict("crucix:autonomous:enabled_override")
+        except Exception:
+            # Cannot rule out an override in EITHER direction, so the effective state is
+            # genuinely unknown — never "measured and failed" (the tri-state contract).
+            override, auto_ok, auto_src = None, None, "override_unreadable"
+        else:
+            ov = str(override).strip() if override is not None else ""
+            if ov in ("0", "1"):
+                auto_ok, auto_src = ov == "1", f"runtime_override={ov}"
+            else:
+                auto_ok, auto_src = auto == "1", "env"
+
         env_status = {
-            "ARIA_AUTONOMOUS_ENABLED": auto == "1",
+            # harvest + level have no override mechanism — env is the whole truth there.
+            "ARIA_AUTONOMOUS_ENABLED": auto_ok,
             "ARIA_OUTPUT_HARVEST_ENABLED": harvest == "1",
             "ARIA_AUTONOMY_LEVEL": bool(level and level.isdigit() and int(level) >= 1),
         }
-        missing = [k for k, ok in env_status.items() if not ok]
+        missing = [k for k, ok in env_status.items() if ok is False]
+        unknown = [k for k, ok in env_status.items() if ok is None]
         gates["gate_5_env_vars"] = _gate(
             5, "gate_5_env_vars", "Env vars set", "Required env vars set",
-            {"missing": missing, "total": len(env_status)},
-            not missing,
-            "os.environ (ARIA_-prefixed; R-F1557)",
+            {"missing": missing, "total": len(env_status),
+             **({"unknown": unknown} if unknown else {})},
+            None if unknown else not missing,
+            "os.environ + autonomous runtime override (R-F1557/R-F3640)",
             by_var=env_status,
+            by_var_source={"ARIA_AUTONOMOUS_ENABLED": auto_src,
+                           "ARIA_OUTPUT_HARVEST_ENABLED": "env",
+                           "ARIA_AUTONOMY_LEVEL": "env"},
+            env_var_value={"ARIA_AUTONOMOUS_ENABLED": auto},
             note="ACLED deferred per operator 2026-06-07 (MVP launch)",
         )
-        sources["env_vars"] = "os.environ"
+        sources["env_vars"] = "os.environ + crucix:autonomous:enabled_override"
     except Exception as e:
         gates["gate_5_env_vars"] = _gate(
             5, "gate_5_env_vars", "Env vars set", "Required env vars set",
