@@ -167,6 +167,32 @@ SYSTEM_PROMPT = (
 # this suffix on Finding.source is load-bearing; consumers parse it).
 _CITE_RE = re.compile(r"\[from ([^\]]+)\]")
 
+
+def _norm_cite(source: object) -> str:
+    """R-F3649 — the ONE spelling of a source identity, for BOTH sides of a
+    citation check.
+
+    `_independent_sources` builds the allowlist from URLs and already strips the
+    `www.` prefix and lowercases. The two checks below then compared the model's
+    citation RAW against that normalised set, so citing `www.reuters.com` when
+    the payload returned `https://www.reuters.com/...` was scored as a citation
+    "no tool result contains" — while `reuters.com` passed. The producer
+    normalised and the consumer did not; the model was penalised for the
+    difference between two spellings of the same outlet.
+
+    Measured on the 2026-08-02 tool-use cycle: 2 of 168 held-out rows failed for
+    this reason ALONE (rows 1 and 91), each with no other error, understating the
+    trained rate as 0.875 when it was 0.887. It also taught the corpus builder to
+    reject correctly-grounded rows.
+
+    Normalising only case and the `www.` prefix cannot admit a fabrication:
+    `www.X` and `X` are the same host, so nothing is newly allowed that was not
+    already returned by a tool. This is deliberately NOT a fuzzy match — a
+    subdomain (`uk.reuters.com`) stays distinct, because it is a distinct URL.
+    """
+    s = str(source or "").strip().lower()
+    return s[4:] if s.startswith("www.") else s
+
 # R-F3366 — match a CLAIM, not a word. The honest unperformed answer necessarily
 # contains "clean"/"clear" while DENYING them ("this is NOT a clean result"), so a
 # bare substring test flags the very text it exists to protect. These patterns
@@ -565,7 +591,9 @@ def validate_trace(trace: Any) -> list[str]:
             register, _, ident = tok.partition(":")
             if ident and ident in _payload_text and register in TOOL_NAMES | {"companies_house"}:
                 continue
-        if cited.strip() not in allowed:
+        # R-F3649 — compare NORMALISED, both sides. The error text still shows what
+        # the model actually wrote, so a genuine miss stays legible.
+        if _norm_cite(cited) not in {_norm_cite(a) for a in allowed}:
             errs.append(
                 f"final answer cites {cited.strip()!r}, which no tool result contains "
                 f"(available: {sorted(allowed) or 'none'})"
@@ -607,7 +635,9 @@ def validate_trace(trace: Any) -> list[str]:
         for p in search_payloads:
             indep |= _independent_sources(p)
         for cited in _CITE_RE.findall(final):
-            if cited.strip() not in indep:
+            # R-F3649 — same normalisation as the generic check above; this is the
+            # site that produced the news_impact 1.000 -> 0.833 regression.
+            if _norm_cite(cited) not in {_norm_cite(s) for s in indep}:
                 errs.append(
                     f"analysis cites outlet {cited.strip()!r}, which the search did not "
                     f"return as an independent source (available: {sorted(indep) or 'none'})"
