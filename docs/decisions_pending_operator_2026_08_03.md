@@ -1,5 +1,34 @@
 # Operator decisions pending — 2026-08-03
 
+> **RESOLVED same evening — the deploy blocker is gone.** aria-web and aria-wa
+> now have app-scoped Fly deploy tokens (`FLY_API_TOKEN_WEB` / `FLY_API_TOKEN_WA`,
+> created with `flyctl tokens create deploy -a <app>` and stored via `gh secret
+> set` reading stdin). All three apps are live and verified:
+> aria-intel, aria-web and aria-wa all report a matching `build_rev` — the first
+> time aria-wa has ever reported one at all (R-F3666).
+>
+> Two things worth recording, because both were silent failures of the kind this
+> whole sweep is about:
+> 1. The first attempt failed with `Authenticate: token validation error`.
+>    Piping the token through the PowerShell pipeline into `gh secret set`
+>    appended a trailing CRLF, which became part of the stored secret. Fixed by
+>    writing the token with no trailing newline and redirecting it as stdin.
+> 2. The four superseded tokens from the failed attempts have been **revoked**
+>    (`flyctl tokens revoke`), leaving exactly one active deploy token per app.
+>
+> **The "17 degraded organs" was a post-deploy transient, not 17 broken organs.**
+> Measured in-process on the live machine: cached and fresh readings now agree at
+> **25 green / 0 amber / 0 red**. The amber readings were agent heartbeats that
+> had gone stale across a restart. R-F3667 remains correct and necessary — amber
+> must be visible — but expect `/health` to read *degraded* for a few minutes
+> after every deploy, which is honest rather than noisy: until an agent beats,
+> its liveness genuinely is not confirmed.
+>
+> **Still true and still worth acting on:** only **25 of 623 nodes (4%) have a
+> live sensor**. The estate's health is being judged on 4% coverage, and every
+> aria-web organ still maps to 0 modules. That is the real gap behind the
+> dashboard, and no rollup fix substitutes for it.
+
 Four items surfaced by the 360 sweep + 15-cycle live log sweep that **code
 cannot close**. Each states the evidence, the options, and my recommendation.
 Recorded here rather than left in a chat message, per §19e.
