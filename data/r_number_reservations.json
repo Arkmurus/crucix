@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3644,
+  "next_available": 3655,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30472,6 +30472,87 @@
       "r_number": "R-F3643",
       "title": "JSONResponse undefined in the LLM cooldown clear operator lever",
       "claimed_at": "2026-08-02T12:33:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3644",
+      "title": "admin LLM cooldown clear endpoint raised NameError on both failure branches",
+      "claimed_at": "2026-08-03T17:29:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3645",
+      "title": "redis_store lrem TypeErrored because the module shadows builtin set",
+      "claimed_at": "2026-08-03T17:29:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3646",
+      "title": "news_monitor vault-suspend wiring passed kwargs wire_failure does not accept",
+      "claimed_at": "2026-08-03T17:30:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3647",
+      "title": "DD TBML screen silently skipped every transaction on a keyword-only call",
+      "claimed_at": "2026-08-03T17:30:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3648",
+      "title": "chat deep-DD dedup key was never canonical - keyword-only call always TypeErrored",
+      "claimed_at": "2026-08-03T17:30:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3651",
+      "title": "R-F1770 deleted R-F1760 self-healing loop - every WA mention threw ReferenceError",
+      "claimed_at": "2026-08-03T17:37:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3652",
+      "title": "waListener reportOutcome was never defined so optional-call still threw",
+      "claimed_at": "2026-08-03T17:37:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3653",
+      "title": "waListener duplicate case investigate made the second handler dead",
+      "claimed_at": "2026-08-03T17:37:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3654",
+      "title": "admin user reactivation branch unreachable - no email and audit logged approve",
+      "claimed_at": "2026-08-03T17:37:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

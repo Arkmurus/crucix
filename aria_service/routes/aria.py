@@ -1765,6 +1765,13 @@ async def admin_llm_cooldown_clear_ep(request: Request, provider: str = ""):
     Operator-token only (see _OPERATOR_ONLY_RE): clearing a cooldown re-enables a
     provider and therefore re-enables SPEND (§17).
     """
+    # R-F3644: both failure branches below returned JSONResponse, but this module
+    # does NOT import it at top level — every other endpoint in this file imports
+    # it locally. So the two paths that report WHY the lever could not act raised
+    # `NameError: JSONResponse` instead, and the operator got an opaque 500 at
+    # exactly the moment the documented §17 remedy for a 24h billing cooldown was
+    # failing. The success path returns a plain dict, which is why this survived.
+    from fastapi.responses import JSONResponse
     llm = getattr(request.app.state, "llm_provider", None)
     if llm is None or not hasattr(llm, "clear_cooldown"):
         return JSONResponse(
@@ -8539,11 +8546,25 @@ def _launch_deep_dd_bg(target: dict, llm, *, user_id: str, user_email: str | Non
     Returns True if a job was launched, False if not eligible / de-duped."""
     if not user_id:
         return False
+    _raw_name = target.get("name") or target.get("entity") or ""
     try:
+        # R-F3648: canonical_entity_id is KEYWORD-ONLY
+        # (def canonical_entity_id(*, entity_type, name, ...)), so passing the
+        # name positionally raised TypeError on EVERY call and the except below
+        # silently downgraded the de-dup key to a lowercased raw string. Two
+        # spellings of the same entity therefore hashed to different keys, so
+        # _DD_DEEP_BG_INFLIGHT never de-duped them and the same entity could
+        # stack concurrent 840s deep DD jobs. Identical defect to R-F1842.
         from ..intel.dd_versioning import canonical_entity_id as _canon
-        _ent = _canon(target.get("name") or target.get("entity") or "")
+        _ent = _canon(
+            entity_type=target.get("entity_type") or "company",
+            name=_raw_name,
+            jurisdiction_iso2=(target.get("jurisdiction_iso2")
+                               or target.get("jurisdiction") or None),
+            registration_number=target.get("registration_number") or None,
+        ) or _raw_name.strip().lower()
     except Exception:
-        _ent = (target.get("name") or target.get("entity") or "").strip().lower()
+        _ent = _raw_name.strip().lower()
     if not _ent:
         return False
     _key = (_ent, user_id)

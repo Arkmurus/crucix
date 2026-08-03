@@ -2082,11 +2082,17 @@ def _bump_vault_failstreak(url: str) -> None:
                 metadata={"fail_streak": streak, "auto_suspended": True},
             )
             try:
+                # R-F3646: this call passed `summary=` and `source_id=`, which
+                # wire_failure(module, detail, gap_type, source) does NOT accept
+                # — so it raised TypeError into the `except: pass` below and the
+                # auto-suspension of a vault source NEVER reached the brain. It
+                # read as wired to any grep (§21a) while being dark at runtime.
                 wire_failure(
                     module="news_monitor",
-                    summary=f"Vault source auto-suspended: {sid}",
-                    detail=f"{streak} consecutive failures | url={url[:120]}",
-                    source_id=f"news_monitor:suspend:{sid}",
+                    detail=f"Vault source auto-suspended: {sid} | "
+                           f"{streak} consecutive failures | url={url[:120]}",
+                    gap_type="source_failure",
+                    source=f"news_monitor:suspend:{sid}",
                 )
             except Exception:
                 pass
@@ -2226,11 +2232,15 @@ def _wire_scrape_failure(name: str, url: str, why: str) -> None:
     rotted invisibly. Wire it to the brain so the self-heal/coder loop can see it.
     Best-effort — telemetry must never break the poll path."""
     try:
+        # R-F3646: same defect as _bump_vault_failstreak — `summary=`/`source_id=`
+        # are not parameters of wire_failure, so this raised TypeError into the
+        # `except: pass` and a rotting vault website stayed invisible, which is
+        # the exact outcome R-F2214 added this call to prevent.
         wire_failure(
             module="news_monitor",
-            summary=f"Vault website scrape empty: {name}",
-            detail=f"{why} | url={url[:150]}",
-            source_id=f"news_monitor:scrape:{name}",
+            detail=f"Vault website scrape empty: {name} | {why} | url={url[:150]}",
+            gap_type="source_failure",
+            source=f"news_monitor:scrape:{name}",
         )
     except Exception:
         pass

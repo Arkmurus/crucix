@@ -7021,15 +7021,22 @@ app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
 
     // Emails + audit on status change
     if (status && status !== existingUser.status) {
-      if (status === 'active') {
+      // R-F3654: the unsuspend arm used to be the THIRD branch of this chain,
+      // behind a bare `status === 'active'` — so it could never execute. Every
+      // reactivation of a suspended user therefore sent the WELCOME email
+      // instead of the reactivation email, and wrote `approve` into the audit
+      // log instead of `unsuspend`, which quietly falsified the admin audit
+      // trail for that action. Ordering the specific case before the general
+      // one is the fix; the two conditions are no longer overlapping.
+      if (status === 'active' && existingUser.status === 'suspended') {
+        await sendReactivationEmail(existingUser.email, existingUser.fullName).catch(() => {});
+        logAudit({ adminId: req.user.userId, adminEmail: admin?.email || '', action: 'unsuspend', targetId: existingUser.id, targetEmail: existingUser.email, targetName: existingUser.fullName });
+      } else if (status === 'active') {
         await sendWelcomeEmail(existingUser.email, existingUser.fullName).catch(() => {});
         logAudit({ adminId: req.user.userId, adminEmail: admin?.email || '', action: 'approve', targetId: existingUser.id, targetEmail: existingUser.email, targetName: existingUser.fullName });
       } else if (status === 'suspended') {
         await sendSuspensionEmail(existingUser.email, existingUser.fullName).catch(() => {});
         logAudit({ adminId: req.user.userId, adminEmail: admin?.email || '', action: 'suspend', targetId: existingUser.id, targetEmail: existingUser.email, targetName: existingUser.fullName });
-      } else if (status === 'active' && existingUser.status === 'suspended') {
-        await sendReactivationEmail(existingUser.email, existingUser.fullName).catch(() => {});
-        logAudit({ adminId: req.user.userId, adminEmail: admin?.email || '', action: 'unsuspend', targetId: existingUser.id, targetEmail: existingUser.email, targetName: existingUser.fullName });
       }
     }
     if (role && role !== existingUser.role) {

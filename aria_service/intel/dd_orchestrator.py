@@ -15828,21 +15828,70 @@ async def _orchestrate_dd_impl(
             if isinstance(_txns, list) and _txns:
                 from . import tbml_detection as _tbml
                 _tbml_results: list[dict[str, Any]] = []
+                _tbml_unscreenable = 0
                 for _t in _txns[:25]:
                     if not isinstance(_t, dict):
                         continue
+                    # R-F3647: this passed the whole transaction dict as ONE
+                    # POSITIONAL argument, but analyze_transaction is
+                    # keyword-only (def analyze_transaction(*, declared_unit_value,
+                    # hs_code, exporter_country, importer_country, ...)). Every
+                    # call therefore raised TypeError straight into the
+                    # `except Exception: continue` below, so _tbml_results was
+                    # ALWAYS empty and the TBML screen silently produced nothing
+                    # on every DD that supplied transactions. Same defect class
+                    # as R-F1842. Key names mirror the /tbml/analyze endpoint,
+                    # which reads exactly these fields off the request body.
+                    _declared = _t.get("declared_unit_value")
+                    _hs       = _t.get("hs_code")
+                    _exp_c    = _t.get("exporter_country")
+                    _imp_c    = _t.get("importer_country")
+                    if not (_declared and _hs and _exp_c and _imp_c):
+                        # A transaction we cannot screen is NOT a clean one
+                        # (R-F2496 never-false-clean) — count it so the rollup
+                        # below can report partial coverage honestly.
+                        _tbml_unscreenable += 1
+                        continue
                     try:
-                        _r = await asyncio.wait_for(_tbml.analyze_transaction(_t), timeout=6)
+                        _r = await asyncio.wait_for(
+                            _tbml.analyze_transaction(
+                                declared_unit_value=float(_declared),
+                                hs_code=str(_hs),
+                                exporter_country=str(_exp_c),
+                                importer_country=str(_imp_c),
+                                year=_t.get("year"),
+                                quantity=_t.get("quantity", 1),
+                            ),
+                            timeout=6,
+                        )
                         if isinstance(_r, dict):
                             _tbml_results.append(_r)
-                    except Exception:
+                        else:
+                            _tbml_unscreenable += 1
+                    except Exception as _tbml_err:
+                        # Log it. The bare `continue` here is what let a
+                        # permanent programming error look like "no anomalies"
+                        # for the life of the feature.
+                        _tbml_unscreenable += 1
+                        logger.warning(
+                            "[dd_orchestrator] TBML screen failed for HS %s %s->%s: %s",
+                            _hs, _exp_c, _imp_c, _tbml_err,
+                        )
                         continue
-                if _tbml_results:
+                if _tbml_results or _tbml_unscreenable:
                     # R-F2496 — never-false-clean rollup: INDETERMINATE (COMTRADE
                     # down / no benchmark) is NOT "analysed clean", and anomalies
                     # are counted by grade (the old anomaly_tier=='HIGH' sum was
                     # always 0). See tbml_detection.summarize_tbml_results.
-                    _forensic_out["tbml"] = _tbml.summarize_tbml_results(_tbml_results)
+                    _tbml_summary = _tbml.summarize_tbml_results(_tbml_results)
+                    # R-F3647: carry the count of supplied-but-unscreenable
+                    # transactions. summarize_tbml_results([]) already reports
+                    # coverage='unavailable', but without this the report could
+                    # not distinguish "no transactions supplied" from "25
+                    # supplied and none could be screened".
+                    _tbml_summary["transactions_unscreenable"] = _tbml_unscreenable
+                    _tbml_summary["transactions_supplied"] = len(_txns[:25])
+                    _forensic_out["tbml"] = _tbml_summary
             if _forensic_out:
                 try:
                     report.forensic = _forensic_out  # type: ignore[attr-defined]

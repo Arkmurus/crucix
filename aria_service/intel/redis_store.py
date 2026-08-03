@@ -29,6 +29,7 @@ script (scripts/migrate_state.py) can read from both at once.
 from __future__ import annotations
 
 import asyncio
+import builtins
 import json
 import logging
 import os
@@ -419,7 +420,17 @@ async def lrem(key: str, count: int, value: str) -> int:
         return 0
     remaining = abs(count) if count else len(items)
     indexes = range(len(items)) if count >= 0 else range(len(items) - 1, -1, -1)
-    remove_indexes: set[int] = set()
+    # R-F3645: this module defines `async def set(key, value, ...)` at module
+    # scope (the Redis SET mirror), which SHADOWS the builtin. A bare `set()`
+    # here therefore called that coroutine function with no arguments and raised
+    # `TypeError: set() missing 2 required positional arguments`, so the
+    # in-memory fallback of lrem never worked — including the fall-through taken
+    # when a real Redis LREM raises (line above logs and drops through). Address
+    # the builtin explicitly. The annotation is qualified too: `set[int]` there
+    # is inert today only because `from __future__ import annotations` makes
+    # annotations strings — anything that later resolves them (typing.get_type_hints,
+    # a runtime validator) would subscript the coroutine function and blow up.
+    remove_indexes: builtins.set[int] = builtins.set()
     for index in indexes:
         if remaining and items[index] == value:
             remove_indexes.add(index)

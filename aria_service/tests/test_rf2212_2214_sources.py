@@ -181,7 +181,21 @@ async def test_rf2214_dead_feed_is_wired_to_brain(monkeypatch):
 async def test_rf2214_empty_website_scrape_is_wired(monkeypatch):
     from aria_service.intel import news_monitor as nm
     calls = []
-    monkeypatch.setattr(nm, "wire_failure", lambda **kw: calls.append(kw))
+
+    # R-F3646: this spy used to be `lambda **kw: calls.append(kw)`, which accepts
+    # ANY keyword. The production call passed `summary=`/`source_id=` — neither of
+    # which wire_failure(module, detail, gap_type, source) accepts — so the real
+    # call raised TypeError into its `except: pass` and never reached the brain,
+    # while this test stayed green against a spy that tolerated the bad shape.
+    # Binding the REAL signature is what makes the test able to fail (§23).
+    import inspect as _inspect
+    _real_sig = _inspect.signature(nm.wire_failure)
+
+    def _spy(*args, **kwargs):
+        _real_sig.bind(*args, **kwargs)      # raises TypeError on a bad call shape
+        calls.append(kwargs)
+
+    monkeypatch.setattr(nm, "wire_failure", _spy)
 
     # probe raises → _wire_scrape_failure must fire
     import aria_service.intel.researcher as _r
@@ -190,4 +204,7 @@ async def test_rf2214_empty_website_scrape_is_wired(monkeypatch):
     monkeypatch.setattr(_r, "extract_url_text", _probe_boom)
     out = await nm._scrape_vault_website("vault:X", "https://example.com", "vault_curated", "en", "tier_2", ["custom"])
     assert out == {"fetched": 0, "new": 0}
-    assert any("scrape" in (c.get("source_id", "").lower()) for c in calls)
+    assert calls, "the §21a scrape-failure wire never fired"
+    # `source` is the real parameter name (the sibling feed test above asserts the
+    # same key); `source_id` belongs to wire_success and never existed here.
+    assert any("scrape" in (c.get("source", "").lower()) for c in calls)
