@@ -121,7 +121,7 @@ anthropic>=0.40.0
 # model. Pure-Python, ~22 KB, MIT licence, no network calls, no LLM. Part
 # of the OSS-only learning framework (R-F664 + R-F662) that lets ARIA's
 # learning loop run without Anthropic / DeepSeek.
-fsrs>=6.3.0
+fsrs>=6.3.1
 
 # ── Lightpanda headless browser (JS rendering fallback) ──────────────────
 # Playwright acts as a thin CDP client connecting to Lightpanda's server —
