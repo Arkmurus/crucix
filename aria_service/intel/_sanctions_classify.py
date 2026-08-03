@@ -487,6 +487,26 @@ _CORP_SUFFIXES: set[str] = {
     "industry", "trading", "trade", "services", "service", "solutions",
     "systems", "technologies", "technology", "tech", "enterprise",
     "enterprises", "partners", "partnership", "associates",
+    # Financial-sector descriptors. The list above covers industrial and tech
+    # naming thoroughly and omitted the financial equivalents entirely — in a
+    # product whose subjects are overwhelmingly investment vehicles.
+    #
+    # MEASURED, run dd_29368fbb8b3d (2026-08-03): "BATSELA CAPITAL INVESTMENTS
+    # L.L.P" was HARD_STOP'd against OFAC SDN "D.G.D. INVESTMENTS LTD." at score
+    # 0.85. The ONLY shared token was "investments". It survived the single-
+    # overlap guard below purely because that guard demotes on token LENGTH
+    # (<5, the R-F351 acronym rule) and "investments" is eleven characters —
+    # length is not evidence, distinctiveness is. The report told the operator
+    # to refuse the engagement and consider filing a SAR, which is exactly the
+    # outcome the comment on that guard says must be avoided at almost any cost.
+    #
+    # Genuine matches are unaffected: an exact-name hit still scores >=0.95 and
+    # takes the R-F569 bypass before overlap is consulted at all, and any real
+    # entity carries at least one distinctive token beyond these.
+    "investments", "investment", "invest", "capital", "capitals",
+    "ventures", "venture", "equity", "equities", "asset", "assets",
+    "fund", "funds", "finance", "financial", "financials", "management",
+    "advisors", "advisers", "advisory", "securities",
     # Slovenian / Croatian / Serbian
     "d.o.o", "doo", "d.d", "d.n.o", "k.d",
     # Greek
