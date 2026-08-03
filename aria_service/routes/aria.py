@@ -26269,10 +26269,25 @@ async def health_check_ep():
         degraded_reasons.append("mastery_unknown")
     if ecosystem_health_error:
         degraded_reasons.append("ecosystem_health_unknown")
-    elif ecosystem_health.get("red", 0) > 0:
-        degraded_reasons.append(
-            f"ecosystem_red_nodes_{ecosystem_health['red']}"
-        )
+    else:
+        # R-F3667 — this only ever consulted `red`, so AMBER (degraded) nodes
+        # were invisible to the rollup. Live 2026-08-03 the dashboard read
+        # "ECOSYSTEM: HEALTHY" on the same line as "15 healthy · 17 degraded ·
+        # 0 broken" — a majority-degraded estate certifying itself clean,
+        # because red == 0 short-circuited the only check.
+        #
+        # `amber` is already collected two dozen lines above and then dropped on
+        # the floor. A degraded organ is not a healthy one: any amber means the
+        # ecosystem is NOT healthy, and the honest badge is "degraded" with the
+        # count. If that reads noisy, the fix is to repair the degraded organs —
+        # not to keep the rollup blind to them (§ never-false-clean, and the
+        # same reasoning as R-F3470's "unknown is never evidence of healthy").
+        _eco_red = int(ecosystem_health.get("red") or 0)
+        _eco_amber = int(ecosystem_health.get("amber") or 0)
+        if _eco_red > 0:
+            degraded_reasons.append(f"ecosystem_red_nodes_{_eco_red}")
+        if _eco_amber > 0:
+            degraded_reasons.append(f"ecosystem_degraded_nodes_{_eco_amber}")
     core_breakdown = mastery.get("core_breakdown", {}) or {}
     if core_breakdown:
         scaffolded_core = sum(
