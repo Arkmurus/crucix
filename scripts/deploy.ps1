@@ -87,8 +87,15 @@ if ($All) {
 # the run tool. Detect repo root by walking up from the script path.
 $SCRIPT_DIR = Split-Path -Parent $PSCommandPath
 if (-not $SCRIPT_DIR) { $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path }
-if (-not $SCRIPT_DIR) { $SCRIPT_DIR = "C:\code\crucix" }  # fallback
-$REPO_ROOT = Split-Path -Parent $SCRIPT_DIR
+if ($SCRIPT_DIR) {
+    $REPO_ROOT = Split-Path -Parent $SCRIPT_DIR
+} else {
+    # Last resort: ask git for the checkout root. The previous fallback hardcoded
+    # "C:\code\crucix" — machine-specific AND wrong, because the line below takes
+    # its PARENT, so it resolved to "C:\code" rather than to a repo root at all.
+    $REPO_ROOT = (& git rev-parse --show-toplevel) -replace '/', '\'
+}
+if (-not $REPO_ROOT) { throw "deploy.ps1: cannot determine repo root" }
 Set-Location $REPO_ROOT
 
 $GIT_SHA = git rev-parse HEAD

@@ -15,6 +15,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+from ._source_probe import repo_path
+
 
 # ───────────────────────── R-F333 — boot diagnostic source ────────────────────
 
@@ -23,7 +25,7 @@ def test_rf333_boot_diagnostic_present_in_main():
     must be present in main.py's lifespan."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/main.py"
+        repo_path("aria_service/main.py")
     ).read_text(encoding="utf-8", errors="ignore")
     assert "R-F333" in src
     assert "reasoning_library boot diagnostic" in src

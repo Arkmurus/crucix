@@ -16,6 +16,7 @@ symbol, define the helper) — do NOT add the file to an allowlist.
 from __future__ import annotations
 
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -47,7 +48,14 @@ def test_no_undefined_names_in_backend():
     for ln in out.splitlines():
         if "undefined name" not in ln.lower():
             continue
-        path = ln.replace("\\", "/").split(":", 1)[0]
+        # Extract the path by anchoring on the trailing ":<line>:<col>:" that
+        # pyflakes always emits. The previous `split(":", 1)[0]` broke on Windows:
+        # "C:/Code/.../tests/x.py:90:34: ..." split at the DRIVE-LETTER colon and
+        # yielded "C", so `"/tests/" in path` was never true and every test-file
+        # hit leaked through as a false offender. Correct on Linux CI, wrong on a
+        # Windows dev box — the gate has to behave identically on both.
+        m = re.match(r"^(.*?):\d+:\d+:", ln)
+        path = (m.group(1) if m else ln).replace("\\", "/")
         if "/tests/" in path:        # test fixtures legitimately reference conftest/parametrize names
             continue
         offenders.append(ln.strip())

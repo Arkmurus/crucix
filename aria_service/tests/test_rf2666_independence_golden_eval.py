@@ -87,9 +87,6 @@ def test_scorer_is_reusable_for_v2() -> None:
     A perfect oracle scores FP=0 AND recall=1 — the v2 acceptance target."""
     g = load_golden()
 
-    def _oracle(sources, _by_id={c_id: c for c in ()}):  # noqa: B006 — placeholder
-        return False
-
     # oracle that reads the labels (proves the scorer computes the confusion correctly)
     labels = {c["id"]: c["expected"] for c in g["cases"]}
     by_sources = {tuple(c["sources"]): c["expected"] for c in g["cases"]}

@@ -35,6 +35,8 @@ import pytest
 
 from aria_service.intel import dd_orchestrator as ddo
 
+from ._source_probe import repo_path
+
 
 def _patch_layers(monkeypatch, *, heavy_sleep_s: float):
     """Replace the layer entry points with controlled fakes.
@@ -170,7 +172,7 @@ def test_rf1572_rf409_escalation_is_budget_gated():
     import pathlib
 
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     idx = src.find("# R-F409 auto-escalation")
     if idx < 0:

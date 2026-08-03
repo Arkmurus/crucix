@@ -18,6 +18,8 @@ _run_compliance. This file pins:
 """
 from __future__ import annotations
 
+from ._source_probe import repo_path
+
 
 # ══════════════════════════════════════════════════════════════════
 # PART A — helper logic (pure function)
@@ -134,7 +136,7 @@ def test_rf601_helper_is_called_from_run_compliance_in_source():
     so the layer wiring stays intact across future refactors."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/dd_orchestrator.py"
+        repo_path("aria_service/intel/dd_orchestrator.py")
     ).read_text(encoding="utf-8", errors="ignore")
     run_idx = src.find("async def _run_compliance")
     assert run_idx > 0, "_run_compliance not found"

@@ -22,10 +22,12 @@ from __future__ import annotations
 import pathlib
 import re
 
+from ._source_probe import repo_path
+
 
 def _src() -> str:
     return pathlib.Path(
-        "C:/code/crucix/aria_service/intel/verified_intel.py"
+        repo_path("aria_service/intel/verified_intel.py")
     ).read_text(encoding="utf-8", errors="ignore")
 
 

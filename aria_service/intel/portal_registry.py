@@ -1238,37 +1238,6 @@ async def _register_via_email_form(portal: PortalDef, purpose: str = "") -> dict
         try:
             # R-F3199 — 2captcha REMOVED (operator direction 2026-07-26).
             raise ImportError('captcha solving removed (R-F3199)')
-            solver = get_solver()
-            if solver.is_ready:
-                logger.info(
-                    "[portal_registry] R-F1689: attempting CAPTCHA solve for %s",
-                    portal.id,
-                )
-                # Load the registration page, detect CAPTCHA, solve it, and submit
-                password = os.urandom(24).hex()
-                registration_data = {
-                    "email": _ARIA_EMAIL,
-                    "name": _ARIA_NAME,
-                    "password": password,
-                    "purpose": f"Auto-registration for {portal.name} — {portal.description[:100]}",
-                }
-                result = await _attempt_form_fill_submit(
-                    portal, f"{portal.url.rstrip('/')}{portal.register_path}",
-                    registration_data, solve_captcha=True,
-                )
-                if result.get("success"):
-                    await _audit_registered(
-                        portal, _ARIA_EMAIL, _ARIA_NAME,
-                        purpose=registration_data.get("purpose", ""),
-                    )
-                    return result
-                if result.get("requires_email_verify"):
-                    return result
-                logger.info(
-                    "[portal_registry] R-F1689: CAPTCHA solve + submit failed for %s — "
-                    "falling back to operator deferral: %s",
-                    portal.id, result.get("error", "unknown"),
-                )
         except ImportError:
             logger.debug("[portal_registry] captcha_solver not available")
         except Exception as e:
@@ -1443,38 +1412,6 @@ async def _attempt_form_fill_submit(
             try:
                 # R-F3199 — 2captcha REMOVED (operator direction 2026-07-26).
                 raise ImportError('captcha solving removed (R-F3199)')
-                captcha_token = await detect_and_solve_captcha(
-                    register_url, pw_result.text,
-                )
-                if captcha_token:
-                    logger.info(
-                        "[portal_registry] R-F1689: CAPTCHA solved for %s",
-                        portal.id,
-                    )
-                else:
-                    # R-F1692: CAPTCHA solving failed on a required-captcha portal.
-                    # Fail immediately — submitting without a token will be rejected
-                    # and the brain would see a false 'prepared' success.
-                    logger.warning(
-                        "[portal_registry] R-F1692: CAPTCHA solve failed for %s "
-                        "(all providers returned None) — aborting registration",
-                        portal.id,
-                    )
-                    try:
-                        from .engine_wiring import wire_failure as _wf1692
-                        _wf1692(
-                            module="portal_registry",
-                            detail=f"CAPTCHA solve failed for {portal.id} — all providers returned None",
-                            gap_type="source_failure",
-                            source="portal_registry",
-                        )
-                    except Exception:
-                        pass
-                    return {
-                        "success": False,
-                        "error": f"CAPTCHA solve failed for {portal.name} — all providers returned None",
-                        "portal_id": portal.id,
-                    }
             except Exception as e:
                 logger.debug(
                     "[portal_registry] R-F1689: CAPTCHA detection failed for %s: %s",
@@ -1505,21 +1442,6 @@ async def _attempt_form_fill_submit(
                 try:
                     # R-F3199 — 2captcha REMOVED (operator direction 2026-07-26).
                     raise ImportError('captcha solving removed (R-F3199)')
-                    _post_submit_token = await _dsc1707(register_url, response_text)
-                    if _post_submit_token:
-                        logger.info(
-                            "[portal_registry] R-F1707: CAPTCHA detected after submit for %s — retrying with token",
-                            portal.id,
-                        )
-                        # Retry the submission with the solved token
-                        submit_result = await _pw_submit(
-                            register_url,
-                            form_data,
-                            submit_selector='[type="submit"]',
-                            success_indicator=portal.success_indicator,
-                            timeout=45.0,
-                            captcha_token=_post_submit_token,
-                        )
                 except Exception as _e1707:
                     logger.debug(
                         "[portal_registry] R-F1707: post-submit CAPTCHA detection failed for %s: %s",
@@ -2218,10 +2140,6 @@ async def _httpx_onboard(portal: PortalDef) -> dict[str, Any]:
                 if portal.requires_captcha:
                     # R-F3199 — 2captcha REMOVED (operator direction 2026-07-26).
                     raise ImportError('captcha solving removed (R-F3199)')
-                    t = await detect_and_solve_captcha(reg_url, pg)
-                    if not t:
-                        return None
-                    f["g-recaptcha-response"] = t
                 rp = await client.post(_action(pg, reg_url), data=f)  # no-ssrf-check: portal definition URL
                 return _step(f"register_post[{label}]", rp,
                              {"email": email, "success_url": "success" in str(rp.url)})
@@ -2802,8 +2720,6 @@ async def determine_and_drive(portal_id: str, *, drive: bool = True) -> dict[str
         try:
             # R-F3199 — 2captcha REMOVED (operator direction 2026-07-26).
             raise ImportError('captcha solving removed (R-F3199)')
-            _slv = _get_solver1719()
-            _solver_ready = bool(_slv and getattr(_slv, "is_ready", False))
         except Exception:
             _solver_ready = False
         if not _solver_ready:

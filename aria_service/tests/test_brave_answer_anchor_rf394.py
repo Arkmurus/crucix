@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import pathlib
 
+from ._source_probe import repo_path
+
 
 def _handler_block() -> str:
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     idx = src.find('if tool == "brave_answer":')
     assert idx > 0, "R-F394: brave_answer dispatch block not found"

@@ -26,10 +26,12 @@ from __future__ import annotations
 import pathlib
 import re
 
+from ._source_probe import repo_path
+
 
 def _mem0_src() -> str:
     return pathlib.Path(
-        "C:/code/crucix/aria_service/intel/mem0.py"
+        repo_path("aria_service/intel/mem0.py")
     ).read_text(encoding="utf-8", errors="ignore")
 
 
@@ -142,7 +144,7 @@ def test_rf406_health_perf_retention_mem0_marked_none():
     'none' (was 'unverified — see R-F406' before this audit). The
     new anchor field must cite R-F406 + 2026-05-13."""
     perf_src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     # Find the mem0 retention block
     idx = perf_src.find('"mem0": {')

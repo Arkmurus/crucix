@@ -36,6 +36,22 @@ import functools
 import pathlib
 
 
+#: Repo root, derived from this file's own location (aria_service/tests/_source_probe.py).
+#: Never hardcode an absolute path in a test: the tree that R-F3597 was written on
+#: ("C:/code/crucix") no longer exists, and every test that named it read a checkout
+#: that is not the one under test — on a new machine it is a plain FileNotFoundError.
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+
+def repo_path(relative: str) -> pathlib.Path:
+    """Absolute path to `relative`, resolved from the repo root of THIS checkout.
+
+    Works for any file type — unlike `module_source`/`function_source`, which parse
+    Python. Use it for `server.mjs`, `public/*.html`, and other non-Python targets.
+    """
+    return REPO_ROOT / relative
+
+
 class SourceProbeError(LookupError):
     """Raised when the target cannot be resolved. Never returns empty text.
 

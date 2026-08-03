@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import pathlib
 
+from ._source_probe import repo_path
+
 
 def _cultural_section() -> str:
     """The `4a-CULTURAL` wiring block inside `_run_compliance`, bounded by its
@@ -26,7 +28,7 @@ def _cultural_section() -> str:
     real section asserts the same wiring contract without the fragile char count.
     """
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/dd_orchestrator.py"
+        repo_path("aria_service/intel/dd_orchestrator.py")
     ).read_text(encoding="utf-8", errors="ignore")
     start = src.find("4a-CULTURAL")
     assert start > 0, "R-F635: 4a-CULTURAL section marker missing from _run_compliance"

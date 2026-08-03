@@ -18,6 +18,8 @@ The <tool> alternation matches names from the R-F603 inventory.
 """
 from __future__ import annotations
 
+from ._source_probe import repo_path
+
 
 # ══════════════════════════════════════════════════════════════════
 # PART A — denials caught
@@ -130,7 +132,7 @@ def test_rf604_in_get_stats_pattern_ids():
     so dashboard panels render its count."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/self_claim_guard.py"
+        repo_path("aria_service/intel/self_claim_guard.py")
     ).read_text(encoding="utf-8", errors="ignore")
     fn = src.find("def get_stats")
     block = src[fn:fn + 3000]

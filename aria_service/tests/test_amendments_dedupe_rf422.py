@@ -33,22 +33,24 @@ from __future__ import annotations
 
 import pathlib
 
+from ._source_probe import repo_path
+
 
 def _staging_src() -> str:
     return pathlib.Path(
-        "C:/code/crucix/aria_service/intel/adversarial_challenge.py"
+        repo_path("aria_service/intel/adversarial_challenge.py")
     ).read_text(encoding="utf-8", errors="ignore")
 
 
 def _routes_src() -> str:
     return pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
 
 
 def _dashboard_src() -> str:
     return pathlib.Path(
-        "C:/code/crucix/public/aria-brain.html"
+        repo_path("public/aria-brain.html")
     ).read_text(encoding="utf-8", errors="ignore")
 
 

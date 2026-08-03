@@ -11,6 +11,8 @@ Same surgical pattern as R-F600 / R-F601 / R-F602 / R-F610.
 """
 from __future__ import annotations
 
+from ._source_probe import repo_path
+
 
 def _block(severity, *, query="example.com", cert_count=0, apex_count=0,
            issuer_count=0, shell_score=0, signals=None):
@@ -163,7 +165,7 @@ def test_rf611_helper_invoked_from_run_all_extensions_block_in_source():
     after run_all_extensions completes, AFTER R-F600 + R-F610."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/dd_orchestrator.py"
+        repo_path("aria_service/intel/dd_orchestrator.py")
     ).read_text(encoding="utf-8", errors="ignore")
     rae_idx = src.find("run_all_extensions(target, report")
     region_end = src.find("\n        except asyncio.TimeoutError", rae_idx)

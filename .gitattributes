@@ -1,3 +1,10 @@
 # Shell scripts must stay LF — they run via bash on the RunPod pod / Git Bash.
 # CRLF line endings break `#!/bin/bash` and every command with a trailing \r.
 *.sh text eol=lf
+
+# Windows batch files are the mirror image: cmd.exe requires CRLF. With bare LF
+# it mis-parses the file and fails with "'M' is not recognized as an internal or
+# external command" (the tail of a REM line being read as a command) — observed
+# 2026-08-03 after aria.cmd was rewritten by an LF-emitting editor.
+*.cmd text eol=crlf
+*.bat text eol=crlf

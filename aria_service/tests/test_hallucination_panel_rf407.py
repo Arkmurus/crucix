@@ -26,6 +26,8 @@ import inspect
 import pathlib
 import re
 
+from ._source_probe import repo_path
+
 
 # ══════════════════════════════════════════════════════════════════
 # R-F407 — endpoint, counter API, dashboard panel
@@ -34,7 +36,7 @@ import re
 def test_rf407_endpoint_registered():
     """The /hallucination/stats endpoint must be registered."""
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     assert '@router.get("/hallucination/stats")' in src, (
         "R-F407 regression: /hallucination/stats route not registered."
@@ -51,7 +53,7 @@ def test_rf407_endpoint_combines_both_sources():
     wrapper (`hallucination_stats_ep`) delegating to `_compute_hallucination_stats`,
     which is where the two-source composition now lives — target that."""
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     idx = src.find("async def _compute_hallucination_stats")
     assert idx > 0, "R-F407: _compute_hallucination_stats not found"
@@ -67,7 +69,7 @@ def test_rf407_endpoint_has_summary_block():
     """The response must include a top-line summary so the dashboard
     badge has the rolled-up rate without drilling into sub-objects."""
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     # R-F2784: summary block now lives in _compute_hallucination_stats (R-F2438).
     idx = src.find("async def _compute_hallucination_stats")
@@ -81,7 +83,7 @@ def test_rf407_endpoint_has_summary_block():
 def test_rf407_endpoint_schema_versioned():
     """Schema version pinned at rfNNN.vN for forward-compat consumers."""
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     idx = src.find("async def hallucination_stats_ep")
     block = src[idx:idx + 3000]
@@ -126,7 +128,7 @@ def test_rf407_confidence_footer_records_metrics():
     fire-and-forget the metrics — otherwise the dashboard panel will
     stay at zero forever."""
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/confidence_footer.py"
+        repo_path("aria_service/intel/confidence_footer.py")
     ).read_text(encoding="utf-8", errors="ignore")
     assert "record_violations" in src, (
         "R-F407: confidence_footer doesn't call record_violations — "
@@ -145,7 +147,7 @@ def test_rf407_panel_exists_in_dashboard():
     """The aria-brain.html dashboard must contain the panel + its
     loadHallucination() function + the refreshAll() registration."""
     src = pathlib.Path(
-        "C:/code/crucix/public/aria-brain.html"
+        repo_path("public/aria-brain.html")
     ).read_text(encoding="utf-8", errors="ignore")
     assert 'id="hallucination-panel"' in src, (
         "R-F407: dashboard panel div missing."
@@ -166,7 +168,7 @@ def test_rf407_panel_exists_in_dashboard():
 def test_rf407_seenode_proxy_route_registered():
     """server.mjs must proxy /api/aria/hallucination/stats to fly."""
     src = pathlib.Path(
-        "C:/code/crucix/server.mjs"
+        repo_path("server.mjs")
     ).read_text(encoding="utf-8", errors="ignore")
     assert "/api/aria/hallucination/stats" in src, (
         "R-F407: seenode proxy route missing. Dashboard fetch will 404."
@@ -181,7 +183,7 @@ def test_rf408_fallback_provider_import_correct():
     """The R-F402 test imports FallbackProvider (not FallbackLLM,
     which doesn't exist). Verification-sweep fix."""
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/tests/test_streaming_fallback_cap_rf402.py"
+        repo_path("aria_service/tests/test_streaming_fallback_cap_rf402.py")
     ).read_text(encoding="utf-8", errors="ignore")
     assert "FallbackProvider" in src
     assert "FallbackLLM" not in src, (
@@ -190,7 +192,7 @@ def test_rf408_fallback_provider_import_correct():
     )
     # And the class IS named FallbackProvider in the actual file
     fallback_src = pathlib.Path(
-        "C:/code/crucix/aria_service/llm/fallback.py"
+        repo_path("aria_service/llm/fallback.py")
     ).read_text(encoding="utf-8", errors="ignore")
     assert "class FallbackProvider" in fallback_src
 
@@ -199,7 +201,7 @@ def test_rf408_schema_version_test_forward_compat():
     """R-F396 schema test must use a forward-compat regex pattern
     (not a hardcoded version string) so R-F400's bump doesn't break it."""
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/tests/test_health_perf_endpoint_rf396.py"
+        repo_path("aria_service/tests/test_health_perf_endpoint_rf396.py")
     ).read_text(encoding="utf-8", errors="ignore")
     # The hard-coded "rf396.v1" assertion must be gone
     # (replaced by a regex pattern check).
@@ -215,7 +217,7 @@ def test_rf408_self_claim_guard_uses_expire_not_incr_ttl():
     """The redis_store.incr() function has no ttl kwarg. R-F408
     fixed the 3 call sites to use incr + expire as a 2-call pattern."""
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/self_claim_guard.py"
+        repo_path("aria_service/intel/self_claim_guard.py")
     ).read_text(encoding="utf-8", errors="ignore")
     # The broken pattern must NOT appear anywhere
     assert "rs.incr(" in src, "R-F407: incr() calls should still exist"

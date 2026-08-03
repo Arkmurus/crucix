@@ -29,10 +29,12 @@ from __future__ import annotations
 
 import pathlib
 
+from ._source_probe import repo_path
+
 
 def _src_aria_engine() -> str:
     return pathlib.Path(
-        "C:/code/crucix/aria_service/aria_engine.py"
+        repo_path("aria_service/aria_engine.py")
     ).read_text(encoding="utf-8", errors="ignore")
 
 

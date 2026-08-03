@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from ._source_probe import repo_path
+
 
 def _make_ghost(classification: str, indicators: list[dict]):
     """Build a duck-typed GhostScoreResult for pure-helper testing."""
@@ -156,7 +158,7 @@ def test_rf602_helper_invoked_from_run_identity_person_in_source():
     confusing report consumers."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/dd_orchestrator.py"
+        repo_path("aria_service/intel/dd_orchestrator.py")
     ).read_text(encoding="utf-8", errors="ignore")
     # Anchor on the call site (inside the try block where ghost is built).
     score_call = src.find("_dd.score_ghost_indicators(profile)")

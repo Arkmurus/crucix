@@ -9,9 +9,11 @@ source. The frontend card that consumes it is verified by a headless render.)
 import pathlib
 import re
 
+from ._source_probe import repo_path
+
 
 def _src():
-    return pathlib.Path("C:/code/crucix/aria_service/routes/aria.py").read_text(encoding="utf-8", errors="ignore")
+    return pathlib.Path(repo_path("aria_service/routes/aria.py")).read_text(encoding="utf-8", errors="ignore")
 
 
 def test_meta_event_emits_dd_run_id():

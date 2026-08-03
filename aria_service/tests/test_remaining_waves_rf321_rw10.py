@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import asyncio
 
+from ._source_probe import repo_path
+
 
 # ───────────────────────── R-F321 — self_improve JSON recovery ───────────────
 
@@ -200,7 +202,7 @@ def test_rw2_headless_fallback_present_in_extract_url_text_source():
     is sufficient to prove the wiring is present."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/researcher.py"
+        repo_path("aria_service/intel/researcher.py")
     ).read_text(encoding="utf-8", errors="ignore")
     # Find the extract_url_text function body
     idx = src.find("async def extract_url_text(")

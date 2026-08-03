@@ -17,6 +17,8 @@ import asyncio
 import re
 from types import SimpleNamespace
 
+from ._source_probe import repo_path
+
 
 # ───────────────────────── R-F309 — hostname → COMPANY_RESEARCH ─────────────
 
@@ -218,7 +220,7 @@ def test_rf315_grounding_check_contains_content_vs_allegation_discipline():
     sanctions evasion' (the 21:11 modirumgespi failure)."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     # Must mention the discipline explicitly
     assert "R-F315 CONTENT-vs-ALLEGATION DISCIPLINE" in src, (
@@ -236,7 +238,7 @@ def test_rf318_grounding_check_contains_rdap_redaction_discipline():
     traceability red flag."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     assert "R-F318 RDAP REDACTION DISCIPLINE" in src
     assert "GDPR" in src

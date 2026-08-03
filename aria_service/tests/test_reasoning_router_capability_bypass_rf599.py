@@ -23,6 +23,8 @@ from __future__ import annotations
 import asyncio
 import pathlib
 
+from ._source_probe import repo_path
+
 
 # ══════════════════════════════════════════════════════════════════
 # PART A — the bypass MUST fire on capability questions
@@ -106,7 +108,7 @@ def test_rf599_bypass_runs_before_library_stage_in_code():
     try_local_reasoning BEFORE the reasoning_library lookup, otherwise
     the library still serves first and the bug regresses."""
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/reasoning_router.py"
+        repo_path("aria_service/intel/reasoning_router.py")
     ).read_text(encoding="utf-8", errors="ignore")
     fn_idx = src.find("async def try_local_reasoning")
     assert fn_idx > 0, "try_local_reasoning not found"
@@ -124,7 +126,7 @@ def test_rf599_bypass_runs_before_library_stage_in_code():
 def test_rf599_bypass_runs_before_symbolic_stage_in_code():
     """Same pin for symbolic_reasoner — bypass must precede it."""
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/reasoning_router.py"
+        repo_path("aria_service/intel/reasoning_router.py")
     ).read_text(encoding="utf-8", errors="ignore")
     fn_idx = src.find("async def try_local_reasoning")
     body = src[fn_idx:fn_idx + 8000]

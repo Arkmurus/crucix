@@ -19,11 +19,14 @@ from __future__ import annotations
 
 import inspect
 import pathlib
+import re
+
+from ._source_probe import repo_path
 
 
 def _src() -> str:
     return pathlib.Path(
-        "C:/code/crucix/aria_service/llm/fallback.py"
+        repo_path("aria_service/llm/fallback.py")
     ).read_text(encoding="utf-8", errors="ignore")
 
 
@@ -85,13 +88,28 @@ def test_rf402_stream_break_after_cap_with_warning():
 
 
 def test_rf402_stream_cap_check_is_inside_loop():
-    """The cap check MUST be inside the `for provider in self.providers`
-    loop, not above it — otherwise a single skipped (cooling) provider
-    consumes the slot without an attempt."""
+    """The cap check MUST be inside the provider loop, not above it —
+    otherwise a single skipped (cooling) provider consumes the slot without
+    an attempt.
+
+    Matches the loop by its `for provider in ...` HEAD, not by the exact
+    iterable. It used to pin the literal `for provider in self.providers`,
+    which R-F2922 legitimately renamed to `_stream_order` when it applied the
+    preference-only filter to streaming. The assertion had been stale ever
+    since and nobody saw it, because this module also read its source from a
+    hardcoded `C:/code/crucix/...` path and died with FileNotFoundError before
+    reaching any assertion — a test that cannot locate its target is not a
+    gate, it is a permanently red light nobody reads. Pin the INVARIANT (the
+    cap is evaluated per-provider inside the loop), not the iterable's name.
+    """
     block = _stream_block()
-    loop_idx = block.find("for provider in self.providers")
+    m = re.search(r"^\s*for provider in \S+:", block, re.M)
+    loop_idx = m.start() if m else -1
     cap_idx = block.find("attempted >= self._MAX_FALLBACK_ATTEMPTS")
-    assert loop_idx >= 0
+    assert loop_idx >= 0, (
+        "R-F402: no `for provider in ...:` loop found in stream() — the "
+        "dispatch loop was removed or restructured beyond recognition."
+    )
     assert cap_idx > loop_idx, (
         "R-F402: cap check is above the provider loop — it would fire "
         "before any attempt and prevent every fallback."

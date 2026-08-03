@@ -925,11 +925,32 @@ class FallbackProvider(LLMProvider):
         failure and belongs in configuration review, not in a per-call alert.
         """
         global _last_redundancy_alert_at
-        if len(self.providers) < 2:
+        # Count only the providers DISPATCH WILL ACTUALLY WALK — the same
+        # preference_only filter complete()/stream() apply. This is the R-F3634
+        # defect in a second place: that fix corrected get_health() but left this
+        # alert reading the RAW chain.
+        #
+        # Measured live 2026-08-03. Chain [deepseek, anthropic, deepseek_backup];
+        # both deepseek entries cooling. Unfiltered, `active` == ["anthropic"] ==
+        # exactly 1, so this fired at 18:01 saying "STILL SERVING: anthropic
+        # (answers are NOT degraded right now)". Anthropic is preference-only
+        # (R-F2922/R-F3034: DD-reserved), so general chat had ZERO reachable
+        # providers — it was ALREADY a total outage being reported as a warning
+        # that explicitly denied degradation. The real outage page did not arrive
+        # until 18:32, costing 31 minutes.
+        #
+        # Filtered, `active` is 0 here and the R-F3613 exhaustion path owns it,
+        # which is the honest signal. Limitation kept deliberately: a DD-scoped
+        # call CAN still reach a preference-only provider, so this check speaks
+        # for the general path only — the path every non-DD user is on.
+        _pref_only = preference_only_providers()
+        _general = [p for p in self.providers
+                    if (p.name or "").lower() not in _pref_only]
+        if len(_general) < 2:
             return  # no redundancy existed — nothing to lose (see docstring)
 
         now = time.time()
-        active = [p.name for p in self.providers
+        active = [p.name for p in _general
                   if not self._should_skip(self._stats.get(p.name, {}))]
         if len(active) != 1:
             return  # 0 -> that is the R-F3613 outage path; 2+ -> still redundant
@@ -938,7 +959,7 @@ class FallbackProvider(LLMProvider):
             return
         _last_redundancy_alert_at = now
 
-        cooling = [p.name for p in self.providers if p.name not in active]
+        cooling = [p.name for p in _general if p.name not in active]
         logger.warning(
             "[R-F3616] LLM chain redundancy LOST — only %s remains; cooling: %s",
             active[0], ", ".join(cooling) or "<none>",

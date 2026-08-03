@@ -14,6 +14,8 @@ indicator rows.
 """
 from __future__ import annotations
 
+from ._source_probe import repo_path
+
 
 # ══════════════════════════════════════════════════════════════════
 # PART A — helper logic (pure function)
@@ -235,7 +237,7 @@ def test_rf600_helper_invoked_from_run_all_extensions_block_in_source():
     inside the same try block."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/dd_orchestrator.py"
+        repo_path("aria_service/intel/dd_orchestrator.py")
     ).read_text(encoding="utf-8", errors="ignore")
     # Locate the run_all_extensions call
     rae_idx = src.find("run_all_extensions(target, report")

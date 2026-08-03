@@ -31,8 +31,10 @@ import pytest
 from aria_service.intel import dd_orchestrator as ddo
 from aria_service.routes import aria as aria_routes
 
+from ._source_probe import repo_path
 
-_AR = pathlib.Path("C:/code/crucix/aria_service/routes/aria.py")
+
+_AR = pathlib.Path(repo_path("aria_service/routes/aria.py"))
 
 
 class _StubLLM:

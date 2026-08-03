@@ -15,6 +15,8 @@ import pathlib
 
 import pytest
 
+from ._source_probe import repo_path
+
 
 # ══════════════════════════════════════════════════════════════════
 # PART A — mode block content
@@ -107,7 +109,7 @@ def test_rf615_defensive_fallback_returns_dialogue_block():
 
 def _aria_engine_src() -> str:
     return pathlib.Path(
-        "C:/code/crucix/aria_service/aria_engine.py"
+        repo_path("aria_service/aria_engine.py")
     ).read_text(encoding="utf-8", errors="ignore")
 
 

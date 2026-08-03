@@ -24,6 +24,8 @@ import inspect
 
 import pytest
 
+from ._source_probe import repo_path
+
 
 def test_rf1609_safety_import_resolves():
     """The import the loops execute on every iteration must resolve."""
@@ -34,7 +36,7 @@ def test_rf1609_safety_import_resolves():
 def test_rf1609_no_beyond_top_level_import_in_main():
     """Regression guard: main.py must never reintroduce `from ..autonomous`
     (the exact bug that killed 10 loops). The correct form is `.autonomous`."""
-    src = pathlib.Path("C:/code/crucix/aria_service/main.py").read_text(
+    src = pathlib.Path(repo_path("aria_service/main.py")).read_text(
         encoding="utf-8", errors="ignore"
     )
     assert "from ..autonomous" not in src, (

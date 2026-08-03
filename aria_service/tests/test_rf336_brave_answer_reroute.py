@@ -13,13 +13,15 @@ zero cost, real provenance.
 """
 from __future__ import annotations
 
+from ._source_probe import repo_path
+
 
 def test_rf336_brave_answer_handler_routes_to_web_explorer():
     """Source-level capability — the brave_answer chat handler now
     imports and calls web_explorer.explore, not brave_answers.ask."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
 
     # Find the brave_answer handler block
@@ -52,7 +54,7 @@ def test_rf336_handler_emits_explore_health_signal():
     distinguish 'real zero results' from 'all backends down'."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     idx = src.find('if tool == "brave_answer":')
     block = src[idx:idx + 6000]
@@ -67,7 +69,7 @@ def test_rf336_handler_emits_provenance_per_fact():
     to training knowledge."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     idx = src.find('if tool == "brave_answer":')
     block = src[idx:idx + 6000]
@@ -84,7 +86,7 @@ def test_rf336_handler_instructs_llm_to_avoid_training_fallback():
     R-F304 (GROUNDING_CHECK) demand."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     idx = src.find('if tool == "brave_answer":')
     block = src[idx:idx + 6000]

@@ -23,6 +23,8 @@ from __future__ import annotations
 import asyncio
 import re
 
+from ._source_probe import repo_path
+
 
 # ───────────────────────── R-F329 — strip question modifiers ─────────────────
 
@@ -171,7 +173,7 @@ def test_rf331_people_intent_triggers_linkedin_angle_in_source():
     matches a people-keyword."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/researcher.py"
+        repo_path("aria_service/intel/researcher.py")
     ).read_text(encoding="utf-8", errors="ignore")
     assert "R-F331" in src
     assert "site:linkedin.com" in src

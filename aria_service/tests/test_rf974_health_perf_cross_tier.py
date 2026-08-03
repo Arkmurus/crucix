@@ -13,10 +13,12 @@ from __future__ import annotations
 import asyncio
 import pathlib
 
+from ._source_probe import repo_path
+
 
 def _perf_block() -> str:
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     idx = src.find("async def health_perf_ep")
     assert idx > 0

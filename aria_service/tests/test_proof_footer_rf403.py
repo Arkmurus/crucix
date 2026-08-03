@@ -22,10 +22,12 @@ from __future__ import annotations
 
 import pathlib
 
+from ._source_probe import repo_path
+
 
 def _footer_src() -> str:
     return pathlib.Path(
-        "C:/code/crucix/aria_service/intel/confidence_footer.py"
+        repo_path("aria_service/intel/confidence_footer.py")
     ).read_text(encoding="utf-8", errors="ignore")
 
 
@@ -232,7 +234,7 @@ def test_rf403_chat_handler_passes_tools_used_to_footer():
     """The chat handler call site must pass tools_used to build_footer
     (not just the legacy 3 positional args)."""
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     # Find the build_footer call. R-F1786 wraps it in asyncio.to_thread, so the
     # invocation is `confidence_footer.build_footer,` (passed as a callable),
@@ -257,7 +259,7 @@ def test_rf403_chat_handler_includes_tool_used_var():
     """Specifically, the existing `tool_used` variable must feed the
     new tools_used kwarg — not a new collection that misses the data."""
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     idx = src.find("_tools_for_footer")
     assert idx > 0, (

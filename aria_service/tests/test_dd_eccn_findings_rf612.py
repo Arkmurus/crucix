@@ -13,6 +13,8 @@ counsel before applying for an export licence.
 """
 from __future__ import annotations
 
+from ._source_probe import repo_path
+
 
 def _block(severity, *, hits=None, summary=""):
     return {
@@ -186,7 +188,7 @@ def test_rf612_helper_invoked_from_run_all_extensions_block_in_source():
     the run_all_extensions try, AFTER R-F600/F610/F611."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/dd_orchestrator.py"
+        repo_path("aria_service/intel/dd_orchestrator.py")
     ).read_text(encoding="utf-8", errors="ignore")
     rae_idx = src.find("run_all_extensions(target, report")
     region_end = src.find("\n        except asyncio.TimeoutError", rae_idx)

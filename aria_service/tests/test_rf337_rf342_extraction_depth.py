@@ -14,6 +14,8 @@ worked (fetched /corporate/about-us/ etc.), but:
 """
 from __future__ import annotations
 
+from ._source_probe import repo_path
+
 
 # ───────────────────────── R-F337 — recursive TLD strip ─────────────────────────
 
@@ -86,7 +88,7 @@ def test_rf340_dd_orchestrator_passes_llm_to_link_investigator():
     budget cap. Previously llm=None unconditionally — rule-based only."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/dd_orchestrator.py"
+        repo_path("aria_service/intel/dd_orchestrator.py")
     ).read_text(encoding="utf-8", errors="ignore")
     # Find the investigate_link_tree call (with surrounding context)
     idx = src.find("link_investigator.investigate_link_tree(")
@@ -108,7 +110,7 @@ def test_rf340_respects_env_disable():
     (ARIA_LINKTREE_LLM_ENABLED=0) for cost-sensitive deploys."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/intel/dd_orchestrator.py"
+        repo_path("aria_service/intel/dd_orchestrator.py")
     ).read_text(encoding="utf-8", errors="ignore")
     assert "ARIA_LINKTREE_LLM_ENABLED" in src
     assert "ARIA_LINKTREE_LLM_BUDGET_USD" in src
@@ -121,7 +123,7 @@ def test_rf341_chat_handler_fetches_page_title_when_entity_missing():
     fetches the page <title> FIRST before falling back to brandify(host)."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     assert "R-F341" in src
     # Must include the title-tag regex
@@ -135,7 +137,7 @@ def test_rf341_title_cleaner_splits_on_pipe_or_dash():
     to take the first chunk 'Acme'."""
     import pathlib
     src = pathlib.Path(
-        "C:/code/crucix/aria_service/routes/aria.py"
+        repo_path("aria_service/routes/aria.py")
     ).read_text(encoding="utf-8", errors="ignore")
     # The split regex must use the pipe/dash characters
     assert r"\|\-" in src or "[|" in src or r"\|" in src

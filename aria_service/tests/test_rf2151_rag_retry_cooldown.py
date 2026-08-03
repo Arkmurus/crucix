@@ -11,9 +11,18 @@ missing package stays permanently disabled.
 import time
 from unittest.mock import MagicMock
 
-import chromadb
+import pytest
 
-from aria_service.intel import rag_store
+# chromadb ships no win-arm64 wheel, so a bare module-scope `import chromadb`
+# aborted COLLECTION of the entire aria_service suite on a Windows/ARM dev box —
+# one unavailable optional dependency took every other test down with it. Every
+# other chromadb consumer in the codebase already guards its import; this test
+# was the sole unguarded one. importorskip keeps the module importable and marks
+# just these tests skipped where the package is genuinely absent (it still runs
+# in CI and in the Linux image, where chromadb installs normally).
+chromadb = pytest.importorskip("chromadb")
+
+from aria_service.intel import rag_store  # noqa: E402 — must follow importorskip
 
 
 def _reset_state():

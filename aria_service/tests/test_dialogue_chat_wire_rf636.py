@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import pathlib
 
+from ._source_probe import repo_path
+
 
 # ══════════════════════════════════════════════════════════════════
 # PART A — jurisdiction detector
@@ -94,7 +96,7 @@ def test_rf636_detect_jurisdiction_returns_first_match():
 
 def _src() -> str:
     return pathlib.Path(
-        "C:/code/crucix/aria_service/aria_engine.py"
+        repo_path("aria_service/aria_engine.py")
     ).read_text(encoding="utf-8", errors="ignore")
 
 
