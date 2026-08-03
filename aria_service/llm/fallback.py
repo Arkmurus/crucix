@@ -124,6 +124,36 @@ def preference_only_providers() -> set[str]:
     raw = os.getenv("ARIA_PREFERENCE_ONLY_PROVIDERS", "anthropic")
     return {p.strip().lower() for p in (raw or "").split(",") if p.strip()}
 
+
+def non_degrading_pins() -> set[str]:
+    """Providers whose EXPLICIT pin is a contract, not an ordering hint.
+
+    Split out 2026-08-03. `ARIA_PREFERENCE_ONLY_PROVIDERS` was doing two
+    unrelated jobs at once:
+
+      A. CHAIN COMPOSITION — keep this provider out of the DEFAULT order, so a
+         general chat call never lands on it (cost).
+      B. PIN CONTRACT — when a caller explicitly asks for it (DD → Claude), it
+         must NOT silently degrade to the rest of the chain (R-F3034/R-F3087:
+         an honest incomplete DD beats a DeepSeek-authored verdict wearing a
+         Claude-grade badge).
+
+    Those coincided while Claude was DD-only, so one flag served both. They stop
+    coinciding the moment Claude is ALSO wanted as a general fallback: clearing
+    the flag to buy (A) silently surrenders (B). Measured directly — clearing it
+    on aria-intel put anthropic in the general chain AND made a pinned DD
+    degradable in the same instant, because `_pinned` is computed from the same
+    set. One value, two meanings, and the second one fails silently.
+
+    Defaults to `preference_only_providers()` when unset, so nothing changes for
+    any deployment that never sets it — the flag keeps its historical meaning
+    until someone deliberately separates the two.
+    """
+    raw = os.getenv("ARIA_NON_DEGRADING_PINS")
+    if raw is None:
+        return preference_only_providers()
+    return {p.strip().lower() for p in raw.split(",") if p.strip()}
+
 # F68 fix 2026-04-28: HARD cooldowns (auth/billing) are mirrored to Redis
 # so they survive restarts. Without this, every fly.io restart re-probed
 # the failed backend and burned 5 calls before the in-process cooldown
@@ -526,6 +556,7 @@ class FallbackProvider(LLMProvider):
         # chain and every non-DD call whose primary is failing or cooling lands
         # on it. It stays fully reachable by name below.
         _pref_only = preference_only_providers()
+        _non_degrading = non_degrading_pins()
         order = [p for p in self.providers
                  if (p.name or "").lower() not in _pref_only]
         if prefer_provider:
@@ -547,11 +578,17 @@ class FallbackProvider(LLMProvider):
                 # layer. An honest incomplete report beats a DeepSeek-authored
                 # verdict wearing a Claude-grade badge.
                 #
-                # Scope: only providers named in ARIA_PREFERENCE_ONLY_PROVIDERS
-                # (default: anthropic) are pinned this way. An ordinary
-                # prefer_provider (e.g. the R-F1366 coder pin) still degrades
-                # through the chain exactly as before.
-                _pinned = (prefer_provider or "").lower() in _pref_only
+                # Scope: only providers named in ARIA_NON_DEGRADING_PINS (which
+                # defaults to ARIA_PREFERENCE_ONLY_PROVIDERS, itself defaulting
+                # to anthropic) are pinned this way. An ordinary prefer_provider
+                # (e.g. the R-F1366 coder pin) still degrades through the chain
+                # exactly as before.
+                #
+                # Read from the PIN set, not the chain-composition set: those are
+                # two different questions, and reading the wrong one is how DD
+                # loses its no-degrade contract the moment Claude is added to the
+                # general chain. See non_degrading_pins().
+                _pinned = (prefer_provider or "").lower() in _non_degrading
                 _allow_degrade = (
                     os.getenv("ARIA_PREFERRED_MAY_DEGRADE", "").lower()
                     in ("1", "true", "yes")
@@ -577,7 +614,7 @@ class FallbackProvider(LLMProvider):
                 # fallback behaviour; the explicit operator escape hatch also
                 # remains available.
                 _missing_pinned = (
-                    (prefer_provider or "").lower() in _pref_only
+                    (prefer_provider or "").lower() in _non_degrading
                     and os.getenv("ARIA_PREFERRED_MAY_DEGRADE", "").lower()
                     not in ("1", "true", "yes")
                 )
