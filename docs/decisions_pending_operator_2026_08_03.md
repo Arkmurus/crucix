@@ -81,6 +81,28 @@ after the run), and *"`VALID=NO` means DISCARD, not publish."* A second agent is
 actively committing to this tree — 54 modified files during this session, and
 HEAD moved under me twice. A run measured now is guaranteed `VALID=NO`.
 
+**UPDATE (same evening): a second agent has taken this on** — its task list is
+"await measurement verdict and record VALID=YES/NO … refresh
+docs/suite_baseline.json only if VALID=YES". Good: that is the correct
+procedure, and I have not touched `suite_baseline.json` or `CLAUDE.md`.
+
+⚠️ **But that measurement is very likely `VALID=NO`, and it is my fault.** I
+committed to `aria_service/**/*.py` three times while it was in flight
+(`d05ed69a`, `6f0d4dbb`, `fdbd6e61`), including **three new test files**
+(`test_rf3657_call_arity_gate.py`, `test_rf3663_dan_false_positive.py`,
+`test_rf3665_memory_self_claim.py`) which change the suite's own composition,
+plus edits to `aria_engine.py`, `security_protocol.py`, `dd_layer_extensions.py`,
+`bd_strategy.py` and `defence_source_seed.py`. That is exactly the R-F3597
+corruption condition §16 warns about: `inspect.getsource` slices at line numbers
+captured AT IMPORT, so a peer commit landing mid-run silently returns a different
+function's body.
+
+**The run should be discarded and re-taken on a tree I am no longer writing to.**
+I have stopped committing to `aria_service/` as of `fdbd6e61` (deployed and
+verified live). The three new test files are additive and green
+(25 python tests), so the re-measured baseline should be *higher* by that count,
+not worse.
+
 **Needed: one quiet tree for ~30 minutes.** Then:
 `python -m pytest aria_service/tests/ -q --tb=line -p no:cacheprovider --timeout=600`
 with `scratchpad/measure.py` before and after, refresh the JSON, then wire the
