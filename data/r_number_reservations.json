@@ -30592,81 +30592,90 @@
       "title": "mechanical call-arity gate - a keyword-only function called positionally can never succeed",
       "claimed_at": "2026-08-03T19:05:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d05ed69a",
+      "notes": null,
+      "shipped_at": "2026-08-03T19:55:54Z"
     },
     {
       "r_number": "R-F3658",
       "title": "auth-on-egress gate - cross-service fetch without a token fails silently",
       "claimed_at": "2026-08-03T19:05:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d05ed69a",
+      "notes": null,
+      "shipped_at": "2026-08-03T19:55:54Z"
     },
     {
       "r_number": "R-F3659",
       "title": "node semantic lint gate - node --check cannot see undefined identifiers",
       "claimed_at": "2026-08-03T19:05:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d05ed69a",
+      "notes": null,
+      "shipped_at": "2026-08-03T19:55:55Z"
     },
     {
       "r_number": "R-F3660",
       "title": "three impossible calls found by the new arity gate incl silent tier corruption in source seeding",
       "claimed_at": "2026-08-03T19:13:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d05ed69a",
+      "notes": null,
+      "shipped_at": "2026-08-03T19:55:55Z"
     },
     {
       "r_number": "R-F3661",
       "title": "unauthenticated cross-service calls found by the auth-egress gate",
       "claimed_at": "2026-08-03T19:25:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d05ed69a",
+      "notes": null,
+      "shipped_at": "2026-08-03T19:55:55Z"
     },
     {
       "r_number": "R-F3662",
       "title": "aria-web had no CI deploy route at all - only a working-tree build",
       "claimed_at": "2026-08-03T19:34:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d05ed69a",
+      "notes": null,
+      "shipped_at": "2026-08-03T19:55:55Z"
     },
     {
       "r_number": "R-F3663",
       "title": "DAN jailbreak pattern was case-insensitive and blocked the ordinary word dan in five languages",
       "claimed_at": "2026-08-03T19:40:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6f0d4dbb",
+      "notes": null,
+      "shipped_at": "2026-08-03T19:55:56Z"
     },
     {
       "r_number": "R-F3664",
       "title": "WA interim messages fabricated tool use on a 7s timer - the exact claim R-F1437 banned",
       "claimed_at": "2026-08-03T19:46:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6f0d4dbb",
+      "notes": null,
+      "shipped_at": "2026-08-03T19:55:56Z"
     },
     {
       "r_number": "R-F3665",
       "title": "ARIA told the user she has no cross-session memory",
       "claimed_at": "2026-08-03T19:46:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6f0d4dbb",
+      "notes": null,
+      "shipped_at": "2026-08-03T19:55:56Z"
     }
   ]
 }
