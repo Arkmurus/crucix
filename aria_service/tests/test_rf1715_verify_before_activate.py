@@ -75,8 +75,10 @@ async def test_verify_rejects_wrong_candidate_and_stores_working_key():
     # solving, so the onboard step now raises
     #   ImportError('captcha solving removed (R-F3199)')
     # and auto-registration defers to the operator instead of proceeding. The
-    # 2captcha dependency was never enabled (it is still an operator-pending item),
-    # so the honest outcome is deferral.
+    # 2captcha dependency is GONE, not pending: the solver was removed by R-F3199
+    # and the ARIA_TWOCAPTCHA_API_KEY credential was deleted from fly on
+    # 2026-08-03. Deferral is the permanent outcome, not a temporary one awaiting
+    # an operator decision — do not "restore" this path expecting a solver.
     #
     # What R-F1715 actually guarantees is UNCHANGED and still asserted, here and
     # in test_verify_api_key_logic below: a key is never activated unverified. The

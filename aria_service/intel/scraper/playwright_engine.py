@@ -719,12 +719,19 @@ async def detect_captcha_type(
 ) -> dict[str, Any]:
     """R-F1651: Detect CAPTCHA type on a page.
 
+    DETECTION ONLY — nothing here solves a CAPTCHA. R-F3199 removed the 2captcha
+    solver entirely (operator direction 2026-07-26) and the credential was
+    deleted from fly on 2026-08-03, so the "solvable via 2Captcha" notes this
+    list used to carry described a capability that no longer exists. A caller
+    reading them would conclude ARIA can get past reCAPTCHA/hCAPTCHA. She
+    cannot: every captcha type below now defers to the operator.
+
     Uses Playwright to load the page and check for known CAPTCHA widgets:
-      - reCAPTCHA v2/v3 (Google) — image-based, solvable via 2Captcha
-      - hCAPTCHA (Cloudflare) — image-based, solvable via 2Captcha
-      - Cloudflare Turnstile — behavioural, NOT solvable via 2Captcha
-      - DataDome — behavioural, NOT solvable
-      - PerimeterX (Human) — behavioural, NOT solvable
+      - reCAPTCHA v2/v3 (Google) — image-based
+      - hCAPTCHA (Cloudflare) — image-based
+      - Cloudflare Turnstile — behavioural
+      - DataDome — behavioural
+      - PerimeterX (Human) — behavioural
 
     Returns:
         {"has_captcha": bool, "captcha_type": str | None,

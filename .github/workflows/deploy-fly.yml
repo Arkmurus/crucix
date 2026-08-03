@@ -27,9 +27,19 @@ on:
   # R-F1408: push trigger REMOVED 2026-06-07. It fired on every push but the
   # deploy job is gated on '[deploy]' in the commit message, so normal pushes
   # produced a skipped job → GitHub "No jobs were run" → an email per push
-  # (operator noise). Deploys are manual anyway (CLAUDE.md §11/§20; the CI
-  # FLY_API_TOKEN is stale). Keep workflow_dispatch so a manual CI deploy is
-  # still available once the token is rotated.
+  # (operator noise). Deploys are manual anyway (CLAUDE.md §11/§20).
+  #
+  # CORRECTED 2026-08-03: this said "the CI FLY_API_TOKEN is stale ... once the
+  # token is rotated", which is no longer true — the secret was updated
+  # 2026-07-24 and run 30846100727 deployed 0db2ab25 through this workflow
+  # successfully (6m2s, live build_rev confirmed). The note was left standing
+  # after the rotation and read as "this route does not work", which is the
+  # R-F3238 failure mode verbatim: a header that kept claiming something for
+  # weeks after it stopped being true, and cost a real deploy.
+  #
+  # workflow_dispatch is the ONLY safe route while the tree is shared: it builds
+  # the pushed SHA, so a peer agent's uncommitted work cannot ship.
+  # scripts/deploy.ps1 builds the WORKING TREE and must not be used then.
   workflow_dispatch:
     inputs:
       reason:

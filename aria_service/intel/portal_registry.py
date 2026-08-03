@@ -1231,10 +1231,17 @@ async def _register_via_email_form(portal: PortalDef, purpose: str = "") -> dict
         return {"success": False, "error": f"Identity assertion failed: {reason}"}
 
     if portal.requires_captcha:
-        # R-F1689: attempt autonomous CAPTCHA solving before deferring to operator.
-        # If a CAPTCHA solver is configured (ARIA_TWOCAPTCHA_API_KEY etc.), try to
-        # solve the CAPTCHA and complete registration autonomously. Only defer to
-        # operator if no solver is configured or solving fails.
+        # R-F1689 attempted autonomous CAPTCHA solving here and deferred to the
+        # operator only if solving failed. R-F3199 REMOVED the 2captcha solver
+        # (operator direction 2026-07-26); the ARIA_TWOCAPTCHA_API_KEY credential
+        # was deleted from fly on 2026-08-03. There is no solver to configure, so
+        # this branch ALWAYS defers to the operator.
+        #
+        # The try/raise/except below is vestigial — it raises only to reach its
+        # own handler. Left in place deliberately: the sibling site further down
+        # (`_attempt_register`) raises this same ImportError as real control flow,
+        # so removing the scaffolding here but not there would read worse than
+        # keeping the shape uniform. It is inert, not load-bearing, here.
         try:
             # R-F3199 — 2captcha REMOVED (operator direction 2026-07-26).
             raise ImportError('captcha solving removed (R-F3199)')
