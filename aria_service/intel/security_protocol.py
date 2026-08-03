@@ -421,7 +421,34 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern, str, str]] = [
      "role_manipulation", "critical"),
     (re.compile(r"you\s+(?:do\s+)?not?\s+have\s+(?:any\s+)?(?:restrictions|rules|guidelines)", re.I),
      "role_manipulation", "high"),
-    (re.compile(r"(?:\bDAN\b|jailbreak|bypass\s+filters?)", re.I),
+    # R-F3663 — the DAN acronym must be matched CASE-SENSITIVELY.
+    #
+    # This was `re.compile(r"(?:\bDAN\b|jailbreak|bypass\s+filters?)", re.I)`.
+    # `re.I` applies to the WHOLE alternation, so `\bDAN\b` also matched the
+    # lowercase word "dan" — at severity CRITICAL, which HARD-BLOCKS the message
+    # and replies "Your message was flagged by ARIA's security protocol."
+    #
+    # "dan" is an ordinary word in several of ARIA's own target markets:
+    #   es  "ese laboratorio le DAN presupuesto"      (dar — they give)
+    #   id/ms "instalasi DAN konfigurasi"             (= "and")
+    #   nl  "als het kapot is, DAN moeten we..."      (= "then")
+    #   en  "ask DAN from procurement"                (the name)
+    # Live incident 2026-08-03: the operator forwarded a Spanish repair-shop
+    # quote for translation and was refused. A 17-string benign probe blocked
+    # 8 across five languages — for a platform whose stated differentiator is
+    # Lusophone/Hispanic-grade handling.
+    #
+    # Attack coverage is preserved, not reduced:
+    #   * uppercase DAN (how the jailbreak is actually written) still trips,
+    #     case-sensitively — note NO re.I on this pattern;
+    #   * the lowercase forms that are unambiguous in context ("dan mode",
+    #     "do anything now") trip via the pattern below;
+    #   * "jailbreak" / "bypass filters" are unchanged.
+    (re.compile(r"\bDAN\b"),
+     "jailbreak_attempt", "critical"),
+    (re.compile(r"\b(?:dan\s+mode|do\s+anything\s+now)\b", re.I),
+     "jailbreak_attempt", "critical"),
+    (re.compile(r"(?:jailbreak|bypass\s+filters?)", re.I),
      "jailbreak_attempt", "critical"),
 
     # Data exfiltration

@@ -1445,12 +1445,32 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null,
     }
     if (chatId && !interimSent && (Date.now() - t0) >= INTERIM_AFTER_MS) {
       interimSent = true;
-      // R-F1170 — engaging interim messages that set expectations
+      // R-F3664 — these interim messages FABRICATED TOOL USE.
+      //
+      // They fire on a pure TIMER (INTERIM_AFTER_MS = 7s), not on intent, and
+      // this poller has no idea what the brain is doing — there is no job-kind
+      // flag here. So a plain conversational turn that took >7s was answered
+      // with "📡 Running the numbers — checking multiple sources" or
+      // "⚡ cross-referencing several databases", when ARIA was consulting
+      // nothing at all.
+      //
+      // That exact sentence is already banned on the brain side:
+      // intel/tool_claim_guard.py:108 — "R-F1437: 'Running the numbers' /
+      // 'checking multiple sources' — fabricated". R-F1437 fixed the brain's
+      // OUTPUT; these canned strings re-introduced the identical false claim in
+      // the Node tier, where no guard could see them.
+      //
+      // Live 2026-08-03: operator asked "how are you, are you ok" and got
+      // "📡 Running the numbers — checking multiple sources", then challenged it.
+      //
+      // The fix is not softer wording — it is claiming only what is certainly
+      // true. The one fact this code actually knows is that the job is still
+      // running. A research-flavoured interim can only return here if a job-kind
+      // flag is plumbed through, and then it must be gated on it.
       const _interimMessages = [
-        '🔎 Give me a moment — I\'m researching this now. I\'ll post the full briefing here as soon as it\'s ready.',
-        '📡 Running the numbers — checking multiple sources. Results coming shortly.',
-        '🕵️ Digging into this — I\'ll share what I find the moment I have a complete picture.',
-        '⚡ On it — cross-referencing several databases. This usually takes a minute or two.',
+        'Still with you — working on this now. I\'ll reply here as soon as I have it.',
+        'One moment — I\'m putting your answer together.',
+        'Still working on this — I\'ll come back here the moment it\'s ready.',
       ];
       await sendReply(chatId, _interimMessages[Math.floor(Math.random() * _interimMessages.length)]
       ).catch(() => {});
@@ -1459,10 +1479,13 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null,
     // R-F1170 — engaging progress updates that show effort
     if (chatId && interimSent && (Date.now() - t0) > 120000 && Math.floor((Date.now() - t0) / 120000) > Math.floor(((Date.now() - t0) - 5000) / 120000)) {
       const mins = Math.floor((Date.now() - t0) / 60000);
+      // R-F3664 — same fabrication class as the interim messages above: this
+      // timer cannot know that "this is a deep dive" or that "sources take time
+      // to verify". Only the elapsed time is known, so only it is claimed.
       const _progressMessages = [
-        `Still researching (${mins} min) — this is a deep dive. I'm pulling together a thorough briefing.`,
-        `Still on it (${mins} min) — some of these sources take time to verify. Quality over speed.`,
-        `Still working (${mins} min) — I want to get this right rather than rush it. Nearly there.`,
+        `Still working (${mins} min) — I'll post the answer here as soon as it's done.`,
+        `Still on it (${mins} min) — taking longer than usual, but it is running.`,
+        `Still working (${mins} min) — I'd rather get this right than rush it.`,
       ];
       sendReply(chatId, _progressMessages[mins % _progressMessages.length]).catch(() => {});
     }

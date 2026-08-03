@@ -101,6 +101,47 @@ yours to call. They are harmless where they are, only misleading.
 
 ---
 
+## DR-E. `ARIA_LLM_URL` is forcing the small-model prompt onto every chat
+
+**Evidence (live).** `_compact_prompt_active()` (`aria_engine.py:713`) returns
+True **whenever `ARIA_LLM_URL` is set** — and it IS set on aria-intel (secret
+digest `0a2a5f12fa6ad3af`, Deployed). Its own docstring accepts the consequence:
+*"when her provider cools down mid-window, the fallback (DeepSeek) also gets the
+compact prompt for that request — acceptable, documented."*
+
+But ARIA-LLM is **not actually serving**: `/health` reports
+`chain_order: ["deepseek","deepseek_backup"]`, `serving_provider: "deepseek"`,
+and no ARIA-LLM entry anywhere in the chain.
+
+So production is running the **~2K-char 8-rule compact prompt** — written for a
+7B model that "latches onto whatever scaffold is loudest" — against a
+frontier-class model, for **all** chat traffic, permanently. The full
+`ARIA_SYSTEM_PROMPT` (~100K chars, 25+ constitutional clauses) is not being
+used on that path.
+
+**This is not theoretical — it caused a live incident.** On 2026-08-03 ARIA told
+the operator *"I don't carry memory across chats. Each conversation starts fresh
+for me."* That is false (§7: infinite memory, no TTL, no eviction; mem0 is a
+first-class recall layer). It happened because the compact prompt said nothing
+about memory and omitted the full prompt's clause 25 (no architectural
+self-claims). **R-F3665 patched the compact prompt** with both invariants, so the
+symptom is fixed — but the underlying exposure remains: every other clause the
+full constitution carries is still absent from live chat.
+
+**Options**
+1. `ARIA_LLM_COMPACT_PROMPT=0` — explicit override; keeps `ARIA_LLM_URL` set for
+   when ARIA-LLM is actually wired in. Smallest, most reversible change.
+2. Unset `ARIA_LLM_URL` until ARIA-LLM is genuinely in the chain.
+3. Change the activation rule so it keys off the **serving provider** rather than
+   the presence of a URL — the honest signal.
+
+**Recommendation: option 1 now, option 3 as the real fix.** A URL being *set* is
+not evidence that a model is *serving*; the gate should read the live chain. Note
+§16 records ARIA-LLM v0.1 as "NOT wired into live chain" — so the URL has been
+set ahead of activation, and that alone silently downgraded the prompt.
+
+---
+
 ## Also recorded: the design-doc phase-name collision
 
 `ARIA_State_of_the_Art_Design.md` §6 names its stages **Phase A–D**, where its
