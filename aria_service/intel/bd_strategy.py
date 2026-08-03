@@ -90,7 +90,12 @@ async def generate_market_intelligence() -> dict:
 
     # 2. Competitor intelligence
     try:
-        competitors = await ct.get_competitor_activity(limit=50)
+        # R-F3660: was get_competitor_activity(limit=50) — there is no `limit`
+        # parameter (the signature is country/firm/since_days), so this raised
+        # TypeError into the handler below on EVERY call and the competitor
+        # intelligence section of the BD report was always empty. The caller
+        # already slices to 10 below, which is what `limit` was reaching for.
+        competitors = await ct.get_competitor_activity()
         report["sources_consulted"].append("competitor_tracker")
         for comp in competitors[:10]:
             report["competitor_intelligence"].append({

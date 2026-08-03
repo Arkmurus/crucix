@@ -1,0 +1,118 @@
+name: Deploy aria-web to Fly.io
+
+# R-F3662 — aria-web had NO CI deploy route at all.
+#
+# deploy-fly.yml covers aria-intel only. The ONLY way to ship aria-web was
+# `scripts/deploy.ps1 -Web`, which builds from the LOCAL WORKING TREE — so with
+# a second agent active and files dirty it would ship someone else's untested
+# WIP, and `-CleanHead` has been observed destroying that work while reporting
+# success (CLAUDE.md §11, "two-agents-one-tree hazard").
+#
+# That gap blocked shipping real P0 fixes on 2026-08-03: R-F3651 (every
+# WhatsApp @-mention threw ReferenceError), R-F3652 (the §25 delivery wire never
+# reported), R-F3655/R-F3656/R-F3661 (unauthenticated brain calls) all live in
+# aria-web and could not be deployed safely.
+#
+# This workflow builds from the PUSHED SHA. It never touches a working tree, so
+# a peer's uncommitted work cannot be stashed, shipped, or lost.
+#
+# Usage:
+#   gh workflow run deploy-web.yml --ref main -f reason="R-F#### <why>"
+#   gh run list --workflow=deploy-web.yml --limit 1     # confirm it STARTED
+#   curl https://aria-web.fly.dev/api/health            # confirm build_rev
+
+on:
+  # Deliberately workflow_dispatch ONLY, mirroring deploy-fly.yml. A `push:`
+  # trigger here would deploy the web tier on every commit to main, including a
+  # peer agent's in-progress work. Deploys stay a deliberate, audited act.
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Manual-deploy justification (auditable)"
+        required: true
+
+# Least-privilege: this job deploys via flyctl and never writes to the repo.
+permissions:
+  contents: read
+
+# Serialise so two dispatches cannot SIGTERM each other mid-boot (the R-F1478
+# lease-contention class). Queue, don't cancel — cancelling resets the boot.
+concurrency:
+  group: deploy-aria-web
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # SHA-pinned, matching deploy-fly.yml's R-F2237 rule: a moving branch tip
+      # running in the FLY_API_TOKEN job would be a total-Fly-compromise on any
+      # upstream push. Bump the SHA and the comment together.
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
+
+      - name: Record what we are shipping
+        id: rev
+        run: |
+          GIT_SHA=$(git rev-parse HEAD)
+          SHORT=$(git rev-parse --short HEAD)
+          R_TAG=$(git log -1 --pretty=%s | grep -oE 'R-F[0-9]+' | head -1)
+          R_TAG=${R_TAG:-no-r-tag}
+          echo "git_sha=$GIT_SHA"   >> $GITHUB_OUTPUT
+          echo "short=$SHORT"       >> $GITHUB_OUTPUT
+          echo "r_tag=$R_TAG"       >> $GITHUB_OUTPUT
+          echo "Deploying aria-web @ $SHORT ($R_TAG)"
+          echo "Reason: ${{ inputs.reason }}"
+
+      # Syntax gate before shipping. R-F2119/R-F2120 pushed 31 syntax errors to
+      # main and made the tree un-importable; scripts/lint.mjs is the cheap,
+      # terminating check that catches exactly that class. CLAUDE.md §11c makes
+      # a pre-deploy compile gate binding — this is the Node half of it.
+      - name: Syntax gate (node --check over every tracked .mjs)
+        run: node scripts/lint.mjs
+
+      # aria-web is single-machine by design (fly.web.toml: the /data volume
+      # holds users.json + sessions.json + audit logs, and Fly volumes are not
+      # shared). So there is no canary tier to deploy to — rolling is correct,
+      # and the verification below is what makes the deploy honest.
+      - name: Deploy
+        id: deploy
+        continue-on-error: true
+        run: |
+          flyctl deploy --remote-only \
+            --config fly.web.toml \
+            --app aria-web \
+            --strategy rolling \
+            --wait-timeout 900 \
+            --build-arg ARIA_BUILD_GIT_SHA="${{ steps.rev.outputs.git_sha }}" \
+            --build-arg ARIA_BUILD_R_TAG="${{ steps.rev.outputs.r_tag }}" \
+            -t "${{ secrets.FLY_API_TOKEN }}"
+
+      # A dispatched run is NOT a deploy until this passes (CLAUDE.md §11,
+      # anti-hallucination law #4). flyctl can exit non-zero while the release
+      # actually completed — it cannot distinguish a healthcheck grace period
+      # from a build failure — so the live surface is the arbiter, not the CLI.
+      - name: Verify live build_rev
+        run: |
+          echo "flyctl step outcome: ${{ steps.deploy.outcome }}"
+          SHORT="${{ steps.rev.outputs.short }}"
+          for i in $(seq 1 30); do
+            CODE=$(curl -sS -m 10 -o /tmp/h.json -w '%{http_code}' \
+                   https://aria-web.fly.dev/api/health || echo "000")
+            if [ "$CODE" = "200" ]; then
+              REV=$(jq -r '.build_rev // "unknown"' /tmp/h.json 2>/dev/null || echo unknown)
+              echo "attempt $i: /api/health 200, build_rev=$REV"
+              case "$REV" in
+                *"$SHORT"*)
+                  echo "VERIFIED — aria-web is live at $SHORT"
+                  exit 0 ;;
+              esac
+            else
+              echo "attempt $i: /api/health -> $CODE"
+            fi
+            sleep 10
+          done
+          echo "::error::aria-web did not report build_rev containing $SHORT within 5 minutes."
+          echo "The deploy is NOT verified. Do not ship-mark the R-number."
+          exit 1

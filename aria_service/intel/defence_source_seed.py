@@ -623,18 +623,24 @@ async def seed_web_atlas(skip_if_populated: bool = True) -> dict:
     errors = 0
     for url, family, tier, tags in _DEFENCE_SOURCES:
         try:
-            # web_atlas.add_source signature varies across versions —
-            # try the most common then fall back.
-            try:
-                await web_atlas.add_source(
-                    url=url,
-                    family=family,
-                    tier=tier,
-                    topic_tags=tags,
-                )
-            except TypeError:
-                # Older signature
-                await web_atlas.add_source(url, family, tier)
+            # R-F3660 — this was SILENT DATA CORRUPTION, not a dead call.
+            # web_atlas.add_source is (url, tier, topic_tags, region=..., added_by=...)
+            # and has NO `family` parameter — it derives family itself via
+            # _source_family(url). So the keyword call always raised TypeError,
+            # and the "older signature" fallback then bound POSITIONALLY as
+            # url=url, tier=family, topic_tags=tier — writing the family string
+            # into the tier field and the tier string into topic_tags. Because
+            # add_source does `sorted(set(topics + topic_tags))`, a str in
+            # topic_tags iterates its CHARACTERS, so every seeded defence source
+            # was registered with a wrong tier and single-letter topics — while
+            # `added += 1` counted it a success. Call the real signature; the
+            # TypeError fallback is deleted because it is what let the
+            # corruption through.
+            await web_atlas.add_source(
+                url=url,
+                tier=tier,
+                topic_tags=list(tags),
+            )
             added += 1
         except Exception as e:
             msg = str(e).lower()

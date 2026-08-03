@@ -1,36 +1,15 @@
 {
- "recorded_at_commit": "d49f6185",
+ "recorded_at_commit": "0db2ab25",
  "note": "The corpus itself is untracked by design (size). This manifest is the PIN: a training run records these sha256s so a checkpoint can be attributed to exact inputs.",
  "golden_set_prompts": 500,
  "golden_set_source": "aria-intel live store (500 entries @ /data/aria_state.db:state.value; frozen pin a07b6af760ad7f441621ab6f95541f102626ad309cd2b83d6168a13c8d81a515 count=500)",
  "contamination": "none",
  "totals": {
-  "files": 57,
-  "rows": 31485,
+  "files": 45,
+  "rows": 18149,
   "unparseable_rows": 0
  },
  "files": [
-  {
-   "file": "_grpo_kw_v2.sidecar.jsonl",
-   "sha256": "afbc08932967bf09515cfeccdf16de97",
-   "rows": 435,
-   "unparseable_rows": 0,
-   "bytes": 101935
-  },
-  {
-   "file": "_mini_sft_smoke.jsonl",
-   "sha256": "0a222a7fd06198d2e7c2b75c25bd883f",
-   "rows": 10,
-   "unparseable_rows": 0,
-   "bytes": 75632
-  },
-  {
-   "file": "_v04_sample.jsonl",
-   "sha256": "1c22e3bb7476460d8cd461a33cc90758",
-   "rows": 10,
-   "unparseable_rows": 0,
-   "bytes": 23046
-  },
   {
    "file": "aria_dd_depth_v05.jsonl",
    "sha256": "19197289f8b690a90637081063d92abf",
@@ -88,20 +67,6 @@
    "bytes": 19512
   },
   {
-   "file": "aria_dd_framework_v07.jsonl",
-   "sha256": "1d920a3cb53ddb6f9f249519d4c9a2a5",
-   "rows": 1800,
-   "unparseable_rows": 0,
-   "bytes": 2653615
-  },
-  {
-   "file": "aria_dd_framework_v07_dpo.jsonl",
-   "sha256": "feb22329224aed33c5ff0866edc7eff4",
-   "rows": 1800,
-   "unparseable_rows": 0,
-   "bytes": 2033319
-  },
-  {
    "file": "aria_dd_framework_v07_sample.jsonl",
    "sha256": "f68417582eb3567fe42efef8aeed0205",
    "rows": 20,
@@ -137,25 +102,11 @@
    "bytes": 9203396
   },
   {
-   "file": "aria_grounded_v05_merged.jsonl",
-   "sha256": "2e2885ed7f4d28340aa6aa6a09037e64",
-   "rows": 1998,
-   "unparseable_rows": 0,
-   "bytes": 8349782
-  },
-  {
    "file": "aria_grounded_v06_new.jsonl",
    "sha256": "38f06631d791f6d9aff2d55a46b2a7df",
    "rows": 797,
    "unparseable_rows": 0,
    "bytes": 3092897
-  },
-  {
-   "file": "aria_grounded_v06_new.jsonl.partial.jsonl",
-   "sha256": "cd734f7426cae69e50659a74b4d11a23",
-   "rows": 797,
-   "unparseable_rows": 0,
-   "bytes": 3109524
   },
   {
    "file": "aria_grounded_v07_new.jsonl",
@@ -165,25 +116,11 @@
    "bytes": 1448166
   },
   {
-   "file": "aria_grounded_v07_new.jsonl.partial.jsonl",
-   "sha256": "2d8ff377060044f88446919106115b29",
-   "rows": 386,
-   "unparseable_rows": 0,
-   "bytes": 1456174
-  },
-  {
    "file": "aria_grounded_v1.jsonl",
    "sha256": "bc59d0ac0b87726c71a1ceea76a2f1da",
    "rows": 664,
    "unparseable_rows": 0,
    "bytes": 2842653
-  },
-  {
-   "file": "aria_grounded_v1.jsonl.partial.jsonl",
-   "sha256": "32dc520470caf10465eb5c63df6cebc9",
-   "rows": 689,
-   "unparseable_rows": 0,
-   "bytes": 2630256
   },
   {
    "file": "aria_grounded_v2.jsonl",
@@ -277,13 +214,6 @@
    "bytes": 651910
   },
   {
-   "file": "aria_tooluse_dpo_v1.jsonl",
-   "sha256": "d243fba2a44f024f5f999a13cd7dc8f7",
-   "rows": 13,
-   "unparseable_rows": 0,
-   "bytes": 73450
-  },
-  {
    "file": "aria_tooluse_multihop_v1.jsonl",
    "sha256": "d51c1275b46d825fd339be6eae62e76f",
    "rows": 42,
@@ -373,20 +303,6 @@
    "rows": 386,
    "unparseable_rows": 0,
    "bytes": 76991
-  },
-  {
-   "file": "aria_v06_merged.jsonl",
-   "sha256": "7ce0f137b5e8affefb0b0f30a664f0d3",
-   "rows": 1799,
-   "unparseable_rows": 0,
-   "bytes": 6488488
-  },
-  {
-   "file": "aria_v07_merged.jsonl",
-   "sha256": "ca0aaafbd0e532a2e87cdc1bbce7b3d4",
-   "rows": 3599,
-   "unparseable_rows": 0,
-   "bytes": 9142103
   },
   {
    "file": "grpo_grounded_prompts_v2.jsonl",

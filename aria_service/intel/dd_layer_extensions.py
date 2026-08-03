@@ -560,18 +560,60 @@ async def _run_economic_substance(target: dict) -> dict | None:
 
 
 async def _run_tbml_classifier(target: dict) -> dict | None:
-    """R-F73: TBML classifier."""
+    """R-F73: TBML classifier.
+
+    R-F3660 — this passed the whole DD `target` dict to
+    tbml_detection.classify_anomaly(declared, low, high), a pure-maths helper
+    taking three floats. Every call raised TypeError into the handler below and
+    returned None, so this layer has produced NOTHING for its entire life while
+    reporting "TBML classification complete" was reachable. Worse than a dead
+    layer: a caller reading `severity: NONE` would have read it as *screened and
+    clean*.
+
+    A benchmark range cannot be invented from a target dict — it comes from
+    COMTRADE via analyze_transaction. So this layer now screens only when the
+    caller actually supplied transaction fields, and otherwise returns None
+    (layer genuinely not applicable) with an honest reason. It never reports a
+    classification it did not perform (R-F2496 never-false-clean).
+    """
     try:
         from . import tbml_detection as _tb
-        result = _tb.classify_anomaly(target)
-        anomaly = result.get("anomaly", False) if isinstance(result, dict) else False
+        declared = target.get("declared_unit_value")
+        hs_code = target.get("hs_code")
+        exporter = target.get("exporter_country")
+        importer = target.get("importer_country")
+        if not (declared and hs_code and exporter and importer):
+            logger.debug(
+                "[R-F3660] tbml_classifier skipped — no transaction fields on target "
+                "(need declared_unit_value + hs_code + exporter_country + importer_country)"
+            )
+            return None
+        result = await _tb.analyze_transaction(
+            declared_unit_value=float(declared),
+            hs_code=str(hs_code),
+            exporter_country=str(exporter),
+            importer_country=str(importer),
+            year=target.get("year"),
+            quantity=target.get("quantity", 1),
+        )
+        if not isinstance(result, dict):
+            return None
+        grade = str(result.get("grade") or "").upper()
+        if grade == "INDETERMINATE":
+            # Source down / no benchmark. NOT a clean screen.
+            return {
+                "severity": "UNKNOWN",
+                "summary": result.get("narrative")
+                           or "TBML benchmark unavailable — not screened",
+                "score": 0,
+            }
         return {
-            "severity": "ELEVATED" if anomaly else "NONE",
-            "summary": result.get("narrative", "TBML classification complete") if isinstance(result, dict) else "TBML classification complete",
-            "score": result.get("score", 0) if isinstance(result, dict) else 0,
+            "severity": "ELEVATED" if grade in ("FLAG", "SEVERE", "BLATANT") else "NONE",
+            "summary": result.get("narrative", "TBML classification complete"),
+            "score": result.get("score", 0),
         }
     except Exception as e:
-        logger.debug("[R-F1485] tbml_classifier failed: %s", e)
+        logger.warning("[R-F3660] tbml_classifier failed: %s", e)
         return None
 
 

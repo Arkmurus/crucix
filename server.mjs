@@ -4821,9 +4821,13 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
   // Try old Flask brain service
   if (BRAIN_URL) {
     try {
+      // R-F3661: was unauthenticated. BRAIN_URL and ARIA_SERVICE_URL carry the
+      // SAME value in production (both point at aria-intel), so this "old Flask
+      // brain" fallback was hitting the Bearer-gated brain with no token and
+      // could only ever 401 — a fallback that could never catch anything.
       const r = await fetch(`${BRAIN_URL}/api/aria/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: _ariaHeaders(),
         body: JSON.stringify({ message, session_id: sid }),
         signal: AbortSignal.timeout(300000),  // 5 minutes — must exceed waListener 240s
       });
@@ -5251,9 +5255,10 @@ app.post('/api/aria/think', requireAuth, async (req, res) => {
   // Try old Flask brain service
   if (BRAIN_URL) {
     try {
+      // R-F3661: same unauthenticated legacy fallback as /api/aria/chat above.
       const r = await fetch(`${BRAIN_URL}/api/aria/think`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: _ariaHeaders(),
         body: JSON.stringify({ question, context: context || {}, fast: fast || false }),
         signal: AbortSignal.timeout(300000),
       });

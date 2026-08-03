@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3657,
+  "next_available": 3663,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30572,14 +30572,70 @@
       "title": "explorer curiosity loop was fully dead - every brain call sent no auth token and 401d",
       "claimed_at": "2026-08-03T18:44:30Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c802ce6f",
+      "notes": null,
+      "shipped_at": "2026-08-03T19:00:58Z"
     },
     {
       "r_number": "R-F3656",
       "title": "telegram brain calls sent no auth token so identity and curiosity 401d",
       "claimed_at": "2026-08-03T18:44:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c802ce6f",
+      "notes": null,
+      "shipped_at": "2026-08-03T19:00:58Z"
+    },
+    {
+      "r_number": "R-F3657",
+      "title": "mechanical call-arity gate - a keyword-only function called positionally can never succeed",
+      "claimed_at": "2026-08-03T19:05:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3658",
+      "title": "auth-on-egress gate - cross-service fetch without a token fails silently",
+      "claimed_at": "2026-08-03T19:05:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3659",
+      "title": "node semantic lint gate - node --check cannot see undefined identifiers",
+      "claimed_at": "2026-08-03T19:05:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3660",
+      "title": "three impossible calls found by the new arity gate incl silent tier corruption in source seeding",
+      "claimed_at": "2026-08-03T19:13:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3661",
+      "title": "unauthenticated cross-service calls found by the auth-egress gate",
+      "claimed_at": "2026-08-03T19:25:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3662",
+      "title": "aria-web had no CI deploy route at all - only a working-tree build",
+      "claimed_at": "2026-08-03T19:34:18Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

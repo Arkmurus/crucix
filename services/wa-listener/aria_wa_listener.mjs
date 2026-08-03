@@ -281,6 +281,11 @@ async function brainFetchHealth(path, timeoutMs = 8000) {
     } catch { /* fall through to public URL */ }
   }
   // Single attempt on public URL — no retries
+  // auth-exempt: brainFetchHealth only ever probes /health*, which is
+  // deliberately ungated (it is the liveness surface the Fly checks use). The
+  // authenticated path is brainFetch() above; this helper takes timeoutMs, not
+  // an options object, and must stay header-free so it cannot be mistaken for
+  // a general-purpose brain call.
   const r = await fetch(`${BRAIN_URL}${path}`, { signal: AbortSignal.timeout(timeoutMs) });
   if (r.ok) errorTracker.recordSuccess('wa_brain'); // R-F1802 (#3): health probe feeds breaker recovery
   return r;

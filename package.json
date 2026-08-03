@@ -19,6 +19,9 @@
     "fresh-start": "npm run clean && npm start",
     "lint": "node scripts/lint.mjs",
     "lint:changed": "node scripts/lint.mjs --changed",
+    "lint:js": "eslint .",
+    "gate:auth": "node scripts/admin/auth_egress_gate.mjs",
+    "gate:arity": "python scripts/admin/call_arity_gate.py",
     "test": "node --test --test-force-exit --test-concurrency=2 --import ./test/helpers/net_guard.mjs \"test/**/*.test.mjs\"",
     "test:offline": "node --test --test-force-exit --test-concurrency=2 --import ./test/helpers/net_guard.mjs \"test/**/*.test.mjs\"",
     "test:live": "node --test --test-force-exit --test-concurrency=2 \"test/**/*.test.mjs\""
@@ -52,6 +55,11 @@
     "socket.io": "^4.8.3",
     "web-push": "^3.6.7",
     "xml2js": "^0.6.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0"
   },
   "optionalDependencies": {
     "@whiskeysockets/baileys": "^6.7.21",
