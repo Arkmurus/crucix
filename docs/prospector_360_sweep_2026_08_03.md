@@ -142,6 +142,69 @@ categories dispositioned above, the notable untouched clusters are:
 - `bandit` B105/B106 ×49 (hardcoded-password heuristics) — untriaged, mostly
   expected to be field-name false positives, but unreviewed.
 
+---
+
+## Live log sweep — 15 cycles, 2026-08-03 18:31–18:40Z
+
+Method: 15 cycles; each captured a 20s `flyctl logs -a aria-intel --no-tail` window
+plus a `/health` snapshot; every 5th cycle also swept `aria-web` and `aria-wa`.
+**2,047 raw aria-intel lines, 300 each for web/wa.**
+
+**Estate state: healthy.** `/health` = `operational`, diagnostic **GREEN (76 pass /
+0 warn / 0 fail / 2 deferred)**, event loop p50 0.2ms / p95 1.0ms, state backend
+sqlite green, autonomous engine **enabled, running, L3, 98 tasks**. `aria-wa`
+heartbeating every 3 min, `connected=true`, one clean 428 reconnect at 15:40Z.
+**Zero ERROR, zero CRITICAL, zero traceback in the entire window.**
+
+### Fixed from this sweep
+
+| R-number | Finding |
+|---|---|
+| **R-F3655** | **ARIA's curiosity-exploration loop is completely dead.** `lib/self/explorerScheduler.mjs` made **all 7** of its brain calls with **no Authorization header** (`/api/aria/curiosity`, `/think` ×3, `/curiosity/resolve`, `/brain/signal`). Live log: `GET /api/aria/curiosity … 401 Unauthorized` from an internal `fdaa:` 6PN address. The 401 threw → `recordFailure(_BRAIN_CIRCUIT)` → after 2 failures the circuit **opened**, after which every 3h tick logged `"Brain circuit open — skipping run"`. **A permanent auth bug presented as an intermittently unreachable brain** — the log named the wrong cause (§22), which is why it survived. All calls now route through an authed `brainFetch` helper. |
+| **R-F3656** | Same defect in `lib/telegram/telegramCommands.mjs` (8 brain calls). Here the fallback was *to the local LLM*, so `/identity` and `/curiosity` silently degraded to local answers instead of the brain's — indistinguishable from "the brain had nothing to say". |
+
+Token chain mirrors `lib/self/learning_store.mjs:420`, the working sibling in the
+same directory. Tests: `test/brain-auth-rf3655-rf3656.test.mjs` (9, green).
+
+**Corroboration:** the ESLint pass had independently flagged
+`explorerScheduler.mjs:54 no-useless-assignment` — the same function. Static
+analysis and production logs converged on one dead path.
+
+### Open findings from the sweep — evidence, not yet actioned
+
+1. **`ARIA_CODER_ENABLED=0` — the self-coding loop sees gaps and cannot act.**
+   Live log: `[aria_coder] fix_gap REFUSED for … — ARIA_CODER_ENABLED='0'` then
+   `gap … not fixed: coder_disabled`. Confirmed twice over: the log line, and the
+   fly secret digest `9048cdb637b2dd86`, identical to `ARIA_AUTONOMOUS_ENABLED`
+   whose value the gate probe reports as `"0"`. **§21c calls exactly this a P0**
+   ("if it can see gaps but can't act, that's a P0") while §17 records the coder
+   as DORMANT — the two sections disagree, and production follows §17. Decision
+   needed: enable under the existing guardrails, or stop the detector queuing
+   work nothing will ever consume.
+2. **No LLM vendor redundancy.** Chain is `["deepseek", "deepseek_backup"]` —
+   `general_vendor_depth: 1`. During the window **both** timed out
+   (`Provider deepseek failed: timeout`, `Provider deepseek_backup failed: timeout`).
+   Anthropic is `preference_only`, un-topped-up (§18). A DeepSeek outage takes
+   ARIA's reasoning down entirely.
+3. **Event-loop stalls:** 4 × `Main loop heartbeat stale for N s — possible
+   event-loop stall (stall #N)` in a 9-minute window, despite p95 = 1.0ms. The
+   profiler captures the loop-thread stack — worth reading before it recurs.
+4. **`brain_hook` absorb concurrency cap is being hit** in production
+   (`brain_hook(verified_intel): N errors — absorb: concurrency cap (>Ns wait)`).
+   This is the `_over_cap` branch audited above; it is correct code, but the
+   backpressure is real and facts are being deferred to the WAL under load.
+5. **Hallucination guard is flagging and shipping anyway:** `hallucination guard
+   FLAGGED response — N medium-severity red flags. Response shipped with warning`,
+   the flags being *"Numerical claim without source citation"* and *"CONFIRMED
+   claim without inline citation"*. Under the design doctrine "evidence owns
+   truth", shipping a CONFIRMED-labelled claim with no citation is the exact
+   failure the contract exists to prevent.
+6. **`POST /api/aria/report` → 400 Bad Request ×8** from a public address, and
+   **`/api/brain/brief` 404s on the brain** (probed directly) — it is an aria-web
+   route being called on aria-intel from `telegramCommands.mjs`, so it has never
+   returned data. Left in place with a note; re-hosting it needs its own check.
+7. **`memory_leak_detector` RSS exceeded its 6144MB threshold** and triggered GC.
+
 ### 4. Suite/environment notes
 
 - `aria_service/tests/test_rf2151_rag_retry_cooldown.py` fails to **collect** on

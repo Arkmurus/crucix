@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3655,
+  "next_available": 3657,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30482,77 +30482,104 @@
       "title": "admin LLM cooldown clear endpoint raised NameError on both failure branches",
       "claimed_at": "2026-08-03T17:29:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b30a2197",
+      "notes": null,
+      "shipped_at": "2026-08-03T18:18:35Z"
     },
     {
       "r_number": "R-F3645",
       "title": "redis_store lrem TypeErrored because the module shadows builtin set",
       "claimed_at": "2026-08-03T17:29:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b30a2197",
+      "notes": null,
+      "shipped_at": "2026-08-03T18:18:35Z"
     },
     {
       "r_number": "R-F3646",
       "title": "news_monitor vault-suspend wiring passed kwargs wire_failure does not accept",
       "claimed_at": "2026-08-03T17:30:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b30a2197",
+      "notes": null,
+      "shipped_at": "2026-08-03T18:18:36Z"
     },
     {
       "r_number": "R-F3647",
       "title": "DD TBML screen silently skipped every transaction on a keyword-only call",
       "claimed_at": "2026-08-03T17:30:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b30a2197",
+      "notes": null,
+      "shipped_at": "2026-08-03T18:18:36Z"
     },
     {
       "r_number": "R-F3648",
       "title": "chat deep-DD dedup key was never canonical - keyword-only call always TypeErrored",
       "claimed_at": "2026-08-03T17:30:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b30a2197",
+      "notes": null,
+      "shipped_at": "2026-08-03T18:18:36Z"
     },
     {
       "r_number": "R-F3651",
       "title": "R-F1770 deleted R-F1760 self-healing loop - every WA mention threw ReferenceError",
       "claimed_at": "2026-08-03T17:37:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b30a2197",
+      "notes": null,
+      "shipped_at": "2026-08-03T18:18:36Z"
     },
     {
       "r_number": "R-F3652",
       "title": "waListener reportOutcome was never defined so optional-call still threw",
       "claimed_at": "2026-08-03T17:37:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b30a2197",
+      "notes": null,
+      "shipped_at": "2026-08-03T18:18:37Z"
     },
     {
       "r_number": "R-F3653",
       "title": "waListener duplicate case investigate made the second handler dead",
       "claimed_at": "2026-08-03T17:37:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b30a2197",
+      "notes": null,
+      "shipped_at": "2026-08-03T18:18:37Z"
     },
     {
       "r_number": "R-F3654",
       "title": "admin user reactivation branch unreachable - no email and audit logged approve",
       "claimed_at": "2026-08-03T17:37:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b30a2197",
+      "notes": null,
+      "shipped_at": "2026-08-03T18:18:37Z"
+    },
+    {
+      "r_number": "R-F3655",
+      "title": "explorer curiosity loop was fully dead - every brain call sent no auth token and 401d",
+      "claimed_at": "2026-08-03T18:44:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3656",
+      "title": "telegram brain calls sent no auth token so identity and curiosity 401d",
+      "claimed_at": "2026-08-03T18:44:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
