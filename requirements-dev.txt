@@ -12,3 +12,21 @@ pytest-timeout>=2.1
 # dependency — §6 applies to ARIA's runtime, not test tooling). The gate caught
 # 24 live latent-NameError sites the self-coder/refactors had introduced.
 pyflakes>=3.0
+# R-F3670 — the §24 training-cycle pre-flight (scripts/train/preflight_cycle.py,
+# R-F3395) needs a TOKENIZER to prove three of its seven checks: render (does
+# every row survive apply_chat_template), length (token budget) and base-model
+# (architecture signature). Without these it reports SKIPPED, and under --strict
+# SKIPPED is BLOCKING — which is the point: "reporting green because a check did
+# not execute is how absence gets laundered into evidence".
+#
+# Both are pure-Python and install fine on win-arm64 (§16 lists torch /
+# sentence-transformers as the wheels that do NOT). transformers warns that
+# PyTorch is absent — that is expected and harmless here, because the pre-flight
+# only ever loads the tokenizer, never a model. jinja2 is what
+# apply_chat_template renders with; without it all 656 rows report unrenderable
+# and the failure looks like a corrupt dataset rather than a missing dev dep.
+#
+# Keeping these here is what moves the last three checks to the FREE side of the
+# spend, before any GPU exists.
+transformers>=4.40
+jinja2>=3.1
