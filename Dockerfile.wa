@@ -71,6 +71,12 @@ COPY lib/whatsapp/waGovernance.mjs ./lib/whatsapp/waGovernance.mjs
 # before deploy by the R-F2069 import/COPY guard.
 COPY lib/whatsapp/waBinding.mjs ./lib/whatsapp/waBinding.mjs
 
+# Shared capability policy: who may see system internals, and whether a message
+# is a conversation or a task. Same reasoning as the two COPYs above — and the
+# same consequence if omitted. The R-F2069 guard caught exactly that on the
+# commit that added the import, which is the whole point of it.
+COPY lib/whatsapp/waCapability.mjs ./lib/whatsapp/waCapability.mjs
+
 # Cross-module dependency: the listener imports `../../lib/aria/complianceAudit.mjs`.
 # That file only uses Node stdlib (fs/path/url), so copying just it is safe.
 COPY lib/aria/complianceAudit.mjs ./lib/aria/complianceAudit.mjs

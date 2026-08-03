@@ -106,6 +106,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';         // R-F1930 (C1): p
 import { buildOperationalEvent, linkedGrantState, linkedMessageAllowed } from '../../lib/whatsapp/waGovernance.mjs';
 import { extractPairingCode, identitiesFromMessage, newBinding, newPairing,
          pairingState, publicBindingView, resolveBoundUser } from '../../lib/whatsapp/waBinding.mjs';
+import { roleForBinding, maySeeSystemInternals, ROLE_ADMIN } from '../../lib/whatsapp/waCapability.mjs';
 
 // R-F1930 (C1): ambient context for the inbound message pipeline. onMessagesUpsert
 // runs each batch inside _waCtx.run({sock, account}); sendReply reads the store to
@@ -1942,6 +1943,21 @@ function _waBoundUser(senderJid, msg = null) {
   return resolveBoundUser(_waBindings, identitiesFromMessage(senderJid, msg));
 }
 
+// Admin accounts, by BOUND imaria.io userId — never by phone number. waBinding.mjs
+// already argues an operator-maintained list of numbers "proves nothing about who
+// is holding the phone"; that binds harder for privilege than for access, because
+// a handset can be lent, spoofed, or re-issued by a carrier while the account
+// behind a pairing code cannot. Unset = NOBODY is admin, so the gate opens only by
+// a deliberate operator act and never by default.
+const ARIA_WA_ADMIN_USER_IDS = (process.env.ARIA_WA_ADMIN_USER_IDS || '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+
+/** ROLE_ADMIN only for a BOUND account named in ARIA_WA_ADMIN_USER_IDS. Fails
+ *  closed: unbound, unknown, or no admin list configured all yield ROLE_USER. */
+function _waRole(senderJid, msg = null) {
+  return roleForBinding(_waBoundUser(senderJid, msg), ARIA_WA_ADMIN_USER_IDS);
+}
+
 // R-F3586 — tell a refused sender ONCE per chat, then stay quiet.
 //
 // A refusal must be visible (silence is what made R-F3582 invisible for hours),
@@ -2007,6 +2023,62 @@ async function handleCommand(cmd, args, senderJid, requestId = null) {
   const a = (args || '').trim().slice(0, 500);
 
   switch (cmd.toLowerCase()) {
+    // ARIA's own live state, for admins only.
+    //
+    // Being ALLOWED to talk to her is not the same as being allowed to see her
+    // internals. _waSenderAllowed() above answers the first question and every
+    // registered user passes it; this answers the second, and only a bound
+    // account named in ARIA_WA_ADMIN_USER_IDS does.
+    //
+    // A non-admin is DECLINED, not fobbed off with a softened summary. Handing
+    // an ordinary user a vague "all good" would be a fabricated status — the
+    // §1 failure this codebase keeps legislating against — and it is precisely
+    // the thing an honest refusal costs nothing to avoid.
+    //
+    // Every number below is MEASURED at call time. When the brain is
+    // unreachable that is reported as unreachable; nothing here is inferred
+    // from the last thing that worked.
+    case 'status': {
+      if (!maySeeSystemInternals(_waRole(senderJid))) {
+        return '⛔ System status is restricted to administrators.\n\n'
+          + "I'm not going to give you a vague answer instead — if you need "
+          + 'operational state, ask an admin.';
+      }
+      const upMs = Date.now() - new Date(startedAt).getTime();
+      const upH = Math.floor(upMs / 3600000);
+      const upM = Math.floor((upMs % 3600000) / 60000);
+      let msg = '*ARIA — LIVE SYSTEM STATE*\n\n';
+      msg += '*WhatsApp limb*\n';
+      msg += `  ${isConnected ? '✅' : '⛔'} session: ${isConnected ? 'connected' : 'DISCONNECTED'}\n`;
+      msg += `  uptime: ${upH}h ${upM}m\n`;
+      msg += `  heard: ${messagesHeard} msg (${_msgRatePerMin}/min)\n`;
+      msg += `  memory buffer: ${messageStore.length} · redis: ${redis ? 'yes' : 'no'}\n`;
+      msg += `  build: ${process.env.ARIA_BUILD_R_TAG || 'no-r-tag'} · ${(process.env.ARIA_BUILD_GIT_SHA || 'unknown').slice(0, 8)}\n\n`;
+      try {
+        const h = await brainGet('/health');
+        const c = h.llm_chain || {};
+        msg += '*Brain*\n';
+        msg += `  status: ${h.status || 'unknown'}\n`;
+        msg += `  serving: ${c.serving_provider || 'unknown'}\n`;
+        msg += `  chain: ${(c.chain_order || []).join(' → ') || 'unknown'}\n`;
+        msg += `  vendor depth: ${c.general_vendor_depth ?? '?'} · resilient: ${c.resilient ? 'yes' : 'NO'}\n`;
+        const cooling = (c.cooling_providers || [])
+          .map((p) => `${p.name} (${p.seconds_remaining}s, ${p.reason})`).join(', ');
+        msg += `  cooling: ${cooling || 'none'}\n`;
+        if ((c.non_degrading_pins || []).length) {
+          msg += `  pinned (no degrade): ${c.non_degrading_pins.join(', ')}\n`;
+        }
+        if (c.last_exhaustion_age_s != null) {
+          msg += `  ⚠️ chain exhausted ${c.last_exhaustion_age_s}s ago\n`;
+        }
+      } catch (e) {
+        // Say so. A status that quietly omits the half it could not read is
+        // worse than one that reports the gap.
+        msg += `*Brain*\n  ⚠️ UNREACHABLE — ${String(e.message || e).slice(0, 120)}\n`;
+      }
+      return msg;
+    }
+
     case 'screen': {
       if (!a) return '⚠️ Usage: /screen [entity name]';
       const d = await brainPost('/api/aria/compliance/screen', { entity_name: a }).catch(() => ({}));
@@ -2221,7 +2293,13 @@ async function handleCommand(cmd, args, senderJid, requestId = null) {
         '/deal [title] — Add new deal',
         '',
         '_Or just mention ARIA in any message to chat._',
-      ].join('\n');
+      ].join('\n')
+        // Advertised only to those who may actually run it. Listing /status for
+        // everyone would invite a refusal that reads as a malfunction, and it
+        // discloses that an admin surface exists to people who cannot use it.
+        + (maySeeSystemInternals(_waRole(senderJid))
+          ? '\n\n*Admin:*\n/status — live system state (brain, LLM chain, this limb)'
+          : '');
 
     default:
       return null;
