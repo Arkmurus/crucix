@@ -11,7 +11,16 @@ __pycache__/
 *.pyo
 
 # Environment (contains API keys)
-.env
+# Broadened 2026-08-03: the bare `.env` pattern did not match `.env7`, which was
+# committed in 03cd0b1a (2026-03-28) carrying a live FRED_API_KEY into a PUBLIC
+# repo and sat there unnoticed — this is audit item W6 in
+# docs/fly_consolidation_plan_2026_05_23.md. `.env*` catches every suffixed
+# variant (.env7, .env.local, .env.prod); the negations keep the committed
+# example templates tracked.
+.env*
+!.env.example
+!**/.env.example
+!**/.env.local.example
 apis/.env
 
 # Runtime data
