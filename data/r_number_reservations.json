@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3666,
+  "next_available": 3667,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30676,6 +30676,15 @@
       "commit_sha": "6f0d4dbb",
       "notes": null,
       "shipped_at": "2026-08-03T19:55:56Z"
+    },
+    {
+      "r_number": "R-F3666",
+      "title": "aria-web and aria-wa CI deploy blocked - FLY_API_TOKEN is scoped to aria-intel only",
+      "claimed_at": "2026-08-03T20:15:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

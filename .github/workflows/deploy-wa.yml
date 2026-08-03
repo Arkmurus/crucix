@@ -1,0 +1,135 @@
+name: Deploy aria-wa to Fly.io
+
+# R-F3666 — aria-wa had NO CI deploy route, and NO build identity.
+#
+# deploy-fly.yml covers aria-intel only; deploy-web.yml (R-F3662) added aria-web.
+# aria-wa — the isolated Baileys WhatsApp listener, i.e. the acute §25 output
+# channel — could only be shipped from a local working tree, which with a second
+# agent active would ship someone else's untested WIP.
+#
+# Worse, aria-wa exposed no build_rev at all, so even a successful deploy could
+# not be PROVEN live. CLAUDE.md §11 makes that proof the arbiter
+# (anti-hallucination law #4). R-F3666 adds the build-arg identity to
+# Dockerfile.wa + GET /health so this workflow can verify itself.
+#
+# Concretely: R-F3664 replaced the interim messages in aria_wa_listener.mjs that
+# fabricated tool use ("Running the numbers — checking multiple sources") after a
+# 7-second timer. That fix lives in THIS app and had no route to production.
+#
+# This workflow builds from the PUSHED SHA. It never touches a working tree, so
+# a peer's uncommitted work cannot be stashed, shipped, or lost.
+#
+# ⚠️ FIRST RUN WILL FAIL WITHOUT A SCOPED TOKEN. The repo's FLY_API_TOKEN is
+# scoped to aria-intel (`flyctl tokens list` reports "Tokens for app
+# aria-intel"), and deploy-web.yml's first run died on `Error: unauthorized`
+# for exactly this reason. Create one and add it:
+#     flyctl tokens create deploy -a aria-wa
+#     gh secret set FLY_API_TOKEN_WA
+#
+# Usage:
+#   gh workflow run deploy-wa.yml --ref main -f reason="R-F#### <why>"
+#   gh run list --workflow=deploy-wa.yml --limit 1     # confirm it STARTED
+#   curl https://aria-wa.fly.dev/health                # confirm build_rev
+
+on:
+  # workflow_dispatch ONLY, mirroring the other two. A push trigger would
+  # redeploy the WhatsApp listener on every commit to main — and a redeploy
+  # restarts the Baileys session. Deploys stay deliberate and audited.
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Manual-deploy justification (auditable)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-aria-wa
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # SHA-pinned (R-F2237 rule): a moving branch tip inside a job holding a
+      # Fly token is a total-compromise path. Bump SHA and comment together.
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
+
+      - name: Record what we are shipping
+        id: rev
+        run: |
+          GIT_SHA=$(git rev-parse HEAD)
+          SHORT=$(git rev-parse --short HEAD)
+          R_TAG=$(git log -1 --pretty=%s | grep -oE 'R-F[0-9]+' | head -1)
+          R_TAG=${R_TAG:-no-r-tag}
+          echo "git_sha=$GIT_SHA" >> $GITHUB_OUTPUT
+          echo "short=$SHORT"     >> $GITHUB_OUTPUT
+          echo "r_tag=$R_TAG"     >> $GITHUB_OUTPUT
+          echo "Deploying aria-wa @ $SHORT ($R_TAG)"
+          echo "Reason: ${{ inputs.reason }}"
+
+      # §11c makes a pre-deploy compile gate binding. R-F2119/R-F2120 pushed 31
+      # syntax errors to main; this is the Node half of that gate.
+      - name: Syntax gate (node --check over every tracked .mjs)
+        run: node scripts/lint.mjs
+
+      - name: Deploy
+        id: deploy
+        continue-on-error: true
+        env:
+          FLY_TOKEN_WA: ${{ secrets.FLY_API_TOKEN_WA }}
+          FLY_TOKEN_DEFAULT: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          TOKEN="$FLY_TOKEN_WA"
+          if [ -z "$TOKEN" ]; then
+            echo "FLY_API_TOKEN_WA not set — falling back to FLY_API_TOKEN"
+            TOKEN="$FLY_TOKEN_DEFAULT"
+          fi
+          if [ -z "$TOKEN" ]; then
+            echo "::error::No Fly token available (FLY_API_TOKEN_WA / FLY_API_TOKEN both unset)."
+            exit 1
+          fi
+          flyctl deploy --remote-only \
+            --config fly.wa.toml \
+            --app aria-wa \
+            --strategy rolling \
+            --wait-timeout 900 \
+            --build-arg ARIA_BUILD_GIT_SHA="${{ steps.rev.outputs.git_sha }}" \
+            --build-arg ARIA_BUILD_R_TAG="${{ steps.rev.outputs.r_tag }}" \
+            -t "$TOKEN"
+
+      - name: Report flyctl outcome
+        if: steps.deploy.outcome != 'success'
+        run: |
+          echo "::warning::flyctl reported failure. If the live check below also"
+          echo "::warning::fails, read this step's log — 'unauthorized' means the"
+          echo "::warning::token is not scoped to aria-wa (see FLY_API_TOKEN_WA)."
+
+      # A dispatched run is NOT a deploy until this passes. flyctl can exit
+      # non-zero while the release completed, so the live surface is the arbiter.
+      - name: Verify live build_rev
+        run: |
+          echo "flyctl step outcome: ${{ steps.deploy.outcome }}"
+          SHORT="${{ steps.rev.outputs.short }}"
+          for i in $(seq 1 30); do
+            CODE=$(curl -sS -m 10 -o /tmp/h.json -w '%{http_code}' \
+                   https://aria-wa.fly.dev/health || echo "000")
+            if [ "$CODE" = "200" ]; then
+              REV=$(jq -r '.build_rev // "unknown"' /tmp/h.json 2>/dev/null || echo unknown)
+              echo "attempt $i: /health 200, build_rev=$REV"
+              case "$REV" in
+                *"$SHORT"*)
+                  echo "VERIFIED — aria-wa is live at $SHORT"
+                  exit 0 ;;
+              esac
+            else
+              echo "attempt $i: /health -> $CODE"
+            fi
+            sleep 10
+          done
+          echo "::error::aria-wa did not report build_rev containing $SHORT within 5 minutes."
+          echo "The deploy is NOT verified. Do not ship-mark the R-number."
+          exit 1

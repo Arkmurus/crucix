@@ -79,7 +79,26 @@ jobs:
       - name: Deploy
         id: deploy
         continue-on-error: true
+        env:
+          # R-F3666 — first run (30848580800) died on `Error: unauthorized`.
+          # The repo's FLY_API_TOKEN deploys aria-intel fine but is scoped to
+          # THAT app, so it has no access to aria-web. Prefer an aria-web (or
+          # org) scoped token when one exists, and fall back so this keeps
+          # working if a single org-wide token is adopted later.
+          #   flyctl tokens create deploy -a aria-web
+          #   gh secret set FLY_API_TOKEN_WEB
+          FLY_TOKEN_WEB: ${{ secrets.FLY_API_TOKEN_WEB }}
+          FLY_TOKEN_DEFAULT: ${{ secrets.FLY_API_TOKEN }}
         run: |
+          TOKEN="$FLY_TOKEN_WEB"
+          if [ -z "$TOKEN" ]; then
+            echo "FLY_API_TOKEN_WEB not set — falling back to FLY_API_TOKEN"
+            TOKEN="$FLY_TOKEN_DEFAULT"
+          fi
+          if [ -z "$TOKEN" ]; then
+            echo "::error::No Fly token available (FLY_API_TOKEN_WEB / FLY_API_TOKEN both unset)."
+            exit 1
+          fi
           flyctl deploy --remote-only \
             --config fly.web.toml \
             --app aria-web \
@@ -87,7 +106,18 @@ jobs:
             --wait-timeout 900 \
             --build-arg ARIA_BUILD_GIT_SHA="${{ steps.rev.outputs.git_sha }}" \
             --build-arg ARIA_BUILD_R_TAG="${{ steps.rev.outputs.r_tag }}" \
-            -t "${{ secrets.FLY_API_TOKEN }}"
+            -t "$TOKEN"
+
+      # The deploy step is continue-on-error so the verification below is the
+      # single arbiter — but a silent flyctl failure then looks like a slow
+      # rollout. Surface it explicitly; the first run's `unauthorized` was only
+      # findable by pulling the raw step log.
+      - name: Report flyctl outcome
+        if: steps.deploy.outcome != 'success'
+        run: |
+          echo "::warning::flyctl reported failure. If the live check below also"
+          echo "::warning::fails, read this step's log — 'unauthorized' means the"
+          echo "::warning::token is not scoped to aria-web (see FLY_API_TOKEN_WEB)."
 
       # A dispatched run is NOT a deploy until this passes (CLAUDE.md §11,
       # anti-hallucination law #4). flyctl can exit non-zero while the release

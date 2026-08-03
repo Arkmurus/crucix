@@ -3543,6 +3543,14 @@ app.get('/health', async (_req, res) => {
     brain_reachable: brainOk,
     messages_heard: messagesHeard,
     messages_per_min: _msgRatePerMin,
+    // R-F3666 — aria-wa had NO build identity, so no deploy of this app has
+    // ever been verifiable. CLAUDE.md §11 makes build_rev the arbiter of
+    // "did it actually ship" (anti-hallucination law #4), and aria-intel
+    // (R-F513) and aria-web (R-F846) both expose one — aria-wa was the gap.
+    // Concretely: R-F3664 fixed the fabricated "Running the numbers" interim
+    // messages in THIS file, and there was no way to confirm the fix reached
+    // production. Baked in by Dockerfile.wa as a build-arg.
+    build_rev: `${process.env.ARIA_BUILD_R_TAG || 'no-r-tag'} · sha ${(process.env.ARIA_BUILD_GIT_SHA || 'unknown').slice(0, 12)}`,
   });
 });
 
