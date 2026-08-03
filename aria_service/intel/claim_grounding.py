@@ -39,8 +39,41 @@ _FIGURE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# R-F3668 — a real citation span. CONFIRMED *inside* one of these is provenance
+# ("[from RAG — CONFIRMED]") owned by source_verifier, not a model self-claim, so
+# it is masked out before the downgrade below. A lookbehind cannot express this:
+# the text between "[from " and "CONFIRMED" varies.
+_CITATION_SPAN = re.compile(r"\[(?:from|source:)[^\]]*\]", re.I)
+
+# Model-authored certainty tag: the bare trailing "— CONFIRMED" and the
+# bracketed "[CONFIRMED]" form.
+_CONFIRMED_TAG = re.compile(r"\b\[?CONFIRMED\]?")
+
+
+def _downgrade_confirmed(sent: str) -> str:
+    """Neutralise a model's CONFIRMED tag while preserving real citations."""
+    spans: list[str] = []
+
+    def _stash(m: "re.Match[str]") -> str:
+        spans.append(m.group(0))
+        return f"\x00{len(spans) - 1}\x00"
+
+    masked = _CITATION_SPAN.sub(_stash, sent)
+    masked = _CONFIRMED_TAG.sub("UNVERIFIED", masked)
+    for i, original in enumerate(spans):
+        masked = masked.replace(f"\x00{i}\x00", original)
+    return masked
+
+
 # A sentence carrying any of these is already cited or honestly hedged → grounded.
-_CITED_MARKERS = ("[source:", "[from ", "[unverified]", "[self-reported", "[assessed", "[probable", "[confirmed")
+# R-F3668: "[confirmed" was in this list, which meant a sentence the MODEL had
+# tagged [CONFIRMED] was treated as already-cited and SKIPPED — the model could
+# exempt itself from the grounding check simply by asserting certainty. That is
+# exactly backwards: [CONFIRMED] is the claim under test, never the evidence for
+# it. Real citations ("[source:", "[from ") and honest hedges ("[assessed",
+# "[probable", "[unverified]", "[self-reported") still exempt, because those
+# either carry provenance or already concede uncertainty.
+_CITED_MARKERS = ("[source:", "[from ", "[unverified]", "[self-reported", "[assessed", "[probable")
 _HEDGES = (
     "unverified", "unconfirmed", "not confirmed", "cannot confirm", "could not confirm",
     "no data", "insufficient", "estimate", "estimated", "approximately", "approx",
@@ -140,6 +173,26 @@ def ground_claims(answer: str, context: str, *, message: str = "", mode: str = "
                 n_ung += 1
                 ungrounded_figs.extend(ung)
                 if mode == "flag":
+                    # R-F3668 — a sentence cannot be both unverified and
+                    # CONFIRMED. Live 2026-08-03 ARIA shipped, repeatedly:
+                    #   "...deepseek_backup as an active fallback
+                    #    [unverified] — CONFIRMED."
+                    # under a footer reading "Verification: UNGROUNDED,
+                    # Sources: 0 grounded / 0 unverified (0%)".
+                    #
+                    # Nothing in the tree appends "— CONFIRMED"; the MODEL
+                    # self-tags it (the constitution instructs it to tag claims
+                    # [CONFIRMED]/[PROBABLE]/...), while this deterministic
+                    # grounder independently found the figures ungrounded. Both
+                    # labels then survived side by side, and the reader is left
+                    # to guess which one is true.
+                    #
+                    # Doctrine is unambiguous — "models propose; deterministic
+                    # verification disposes". So the model's self-assessment on
+                    # THIS sentence is downgraded rather than left to contradict
+                    # the measurement. The sentence keeps its content; only the
+                    # unearned certainty label is neutralised.
+                    sent = _downgrade_confirmed(sent)
                     sent = sent.rstrip() + " [unverified]"
             out_parts.append(sent)
         # Rejoin with single spaces (measure mode returns the ORIGINAL text unchanged).
