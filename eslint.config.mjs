@@ -62,14 +62,6 @@ export default [
       'data/**',
       'searxng/**',
       'aria-app/**/dist/**',
-      // NOT JavaScript. These two are pasted chat instructions (markdown prose
-      // — "Press **Ctrl+S** to save, close Notepad, then run: node ...") that
-      // were saved with a .js extension. They are referenced by nothing and
-      // cannot parse. Excluded so the gate is not permanently red over two junk
-      // files; recorded in docs/prospector_360_sweep_2026_08_03.md as delete
-      // candidates (an operator call, not a lint one).
-      'create-acled.js',
-      'create-modules.js',
     ],
   },
   js.configs.recommended,
