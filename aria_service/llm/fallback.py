@@ -1210,6 +1210,18 @@ class FallbackProvider(LLMProvider):
                 p.name for p in self.providers
                 if (p.name or "").lower() in _pref_only
             ),
+            # Published BESIDE preference_only because they are now two separate
+            # questions, and the difference is invisible from outside without it.
+            # With preference_only empty and this holding anthropic, the chain is
+            # saying two things at once: "Claude MAY serve general traffic" and
+            # "a pinned DD still cannot fall back to DeepSeek". An operator
+            # reading only the first would see Claude in chain_order and have no
+            # way to tell whether R-F3034's contract survived the change — which
+            # is exactly how it was surrendered on 2026-08-03 without anything
+            # erroring. R-F3634's rule applies to this pair too: publish what
+            # dispatch actually reads, or the surface describes a different
+            # system from the one running.
+            "non_degrading_pins": sorted(non_degrading_pins()),
             # R-F3634 — DISTINCT VENDORS on the general path. `deepseek` and
             # `deepseek_backup` are two entries and ONE vendor: a vendor-side
             # timeout takes both, so failing over between them cannot help. Two
