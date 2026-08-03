@@ -236,3 +236,56 @@ the session. Worth a deliberate pass of its own; it is not a series of slips.
 - Gate A / Meta Cloud API is NOT signed off - the official gateway does not exist
   yet and `/api/whatsapp` is a deprecated Twilio route. Twilio is not needed;
   the next build is the direct Meta webhook around ARIA's real number.
+
+---
+
+## Session 2026-08-03 — 360 Prospector sweep, live log sweep, Programme −1 gates
+
+**R-numbers shipped: 27** (R-F3644…R-F3670, less reservations folded into
+batches). All ship-marked, pushed, and — where they touch a service — verified
+live by `build_rev`.
+
+**What it was.** A full static-analysis pass (the repo's own `.prospector.yml`
+had never actually been installed and run: 32,313 messages over 2,250 py files),
+an ESLint pass over a Node tier that had no semantic lint gate at all, a 15-cycle
+live log sweep across all three apps, and four defects the operator reported from
+WhatsApp in real time.
+
+**The single finding that matters.** 7 of the first 9 defects were invisible for
+the same reason: a call that could NEVER succeed, sitting inside a swallowing
+`except`/`catch`. Prospector counts **1,117 `try/except/pass`** and **4,822
+broad-except** in `aria_service/`. The symptom is never an error — it is "no
+result", which is indistinguishable from a clean one. That is the
+"unknown is never success" doctrine failing at the plumbing layer, and it is why
+three mechanical gates (call-arity, auth-on-egress, semantic lint) were the
+right response rather than 20 individual fixes.
+
+**Notable individually:**
+- `handleAriaMention` threw `ReferenceError` on EVERY WhatsApp @-mention — R-F1770
+  had merged a comment into a `const` and deleted R-F1760's whole self-healing
+  loop with it. Recovered from git history, not guessed.
+- ARIA's entire curiosity-exploration loop had been dead behind a circuit breaker
+  that reported the wrong cause (401, not "brain unreachable").
+- The `DAN` jailbreak pattern was case-insensitive and hard-blocked the ordinary
+  word "dan" in five languages — on a platform whose stated differentiator is
+  Lusophone/Hispanic handling.
+- The ecosystem rollup consulted only `red`, so 17 degraded organs certified
+  themselves HEALTHY.
+- A claim could be both `[unverified]` and `CONFIRMED`; worse, `[CONFIRMED]`
+  exempted a sentence from grounding entirely.
+
+**Estate:** aria-intel, aria-web and aria-wa all deployed and verified.
+aria-web and aria-wa had no CI deploy route at all before this session, and
+aria-wa had no `build_rev` — no deploy of the acute §25 output channel had ever
+been provable.
+
+**Operator decisions actioned:** coder lane enabled stage-only (rate 2000→6/hr),
+full constitution restored to chat (`ARIA_LLM_COMPACT_PROMPT=0`), two corrupt
+scripts removed, Fly deploy tokens minted + scoped + superseded ones revoked.
+
+**Left open, honestly:** LLM vendor monoculture (needs funding — the only item
+no agent can close); sensor coverage at 25/623 nodes; the training-pipeline
+review half of §24; and whether ARIA-Coder's staged fixes are any good, which
+cannot be known until she has produced some.
+
+**Runway for the next session:** `docs/training_cycle_runway_2026_08_04.md`.
