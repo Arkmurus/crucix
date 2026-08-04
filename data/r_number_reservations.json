@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3708,
+  "next_available": 3709,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31062,6 +31062,15 @@
       "r_number": "R-F3707",
       "title": "the event loop was starved by an uncapped executor and on-loop parsing",
       "claimed_at": "2026-08-04T13:04:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3708",
+      "title": "two intel adapters knew their subject but never named it, so their findings graded as category prose",
+      "claimed_at": "2026-08-04T13:35:23Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

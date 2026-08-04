@@ -850,9 +850,34 @@ async def _public_watchlist_adapter() -> list[dict]:
             "confidence": confidence,
             "source_tier": "tier_1b",   # ARIA screen vs official sanctions/PEP lists
             "title": _PUBLIC_WL_TITLE.get(ct, "{e}: sanctions status change").format(e=entity),
-            "why_it_matters": _clean(a.get("detail")) or f"{entity}: {a.get('old_status')} -> {new_status}.",
+            # R-F3708 — the FALLBACK named the entity; the primary path did not.
+            # `detail` is upstream prose ("Previously clean, now sanctioned.")
+            # that describes a TRANSITION, not a subject, so whenever it was
+            # present the sentence stopped identifying which entity moved — and
+            # `_is_item_specific` graded it `classifier_template`. Prefix the
+            # entity unless the detail already names it, so both paths carry the
+            # subject and the transition.
+            "why_it_matters": (
+                _clean(a.get("detail"))
+                if (_clean(a.get("detail")) and entity.lower() in _clean(a.get("detail")).lower())
+                else (f"{entity}: {_clean(a.get('detail'))}" if _clean(a.get("detail"))
+                      else f"{entity}: {a.get('old_status')} -> {new_status}.")
+            ),
             "recommended_action": "Screen counterparties; review exposure to this entity.",
             "target": entity,
+            # R-F3708 — deliberately still EMPTY, and that is honest.
+            #
+            # This disables the third of `_is_item_specific`'s three signals for
+            # this adapter, but the public-watchlist ALERT genuinely carries no
+            # entity metadata: `rescreen_public_watchlist` emits
+            # {entity, change_type, old_status, new_status, old_score,
+            #  new_score, detail, timestamp, scope} and nothing else. Reading
+            # `a.get("country")` here would be a call against a field that does
+            # not exist — always empty, and misleading to the next reader (§3b).
+            #
+            # The subject-naming fix above is what earns provenance for this
+            # adapter. If country/product enrichment is wanted here, it has to
+            # be added UPSTREAM to the alert first.
             "entities": {"countries": [], "products": [], "oems": []},
             "evidence_url": "https://sanctionssearch.ofac.treas.gov/",
             "url": "https://sanctionssearch.ofac.treas.gov/",
@@ -915,7 +940,26 @@ async def _sanctions_diff_adapter() -> list[dict]:
         debarment = src == "worldbank"
         countries = _clean(a.get("countries"))
         verb = "debarred by the World Bank" if debarment else f"newly designated on {list_type}"
-        why = ((f"New World Bank debarment." if debarment else f"New {list_type} sanctions designation.")
+        # ── R-F3708 — NAME THE SUBJECT ──────────────────────────────────────
+        #
+        # THE DEFECT: this `why` opened with "New OFAC SDN sanctions
+        # designation." and appended jurisdiction / programs / listing date ONLY
+        # when the upstream record carried them. On a sparse record all three
+        # are absent, leaving pure category prose — a sentence that describes
+        # every designation ever made.
+        #
+        # `_is_item_specific` then correctly graded it `classifier_template`,
+        # and the channel correctly refused to publish it as ARIA's analysis.
+        # That gate is right and must NOT be relaxed. The defect is on the
+        # SUPPLY side: the adapter KNOWS the entity — it is `target` two lines
+        # below — and simply never put it in the sentence.
+        #
+        # Measured effect of the skew: only 13 of 39 live Golden Intel signals
+        # carried `source_adapter` provenance. Naming the subject earns it
+        # HONESTLY, because the text now identifies one specific record instead
+        # of a category, and it is a strictly better sentence for a human too.
+        why = (f"{entity}: "
+               + ("new World Bank debarment." if debarment else f"new {list_type} sanctions designation.")
                + (f" Jurisdiction: {countries}." if countries else "")
                + (f" {'Grounds' if debarment else 'Programs'}: {programs}." if programs else "")
                + (f" Listed {a.get('designation_date')}." if _clean(a.get("designation_date")) else ""))
