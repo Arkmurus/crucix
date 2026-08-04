@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3709,
+  "next_available": 3710,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31071,6 +31071,15 @@
       "r_number": "R-F3708",
       "title": "two intel adapters knew their subject but never named it, so their findings graded as category prose",
       "claimed_at": "2026-08-04T13:35:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3709",
+      "title": "a leaked service token granted unscoped cross-tenant DD read and delete",
+      "claimed_at": "2026-08-04T13:41:13Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -258,6 +258,26 @@ _auth_is_internal_var: "_ContextVar[bool]" = _ContextVar(
     "aria_auth_is_internal", default=_AUTH_INTERNAL_DEFAULT
 )
 
+# R-F3709 — the OPERATOR tier, tracked separately from "internal".
+#
+# `_auth_is_internal_var` unlocks the UNSCOPED cross-tenant DD path. That is
+# defensible for a read by a trusted service, but not for a DESTRUCTIVE one:
+# `DELETE /dd/report/{run_id}` cascades across `entity_group_run_ids(run_id)`
+# and can therefore delete reports belonging to OTHER tenants. A credential
+# that leaks — and one demonstrably did, committed in scripts/verify_all.py for
+# months — should not carry that.
+#
+# Nothing legitimately needs it: aria-web authenticates with ARIA_API_TOKEN, and
+# aria-wa holds the internal token but calls no DD endpoint (grepped across
+# services/wa-listener for dd/report|dd/reports|dd/vault|dd/case — no match).
+# So the unscoped DESTRUCTIVE path now requires the operator token, and a leaked
+# service token can read-with-scope but cannot wipe another tenant's evidence.
+#
+# Defaults False for the same reason as above: an unset var must never grant.
+_auth_is_operator_var: "_ContextVar[bool]" = _ContextVar(
+    "aria_auth_is_operator", default=False
+)
+
 # Router-wide bearer-token enforcement. The require_aria_token dependency
 # is defined below; the forward reference works because FastAPI resolves
 # dependencies at request time, not import time. Soft-rollout: no-op when
@@ -512,8 +532,38 @@ def require_aria_token(request: Request) -> None:
     # Internal token = service-to-service (WA listener, web proxy, CLI).
     # API token = user-facing (external callers, must have user_id).
     # R-F2456: bind to the request's task context (was a racy module global).
-    _api_tok = _aria_token()
-    _auth_is_internal_var.set(bool(_api_tok and not _hmac.compare_digest(presented, _api_tok)))
+    # ── R-F3709 — derive "internal" by POSITIVE IDENTITY, not by negation ────
+    #
+    # THE DEFECT: this was `presented != ARIA_API_TOKEN`, i.e. "internal" meant
+    # "some accepted token that is not the user-facing one". `_accepted_tokens()`
+    # returns FOUR tokens (api, internal, operator, service), so THREE of them
+    # set this flag — and the flag unlocks unscoped cross-tenant DD access at
+    # `_dd_report_access_allowed`, `dd_reports_index_ep` and
+    # `_dd_owned_entity_ids`, which between them cover nine endpoints INCLUDING
+    # `DELETE /dd/report/{run_id}` and its sibling cascade.
+    #
+    # Two live consequences, both measured on 2026-08-04:
+    #  1. ARIA_OPERATOR_TOKEN and ARIA_SERVICE_TOKEN silently inherited
+    #     unrestricted cross-tenant DD read AND delete. Neither is meant to.
+    #  2. The whole branch's safety depended on an ACCIDENT. CLAUDE.md §18
+    #     recorded ARIA_API_TOKEN and ARIA_INTERNAL_TOKEN as byte-identical, so
+    #     `presented != api_tok` was never true and the path was dead code. When
+    #     the tokens were rotated apart the path went live — with no code change,
+    #     no test failure, and no signal. A security boundary that flips on a
+    #     SECRET-ROTATION ASYMMETRY is not a boundary.
+    #
+    # Deriving it positively removes both: only the internal service token sets
+    # the flag, and the result no longer depends on ARIA_API_TOKEN's value at
+    # all, so no future rotation can arm it again.
+    _int_tok = _aria_internal_token()
+    _auth_is_internal_var.set(
+        bool(_int_tok and _hmac.compare_digest(presented, _int_tok))
+    )
+    # R-F3709 — operator tier, recorded positively and independently.
+    _op_tok_id = _aria_operator_token()
+    _auth_is_operator_var.set(
+        bool(_op_tok_id and _hmac.compare_digest(presented, _op_tok_id))
+    )
 
     # R-F2139 — Per-service token scoping: ON by default when ARIA_OPERATOR_TOKEN
     # is set. Control/destructive routes require the OPERATOR token — the shared
@@ -1336,7 +1386,8 @@ async def dd_orchestrate_ep(req: Request):
     return report.as_dict()
 
 
-def _dd_report_access_allowed(report: dict, user_id: str, user_email_domain: str = "") -> bool:
+def _dd_report_access_allowed(report: dict, user_id: str, user_email_domain: str = "",
+                              *, destructive: bool = False) -> bool:
     """R-F2291 — who may VIEW / DELETE a DD report by id.
 
     Mirrors the LIST view's sharing (R-F607/R-F608, dd_orchestrator.list_reports):
@@ -1359,6 +1410,19 @@ def _dd_report_access_allowed(report: dict, user_id: str, user_email_domain: str
         # defaults True for auth-bypass callers (tests / public-bypass), so their
         # behaviour is unchanged.
         if not _auth_is_internal_var.get():
+            return False
+        # R-F3709 — an unscoped DESTRUCTIVE call needs the OPERATOR tier.
+        #
+        # The unscoped branch exists so trusted services can read without a
+        # user_id. Deleting is different in kind: `DELETE /dd/report/{run_id}`
+        # cascades over entity_group_run_ids and can remove reports owned by
+        # OTHER tenants, so a leaked service credential would be a cross-tenant
+        # evidence-wipe key. One such credential was committed to this repo for
+        # months (scripts/verify_all.py, R-F3683), which is not a hypothetical.
+        #
+        # Read stays available to the internal service token; only the
+        # destructive path is raised to operator.
+        if destructive and not _auth_is_operator_var.get():
             return False
         return True  # internal / autonomous / no-filter path
     owner = (report.get("user_id") or "").strip()
@@ -1684,7 +1748,9 @@ async def dd_report_delete_ep(run_id: str, user_id: str = "", user_email_domain:
     if _report is not None:
         # R-F2291: read ownership from the INDEX (authoritative), not the body.
         _acl = await _dd_report_acl_context(dd_orchestrator, run_id, _report)
-        if not _dd_report_access_allowed(_acl, user_id, user_email_domain):
+        # R-F3709 — destructive: an unscoped caller needs the OPERATOR tier.
+        if not _dd_report_access_allowed(_acl, user_id, user_email_domain,
+                                         destructive=True):
             raise HTTPException(status_code=404, detail=f"report not found: {run_id}")
 
     # R-F3532 — delete the CASE the user clicked, not one run of it.
@@ -1719,7 +1785,11 @@ async def dd_report_delete_ep(run_id: str, user_id: str = "", user_email_domain:
             # direct delete of the same run would.
             _sib = await dd_orchestrator.get_report(_rid)
             _sib_acl = await _dd_report_acl_context(dd_orchestrator, _rid, _sib or {})
-            if not _dd_report_access_allowed(_sib_acl, user_id, user_email_domain):
+            # R-F3709 — the cascade is destructive too, and it is the path that
+            # can reach ANOTHER tenant's report (live: Chemring's three runs span
+            # two owners), so it carries the same operator requirement.
+            if not _dd_report_access_allowed(_sib_acl, user_id, user_email_domain,
+                                             destructive=True):
                 skipped.append(_rid)
                 continue
         try:
