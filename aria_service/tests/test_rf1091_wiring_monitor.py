@@ -349,9 +349,26 @@ class TestBackgroundLoop:
             pass
 
     @pytest.mark.asyncio
-    async def test_monitor_loop_runs_one_cycle(self, mock_redis, mock_wire):
-        """monitor_loop runs at least one full check cycle."""
+    async def test_monitor_loop_runs_one_cycle(self, mock_redis, mock_wire, monkeypatch):
+        """monitor_loop runs at least one full check cycle.
+
+        R-F3707 — the M1 wire-balance scan (glob + ast.parse over every intel
+        module) used to run INLINE on the event loop, which is why a 0.5s window
+        was enough to observe a completed cycle. It is now offloaded via
+        asyncio.to_thread and measures ~2.8s, so this test was asserting the
+        scan's SPEED rather than the loop's behaviour.
+
+        Stub the CPU-bound half. What this test is actually for is "a cycle
+        reaches the brain wiring", and that is unchanged.
+        """
+        from aria_service.intel import wiring_monitor as _wm
         from aria_service.intel.wiring_monitor import monitor_loop
+
+        monkeypatch.setattr(_wm, "_audit_wire_balance_sync", lambda: {
+            "total_modules": 1, "modules_with_success": 1, "modules_with_failure": 0,
+            "total_success_calls": 1, "total_failure_calls": 0,
+            "unbalanced": [], "well_balanced": [], "timestamp": "2026-08-04T00:00:00Z",
+        })
 
         # Run the loop briefly, then cancel
         task = asyncio.create_task(monitor_loop())

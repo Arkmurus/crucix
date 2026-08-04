@@ -527,6 +527,19 @@ async def record_gap(
                 "[R-F1351] Capability gap NOT persisted (dropped under contention) "
                 "— [%s] %s — %s", gap_type, _safe, _e,
             )
+        # ── R-F3703 — TELL THE CALLER the gap was dropped ───────────────────
+        #
+        # This returned `entry` — byte-identical to the success shape — so no
+        # caller could distinguish "recorded" from "lost". record_gap is the
+        # sink for `fail_wire` (intel/wire.py:44-48), the decorator applied
+        # tree-wide as the structural §21a fix, so the universal failure-wire
+        # silently lost signals precisely when the system was under the stress
+        # that makes them matter most.
+        #
+        # `dropped: True` is ADDITIVE — every existing consumer reads `type` /
+        # `detail` / `fingerprint` and is unaffected — but a caller that cares
+        # (a retry, a degraded-mode banner, a test) can now see it.
+        return {**entry, "dropped": True, "drop_reason": str(_e)[:200]}
     return entry
 
 

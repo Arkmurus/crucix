@@ -174,13 +174,61 @@ NO_AUTODEPLOY_FILES: set[str] = {
     # function (and, with the constitutional validator removed in R-F1191, the
     # truncation guard below is the only thing between a stub and disk).
     "aria_service/intel/capability_gaps.py",                 # gap intake the coder reads
-    "aria_service/intel/gap_detector.py",                    # gap detection
+    # ── R-F3703 — this path DOES NOT EXIST, and never has ──────────────────
+    # The real detector is aria_service/autonomous/gap_detector.py (117,754
+    # bytes, ~2,535 lines) — the module that decides WHAT gets fixed — and it
+    # was therefore auto-deployable with ARIA_SELF_IMPROVE_AUTO_DEPLOY=1 live.
+    # A typo in a protection list is indistinguishable from no protection, so
+    # the assertion below now fails the import if any entry stops resolving.
+    "aria_service/autonomous/gap_detector.py",               # gap detection
+    # The rest of the self-coding machinery, all previously unprotected:
+    "aria_service/autonomous/tasks.py",                      # the task executor
+    "aria_service/autonomous/test_runner.py",                # the capability-test GATE itself
+    "aria_service/autonomous/coder_entrypoint.py",           # the coder's own loop
+    "aria_service/intel/load_governor.py",                   # decides whether autonomy runs
+    "aria_service/intel/error_streak.py",                    # Phase A gate #3 measurement
+    "aria_service/intel/phase_gates.py",                     # every Phase A gate measurement
     "aria_service/intel/mistake_ledger.py",                  # mistake memory
     "aria_service/autonomous/self_coder.py",                 # the fixer pipeline
     "aria_service/autonomous/sovereign_llm.py",              # the fixer's LLM call
     "aria_service/autonomous/engine.py",                     # autonomous scheduler
     "aria_service/autonomous/constitutional_validator.py",   # if/when restored
 }
+
+# ── R-F3703 — every protected path must RESOLVE ────────────────────────────
+#
+# `NO_AUTODEPLOY_FILES` protected "aria_service/intel/gap_detector.py" for
+# months. No such file exists; the real one is at aria_service/autonomous/.
+# A protection list is checked by STRING membership, so a wrong path is not a
+# weaker guard — it is NO guard, and it looks identical to a correct one in
+# review. The gap detector, the task executor and the capability-test runner
+# were all auto-deployable while this list appeared to cover them.
+#
+# Verified at import so a typo fails loudly HERE rather than silently at the
+# moment a bad fix is auto-deployed into the machinery that was supposed to
+# stop it. Never raises in production — a missing file must not break boot —
+# but it is loud in the log and a test asserts the set is clean.
+def _verify_no_autodeploy_paths_resolve() -> list[str]:
+    """Return protected paths that do not exist on disk."""
+    missing: list[str] = []
+    try:
+        root = Path(__file__).resolve().parent.parent.parent
+        for rel in NO_AUTODEPLOY_FILES:
+            if not (root / rel).exists():
+                missing.append(rel)
+    except Exception:  # pragma: no cover - defensive; never break import
+        return []
+    return sorted(missing)
+
+
+_NO_AUTODEPLOY_MISSING = _verify_no_autodeploy_paths_resolve()
+if _NO_AUTODEPLOY_MISSING:
+    logger.error(
+        "[R-F3703] NO_AUTODEPLOY_FILES contains %d path(s) that DO NOT EXIST: %s. "
+        "A protection entry that does not resolve protects NOTHING — the real "
+        "file is auto-deployable. Fix the path.",
+        len(_NO_AUTODEPLOY_MISSING), _NO_AUTODEPLOY_MISSING,
+    )
 
 # R-F2541: seed MODIFIABLE_FILES with the critical set at IMPORT time. These files
 # ARE modifiable — a human may stage + review + deploy a legitimate edit — they are

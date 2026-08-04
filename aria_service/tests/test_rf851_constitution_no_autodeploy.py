@@ -87,6 +87,21 @@ def test_constitution_files_are_the_critical_set():
     # Re-anchored R-F1285: the set grew (R-F851/F902 boot+guard files, then R-F1285
     # added the self-coding subsystem's own machinery so the loop can't auto-deploy
     # a truncated stub of the modules that detect/fix/guard gaps).
+    #
+    # Re-anchored R-F3703: "aria_service/intel/gap_detector.py" WAS IN THIS SET
+    # AND DOES NOT EXIST — the real 2,535-line detector is at
+    # aria_service/autonomous/gap_detector.py and was therefore auto-deployable
+    # the whole time. A protection list is checked by STRING membership, so a
+    # wrong path is not a weaker guard, it is NO guard, and it looks identical
+    # to a correct one in review. This anchor test could not catch that because
+    # it only compared the set to ITSELF — it never asked whether the paths
+    # resolve. `test_every_protected_path_resolves` (R-F3703 suite) now does.
+    #
+    # The corrected path plus the rest of the machinery that was unprotected:
+    # tasks.py (the executor), test_runner.py (the capability-test gate's own
+    # enforcement), coder_entrypoint.py, load_governor.py (decides whether
+    # autonomy runs at all), error_streak.py and phase_gates.py (the Phase A
+    # measurements themselves).
     assert _si.NO_AUTODEPLOY_FILES == {
         "aria_service/main.py",
         "aria_service/aria_engine.py",
@@ -96,13 +111,22 @@ def test_constitution_files_are_the_critical_set():
         "aria_service/autonomous/safety.py",
         "aria_service/intel/self_improve.py",
         "aria_service/intel/capability_gaps.py",
-        "aria_service/intel/gap_detector.py",
         "aria_service/intel/mistake_ledger.py",
         "aria_service/autonomous/self_coder.py",
         "aria_service/autonomous/sovereign_llm.py",
         "aria_service/autonomous/engine.py",
         "aria_service/autonomous/constitutional_validator.py",
+        # R-F3703 — corrected path + the previously-unprotected machinery
+        "aria_service/autonomous/gap_detector.py",
+        "aria_service/autonomous/tasks.py",
+        "aria_service/autonomous/test_runner.py",
+        "aria_service/autonomous/coder_entrypoint.py",
+        "aria_service/intel/load_governor.py",
+        "aria_service/intel/error_streak.py",
+        "aria_service/intel/phase_gates.py",
     }
+    # R-F3703 — and every one of them must actually EXIST.
+    assert _si._verify_no_autodeploy_paths_resolve() == []
 
 
 def test_human_only_change_types_still_blocked_on_ordinary_files():

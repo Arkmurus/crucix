@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3706,
+  "next_available": 3708,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31043,6 +31043,25 @@
       "r_number": "R-F3705",
       "title": "the recovery probe wrapper swallowed its own crash at debug level",
       "claimed_at": "2026-08-04T12:57:11Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d6a276fb",
+      "notes": null,
+      "shipped_at": "2026-08-04T13:09:26Z"
+    },
+    {
+      "r_number": "R-F3706",
+      "title": "five calls that could never succeed behind swallowing handlers",
+      "claimed_at": "2026-08-04T13:04:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3707",
+      "title": "the event loop was starved by an uncapped executor and on-loop parsing",
+      "claimed_at": "2026-08-04T13:04:21Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

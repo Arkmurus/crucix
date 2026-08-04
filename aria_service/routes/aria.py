@@ -23303,10 +23303,16 @@ async def agents_send_message_ep(agent_id: str, request: Request):
     message_type = body.get("type", "generic")
     payload = body.get("payload", {})
     registry = AgentRegistry()
+    # R-F3706 — AgentRegistry.send_message is
+    #   (from_agent, to_agent, payload)      [intel/agent_registry.py:805-810]
+    # This passed sender_id / recipient_id / message — three unexpected keywords
+    # AND three missing required arguments, so POST /api/aria/agents/{id}/message
+    # raised TypeError on every single call. @fail_wire swallowed it, so the
+    # endpoint has never delivered a message.
     result = await registry.send_message(
-        sender_id="api_user",
-        recipient_id=agent_id,
-        message={"type": message_type, "payload": payload, "source": "api"},
+        from_agent="api_user",
+        to_agent=agent_id,
+        payload={"type": message_type, "payload": payload, "source": "api"},
     )
     return {"ok": result, "recipient": agent_id}
 
@@ -26556,7 +26562,20 @@ async def health_perf_ep():
         from ..llm import fallback as _fb
         # R-F2375 (H5): get_provider_status() is now a real aggregator (added to
         # llm/fallback.py) — configured slots + live circuit-breaker state.
-        providers = _fb.get_provider_status()
+        # R-F3704 — pass the LIVE chain so cooldowns are visible. Without it the
+        # function could only see the circuit-breaker registry, and reported a
+        # provider cooling on BILLING for 22 more hours as `available: true`.
+        # The wrapper stack (cache → queue → rate-limit → metered → fallback)
+        # delegates unknown attributes via __getattr__, so `.providers` and
+        # `._stats` resolve down to the FallbackProvider from the outermost
+        # object app.state holds.
+        _live_chain = None
+        try:
+            from ..main import app as _app
+            _live_chain = getattr(_app.state, "llm_provider", None)
+        except Exception:
+            _live_chain = None
+        providers = _fb.get_provider_status(_live_chain)
     except Exception as e:
         _log.debug("health/perf llm_providers read failed: %s", e)
         providers = {}

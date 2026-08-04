@@ -5210,13 +5210,55 @@ async def health():
         _loop_health = _loop_snapshot()
     except Exception:
         _loop_health = {"status": "unknown"}
+    # ── R-F3704 — /health must not certify over a degraded estate ───────────
+    #
+    # THE DEFECT, measured live 2026-08-04 at the same moment:
+    #   GET /health            -> "status": "operational", diagnostic GREEN
+    #   GET /api/aria/health/perf -> "status": "degraded",
+    #        degraded_reasons: [mode_degraded, ecosystem_red_nodes_1,
+    #                           ecosystem_degraded_nodes_22]
+    #
+    # This expression only asked "can the chain serve, is the loop ticking, is
+    # the store reachable" — a LIVENESS probe wearing a HEALTH probe's name. It
+    # is also the one Fly's health check and any external monitor watch, so a
+    # majority-degraded estate reported green forever, which is exactly the
+    # "status page divorced from reality" failure R-F3667 fixed on the OTHER
+    # surface and not this one.
+    #
+    # `operating_mode` is included because it is load-bearing, not cosmetic:
+    # DEGRADED suppresses external delivery (operating_modes.py:189), so
+    # "operational" while WhatsApp briefs are being dropped is a false clean.
+    #
+    # Deliberately kept SEPARATE from liveness: `/health/live` remains the pure
+    # is-the-process-up probe, so nothing that reads it for restart decisions
+    # starts flapping on a quality signal.
+    _degraded_reasons: list[str] = []
+    if not chain_resilient:
+        _degraded_reasons.append("llm_chain_exhausted")
+    if not autonomous_healthy:
+        _degraded_reasons.append("autonomous_loop_stalled")
+    if not state_backend_ind["reachable"]:
+        _degraded_reasons.append("state_backend_unreachable")
+    try:
+        from .intel import operating_modes as _om_h
+        _mode_now = await _om_h.get_mode()
+        if _mode_now != _om_h.Mode.NORMAL:
+            _degraded_reasons.append(f"operating_mode_{_mode_now.name.lower()}")
+    except Exception as _mode_err:
+        # UNKNOWN is not healthy, but it is also not a measured failure — say so
+        # rather than silently certifying.
+        _degraded_reasons.append("operating_mode_unknown")
+        _log_health = logging.getLogger("aria.main")
+        _log_health.debug("[R-F3704] operating mode unreadable: %s", _mode_err)
+    if diagnostic_ind and str(diagnostic_ind.get("overall", "")).upper() == "RED":
+        _degraded_reasons.append("self_diagnostic_red")
+
     return {
         "loop": _loop_health,
-        "status": "operational" if (
-            chain_resilient
-            and autonomous_healthy
-            and state_backend_ind["reachable"]
-        ) else "degraded",
+        "status": "operational" if not _degraded_reasons else "degraded",
+        # R-F3704 — name WHICH signal degraded, so the operator can act
+        # surgically instead of guessing (same contract /health/perf uses).
+        "degraded_reasons": _degraded_reasons,
         "service": "aria",
         "llm_provider": llm.name if llm else "none",
         "llm_configured": bool(llm and llm.is_configured),

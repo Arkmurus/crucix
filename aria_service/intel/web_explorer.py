@@ -731,10 +731,26 @@ async def explore(
                 from . import researcher as _res
                 # Use the existing deep_research entry but consume its
                 # output into our fact shape.
+                # ── R-F3706 — this call could never succeed ─────────────────
+                #
+                # `researcher.deep_research` is
+                #   (entity, *, primary_url, max_queries, max_extracts,
+                #    timeout, overall_budget)     [researcher.py:2503]
+                # and this passed `query=`, `depth=` and `llm=` — THREE
+                # unexpected keywords plus a MISSING required `entity`. Every
+                # invocation raised TypeError straight into the `except` below,
+                # so the "deep research path" advertised by the `depth ==
+                # "thorough"` branch has never once run: it failed instantly and
+                # fell through to the shallow result, silently.
+                #
+                # Same family as R-F3647/R-F3648 — a call that cannot succeed,
+                # sitting behind a swallowing handler, so the symptom is "no
+                # extra findings" rather than an error.
                 dr_out = await _res.deep_research(
-                    query=effective_query,
-                    depth="thorough" if depth == "thorough" else "quick",
-                    llm=None,  # rule-based; caller can supply LLM if they want
+                    entity=effective_query,
+                    # `depth` has no counterpart on the callee; the honest
+                    # translation of "thorough" is a wider query fan-out.
+                    max_queries=5 if depth == "thorough" else 3,
                 )
                 dr_status = BackendStatus(name="deep_research", fired=True)
                 if isinstance(dr_out, dict):

@@ -867,8 +867,32 @@ class LLMResponseCache(LLMProvider):
 
     @fail_wire(module="resilience", gap_type="engine_failure")
     def get_stats(self) -> dict:
-        """Return cache stats for /health endpoints."""
-        return {
+        """Return cache stats for /health endpoints, MERGED with the inner chain.
+
+        R-F3704 — `app.state.llm_provider` is this cache (the OUTERMOST wrapper),
+        so `/health`'s `hasattr(llm, "get_stats")` resolved here. This method
+        returned only cache counters, which meant the field literally named
+        `llm_fallback_stats` in the /health payload contained NO fallback data:
+        FallbackProvider's per-provider calls / failures / reliability /
+        last_kind never reached the operator.
+
+        Merging inner-first is the pattern `RateLimitedProvider.get_stats`
+        (rate_limiter.py:322-330) already uses one layer down — this wrapper was
+        the only one in the stack that terminated the chain instead of
+        forwarding it.
+
+        Cache counters keep their existing top-level names so nothing that reads
+        `hits` / `misses` / `errors` today breaks, and are ALSO grouped under
+        `response_cache` so a reader can tell the two layers apart.
+        """
+        inner_stats: dict = {}
+        try:
+            if hasattr(self._inner, "get_stats"):
+                inner_stats = self._inner.get_stats() or {}
+        except Exception as e:  # never let observability break a health probe
+            logger.debug("[R-F3704] inner get_stats failed: %s", e)
+            inner_stats = {}
+        cache_stats = {
             "size": len(self._cache),
             "max_size": self._max_size,
             "hits": self._hits,
@@ -879,6 +903,7 @@ class LLMResponseCache(LLMProvider):
             "hit_rate": round(self._hits / max(self._hits + self._misses, 1), 3),
             "ttl_seconds": self._ttl,
         }
+        return {**inner_stats, **cache_stats, "response_cache": cache_stats}
 
     @fail_wire(module="resilience", gap_type="engine_failure")
     def clear(self) -> int:
@@ -887,6 +912,11 @@ class LLMResponseCache(LLMProvider):
         self._cache.clear()
         self._hits = 0
         self._misses = 0
+        # R-F3704 — `_errors` was NOT reset here, so after a clear the error
+        # count described a different (longer) window than hits/misses, and the
+        # three could not be read against each other. Same value/window mismatch
+        # class as R-F3696's sample-size bug.
+        self._errors = 0
         return n
 
     def _wire_cache_hit(self) -> None:

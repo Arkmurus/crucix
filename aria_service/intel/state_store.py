@@ -2369,6 +2369,17 @@ async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
 _ERROR_LOG_COOLDOWN_S = 5.0
 _error_log_cache: dict[str, tuple[float, str | None]] = {}  # key -> (last_attempt, cached_result)
 
+
+def _is_error_log_key(key: str) -> bool:
+    """R-F3707 — the ONE predicate deciding what `get()` may cache.
+
+    Named so the read path and the write-invalidation path cannot drift: an
+    inline `"error_log" in key` duplicated at two sites is how a cache ends up
+    populated on read and never cleared on write, which is precisely the bug
+    this exists to close.
+    """
+    return "error_log" in (key or "")
+
 # R-F2477 — the read-path write-queue flush in _row() is a best-effort read-after-
 # write helper; it must NEVER consume the read's 5s budget. Under writer saturation
 # (the R-F2277 storm) that flush queues behind the single writer thread and blocks
@@ -2397,7 +2408,7 @@ async def get(key: str) -> str | None:
     # report_index would read as EMPTY → blank page / "running forever", even though
     # the value is present in the DB). Scope the cache strictly to error_log keys;
     # for every other key a timeout is transient and MUST NOT be cached as None.
-    _cacheable = "error_log" in key
+    _cacheable = _is_error_log_key(key)   # R-F3707 — shared with the write invalidation
     if _cacheable and key in _error_log_cache:
         last_attempt, cached = _error_log_cache[key]
         if time.monotonic() - last_attempt < _ERROR_LOG_COOLDOWN_S:
@@ -2622,6 +2633,20 @@ async def set_key(key: str, value: str, ex: int | None = None,
         )
     expires_at = _ttl_to_expires(ex)
     await _upsert(key, value, kind="string", expires_at=expires_at, keepttl=keepttl)
+    # ── R-F3707 — a WRITE must invalidate the read cache for that key ───────
+    #
+    # THE DEFECT: `get()` caches any key containing "error_log" for
+    # _ERROR_LOG_COOLDOWN_S (5.0s), and NOTHING invalidated that cache on write.
+    # `self_improve.record_error` does read → append → write of the whole
+    # 200-entry blob, so two errors inside 5 seconds meant the second read the
+    # PRE-APPEND cached snapshot, appended its own entry, and wrote it back —
+    # ERASING THE FIRST. Bursts are exactly when errors cluster and exactly when
+    # the evidence matters; the ledger was quietly losing the beginning of every
+    # incident.
+    #
+    # One line, and it restores read-after-write for the only cached namespace.
+    if _error_log_cache and _is_error_log_key(key):
+        _error_log_cache.pop(key, None)
 
 
 async def set_if_absent(key: str, value: str, ex: int) -> bool:

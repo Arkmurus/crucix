@@ -192,8 +192,78 @@ def autonomous_gold_lane_decision(scoreboard: dict | None) -> dict:
     gold = _as_int(counts.get("gold"))
     blocked = _as_int(counts.get("blocked"))
     claimed = _as_int(counts.get("claimed"))
+
+    # ── R-F3703 — the blocked ratio is a RECENT-QUALITY signal, not a tally ──
+    #
+    # THE DEFECT, measured live 2026-08-04: the scoreboard read
+    #   {"claimed": 6358, "blocked": 6404}   (no "fixed"/"gold" keys AT ALL)
+    # so `attempts = max(6358, 0 + 6404) = 6404` and `blocked_ratio = 1.000`
+    # against a ceiling of 0.25. Even 20 perfect fixes plus 10 gold would give
+    # 6404/6424 = 0.997 — clearing 0.25 from there needs roughly 19,000
+    # consecutive clean fixes. The gate was a ONE-WAY RATCHET: permanently shut.
+    #
+    # Worse, it was shut by evidence that is not about code quality at all.
+    # 4,007 of those blocks are `coder_disabled` — refusals from the period when
+    # the lane was deliberately OFF — plus `rate_limit_exceeded` and
+    # `duplicate_recent_run`. Those are ADMINISTRATIVE outcomes. Counting them as
+    # failed attempts means "we turned the coder off for a month" is recorded as
+    # "the coder writes bad code".
+    #
+    # And the counters never age out: `_record_scoreboard` writes
+    # `setex(SCOREBOARD_KEY, 30*86400, ...)` on EVERY write, refreshing the TTL,
+    # so under continuous activity the key never expires and the buckets are a
+    # LIFETIME tally rather than a 30-day window.
+    #
+    # The fix reads the bounded `recent` event list the scoreboard already
+    # maintains (last 50 outcomes, `board["recent"]` in _record_scoreboard) and
+    # computes the ratio over genuine QUALITY outcomes only. The lifetime counts
+    # still drive the fixed/gold minima — those are cumulative achievements and
+    # a ratchet is the correct shape for them.
+    _ADMIN_OUTCOMES = ("coder_disabled", "rate_limit", "duplicate_recent_run",
+                       "safety guardrail", "engine paused", "safety_stop")
+
+    def _is_admin_refusal(reason: str) -> bool:
+        r = (reason or "").lower()
+        return any(a in r for a in _ADMIN_OUTCOMES)
+
+    recent = (scoreboard or {}).get("recent") or []
+    quality_total = 0
+    quality_blocked = 0
+    for ev in recent if isinstance(recent, list) else []:
+        if not isinstance(ev, dict):
+            continue
+        outcome = str(ev.get("outcome") or "").lower()
+        if outcome == "blocked" and _is_admin_refusal(str(ev.get("reason") or "")):
+            continue  # administrative, not a quality signal
+        quality_total += 1
+        if outcome == "blocked":
+            quality_blocked += 1
+
     attempts = max(claimed, fixed + blocked)
-    blocked_ratio = (blocked / attempts) if attempts else 1.0
+
+    if quality_total:
+        blocked_ratio = quality_blocked / quality_total
+        ratio_basis = f"recent{quality_total}"
+    elif isinstance(recent, list) and recent:
+        # A recent window EXISTS but every entry in it was an administrative
+        # refusal — no quality evidence either way. Fail CLOSED: absence of
+        # evidence is not evidence of readiness for an auto-deploy gate.
+        blocked_ratio = 1.0
+        ratio_basis = "recent_all_administrative"
+    else:
+        # No recent window at all — a legacy scoreboard written before
+        # `recent` existed (schema_version < 2), or one that has just been
+        # cleared. Fall back to the lifetime counts, which is the only
+        # evidence there is.
+        #
+        # This branch is deliberately NOT the fail-closed one: making it so
+        # regressed every mature-but-legacy scoreboard into a permanently shut
+        # gate — caught by test_rf851/test_rf2689 rather than in production.
+        # The ratchet this change exists to fix only bites when a LARGE
+        # historical `blocked` count is present, and such a board is written by
+        # current code, which always writes `recent`.
+        blocked_ratio = (blocked / attempts) if attempts else 1.0
+        ratio_basis = "lifetime_counts_no_recent_window"
 
     reasons: list[str] = []
     if fixed < GOLD_LANE_MIN_FIXED:
@@ -202,7 +272,8 @@ def autonomous_gold_lane_decision(scoreboard: dict | None) -> dict:
         reasons.append(f"gold {gold} < {GOLD_LANE_MIN_GOLD}")
     if blocked_ratio > GOLD_LANE_MAX_BLOCKED_RATIO:
         reasons.append(
-            f"blocked_ratio {blocked_ratio:.3f} > {GOLD_LANE_MAX_BLOCKED_RATIO:.3f}"
+            f"blocked_ratio {blocked_ratio:.3f} > {GOLD_LANE_MAX_BLOCKED_RATIO:.3f} "
+            f"(basis={ratio_basis})"
         )
 
     return {

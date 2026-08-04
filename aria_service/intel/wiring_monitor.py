@@ -76,6 +76,25 @@ async def audit_wire_balance() -> dict[str, Any]:
       - unbalanced: list of {module, success_count, failure_count}
       - well_balanced: list of {module, success_count, failure_count}
     """
+    # ── R-F3707 — this scan runs OFF the event loop ─────────────────────────
+    #
+    # THE DEFECT, measured: this globbed every `intel/*.py` and `ast.parse`d it
+    # INSIDE an `async def`, on the loop, once an hour (monitor_loop,
+    # CHECK_INTERVAL_S = 3600, started from main.py). Measured locally at
+    # 390 files / 11.4 MB / **2.71 s** of pure CPU — and that is on an idle dev
+    # box. On the live single-vCPU machine, under the GIL contention that
+    # already produces 8-second heartbeat stalls, it lands squarely in the
+    # stall band.
+    #
+    # It is the same class as R-F3475 (HTML extraction) and R-F1890 (encodes):
+    # a CPU-bound sweep that has no business holding the loop. `asyncio.
+    # to_thread` releases it for the duration; the work itself is unchanged.
+    report = await asyncio.to_thread(_audit_wire_balance_sync)
+    return await _wire_and_persist_balance(report)
+
+
+def _audit_wire_balance_sync() -> dict[str, Any]:
+    """The CPU-bound half of audit_wire_balance — safe to run in a thread."""
     results: dict[str, dict[str, int]] = {}
     for f in sorted(glob.glob(os.path.join(INTEL_DIR, "*.py"))):
         name = os.path.basename(f)
@@ -126,6 +145,22 @@ async def audit_wire_balance() -> dict[str, Any]:
         "well_balanced": well_balanced,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+    return report
+
+
+async def _wire_and_persist_balance(report: dict[str, Any]) -> dict[str, Any]:
+    """The loop-bound half: brain wiring + the dashboard write.
+
+    R-F3707 — deliberately NOT moved into the worker thread with the scan.
+    `engine_wiring._dispatch` needs a RUNNING LOOP (it catches RuntimeError and
+    falls back at engine_wiring.py:108-111), so emitting from a thread risks the
+    §21a signal going dark — trading an 8-second stall for a blind spot is not
+    a fix.
+    """
+    unbalanced = report.get("unbalanced") or []
+    results_n = report.get("total_modules") or 0
+    total_success = report.get("total_success_calls") or 0
+    total_failure = report.get("total_failure_calls") or 0
 
     # Wire to brain
     if unbalanced:
@@ -142,7 +177,7 @@ async def audit_wire_balance() -> dict[str, Any]:
     else:
         wire_success(
             module="wiring_monitor:M1",
-            summary=f"Wire balance audit: {total_success}S / {total_failure}F across {len(results)} modules",
+            summary=f"Wire balance audit: {total_success}S / {total_failure}F across {results_n} modules",
             source_id="wiring_monitor:audit_wire_balance",
         )
 

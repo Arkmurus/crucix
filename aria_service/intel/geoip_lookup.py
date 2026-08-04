@@ -156,8 +156,17 @@ async def batch_lookup(ips: list[str]) -> list[dict[str, Any]]:
 
 # ── Wire to brain ──────────────────────────────────────────────────────
 
+# R-F3706 §21a — `wire_failure` MUST be imported at module scope.
+#
+# It used to be imported only inside the `try` below. When that try failed —
+# the exact case the failure branch exists for — `wire_failure` was never
+# bound, so the handler raised NameError into its own bare `except: pass`.
+# The §21a failure wiring for this module was therefore DEAD: a grep showed it
+# wired, and nothing could ever reach the brain. Same class as R-F3646.
+from .engine_wiring import wire_failure  # noqa: E402  (deliberate: see above)
+
 try:
-    from .engine_wiring import wire_success as _ws, wire_failure
+    from .engine_wiring import wire_success as _ws
     _ws(
         module="geoip_lookup",
         summary="GeoIP Lookup Engine active",

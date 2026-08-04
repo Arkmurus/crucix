@@ -113,12 +113,52 @@ def test_rf762_health_endpoint_exposes_state_backend_block():
 
 
 def test_rf762_health_status_factors_in_state_backend():
+    """R-F762's GUARANTEE: an unreachable state backend must degrade /health.
+
+    R-F3704 — this used to string-match the literal expression
+    `and state_backend_ind["reachable"]`. That is a test of SYNTAX, not of the
+    guarantee: it broke on a legitimate refactor (the boolean chain became a
+    named `_degraded_reasons` list so /health could also degrade on operating
+    mode and name WHICH signal failed), and it would equally have passed if the
+    expression were present but its result discarded.
+
+    Asserted structurally against the reason-builder instead, which is the
+    thing that actually decides — plus the R-F3704 additions, so a future
+    refactor cannot silently drop any of them.
+    """
     src = _main_src()
-    # Top-level status must consider state_backend_ind reachable.
-    assert "and state_backend_ind[\"reachable\"]" in src, (
-        "R-F762 regression: /health.status no longer factors state-"
-        "backend reachable into the operational-vs-degraded decision. "
-        "A backend-unreachable boot would falsely report operational."
+    assert 'state_backend_ind["reachable"]' in src, (
+        "R-F762 regression: /health no longer reads state-backend reachability "
+        "at all. A backend-unreachable boot would falsely report operational."
+    )
+    assert '_degraded_reasons.append("state_backend_unreachable")' in src, (
+        "R-F762 regression: state-backend reachability is read but no longer "
+        "feeds the operational-vs-degraded decision."
+    )
+    # The decision itself must be driven by the collected reasons.
+    assert '"status": "operational" if not _degraded_reasons else "degraded"' in src, (
+        "R-F762/R-F3704 regression: /health.status must be derived from the "
+        "degraded-reason set, not computed independently of it."
+    )
+
+
+def test_rf3704_health_also_degrades_on_operating_mode():
+    """R-F3704 — /health reported 'operational' while operating_mode was
+    DEGRADED, which SUPPRESSES external delivery (operating_modes.py:189). The
+    operator was told all was well while WhatsApp briefs were being dropped."""
+    src = _main_src()
+    assert "operating_mode_" in src
+    assert '_degraded_reasons.append("operating_mode_unknown")' in src, (
+        "an unreadable operating mode must be reported as unknown, not "
+        "silently certified healthy"
+    )
+
+
+def test_rf3704_health_names_which_signal_degraded():
+    src = _main_src()
+    assert '"degraded_reasons": _degraded_reasons' in src, (
+        "the operator must be able to act surgically instead of guessing — "
+        "the same contract /health/perf already honours"
     )
 
 

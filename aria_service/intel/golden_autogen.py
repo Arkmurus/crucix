@@ -224,7 +224,7 @@ async def propose_batch(max_candidates: int = 20) -> dict:
             candidate["approved_at"] = datetime.now(timezone.utc).isoformat()
             try:
                 from . import eval_runner
-                await eval_runner.add_golden_entry(
+                _res = await eval_runner.add_golden_entry(
                     question=candidate["question"],
                     expected_answer=candidate["expected_answer"],
                     category=candidate["category"],
@@ -236,11 +236,27 @@ async def propose_batch(max_candidates: int = 20) -> dict:
                     source="auto_from_verified_intel",
                     added_by="clause17_multi_source",
                 )
-                auto_promoted.append(candidate)
-                # Archive to history so stats() reflects it
-                history = await rs.get_json(_K_HISTORY) or []
-                history.insert(0, candidate)
-                await rs.set_json(_K_HISTORY, history[:1000], ex=365 * 86400)
+                # ── R-F3702 — add_golden_entry RETURNS a refusal, it does not
+                # raise. The `except` below therefore could not see one, so a
+                # refused promotion would have been counted as promoted and the
+                # candidate DISCARDED. It now falls to the pending queue, which
+                # is the honest destination: the work is preserved (§7) and an
+                # operator can promote it after a deliberate unfreeze.
+                if not (_res or {}).get("ok"):
+                    _why = (_res or {}).get("reason", "refused")
+                    logger.info(
+                        "[R-F3702] auto-promotion held for review (%s): %s",
+                        _why, str(candidate.get("question"))[:80],
+                    )
+                    candidate["status"] = "PENDING"
+                    candidate["notes"] += f" | auto-promote held: {_why}"
+                    proposed.append(candidate)
+                else:
+                    auto_promoted.append(candidate)
+                    # Archive to history so stats() reflects it
+                    history = await rs.get_json(_K_HISTORY) or []
+                    history.insert(0, candidate)
+                    await rs.set_json(_K_HISTORY, history[:1000], ex=365 * 86400)
             except Exception as e:
                 logger.warning("auto-promote to eval_runner failed: %s", e)
                 candidate["status"] = "PENDING"

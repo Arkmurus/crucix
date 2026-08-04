@@ -106,6 +106,35 @@ async def add_golden_entry(
     """
     if not question or not expected_answer:
         return {"ok": False, "reason": "question and expected_answer required"}
+    # ── R-F3702 — a FROZEN set is not writable ──────────────────────────────
+    #
+    # THE DEFECT: neither this function nor remove_golden_entry ever consulted
+    # FREEZE_KEY, while `DAILY-GOLDEN-AUTOGEN` (tasks.yaml:1122) runs at 05:30
+    # UTC with `max_candidates: 20` and auto-promotes straight into the golden
+    # set — its own comment says "no human re-gate". So the gate-#6 pin the
+    # operator earned on 2026-07-16 (count 500, hash a07b6af7…) breaks on the
+    # FIRST non-duplicate promotion, and gate #6 flips to `drifted_from_pin`.
+    #
+    # A benchmark anyone can still edit is not a benchmark. Refusing the write
+    # while frozen is the whole point of the pin — the alternative is a
+    # benchmark that silently becomes a different benchmark, which makes every
+    # historical pass_rate delta meaningless.
+    #
+    # Unfreezing is deliberate and already exists (unfreeze_golden_set), so a
+    # genuine set revision is one explicit operator action, not a side effect
+    # of a cron job.
+    _frozen = await _is_golden_set_frozen()
+    if _frozen:
+        logger.info(
+            "[R-F3702] golden-set ADD refused — the set is FROZEN (gate #6 pin). "
+            "source=%s question=%r", source, question[:80],
+        )
+        return {
+            "ok": False,
+            "reason": "golden set is FROZEN (Phase A gate #6 pin) — unfreeze "
+                      "deliberately before revising the benchmark",
+            "frozen": True,
+        }
     items = await get_golden_set()
     entry = {
         "id": f"gold_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}",
@@ -124,7 +153,30 @@ async def add_golden_entry(
         if " ".join((existing.get("question") or "").strip().lower().split()) == norm:
             return {"ok": False, "reason": "duplicate question", "existing_id": existing.get("id")}
     items.append(entry)
-    items = items[-DEFAULT_MAX_GOLDEN:]
+    # ── R-F3702 — overflow must REFUSE, never DELETE ────────────────────────
+    #
+    # `items = items[-DEFAULT_MAX_GOLDEN:]` silently dropped the OLDEST entries
+    # once the set passed 600. With DAILY-GOLDEN-AUTOGEN promoting up to 20/day
+    # the set crosses 600 in about five days, at which point the cap begins
+    # destroying PINNED benchmark questions — unrecoverably, and with no signal.
+    #
+    # That is also a §7 violation (no eviction; overflow → cold storage, never
+    # delete). A cap that deletes is a data-loss bug wearing a limit's clothes.
+    if len(items) > DEFAULT_MAX_GOLDEN:
+        logger.warning(
+            "[R-F3702] golden-set ADD refused — at capacity (%d/%d). The old "
+            "behaviour silently deleted the OLDEST entries here, which destroys "
+            "pinned benchmark questions. Raise ARIA_EVAL_MAX_GOLDEN or curate "
+            "the set explicitly.",
+            len(items) - 1, DEFAULT_MAX_GOLDEN,
+        )
+        return {
+            "ok": False,
+            "reason": f"golden set at capacity ({DEFAULT_MAX_GOLDEN}) — refusing "
+                      f"to evict an existing entry to make room",
+            "at_capacity": True,
+            "total": len(items) - 1,
+        }
     try:
         await rs.set_json(GOLDEN_SET_KEY, items)
     except Exception as e:
@@ -134,7 +186,36 @@ async def add_golden_entry(
     return {"ok": True, "entry": entry, "total": len(items)}
 
 
+async def _is_golden_set_frozen() -> bool:
+    """R-F3702 — is the golden set pinned for Phase A gate #6?
+
+    Reads with `get_json_strict` deliberately: on a store failure this must
+    fail CLOSED (treat as frozen and refuse the write). Assuming "not frozen"
+    when we cannot tell would let a cron job mutate a pinned benchmark during
+    exactly the store trouble that makes the mutation hardest to notice.
+    """
+    try:
+        rec = await rs.get_json_strict(FREEZE_KEY) or {}
+        return bool(rec.get("frozen"))
+    except Exception as e:
+        logger.warning(
+            "[R-F3702] freeze state unreadable (%s) — treating the golden set as "
+            "FROZEN and refusing the write", e,
+        )
+        return True
+
+
 async def remove_golden_entry(entry_id: str) -> dict:
+    # R-F3702 — removal is a mutation too. Gate #6's pin covers count AND a
+    # content hash, so a delete drifts it exactly as an add does.
+    if await _is_golden_set_frozen():
+        logger.info("[R-F3702] golden-set REMOVE refused (frozen): %s", entry_id)
+        return {
+            "ok": False,
+            "reason": "golden set is FROZEN (Phase A gate #6 pin) — unfreeze "
+                      "deliberately before revising the benchmark",
+            "frozen": True,
+        }
     items = await get_golden_set()
     new_items = [it for it in items if it.get("id") != entry_id]
     if len(new_items) == len(items):
@@ -547,9 +628,26 @@ async def run_eval(
     _rec_honesty_n = 0
     _repair_used_n = 0  # R-F2396 — grounding repairs that improved the score
     _grounded_rates: list[float] = []
+    _sv = _hj = None
+    _record_unavailable = ""
     if record:
-        from . import source_verifier as _sv
-        from . import honesty_judge as _hj
+        # R-F3701 — this import is now on the DAILY path (RUN-EVAL-DAILY passes
+        # record=True), so a module-level failure in either recorder would take
+        # down the whole eval rather than just the recording. Degrade instead:
+        # the regression signal is independently valuable, and losing it as
+        # collateral would be worse than losing the composite inputs.
+        try:
+            from . import source_verifier as _sv  # type: ignore[no-redef]
+            from . import honesty_judge as _hj    # type: ignore[no-redef]
+        except Exception as _rec_imp_err:
+            _sv = _hj = None
+            _record_unavailable = str(_rec_imp_err)[:200]
+            logger.error(
+                "[R-F3701] eval recorders unavailable (%s) — the run will still "
+                "score, but Phase A gate #1's verification/honesty stores will "
+                "NOT be populated this cycle",
+                _record_unavailable,
+            )
 
     for entry in items:
         q = entry.get("question", "")
@@ -626,7 +724,7 @@ async def run_eval(
         # check). Order: judge FIRST → feed the support verdict to verify_response
         # → (optional) one grounding repair if weak → record. Best-effort: a
         # recorder failure must never fail the eval run.
-        if record and (actual or "").strip():
+        if record and _sv is not None and _hj is not None and (actual or "").strip():
             _q_actual = actual
             _q_ctx = _entry_ctx or ""
             try:
