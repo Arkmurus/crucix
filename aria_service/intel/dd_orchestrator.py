@@ -3371,6 +3371,52 @@ async def _rescreen_under_registered_name(
         source="sanctions.screen_with_aliases:R-F3219",
         confidence="CONFIRMED",
     ))
+
+    # ── The clean re-screen has just replaced verified_sources. Say so if it now
+    # contradicts a HARD_STOP still standing from the FIRST screen.
+    #
+    # MEASURED, run dd_29368fbb8b3d: the supplied name raised a HARD_STOP on OFAC
+    # SDN; the registered name came back clean; `screen["verified_sources"]` above
+    # was overwritten with the clean result and the delivered PDF printed
+    # "OFAC SDN match ... HARD_STOP" and "OFAC · SDN List — CLEAN" on facing
+    # pages. The table described this screen, the finding described the previous
+    # one, and the report asserted both.
+    #
+    # DETECT, never adjudicate. The earlier screen may be the correct one, and a
+    # sanctions HARD_STOP that quietly disappears because a later screen was clean
+    # is a far worse failure than one that is loudly questioned. This raises the
+    # disagreement to the operator and leaves the HARD_STOP standing.
+    try:
+        from ._sanctions_classify import detect_screen_contradictions
+        _all = []
+        for _sec_name in ("identity", "compliance", "forensic", "synthesis"):
+            _sec = getattr(report, _sec_name, None)
+            _all.extend(getattr(_sec, "findings", None) or [])
+        _contra = detect_screen_contradictions(_all, screen.get("verified_sources"))
+        if _contra:
+            _lists = ", ".join(sorted({c["list"] for c in _contra}))
+            report.identity.findings.append(Finding(
+                severity="amber",
+                title="Screens disagree — a HARD_STOP stands against a list now reported CLEAN",
+                detail=(
+                    f"The re-screen under {registered_name!r} returned CLEAN for: {_lists}. "
+                    f"A HARD_STOP raised by the earlier screen on {supplied_name!r} is still "
+                    f"on this report against the same list(s). Both cannot be relied on. "
+                    f"Neither has been withdrawn automatically: the earlier screen may be "
+                    f"correct, and a name that differs only in legal form is a common source "
+                    f"of false matches. Adjudicate before relying on either — check whether "
+                    f"the match was a genuine alias or a name collision."
+                ),
+                source="sanctions.screen_contradiction",
+                confidence="CONFIRMED",
+            ))
+            report.identity.data_gaps.append(
+                f"sanctions screens disagree on {_lists} between {supplied_name!r} and "
+                f"{registered_name!r} — unadjudicated"
+            )
+    except Exception as _contra_err:      # never let a self-check break a DD
+        logger.warning("[dd_orchestrator] screen-contradiction check failed: %s", _contra_err)
+
     return False
 
 
@@ -16659,8 +16705,9 @@ async def _orchestrate_dd_impl(
                     except Exception:
                         pass
                     # Stamp the BLUF so any downstream renderer surfaces it
+                    from ..learning.verification_gate import STAMP_CONSISTENT
                     tag = (
-                        "\n\n🛡 [VERIFIED BY DISAGREEMENT — both providers agree]"
+                        "\n\n" + STAMP_CONSISTENT
                         if vres["verdict"] == "CRITICAL_VERIFIED"
                         else f"\n\n⚠ [CRITICAL — PROVIDERS DISAGREE — {vres['disagreement']['severity']}] "
                              f"Block auto-send; human adjudication required."

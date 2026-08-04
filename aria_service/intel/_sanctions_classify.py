@@ -402,6 +402,79 @@ _PRIMARY_ADAPTER_TO_SOURCE = {
 }
 
 
+def detect_screen_contradictions(findings, verified_sources) -> list[dict]:
+    """Findings that assert a HIT on a list the screen record reports CLEAN.
+
+    MEASURED — delivered run dd_29368fbb8b3d (2026-08-03). The report carried, in
+    one document:
+
+        Key findings : OFAC SDN match: D.G.D. INVESTMENTS LTD.  → HARD_STOP
+        Compliance   : US Treasury — OFAC · SDN List — CLEAN
+
+    Not a rendering bug. R-F3219 re-screens the REGISTERED legal name once
+    Companies House resolves it, and overwrites `screen["verified_sources"]` with
+    the re-screen's result (dd_orchestrator ~3328). The re-screen was clean, so
+    the TABLE became clean — while the findings raised by the FIRST screen (on
+    the customer-supplied name) stayed exactly where they were. The table
+    describes screen #2, the findings describe screen #1, and nothing reconciles
+    them. The report even states the re-screen found no matches, three lines from
+    the HARD_STOP it contradicts.
+
+    This DETECTS; it does not adjudicate. A sanctions HARD_STOP is never silently
+    withdrawn on the strength of a second screen — the first screen may be the
+    correct one, and suppressing it would be the more dangerous failure. What it
+    ends is the report shipping both claims without saying they disagree.
+
+    Args:
+        findings: any iterable of Finding-likes (objects or dicts) carrying
+            `severity` and `source`.
+        verified_sources: the derive_verified_sources() dict,
+            {canonical_name: {"status": "CLEAN"|"HIT"|"UNAVAILABLE", ...}}.
+
+    Returns:
+        [{"list": canonical, "finding": <detail>, "severity": <sev>}, ...]
+    """
+    if not isinstance(verified_sources, dict):
+        return []
+
+    clean = {
+        str(name).strip().casefold()
+        for name, rec in verified_sources.items()
+        if isinstance(rec, dict) and str(rec.get("status", "")).upper() == "CLEAN"
+    }
+    if not clean:
+        return []
+
+    out: list[dict] = []
+    for f in (findings or []):
+        get = (lambda k: f.get(k)) if isinstance(f, dict) else (lambda k: getattr(f, k, None))
+        sev = str(get("severity") or "").strip().lower()
+        if sev not in ("hard_stop", "red"):
+            continue
+        source = str(get("source") or "")
+        detail = str(get("detail") or get("title") or "")
+        # Match the finding's source/detail against each list reported CLEAN.
+        # Compared on tokens rather than substrings so "OFAC SDN" matches
+        # "sources.ofac_sdn" without "sdn" alone matching an unrelated list.
+        haystack = f"{source} {detail}".casefold()
+        for canonical in clean:
+            tokens = [t for t in _re_split_tokens(canonical) if len(t) >= 3]
+            if tokens and all(t in haystack for t in tokens):
+                out.append({
+                    "list": canonical,
+                    "finding": detail[:300],
+                    "severity": sev,
+                })
+                break
+    return out
+
+
+def _re_split_tokens(text: str) -> list[str]:
+    """Lowercase alphanumeric tokens of a canonical list name."""
+    import re as _re
+    return [t for t in _re.split(r"[^a-z0-9]+", str(text).casefold()) if t]
+
+
 def annotate_primary_snapshots(verified_sources, snapshots) -> None:
     """Record whether ARIA's OWN primary snapshot for each list was live.
 

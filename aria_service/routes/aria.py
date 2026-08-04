@@ -11551,8 +11551,10 @@ async def chat_ep(req: ChatRequest, request: Request):
         # ── Verification gate on CRITICAL chat outputs (2026-04-18) ──
         # When ARIA's reply is CRITICAL (NO-GO / RED / HARD_STOP / direct
         # sanctions yes/no), run the same user message on a secondary
-        # provider and verify structured-decision agreement. On
-        # agreement, append `[VERIFIED BY DISAGREEMENT]`. On
+        # provider and compare the structured decision. On agreement,
+        # append the CROSS-MODEL CONSISTENT stamp — which asserts the two
+        # models read the same evidence the same way, NOT that the finding
+        # was independently corroborated. On
         # disagreement, append `[CRITICAL — PROVIDERS DISAGREE]` and
         # block the WhatsApp auto-send by setting `critical_unverified`
         # in the result so the listener can surface the warning.
@@ -11634,13 +11636,17 @@ async def chat_ep(req: ChatRequest, request: Request):
                                 "secondary_provider": getattr(_sec_provider, "name", ""),
                             }
                             if _vres["verdict"] == "CRITICAL_VERIFIED":
-                                if "[VERIFIED BY DISAGREEMENT]" not in response_text:
-                                    response_text = (
-                                        response_text
-                                        + "\n\n🛡 [VERIFIED BY DISAGREEMENT — "
-                                          "independent provider confirms the "
-                                          "structured verdict]"
-                                    )
+                                # The dedupe used to look for the literal
+                                # "[VERIFIED BY DISAGREEMENT]" while the text it
+                                # appended read "[VERIFIED BY DISAGREEMENT — ...".
+                                # The bracketed form never occurred, so the guard
+                                # could never fire and a re-run would stamp twice.
+                                # Both now come from one constant.
+                                from ..learning.verification_gate import (
+                                    STAMP_CONSISTENT, STAMP_CONSISTENT_MARKER,
+                                )
+                                if STAMP_CONSISTENT_MARKER not in response_text:
+                                    response_text = response_text + "\n\n" + STAMP_CONSISTENT
                             elif _vres["verdict"] == "CRITICAL_UNVERIFIED":
                                 result["critical_unverified"] = True
                                 response_text = (

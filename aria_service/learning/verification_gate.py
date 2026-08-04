@@ -49,6 +49,36 @@ from ..intel import cost_tracker
 
 logger = logging.getLogger("aria.learning.verification_gate")
 
+# ── The delivered stamps, defined ONCE ───────────────────────────────────────
+#
+# Two wiring sites append these (dd_orchestrator BLUF, chat_ep response) and a
+# third checks for the text to avoid double-stamping. Three copies of a string
+# is three chances to drift; they live here now so a reword cannot make the
+# dedupe check silently stop matching.
+#
+# WHY THE WORDING CHANGED (2026-08-03). This used to read
+# "[VERIFIED BY DISAGREEMENT — both providers agree]". Measured on delivered DD
+# run dd_29368fbb8b3d: it was stamped on the BLUF of a HARD_STOP that rested on
+# a false OFAC name collision ("investments" was the only token shared with an
+# unrelated sanctioned entity). It read to the operator as though the finding
+# had been corroborated. It had not been.
+#
+# What this gate actually compares is two NARRATIVES generated from the SAME
+# upstream finding set. Two models summarising one input agree by construction —
+# that is consistency of narration, not independence of evidence. The providers
+# are independent MODELS; the evidence behind them is a single body. Calling that
+# "VERIFIED" invites exactly the reading it got.
+#
+# The stamp now says what was measured. It remains useful — a disagreement here
+# is still a real signal that the narrative is unstable — but it can no longer be
+# mistaken for a second source confirming the fact.
+STAMP_CONSISTENT = "🛡 [CROSS-MODEL CONSISTENT — 2 models, same evidence; not independent corroboration]"
+
+#: Substring used to detect an already-stamped response. Deliberately the
+#: bracketed head rather than the whole sentence, so the tail can be reworded
+#: without breaking the dedupe.
+STAMP_CONSISTENT_MARKER = "[CROSS-MODEL CONSISTENT"
+
 # R-F1319: wire module health to the brain
 try:
     from aria_service.intel.engine_wiring import wire_success as _ws1319
@@ -320,8 +350,9 @@ async def verify(
     if disagreement["agree"]:
         verdict = "CRITICAL_VERIFIED"
         rec = (
-            "✅ Both independent providers agree on risk + sanctions + "
-            "confidence. Safe to deliver with [VERIFIED BY DISAGREEMENT] tag."
+            "✅ Both models agree on risk + sanctions + confidence, reading the "
+            "SAME evidence — narrative is stable, the finding is NOT independently "
+            "corroborated. Safe to deliver with the CROSS-MODEL CONSISTENT tag."
         )
     else:
         if disagreement["severity"] == "BLOCKING":

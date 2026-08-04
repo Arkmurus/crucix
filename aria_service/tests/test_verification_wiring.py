@@ -169,16 +169,42 @@ def test_classify_severity_critical_triggers_gate():
 
 
 def test_stamp_format_verified():
-    """The stamps used in dd_orchestrator + chat_ep must be present
-    in the verification-gate module's string constants so grep + tests
-    agree on them."""
-    # The gate module doesn't publish stamp strings as constants (they
-    # live in the wiring sites). Just sanity-check the words used:
-    expected_verified_tokens = ["VERIFIED", "DISAGREEMENT"]
-    expected_unverified_tokens = ["CRITICAL", "PROVIDERS", "DISAGREE"]
-    stamp_verified = "🛡 [VERIFIED BY DISAGREEMENT — independent provider confirms]"
+    """The delivered stamp must come from the gate's own constant.
+
+    This test used to build its own copy of the stamp and assert tokens against
+    that copy — so it passed no matter what the product actually emitted, and
+    kept passing after the real wording changed. A test that asserts about a
+    string it just wrote itself is testing nothing.
+
+    It now reads the constant the wiring sites use, and pins the PROPERTY that
+    matters rather than the phrasing: the agreement stamp must not claim
+    independent corroboration. Two models reading one evidence set agree by
+    construction; on run dd_29368fbb8b3d the old "VERIFIED BY DISAGREEMENT"
+    wording stamped a false OFAC collision and read as confirmation.
+    """
+    from aria_service.learning.verification_gate import (
+        STAMP_CONSISTENT, STAMP_CONSISTENT_MARKER,
+    )
+
+    # The dedupe marker must actually occur in the stamp. The previous wiring
+    # checked for "[VERIFIED BY DISAGREEMENT]" while emitting
+    # "[VERIFIED BY DISAGREEMENT — ...", so the guard could never fire.
+    assert STAMP_CONSISTENT_MARKER in STAMP_CONSISTENT, (
+        "the dedupe marker does not occur in the stamp — the double-stamp guard "
+        "cannot fire"
+    )
+
+    # It must not assert verification or independent corroboration of the fact.
+    lowered = STAMP_CONSISTENT.lower()
+    assert "verified" not in lowered, (
+        "the stamp claims verification; it only compares two narratives built "
+        "from the same evidence"
+    )
+    assert "not independent corroboration" in lowered, (
+        "the stamp must state what it is NOT, or an operator will read model "
+        "agreement as a second source"
+    )
+
     stamp_unverified = "⚠ [CRITICAL — PROVIDERS DISAGREE — BLOCKING]"
-    for tok in expected_verified_tokens:
-        assert tok in stamp_verified
-    for tok in expected_unverified_tokens:
+    for tok in ["CRITICAL", "PROVIDERS", "DISAGREE"]:
         assert tok in stamp_unverified
