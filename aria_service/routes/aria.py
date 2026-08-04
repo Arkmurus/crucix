@@ -6030,6 +6030,52 @@ _BRAVE_QA_TRIGGER_RE = re.compile(
     r"(is|are|was|were|did|does|do|has|have|had)\b",
     re.IGNORECASE,
 )
+# ── RECENCY IS A TRIGGER IN ITS OWN RIGHT ────────────────────────────────────
+#
+# The trigger above requires a question word FOLLOWED BY a linking verb, and
+# admits `how` only before many/much/long/old/big/tall/far — a deliberate dodge
+# for "how are you". The cost of that narrowing is that every "how is/are the
+# <thing>" question falls through to no tool at all.
+#
+# MEASURED, live WhatsApp 2026-08-04 09:09:
+#   operator: "How is the fires in Madrid and Bordeaux?"
+#   ARIA:     "I don't have live news or real-time incident data in front of me
+#              right now, so I'm not going to guess."
+#
+# She has Brave. It answered DD queries forty minutes earlier. The message never
+# reached a tool, so the engine answered from static knowledge — and the reply is
+# honest about what it was handed while being wrong about what she can do. She
+# even offered: "Want me to pull a current situation brief?" She could have.
+#
+# Probed against the live detector, all returning NO TOOL:
+#   "How are the fires in Madrid and Bordeaux?"
+#   "latest news on the Bordeaux fires"
+#   "what's the current situation with wildfires in Spain"
+# while "what is happening with the wildfires in Madrid" routed correctly. The
+# difference is phrasing, not need. "latest news on X" returning no tool is the
+# clearest tell: the word `latest` is the entire point of the question.
+#
+# The property that decides whether a web call is warranted is RECENCY — is the
+# answer something that changed since training — not whether the sentence opens
+# with an approved verb pair. This matches on that instead.
+#
+# `how\s+(?:is|are)\s+the\b` REQUIRES the article, so "how are you" and "how are
+# things" still fall through. All four existing exclusions (specialist tools,
+# ambient clock, self-infrastructure, length) apply unchanged, so nothing that
+# was deliberately kept off Brave moves onto it.
+_BRAVE_QA_RECENCY_RE = re.compile(
+    r"("
+    r"\b(?:latest|current|currently|ongoing|unfolding)\b"
+    r"|\bright\s+now\b|\bat\s+the\s+moment\b|\bso\s+far\b"
+    r"|\b(?:today|tonight|this\s+(?:morning|afternoon|evening|week))\b"
+    r"|\b(?:any\s+)?(?:update|news|latest)\s+(?:on|about|from)\b"
+    r"|\bwhat'?s\s+(?:happening|going\s+on|the\s+situation)\b"
+    r"|\bsituation\s+(?:in|with|around|on)\b"
+    r"|\bstill\s+(?:burning|ongoing|active|going|closed|open)\b"
+    r"|\bhow\s+(?:is|are)\s+the\b"
+    r")",
+    re.IGNORECASE,
+)
 _BRAVE_QA_EXCLUDE_RE = re.compile(
     r"\b(dd|due\s+diligence|investigate|screen|sanction|compliance|"
     r"memory\s+status|brain\s+stats|your\s+(?:memory|status|email|brain)|"
@@ -7738,8 +7784,10 @@ def _detect_tool_intent(message: str) -> dict | None:
     #
     # Same shape as the existing SELF_INFRA exclusion above it: a question
     # ARIA can answer from herself must never be sent outward.
+    _qa_shape = _BRAVE_QA_TRIGGER_RE.search(msg)
+    _qa_recency = _BRAVE_QA_RECENCY_RE.search(msg)
     if (
-        _BRAVE_QA_TRIGGER_RE.search(msg)
+        (_qa_shape or _qa_recency)
         and not _BRAVE_QA_EXCLUDE_RE.search(msg)
         and not _BRAVE_QA_AMBIENT_RE.search(msg)
         and not _BRAVE_QA_SELF_INFRA_RE.search(msg)
@@ -7753,7 +7801,12 @@ def _detect_tool_intent(message: str) -> dict | None:
             "tool": "brave_answer",
             "query": q_clean[:200],
             "context": msg,
-            "_reason": "factual_qa",
+            # Distinguished so the routing reason stays legible in traces: a
+            # question can qualify on SHAPE (question word + linking verb) or on
+            # RECENCY (asks about something that changed since training), and
+            # knowing which fired is the difference between debugging a phrasing
+            # gap and debugging an over-eager search.
+            "_reason": "factual_qa" if _qa_shape else "recency_qa",
         }
 
     # ── 0a. OEM batch research — user wants a crawl across "the OEMs" with
