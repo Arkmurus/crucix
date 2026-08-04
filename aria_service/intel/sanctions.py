@@ -260,21 +260,57 @@ def _classify_429(body: str) -> str:
 _QUOTA_STATE_KEY = "crucix:aria:sanctions:opensanctions_quota_exhausted"
 
 
+def _next_month_start_utc(now: datetime | None = None) -> datetime:
+    """00:00 UTC on the first of the following month — when a MONTHLY plan resets.
+
+    The allowance OpenSanctions meters is monthly, so that boundary is the
+    earliest moment a spent quota can become unspent. Anything the flag says
+    beyond it is a guess about the past, not a report about now.
+    """
+    n = now or datetime.now(timezone.utc)
+    year, month = (n.year + 1, 1) if n.month == 12 else (n.year, n.month + 1)
+    return datetime(year, month, 1, tzinfo=timezone.utc)
+
+
 async def _record_quota_exhausted(detail: str) -> None:
-    """Persist + surface. §19e: only the operator can clear this one.
+    """Persist + surface, until the monthly boundary that can clear it.
 
     Durable because the fact outlives the process: a restart must not present a
     spent monthly quota as a fresh start, which is the same mistake R-F3513
     found in the LLM billing cooldown.
+
+    BOUNDED because the opposite mistake is just as wrong, and this had it.
+    MEASURED 2026-08-04: the state still read "exhausted, since
+    2026-07-31T23:04:22" — four days after a MONTHLY allowance had rolled over
+    on 08-01. It was written with no TTL, nothing re-probes it, and the operator
+    clear path the old docstring promised ("only the operator can clear this
+    one") did not exist anywhere in the codebase. So the flag could only ever
+    move in one direction: once set, exhausted forever.
+
+    That is a status surface asserting a fact it stopped being able to know.
+    Nothing gated on it — screening always attempted OpenSanctions and fell back
+    to the local canonical lists — so the cost was not a blocked screen; it was
+    an operator reading "quota exhausted" and believing screening was degraded
+    when it was not. This session began with the same class of defect in
+    deploy-fly.yml ("the CI FLY_API_TOKEN is stale") and in CLAUDE.md §16.
+
+    The record now carries `expires_at`, and the reader treats an elapsed
+    boundary as LAPSED rather than exhausted. A quota still spent after the
+    reset simply gets recorded again on the next 429 — self-healing in the safe
+    direction, because being wrong here means attempting a screen, not skipping
+    one.
     """
     try:
         from . import redis_store as _rs
+        _now = datetime.now(timezone.utc)
+        _expires = _next_month_start_utc(_now)
         await _rs.set_json(_QUOTA_STATE_KEY, {
-            "since": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "since": _now.isoformat(timespec="seconds"),
+            "expires_at": _expires.isoformat(timespec="seconds"),
             "detail": detail[:300],
-            "action": ("operator: upgrade the OpenSanctions plan or wait for the "
-                       "monthly reset — no retry or pacing change can clear this"),
-        })
+            "action": ("operator: upgrade the OpenSanctions plan, or wait for the "
+                       "monthly reset — retrying cannot clear it before then"),
+        }, ex=max(60, int((_expires - _now).total_seconds())))
     except Exception as exc:
         logger.debug("could not persist quota state: %s", exc)
     try:
@@ -307,7 +343,44 @@ async def get_opensanctions_quota_state() -> dict:
         return {"exhausted": None, "reason": f"could not read state: {exc}"}
     if not state:
         return {"exhausted": False}
+    # A monthly allowance cannot still be spent past the month boundary that
+    # resets it. Backends without key expiry (and records written before
+    # expires_at existed) would otherwise report exhausted indefinitely — which
+    # is what this surface actually did for four days.
+    _exp = state.get("expires_at")
+    if _exp:
+        try:
+            if datetime.now(timezone.utc) >= datetime.fromisoformat(_exp):
+                return {
+                    "exhausted": False,
+                    "lapsed_at": _exp,
+                    "note": ("a previous exhaustion record lapsed at the monthly "
+                             "reset; the next 429 will record a fresh one"),
+                }
+        except Exception:
+            pass       # unparsable expiry: fall through and report as exhausted
     return {"exhausted": True, **state}
+
+
+async def clear_opensanctions_quota_state() -> bool:
+    """Operator lever: forget the exhaustion record now.
+
+    The old docstring said "only the operator can clear this one" while offering
+    the operator no way to do it. Either the sentence or the code had to change;
+    this is the code changing. Use after a plan upgrade, when waiting for the
+    monthly boundary is not the answer.
+
+    Safe by construction: clearing only allows OpenSanctions to be ATTEMPTED
+    again. If the quota really is still spent the next call returns 429 and the
+    record is rewritten, so a wrong clear costs one request, not a false clean.
+    """
+    try:
+        from . import redis_store as _rs
+        await _rs.delete(_QUOTA_STATE_KEY)
+        return True
+    except Exception as exc:
+        logger.warning("could not clear quota state: %s", exc)
+        return False
 
 
 def _rate_limit_message(key_present: bool, interval: float) -> str:
