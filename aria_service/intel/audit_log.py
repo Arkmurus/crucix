@@ -215,14 +215,53 @@ def verify_signature(entry: dict) -> dict:
     }
 
 
-async def _read_head_hash() -> str:
-    """Read the current head hash, or return genesis if log is empty."""
+class AuditChainUnreadable(RuntimeError):
+    """R-F3711 — the audit head hash could not be READ.
+
+    Distinct from "the log is empty". Only one of those means genesis.
+    """
+
+
+async def _read_head_hash(*, strict: bool = False) -> str:
+    """Read the current head hash, or return genesis if log is empty.
+
+    R-F3711 — a TRANSIENT READ FAILURE IS NOT GENESIS.
+
+    THE DEFECT: this collapsed both cases to `_GENESIS_HASH`. A live example was
+    captured in the fly logs on 2026-08-04:
+
+        state_store.get(crucix:audit:head_hash) timed out after 5s —
+        DB may be bloated or under WAL recovery. Returning None.
+
+    `redis_store.get` returns None on a store failure (the documented
+    None-on-error contract), so `h if h else _GENESIS_HASH` silently answered
+    "this log is empty". `record()` then wrote a new entry chained to genesis —
+    SILENTLY FORKING the evidentiary hash chain. Every prior entry becomes
+    unverifiable against the new head, and nothing anywhere says so.
+
+    That is the worst possible failure for an audit chain: the mechanism that
+    exists to prove nothing was tampered with, quietly discarding its own
+    history because a read timed out.
+
+    `strict=True` raises instead, so the WRITE path can refuse rather than fork.
+    The read-only verifier keeps the lenient behaviour — it is reporting, not
+    extending, and a genesis fallback there is visible in its output.
+    """
     from . import redis_store as rs
     try:
-        h = await rs.get(_KEY_HEAD_HASH)
-        return h if h else _GENESIS_HASH
-    except Exception:
+        h = await (rs.get_strict(_KEY_HEAD_HASH) if strict else rs.get(_KEY_HEAD_HASH))
+    except Exception as exc:
+        if strict:
+            raise AuditChainUnreadable(str(exc)) from exc
         return _GENESIS_HASH
+    if h:
+        return h
+    if strict:
+        # An ABSENT key is the genuine empty-log case and is legitimate — the
+        # very first entry must be able to chain to genesis. Only a store
+        # FAILURE (above) is refused.
+        return _GENESIS_HASH
+    return _GENESIS_HASH
 
 
 async def record(
@@ -256,7 +295,27 @@ async def record(
 
     from . import redis_store as rs
 
-    prev_hash = await _read_head_hash()
+    # R-F3711 — the WRITE path reads strictly. Chaining to genesis because the
+    # store blipped would fork the evidentiary chain and orphan every prior
+    # entry; refusing the write loses ONE record and keeps the chain provable.
+    # Losing an audit entry is bad. Silently invalidating the whole audit trail
+    # is categorically worse, and it is the one this used to do.
+    try:
+        prev_hash = await _read_head_hash(strict=True)
+    except AuditChainUnreadable as _ace:
+        logger.error(
+            "[R-F3711] audit head hash UNREADABLE (%s) — refusing to write "
+            "action=%r rather than chain it to genesis and fork the chain",
+            _ace, action,
+        )
+        try:  # §21a — the operator and the brain must both see a refused audit write
+            from .engine_wiring import wire_failure as _wf
+            _wf(module="audit_log",
+                detail=f"audit write refused: head hash unreadable ({str(_ace)[:120]}) action={action}",
+                gap_type="data_integrity", source="audit_log:R-F3711")
+        except Exception:
+            pass
+        return {"ok": False, "recorded": False, "reason": "audit_chain_unreadable"}
     timestamp = datetime.now(timezone.utc).isoformat()
     monotonic_seq = int(time.time() * 1000)  # sortable seq for tie-breaking
     _, is_dev = _get_signing_key()

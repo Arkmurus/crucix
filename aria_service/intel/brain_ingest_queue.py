@@ -476,6 +476,96 @@ async def stats() -> dict:
         return out
 
 
+async def list_dead_letter(limit: int = 50) -> list[dict]:
+    """R-F3712 — READ the dead-letter table. Nothing could, before this.
+
+    THE DEFECT: rows were INSERTed here on a poison payload (:329) and on
+    terminal failure after max_attempts (:402), and the ONLY reader in the whole
+    tree was `SELECT COUNT(*)` in stats(). The `payload` column was never
+    selected by anything. `recover_stuck()` sounds like the drain but only
+    UPDATEs the `queue` table, which dead-lettered rows have already left.
+
+    So 114 brain signals (measured live 2026-08-04) were parked permanently:
+    knowledge that failed to reach the brain, with no reader, no replay, no
+    prune and no alert. The module's own docstring promises items are "replayed
+    on next drain", which was false for anything that reached here — and it is a
+    §7 violation, since the contract is that ARIA never loses knowledge.
+    """
+    await connect()
+    if _conn is None:
+        return []
+    try:
+        async with _conn.execute(
+            "SELECT id, payload, error, attempts, enqueued_at, failed_at "
+            "FROM dead_letter ORDER BY failed_at DESC LIMIT ?", (int(limit),)
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            {"id": r[0], "payload": r[1], "error": r[2], "attempts": r[3],
+             "enqueued_at": r[4], "failed_at": r[5]}
+            for r in rows
+        ]
+    except Exception as e:
+        logger.warning("brain_ingest_queue: list_dead_letter failed: %s", e)
+        return []
+
+
+async def replay_dead_letter(limit: int = 50, *, ids: list[int] | None = None) -> dict:
+    """R-F3712 — move dead-lettered rows back onto the queue.
+
+    The exit that never existed. A row is re-enqueued with attempts reset and
+    is DELETEd from dead_letter only after the queue insert succeeds, inside one
+    transaction, so a failure here cannot lose the row — the whole point is that
+    nothing in this path may drop knowledge.
+
+    Poison payloads (unparseable JSON) are NOT replayed: they would fail
+    identically and churn. They are reported so an operator can see them.
+    """
+    await connect()
+    if _conn is None:
+        return {"ok": False, "reason": "no connection", "replayed": 0}
+
+    replayed, poison, failed = 0, 0, 0
+    try:
+        if ids:
+            q = ("SELECT id, payload, enqueued_at FROM dead_letter WHERE id IN ("
+                 + ",".join("?" * len(ids)) + ")")
+            params: tuple = tuple(int(i) for i in ids)
+        else:
+            q = ("SELECT id, payload, enqueued_at FROM dead_letter "
+                 "ORDER BY failed_at ASC LIMIT ?")
+            params = (int(limit),)
+        async with _conn.execute(q, params) as cur:
+            rows = await cur.fetchall()
+
+        for row_id, payload, enqueued_at in rows:
+            try:
+                json.loads(payload)          # poison check — do not re-enqueue
+            except Exception:
+                poison += 1
+                continue
+            try:
+                await _conn.execute(
+                    "INSERT INTO queue (payload, priority, status, attempts, "
+                    "enqueued_at, next_attempt_at) VALUES (?, ?, 'pending', 0, ?, ?)",
+                    (payload, 2, enqueued_at or _now(), _now()),
+                )
+                await _conn.execute("DELETE FROM dead_letter WHERE id = ?", (row_id,))
+                replayed += 1
+            except Exception as e:
+                failed += 1
+                logger.warning("replay_dead_letter: row %s failed: %s", row_id, e)
+        await _conn.commit()
+    except Exception as e:
+        logger.warning("brain_ingest_queue: replay_dead_letter failed: %s", e)
+        return {"ok": False, "reason": str(e)[:200], "replayed": replayed}
+
+    logger.info("[R-F3712] dead-letter replay: %d requeued, %d poison, %d failed",
+                replayed, poison, failed)
+    return {"ok": True, "replayed": replayed, "poison_skipped": poison,
+            "failed": failed}
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Self-test — python -m aria_service.intel.brain_ingest_queue
 # ─────────────────────────────────────────────────────────────────────────

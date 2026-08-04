@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3710,
+  "next_available": 3713,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31080,6 +31080,33 @@
       "r_number": "R-F3709",
       "title": "a leaked service token granted unscoped cross-tenant DD read and delete",
       "claimed_at": "2026-08-04T13:41:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3710",
+      "title": "a silently empty sanctions list read as clean on the Node tier",
+      "claimed_at": "2026-08-04T13:50:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3711",
+      "title": "the audit hash chain restarted from genesis on a transient read blip",
+      "claimed_at": "2026-08-04T13:50:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3712",
+      "title": "114 brain signals were dead lettered with no drain and no alert",
+      "claimed_at": "2026-08-04T13:50:48Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
