@@ -30761,9 +30761,10 @@
       "title": "news feed that parses but delivers zero items was marked healthy and was dark to the brain",
       "claimed_at": "2026-08-04T06:49:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6df8630d",
+      "notes": null,
+      "shipped_at": "2026-08-04T07:09:26Z"
     }
   ]
 }
