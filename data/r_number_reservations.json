@@ -30741,18 +30741,20 @@
       "title": "news ingest: the seen-set outranked the archive, so seen-but-never-archived articles were unrecoverable",
       "claimed_at": "2026-08-04T05:48:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a1ed09e4",
+      "notes": null,
+      "shipped_at": "2026-08-04T06:20:35Z"
     },
     {
       "r_number": "R-F3674",
       "title": "news page claimed 45 live sources while 5 produced nothing and 1 was quarantined",
       "claimed_at": "2026-08-04T05:49:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a1ed09e4",
+      "notes": null,
+      "shipped_at": "2026-08-04T06:20:36Z"
     }
   ]
 }
