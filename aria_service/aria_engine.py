@@ -1828,7 +1828,22 @@ def _build_7_layer_context(message: str, intel_data: dict | None,
     # ARIA_CONTEXT_LAYER_BUDGET_S (default 20s — healthy layers finish in <7s).
     from concurrent.futures import TimeoutError as _LayerTimeout
     _layer_budget = float(os.getenv("ARIA_CONTEXT_LAYER_BUDGET_S", "20"))
-    pool = ThreadPoolExecutor(max_workers=6)
+    # R-F3715 — name the threads so the census can ATTRIBUTE them.
+    #
+    # This pool is created PER CHAT TURN and shut down with
+    # `wait=False, cancel_futures=True`, which deliberately abandons a running
+    # hung layer (see the comment at the shutdown below — that trade is correct:
+    # a stuck retrieval layer must not wedge the turn). But `concurrent.futures`
+    # threads are NON-DAEMON, so an abandoned worker lives until its call
+    # returns, and under repeated hangs the process thread count climbs — live,
+    # `pool_workers` went 9 -> 11 -> 13 over 35 minutes.
+    #
+    # The behaviour is left ALONE: bounding it by sharing one pool would let a
+    # single permanently-hung layer starve every later turn, which is worse. The
+    # name prefix is the honest improvement — the heartbeat's thread census can
+    # now say WHICH pool is growing instead of reporting an anonymous total, so
+    # the next person diagnosing this starts with evidence rather than a guess.
+    pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="aria_ctx_layer")
     try:
         futures = {pool.submit(_safe_call, lyr): lyr[0] for lyr in all_layers}
         try:

@@ -92,7 +92,28 @@ async def reconcile(send_fn: "_gw.SendFn", now: float | None = None) -> int:
     users = await _active_members()
     fired = 0
     for user in list(users or []):
-        rec = await _get(user)
+        # R-F3713 — read STRICTLY here. `_disarm` below DELETES the record, so
+        # treating an unreadable store as "nothing armed" cancels a live safety
+        # timer permanently. Skip the user instead: the timer stays armed and
+        # the next reconcile pass (60s) retries. Firing a minute late is
+        # recoverable; a deleted dead-man's switch is not.
+        try:
+            rec = await _get(user, strict=True)
+        except CheckinStoreUnavailable as _cse:
+            logger.error(
+                "[R-F3713] guardian check-in for %s UNREADABLE (%s) — leaving the "
+                "timer ARMED and retrying next pass; refusing to disarm on a "
+                "store failure", user, _cse,
+            )
+            try:  # §21a — a safety timer we cannot read must reach the brain
+                from ..intel.engine_wiring import wire_failure as _wf
+                _wf(module="guardian.checkin",
+                    detail=f"check-in record unreadable for {user}: {str(_cse)[:120]} "
+                           f"— timer left armed, NOT disarmed",
+                    gap_type="data_integrity", source="guardian.checkin:R-F3713")
+            except Exception:
+                pass
+            continue
         if not rec or rec.get("fired"):
             await _disarm(user)
             continue
@@ -162,10 +183,43 @@ async def reconcile(send_fn: "_gw.SendFn", now: float | None = None) -> int:
     return fired
 
 
-async def _get(user: str) -> dict | None:
+class CheckinStoreUnavailable(RuntimeError):
+    """R-F3713 — the check-in record could not be READ.
+
+    Distinct from "no check-in is armed". On a SAFETY timer those must never
+    collapse into the same answer.
+    """
+
+
+async def _get(user: str, *, strict: bool = False) -> dict | None:
+    """Read a user's check-in record.
+
+    R-F3713 — A STORE FAILURE IS NOT "NO TIMER ARMED".
+
+    THE DEFECT: this swallowed every exception and returned ``None``, which is
+    also what an absent record returns. ``reconcile`` then did:
+
+        rec = await _get(user)
+        if not rec or rec.get("fired"):
+            await _disarm(user)      # <-- DELETES the record
+            continue
+
+    So a transient store error did not merely hide the timer — it **cancelled**
+    it, permanently, and `_disarm` removed the record so nothing could recover
+    it. A dead-man's switch silently disarmed by a Redis blip is the worst
+    failure this module can have: the alarm simply never goes off, and the
+    person it was protecting has no way to know.
+
+    ``strict=True`` raises instead, so the reconcile loop can SKIP the user and
+    leave the timer armed. An armed timer that fires late is recoverable; one
+    that was deleted is not.
+    """
     try:
-        return await rs.get_json(_CHECKIN_KEY.format(user=user))
-    except Exception:
+        return await (rs.get_json_strict(_CHECKIN_KEY.format(user=user)) if strict
+                      else rs.get_json(_CHECKIN_KEY.format(user=user)))
+    except Exception as exc:
+        if strict:
+            raise CheckinStoreUnavailable(str(exc)) from exc
         return None
 
 

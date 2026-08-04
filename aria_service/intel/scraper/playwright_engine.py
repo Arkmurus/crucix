@@ -260,8 +260,21 @@ async def fetch(
 
             # Plain-text extraction via existing structured HTML helper
             try:
-                from ..researcher import _extract_structured_html
-                extracted = _extract_structured_html(html)
+                # ── R-F3714 — the SIXTH call site, off the loop ─────────────
+                #
+                # R-F3475 moved trafilatura + a dozen regex passes off the event
+                # loop after live stall attribution named them, and its docstring
+                # says an AST sweep found "all five" call sites. There are six —
+                # this one, inside an `async def`, calling the SYNC helper
+                # directly. The R-F3475 guard test cannot catch it either: its
+                # `_FILES` set lists only crawl_enhancements.py, deep_researcher.py
+                # and researcher.py, so intel/scraper/ was never in scope.
+                #
+                # It is reached on every thin page via researcher._fetch_article_text
+                # -> _pw_fetch, which (until R-F3714's sibling fix above) fired
+                # unconditionally. Directly relevant to the observed 8s stalls.
+                from ..researcher import extract_structured_html_async
+                extracted = await extract_structured_html_async(html)
                 result.text = extracted.get("text", "") or ""
             except Exception:
                 # Fallback to naive tag strip

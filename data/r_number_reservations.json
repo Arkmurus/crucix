@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3713,
+  "next_available": 3716,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31107,6 +31107,33 @@
       "r_number": "R-F3712",
       "title": "114 brain signals were dead lettered with no drain and no alert",
       "claimed_at": "2026-08-04T13:50:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3713",
+      "title": "a dead-mans-switch read failure was indistinguishable from no timer armed",
+      "claimed_at": "2026-08-04T14:16:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3714",
+      "title": "an async availability check was never awaited so the browser fallback always fired",
+      "claimed_at": "2026-08-04T14:16:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3715",
+      "title": "the event loop had no executor cap and a new pool per chat turn",
+      "claimed_at": "2026-08-04T14:16:20Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -43,6 +43,11 @@ _FILES = {
     "intel/crawl_enhancements.py": None,
     "intel/deep_researcher.py": None,
     "intel/researcher.py": None,
+    # R-F3714 — intel/scraper/ was NEVER in scope, so playwright_engine.py's
+    # on-loop `_extract_structured_html(html)` (the SIXTH call site, which
+    # R-F3475's docstring claims was an exhaustive sweep of five) could not be
+    # caught here. A guard that does not cover the directory cannot guard it.
+    "intel/scraper/playwright_engine.py": None,
 }
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 

@@ -1229,7 +1229,22 @@ async def _fetch_article_text(url: str, timeout: float = 0) -> str:
     if _headless.is_thin_content(html):
         try:
             from .scraper.playwright_engine import fetch as _pw_fetch, is_available as _pw_avail
-            if _pw_avail():
+            # ── R-F3714 — `is_available` is ASYNC (playwright_engine.py:334) ──
+            #
+            # THE DEFECT: this called it WITHOUT await. A coroutine object is
+            # always truthy, so the guard passed unconditionally and every thin
+            # page entered `_pw_fetch(..., timeout=30.0, wait_for="networkidle")`
+            # — including on hosts with no Chromium at all, where the launch
+            # failure is swallowed below. Up to 30s per thin page, on the DD's
+            # article-fetch path, spent proving something the guard was supposed
+            # to answer for free. It also emitted a RuntimeWarning
+            # ("coroutine ... was never awaited") on every call.
+            #
+            # The mistake is invisible on inspection because the sibling guard
+            # in the Lightpanda engine IS synchronous, so the two read
+            # identically at the call site. §3b exists for exactly this: check
+            # whether the callee is async before deciding to await it.
+            if await _pw_avail():
                 logger.info("Still thin after Lightpanda (%d chars) — trying Playwright",
                             len(html))
                 pw_result = await _pw_fetch(url, timeout=30.0, wait_for="networkidle")

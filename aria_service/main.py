@@ -948,6 +948,39 @@ async def lifespan(app: FastAPI):
     # (R-F504) → unclean shutdown → bloated WAL (root of the R-F2116/2137/2154
     # state_store boot/timeout chain).
     _llm_health_checker = None
+    # ── R-F3715 — BOUND the default thread executor ─────────────────────────
+    #
+    # THE DEFECT: nothing in the tree ever called `set_default_executor`, so all
+    # 328 `asyncio.to_thread(...)` call sites shared CPython's default pool,
+    # sized `min(32, os.cpu_count() + 4)`. On Fly `os.cpu_count()` reports the
+    # HOST's cores, not the machine's share — so a 1-vCPU machine happily sized a
+    # 32-worker pool and then thrashed it. Live evidence: the heartbeat's stall
+    # dumps showed a bare `asyncio.runners.run` on the loop thread (the R-F704
+    # discriminator for STARVATION, not blocking) with 32-33 threads alive and
+    # `pool_workers` climbing 9 -> 11 -> 13 over 35 minutes.
+    #
+    # `redis_store.get_json/set_json` put EVERY call on this pool (R-F2108, for
+    # 50k-entry blobs), so the common small-payload case is thousands of
+    # dispatches a minute onto a pool competing with the loop for one core.
+    #
+    # Sized from the REAL budget, not the host: ARIA_THREAD_POOL_WORKERS, else
+    # a conservative 8. This does not make anything slower — a pool wider than
+    # the core count cannot execute more work, it just adds context switching
+    # and GIL contention to the thing the loop is trying to share.
+    try:
+        import asyncio as _aio_boot
+        from concurrent.futures import ThreadPoolExecutor as _TPE_boot
+        _pool_workers = max(2, int(os.getenv("ARIA_THREAD_POOL_WORKERS", "8") or 8))
+        _aio_boot.get_running_loop().set_default_executor(
+            _TPE_boot(max_workers=_pool_workers, thread_name_prefix="aria_default")
+        )
+        logger.info(
+            "[R-F3715] default thread executor bounded at %d workers "
+            "(os.cpu_count()=%s reports the HOST on fly, not this machine)",
+            _pool_workers, os.cpu_count(),
+        )
+    except Exception as _tpe_err:  # never block boot on a tuning knob
+        logger.warning("[R-F3715] could not bound the default executor: %s", _tpe_err)
     # R-F2219: create the election-complete gate BEFORE any singleton loop is
     # scheduled (expiry_sweeper at ~790, crawler in _boot_continuation), and set
     # it right after _elect_engine_role() below.
