@@ -161,6 +161,13 @@ def non_degrading_pins() -> set[str]:
 # — those failure modes ARE often transient and re-probing is fine.
 _REDIS_KEY_PREFIX = "crucix:aria:llm:cooldown:"
 
+# R-F3680 — how long a SOFT-cooling provider is left alone when it is the only
+# thing the chain can still reach. This is the "5s breather" R-F1758 documented
+# and never delivered (it compared time REMAINING, so it only ever shortened a
+# cooldown by 5s). Short enough that a transient blip does not become an outage,
+# long enough that a genuinely sick endpoint is not hammered per request.
+_LAST_RESORT_BREATHER_S = float(os.getenv("ARIA_LLM_LAST_RESORT_BREATHER_S", "5"))
+
 
 class FallbackProvider(LLMProvider):
     name = "fallback"
@@ -248,22 +255,96 @@ class FallbackProvider(LLMProvider):
     def _cooldown_until(self, stats: dict) -> float:
         return stats.get("cooldown_until", 0)
 
-    def _should_skip(self, stats: dict) -> bool:
+    def _cooldown_is_hard(self, stats: dict) -> bool:
+        """Is this cooldown one that a re-dial cannot possibly recover from?
+
+        HARD = auth / billing / explicitly non-retryable. There is no credit or
+        no valid key, so every dial is a guaranteed failure that the user waits
+        for, plus vendor spam. SOFT = timeout / server / rate_limit: the
+        provider may well work on the next call, which is the entire reason the
+        last-resort dial in `_should_skip` exists.
+
+        `_record_failure` writes the flag explicitly. When it is absent — a
+        rehydrated or hand-built stats dict — derive it from `last_kind` rather
+        than guessing, and fall back to SOFT only when nothing says otherwise.
+        """
+        if "cooldown_hard" in stats:
+            return bool(stats["cooldown_hard"])
+        return str(stats.get("last_kind") or "") in ("auth", "billing")
+
+    def _cooldown_age(self, stats: dict) -> float:
+        """Seconds since this cooldown was armed (see `_should_skip`)."""
+        since = stats.get("cooldown_since") or stats.get("last_failure") or 0
+        if not since:
+            # Origin unknown (legacy/hand-built stats). Treat the breather as
+            # already spent: this value is only read when NOTHING else in the
+            # chain is reachable, and in that state going silent is the worse
+            # of the two errors.
+            return float("inf")
+        return max(0.0, time.time() - float(since))
+
+    def _should_skip(self, stats: dict, *, alternative_exists: bool = True) -> bool:
+        """Should dispatch pass over this provider?
+
+        R-F3680 (2026-08-04) — THE DECISION IS ABOUT REACHABILITY, NOT COUNTING.
+
+        A cooldown is a routing instruction: "go somewhere else for a while".
+        It is only meaningful if there IS somewhere else. `alternative_exists`
+        is that question, computed by the caller from the providers it will
+        actually walk — so this is now the general rule that R-F1758 wrote as a
+        hardcoded special case.
+
+        R-F1758 capped the cooldown only when `len(self.providers) <= 1`. That
+        is the CONFIGURED list: it counts preference-only entries dispatch never
+        walks, and entries that are dead for a day. Measured live 2026-08-04,
+        the chain was [deepseek, anthropic, deepseek_backup] with BOTH fallbacks
+        hard-cooled on `billing` for ~22h — so `len` was 3, the guard was off,
+        and DeepSeek's 60s soft cooldown was honoured in deference to two
+        providers that could not answer. For those 60s nothing was dialled at
+        all. Adding a backup with no credit did not add redundancy; it removed
+        the protection ARIA had when she had one provider, which is the exact
+        inversion docs/aria_llm_fallback_readiness_2026_08_01.md warned about.
+
+        AND THE CAP ITSELF WAS INVERTED. The R-F1758 comment promises "cap the
+        effective cooldown to 5 seconds"; `return remaining > 5.0` skips until
+        only 5s REMAIN, i.e. it shortens a cooldown by 5s rather than capping it
+        at 5s. On a 60s cooldown that is 55s of silence; on the 24h billing
+        cooldown live right now it opens the gate 86,395 seconds late. The
+        guarantee in its docstring — "she never goes silent just because her
+        primary LLM had a transient blip" — has never once been delivered.
+        Measure the cooldown's AGE, which is what a breather is.
+
+        HARD cooldowns are never last-resorted: see `_cooldown_is_hard`.
+        """
         cooldown_until = self._cooldown_until(stats)
         if cooldown_until <= time.time():
             return False  # not cooling
 
-        # R-F1758: when this provider is the ONLY one in the chain, cap
-        # the effective cooldown to 5 seconds. Skipping the only provider
-        # means NO call gets made and everyone gets 502. A 5s breather is
-        # enough to avoid hammering a rate-limited endpoint while still
-        # retrying aggressively enough that a transient blip doesn't cause
-        # a 502 cascade. This is ARIA's autonomy guarantee: she never goes
-        # silent just because her primary LLM had a transient blip.
-        if len(self.providers) <= 1:
-            remaining = cooldown_until - time.time()
-            return remaining > 5.0  # skip only if cooldown > 5s
-        return True
+        if alternative_exists:
+            return True  # the cooldown keeps its full force — go elsewhere
+
+        # Nothing else is reachable. Skipping here means NO call is made at
+        # all, so the only question left is whether a dial could succeed.
+        if self._cooldown_is_hard(stats):
+            return True  # no credit / bad key — dialling is failing slower
+        return self._cooldown_age(stats) < _LAST_RESORT_BREATHER_S
+
+    def _has_reachable_alternative(self, order: list, exclude: str) -> bool:
+        """Is any provider in `order` OTHER than `exclude` servable right now?
+
+        Recomputed per candidate rather than once per dispatch: the loop cools
+        providers as they fail, so a set computed up front goes stale exactly
+        when it matters. `order` is the caller's own walk list, so a
+        preference-only provider that dispatch will never reach cannot count as
+        an alternative — the R-F3634 rule, applied to the dispatch decision
+        itself rather than only to the surfaces that describe it.
+        """
+        for peer in order:
+            if peer.name == exclude:
+                continue
+            if not self._should_skip(self._stats.get(peer.name, {})):
+                return True
+        return False
 
     def _fallback_chain_has_healthy_peer(self, failed_provider_name: str) -> bool:
         """R-F681 (2026-05-18) — True iff at least one provider OTHER than
@@ -299,6 +380,11 @@ class FallbackProvider(LLMProvider):
         stats["failures"] = 0
         stats["cooldown_until"] = 0
         stats["last_kind"] = ""
+        # R-F3680 — clear the cooldown's provenance with the cooldown itself,
+        # or a later soft cooldown inherits a stale `cooldown_hard=True` and is
+        # never last-resort dialled.
+        stats.pop("cooldown_hard", None)
+        stats.pop("cooldown_since", None)
         # F68: clear the Redis-mirrored cooldown so subsequent restarts
         # don't re-apply a stale cooldown after the operator topped up.
         if had_hard_cooldown:
@@ -352,6 +438,13 @@ class FallbackProvider(LLMProvider):
                 )
             else:
                 stats["cooldown_until"] = new_cooldown
+                # R-F3680 — record WHAT KIND of cooldown this is and WHEN it
+                # was armed. `_should_skip` needs both when it is deciding
+                # whether a last-resort dial could possibly succeed; deriving
+                # them later from `last_kind` alone cannot distinguish a
+                # non-retryable "other" from a soft one.
+                stats["cooldown_hard"] = True
+                stats["cooldown_since"] = now
                 # R-F681 (2026-05-18) — log-level depends on whether the
                 # fallback chain still has a healthy provider. CLAUDE.md
                 # §14: "When a provider cools down and a fallback serves,
@@ -387,6 +480,8 @@ class FallbackProvider(LLMProvider):
                 )
         elif kind == "rate_limit":
             stats["cooldown_until"] = now + self._SOFT_COOLDOWN_SECONDS
+            stats["cooldown_hard"] = False   # R-F3680 — a 429 clears on its own
+            stats["cooldown_since"] = now
             logger.warning(
                 "Provider %s rate-limited, soft cooldown %ds",
                 provider.name, self._SOFT_COOLDOWN_SECONDS,
@@ -395,6 +490,8 @@ class FallbackProvider(LLMProvider):
             # Only cool down after 2 consecutive failures for soft errors.
             if stats["failures"] >= 2:
                 stats["cooldown_until"] = now + self._SOFT_COOLDOWN_SECONDS
+                stats["cooldown_hard"] = False   # R-F3680 — timeout/server
+                stats["cooldown_since"] = now
                 logger.warning(
                     "Provider %s soft cooldown %ds after %d failures: %s",
                     provider.name, self._SOFT_COOLDOWN_SECONDS,
@@ -419,8 +516,10 @@ class FallbackProvider(LLMProvider):
             pass
 
         # R-F3616 — the PRE-OUTAGE signal (see _check_redundancy_lost).
+        # R-F3680 — name the failer, so the page can never report it as the
+        # survivor that is "still serving".
         try:
-            self._check_redundancy_lost()
+            self._check_redundancy_lost(failed_provider=provider.name)
         except Exception:
             logger.debug("[R-F3616] redundancy check failed", exc_info=True)
 
@@ -492,6 +591,20 @@ class FallbackProvider(LLMProvider):
                 })
                 stats["cooldown_until"] = until
                 stats["last_kind"] = kind
+                # R-F3680 — ONLY hard cooldowns are ever mirrored (see
+                # _mirror_cooldown_to_redis), so a rehydrated one is hard by
+                # construction. Say so explicitly rather than leaving it to be
+                # re-derived from `last_kind`, which cannot see a
+                # non-retryable "other".
+                #
+                # `cooldown_since` is BOOT time, not the moment the cooldown was
+                # armed — the mirror records only the end, so the true start is
+                # not recoverable. That is safe today because `_cooldown_age` is
+                # consulted ONLY for soft cooldowns and this branch is hard by
+                # construction. If hard cooldowns ever become last-resort
+                # dialable, mirror the start time before relying on this.
+                stats["cooldown_hard"] = True
+                stats["cooldown_since"] = now
                 count += 1
                 logger.warning(
                     "Provider %s HARD cooldown (%s) rehydrated from Redis "
@@ -639,10 +752,20 @@ class FallbackProvider(LLMProvider):
                 break
 
             stats = self._stats.get(provider.name, {})
-            if self._should_skip(stats):
+            # R-F3680 — a cooldown says "go elsewhere"; honour it only when
+            # there IS an elsewhere. `order` is the walk list, so entries this
+            # dispatch will never reach cannot vouch for a skip.
+            _alt = self._has_reachable_alternative(order, provider.name)
+            if self._should_skip(stats, alternative_exists=_alt):
                 logger.debug("Skipping %s (cooling down, %d recent failures)",
                              provider.name, stats.get("failures", 0))
                 continue
+            if not _alt and self._cooldown_until(stats) > time.time():
+                logger.warning(
+                    "[R-F3680] dialling %s DESPITE its cooldown — it is the "
+                    "only reachable provider left; going silent is worse",
+                    provider.name,
+                )
 
             # Each non-cooling provider gets a full per-call budget.
             # If the caller passed an unreasonably small timeout, raise
@@ -745,9 +868,17 @@ class FallbackProvider(LLMProvider):
                 break
 
             stats = self._stats.get(provider.name, {})
-            if self._should_skip(stats):
+            # R-F3680 §13 MIRROR — same reachability rule as complete(). Web
+            # chat streams, so this is the fork a user is likeliest to hit.
+            _alt = self._has_reachable_alternative(_stream_order, provider.name)
+            if self._should_skip(stats, alternative_exists=_alt):
                 logger.debug("Skipping %s for stream (cooling down)", provider.name)
                 continue
+            if not _alt and self._cooldown_until(stats) > time.time():
+                logger.warning(
+                    "[R-F3680] streaming from %s DESPITE its cooldown — it is "
+                    "the only reachable provider left", provider.name,
+                )
 
             try:
                 attempted += 1
@@ -939,7 +1070,7 @@ class FallbackProvider(LLMProvider):
         except Exception:
             logger.debug("[R-F3613] operator alert dispatch failed", exc_info=True)
 
-    def _check_redundancy_lost(self) -> None:
+    def _check_redundancy_lost(self, *, failed_provider: str = "") -> None:
         """R-F3616 (2026-08-01) — page BEFORE the outage, not only during it.
 
         R-F3613 pages when EVERY provider has failed. By then the user has
@@ -986,9 +1117,31 @@ class FallbackProvider(LLMProvider):
         if len(_general) < 2:
             return  # no redundancy existed — nothing to lose (see docstring)
 
+        # R-F3681 (2026-08-04) — THE SURVIVOR CANNOT BE THE PROVIDER THAT JUST
+        # FAILED.
+        #
+        # This check runs from `_record_failure`, so its subject is by
+        # construction the provider that just failed. A provider's FIRST soft
+        # failure sets no cooldown (the >=2-failures branch), so it still reads
+        # as "active" here — and when it is the last one standing the page said
+        #     STILL SERVING: deepseek (answers are NOT degraded right now)
+        # from inside the failure handler of a request that was, in the same
+        # call, about to be paged as "every provider failed". The operator got
+        # both at 11:29 on 2026-08-04, one minute apart, saying opposite things.
+        #
+        # This is R-F3477's doctrine reaching the second implementation:
+        # "`resilient` must follow OUTCOMES, not chain membership ... 'active'
+        # only means a provider's cooldown timestamp has passed". The honest
+        # claim is about someone ELSE: exclude the failer, and then
+        #   1 remaining -> redundancy genuinely lost, the survivor really is
+        #                  serving, and the operator needs to know.
+        #   0 remaining -> the chain just exhausted; R-F3613 owns that page and
+        #                  a "not degraded" warning would contradict it.
         now = time.time()
+        _failed = (failed_provider or "").strip()
         active = [p.name for p in _general
-                  if not self._should_skip(self._stats.get(p.name, {}))]
+                  if p.name != _failed
+                  and not self._should_skip(self._stats.get(p.name, {}))]
         if len(active) != 1:
             return  # 0 -> that is the R-F3613 outage path; 2+ -> still redundant
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3680,
+  "next_available": 3682,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30805,6 +30805,24 @@
       "commit_sha": "3dca515f",
       "notes": null,
       "shipped_at": "2026-08-04T09:12:12Z"
+    },
+    {
+      "r_number": "R-F3680",
+      "title": "dispatch skip must count REACHABLE providers, not configured entries",
+      "claimed_at": "2026-08-04T09:40:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3681",
+      "title": "the pre-outage page counted the provider that just failed as still serving",
+      "claimed_at": "2026-08-04T09:40:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

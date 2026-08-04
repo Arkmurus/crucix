@@ -155,21 +155,46 @@ def _capture_pages(monkeypatch):
 
 def test_capability_losing_the_last_fallback_pages_before_the_outage(monkeypatch):
     """Two providers; cool ONE. The chain is still serving — but it has no
-    second chance, and that must reach the operator."""
+    second chance, and that must reach the operator.
+
+    R-F3681 (2026-08-04) CORRECTED THIS TEST'S SETUP — it pinned the defect.
+
+    It previously failed `deepseek` (a SOFT first failure, which sets no
+    cooldown) while `deepseek_backup` was already cooling, and asserted the
+    page. Its own note explained the choice: "the survivor's failure must be a
+    SOFT first failure — a rate_limit cools immediately, which would leave 0
+    available and be the R-F3613 outage path instead."
+
+    But that IS the outage path. With the only peer cooling, the request that
+    just failed on deepseek had nowhere to go, so the page's "STILL SERVING:
+    deepseek (answers are NOT degraded right now)" was false at the instant it
+    was sent. Live on 2026-08-04 the operator received exactly that, one minute
+    before "every provider failed". The setup was arranged so the FAILER would
+    be counted as the survivor; the fix is to exclude it, so this test now
+    builds the honest shape instead — the provider that FAILS is the one that
+    cools, and a genuinely different provider carries on serving.
+
+    See test_rf3680_rf3681_effective_chain_dispatch.py for the contradiction
+    itself, pinned through the real dispatch path.
+    """
     pages = _capture_pages(monkeypatch)
     chain = fb.FallbackProvider([_P("deepseek"), _P("deepseek_backup")])
 
-    # Cool exactly ONE provider. NB the survivor's failure must be a SOFT
-    # first failure (kind="other", failures=1) — a rate_limit cools immediately,
-    # which would leave 0 available and be the R-F3613 outage path instead.
-    chain._stats["deepseek_backup"] = {"cooldown_until": fb.time.time() + 300}
-    chain._record_failure(_P("deepseek"), chain._stats.setdefault("deepseek", {}),
-                          ProviderError("deepseek", "boom", kind="other"))
+    # deepseek_backup rate-limits: it cools immediately, and deepseek — which
+    # did NOT fail — is left as the sole, genuinely-serving provider.
+    chain._stats.setdefault("deepseek", {})
+    chain._record_failure(
+        _P("deepseek_backup"), chain._stats.setdefault("deepseek_backup", {}),
+        ProviderError("deepseek_backup", "429", kind="rate_limit"),
+    )
 
     assert pages, "losing the last fallback must page"
     source, text = pages[0]
     assert source == "llm_chain_redundancy_lost"
     assert "no fallback left" in text.lower()
+    assert "STILL SERVING: deepseek" in text, (
+        "the survivor must be the provider that did NOT just fail"
+    )
     assert "NOT degraded" in text, (
         "§14 — the page must say the chain is still serving, or it reads as "
         "an outage that is not happening"
@@ -203,8 +228,10 @@ def test_the_redundancy_page_is_rate_limited(monkeypatch):
     # Drive the check directly and hold the state steady: routing further
     # failures through _record_failure would cool the survivor too and flip
     # this into the outage path, which is a different alert.
+    # R-F3681 — name the failer explicitly rather than leaning on the
+    # no-exclusion default, so this test exercises the production shape.
     for _ in range(20):
-        chain._check_redundancy_lost()
+        chain._check_redundancy_lost(failed_provider="b")
     assert len(pages) == 1, f"expected one page, got {len(pages)}"
 
 
