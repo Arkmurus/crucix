@@ -30721,18 +30721,20 @@
       "title": "news page: filter list and category breakdown were computed over two different populations",
       "claimed_at": "2026-08-04T05:16:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f0e40f1f",
+      "notes": null,
+      "shipped_at": "2026-08-04T05:41:21Z"
     },
     {
       "r_number": "R-F3672",
       "title": "news poll: per-feed slice applied before the seen-filter starved low-churn feeds to zero forever",
       "claimed_at": "2026-08-04T05:16:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f0e40f1f",
+      "notes": null,
+      "shipped_at": "2026-08-04T05:41:21Z"
     }
   ]
 }
