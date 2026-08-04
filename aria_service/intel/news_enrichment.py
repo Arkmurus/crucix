@@ -131,17 +131,42 @@ def cap_confidence_for_extraction(confidence: str, extraction_status: str) -> st
 async def _fetch_body(url: str) -> str:
     """Fetch readable body text for one URL. Isolated so it can be faked in tests.
 
-    Reuses the existing extraction stack rather than adding another fetcher, and
-    runs it OFF the event loop (R-F3475 — trafilatura is CPU-bound and was itself
-    a live stall cause).
+    R-F3676 — this used to read:
+
+        html = await _ws.fetch_url_text(url) if hasattr(_ws, "fetch_url_text") else ""
+        if not html:
+            return ""
+
+    ``web_search.fetch_url_text`` DOES NOT EXIST, and never did. The ``hasattr``
+    guard turned that into a silent ``""``, so this function returned an empty
+    body on every single call and the whole R-F3499/R-F3509 selective deep read
+    — engine, budget, wiring, tests — has never once read an article. The failure
+    was invisible because it was recorded as a *plausible* outcome: every attempt
+    landed in ``enrichment_failed`` with "body too short to be a real read", which
+    reads like a consent wall or a nav shell rather than a missing function.
+
+    Measured live 2026-08-04, and it is the tell: 343 enrichment failures, EVERY
+    ONE of them "(0 chars)" — never 40, never 200, which is what a real mix of
+    paywalls and stubs looks like. Archive-wide: ``feed_only`` 1,472,
+    ``enrichment_failed`` 343, ``enriched`` ZERO. Every article ARIA holds is
+    title + RSS blurb.
+
+    This is the §3b defect class exactly ("before writing ANY call to a function,
+    verify it exists"), and the ``hasattr`` is what made it survive: a plain call
+    would have raised ImportError on the first poll.
+
+    So there is NO capability guard here now. ``researcher._fetch_article_text``
+    is the established body fetcher — ``deep_researcher`` calls it in seven
+    places — and it already does fetch AND structured extraction (SSRF-guarded
+    via ``safe_get``, with paywall/archive, Lightpanda and Playwright fallbacks,
+    and the CPU-bound regex walk on a worker thread per R-F719). Calling
+    ``extract_structured_html_async`` on its result as well would double-extract
+    text that is already text. If the import ever breaks, it must raise —
+    ``enrich_archived_article`` catches it, records ``enrichment_failed`` with
+    the real reason and wires a gap, which is what should have happened here.
     """
-    from .researcher import extract_structured_html_async
-    from . import web_search as _ws
-    html = await _ws.fetch_url_text(url) if hasattr(_ws, "fetch_url_text") else ""
-    if not html:
-        return ""
-    extracted = await extract_structured_html_async(html)
-    return str((extracted or {}).get("text") or "")
+    from .researcher import _fetch_article_text
+    return str(await _fetch_article_text(url) or "")
 
 
 async def enrich_archived_article(article_id: str) -> dict[str, Any]:

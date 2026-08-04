@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3676,
+  "next_available": 3677,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30765,6 +30765,15 @@
       "commit_sha": "6df8630d",
       "notes": null,
       "shipped_at": "2026-08-04T07:09:26Z"
+    },
+    {
+      "r_number": "R-F3676",
+      "title": "news deep-read never ran: a hasattr guard on a function that does not exist made every enrichment return 0 chars",
+      "claimed_at": "2026-08-04T07:29:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
