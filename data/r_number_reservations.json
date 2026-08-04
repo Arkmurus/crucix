@@ -30801,9 +30801,10 @@
       "title": "strict reads ran on the WRITE connection and timed out behind write traffic while graceful reads used the read pool",
       "claimed_at": "2026-08-04T08:29:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3dca515f",
+      "notes": null,
+      "shipped_at": "2026-08-04T09:12:12Z"
     }
   ]
 }
