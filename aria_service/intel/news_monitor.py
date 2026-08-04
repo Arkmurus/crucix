@@ -2257,6 +2257,10 @@ def _reset_vault_failstreak(url: str) -> None:
 #     customer dashboard.
 _FEED_HEALTH_KEY = "crucix:news_monitor:feed_health"   # durable, NO TTL (§7)
 _CURATED_QUARANTINE_AFTER = 6      # consecutive failed polls before quarantine
+# R-F3675 — consecutive polls a feed may parse cleanly and carry NOTHING before
+# that silence is wired to the brain. Same threshold as quarantine so a quiet
+# publisher and a transient empty channel are both ridden out, not alarmed on.
+_CURATED_EMPTY_AFTER = 6
 _CURATED_QUARANTINE_S = 24 * 3600  # then re-probe once a day
 _MAX_FEED_HEALTH_KEYS = 400
 
@@ -2320,21 +2324,76 @@ def _note_feed_failure(health: dict | None, url: str, name: str, *, now: float) 
     return False
 
 
-def _note_feed_success(health: dict | None, url: str, name: str) -> None:
-    """One good poll clears the streak AND any active quarantine — self-healing."""
+def _note_feed_success(health: dict | None, url: str, name: str,
+                       *, delivered: bool = True) -> None:
+    """One good poll clears the streak AND any active quarantine — self-healing.
+
+    R-F3675 — ``delivered`` separates "the feed answered" from "the feed gave us
+    anything". This function used to be called for every feed that fetched and
+    parsed, INCLUDING one that carried zero items, and it cleared the failure
+    streak — so a feed publishing an empty channel forever was actively recorded
+    as healthy, counted in the live denominator, and reached the brain through no
+    path at all. §21a: a source that has stopped delivering is a source failure,
+    and one that nobody can see is exactly the "rots invisibly" class R-F2214 and
+    R-F2890 each closed for a different feed state and neither closed for this one.
+
+    Measured live 2026-08-04: Hurriyet Daily News, O Globo Brazil and UK Defence
+    Journal Tech all parsed clean and returned 0 items, on every poll, with
+    ``fails=0`` recorded against each. R-F3674 put them on the page; this is what
+    puts them in front of the self-heal loop.
+
+    A parse is still proof of life, so the fail streak and any quarantine clear
+    exactly as before — an empty feed is NOT quarantined (it is answering, and
+    re-probing it is the only way to notice it recovering). The empty streak is
+    tracked separately and wired ONCE per episode, so a quiet publisher does not
+    flood the gap ledger and a recovered one silently re-arms.
+    """
     if health is None:
         return
+
     e = health.get(url)
-    if not e or (not e.get("fails") and not e.get("quarantined_until")):
-        if e is None:
-            health[url] = {"name": name, "fails": 0,
+    if e is None:
+        e = health[url] = {"name": name, "fails": 0,
                            "last_seen": datetime.now(timezone.utc).isoformat()}
+
+    # Proof of life: clears the failure streak and any quarantine, as before.
+    # Guarded so a healthy feed's entry is not rewritten on every single poll.
+    if e.get("fails") or e.get("quarantined_until"):
+        e["name"] = name
+        e["fails"] = 0
+        e["quarantined_until"] = 0
+        e["last_ok"] = datetime.now(timezone.utc).isoformat()
+        e["last_seen"] = e["last_ok"]
+
+    if delivered:
+        # Recovered (or never silent). Re-arm so a FUTURE silence wires again.
+        if e.get("empty_polls") or e.get("empty_wired"):
+            e["empty_polls"] = 0
+            e["empty_wired"] = False
+            e["last_delivered"] = datetime.now(timezone.utc).isoformat()
+        else:
+            e["empty_polls"] = 0
         return
+
+    streak = int(e.get("empty_polls") or 0) + 1
+    e["empty_polls"] = streak
     e["name"] = name
-    e["fails"] = 0
-    e["quarantined_until"] = 0
-    e["last_ok"] = datetime.now(timezone.utc).isoformat()
-    e["last_seen"] = e["last_ok"]
+    e["last_seen"] = datetime.now(timezone.utc).isoformat()
+    if streak >= _CURATED_EMPTY_AFTER and not e.get("empty_wired"):
+        e["empty_wired"] = True
+        try:
+            wire_failure(
+                module="news_monitor",
+                detail=(f"Curated feed has delivered ZERO items for {streak} consecutive "
+                        f"polls while fetching and parsing cleanly: {name} "
+                        f"({url[:150]}). Not a fetch failure — the feed answers with an "
+                        f"empty channel, so it is likely retired, moved, or now requires "
+                        f"different parameters. Verify the feed URL."),
+                gap_type="source_failure",
+                source=f"news_monitor:feed:{name}",
+            )
+        except Exception:
+            logger.debug("[news_monitor] empty-feed wire failed for %s", name, exc_info=True)
 
 
 def _wire_scrape_failure(name: str, url: str, why: str) -> None:
@@ -2604,8 +2663,12 @@ async def poll_feeds(
             if category == "vault_curated":
                 _reset_vault_failstreak(url)
             # R-F2890 — one good poll clears the streak AND any quarantine (self-heal).
+            # R-F3675 — but "parsed" is not "delivered": a feed answering with an
+            # empty channel forever was recorded as healthy and was dark to the
+            # brain. `articles` is what the feed CARRIED, not what was new, so a
+            # quiet publisher whose items ARIA already holds is not flagged.
             if _health is not None:
-                _note_feed_success(_health, url, name)
+                _note_feed_success(_health, url, name, delivered=bool(articles))
                 _health_dirty = True
 
             # Rate-limit: don't hammer all feeds at once

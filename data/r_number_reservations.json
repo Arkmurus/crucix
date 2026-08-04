@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3675,
+  "next_available": 3676,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30755,6 +30755,15 @@
       "commit_sha": "a1ed09e4",
       "notes": null,
       "shipped_at": "2026-08-04T06:20:36Z"
+    },
+    {
+      "r_number": "R-F3675",
+      "title": "news feed that parses but delivers zero items was marked healthy and was dark to the brain",
+      "claimed_at": "2026-08-04T06:49:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
