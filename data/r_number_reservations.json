@@ -30781,18 +30781,20 @@
       "title": "a successful deep read never settled its failed stage row, so the retry queue could never shrink",
       "claimed_at": "2026-08-04T07:49:21Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f4cf0a88",
+      "notes": null,
+      "shipped_at": "2026-08-04T08:02:25Z"
     },
     {
       "r_number": "R-F3678",
       "title": "the archive retry queue had no drain: pending_stage was documented as the retry queue and had zero callers",
       "claimed_at": "2026-08-04T07:49:22Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f4cf0a88",
+      "notes": null,
+      "shipped_at": "2026-08-04T08:02:25Z"
     }
   ]
 }
