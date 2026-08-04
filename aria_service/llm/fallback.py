@@ -15,7 +15,7 @@ import json
 import logging
 import os
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from .provider import LLMProvider, LLMResult, ProviderError
 from .factory import create_llm_provider
@@ -559,22 +559,72 @@ class FallbackProvider(LLMProvider):
         """
         due = self._providers_due_for_recovery_probe()
         if not due:
-            return
+            return  # healthy no-op — nothing due, nothing to report
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            return  # no loop (sync test context) — nothing to schedule
+            # R-F3705 — probes were DUE and cannot be scheduled, so the self-heal
+            # is INERT. Returning silently here made that indistinguishable from
+            # "nothing needed doing". Report it once per provider per interval
+            # (the due-check already throttles) rather than going dark.
+            for _p in due:
+                self._wire_selfheal_fault(
+                    _p.name, "probe_unschedulable",
+                    "no running event loop — recovery probes cannot be started, "
+                    "so hard cooldowns will stand for their full duration",
+                )
+            return
         now = time.time()
         for p in due:
             self._stats.setdefault(p.name, {})["last_recovery_probe"] = now
             loop.create_task(self._probe_recovery_quietly(p))
 
+    def _wire_selfheal_fault(self, provider_name: str, outcome: str,
+                             detail: str = "") -> None:
+        """§21a — the self-heal FAILING TO RUN is a distinct, reportable fault.
+
+        R-F3705. `_probe_recovery` reports its three outcomes (R-F3693), but the
+        two functions WRAPPING it were dark: a crash was swallowed at
+        `logger.debug` (not emitted at the service's level) and an unschedulable
+        probe returned silently. Either way the self-heal stops and the 24h
+        lockout it exists to lift simply stands — the R-F3687 failure class over
+        again, where the recovery mechanism no-ops and only a human driving it by
+        hand notices.
+
+        Deliberately NOT folded into `inconclusive`: that means the probe RAN and
+        could not determine credit state. These mean it did not run at all. One
+        needs a code fix in the probe, the other in the scheduling — different
+        remedies, so different names.
+        """
+        try:
+            from ..intel.engine_wiring import wire_failure as _wf
+            _wf(
+                module="llm_recovery_probe",
+                detail=f"{provider_name} {outcome}: {detail}"[:600],
+                gap_type="llm_provider_failure",
+                source=f"llm_recovery_probe:{outcome}",
+            )
+        except Exception:
+            logger.debug("[R-F3705] self-heal fault wiring failed", exc_info=True)
+
     async def _probe_recovery_quietly(self, provider) -> None:
-        """Background wrapper — a probing bug must never surface anywhere."""
+        """Background wrapper — a probing bug must never surface to a CALLER.
+
+        R-F3705: "never surface anywhere" was the bug. Quiet UPWARD (it is a
+        fire-and-forget task) must not mean quiet toward the BRAIN.
+        """
         try:
             await self._probe_recovery(provider)
-        except Exception:
-            logger.debug("[R-F3685] recovery probe raised", exc_info=True)
+        except Exception as exc:
+            logger.warning(
+                "[R-F3705] recovery probe CRASHED for %s: %s",
+                getattr(provider, "name", "?"), str(exc)[:200], exc_info=True,
+            )
+            self._wire_selfheal_fault(
+                getattr(provider, "name", "?"), "probe_crashed",
+                f"{type(exc).__name__}: {str(exc)[:200]} — the self-heal is not "
+                f"running; any hard cooldown will stand for its full duration",
+            )
 
     def _fallback_chain_has_healthy_peer(self, failed_provider_name: str) -> bool:
         """R-F681 (2026-05-18) — True iff at least one provider OTHER than
@@ -2042,7 +2092,7 @@ def create_fallback_chain(
     return FallbackProvider(providers)
 
 
-def get_provider_status() -> dict:
+def get_provider_status(chain: Any | None = None) -> dict:
     """R-F2375 (H5): aggregate LLM provider availability for /health/perf.
 
     Grounded self-state (R-F396): reports, per provider slot, whether it is
@@ -2069,6 +2119,61 @@ def get_provider_status() -> dict:
                 breaker_state[nm] = str(b.get("state", ""))
     except Exception as e:  # breaker registry unavailable — report config only
         logger.debug("get_provider_status: breaker registry read failed: %s", e)
+
+    # ── R-F3704 — a COOLING provider is not available ───────────────────────
+    #
+    # THE DEFECT: `available` was `configured and breaker != OPEN`, read from
+    # the circuit-breaker registry ONLY. It never consulted the R-F678 billing
+    # cooldown, which is a completely separate mechanism (`_stats[name]
+    # ["cooldown_until"]`, set by `_record_failure`).
+    #
+    # Measured live 2026-08-04, both surfaces at the same moment:
+    #   /health          llm_chain.cooling_providers = [anthropic (billing,
+    #                    79796s remaining), deepseek_backup (billing, 79795s)]
+    #   /health/perf     llm_providers.anthropic = {"available": true}
+    #
+    # The docstring promises "Never fabricates a provider being 'up'". That is
+    # exactly what it did — and this field feeds R-F3612's self-introspection
+    # chain-health block (routes/aria.py:9333-9349), the surface that exists
+    # BECAUSE ARIA once answered "currently healthy" during a total chat outage.
+    #
+    # `deepseek_backup` was invisible entirely: it is not one of the slots
+    # below, so its cooldown could never be reported. Slots are now unioned
+    # with whatever the live chain actually holds.
+    cooldowns: dict[str, float] = {}
+    cool_kinds: dict[str, str] = {}
+    live_names: list[str] = []
+    try:
+        import time as _t
+        _now = _t.time()
+        for _p in (getattr(chain, "providers", None) or []):
+            _n = (getattr(_p, "name", "") or "")
+            if not _n:
+                continue
+            live_names.append(_n)
+            _s = (getattr(chain, "_stats", {}) or {}).get(_n, {}) or {}
+            _cd = float(_s.get("cooldown_until", 0) or 0)
+            if _cd > _now:
+                cooldowns[_n.lower()] = _cd - _now
+                cool_kinds[_n.lower()] = str(_s.get("last_kind", "") or "")
+    except Exception as e:
+        # UNKNOWN, not "fine": if we cannot read cooldowns we must not assert
+        # availability, so `available` is reported as None below.
+        logger.debug("get_provider_status: cooldown read failed: %s", e)
+        cooldowns = {}
+        cool_kinds = {}
+        live_names = []
+        _cooldowns_readable = False
+    else:
+        _cooldowns_readable = True
+
+    # Union the declared slots with the chain's real membership so a slot the
+    # table does not know about (deepseek_backup) still gets reported.
+    _slot_names = {n for n, _ in slots}
+    for _n in live_names:
+        if _n not in _slot_names:
+            slots.append((_n, True))  # present in the live chain ⇒ configured
+
     out: dict[str, dict] = {}
     for name, configured in slots:
         st = None
@@ -2076,9 +2181,21 @@ def get_provider_status() -> dict:
             if name in bn:
                 st = bstate
                 break
+        _cool_s = cooldowns.get(name.lower())
+        _cooling = _cool_s is not None
+        if not _cooldowns_readable and configured:
+            _available: bool | None = None      # could not measure — never True
+        else:
+            _available = bool(configured) and st != "OPEN" and not _cooling
         out[name] = {
             "configured": configured,
             "breaker_state": st,               # OPEN / CLOSED / HALF_OPEN, or None
-            "available": configured and st != "OPEN",
+            # R-F3704 — the cooldown is now first-class, and its REASON travels
+            # with it: "billing" needs an operator top-up, "rate_limit" clears
+            # itself. Reporting them identically pointed at the wrong fix.
+            "cooling": _cooling,
+            "cooldown_seconds_remaining": int(_cool_s) if _cool_s else 0,
+            "cooldown_kind": cool_kinds.get(name.lower(), ""),
+            "available": _available,
         }
     return out
