@@ -98,10 +98,18 @@ class _Provider(LLMProvider):
 
 
 def _hard_cool(chain, name, *, seconds=79_700, kind="billing"):
-    """Reproduce the live shape: a HARD billing cooldown with ~22h left."""
+    """Reproduce the live shape: a HARD billing cooldown with ~22h left.
+
+    `last_recovery_probe` is set so the R-F3685 background recovery probe is
+    NOT due during these tests. That probe legitimately dials a hard-cooling
+    provider off the user path; these tests are about the DISPATCH decision, so
+    isolating them keeps `dialled` a record of user-path calls only. R-F3685's
+    own file covers the probe.
+    """
     chain._stats[name] = {
         "calls": 0, "failures": 3, "last_failure": fb.time.time(),
         "cooldown_until": fb.time.time() + seconds, "last_kind": kind,
+        "cooldown_hard": True, "last_recovery_probe": fb.time.time(),
     }
 
 

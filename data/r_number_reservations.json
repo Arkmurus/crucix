@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3682,
+  "next_available": 3687,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30811,14 +30811,61 @@
       "title": "dispatch skip must count REACHABLE providers, not configured entries",
       "claimed_at": "2026-08-04T09:40:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b4f601ab",
+      "notes": null,
+      "shipped_at": "2026-08-04T10:03:19Z"
     },
     {
       "r_number": "R-F3681",
       "title": "the pre-outage page counted the provider that just failed as still serving",
       "claimed_at": "2026-08-04T09:40:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b4f601ab",
+      "notes": null,
+      "shipped_at": "2026-08-04T10:03:19Z"
+    },
+    {
+      "r_number": "R-F3682",
+      "title": "vetting-portal proxy rejects encoded path traversal to the brain",
+      "claimed_at": "2026-08-04T10:04:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3683",
+      "title": "scripts stop hardcoding a live bearer token",
+      "claimed_at": "2026-08-04T10:04:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3684",
+      "title": "self/read becomes operator-tier and resolves before it compares",
+      "claimed_at": "2026-08-04T10:04:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3685",
+      "title": "a 24h hard cooldown is unfalsifiable - probe for recovery",
+      "claimed_at": "2026-08-04T11:01:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3686",
+      "title": "body-sniff must not override an authoritative 429/5xx status",
+      "claimed_at": "2026-08-04T11:01:45Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

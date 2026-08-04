@@ -44,6 +44,36 @@ class ProviderError(Exception):
 
     @classmethod
     def from_http_status(cls, provider: str, status: int, body: str = "", cause: Exception | None = None) -> "ProviderError":
+        # R-F3686 (2026-08-04) — AN AUTHORITATIVE STATUS OUTRANKS A SUBSTRING.
+        #
+        # The body-sniff below used to run FIRST, before any status was
+        # considered. It exists for a real case (see its own comment), but
+        # running it first means a 429 or a 503 whose body merely MENTIONS
+        # billing — a rate-limit message linking to a billing console, an
+        # upstream 503 naming a degraded billing service — is reclassified as
+        # `kind="billing", retryable=False`. In this chain that is a 24-hour,
+        # restart-surviving, self-sustaining lockout (fallback.py
+        # _HARD_BILLING_COOLDOWN_SECONDS) built out of a transient, retryable
+        # error.
+        #
+        # 401/403, 429 and 5xx are authoritative about what they are; a
+        # provider does not send 429 to report an empty wallet. Only an
+        # ambiguous 4xx (400, and anything unclassified) needs sniffing, which
+        # is exactly the case the sniff was written for.
+        #
+        # Live 2026-08-04: anthropic sat on a `billing` cooldown with ~20h left
+        # while the production key returned HTTP 200 on demand. The body that
+        # armed it was never recorded, so which path armed it is not knowable
+        # after the fact — fallback.py now persists that evidence.
+        if status == 401 or status == 403:
+            return cls(provider, f"auth failed (HTTP {status})", status=status, kind="auth", retryable=False, cause=cause)
+        if status == 429:
+            return cls(provider, "rate limited", status=status, kind="rate_limit", retryable=True, cause=cause)
+        if 500 <= status < 600:
+            return cls(provider, f"upstream server error (HTTP {status})", status=status, kind="server", retryable=True, cause=cause)
+        if status == 402:
+            return cls(provider, f"billing / payment required (HTTP {status})", status=status, kind="billing", retryable=False, cause=cause)
+
         # Body-sniffing: some providers return billing failures as HTTP 400
         # with the reason inside the JSON error.message. Example: Anthropic
         # returns 400 {"type":"error","error":{"type":"invalid_request_error",
@@ -62,14 +92,6 @@ class ProviderError(Exception):
                 f"billing / credit exhausted (HTTP {status}): {body[:200]}",
                 status=status, kind="billing", retryable=False, cause=cause,
             )
-        if status == 401 or status == 403:
-            return cls(provider, f"auth failed (HTTP {status})", status=status, kind="auth", retryable=False, cause=cause)
-        if status == 402:
-            return cls(provider, f"billing / payment required (HTTP {status})", status=status, kind="billing", retryable=False, cause=cause)
-        if status == 429:
-            return cls(provider, "rate limited", status=status, kind="rate_limit", retryable=True, cause=cause)
-        if 500 <= status < 600:
-            return cls(provider, f"upstream server error (HTTP {status})", status=status, kind="server", retryable=True, cause=cause)
         # Include a body snippet for 4xx so the cause is visible in logs
         # instead of just "HTTP 400".
         body_snippet = body[:200] if body else ""

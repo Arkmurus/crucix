@@ -168,6 +168,20 @@ _REDIS_KEY_PREFIX = "crucix:aria:llm:cooldown:"
 # long enough that a genuinely sick endpoint is not hammered per request.
 _LAST_RESORT_BREATHER_S = float(os.getenv("ARIA_LLM_LAST_RESORT_BREATHER_S", "5"))
 
+# R-F3685 — how often a HARD-cooling provider is re-tested for recovery.
+#
+# R-F678 set the billing cooldown to 24h because "30-min re-probes wasted 96
+# calls/day on a provider with no credit". That reasoning was about USER calls:
+# the re-probe happened on the request path, so every probe cost a real request
+# its latency and its failure. This probe is NOT on that path — it is a
+# background `max_tokens=1` call — so the objection does not transfer, and the
+# thing R-F678 was protecting (user requests never wait on a dead provider)
+# stays exactly as it is.
+_RECOVERY_PROBE_INTERVAL_S = float(
+    os.getenv("ARIA_LLM_RECOVERY_PROBE_INTERVAL_S", "900"))
+_RECOVERY_PROBE_TIMEOUT_S = float(
+    os.getenv("ARIA_LLM_RECOVERY_PROBE_TIMEOUT_S", "20"))
+
 
 class FallbackProvider(LLMProvider):
     name = "fallback"
@@ -346,6 +360,114 @@ class FallbackProvider(LLMProvider):
                 return True
         return False
 
+    # ── R-F3685: a hard cooldown must be falsifiable ─────────────────────────
+
+    def _providers_due_for_recovery_probe(self) -> list:
+        """HARD-cooling providers that have not been re-tested this interval.
+
+        SOFT cooldowns are excluded deliberately: they expire on their own in
+        60s and the R-F3680 last-resort path already dials them when there is
+        nothing else. Probing those would be pure waste.
+        """
+        now = time.time()
+        due = []
+        for p in self.providers:
+            stats = self._stats.get(p.name, {})
+            if self._cooldown_until(stats) <= now:
+                continue          # not cooling
+            if not self._cooldown_is_hard(stats):
+                continue          # soft — R-F3680 already covers it
+            last = stats.get("last_recovery_probe") or 0
+            if now - last < _RECOVERY_PROBE_INTERVAL_S:
+                continue
+            due.append(p)
+        return due
+
+    async def _probe_recovery(self, provider) -> bool:
+        """Re-test ONE hard-cooling provider. True iff it was released.
+
+        WHY THIS EXISTS. `_record_success` is the only thing that clears a
+        cooldown, and a cooling provider is never called — so the cooldown is
+        the sole cause of the silence that sustains it, for the full 24h,
+        whatever becomes true in the world. R-F3513 found this and added a
+        MANUAL operator lever, which makes recovery depend on a human
+        remembering an admin endpoint exists.
+
+        Measured live 2026-08-04: the production Anthropic key returned HTTP
+        200 with real token usage while the chain held it `billing`-cooled with
+        ~20h left. The operator said "anthropic has credit" and was right; ARIA
+        had no way to find that out for herself. §25a: every limb must report
+        whether it is actually working, and a limb she cannot feel coming back
+        is not hers.
+
+        Deliberately minimal and deliberately quiet: `max_tokens=1`, a short
+        timeout, called DIRECTLY on the provider rather than through the chain
+        so it cannot trigger the exhaustion/alerting machinery or count as
+        user traffic.
+        """
+        stats = self._stats.setdefault(provider.name, {})
+        stats["last_recovery_probe"] = time.time()
+        kind_before = stats.get("last_kind") or "unknown"
+        try:
+            await provider.complete(
+                "", "hi", max_tokens=1, timeout=_RECOVERY_PROBE_TIMEOUT_S,
+            )
+        except Exception as exc:
+            _kind = getattr(exc, "kind", "") or ""
+            if _kind == KIND_REASONING_TRUNCATED:
+                # It generated tokens and ran out of budget — that is a live,
+                # paid, authenticated provider answering. Proof of recovery.
+                pass
+            elif _kind in ("billing", "auth"):
+                logger.info(
+                    "[R-F3685] recovery probe: %s still %s — cooldown stands",
+                    provider.name, _kind,
+                )
+                return False
+            else:
+                # A timeout or a 5xx says nothing about credit or keys. Do not
+                # release on it (we have not proven health) and do not extend
+                # (we have not proven sickness) — just try again next interval.
+                logger.info(
+                    "[R-F3685] recovery probe for %s inconclusive (%s): %s",
+                    provider.name, _kind or "other", str(exc)[:150],
+                )
+                return False
+
+        logger.warning(
+            "[R-F3685] %s RECOVERED (was %s, %ds of cooldown remained) — "
+            "returning it to the chain",
+            provider.name, kind_before,
+            int(max(0, self._cooldown_until(stats) - time.time())),
+        )
+        self._record_success(provider, stats)
+        return True
+
+    def _schedule_recovery_probes(self) -> None:
+        """Fire-and-forget the due probes. NEVER awaited by a user request.
+
+        The slot is claimed BEFORE the task is spawned so two concurrent
+        dispatches cannot both probe the same provider.
+        """
+        due = self._providers_due_for_recovery_probe()
+        if not due:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # no loop (sync test context) — nothing to schedule
+        now = time.time()
+        for p in due:
+            self._stats.setdefault(p.name, {})["last_recovery_probe"] = now
+            loop.create_task(self._probe_recovery_quietly(p))
+
+    async def _probe_recovery_quietly(self, provider) -> None:
+        """Background wrapper — a probing bug must never surface anywhere."""
+        try:
+            await self._probe_recovery(provider)
+        except Exception:
+            logger.debug("[R-F3685] recovery probe raised", exc_info=True)
+
     def _fallback_chain_has_healthy_peer(self, failed_provider_name: str) -> bool:
         """R-F681 (2026-05-18) — True iff at least one provider OTHER than
         the one about to be cooled is currently servable (not in cooldown).
@@ -445,6 +567,18 @@ class FallbackProvider(LLMProvider):
                 # non-retryable "other" from a soft one.
                 stats["cooldown_hard"] = True
                 stats["cooldown_since"] = now
+                # R-F3685 — THIS FAILURE IS THE MOST RECENT PROBE. Without
+                # this, a provider that was proven dead a millisecond ago is
+                # immediately "due" for a recovery probe, so the very next
+                # request re-dials it — re-creating exactly the wasted re-probe
+                # traffic R-F678 removed. The first recovery probe belongs one
+                # full interval after the lockout is armed.
+                #
+                # Deliberately NOT set on the Redis rehydrate path: a cooldown
+                # restored at boot is already hours old, so re-testing it once
+                # per restart is correct and is what would have released
+                # anthropic at the 2026-08-04 10:03 restart.
+                stats["last_recovery_probe"] = now
                 # R-F681 (2026-05-18) — log-level depends on whether the
                 # fallback chain still has a healthy provider. CLAUDE.md
                 # §14: "When a provider cools down and a fallback serves,
@@ -477,6 +611,7 @@ class FallbackProvider(LLMProvider):
                 # the cooldown instead of re-probing the failed backend.
                 self._mirror_cooldown_to_redis(
                     provider.name, kind, new_cooldown,
+                    evidence=str(error)[:400],   # R-F3685 — auditable lockout
                 )
         elif kind == "rate_limit":
             stats["cooldown_until"] = now + self._SOFT_COOLDOWN_SECONDS
@@ -529,13 +664,28 @@ class FallbackProvider(LLMProvider):
     def _redis_key(provider_name: str) -> str:
         return f"{_REDIS_KEY_PREFIX}{provider_name}"
 
-    def _mirror_cooldown_to_redis(self, provider_name: str, kind: str, cooldown_until: float) -> None:
+    def _mirror_cooldown_to_redis(self, provider_name: str, kind: str,
+                                  cooldown_until: float,
+                                  evidence: str = "") -> None:
         """Fire-and-forget write of a HARD cooldown to Redis. Never blocks
-        the LLM hot path — failures are logged at debug only."""
+        the LLM hot path — failures are logged at debug only.
+
+        R-F3685 — `evidence` is the provider's own error text, persisted with
+        the cooldown. A 24h non-retryable lockout that survives restarts is one
+        of the most consequential states in this service, and until now it
+        recorded only `{until, kind}`. On 2026-08-04 anthropic was locked out
+        while answering HTTP 200 on demand, and the question "what did it
+        actually return at 07:43:17?" was UNANSWERABLE — nothing durable had
+        kept it. A lockout that cannot be audited cannot be shown to be earned.
+        """
         async def _write():
             try:
                 from ..intel import redis_store as rs
-                payload = json.dumps({"until": cooldown_until, "kind": kind})
+                payload = json.dumps({
+                    "until": cooldown_until, "kind": kind,
+                    "armed_at": time.time(),
+                    "evidence": (evidence or "")[:400],
+                })
                 # TTL trimmed to remaining seconds so the key auto-cleans
                 # the moment the in-memory cooldown would have expired.
                 ttl = max(1, int(cooldown_until - time.time()))
@@ -655,6 +805,10 @@ class FallbackProvider(LLMProvider):
         last_error = None
         attempted = 0
         called: list[str] = []   # R-F3627 — who was actually DIALLED, not merely listed
+
+        # R-F3685 — re-test any hard-cooling provider in the background. Never
+        # awaited: this must not add a millisecond to the user's request.
+        self._schedule_recovery_probes()
 
         # R-F1366 — per-call provider preference (see docstring).
         # R-F2917 — when the caller did not pass one explicitly, fall back to the
@@ -849,6 +1003,9 @@ class FallbackProvider(LLMProvider):
         last_error = None
         attempted = 0
         called: list[str] = []   # R-F3627 §13 mirror — see complete()
+
+        # R-F3685 §13 MIRROR — same background recovery probe as complete().
+        self._schedule_recovery_probes()
 
         # R-F2922 — streaming is the CHAT path and has no preference concept, so
         # it walked self.providers directly. With Claude in the chain that meant
