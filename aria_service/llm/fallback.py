@@ -182,6 +182,12 @@ _RECOVERY_PROBE_INTERVAL_S = float(
 _RECOVERY_PROBE_TIMEOUT_S = float(
     os.getenv("ARIA_LLM_RECOVERY_PROBE_TIMEOUT_S", "20"))
 
+# R-F3693 — the last-resort dial is decided PER REQUEST, so its §21a signal needs
+# its own throttle or a sustained outage turns the brain-wiring into the incident
+# (the R-F3613 lesson, applied before it happens rather than after).
+_LAST_RESORT_WIRE_DEBOUNCE_S = float(
+    os.getenv("ARIA_LLM_LAST_RESORT_WIRE_DEBOUNCE_S", "60"))
+
 
 class FallbackProvider(LLMProvider):
     name = "fallback"
@@ -383,6 +389,73 @@ class FallbackProvider(LLMProvider):
             due.append(p)
         return due
 
+    def _wire_probe_outcome(self, provider_name: str, outcome: str,
+                            detail: str = "") -> None:
+        """§21a — EVERY recovery-probe outcome reaches the brain.
+
+        R-F3693. The probe shipped observing nothing but `logger`. The recovery
+        branch was wired only transitively (via `_record_success`), and the two
+        NEGATIVE branches — the ones that mean the self-heal did not work — were
+        fully dark. R-F3687 is the cost of that: the probe failed on an unrelated
+        HTTP 400 every 15 minutes indefinitely, scored it INCONCLUSIVE, left a
+        funded provider locked out, and recorded nothing anywhere. It was found by
+        hand. Wired, it reports itself.
+
+        `recovered` is emitted here as well as by `_record_success` on purpose:
+        those answer different questions. `_record_success` says the provider
+        works; this says THE SELF-HEAL WORKED — the only way to tell that the
+        probe mechanism is alive rather than silently no-opping.
+
+        Never raises: an observability bug must not break the thing it observes.
+        """
+        try:
+            from ..intel.engine_wiring import wire_success as _ws, wire_failure as _wf
+            if outcome == "recovered":
+                _ws(
+                    module="llm_recovery_probe",
+                    summary=f"Provider recovered: {provider_name}",
+                    detail=f"recovery probe released {provider_name}: {detail}"[:600],
+                    source_id=f"llm_recovery_probe:recovered:{provider_name}",
+                )
+            else:
+                _wf(
+                    module="llm_recovery_probe",
+                    detail=f"{provider_name} {outcome}: {detail}"[:600],
+                    gap_type="llm_provider_failure",
+                    source=f"llm_recovery_probe:{outcome}",
+                )
+        except Exception:
+            logger.debug("[R-F3693] probe-outcome wiring failed", exc_info=True)
+
+    def _wire_last_resort_dial(self, provider_name: str, reason: str) -> None:
+        """§21a — the chain's most degraded SERVING state must be observable.
+
+        R-F3680 dials a COOLING provider when nothing else is reachable. §14 is
+        right that the USER should be told "operational" — she is still being
+        served — but the brain has to know it happened, or the last stop before a
+        total outage is invisible on every surface the operator reads.
+
+        Debounced per provider: this decision is taken per REQUEST, and an
+        un-throttled signal would become its own incident (the R-F3613 lesson).
+        """
+        try:
+            now = time.time()
+            stats = self._stats.setdefault(provider_name, {})
+            if now - (stats.get("last_resort_wired_at") or 0) < _LAST_RESORT_WIRE_DEBOUNCE_S:
+                return
+            stats["last_resort_wired_at"] = now
+            from ..intel.engine_wiring import wire_failure as _wf
+            _wf(
+                module="llm_last_resort_dial",
+                detail=(f"last_resort: dialled {provider_name} DESPITE its "
+                        f"cooldown — no reachable alternative ({reason}). The "
+                        f"chain is one failure from a total outage."),
+                gap_type="llm_provider_failure",
+                source=f"llm_last_resort_dial:{provider_name}",
+            )
+        except Exception:
+            logger.debug("[R-F3693] last-resort wiring failed", exc_info=True)
+
     async def _probe_recovery(self, provider) -> bool:
         """Re-test ONE hard-cooling provider. True iff it was released.
 
@@ -437,6 +510,10 @@ class FallbackProvider(LLMProvider):
                     "[R-F3685] recovery probe: %s still %s — cooldown stands",
                     provider.name, _kind,
                 )
+                self._wire_probe_outcome(
+                    provider.name, "still_locked_out",
+                    f"kind={_kind} — operator action needed: {str(exc)[:200]}",
+                )
                 return False
             else:
                 # A timeout or a 5xx says nothing about credit or keys. Do not
@@ -446,6 +523,18 @@ class FallbackProvider(LLMProvider):
                     "[R-F3685] recovery probe for %s inconclusive (%s): %s",
                     provider.name, _kind or "other", str(exc)[:150],
                 )
+                # R-F3693 — THE BRANCH WHOSE SILENCE HID R-F3687. An inconclusive
+                # probe is a BROKEN SELF-HEAL until proven otherwise: the lockout
+                # stands, the next attempt is 15 minutes away, and if the cause is
+                # in the probe itself (it was) this repeats forever with nobody
+                # told. Distinguished from still_locked_out because the remedies
+                # are opposite — one needs the operator's wallet, the other needs
+                # a code fix.
+                self._wire_probe_outcome(
+                    provider.name, "inconclusive",
+                    f"kind={_kind or 'other'} — probe could not determine "
+                    f"credit/auth state, lockout stands: {str(exc)[:200]}",
+                )
                 return False
 
         logger.warning(
@@ -453,6 +542,11 @@ class FallbackProvider(LLMProvider):
             "returning it to the chain",
             provider.name, kind_before,
             int(max(0, self._cooldown_until(stats) - time.time())),
+        )
+        self._wire_probe_outcome(
+            provider.name, "recovered",
+            f"was {kind_before}; released with "
+            f"{int(max(0, self._cooldown_until(stats) - time.time()))}s remaining",
         )
         self._record_success(provider, stats)
         return True
@@ -934,6 +1028,10 @@ class FallbackProvider(LLMProvider):
                     "only reachable provider left; going silent is worse",
                     provider.name,
                 )
+                # R-F3693 §21a — a console line is DARK. The brain must see the
+                # chain's most degraded serving state.
+                self._wire_last_resort_dial(
+                    provider.name, f"path=complete kind={stats.get('last_kind') or 'unknown'}")
 
             # Each non-cooling provider gets a full per-call budget.
             # If the caller passed an unreasonably small timeout, raise
@@ -1050,6 +1148,9 @@ class FallbackProvider(LLMProvider):
                     "[R-F3680] streaming from %s DESPITE its cooldown — it is "
                     "the only reachable provider left", provider.name,
                 )
+                # R-F3693 §13 MIRROR — same §21a wiring as complete().
+                self._wire_last_resort_dial(
+                    provider.name, f"path=stream kind={stats.get('last_kind') or 'unknown'}")
 
             try:
                 attempted += 1

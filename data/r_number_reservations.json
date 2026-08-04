@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3693,
+  "next_available": 3694,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30858,36 +30858,40 @@
       "title": "a 24h hard cooldown is unfalsifiable - probe for recovery",
       "claimed_at": "2026-08-04T11:01:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fecabdb5",
+      "notes": null,
+      "shipped_at": "2026-08-04T11:55:30Z"
     },
     {
       "r_number": "R-F3686",
       "title": "body-sniff must not override an authoritative 429/5xx status",
       "claimed_at": "2026-08-04T11:01:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fecabdb5",
+      "notes": null,
+      "shipped_at": "2026-08-04T11:55:31Z"
     },
     {
       "r_number": "R-F3687",
       "title": "the recovery probe sent an empty system prompt, which Anthropic rejects",
       "claimed_at": "2026-08-04T11:31:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bd45376c",
+      "notes": null,
+      "shipped_at": "2026-08-04T11:55:31Z"
     },
     {
       "r_number": "R-F3688",
       "title": "the channel allow-list never learned the brains tender vocabulary",
       "claimed_at": "2026-08-04T11:48:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d6a86a34",
+      "notes": null,
+      "shipped_at": "2026-08-04T11:55:31Z"
     },
     {
       "r_number": "R-F3689",
@@ -30920,6 +30924,15 @@
       "r_number": "R-F3692",
       "title": "a CRITICAL answer could be cross-model verified by the model that wrote it",
       "claimed_at": "2026-08-04T11:49:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3693",
+      "title": "the recovery probe and last-resort dial were dark - wire them per 21a",
+      "claimed_at": "2026-08-04T11:59:34Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
