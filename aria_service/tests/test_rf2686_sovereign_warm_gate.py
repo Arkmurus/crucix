@@ -172,7 +172,15 @@ def test_shadow_chain_skips_cold_sovereign_and_deepseek_serves():
             return primary
         return None
 
-    env = {"ARIA_LLM_URL": "https://pod.example/v1", "ARIA_LLM_SHADOW": "1"}
+    # R-F3698 (2026-08-04) — chain placement moved off ARIA_LLM_SHADOW onto its
+    # own single-meaning flag. This test is about the WARM GATE (a cold sovereign
+    # in the chain must be skipped, not dialled), which is unchanged; only the
+    # switch that puts the sovereign IN the chain differs. ARIA_LLM_SHADOW is now
+    # purely the conservative promotion control and no longer moves the chain, so
+    # keeping it here built a ONE-provider chain that is returned bare — hence the
+    # `_FakePrimary has no attribute 'providers'` failure, not a warm-gate defect.
+    env = {"ARIA_LLM_URL": "https://pod.example/v1",
+           "ARIA_LLM_IN_FALLBACK_CHAIN": "1"}
     with patch.dict(os.environ, env, clear=False), \
          patch.object(_res, "_ARIA_LLM_URL", "https://pod.example/v1"), \
          patch.object(_fb, "create_llm_provider", side_effect=_fake_create):

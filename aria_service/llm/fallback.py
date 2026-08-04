@@ -1679,12 +1679,41 @@ def create_fallback_chain(
     # is set, ARIA-LLM serves all chat / DD / audit-grade calls with
     # the existing chain demoted to break-glass fallback.
     _aria_llm_url = (os.getenv("ARIA_LLM_URL") or "").strip()
-    # R-F1949 — SHADOW/canary mode. With ARIA_LLM_SHADOW=1, ARIA-LLM is slotted
-    # BELOW the primary (fallback position, appended after the primary further
-    # down) so it serves real traffic ONLY when the primary (DeepSeek) fails — a
-    # safe canary — while DeepSeek stays primary. Unset ARIA_LLM_SHADOW to promote
-    # ARIA-LLM to primary (the original R-F93 behaviour).
-    _aria_llm_shadow = (os.getenv("ARIA_LLM_SHADOW", "").strip().lower() in ("1", "true", "yes"))
+    # R-F3698 (2026-08-04) — CHAIN PLACEMENT IS ITS OWN DECISION.
+    #
+    # This read `ARIA_LLM_SHADOW` (R-F1949). That variable's OTHER consumer,
+    # `model_router.promotion_stage()`, treats it as the CONSERVATIVE control —
+    # its docstring says so outright: "the conservative flag wins; that is the
+    # only direction that is safe to get wrong." Setting it means HOLD THE
+    # SOVEREIGN BACK from serving grounded synthesis.
+    #
+    # Here the same variable meant the OPPOSITE: insert the sovereign into the
+    # GENERAL fallback chain. So the one action an operator takes to be careful
+    # also wired a RunPod endpoint into production failover — and per §24 that
+    # pod is force-stopped outside its scheduled windows, i.e. offline most of
+    # the week. docs/aria_llm_fallback_readiness_2026_08_01.md item 1: "A
+    # fallback must be MORE available than what it backs up ... It would read as
+    # added redundancy and subtract availability."
+    #
+    # R-F3636 fixed half of this — it made ARIA_LLM_SHADOW an INPUT to the stage
+    # rather than a second switch — but never reached this builder. Measured live
+    # 2026-08-04 the two consumers disagreed about the same word at the same
+    # instant: model_router._shadow() -> True, _aria_llm_shadow -> False.
+    #
+    # Placement now has its own flag, defaulting OFF, and is NOT derived from the
+    # promotion stage: a stage is about which GROUNDED SYNTHESIS turns route to
+    # the sovereign, which is a different question from whether a sometimes-on
+    # endpoint belongs in general failover. Deriving one from the other is what
+    # created this defect. When always-on inference hosting is funded (readiness
+    # item 1), flip this flag deliberately — do not re-couple them.
+    #
+    # BEHAVIOUR-PRESERVING: live config is ARIA_LLM_SHADOW='0' (sovereign not in
+    # chain); the new flag is unset (sovereign not in chain). The chain does not
+    # move. It simply can no longer be moved by accident.
+    _aria_llm_in_chain = (
+        os.getenv("ARIA_LLM_IN_FALLBACK_CHAIN", "").strip().lower()
+        in ("1", "true", "yes")
+    )
     # R-F2410 — TWO-TRACK is now the DEFAULT when ARIA_LLM_URL is set: the sovereign
     # serves GROUNDED SYNTHESIS only (via model_router at the synthesis call sites),
     # and is NOT inserted as the global chain primary, so all coverage/closed-book/
@@ -1743,9 +1772,9 @@ def create_fallback_chain(
                     "[R-F2686] sovereign warm-gate wrap failed (non-fatal, "
                     "provider stays ungated): %s", _wrap_e,
                 )
-            if _aria_llm_shadow:
+            if _aria_llm_in_chain:
                 logger.info(
-                    "ARIA-LLM (R-F1949 SHADOW) at %s — will serve as FALLBACK below primary (canary); DeepSeek stays primary",
+                    "ARIA-LLM (R-F3698 ARIA_LLM_IN_FALLBACK_CHAIN) at %s — will serve as FALLBACK below primary (canary); DeepSeek stays primary",
                     _aria_llm_url,
                 )
             elif _aria_llm_primary_all:
@@ -1770,13 +1799,18 @@ def create_fallback_chain(
     if primary and primary.is_configured:
         providers.append(primary)
 
-    # R-F1949: in SHADOW mode, slot ARIA-LLM right after the primary (fallback/
-    # canary) — it serves only when the primary fails, so DeepSeek stays primary
-    # while ARIA-LLM gets observable real traffic. Promote by unsetting ARIA_LLM_SHADOW.
-    if (_aria_llm_provider is not None and _aria_llm_shadow
+    # R-F1949 capability, re-addressed by R-F3698: slot ARIA-LLM right after the
+    # primary so it serves only when the primary fails, DeepSeek staying primary
+    # while ARIA-LLM gets observable real traffic. Now requested EXPLICITLY via
+    # ARIA_LLM_IN_FALLBACK_CHAIN — the capability is unchanged, only the flag that
+    # asks for it, which no longer doubles as "be conservative". See the note at
+    # _aria_llm_in_chain.
+    if (_aria_llm_provider is not None and _aria_llm_in_chain
             and _aria_llm_provider.is_configured and _aria_llm_provider not in providers):
         providers.append(_aria_llm_provider)
-        logger.info("ARIA-LLM appended as FALLBACK (R-F1949 shadow/canary; primary unchanged)")
+        logger.info(
+            "ARIA-LLM appended as FALLBACK (R-F3698 explicit "
+            "ARIA_LLM_IN_FALLBACK_CHAIN=1; primary unchanged)")
 
     # Fallbacks from env vars (only if different from primary).
     # Order is intentional — each entry is an independent billing domain,

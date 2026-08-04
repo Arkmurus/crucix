@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3699,
+  "next_available": 3702,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30979,6 +30979,33 @@
       "r_number": "R-F3698",
       "title": "chain placement read the legacy shadow flag whose other meaning is be conservative",
       "claimed_at": "2026-08-04T12:35:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3699",
+      "title": "RAG retrieval had no tenant scoping and served other tenants uploads",
+      "claimed_at": "2026-08-04T12:39:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3700",
+      "title": "the DD orchestrate vault pre-check returned another tenants risk assessment",
+      "claimed_at": "2026-08-04T12:39:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3701",
+      "title": "the eval that populates 70 percent of gate 1 was never scheduled to record",
+      "claimed_at": "2026-08-04T12:45:24Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
