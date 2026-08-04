@@ -34,7 +34,7 @@ def test_rf898_real_divergence_absorbs():
         calls.append(kwargs)
 
     async def fake_screen(name, threshold=0.78):
-        return {"matches": [{"name": name, "datasets": ["ds"]}]}
+        return {"screened": True, "matches": [{"name": name, "datasets": ["ds"]}]}
 
     tracked = list(sd._TRACKED_JURISDICTIONS)
     assert len(tracked) > 1, "need >1 tracked jurisdiction for a divergence"
@@ -66,7 +66,7 @@ def test_rf898_no_match_no_absorb():
         calls.append(kwargs)
 
     async def fake_screen(name, threshold=0.78):
-        return {"matches": []}
+        return {"screened": True, "matches": []}
 
     async def run():
         with patch("aria_service.intel.sanctions.fuzzy_screen", side_effect=fake_screen), \

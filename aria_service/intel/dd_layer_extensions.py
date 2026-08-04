@@ -41,6 +41,33 @@ from .engine_wiring import wire_success, wire_failure
 from .wire import fail_wire  # R-F1789 §21 brain-wiring
 
 
+def _note_layer_failure(layer: str, subject: str, exc: Exception) -> None:
+    """R-F3690 §21a — a compliance layer that crashed must reach the brain.
+
+    The layer runners below swallow every exception and return ``None``
+    ("skipped"), which the aggregator treats as an absence rather than a
+    failure. Several did so behind ``logger.debug``, i.e. DARK by §21a: a
+    permanently-broken sanctions or RCA layer produced no gap, no metric, and
+    no operator-visible signal — it simply contributed nothing, forever. That
+    is exactly how ``_run_rca_screening`` read a key that never existed for
+    long enough to reach this audit.
+
+    Signature matches ``engine_wiring.wire_failure`` exactly (module, detail,
+    gap_type, source) — R-F3646 records two call sites that passed ``summary=``
+    / ``source_id=``, which it does not accept, and TypeError'd into an
+    ``except: pass`` while looking wired to a grep.
+    """
+    try:
+        wire_failure(
+            module="dd_layer_extensions",
+            detail=f"{layer} failed for {str(subject)[:80]}: {type(exc).__name__}: {str(exc)[:120]}",
+            gap_type="compliance_layer_failure",
+            source=f"dd_layer_extensions:{layer}",
+        )
+    except Exception:  # never let observability break the DD
+        pass
+
+
 # ── R-F584: court_records → Layer 4 (compliance) ──────────────────────
 
 
@@ -493,35 +520,110 @@ async def run_all_extensions(
 
 
 async def _run_sanctions_divergence(name: str) -> dict | None:
-    """R-F68: Cross-list sanctions lookup."""
+    """R-F68: Cross-list sanctions lookup.
+
+    R-F3690 — never-false-clean, mirroring ``_run_crypto_wallet_screen`` below.
+    This read ONLY ``matches`` and reported ``severity: "NONE"`` for anything
+    falsy, so an unavailable source, a quota-exhausted plan and a screen that
+    was never attempted all rendered identically to a screen that ran and found
+    nothing. ``NONE`` is a clearance in this contract; "the screen did not run"
+    is not.
+    """
     try:
         from . import sanctions as _sanc
-        result = await _sanc.screen_with_aliases(name)
+        result = await _sanc.screen_with_aliases(name, source="dd_subject")
+        # Positive predicate (R-F3217 shape): only a screen that PROVED it ran
+        # may produce a clean severity. An unenumerated future failure state
+        # fails closed to UNKNOWN.
+        if not (
+            isinstance(result, dict)
+            and result.get("screened") is True
+            and not result.get("error")
+            and not result.get("source_unavailable")
+        ):
+            return {
+                "severity": "UNKNOWN",
+                "summary": (
+                    f"Sanctions divergence UNVERIFIED for {name} — the screen did "
+                    f"not run (NOT a clearance)"
+                ),
+                "hits": [],
+                "total_matches": 0,
+                "source_unavailable": True,
+            }
         matches = result.get("matches") or []
         return {
             "severity": "ELEVATED" if matches else "NONE",
             "summary": f"Sanctions divergence: {len(matches)} match(es) for {name}",
             "hits": matches[:10],
             "total_matches": len(matches),
+            "source_unavailable": False,
         }
     except Exception as e:
-        logger.debug("[R-F1485] sanctions_divergence failed: %s", e)
+        # R-F3690 §21a — was logger.debug only, so a crashing sanctions layer
+        # was invisible to the brain. A compliance screen failing is a gap.
+        logger.warning("[R-F3690] sanctions_divergence layer failed for %r: %s", name, e)
+        _note_layer_failure("sanctions_divergence", name, e)
         return None
 
 
 async def _run_rca_screening(name: str) -> dict | None:
-    """R-F76: RCA / PEP relatives screening."""
+    """R-F76: RCA / PEP relatives screening (FATF R.12 inherited risk).
+
+    R-F3690 — this read ``result["relatives"]``, and ``screen_with_relatives``
+    HAS NO SUCH KEY. Verified against the real return contract
+    (rca_screening.py:143, returns at :196-207 and :270-282): the keys are
+    ``inherited_risks``, ``relatives_screened``, ``relatives_unverified``,
+    ``unverified_relatives``, ``primary_matches``, ``source_unavailable``.
+
+    So ``relatives`` was always ``None`` -> ``severity`` was permanently
+    ``"NONE"`` and the summary permanently "0 relative(s) found" — EVEN WHEN A
+    SPOUSE WAS ON OFAC SDN. A §3b violation carrying a false-clean payload: the
+    layer could not report inherited risk under any circumstances.
+    """
     try:
         from . import rca_screening as _rca
         result = await _rca.screen_with_relatives(name, depth=1, threshold=0.78)
-        relatives = result.get("relatives") or []
+        if not isinstance(result, dict) or result.get("source_unavailable") or result.get("error"):
+            return {
+                "severity": "UNKNOWN",
+                "summary": (
+                    f"RCA / PEP-relatives screen UNVERIFIED for {name} — the "
+                    f"screen did not run (NOT a clearance)"
+                ),
+                "hits": [],
+                "source_unavailable": True,
+            }
+        inherited = result.get("inherited_risks") or []
+        unverified = int(result.get("relatives_unverified") or 0)
+        screened = int(result.get("relatives_screened") or 0)
+        # A relative that could not be screened is not evidence of no risk, so
+        # an incomplete walk is UNKNOWN rather than NONE (R-F2461's reasoning,
+        # applied at the layer boundary).
+        if inherited:
+            severity = "ELEVATED"
+        elif unverified:
+            severity = "UNKNOWN"
+        else:
+            severity = "NONE"
+        summary = (
+            f"RCA screening: {len(inherited)} inherited risk(s) from "
+            f"{screened} relative(s) screened for {name}"
+        )
+        if unverified:
+            summary += f" — {unverified} relative(s) UNVERIFIED (incomplete)"
         return {
-            "severity": "ELEVATED" if relatives else "NONE",
-            "summary": f"RCA screening: {len(relatives)} relative(s) found for {name}",
-            "hits": relatives[:10],
+            "severity": severity,
+            "summary": summary,
+            "hits": inherited[:10],
+            "relatives_screened": screened,
+            "relatives_unverified": unverified,
+            "source_unavailable": False,
         }
     except Exception as e:
-        logger.debug("[R-F1485] rca_screening failed: %s", e)
+        # R-F3690 §21a — logger.debug made a failing FATF R.12 layer invisible.
+        logger.warning("[R-F3690] rca_screening layer failed for %r: %s", name, e)
+        _note_layer_failure("rca_screening", name, e)
         return None
 
 

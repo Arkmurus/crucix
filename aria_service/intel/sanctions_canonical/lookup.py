@@ -67,6 +67,14 @@ logger = logging.getLogger("aria.sanctions_canonical.lookup")
 
 # Tunables — kept loose, the entity-overlap gate is the real safety net.
 _JACCARD_FLOOR = 0.5
+
+# R-F3691 — how many candidate rows the token pre-filter will pull per token.
+# Named, and env-overridable, because the number is load-bearing: hitting it
+# means the candidate set was TRUNCATED, and a truncated search may not have
+# seen the designation at all. Raising it reduces how often that happens; it
+# does NOT make a CLEAR safe on its own, which is why `candidate_truncated`
+# forces INSUFFICIENT_DATA rather than being merely logged.
+_CANDIDATE_LIMIT = max(500, int(os.getenv("ARIA_SANCTIONS_CANDIDATE_LIMIT", "5000") or 5000))
 _HARD_STOP_THRESHOLD = 0.85
 
 # R-F2373 — never-false-clean freshness gate. A store not refreshed for weeks
@@ -353,6 +361,11 @@ def check_sanctions(
 
     matches: list[dict] = []
     blocked: list[dict] = []
+    # R-F3691 — initialised at FUNCTION scope, not inside the `with` below, so
+    # a connection that raises before the candidate pass cannot leave this name
+    # unbound at the verdict gate (NameError inside a never-false-clean check
+    # would be the worst possible failure mode for it).
+    candidate_truncated = False
 
     with store.connect() as conn:
         cur = conn.cursor()
@@ -381,6 +394,28 @@ def check_sanctions(
         # any-shared-token via aliases). We fetch all rows with at
         # least one shared word in the normalised name; jaccard-score
         # them in Python.
+        # ── R-F3691 — a truncated candidate set cannot produce a CLEAR ───────
+        #
+        # THE DEFECT, reproduced by execution: this pre-filter is
+        # `LIKE '%token%' ... LIMIT 500` with NO `ORDER BY`, so SQLite returns
+        # rows in rowid (insertion) order and the first 500 INSERTED rows win.
+        # `%token%` has a leading wildcard, so a common name particle ("ali",
+        # "mohammed", "hassan", "al") matches thousands of rows in a ~25k-row
+        # store. Same store contents, only decoy volume changed:
+        #     400 decoys -> REVIEW, 1 match (the designated entity)
+        #     600 decoys -> CLEAR,  0 matches, gate_blocked 0
+        # The designation was silently outside the window and the answer was an
+        # authoritative CLEAR — not INSUFFICIENT_DATA, not gate_blocked.
+        #
+        # This is the worst available shape: the never-false-clean gates below
+        # are downstream of a truncation that removes the evidence BEFORE they
+        # can see it, so they cannot fire. It bites hardest on Arabic and
+        # Slavic name populations, i.e. most of the SDN list.
+        #
+        # Raising the cap alone would be a band-aid (§ROOT CAUSE): a bigger
+        # window still truncates silently at some store size. The honest fix is
+        # to DETECT truncation and refuse to certify — a screen that could not
+        # enumerate its own candidates has not searched.
         if q_entity_tokens:
             for token in q_entity_tokens:
                 cur.execute(
@@ -393,11 +428,15 @@ def check_sanctions(
                     SELECT entry_id FROM aliases
                     WHERE normalised LIKE ?
                 )
-                LIMIT 500
+                LIMIT ?
                     """,
-                    [f"%{token}%"],
+                    [f"%{token}%", _CANDIDATE_LIMIT],
                 )
-                for r in cur.fetchall():
+                _fetched = cur.fetchall()
+                if len(_fetched) >= _CANDIDATE_LIMIT:
+                    # Hit the cap ⇒ there may be candidates we never looked at.
+                    candidate_truncated = True
+                for r in _fetched:
                     if r[0] in seen_ids:
                         continue
                     if source_filter and r[1] not in source_filter:
@@ -437,6 +476,32 @@ def check_sanctions(
                 best_score = primary_score
                 best_alias_match = None
 
+            # ── R-F3691 — score with CONTAINMENT as well as Jaccard ─────────
+            #
+            # Jaccard is symmetric, but the relationship here is not: a SHORT
+            # query against a LONG listed name is penalised by every token the
+            # listing adds. Reproduced against a store holding
+            #   'Rosoboronexport Federal State Unitary Enterprise Defence
+            #    Export Agency'
+            #     'Rosoboronexport'     -> jaccard 0.143 -> CLEAR, gate_blocked 0
+            #     'Rosoboronexport Ltd' -> jaccard 0.143 -> CLEAR
+            # i.e. the exact brand token of a designated entity screened CLEAN,
+            # and did not even surface for audit. The §18 live probe passed only
+            # because the real store happens to also hold the short alias
+            # 'JSC ROSOBORONEXPORT', which the exact-alias pass catches.
+            #
+            # Containment (|q ∩ c| / |q|) answers the question that actually
+            # matters — "is the query fully present in the listed name?" — and
+            # letting it survive to the R-F518 gate does NOT weaken precision:
+            # that gate is the component designed to reject coincidences, and
+            # it still runs on everything admitted here.
+            _containment = (
+                len(q_entity_tokens & cand_entity_tokens) / len(q_entity_tokens)
+                if q_entity_tokens else 0.0
+            )
+            if _containment > best_score:
+                best_score = _containment
+                best_alias_match = None
             if best_score < _JACCARD_FLOOR and q_normalised != norm:
                 # Below floor and not an exact match — drop
                 continue
@@ -499,6 +564,36 @@ def check_sanctions(
             verdict = "INSUFFICIENT_DATA"
             store_unavailable = True
             reason = "sanctions_store_empty_or_unavailable"
+        elif blocked:
+            # R-F3691 — a GATE-BLOCKED near-miss is not a clearance.
+            #
+            # Surfaced by this change's own capability test: with containment
+            # scoring (above), 'Rosoboronexport' now correctly reaches the
+            # R-F518 gate against the long listed name — and the gate blocks it,
+            # because a single-token overlap needs jurisdiction or address
+            # corroboration that a bare name query does not carry. The candidate
+            # landed in `gate_blocked` and the verdict was STILL "CLEAR", so the
+            # near-miss was recorded for audit and contradicted by the headline.
+            #
+            # The R-F518 gate exists to stop false HITS, not to manufacture
+            # cleans. "We found a name-overlapping designation but could not
+            # corroborate it" is the textbook REVIEW case: a human decides.
+            #
+            # Note this only fires when there are NO real matches — a genuine
+            # HARD_STOP/REVIEW is computed in the else branch and is untouched.
+            # And an unrelated name never gets here: it falls below the score
+            # floor and is dropped before the gate, so it is not in `blocked`.
+            verdict = "REVIEW"
+            reason = "gate_blocked_near_miss"
+        elif candidate_truncated:
+            # R-F3691 — the candidate pre-filter hit its cap, so rows exist that
+            # were never scored. A no-match result here means "we did not look
+            # at everything", which is INSUFFICIENT_DATA, never CLEAR. Ordered
+            # before the coverage/staleness gates because it is a stronger
+            # statement: those ask whether the DATA is adequate, this asks
+            # whether the SEARCH completed.
+            verdict = "INSUFFICIENT_DATA"
+            reason = "sanctions_candidate_truncation"
         elif exact_rows or q_entity_tokens:
             # A would-be CLEAR. Before returning it, apply two R-F2373
             # never-false-clean gates that only ever DOWNGRADE a clean (they

@@ -30934,9 +30934,10 @@
       "title": "the recovery probe and last-resort dial were dark - wire them per 21a",
       "claimed_at": "2026-08-04T11:59:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2a4b4c46",
+      "notes": null,
+      "shipped_at": "2026-08-04T12:14:55Z"
     }
   ]
 }

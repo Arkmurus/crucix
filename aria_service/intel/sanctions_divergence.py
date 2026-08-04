@@ -249,11 +249,53 @@ async def analyze_divergence(name: str, *, threshold: float = 0.78) -> dict[str,
             "name": name,
             "ok": False,
             "error": str(e),
+            "source_unavailable": True,
             "matches": 0,
+            "raw_match_count": 0,
+            "divergence_count": 0,
             "jurisdictions_listed": [],
-            "jurisdictions_not_listed": list(_TRACKED_JURISDICTIONS),
+            # R-F3690 — this returned list(_TRACKED_JURISDICTIONS), i.e. an
+            # affirmative "NOT LISTED in any of these" for EVERY tracked
+            # jurisdiction, on a screen that had just THROWN. That list IS the
+            # clean claim: emptying it matters as much as the narrative text.
+            "jurisdictions_not_listed": [],
             "per_match": [],
-            "narrative": f"{name}: screen failed — {e}",
+            "narrative": (
+                f"{name}: cross-list divergence UNVERIFIED — the screen did not "
+                f"run ({e}). NOT a clearance."
+            ),
+        }
+
+    # R-F3690 — fuzzy_screen SOFT-RETURNS on an unavailable source, quota
+    # exhaustion or an unshaped name; it does not raise, so the `except` above
+    # never sees those. Reading only `matches` then produced ok=True,
+    # matches=0 and jurisdictions_not_listed=<every tracked jurisdiction>:
+    # an affirmative, positively-worded, cross-jurisdiction clearance produced
+    # by a screen that never queried a single list. Served on
+    # GET /api/aria/sanctions/divergence, through the chat tool router, and
+    # into the DD.
+    if not (
+        isinstance(screen, dict)
+        and screen.get("screened") is True
+        and not screen.get("error")
+        and not screen.get("source_unavailable")
+    ):
+        _why = (screen.get("error") or "source unavailable") if isinstance(screen, dict) else "no result"
+        return {
+            "name": name,
+            "ok": False,
+            "error": str(_why),
+            "source_unavailable": True,
+            "matches": 0,
+            "raw_match_count": 0,
+            "divergence_count": 0,
+            "jurisdictions_listed": [],
+            "jurisdictions_not_listed": [],
+            "per_match": [],
+            "narrative": (
+                f"{name}: cross-list divergence UNVERIFIED — the screen did not "
+                f"run ({str(_why)[:80]}). NOT a clearance."
+            ),
         }
 
     matches: list[dict[str, Any]] = screen.get("matches", []) or []

@@ -43,7 +43,11 @@ def _unverified_gaps(report):
 
 
 async def _run(name, screen_return):
-    async def _fake_screen(variant):
+    # R-F3689 — binds the REAL signature: sanctions.screen_with_aliases is
+    # `(name, known_aliases=None, *, source="free_text")`. Declaring `source`
+    # EXPLICITLY (not **kwargs) is deliberate: R-F3646 records a spy that
+    # accepted any keyword and therefore stayed green while the real call threw.
+    async def _fake_screen(variant, known_aliases=None, *, source="free_text"):
         return dict(screen_return)  # fresh copy per call
     orig_screen = getattr(_sanc, "screen_with_aliases", None)
     orig_fuzzy = getattr(_sanc, "fuzzy_screen", None)

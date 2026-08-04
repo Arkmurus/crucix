@@ -192,6 +192,34 @@ _JURISDICTION_QUALIFIER = re.compile(
 # ── Output formatters ──────────────────────────────────────────────────────
 
 def _fmt_sanctions(name: str, result: dict) -> str:
+    # ── R-F3690 — never-false-clean on the LOCAL-BRAIN fast path ────────────
+    #
+    # This printed a green tick and "No matches in ... 200+ lists" whenever
+    # `matches` was falsy, without ever reading `screened`, `source_unavailable`
+    # or `error`. Breaker-open, quota-exhausted-with-an-empty-local-store, and
+    # `not_entity_shaped` all rendered as an authoritative clearance naming 200+
+    # lists that were never queried.
+    #
+    # It matters more here than anywhere else: local_brain answers WITHOUT the
+    # LLM, so it bypasses `sanctions_claim_guard` entirely — that guard only
+    # shapes LLM context (aria_engine.py:4156, :5090). This is the R-F2143
+    # contract re-opened on a different entry point, so the check has to live
+    # in the formatter itself.
+    _screened = (
+        isinstance(result, dict)
+        and result.get("screened") is True
+        and not result.get("error")
+        and not result.get("source_unavailable")
+    )
+    if not _screened:
+        _why = (result.get("error") or "source unavailable") if isinstance(result, dict) else "no result"
+        return (
+            f"⚠️ *Sanctions screen — {name}: COULD NOT VERIFY*\n\n"
+            f"The screen did NOT run ({str(_why)[:80]}). This is *not* a clean result "
+            f"and must not be read as one.\n\n"
+            f"_No list was queried. Re-run once screening is available, or screen "
+            f"manually against OFAC/OFSI/EU/UN before acting._"
+        )
     if not result.get("matches"):
         return (
             f"✅ *Sanctions screen — {name}*\n\n"

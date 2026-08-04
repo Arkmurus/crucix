@@ -310,6 +310,38 @@ def _slugify_entity_name(name: str) -> str:
     return f"entity:{slug[:64]}" if slug else f"entity:unknown_{abs(hash(name)) % 100000}"
 
 
+def _note_dd_screen_unavailable(report, who: str, reason: str) -> None:
+    """R-F3689 §21a — a screen that SOFT-FAILED must surface exactly like one
+    that threw.
+
+    ``_note_dd_screen_gap`` below only fires on an Exception, but the failure
+    that actually reaches production is the soft one: ``screen_with_aliases``
+    RETURNS ``{"error": "not_entity_shaped"}`` or ``{"source_unavailable": True}``
+    without raising. That path produced no visible data_gap and no brain signal
+    at all — so a sanctions source being down was invisible to the operator AND
+    to the self-heal loop, which is the §21a definition of dark.
+
+    Best-effort, never raises.
+    """
+    try:
+        report.identity.data_gaps.append(
+            f"Sanctions/PEP screen NOT PERFORMED for {str(who)[:80]} — {str(reason)[:100]}. "
+            f"Treat as UNSCREENED, not clean; MANUAL screening required."
+        )
+    except Exception:
+        pass
+    try:
+        import asyncio as _aio
+        from . import capability_gaps as _cg
+        _aio.get_running_loop().create_task(_cg.record_gap(
+            gap_type="sanctions_source_unavailable",
+            detail=f"dd person screen did not run for {str(who)[:80]}: {str(reason)[:120]}",
+            source="dd_orchestrator.screen_unavailable",
+        ))
+    except Exception:
+        pass
+
+
 def _note_dd_screen_gap(report, who: str, exc: Exception) -> None:
     """R-F1348: a sanctions/entity screen that threw must surface as a visible
     data_gap in the DD report (never silently dropped — a false negative the
@@ -1907,7 +1939,25 @@ async def _run_identity_person(
     try:
         from . import sanctions as _sanc
         from ._sanctions_classify import classify_matches as _cm
-        _screen_fn = getattr(_sanc, "screen_with_aliases", None) or getattr(_sanc, "fuzzy_screen", None)
+        # R-F3689 — the name reaching here is the DD SUBJECT: operator-supplied
+        # or registry-resolved, not free text. Declaring that (R-F3228) skips
+        # the search-query shape heuristic, which otherwise rejects exactly the
+        # sanctions-dense population this screen exists for — verified live:
+        # `_looks_like_entity_name` returns False for "Ahmed bin Mohammed
+        # Al-Saud", "Muhammad bin Salman" and "Marks & Spencer Group plc", and
+        # a rejected name came back `{"error": "not_entity_shaped"}`, which the
+        # old guard below then counted as a SUCCESSFUL screen.
+        #
+        # The kwarg is bound to the function actually resolved: the legacy
+        # fallback `fuzzy_screen(name, *, threshold=0.78)` has NO `source`
+        # parameter (sanctions.py:1100), so passing it unconditionally would
+        # raise TypeError straight into the `except` below — a screen that
+        # never runs, reported as a variant that failed. §3b.
+        _screen_fn = getattr(_sanc, "screen_with_aliases", None)
+        _screen_kwargs: dict = {"source": "dd_subject"}
+        if _screen_fn is None:
+            _screen_fn = getattr(_sanc, "fuzzy_screen", None)
+            _screen_kwargs = {}
 
         variants_to_screen: list[str] = []
         if resolution and resolution.variants:
@@ -1920,17 +1970,35 @@ async def _run_identity_person(
             if not variant or len(variant) < 4:
                 continue
             try:
-                _scr = await _screen_fn(variant) if _screen_fn else {"matches": []}
+                _scr = await _screen_fn(variant, **_screen_kwargs) if _screen_fn else {"matches": []}
                 report.identity.meta.subcalls += 1
-                # R-F2416: fuzzy_screen / screen_with_aliases SOFT-return on an
-                # unavailable source (screened=False / source_unavailable=True)
-                # WITHOUT raising. Counting such a variant as "screened" would
-                # make _screen_ok True and stamp every list CLEAN on a screen
-                # that never ran — a never-false-clean breach on the PERSON path
-                # (the company direct-adapter loop is already guarded at ~:2223).
-                # Only a variant that ACTUALLY screened counts.
-                if isinstance(_scr, dict) and (
-                    _scr.get("screened") is False or _scr.get("source_unavailable")
+                # R-F2416 / R-F3689: fuzzy_screen / screen_with_aliases SOFT-return
+                # on an unavailable source WITHOUT raising. Counting such a variant
+                # as "screened" makes _screen_ok True and stamps every list CLEAN on
+                # a screen that never ran — a never-false-clean breach.
+                #
+                # R-F3689 — R-F2416's guard ENUMERATED the failure states
+                # (`screened is False or source_unavailable`) and so was defeated by
+                # any state it had not enumerated. Reproduced: an unshaped name
+                # returns `{"error": "not_entity_shaped", "matches": [], ...}` with
+                # NO `screened` key at all, so `.get("screened") is False` was False
+                # (it is None), `source_unavailable` was absent, the guard did not
+                # fire, and the variant was recorded as successfully screened.
+                # `derive_verified_sources(screen_succeeded=True)` then stamped all
+                # 10 canonical lists CLEAN and the renderer emitted "a POSITIVE
+                # CLEAN result — treat as clearance under standard commercial PDD"
+                # at confidence=CONFIRMED. No SANCTIONS_SOURCE_UNVERIFIED marker was
+                # written, so the R-F2167 synthesis gate never fired either.
+                #
+                # The company path solved this correctly at ~:5830 (R-F3217) with a
+                # POSITIVE predicate: a screen counts only if it PROVED it ran.
+                # That is the shape used here now — an unknown future failure state
+                # fails CLOSED instead of silently passing.
+                if not (
+                    isinstance(_scr, dict)
+                    and _scr.get("screened") is True
+                    and not _scr.get("error")
+                    and not _scr.get("source_unavailable")
                 ):
                     _unavailable_variants.append(variant)
                     continue
@@ -1957,6 +2025,16 @@ async def _run_identity_person(
         # R-F2416: attempted ≥1 real variant but NONE actually screened → the
         # sanctions/PEP source was unavailable; the screen did NOT run.
         _sanctions_unverified = (not _screen_ok) and bool(_unavailable_variants)
+        # R-F3689 §21a — surface the soft failure. Before this, an unavailable
+        # source on the person path reached NEITHER the operator (no data_gap)
+        # NOR the brain (no gap recorded): the only trace was a logger.warning
+        # per variant, and on the not_entity_shaped path not even that.
+        if _sanctions_unverified:
+            _note_dd_screen_unavailable(
+                report, name,
+                f"{len(_unavailable_variants)} of {len(_unavailable_variants)} "
+                f"name variant(s) could not be screened",
+            )
         _screen_blob = {
             "matches": all_matches,
             "variants_screened": screened_variants,
@@ -17454,6 +17532,32 @@ async def rescreen_public_watchlist() -> dict:
             screen = await (_aio.wait_for(_screen(), timeout=per_timeout) if per_timeout > 0 else _screen())
             if screen is None:
                 errors.append({"entity": name, "error": "no sanctions entrypoint"})
+                continue
+            # --- R-F3690: the R-F2744 completeness gate, applied HERE too ---
+            # R-F2744 added this gate to the OTHER re-screen loop (~:19681) and
+            # this one never got it. The R-F2559 emit-only-increases rule below
+            # stops a fabricated *alert*, but the comment "Removals/score moves
+            # still update state below (for future diffs)" is the hole: on an
+            # unavailable source, matches=[] derives CLEAN and the unconditional
+            # `state[name.lower()] = {...}` at the bottom of this loop OVERWRITES
+            # a genuine HIT baseline with CLEAN — permanently. The next real
+            # screen then compares against a fabricated clean baseline, so the
+            # entity's re-listing can never be detected as a change either.
+            #
+            # Fail closed: any error, any unavailable source, any explicit
+            # screened=False ⇒ this entity is skipped entirely and its stored
+            # baseline is left untouched.
+            _screen_ok = (
+                screen.get("error") is None
+                and not screen.get("source_unavailable")
+                and screen.get("screened", True) is not False
+            )
+            if not _screen_ok:
+                errors.append({
+                    "entity": name,
+                    "error": screen.get("error") or "sanctions_source_unavailable",
+                    "degraded": True,  # unperformed screen — NOT a clearance
+                })
                 continue
             matches = screen.get("matches") or []
             classified = classify_matches(matches, query_name=name)

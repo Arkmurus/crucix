@@ -482,16 +482,40 @@ async def double_opinion_llm(
     return primary_text, secondary_text
 
 
+def _vendor_of(provider_name: str) -> str:
+    """R-F3692 — the VENDOR behind a chain slot name.
+
+    `deepseek` and `deepseek_backup` are two slots on ONE account (both are
+    built from the same DEEPSEEK_API_KEY, fallback.py:1534/1545). Treating them
+    as different providers would let a "second opinion" come from the same
+    model on the same account — which is not a second opinion.
+    """
+    return (provider_name or "").lower().strip().split("_")[0]
+
+
 def pick_secondary_provider(primary_llm: Any, exclude_name: str = "") -> Any | None:
     """Given the fallback-chain LLM used for the primary call, return
-    a DIFFERENT provider from inside the chain for the second opinion.
+    a provider from a DIFFERENT VENDOR for the second opinion.
 
-    Returns None when no non-cooling alternative is configured.
+    Returns None when no non-cooling alternative vendor is configured — and
+    returning None is the CORRECT, honest outcome: the caller then emits
+    "CRITICAL — UNVERIFIED" instead of a cross-model agreement badge.
 
-    Implementation: the FallbackProvider exposes `.providers` as an
-    ordered list. We walk it, skipping the provider whose name matches
-    `exclude_name` (or the one that most recently succeeded), and
-    return the first one that's configured + not in cooldown.
+    R-F3692 — two defects fixed here, both of which made the badge a lie:
+
+    1. Exclusion was by EXACT NAME, so with `exclude_name="deepseek"` the
+       walk happily returned `deepseek_backup` — the same vendor, the same
+       API key, the same model. Now excluded by VENDOR.
+    2. `cooldown_until` was compared against `time.monotonic()`, but
+       fallback.py writes and reads it in WALL-CLOCK (`time.time()`, see
+       fallback.py:340, :544, :549). Epoch (~1.78e9) happens to dwarf process
+       uptime, so every cooling provider looked available — the comparison
+       gave the right answer for the wrong reason and would invert silently
+       on any clock-source change. Now `time.time()`, matching the writer.
+
+    Note the caller must PASS the serving provider. With `exclude_name` left
+    empty this function returns the FIRST active provider, which is the one
+    that just authored the answer.
     """
     if primary_llm is None:
         return None
@@ -501,15 +525,44 @@ def pick_secondary_provider(primary_llm: Any, exclude_name: str = "") -> Any | N
         return None
 
     stats = getattr(primary_llm, "_stats", {}) or {}
-    excluded = (exclude_name or "").lower().strip()
     import time as _t
-    now = _t.monotonic()
+    now = _t.time()  # wall-clock: same domain fallback.py writes cooldown_until in
+
+    # ── R-F3692 — SAFE BY DEFAULT ───────────────────────────────────────────
+    #
+    # Two of the three call sites passed no `exclude_name` at all
+    # (routes/aria.py chat gate, and observe_critical_response below), so the
+    # walk returned the FIRST active provider — precisely the one that had just
+    # authored the answer. The reply was then stamped
+    #   🛡 [CROSS-MODEL CONSISTENT — 2 models, same evidence]
+    # on sanctions HIT/CLEAN and HALT/PROCEED answers where ONE model had
+    # agreed with itself.
+    #
+    # Requiring each caller to remember the argument is the shape that failed:
+    # a forgotten kwarg fails silently back to the unsafe behaviour. So when no
+    # exclusion is given we derive it — the chain's first configured,
+    # non-cooling provider IS the one it would have served with, which is the
+    # only defensible default for a function whose entire purpose is "give me a
+    # DIFFERENT model".
+    #
+    # The remaining call site (double_via_fallback) passes an explicit name and
+    # is unaffected.
+    if not (exclude_name or "").strip():
+        for prov in providers:
+            _n = getattr(prov, "name", "") or ""
+            if not _n or not getattr(prov, "is_configured", False):
+                continue
+            if (stats.get(_n, {}).get("cooldown_until", 0) or 0) > now:
+                continue
+            exclude_name = _n
+            break
+    excluded_vendor = _vendor_of(exclude_name)
 
     for prov in providers:
         name = getattr(prov, "name", "") or ""
         if not name:
             continue
-        if name.lower() == excluded:
+        if excluded_vendor and _vendor_of(name) == excluded_vendor:
             continue
         if not getattr(prov, "is_configured", False):
             continue

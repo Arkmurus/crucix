@@ -43,8 +43,15 @@ def test_pick_secondary_skips_cooling():
     p2 = SimpleNamespace(name="deepseek",  is_configured=True)
     p3 = SimpleNamespace(name="groq",      is_configured=True)
     # anthropic excluded (was primary); deepseek is cooling; groq wins
+    #
+    # R-F3692 — was `_t.monotonic() + 600`, which encoded the WRONG clock and so
+    # pinned a bug: fallback.py writes `cooldown_until` in WALL-CLOCK
+    # (`_record_failure`: `now = time.time()`, fallback.py:643 -> :670/:725) and
+    # reads it the same way (:340, :544, :549). A monotonic value is ~process
+    # uptime, i.e. always in the past against wall-clock, so this fixture
+    # described a cooldown production can never produce. Bind the real contract.
     import time as _t
-    future = _t.monotonic() + 600
+    future = _t.time() + 600
     chain = SimpleNamespace(
         providers=[p1, p2, p3],
         _stats={"anthropic": {"cooldown_until": 0},

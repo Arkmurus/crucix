@@ -209,7 +209,21 @@ class RateLimitedProvider(LLMProvider):
             max_tokens=max_tokens, timeout=timeout,
             **extra,
         )
-        result.routed_via = f"rate_limited:{self._inner.name}"
+        # R-F3692 — do NOT clobber an inner tag. FallbackProvider sets
+        # `routed_via = "fallback:<name>"` to record WHICH provider actually
+        # served, and overwriting it destroyed the only signal downstream had.
+        # verification_gate.double_via_fallback parses `routed_via` for the
+        # "fallback:" prefix to exclude the serving provider from its second
+        # opinion; with the tag replaced, that parse yielded "" and the one
+        # call site that DID try to exclude the primary could not.
+        #
+        # Compose instead of replace: the rate-limit hop is still visible, and
+        # anything reading the prefix still finds the provider identity.
+        _inner_tag = getattr(result, "routed_via", "") or ""
+        result.routed_via = (
+            _inner_tag if _inner_tag.startswith("fallback:")
+            else f"rate_limited:{self._inner.name}"
+        )
         return result
 
     async def stream(  # type: ignore[override]
