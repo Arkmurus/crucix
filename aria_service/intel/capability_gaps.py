@@ -39,7 +39,50 @@ _DEDUPE_WINDOW_SECONDS = 3600
 _DEDUPE_KEY_PREFIX = "crucix:aria:capability_gaps:dedupe:"
 
 
+# ── R-F3695 — gap types whose DETAIL is unbounded, so the class is the key ──
+#
+# THE DEFECT, traced live on 2026-08-04. Phase A gate #3 ("0 fly ERRORs / 7d")
+# was being reset by ARIA's own learning loop, via this chain:
+#
+#   1. symbolic_reasoner emits a `no_symbolic_rule` gap for EVERY question no
+#      rule matched, with `detail=f"No rule matched: {text[:120]}"`.
+#   2. The fingerprint below is `(gap_type, detail)`, and `detail` embeds the
+#      QUESTION — so every question is a distinct fingerprint and the 1h dedupe
+#      NEVER fires. The student loop generates a unique question per topic×region
+#      cell, thousands per day.
+#   3. Each undeduped gap costs four store ops (dedupe get, lpush(critical=True),
+#      ltrim, set). That saturates the single writer until `state_store.lpush`
+#      raises StoreWriteError.
+#   4. record_gap logs that at ERROR on an `aria.*` logger, which
+#      error_log_handler mirrors as `log:error` -> `is_reset_type` True ->
+#      the 7-day clean streak resets to zero.
+#
+# Live proof: the streak anchor's `last_error` was literally the grader's own
+# question — "What are the most important compliance facts and recent
+# developments for lusophone?" — arriving as a `no_symbolic_rule` gap whose
+# truncated payload ended `"— lpush cruc"`, i.e. StoreWriteError's own text.
+#
+# The root cause is the CARDINALITY, not the ERROR level. Deliberately NOT
+# downgrading that ERROR: if a drop still happens after this change it means the
+# store is genuinely unhealthy, and gate #3 should say so. Making the gate pass
+# by logging less would be closing it by measuring less (CLAUDE.md §1).
+#
+# For these types the useful signal is "the reasoner is missing rules", not
+# which of 4,000 phrasings missed. One gap per window carries that; 4,000 do not
+# — they also evict the actionable module_bug/missing_capability entries from
+# the 500-slot ledger.
+_CLASS_FINGERPRINT_GAP_TYPES = frozenset({
+    "no_symbolic_rule",   # symbolic_reasoner: one per unmatched question
+})
+
+
 def _gap_fingerprint(gap_type: str, detail: str) -> str:
+    # High-cardinality telemetry: key on the CLASS so the dedupe window works.
+    # The full detail is still stored on the entry and still read by a human —
+    # only the dedupe key is collapsed.
+    if gap_type in _CLASS_FINGERPRINT_GAP_TYPES:
+        return hashlib.md5(f"{gap_type}|__class__".encode("utf-8"),
+                           usedforsecurity=False).hexdigest()
     return hashlib.md5(f"{gap_type}|{detail[:200]}".encode("utf-8"), usedforsecurity=False).hexdigest()
 
 VALID_GAP_TYPES = frozenset({

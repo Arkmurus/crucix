@@ -789,6 +789,31 @@ async def get_verification_stats() -> dict:
             "rolling_grounded_rate": effective_rate,
             "avg_grounded_rate": effective_rate,
             "rate_sample_size": rate_n_24h,
+            # ── R-F3696 — the sample size that MATCHES effective_rate ────────
+            #
+            # `rate_sample_size` is the 24h count, but `effective_rate` may have
+            # fallen back to the LIFETIME average two blocks above. A consumer
+            # applying a minimum-sample guard then judged a value from window A
+            # using a count from window B — and rejected it.
+            #
+            # That is exactly what kept Phase A gate #1 unpassable. The weights
+            # are mastery 0.30 + verification 0.45 + honesty 0.25, and
+            # `confidence = measured_weight`; live confidence was EXACTLY 0.3,
+            # i.e. mastery alone. autonomy_scorer's R-F1907 guard
+            # (`sample < _MIN_SIGNAL_SAMPLES` -> value discarded) was reading
+            # `rate_sample_size` = 0 while `avg_grounded_rate` carried a
+            # lifetime average backed by hundreds of entries, so it threw the
+            # signal away as `insufficient_samples_n0`. With verification back,
+            # confidence becomes 0.75 and the gate is decidable on its merits.
+            #
+            # This MEASURES MORE, not less: R-F590's lifetime fallback stays
+            # (operating_modes.py depends on it), the 24h fields stay for
+            # consumers that want current-conditions only, and this new field
+            # simply reports the size of the sample the rate actually came from.
+            "effective_sample_size": (
+                rate_n_24h if data_source == "24h_window"
+                else (rate_n_all if data_source == "lifetime_fallback" else 0)
+            ),
             "data_source": data_source,
             # R-F590: 24h breakdown so consumers can see WHY the
             # effective rate may have fallen back to lifetime.

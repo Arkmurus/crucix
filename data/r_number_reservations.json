@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3694,
+  "next_available": 3699,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30938,6 +30938,51 @@
       "commit_sha": "2a4b4c46",
       "notes": null,
       "shipped_at": "2026-08-04T12:14:55Z"
+    },
+    {
+      "r_number": "R-F3694",
+      "title": "an unmeasured mastery cell was written down as a wrong answer",
+      "claimed_at": "2026-08-04T12:19:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3695",
+      "title": "the learning loop generated unbounded unique gaps and reset the honesty gate",
+      "claimed_at": "2026-08-04T12:19:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3696",
+      "title": "gate 1 discarded a lifetime verification signal using an empty 24h sample count",
+      "claimed_at": "2026-08-04T12:19:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3697",
+      "title": "gate 4 could not fail because four hardcoded seeds carried the pass",
+      "claimed_at": "2026-08-04T12:19:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3698",
+      "title": "chain placement read the legacy shadow flag whose other meaning is be conservative",
+      "claimed_at": "2026-08-04T12:35:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

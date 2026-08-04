@@ -243,13 +243,26 @@ async def compute_phase_gates() -> dict:
         from . import run_quarantine
 
         cs4 = await run_quarantine.closure_summary()
+        # R-F3697 — preserve the TRI-STATE. `bool(...)` collapsed None to False,
+        # which renders "could not measure" as "measured and failed" — exactly
+        # the distinction this module's own contract calls load-bearing.
+        # closure_summary now returns gate_passes=None when the quarantine store
+        # is unreadable, instead of silently certifying on the four code-resident
+        # seeds (all of which are hardcoded `investigation_status: "closed"`).
+        _gp4 = cs4.get("gate_passes")
         gates["gate_4_quarantine_closed"] = _gate(
             4, "gate_4_quarantine_closed", "Quarantined DDs closed", "Quarantined DDs closed",
-            cs4.get("open"), bool(cs4.get("gate_passes")),
-            "run_quarantine.closure_summary() — investigated vs open (R-F2643)",
+            cs4.get("open"), (None if _gp4 is None else bool(_gp4)),
+            "run_quarantine.closure_summary() — investigated vs open (R-F2643/R-F3697)",
             total=cs4.get("total"),
             closed=cs4.get("closed"),
             open_run_ids=cs4.get("open_run_ids"),
+            # R-F3697 — expose the BASIS so "4/4 closed" carried entirely by
+            # code-resident seeds is distinguishable from a real investigated
+            # estate. dynamic_total == 0 means the store contributed nothing.
+            seeded_total=cs4.get("seeded_total"),
+            dynamic_total=cs4.get("dynamic_total"),
+            measure_error=cs4.get("measure_error"),
         )
         sources["quarantine"] = "run_quarantine.closure_summary() (R-F2643)"
     except Exception as e:

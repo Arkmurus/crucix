@@ -115,17 +115,34 @@ _RUN_ID_RE = re.compile(r"(dd_[a-f0-9]{10,16})", re.IGNORECASE)
 # Public API
 # ═══════════════════════════════════════════════════════════════════════
 
-async def _load() -> dict[str, dict[str, str]]:
-    """Load quarantine list from Redis, merging in the seeded entries."""
+class QuarantineStoreUnavailable(RuntimeError):
+    """R-F3697 — the dynamic quarantine store could not be read.
+
+    Distinct from "the store is empty": callers that certify a Phase A gate
+    MUST be able to tell those apart, because only one of them is evidence.
+    """
+
+
+async def _load(*, strict: bool = False) -> dict[str, dict[str, str]]:
+    """Load quarantine list from Redis, merging in the seeded entries.
+
+    R-F3697 — `strict=True` raises QuarantineStoreUnavailable instead of
+    silently returning seed-only. Gate #4 uses it; the operational callers
+    (filter_citations, is_quarantined) keep the lenient behaviour, because
+    degrading to "the four known-bad runs" is the right failure mode when the
+    job is to SUPPRESS citations.
+    """
     merged: dict[str, dict[str, str]] = dict(_SEEDED)
     try:
         from . import redis_store as rs
-        data = await rs.get_json(_KEY)
+        data = await (rs.get_json_strict(_KEY) if strict else rs.get_json(_KEY))
         if isinstance(data, dict):
             for k, v in data.items():
                 if isinstance(v, dict):
                     merged[k] = v
     except Exception as exc:
+        if strict:
+            raise QuarantineStoreUnavailable(str(exc)) from exc
         logger.debug("run_quarantine: Redis load failed (using seed only): %s", exc)
     return merged
 
@@ -207,14 +224,17 @@ async def get_quarantine_entry(run_id: str) -> dict[str, str] | None:
     return entries.get((run_id or "").strip())
 
 
-async def list_quarantined() -> list[dict[str, Any]]:
+async def list_quarantined(*, strict: bool = False) -> list[dict[str, Any]]:
     """Complete list for the /api/aria/dd/quarantine endpoint.
 
     Each entry carries `investigation_status` ("closed" | "open") so the
     operator can see at a glance whether all quarantines have been
     investigated + closed (Phase A gate #4 criterion).
+
+    R-F3697 — `strict=True` propagates QuarantineStoreUnavailable rather than
+    degrading to the code-resident seeds.
     """
-    entries = await _load()
+    entries = await _load(strict=strict)
     items = [
         {"run_id": k, **v}
         for k, v in sorted(entries.items(), key=lambda kv: kv[1].get("quarantined_at", ""))
@@ -236,15 +256,55 @@ async def closure_summary() -> dict[str, Any]:
       gate_passes: bool         — True iff all quarantines are closed
       open_run_ids: list[str]   — what's left to investigate
     """
-    items = await list_quarantined()
+    # ── R-F3697 — gate #4 must be able to FAIL, and to say "unmeasurable" ──
+    #
+    # THE DEFECT: `_load` swallowed every store error and returned the four
+    # code-resident `_SEEDED` entries, ALL of which carry
+    # `"investigation_status": "closed"` in source. So this function returned
+    # total=4 / closed=4 / open=0 / gate_passes=True whether the store was
+    # healthy, empty, or dead — the identical answer in all three cases. The
+    # guard `len(items) > 0`, which R-F2643 added so an empty store could not
+    # vacuously pass, was satisfied by the seeds themselves.
+    #
+    # Live gate #4 read exactly 4/4/0, i.e. the dynamic store contributed
+    # NOTHING and the pass was carried entirely by hardcoded constants.
+    #
+    # Now: a store failure is UNMEASURABLE (`gate_passes=None`), never a pass —
+    # the tri-state contract phase_gates.py already renders as "unknown" rather
+    # than "open" (R-F2639: "could not measure" is not "measured and failed").
+    # And the seed/dynamic split is reported so the gate's BASIS is visible.
+    try:
+        items = await list_quarantined(strict=True)
+    except QuarantineStoreUnavailable as exc:
+        logger.warning(
+            "[R-F3697] quarantine store unreadable — gate #4 is UNMEASURABLE, "
+            "not passing: %s", exc,
+        )
+        return {
+            "total": None,
+            "closed": None,
+            "open": None,
+            "gate_passes": None,          # tri-state: could not measure
+            "measurable": False,
+            "measure_error": str(exc)[:200],
+            "open_run_ids": [],
+            "seeded_total": len(_SEEDED),
+            "dynamic_total": None,
+        }
     closed = sum(1 for it in items if it.get("investigation_status") == "closed")
     open_items = [it for it in items if it.get("investigation_status") != "closed"]
+    dynamic_total = sum(1 for it in items if it.get("run_id") not in _SEEDED)
     return {
         "total": len(items),
         "closed": closed,
         "open": len(open_items),
         "gate_passes": len(open_items) == 0 and len(items) > 0,
+        "measurable": True,
         "open_run_ids": [it["run_id"] for it in open_items],
+        # R-F3697 — makes "the pass is carried by seeds alone" visible instead
+        # of indistinguishable from a genuinely investigated estate.
+        "seeded_total": len(_SEEDED),
+        "dynamic_total": dynamic_total,
     }
 
 

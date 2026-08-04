@@ -596,6 +596,31 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
     """
     if not topics:
         return
+    # R-F3694 — `correct` MUST be a real bool.
+    #
+    # `autonomous.tasks._grade_researched_cell` is deliberately TRI-STATE
+    # (`bool | None`, tasks.py:2292) and its own docstring says why: "Every
+    # branch below used to return False, so a measurement failure was recorded
+    # as ARIA getting the answer wrong, and the caller then drove mastery down
+    # for it." Four of its branches return None — no research text, grader
+    # exception, answered=False, empty response.
+    #
+    # R-F3483 taught ONE of its three callers to skip on None (tasks.py:2460,
+    # which counts it as `mastery_unmeasured`). The two callers in THIS module
+    # passed the value straight through, and `if correct:` then took the else
+    # branch — recording a MISS for a cell that was never measured.
+    #
+    # Rejecting a non-bool here is the structural half of the fix: the call
+    # sites are corrected below, but a fourth caller must not be able to
+    # reintroduce this silently.
+    if not isinstance(correct, bool):
+        logger.error(
+            "[R-F3694] update_mastery called with correct=%r (%s) — expected "
+            "bool. An UNMEASURED topic must be SKIPPED by the caller, never "
+            "written as a miss. Refusing the update for topics=%s.",
+            correct, type(correct).__name__, topics,
+        )
+        return
     mastery = await _load_mastery()
     now = time.time()
     remediation_needed: list[str] = []
@@ -1434,9 +1459,22 @@ async def _study_weak_regional_cells(
                 try:
                     from ..autonomous.tasks import _grade_researched_cell as _grade_cell
                     _graded = await _grade_cell(_topic, _region, _research_text)
-                    await update_regional_mastery(
-                        [_topic], [_region], correct=_graded, weight=0.3,
-                    )
+                    # R-F3694 — the grade is TRI-STATE. `None` means the cell
+                    # was NOT MEASURED (no research text / grader error /
+                    # answered=False / empty response), and passing it through
+                    # coerced to a MISS at update_regional_mastery's
+                    # `1.0 if correct else 0.0`. Mirrors the skip R-F3483
+                    # already ships at autonomous/tasks.py:2460.
+                    if _graded is None:
+                        logger.info(
+                            "[student] R-F3694 cell %s:%s UNMEASURED — the local "
+                            "stack could not answer; not counted as a miss",
+                            _topic, _region,
+                        )
+                    else:
+                        await update_regional_mastery(
+                            [_topic], [_region], correct=_graded, weight=0.3,
+                        )
                 except Exception as _ge:
                     # Grader/import failed → do NOT fabricate a pass; skip the
                     # mastery move entirely (an unmeasured cell must not be
@@ -1762,19 +1800,32 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
                         _r_topic, _r_region, _ge,
                     )
                 else:
-                    await update_regional_mastery(
-                        [_r_topic], [_r_region], correct=_graded, weight=0.3,
-                    )
-                    # R-F2859 — topic mastery rides the SAME grade. Only the
-                    # GRADED topic is credited: spreading one recall result
-                    # across every topic detected in the article would be a
-                    # fresh fabrication, exactly the error R-F2661 avoided on
-                    # the regional axis.
-                    await update_mastery([_r_topic], correct=_graded, weight=0.3)
-                    logger.info(
-                        "[student] R-F2661/R-F2859 reading cell %s:%s -> honest "
-                        "mastery grade=%s", _r_topic, _r_region, _graded,
-                    )
+                    # R-F3694 — the comment on the except branch above says
+                    # "do NOT write a fabricated fail", but it guarded only the
+                    # EXCEPTION path. A tri-state `None` RETURN fell into this
+                    # else and wrote exactly the fabricated fail it forbids —
+                    # on BOTH axes, since update_mastery rides the same grade.
+                    if _graded is None:
+                        logger.info(
+                            "[student] R-F3694 reading cell %s:%s UNMEASURED — "
+                            "the local stack could not answer; not counted as a "
+                            "miss on either axis",
+                            _r_topic, _r_region,
+                        )
+                    else:
+                        await update_regional_mastery(
+                            [_r_topic], [_r_region], correct=_graded, weight=0.3,
+                        )
+                        # R-F2859 — topic mastery rides the SAME grade. Only the
+                        # GRADED topic is credited: spreading one recall result
+                        # across every topic detected in the article would be a
+                        # fresh fabrication, exactly the error R-F2661 avoided on
+                        # the regional axis.
+                        await update_mastery([_r_topic], correct=_graded, weight=0.3)
+                        logger.info(
+                            "[student] R-F2661/R-F2859 reading cell %s:%s -> honest "
+                            "mastery grade=%s", _r_topic, _r_region, _graded,
+                        )
         except Exception as _rre:
             logger.debug("R-F196 regional mastery update failed: %s", _rre)
 
@@ -2358,8 +2409,27 @@ async def flush_regional() -> bool:
 async def update_regional_mastery(
     topics: list[str], regions: list[str], correct: bool, weight: float = 1.0,
 ) -> None:
-    """Update mastery for topic×region combinations."""
+    """Update mastery for topic×region combinations.
+
+    R-F3694 — `correct` MUST be a real bool. See the note on update_mastery:
+    the graders are tri-state (`True | False | None`) and `None` means the cell
+    was NOT MEASURED. Coercing it here via `1.0 if correct else 0.0` recorded a
+    measurement failure as ARIA getting the answer WRONG, which is what drove
+    the gate-#2 heatmap floor to 0.003.
+    """
     if not topics or not regions:
+        return
+    if not isinstance(correct, bool):
+        # Refuse LOUDLY rather than silently pick a branch. Note this axis has
+        # no HARD_FLOOR clamp (unlike update_mastery), so a wrong value decays
+        # the EWMA toward zero without bound: 0.5·(1−0.03)^n = 0.003 at n≈168.
+        logger.error(
+            "[R-F3694] update_regional_mastery called with correct=%r (%s) — "
+            "expected bool. An UNMEASURED cell must be SKIPPED by the caller, "
+            "never written as a miss. Refusing the update for topics=%s "
+            "regions=%s.",
+            correct, type(correct).__name__, topics, regions,
+        )
         return
     rm = await _load_regional_mastery()
     if _regional_cache is None:

@@ -153,7 +153,22 @@ async def compute_composite() -> dict:
         stats = await source_verifier.get_verification_stats()
         val = stats.get("avg_grounded_rate")
         source = "avg_grounded_rate"
-        sample = stats.get("rate_sample_size") or 0
+        # R-F3696 — the sample size must describe the WINDOW `val` came from.
+        # `rate_sample_size` is 24h-only, but `avg_grounded_rate` falls back to
+        # the LIFETIME average when the 24h window is quiet (R-F590). Reading
+        # the 24h count against a lifetime value made the R-F1907 guard below
+        # discard a well-sampled signal as `insufficient_samples_n0` — which
+        # zeroed 45% of the composite and pinned gate #1 at confidence 0.30.
+        # `effective_sample_size` is co-computed with the rate in
+        # source_verifier, so the two can no longer describe different windows.
+        # `.get(... , None)` then falling back keeps this working against an
+        # older stats dict that predates the field.
+        sample = stats.get("effective_sample_size")
+        if sample is None:
+            sample = stats.get("rate_sample_size") or 0
+        sample = int(sample or 0)
+        if stats.get("data_source"):
+            source = f"avg_grounded_rate:{stats['data_source']}"
         if val is None:
             by_verdict = stats.get("by_verdict") or {}
             verified = int(by_verdict.get("verified") or 0)
