@@ -1146,6 +1146,39 @@ async def dd_orchestrate_ep(req: Request):
             registration_number=body.get("registration_number"),
         )
         if _canonical and not body.get("force"):
+            # ── R-F3700 — the vault pre-check must be TENANT-SCOPED ──────────
+            #
+            # THE DEFECT: `DDVault.get_case` (intel/dd_vault.py:475-484) is a
+            # bare `SELECT * FROM dd_cases WHERE canonical_entity_id = ?` — the
+            # vault is entity-keyed with NO owner column. This route called it
+            # with no scoping at all, so tenant B submitting a DD for an entity
+            # tenant A had already run received A's `risk_level`, `risk_score`,
+            # `findings_summary`, `last_run_at` and `run_count`.
+            #
+            # `canonical_entity_id` is deterministic over name + jurisdiction +
+            # registration number — all PUBLIC inputs — so the "attack" is just
+            # submitting a competitor's details. And because the short-circuit
+            # returns before any work happens, it consumed no quota: the leak
+            # was also the CHEAP path.
+            #
+            # R-F2097 already gated the sibling read (`/dd/case/{id}`, ~:1620)
+            # with exactly this oracle; this route was missed.
+            #
+            # Deliberately NOT 404-ing on a cross-tenant miss, unlike that
+            # sibling: the caller is entitled to run their OWN DD on this
+            # entity. We simply decline the short-circuit and fall through to
+            # the real run, so an unowned entity is indistinguishable from a
+            # never-before-seen one — which is the honest state from that
+            # tenant's point of view.
+            _vault_owner_id = (body.get("user_id") or "").strip()
+            _vault_owner_domain = (body.get("user_email_domain") or "").strip()
+            _vault_owned = await _dd_owned_entity_ids(_vault_owner_id, _vault_owner_domain)
+            # `None` = unrestricted (internal/service caller); a set = scoped.
+            # `_dd_owned_entity_ids` fails CLOSED to an empty set on error.
+            _may_reuse = _vault_owned is None or _canonical in _vault_owned
+        else:
+            _may_reuse = False
+        if _canonical and not body.get("force") and _may_reuse:
             _vault = _get_dd_vault()
             _existing = _vault.get_case(_canonical)
             if _existing:

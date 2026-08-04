@@ -874,8 +874,42 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
                     "readable": "⚠ run_eval SKIPPED — no LLM provider configured.",
                 }
             }
-        label = (task.tool_chain[0] or {}).get("label", "daily_autonomous")
-        report = await _er.run_eval(llm, label=label)
+        # ── R-F3701 — the scheduled eval must RECORD, and must be able to FINISH ──
+        #
+        # THE DEFECT (two halves, both live):
+        #
+        # 1. `run_eval(llm, label=label)` left `record` at its default of False.
+        #    R-F2390 built `record=True` precisely to flow each answered entry
+        #    through source_verifier.record_verification + honesty_judge.
+        #    record_judgment — the EXACT stores autonomy_scorer.compute_composite
+        #    reads (eval_runner.py:434-438, :664, :680). This was the ONLY
+        #    scheduled caller, so the mechanism that populates 70% of Phase A
+        #    gate #1's weight (verification 0.45 + honesty 0.25) had never run.
+        #    Live: gate #1 confidence sat at EXACTLY 0.30 = W_MASTERY, i.e.
+        #    mastery was the only measured axis, and the 0.836 "composite" was
+        #    the mastery score alone, renormalised.
+        #
+        #    R-F3696 fixed the sample-size mismatch that DISCARDED a verification
+        #    signal; this fixes the reason there was no signal to discard.
+        #
+        # 2. `limit` defaulted to 0 = the whole 500-entry golden set, inside a
+        #    600s timeout (tasks.yaml:1174). Each entry costs one full
+        #    _aria_chat_session PLUS a judge completion PLUS two encodes — about
+        #    1.2s of budget for two LLM round-trips, which is not achievable.
+        #    `_save_run` only runs AFTER the loop (eval_runner.py:753), so a
+        #    timeout persisted NOTHING: the daily regression signal was empty
+        #    while the spend was real. The representative-stride sampler
+        #    (eval_runner.py:470-473) exists for exactly this and was never
+        #    given a limit to use — it strides across the set so the subset
+        #    spans categories instead of being the first N of one category.
+        #
+        # Both are read from the task config so the operator can tune them in
+        # tasks.yaml without a code change; the defaults are the safe ones.
+        _cfg = task.tool_chain[0] or {}
+        label = _cfg.get("label", "daily_autonomous")
+        _record = bool(_cfg.get("record", True))
+        _limit = int(_cfg.get("limit", 40) or 0)
+        report = await _er.run_eval(llm, label=label, record=_record, limit=_limit)
         return {"run_eval": report}
 
     elif tool_kind == "cost_guard":

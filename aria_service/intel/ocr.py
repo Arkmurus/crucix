@@ -86,6 +86,7 @@ async def extract_text_from_image(
     filename: str = "image.jpg",
     context: str = "",
     llm=None,
+    owner_key: str = "",
 ) -> dict:
     """Extract text from an image. ZERO-SETUP — works out of the box.
 
@@ -187,6 +188,13 @@ async def extract_text_from_image(
                     source=f"ocr:{filename}",
                     source_type="ocr",
                     title=filename,
+                    # R-F3699 — an OCR'd upload belongs to the user who sent it.
+                    # Without this every extraction landed in the SHARED
+                    # `aria_documents` collection, and aria_engine._prefetch_rag
+                    # pulls that collection into the model context on every chat
+                    # turn for every user — so one tenant's invoice could be
+                    # retrieved into another's prompt.
+                    owner_key=owner_key,
                     extra_metadata={
                         "ocr_method": result.get("method", "unknown"),
                         "ocr_confidence": result.get("confidence", 0),

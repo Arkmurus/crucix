@@ -921,6 +921,7 @@ async def ingest_document(
     retention_class: str = "",
     data_jurisdiction: str = "",
     personal_data: bool = False,
+    owner_key: str = "",
 ) -> dict:
     """Chunk a document and add it to the RAG store.
 
@@ -1030,6 +1031,19 @@ async def ingest_document(
         for k, v in extra_metadata.items():
             if isinstance(v, (str, int, float, bool)):
                 base_meta[str(k)[:50]] = v if not isinstance(v, str) else v[:300]
+    # ── R-F3699 — stamp the OWNER so retrieval can scope to it ──────────────
+    #
+    # Set this for anything derived from a specific user's material: an OCR'd
+    # upload, a document read, a per-tenant corpus. Leave it EMPTY for shared
+    # corpus (web-search results, curated intel) — search() treats an unstamped
+    # chunk as universally retrievable, which is what keeps the ~667k
+    # pre-existing chunks working.
+    #
+    # Written AFTER extra_metadata so an accidental `owner_key` passed through
+    # that dict can never override the explicit argument.
+    _own = (owner_key or "").strip()
+    if _own:
+        base_meta["owner_key"] = _own[:200]
 
     # R-F225 (2026-05-11) — content-hash dedup. Pre-R-F225 _hash_id
     # was `hash(chunk + source)` — the SAME RSS article fetched from
@@ -1591,6 +1605,44 @@ def _credibility_multiplier(tier) -> float:
 
 
 @fail_wire(module="rag_store", gap_type="embedder_failure")
+def chunk_visible_to(chunk_owner: str, caller_owner: str, *, serve_owned_to_all: bool = False) -> bool:
+    """R-F3699 — may a retrieved chunk be served to this caller?
+
+    Extracted as a named predicate rather than left inline in the query loop so
+    it is directly testable: chromadb has no win-arm64 wheel, so `search()`
+    itself cannot execute on the dev box (§16) and an inline rule would ship
+    unexercised.
+
+    The rule:
+      * chunk with NO owner  -> shared corpus (web results, curated intel).
+        Universally retrievable. This is what keeps the ~667k pre-existing
+        chunks — none of which carry an owner_key — working.
+      * chunk WITH an owner  -> served only to that owner. A caller with no
+        owner key gets none of them, because the alternative is serving
+        someone's uploaded documents to whoever asks.
+      * `serve_owned_to_all` is the explicit single-tenant declaration.
+    """
+    owner = (chunk_owner or "").strip()
+    if not owner:
+        return True
+    if serve_owned_to_all:
+        return True
+    return owner == (caller_owner or "").strip()
+
+
+def _rag_serve_owned_to_all() -> bool:
+    """R-F3699 — single-tenant escape hatch, opt-in and explicit.
+
+    A deployment with exactly one real user can set
+    ``ARIA_RAG_SERVE_OWNED_TO_ALL=1`` so owner-stamped chunks stay retrievable
+    from unattributed internal callers. It is a DECLARATION that there is no
+    second tenant to leak to — never a default, so it cannot silently become
+    one again.
+    """
+    import os as _os
+    return str(_os.getenv("ARIA_RAG_SERVE_OWNED_TO_ALL", "")).strip().lower() in {"1", "true", "yes"}
+
+
 async def search(
     query: str,
     *,
@@ -1600,6 +1652,7 @@ async def search(
     include_facts: bool = True,
     include_documents: bool = True,
     min_similarity: float = DEFAULT_MIN_SIMILARITY,
+    owner_key: str = "",
 ) -> list[dict]:
     """Hybrid retrieval over the RAG store.
 
@@ -1624,6 +1677,14 @@ async def search(
     results: list[dict] = []
     import asyncio as _aio
 
+    # R-F3699 — resolved ONCE per search, read by the per-chunk filter below.
+    # `_owner_filter_active` drives the over-fetch: it is True whenever owned
+    # chunks could be excluded, i.e. unless this deployment has declared itself
+    # single-tenant.
+    _owner_norm = (owner_key or "").strip()
+    _serve_owned_to_all = _rag_serve_owned_to_all()
+    _owner_filter_active = not _serve_owned_to_all
+
     def _sync_query_collection(coll, name: str):
         if coll is None:
             return
@@ -1635,7 +1696,13 @@ async def search(
                 where["source_type"] = source_type
             if market:
                 where["market"] = market
-            kwargs = {"query_texts": [query], "n_results": top_k}
+            # R-F3699 — over-fetch when an owner filter is active. The filter is
+            # applied in Python below (not in `where`), so without this a page
+            # of another tenant's chunks could crowd out the caller's own and
+            # silently return nothing. 4× is the same headroom internal_search
+            # uses before its re-rank.
+            _n_results = top_k * 4 if _owner_filter_active else top_k
+            kwargs = {"query_texts": [query], "n_results": _n_results}
             if where:
                 kwargs["where"] = where
             r = coll.query(**kwargs)
@@ -1658,6 +1725,36 @@ async def search(
                     continue
                 # Apply recency boost + R-F2215 credibility multiplier (neutral
                 # when the chunk has no tier, so corpus/vault content is unchanged).
+                # ── R-F3699 — TENANT SCOPING, fail closed ──────────────────
+                #
+                # THE DEFECT: `search()` had no owner parameter at all, and
+                # `ocr.py` ingests EVERY successful OCR extraction into the
+                # shared `aria_documents` collection with no owner metadata.
+                # That path is reached from the WhatsApp / upload document flow,
+                # and `aria_engine._prefetch_rag` pulls up to 6000 chars of this
+                # collection into the model context on EVERY chat turn for EVERY
+                # user. So user A's invoice could be retrieved into user B's
+                # prompt and quoted back.
+                #
+                # This is the same class R-F3489 closed for mem0 recall; the RAG
+                # half was never done, and `tenant_namespace.py:252-255` says so
+                # itself: `"wired_into": []` with a TODO naming this function.
+                #
+                # Filtering happens HERE, in Python, rather than in chromadb's
+                # `where`: the store holds ~667k pre-existing chunks with NO
+                # `owner_key` field, and chroma's `where` cannot express "field
+                # absent". A `$in` filter would therefore have excluded the
+                # entire legacy corpus — a catastrophic, silent recall loss.
+                #
+                # The rule: a chunk with NO owner is shared corpus (web results,
+                # curated intel) and stays universally retrievable. A chunk WITH
+                # an owner is served only to that owner. A caller with no owner
+                # key gets no owned chunks at all, because the alternative is
+                # serving someone's uploaded documents to whoever asks.
+                _chunk_owner = (meta.get("owner_key") or "") if isinstance(meta, dict) else ""
+                if not chunk_visible_to(_chunk_owner, _owner_norm,
+                                        serve_owned_to_all=_serve_owned_to_all):
+                    continue
                 ts = meta.get("ts_epoch") if isinstance(meta, dict) else None
                 _cred_tier = meta.get("credibility_tier") if isinstance(meta, dict) else None
                 score = similarity * _recency_boost(ts) * _credibility_multiplier(_cred_tier)
