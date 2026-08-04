@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3673,
+  "next_available": 3675,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30735,6 +30735,24 @@
       "commit_sha": "f0e40f1f",
       "notes": null,
       "shipped_at": "2026-08-04T05:41:21Z"
+    },
+    {
+      "r_number": "R-F3673",
+      "title": "news ingest: the seen-set outranked the archive, so seen-but-never-archived articles were unrecoverable",
+      "claimed_at": "2026-08-04T05:48:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3674",
+      "title": "news page claimed 45 live sources while 5 produced nothing and 1 was quarantined",
+      "claimed_at": "2026-08-04T05:49:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

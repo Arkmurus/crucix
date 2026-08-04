@@ -465,6 +465,45 @@ async def find_by_content_hash(chash: str) -> list[dict]:
     return await _adb(_db_by_content, chash)
 
 
+def _db_archived_subset(hashes: list[str]) -> set[str]:
+    conn = _get_db()
+    found: set[str] = set()
+    # Chunked to stay well inside SQLite's variable limit (999 by default) no
+    # matter how many entries a feed returns.
+    for i in range(0, len(hashes), 400):
+        chunk = hashes[i:i + 400]
+        marks = ",".join("?" * len(chunk))
+        found.update(r[0] for r in conn.execute(
+            f"SELECT canonical_url_hash FROM news_articles "
+            f"WHERE canonical_url_hash IN ({marks})", chunk))
+    return found
+
+
+@fail_wire(module="news_archive", gap_type="engine_failure")
+async def archived_subset(hashes: list[str]) -> set[str]:
+    """R-F3673 — which of these ``url_hash`` values are ALREADY ARCHIVED.
+
+    The poll needs to answer "have I durably kept this article?", and the seen
+    map cannot answer it: ``_mark_seen`` records only ``hash -> timestamp``, so a
+    URL marked seen by a path that never archived it (anything ingested before
+    the archive existed, or any pre-R-F3486 write that marked seen first) is
+    indistinguishable from one properly stored. Measured live 2026-08-04: 5,777
+    seen URLs against 1,623 archived rows, with 383 of the difference still
+    present in the live feeds and therefore recoverable.
+
+    One indexed query per feed against the UNIQUE index on canonical_url_hash —
+    not a per-article round trip, and not a full table load that would grow
+    without bound.
+
+    Raises rather than returning a partial set: the caller MUST be able to tell
+    "not archived" from "could not check", because treating an unreadable
+    archive as "nothing is archived" would re-ingest every article in every feed.
+    """
+    if not hashes:
+        return set()
+    return await _adb(_db_archived_subset, list(hashes))
+
+
 def _db_pending(stage: str, limit: int) -> list[dict]:
     conn = _get_db()
     return [dict(r) for r in conn.execute(

@@ -326,7 +326,24 @@
     const retentionLimit = stats && Number(stats.retention_limit);
     document.getElementById('kpi-total-label').textContent =
       retentionLimit && recentTrue >= retentionLimit ? 'Retained Articles (cap)' : 'Retained Articles';
-    document.getElementById('kpi-sources').textContent = stats ? stats.total_sources : '-';
+    // R-F3674 — this tile counted CONFIGURED feeds and read as live coverage.
+    // Five of the 45 delivered nothing when this was measured and the page named
+    // none of them. Same treatment as the Categories tile beside it: report
+    // delivering-of-configured, and name the dark ones in the tooltip.
+    const srcEl = document.getElementById('kpi-sources');
+    const sh = stats && stats.source_health;
+    if (sh && sh.measured) {
+      srcEl.textContent = sh.dark > 0 ? (sh.delivering + ' of ' + sh.configured) : String(sh.configured);
+      const parts = [];
+      if (sh.failing && sh.failing.length) parts.push('Failing: ' + sh.failing.join(', '));
+      if (sh.quarantined && sh.quarantined.length) parts.push('Quarantined: ' + sh.quarantined.join(', '));
+      if (sh.silent && sh.silent.length) parts.push('Fetched but empty: ' + sh.silent.join(', '));
+      srcEl.title = parts.length ? parts.join(' · ') : 'Every source delivered on the last poll.';
+    } else {
+      // Not measured is NOT healthy — say so rather than showing a clean count.
+      srcEl.textContent = stats ? stats.total_sources : '-';
+      srcEl.title = stats ? 'Configured sources. Live delivery not yet measured — no poll results recorded.' : '';
+    }
     // R-F3671 — this tile counted CONFIGURED categories and was read as coverage:
     // it showed "9" while the corpus held articles in only 7. Show both, so the
     // gap between what ARIA is configured to watch and what it actually retained
@@ -350,7 +367,10 @@
     const poll = stats && stats.poll_state;
     document.getElementById('kpi-last-poll').textContent =
       poll && typeof poll.articles_new === 'number' ? poll.articles_new + ' new' : 'Waiting…';
-    document.getElementById('source-count').textContent = stats ? stats.total_sources : '—';
+    // R-F3674 — the banner asserts "Live intelligence from N ... sources". N was
+    // the configured count, so it kept claiming feeds that delivered nothing.
+    document.getElementById('source-count').textContent =
+      (sh && sh.measured) ? sh.delivering : (stats ? stats.total_sources : '—');
   }
 
   // R-F3518 — one place that fetches articles for the ACTIVE category, used both

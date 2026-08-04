@@ -676,6 +676,57 @@ async def _seen_snapshot() -> dict:
     return seen_data if isinstance(seen_data, dict) else {}
 
 
+async def _ingestable_head(articles: list[dict], seen: dict, limit: int) -> list[dict]:
+    """R-F3673 — the newest ``limit`` articles ARIA has not durably kept.
+
+    R-F3672 fixed the ORDER (filter before bound). This fixes the AUTHORITY.
+
+    ``_unseen_head`` asks the seen map, and the seen map cannot answer the
+    question that matters. ``_mark_seen`` stores ``hash -> timestamp`` and
+    nothing else, so a URL marked seen by a path that never archived it — every
+    article ingested before the archive existed, and any pre-R-F3486 write that
+    marked seen BEFORE the durable write — is indistinguishable from one properly
+    stored, and is skipped forever. The URLs cannot be recovered from the seen
+    map either (it holds hashes, not links), so the only route back to them is
+    the feed itself, and the feed was exactly what was being skipped.
+
+    Measured live 2026-08-04: 5,777 seen URLs against 1,623 archived rows, with
+    **383 of the difference still present in the live feeds** — including 9 of
+    Europol's 10 items, which is the whole reason the `security` category read as
+    empty, and 20 of the 30 cyber advisories. That is silent evidence loss under
+    a §7 "infinite memory" contract, and it compounds: every hour the feed rolls,
+    a recoverable article becomes unrecoverable.
+
+    So the ARCHIVE decides. An article is skipped only if it is genuinely stored.
+    The seen map degrades to what it always really was — a cache — and is used
+    ONLY when the archive cannot be consulted, because treating an unreadable
+    archive as "nothing is stored" would re-ingest every article in every feed.
+    """
+    candidates = _unseen_head(articles, {}, len(articles))
+    if not candidates:
+        return []
+
+    from . import news_archive as _na
+
+    try:
+        stored = await _na.archived_subset([_na.url_hash(a["url"]) for a in candidates])
+    except Exception as exc:
+        # Could not consult the durable record. Fall back to the seen map — the
+        # R-F3672 behaviour — rather than assuming either extreme.
+        logger.warning(
+            "[R-F3673] archive unreadable (%s) — falling back to the seen map for "
+            "this feed; seen-but-unarchived articles stay skipped this pass", exc)
+        return _unseen_head(articles, seen, limit)
+
+    out = [a for a in candidates if _na.url_hash(a["url"]) not in stored][:limit]
+    _recovered = sum(1 for a in out if _article_hash(a["url"]) in seen)
+    if _recovered:
+        logger.info(
+            "[R-F3673] recovering %d article(s) that were marked seen but never "
+            "archived — they were previously unreachable", _recovered)
+    return out
+
+
 def _unseen_head(articles: list[dict], seen: dict, limit: int) -> list[dict]:
     """R-F3672 — the newest ``limit`` articles that have NOT been ingested before.
 
@@ -2526,8 +2577,12 @@ async def poll_feeds(
             # starved any feed whose newest N were all already ingested: it
             # returned 0 new forever while unseen items sat below the cut. One
             # snapshot read replaces the per-URL re-read of the whole seen map.
+            # R-F3673 — and the ARCHIVE, not the seen map, decides what counts as
+            # already ingested: a URL marked seen by a path that never archived it
+            # was otherwise skipped forever (383 such articles were sitting live in
+            # the feeds when this was measured).
             _seen_map = await _seen_snapshot()
-            for article in _unseen_head(articles, _seen_map, max_articles_per_feed):
+            for article in await _ingestable_head(articles, _seen_map, max_articles_per_feed):
                 article["category"] = category
                 article["language"] = lang
                 article["tier"] = tier
@@ -3020,6 +3075,74 @@ async def get_recent_intel_signals(limit: int = 20, grades: str = "") -> dict:
     return result
 
 
+def _source_health(poll_state: dict | None, configured: int) -> dict:
+    """R-F3674 — how many of the configured sources actually DELIVERED.
+
+    ``total_sources`` counts NEWS_SOURCES tuples, and the news page rendered it
+    as live coverage: a KPI tile reading "45" and a banner reading "Live
+    intelligence from 45 curated ... sources". Measured live 2026-08-04, five of
+    those 45 delivered nothing — Naval News (fetch returned empty), ReliefWeb
+    (quarantined after 8 consecutive failures), and Hurriyet / O Globo / UK
+    Defence Journal Tech (parsed clean, zero items) — so the page overstated live
+    coverage by five and named none of them.
+
+    This is the same defect as the category filter it sits beside: a CONFIGURED
+    population presented as a RETAINED/LIVE one. Counting is not enough either —
+    a bare "40 of 45" would say coverage had dropped without saying what to fix,
+    so the dark feeds are NAMED, split by whether they failed, were quarantined,
+    or answered successfully with nothing (three different problems needing three
+    different responses).
+
+    Derived from the poll's own per-feed results, which ``_write_poll_state``
+    already persists (capped at 120) — no new state, and it can never disagree
+    with the poll that produced it.
+
+    Returns ``measured: False`` when there is no poll result to read: an absent
+    poll is "not yet known", NEVER "all healthy" — certifying source health by
+    the absence of evidence is the failure this repo keeps having to undo.
+    """
+    results = list((poll_state or {}).get("results") or [])
+    if not results:
+        return {
+            "measured": False,
+            "configured": configured,
+            "reason": "no_poll_results_recorded",
+        }
+
+    delivering, failing, quarantined, silent = [], [], [], []
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        name = str(r.get("name") or "?")
+        status = str(r.get("status") or "")
+        got = int(r.get("articles") or 0)
+        if status == "quarantined":
+            quarantined.append(name)
+        elif status in ("failed", "error", "unknown_format"):
+            failing.append(name)
+        elif got > 0:
+            delivering.append(name)
+        else:
+            silent.append(name)
+
+    dark = failing + quarantined + silent
+    return {
+        "measured": True,
+        "configured": configured,
+        # Reported on the poll's own denominator: a truncated poll (R-F2630) does
+        # not attempt every feed, and calling an unattempted feed "dark" would be
+        # a false alarm.
+        "reported_on": len(results),
+        "delivering": len(delivering),
+        "dark": len(dark),
+        "failing": sorted(failing),
+        "quarantined": sorted(quarantined),
+        # Fetched and parsed cleanly, but carried no items. Not a failure — a
+        # publisher can simply be quiet — but not live coverage either.
+        "silent": sorted(silent),
+    }
+
+
 @fail_wire(module="news_monitor", gap_type="source_failure")
 async def get_stats() -> dict:
     """Get news monitor statistics (cached 30s to avoid cold-start flaps)."""
@@ -3029,6 +3152,7 @@ async def get_stats() -> dict:
         return dict(_stats_cache)
 
     articles = await get_recent_articles(_MAX_ARTICLES)
+    _poll_state = await _read_poll_state()
     by_category: dict[str, int] = {}
     by_source: dict[str, int] = {}
     for a in articles:
@@ -3077,7 +3201,10 @@ async def get_stats() -> dict:
         # Configured but empty: coverage that is dark right now. Named so the UI
         # can disable the button AND say why, rather than silently omitting it.
         "empty_categories": [c for c in configured_cats if not by_category.get(c)],
-        "poll_state": await _read_poll_state(),
+        "poll_state": _poll_state,
+        # R-F3674 — see _source_health: `total_sources` is a CONFIGURED count and
+        # the page presented it as live coverage.
+        "source_health": _source_health(_poll_state, len(configured_sources)),
     }
     _stats_cache = result
     _stats_cache_ts = now

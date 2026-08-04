@@ -50,13 +50,26 @@ _LIVE_STATS = {
     ],
     "empty_categories": ["cyber_security", "security"],
     "poll_state": {},
+    # R-F3674 — measured the same day: 5 of the 45 configured feeds delivered
+    # nothing (Naval News empty, ReliefWeb quarantined, three parsed-but-empty).
+    "source_health": {
+        "measured": True, "configured": 45, "reported_on": 45,
+        "delivering": 40, "dark": 5,
+        "failing": ["Naval News"],
+        "quarantined": ["ReliefWeb (UN OCHA)"],
+        "silent": ["Hurriyet Daily News", "O Globo Brazil", "UK Defence Journal Tech"],
+    },
 }
 
 _SHIM = """
 class El {
-  constructor(){ this._html=''; this.textContent=''; this.attrs={}; this.dataset={};
+  constructor(){ this._html=''; this._text=''; this.attrs={}; this.dataset={};
     this.style={}; this.classList={remove(){},add(){},contains:()=>false}; }
   set innerHTML(v){ this._html=v; } get innerHTML(){ return this._html; }
+  // A real DOM coerces textContent to a string; the shim must too, or a page
+  // that assigns a number would pass here and render differently in a browser.
+  set textContent(v){ this._text = String(v == null ? '' : v); }
+  get textContent(){ return this._text; }
   setAttribute(k,v){ this.attrs[k]=v; } removeAttribute(k){ delete this.attrs[k]; }
   set title(v){ this.attrs.title=v; } get title(){ return this.attrs.title; }
   addEventListener(){}
@@ -114,6 +127,9 @@ def _run_page(stats: dict) -> dict:
         + "            .map(b=>b.dataset.category).filter(c=>c&&c!=='all'),\n"
         + "  kpi: els['kpi-categories'].textContent,\n"
         + "  kpiTitle: els['kpi-categories'].title || '',\n"
+        + "  sources: els['kpi-sources'].textContent,\n"
+        + "  sourcesTitle: els['kpi-sources'].title || '',\n"
+        + "  banner: els['source-count'].textContent,\n"
         + "}));\n"
     )
     out = subprocess.run([node, "--input-type=module", "-e", js],
@@ -159,6 +175,29 @@ def test_kpi_tile_reports_covered_of_configured():
     drawn = _run_page(_LIVE_STATS)
     assert drawn["kpi"] == "7 of 9", f'KPI tile reads {drawn["kpi"]!r}'
     assert "cyber security" in drawn["kpiTitle"], "the tooltip must name the dark categories"
+
+
+def test_rf3674_sources_tile_and_banner_report_delivering_not_configured():
+    """The tile read "45" and the banner claimed "Live intelligence from 45
+    ... sources" while five of them delivered nothing and none were named."""
+    drawn = _run_page(_LIVE_STATS)
+    assert drawn["sources"] == "40 of 45", f'Sources tile reads {drawn["sources"]!r}'
+    assert drawn["banner"] == "40", (
+        f'the banner still claims {drawn["banner"]!r} live sources'
+    )
+    for name in ("Naval News", "ReliefWeb (UN OCHA)", "Hurriyet Daily News"):
+        assert name in drawn["sourcesTitle"], f"{name} is dark but not named"
+
+
+def test_rf3674_unmeasured_source_health_does_not_render_as_healthy():
+    """No poll results must not produce a confident clean count."""
+    unmeasured = dict(_LIVE_STATS)
+    unmeasured["source_health"] = {"measured": False, "configured": 45,
+                                   "reason": "no_poll_results_recorded"}
+    drawn = _run_page(unmeasured)
+    assert "not yet measured" in drawn["sourcesTitle"].lower(), (
+        f'unmeasured health rendered as {drawn["sourcesTitle"]!r}'
+    )
 
 
 def test_page_degrades_safely_against_a_server_without_the_new_fields():

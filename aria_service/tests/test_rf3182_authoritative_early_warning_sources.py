@@ -108,12 +108,21 @@ async def test_rf3182_real_poll_path_stores_authoritative_cyber_article() -> Non
         stored.append(article.copy())
 
     from aria_service.intel import golden_intel_bridge
+    from aria_service.intel import news_archive as na
 
     with (
         patch.object(nm, "NEWS_SOURCES", [source]),
         patch.object(nm, "_get_vault_feed_sources", MagicMock(return_value=[])),
         patch.object(nm, "_fetch_feed", AsyncMock(return_value=rss)),
         patch.object(nm, "_is_seen", AsyncMock(return_value=False)),
+        # R-F3673 — "already ingested" is now decided by the ARCHIVE, not the
+        # seen map, so a test that only stubs `_is_seen` is stubbing the old
+        # authority. Without this the assertion below depends on whatever a
+        # previous run of THIS test left in the developer's local
+        # data/news_archive.db — it stores the article, so the second run sees a
+        # genuinely-archived URL and correctly reports 0 new. Stub both, and the
+        # test states what it means: nothing about this article is known yet.
+        patch.object(na, "archived_subset", AsyncMock(return_value=set())),
         patch.object(nm, "_mark_seen", AsyncMock()),
         patch.object(nm, "_store_article", AsyncMock(side_effect=capture)),
         patch.object(nm, "_feed_to_brain", AsyncMock(return_value=True)),
