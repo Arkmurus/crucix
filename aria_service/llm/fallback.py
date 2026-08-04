@@ -409,8 +409,22 @@ class FallbackProvider(LLMProvider):
         stats["last_recovery_probe"] = time.time()
         kind_before = stats.get("last_kind") or "unknown"
         try:
+            # R-F3687 — THE SYSTEM PROMPT MUST NOT BE EMPTY.
+            #
+            # This was `complete("", "hi", ...)`. Measured live 2026-08-04, the
+            # Anthropic provider applies `cache_control` to the system block, and
+            # Anthropic rejects that on an empty one:
+            #   HTTP 400 {"type":"invalid_request_error","message":
+            #             "system.0: cache_control cannot be set for empty text blocks"}
+            # That is kind="other" — INCONCLUSIVE by the rules below — so the probe
+            # ran, failed for a reason that had nothing to do with credit, and left
+            # the cooldown standing. Anthropic could never be released, which is
+            # the exact defect R-F3685 exists to fix, reintroduced by its own probe.
+            # Proven by the same call succeeding here the moment the prompt is
+            # non-empty, while deepseek_backup (openai_compat, no cache_control)
+            # was released on the first try.
             await provider.complete(
-                "", "hi", max_tokens=1, timeout=_RECOVERY_PROBE_TIMEOUT_S,
+                "ping", "hi", max_tokens=1, timeout=_RECOVERY_PROBE_TIMEOUT_S,
             )
         except Exception as exc:
             _kind = getattr(exc, "kind", "") or ""

@@ -67,6 +67,18 @@ class _Provider(LLMProvider):
 
     async def complete(self, system_prompt="", user_message="", **k):
         self._calls.append((self.name, k.get("max_tokens")))
+        # R-F3687 — mirror the LIVE Anthropic behaviour: its provider sets
+        # cache_control on the system block, which Anthropic rejects when that
+        # block is empty. A probe that sends "" therefore always fails with a
+        # non-billing 400 and can never release the provider.
+        if not str(system_prompt or "").strip():
+            raise ProviderError(
+                self.name,
+                'HTTP 400: {"type":"error","error":{"type":'
+                '"invalid_request_error","message":"system.0: cache_control '
+                'cannot be set for empty text blocks"}}',
+                status=400, kind="other", retryable=True,
+            )
         if self._fail:
             raise self._fail
         return LLMResult(text="ok", model=self.name)
