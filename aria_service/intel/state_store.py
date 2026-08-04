@@ -2162,6 +2162,42 @@ async def _ensure_read_conn() -> None:
         # so `_read_pool` still points at it and it is still in use.
         _reap_old_conns(*new_pool)
         logger.warning("[R-F1449/R-F2242] _ensure_read_conn failed: %s", e)
+async def _flush_pending_for_read(key: str) -> None:
+    """Make this key's pending write visible to a POOL read. Never raises.
+
+    R-F3679 — extracted from ``_row`` so ``get_strict`` shares it. The strict
+    reader used to execute on ``_conn``, the write connection, which saw queued
+    writes implicitly; moving it to the read pool would otherwise have broken
+    read-after-write for all 30 strict callers (a ``set_json`` immediately
+    followed by ``get_json_strict`` would read None — "genuinely absent" — which
+    is the precise lie the strict readers exist to prevent). Caught in Pass 1
+    verification by a test that wrote a key and read it straight back.
+
+    R-F1973: reads NEVER flush the queue in production. The background worker
+    drains it every 100ms, so writes are visible within 100ms. Previously
+    (R-F1541) every read drained it synchronously, causing 12+ second hangs when
+    the queue backlogged to 1500+ items during boot.
+
+    For SMALL queues (<=10 items) we still flush synchronously to guarantee
+    read-after-write in the common case (single writes, tests). Large backlogs
+    are left to the background worker.
+    """
+    try:
+        # R-F2290: flush the queue this key actually routes to (cold or hot), so
+        # read-after-write holds for cold keys too. Flag OFF → the hot queue.
+        _routed_cold = _HOTCOLD_SPLIT and _cold_queue is not None and _route_db(key) == "cold"
+        queue = _cold_queue if _routed_cold else _QUEUED_WRITES
+        if queue is not None and not queue.empty() and queue.qsize() <= 10:
+            # R-F2154: bounded flush — a bloated DB or contested WAL can
+            # make _conn.execute() block past busy_timeout; cap it so
+            # a slow flush never hangs a read (and thus boot) indefinitely.
+            await asyncio.wait_for(
+                _flush_cold_queue() if _routed_cold else _flush_write_queue(),
+                timeout=_READ_FLUSH_BUDGET_S)  # R-F2477: never let the flush eat the read budget
+    except (asyncio.TimeoutError, Exception):
+        pass
+
+
 async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, float | None] | None:
     """Fetch (value, kind, expires_at) for a key. Returns None if missing
     or expired. If expected_kind is given and the kind mismatches, returns
@@ -2184,20 +2220,7 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
     # For SMALL queues (<=10 items) we still flush synchronously to guarantee
     # read-after-write consistency in the common case (single writes, tests).
     # Large backlogs are handled by the background worker.
-    try:
-        # R-F2290: flush the queue this key actually routes to (cold or hot), so
-        # read-after-write holds for cold keys too. Flag OFF → the hot queue.
-        _routed_cold = _HOTCOLD_SPLIT and _cold_queue is not None and _route_db(key) == "cold"
-        queue = _cold_queue if _routed_cold else _QUEUED_WRITES
-        if queue is not None and not queue.empty() and queue.qsize() <= 10:
-            # R-F2154: bounded flush — a bloated DB or contested WAL can
-            # make _conn.execute() block past busy_timeout; cap at 5s so
-            # a slow flush never hangs a read (and thus boot) indefinitely.
-            await asyncio.wait_for(
-                _flush_cold_queue() if _routed_cold else _flush_write_queue(),
-                timeout=_READ_FLUSH_BUDGET_S)  # R-F2477: never let the flush eat the read budget
-    except (asyncio.TimeoutError, Exception):
-        pass
+    await _flush_pending_for_read(key)
     conn = _reader_conn_for(key)  # R-F2290: cold keys read from the cold conn
     if conn is None:
         return None
@@ -2457,20 +2480,82 @@ async def get_strict(key: str) -> str | None:
     is GENUINELY absent/expired — which is what the async job-poll endpoints
     need to honestly answer not_found vs 503-retry (see StateReadError).
     
-    R-F2154: bounded — 5s timeout so a slow DB never hangs a request."""
-    if _conn is None:
+    R-F2154: bounded — 5s timeout so a slow DB never hangs a request.
+
+    R-F3679 — reads through the READ pool, like every other reader.
+
+    This used to execute on ``_conn``, the single WRITE connection. Reads on it
+    queue behind write traffic, so on a busy store every strict read hit the 5s
+    timeout and raised, while the graceful ``get()`` — which goes through ``_row``
+    -> ``_reader_conn_for`` -> ``_get_read_conn`` (R-F1449's dedicated read
+    connection, round-robined over the pool by R-F2242, never touched by
+    ``_reconnect``, WAL snapshot reads that do not block on the writer) — kept
+    succeeding. R-F1449 moved the read path off the write connection and the
+    STRICT path was never moved with it.
+
+    Measured live on aria-intel 2026-08-04: six consecutive probes, strict reads
+    failing 100% while graceful reads succeeded 100%, on keys whose values were
+    present on disk. ``crucix:autonomous:enabled_override`` is a ONE-CHARACTER
+    value and timed out too, so this was never about payload size.
+
+    The blast radius is every ``*_strict`` caller — 30 production sites — and
+    they are honesty-critical by construction, because the whole point of the
+    strict readers (R-F1392) is to tell "genuinely absent" apart from "the store
+    broke". When they raise, that distinction inverts into the wrong answer:
+    Phase A gates 2/3/5/6 went unmeasurable (gate 5 could not see the autonomy
+    override that is the only thing keeping autonomy ON, so it reported the env's
+    `0`), ``_load_feed_health`` returned None so R-F2890's quarantine self-heal
+    was SKIPPED on every poll, and ``dd_orchestrator``'s report-blob read — a
+    customer-facing path — could not fetch a report that exists.
+
+    Also routes hot/cold correctly now. ``_conn`` is the HOT write connection, so
+    a cold-routed key was previously queried against the wrong database and would
+    return a false "genuinely absent" — the exact answer this function exists to
+    never give.
+    """
+    # R-F3679 — same read-after-write guarantee the graceful path has. Without
+    # this a set() immediately followed by get_strict() reads None, i.e. reports
+    # "genuinely absent" for a key that was just written.
+    await _flush_pending_for_read(key)
+    conn = _reader_conn_for(key)
+    if conn is None:
         raise StateReadError(
-            f"state_store: no connection (reconnect in progress) reading {key}")
+            f"state_store: no read connection (reconnect in progress) reading {key}")
     try:
-        cur = await asyncio.wait_for(_conn.execute(
+        cur = await asyncio.wait_for(conn.execute(
             "SELECT value, kind, expires_at FROM state WHERE key = ?", (key,)), timeout=5.0)
         row = await asyncio.wait_for(cur.fetchone(), timeout=5.0)
         await cur.close()
     except asyncio.TimeoutError:
         raise StateReadError(f"state_store: SELECT {key} timed out after 5s")
     except Exception as e:
-        _schedule_reconnect_if_dead(e)  # same self-heal as the graceful path
-        raise StateReadError(f"state_store: SELECT {key} failed: {e}") from e
+        err_str = str(e)
+        # R-F3679 — mirror _row's retry-once-on-closed. A read connection can be
+        # swapped underneath us by _ensure_read_conn; raising on that would turn a
+        # recoverable blip into "the store broke", which callers escalate.
+        if ('closed' in err_str or 'Cannot operate' in err_str
+                or 'no active connection' in err_str):
+            try:
+                await _ensure_read_conn()
+                conn2 = _reader_conn_for(key)
+                if conn2 is not None:
+                    cur = await asyncio.wait_for(conn2.execute(
+                        "SELECT value, kind, expires_at FROM state WHERE key = ?",
+                        (key,)), timeout=5.0)
+                    row = await asyncio.wait_for(cur.fetchone(), timeout=5.0)
+                    await cur.close()
+                else:
+                    raise StateReadError(
+                        f"state_store: no read connection after reopen for {key}")
+            except StateReadError:
+                raise
+            except Exception as e2:
+                _schedule_reconnect_if_dead(e2)
+                raise StateReadError(
+                    f"state_store: SELECT {key} failed after reopen: {e2}") from e2
+        else:
+            _schedule_reconnect_if_dead(e)  # same self-heal as the graceful path
+            raise StateReadError(f"state_store: SELECT {key} failed: {e}") from e
     if not row:
         return None
     value, kind, expires_at = row

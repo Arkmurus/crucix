@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3679,
+  "next_available": 3680,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30795,6 +30795,15 @@
       "commit_sha": "f4cf0a88",
       "notes": null,
       "shipped_at": "2026-08-04T08:02:25Z"
+    },
+    {
+      "r_number": "R-F3679",
+      "title": "strict reads ran on the WRITE connection and timed out behind write traffic while graceful reads used the read pool",
+      "claimed_at": "2026-08-04T08:29:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
