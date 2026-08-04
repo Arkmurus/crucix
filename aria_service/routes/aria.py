@@ -585,6 +585,20 @@ class ChatRequest(BaseModel):
     # callback even if the poll loop times out. The callback URL should point
     # to the caller's delivery endpoint (e.g. WA listener's /api/wa-listener/send).
     callback_url: str = ""
+    # Internal: the async wrapper stamps its own job id here before re-entering
+    # chat_ep synchronously, so the chat path can post OBSERVED progress back
+    # into the job record while it works. Never set by an external caller —
+    # there is nothing useful a client could do with it, and a wrong value only
+    # writes progress to a job the writer already owns.
+    #
+    # Why observed and not predicted: R-F3664 removed interim messages that
+    # claimed "checking multiple sources" on a pure timer, because the listener
+    # cannot see what the brain is doing. Detecting the intent EARLY and telling
+    # the user about it would rebuild the same lie one layer up — the ML
+    # detector can still decline, and a prediction that does not happen is
+    # exactly the fabrication being guarded against. This field lets the tier
+    # that ACTUALLY runs the tool say so, after it has started.
+    progress_job_id: str = ""
 
 
 # R-F1953 — derive the PER-USER quota key. The old `session_id.split("_", 1)[0]`
@@ -10983,7 +10997,8 @@ async def chat_ep(req: ChatRequest, request: Request):
                 status_code=503,
                 detail="Async job store unavailable — try again or use sync mode",
             )
-        _req_sync = req.model_copy(update={"async_mode": False})
+        _req_sync = req.model_copy(update={"async_mode": False,
+                                           "progress_job_id": _cjob_id})
         # R-F1413 — capture callback_url for async-complete-and-push
         # R-F1413 — capture callback_url and validate against SSRF allowlist
         _callback_url = getattr(req, "callback_url", "") or ""
@@ -11245,6 +11260,30 @@ async def chat_ep(req: ChatRequest, request: Request):
                 if intent and llm and llm.is_configured:
                     tool_used = intent.get("tool")
                     _log.info("ARIA chat tool-use detected: %s", intent)
+                    # Publish OBSERVED progress so a polling channel can say what
+                    # is actually happening instead of guessing. Written here —
+                    # after the tool is chosen and immediately before it runs —
+                    # so the claim is about work in flight, never work predicted.
+                    #
+                    # _chat_job_set REPLACES the record, so session_id and
+                    # user_id must be re-stamped or the R-F1852 ownership guard
+                    # on /chat/result would stop matching and the owner would
+                    # get not_found for their own job.
+                    #
+                    # Best-effort by design: a progress write that fails must
+                    # never cost the caller their answer.
+                    if getattr(req, "progress_job_id", ""):
+                        try:
+                            await _chat_job_set(req.progress_job_id, {
+                                "status": "processing",
+                                "stage": "tool",
+                                "tool": tool_used,
+                                "session_id": session_id,
+                                "user_id": (getattr(req, "user_id", "") or "").strip(),
+                            })
+                        except Exception as _pe:
+                            _log.debug("progress write failed for %s: %s",
+                                       req.progress_job_id, _pe)
                     tool_context = await _execute_tool(
                         intent, llm,
                         # R-F1950: pass user_id so _launch_deep_dd_bg can

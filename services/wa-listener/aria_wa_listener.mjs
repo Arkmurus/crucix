@@ -1413,6 +1413,9 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null,
   const BRAIN_HEALTH_CHECK_INTERVAL_MS = 30000;
   const t0 = Date.now();
   let interimSent = false;
+  //: The tool the brain REPORTED starting, or '' if it reported none. Populated
+  //: only from a poll response carrying stage:'tool' — see the interim block.
+  let observedTool = '';
   let lastHealthCheck = 0;
   let chatHealthFails = 0;  // R-F1325 — consecutive health-check failures
   let notFoundStreak = 0;   // R-F1392 — tolerate transient store blips
@@ -1446,6 +1449,27 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null,
     }
     if (chatId && !interimSent && (Date.now() - t0) >= INTERIM_AFTER_MS) {
       interimSent = true;
+      // The brain now publishes OBSERVED progress into the job record
+      // (ChatRequest.progress_job_id → {stage:'tool', tool:<name>}), written
+      // after the tool is chosen and immediately before it runs. `observedTool`
+      // is only ever set from a poll that came back saying so, which is what
+      // makes naming the work here honest rather than a second guess.
+      //
+      // R-F3664 deleted the previous specific interims because THIS code could
+      // not know what the brain was doing and said so anyway. The answer was not
+      // softer wording, it was a fact to stand on. This is that fact. If the
+      // brain reports no tool, the generic wording below still applies — absence
+      // of a flag never licenses a claim.
+      const _toolInterim = {
+        brave_answer:   'Checking live sources now — I\'ll post what I find here.',
+        deep_research:  'Researching this now across live sources — I\'ll come back with what I find.',
+        investigate:    'Investigating now — I\'ll post what I find here.',
+        extract_url_deep: 'Reading that page now — I\'ll summarise it here.',
+        crawl:          'Crawling the site now — I\'ll report back here.',
+        dd_orchestrate: 'Running the due-diligence checks now — I\'ll post the report here when it\'s done.',
+        screen:         'Running the compliance screen now — I\'ll post the result here.',
+      };
+      const _named = observedTool ? _toolInterim[observedTool] : null;
       // R-F3664 — these interim messages FABRICATED TOOL USE.
       //
       // They fire on a pure TIMER (INTERIM_AFTER_MS = 7s), not on intent, and
@@ -1473,7 +1497,8 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null,
         'One moment — I\'m putting your answer together.',
         'Still working on this — I\'ll come back here the moment it\'s ready.',
       ];
-      await sendReply(chatId, _interimMessages[Math.floor(Math.random() * _interimMessages.length)]
+      await sendReply(chatId, _named
+        || _interimMessages[Math.floor(Math.random() * _interimMessages.length)]
       ).catch(() => {});
     }
     // R-F1056 -- send progress updates for long-running jobs (every 2 min)
@@ -1502,6 +1527,12 @@ async function askARIAAsync(message, senderJid, chatId = null, requestId = null,
       continue;
     }
     notFoundStreak = 0;
+    // Record OBSERVED work so the interim above can name it. Set only from a
+    // poll that actually reported stage:'tool' — never inferred from the
+    // question, which is the distinction R-F3664 exists to preserve. Sticky
+    // once seen: the brain replaces the record on completion, so the flag would
+    // otherwise vanish on the poll that matters.
+    if (st.stage === 'tool' && st.tool) observedTool = String(st.tool);
     if (st.status === 'done') {
       // R-F1413 — prevent double-delivery: mark as delivered so the callback
       // doesn't also send the result (race: poll wins, callback is redundant)
