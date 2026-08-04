@@ -93,6 +93,10 @@ import { handleTelegramWebhook, setLLMProvider as setTelegramLLM, handleAriaComm
 import * as channelHooks from './lib/telegram/channelServerHooks.mjs';
 import { startComplianceRefreshScheduler, screenEntity, getComplianceVersions } from './lib/compliance/listRefresher.mjs';
 import { errorTracker, configureTelemetry, SweepMonitor } from './lib/observability/errorTracker.mjs';
+// R-F3682 — allowlist for the UNAUTHENTICATED vetting-portal proxy suffix.
+// Shared module (not an inline regex) so the capability test drives the shipped
+// validator over a real socket rather than a copy of it.
+import { isValidVettingPortalSuffix } from './lib/vetting/portalPath.mjs';
 import { ProcurementDedup, SourcePruner } from './lib/sources/sourceMaintenance.mjs';
 import { startExplorerScheduler } from './lib/self/explorerScheduler.mjs';
 import { redisAdapter } from './lib/persist/redisAdapter.mjs';
@@ -1777,11 +1781,48 @@ app.get(/^\/vetting-portal\/[^/]+$/, (_req, res) => {
 });
 
 app.use('/api/vetting-portal', express.json({ limit: '24mb' }));
+
+// ── R-F3682 — the proxied suffix is an ALLOWLIST, not a sanitiser ───────────
+//
+// THE DEFECT (proven live 2026-08-04, unauthenticated, from the public net):
+//   GET /api/aria/cost/monthly/status                                  -> 401
+//   GET /api/vetting-portal/..%2f..%2fapi%2faria%2fcost%2fmonthly%2fstatus -> 200
+// Express percent-DECODES a regex route's capture group, so `%2f` arrives as
+// `/` and the `..` segments survive into the template string below; WHATWG URL
+// parsing then collapses them. Because this route is (correctly) unauthenticated
+// and is mounted BEFORE the authenticated /api/aria catch-all, and because
+// _ariaHeaders() attaches the brain service token, one request turned an
+// anonymous caller into an authenticated brain caller — bypassing requireAuth,
+// the infra-role gate and pinNonAdminUserId in a single hop.
+//
+// A blocklist ("reject %, reject ..") is the wrong shape: it is a guess about
+// which encodings Express and WHATWG will collapse, and the next encoding that
+// normalises to `/` re-opens it. The brain exposes exactly TWO portal routes —
+// `GET /{token}` and `POST /{token}/documents` (routes/vetting_portal.py:81,160)
+// — so the honest boundary is to enumerate them. The rationale, the charset and
+// the bounds all live in lib/vetting/portalPath.mjs, which the capability test
+// imports so it exercises the shipped validator rather than a copy.
 app.all(/^\/api\/vetting-portal\/(.+)$/, async (req, res) => {
   if (!ARIA_SERVICE_URL) {
     return res.status(503).json({ error: 'Service temporarily unavailable' });
   }
   const suffix = req.params[0];
+  if (!isValidVettingPortalSuffix(suffix)) {
+    // §21a — a refused traversal is security-relevant, so it must reach the
+    // brain, not just the console. status 403 makes classifyError return
+    // SEVERITY.AUTH (errorTracker.mjs:70-73), which is on the ESCALATE list —
+    // a plain Error would classify TRANSIENT and be dropped before the wire.
+    const rejected = new Error(
+      `vetting-portal suffix rejected (${suffix.length} chars, ` +
+      `first 24: ${JSON.stringify(suffix.slice(0, 24))})`,
+    );
+    rejected.status = 403;
+    try { errorTracker.record('vetting_portal_proxy', 'suffix_rejected', rejected); } catch {}
+    // Same indistinguishable 404 the brain's portal returns for every failure
+    // (routes/vetting_portal.py:51-56) — do not confirm the path shape, and do
+    // not reflect attacker-controlled input back into the response body.
+    return res.status(404).json({ error: 'Not found' });
+  }
   try {
     const r = await fetch(`${ARIA_SERVICE_URL}/api/vetting-portal/${suffix}`, {
       method: req.method,
@@ -1793,6 +1834,12 @@ app.all(/^\/api\/vetting-portal\/(.+)$/, async (req, res) => {
     const body = await r.json().catch(() => ({ error: 'invalid upstream response' }));
     return res.status(r.status).json(body);
   } catch (err) {
+    // R-F3682 §21a — was console-only, i.e. DARK: an applicant's upload failing
+    // against a wedged brain left no trace anywhere the brain could see. A
+    // transport blip still classifies TRANSIENT and stays off the escalation
+    // path by design (errorTracker.mjs:96-98) — it is RECORDED either way, so
+    // the local counter and brainWireStats can show it.
+    try { errorTracker.record('vetting_portal_proxy', 'proxy_error', err); } catch {}
     console.error('[vetting-portal] proxy error:', err?.message || err);
     return res.status(502).json({ error: 'Service temporarily unavailable' });
   }

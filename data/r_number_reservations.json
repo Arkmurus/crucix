@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3687,
+  "next_available": 3688,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30866,6 +30866,15 @@
       "r_number": "R-F3686",
       "title": "body-sniff must not override an authoritative 429/5xx status",
       "claimed_at": "2026-08-04T11:01:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3687",
+      "title": "the recovery probe sent an empty system prompt, which Anthropic rejects",
+      "claimed_at": "2026-08-04T11:31:50Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

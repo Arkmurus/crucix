@@ -15,6 +15,7 @@ These tests:
   3. Confirm redaction is the DEFAULT when capture is on, and that the
      hash-chain still verifies after redacted capture.
 """
+# allowlist-secret-file — R-F3683: this suite must contain credential-SHAPED strings to be worth anything. Every value here is SYNTHETIC; never paste a live credential into a file that has opted out.
 from __future__ import annotations
 
 import asyncio

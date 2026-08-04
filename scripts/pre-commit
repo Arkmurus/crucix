@@ -15,6 +15,7 @@ Usage:
 Exit code: 0 if clean, 1 if issues found.
 """
 import os
+import re  # R-F3683 — committed-secret gate
 import subprocess
 import sys
 from pathlib import Path
@@ -196,6 +197,149 @@ def check_all_files() -> list[str]:
     return issues
 
 
+# ── R-F3683 — committed-secret gate ─────────────────────────────────────────
+#
+# THE DEFECT: scripts/verify_all.py:5 and scripts/check_mastery.py:5 each held
+#   TOKEN = '<43-char live bearer token>'
+# and sent it as `Authorization: Bearer` to aria-intel.fly.dev. Both were
+# TRACKED IN GIT, so the credential is in history regardless of deletion, and
+# anyone with repo read access held a key to ~700 brain endpoints.
+#
+# Deleting the two literals fixes today. This gate is what stops tomorrow:
+# constitutional rule `no-hardcoded-token-default-fail-closed` says secrets must
+# fail closed and never be a hardcoded default, and nothing enforced it.
+#
+# Deliberately NOT skipping tests/: the leaked token was ALSO sitting in
+# aria_cli/tests/test_rf2796_terminal_secret_redaction.py:55 as a redaction
+# fixture. A redaction test does not need a real credential, and exempting
+# tests is how the real one got a second home.
+# NOTE the leading `[A-Za-z0-9_]*` is OPTIONAL. An earlier draft required one
+# character before the keyword (`[A-Za-z_][A-Za-z0-9_]*`), which silently failed
+# to match a BARE `TOKEN = '...'` — i.e. the exact shape of the credential this
+# gate exists for. The capability test caught it; without that test this gate
+# would have shipped looking correct and catching nothing.
+_SECRET_NAME_PART = (
+    r"[A-Za-z0-9_]*(?:TOKEN|SECRET|APIKEY|API_KEY|PASSWORD|PASSWD|BEARER)[A-Za-z0-9_]*"
+)
+
+# Shape 1 — a source assignment:  TOKEN = 'abc…'  /  const TOKEN = "abc…"
+_SECRET_NAME_RE = re.compile(
+    r"\b(" + _SECRET_NAME_PART + r")\b\s*[:=]\s*"
+    r"""['"]([A-Za-z0-9_\-]{20,})['"]""",
+    re.IGNORECASE,
+)
+
+# Shape 2 — an env-style assignment, including one embedded INSIDE a string
+# literal:  "ARIA_API_TOKEN=abc…"  /  export ANTHROPIC_API_KEY=sk-…
+# This shape is not optional: the live token this gate exists for appeared in
+# BOTH shapes — as `TOKEN = '…'` in two scripts and as `"ARIA_API_TOKEN=…"` in a
+# test fixture. A gate that only caught the first would have left the second.
+#
+# Deliberately CASE-SENSITIVE and upper-only: env var names are uppercase by
+# convention, and a case-insensitive version matched Python keyword arguments
+# — `max_tokens=_completion_max_tokens(...)`, `input_tokens=_billable_...` —
+# flagging four token-COUNT call sites as credentials. Measured on the real
+# tree; a gate that cries wolf on aria_engine.py gets switched off.
+_SECRET_ENV_RE = re.compile(
+    r"\b([A-Z0-9_]*(?:TOKEN|SECRET|APIKEY|API_KEY|PASSWORD|PASSWD|BEARER)[A-Z0-9_]*)"
+    r"=([A-Za-z0-9_\-]{20,})",
+)
+
+# Values that are obviously not credentials. Kept tight — a broad allowlist is
+# how a gate becomes decorative.
+_SECRET_PLACEHOLDER_RE = re.compile(
+    r"^(?:your[-_]|xxx|placeholder|changeme|replace|example|dummy|fake|test[-_]?token|"
+    r"sk[-_]test|<|\$\{|process\.env|os\.environ)",
+    re.IGNORECASE,
+)
+
+# Explicit, greppable opt-outs for the rare legitimate case. The file-level form
+# exists for redaction/parser FIXTURES, which must contain credential-shaped
+# strings to be worth anything — the alternative is a pragma on every line, which
+# people delete. A file declaring itself is auditable: `grep -r allowlist-secret`.
+_SECRET_PRAGMA = "allowlist-secret"
+_SECRET_PRAGMA_FILE = "allowlist-secret-file"
+
+_SECRET_SCAN_SUFFIXES = {".py", ".mjs", ".js", ".cjs", ".ts", ".sh", ".ps1"}
+
+
+def _looks_like_placeholder(value: str) -> bool:
+    if _SECRET_PLACEHOLDER_RE.match(value):
+        return True
+    # 'aaaaaaaa...' / '000000...' carry no entropy.
+    if len(set(value)) <= 4:
+        return True
+    # ── The credential signature, calibrated against the real leak ──────────
+    # A machine-generated credential (secrets.token_urlsafe, base64, an API key)
+    # essentially always mixes upper, lower AND digits. A human-written test
+    # label does not: measured on this tree, the flagged values were
+    # 'vetting-compliance-token', 'rf1839-contract-token',
+    # 'sufficiently-long-pw', 'ghp_abcdef1234567890...' — none has an uppercase
+    # letter. The credential that actually leaked,
+    # 'TPWspa3T5esw2YVh5Y7wemddnSSiLQAxZUz120u5uvk', has all three, so this
+    # narrows false positives WITHOUT weakening the case the gate exists for.
+    #
+    # This is the one rule to re-check if a real secret ever slips through: a
+    # lowercase-plus-digits-only credential (some hex keys) would be missed.
+    # Prefer adding a targeted pattern for that format over deleting this.
+    if not (any(c.isupper() for c in value)
+            and any(c.islower() for c in value)
+            and any(c.isdigit() for c in value)):
+        return True
+    return False
+
+
+def check_committed_secrets(paths) -> list[str]:
+    """Refuse any credential-shaped literal assigned to a secret-shaped name."""
+    issues: list[str] = []
+    for fp in paths:
+        if fp.suffix.lower() not in _SECRET_SCAN_SUFFIXES:
+            continue
+        if "__pycache__" in fp.parts or "node_modules" in fp.parts:
+            continue
+        try:
+            text = fp.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        if _SECRET_PRAGMA_FILE in text:
+            continue
+        for num, line in enumerate(text.splitlines(), 1):
+            if _SECRET_PRAGMA in line:
+                continue
+            m = _SECRET_NAME_RE.search(line) or _SECRET_ENV_RE.search(line)
+            if not m:
+                continue
+            name, value = m.group(1), m.group(2)
+            if _looks_like_placeholder(value):
+                continue
+            try:
+                rel = fp.relative_to(REPO_ROOT)
+            except ValueError:
+                rel = fp
+            issues.append(
+                f"  {rel}:{num} — {name} = '{value[:6]}…{value[-4:]}' "
+                f"({len(value)} chars)\n"
+                f"    A credential-shaped literal must not be committed. Read it "
+                f"from the environment instead:\n"
+                f"      {name} = os.environ['{name}']   (Python)\n"
+                f"      const {name} = process.env.{name};   (Node)\n"
+                f"    If this genuinely is not a secret, append the comment "
+                f"'{_SECRET_PRAGMA}' to the line."
+            )
+    return issues
+
+
+def _all_repo_source_files():
+    """Every source file the secret gate covers, repo-wide (CI mode)."""
+    skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
+    for path in REPO_ROOT.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in _SECRET_SCAN_SUFFIXES:
+            continue
+        if skip_dirs & set(path.parts):
+            continue
+        yield path
+
+
 def install_hook() -> bool:
     """Install the pre-commit hook via core.hooksPath."""
     hooks_dir = REPO_ROOT / "scripts" / "githooks"
@@ -220,6 +364,18 @@ def main():
 
     if "--check-all" in sys.argv:
         print("[pre-commit] Running --check-all (CI mode)...")
+        # R-F3683 — repo-wide secret sweep FIRST. A committed credential is not
+        # a code-quality issue to be reported alongside others; it is the one
+        # finding that must stop the pipeline on its own.
+        secret_issues = check_committed_secrets(_all_repo_source_files())
+        if secret_issues:
+            print("[pre-commit] VERIFICATION FAILED — COMMITTED SECRET:")
+            for issue in secret_issues[:20]:
+                print(issue)
+            if len(secret_issues) > 20:
+                print(f"  ... and {len(secret_issues) - 20} more")
+            print("\nRotate the credential, then read it from the environment.")
+            return 1
         issues = check_all_files()
         if issues:
             print("[pre-commit] FUNCTION VERIFICATION FAILED:")
@@ -235,6 +391,19 @@ def main():
     files = get_staged_files()
     if not files:
         return 0
+
+    # Check 0: COMMITTED-SECRET GATE (R-F3683) — runs before everything, because
+    # a credential reaching git history cannot be undone by a later commit.
+    # Complements check_no_token_default (R-F1824), which matches a fixed list of
+    # known fallback strings and skips tests/; this one catches any high-entropy
+    # literal bound to a secret-shaped name, tests included.
+    secret_issues = check_committed_secrets(files)
+    if secret_issues:
+        print("[pre-commit] VERIFICATION FAILED — COMMITTED SECRET:")
+        for issue in secret_issues:
+            print(issue)
+        print("\nRotate the credential, then read it from the environment.")
+        return 1
 
     # Check 0a: COMPILE GATE (R-F2135) — fail-fast. A staged .py that compiles
     # but has import-time errors (undefined names, broken imports) must never be

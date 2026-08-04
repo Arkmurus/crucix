@@ -402,18 +402,62 @@ _root = Path(__file__).parent.parent.parent
 
 # ── Code Analysis ────────────────────────────────────────────────────────────
 
+def _resolved_protected_paths() -> set[Path]:
+    """PROTECTED_FILES as RESOLVED absolute paths (R-F3684).
+
+    Computed per call rather than cached at import: the set is small, and a
+    cache keyed on a module-level root is one more thing to invalidate.
+    """
+    out: set[Path] = set()
+    for rel in PROTECTED_FILES:
+        try:
+            out.add((_root / rel).resolve())
+        except (OSError, ValueError):  # pragma: no cover - platform-dependent
+            continue
+    return out
+
+
 async def read_own_code(file_path: str) -> dict:
-    """ARIA reads her own source code."""
-    if file_path in PROTECTED_FILES:
+    """ARIA reads her own source code.
+
+    R-F3684 — the containment checks are RESOLVE-FIRST. Both were bypassable:
+
+    1. ``file_path in PROTECTED_FILES`` was an exact STRING match evaluated
+       BEFORE ``resolve()``. ``.env`` was refused, but ``./.env``, ``.//.env``
+       and ``aria_service/../.env`` all missed the set and then resolved to the
+       very file the set exists to protect.
+    2. ``str(full_path).startswith(str(_root.resolve()))`` is a string prefix
+       test, so a sibling directory sharing the root's name — ``C:\\Code\\Aria``
+       vs ``C:\\Code\\Aria-backup`` — satisfied it and escaped the project.
+
+    Both now compare RESOLVED paths, and containment uses ``Path.is_relative_to``
+    (a real path-segment test, not a prefix of the string form).
+
+    This matters beyond the coder: ``POST /api/aria/self/read`` reaches here,
+    and until R-F3684 it was not operator-gated at either tier, so any signed-in
+    viewer could read any file inside the image — including ``scripts/``, which
+    the Dockerfile copies in.
+    """
+    root = _root.resolve()
+    try:
+        full_path = (root / file_path).resolve()
+    except (OSError, ValueError) as e:
+        # A malformed path (NUL byte, over-long, bad drive) must not 500.
+        wire_failure(module="self_improve", detail=f"Unresolvable path {file_path!r}: {e}",
+                     gap_type="access_denied", source="self_improve:read_own_code")
+        return {"error": "Access denied: unresolvable path"}
+
+    if not full_path.is_relative_to(root):
+        wire_failure(module="self_improve", detail=f"Path traversal blocked: {file_path}",
+                     gap_type="access_denied", source="self_improve:read_own_code")
+        return {"error": "Access denied: path outside project root"}
+
+    # Compare RESOLVED against RESOLVED — this is the check that ./.env missed.
+    if full_path in _resolved_protected_paths():
         wire_failure(module="self_improve", detail=f"Blocked read of protected file: {file_path}",
                      gap_type="access_denied", source="self_improve:read_own_code")
         return {"error": f"Protected file — ARIA cannot access {file_path}"}
 
-    full_path = (_root / file_path).resolve()
-    if not str(full_path).startswith(str(_root.resolve())):
-        wire_failure(module="self_improve", detail=f"Path traversal blocked: {file_path}",
-                     gap_type="access_denied", source="self_improve:read_own_code")
-        return {"error": "Access denied: path outside project root"}
     if not full_path.exists():
         wire_failure(module="self_improve", detail=f"File not found: {file_path}",
                      gap_type="file_not_found", source="self_improve:read_own_code")

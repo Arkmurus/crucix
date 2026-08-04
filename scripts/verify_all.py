@@ -1,8 +1,26 @@
-"""End-to-end verification of all systems."""
+"""End-to-end verification of all systems.
+
+R-F3683 — the bearer token was HARDCODED here (and in check_mastery.py) and is
+tracked in git, so it lived in history for anyone with repo read access. It is
+read from the environment now and FAILS CLOSED when unset, per the
+`no-hardcoded-token-default-fail-closed` constitutional rule.
+
+Usage:  ARIA_API_TOKEN=<token> python scripts/verify_all.py
+"""
 import json
+import os
+import sys
 import urllib.request
 
-TOKEN = 'TPWspa3T5esw2YVh5Y7wemddnSSiLQAxZUz120u5uvk'
+TOKEN = (os.environ.get('ARIA_API_TOKEN') or '').strip()
+if not TOKEN:
+    sys.exit(
+        'ARIA_API_TOKEN is not set.\n'
+        '  PowerShell: $env:ARIA_API_TOKEN = "<token>"; python scripts/verify_all.py\n'
+        '  bash:       ARIA_API_TOKEN=<token> python scripts/verify_all.py\n'
+        'Never paste the token into this file — a committed credential cannot be '
+        'un-committed, and scripts/pre-commit now refuses it.'
+    )
 
 # 1. Health check
 r = urllib.request.urlopen('https://aria-intel.fly.dev/health/live', timeout=15)

@@ -17,6 +17,7 @@ The negative tests remain as load-bearing as the positive ones: a redactor that
 mangles ordinary output teaches the operator to distrust it, and `Authorization=none`
 being hidden during a security debug is its own failure.
 """
+# allowlist-secret-file — R-F3683: this suite must contain credential-SHAPED strings to be worth anything. Every value here is SYNTHETIC; never paste a live credential into a file that has opted out.
 
 import time
 
@@ -122,7 +123,7 @@ def test_ordinary_output_is_not_mangled(line: str):
 @pytest.mark.parametrize("line,secret", [
     ("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIK7MDENGbPxRfiCY", "wJalrXUtnFEMIK7MDENGbPxRfiCY"),
     ("api-key: abcdef1234567890abcd", "abcdef1234567890abcd"),
-    ("ARIA_API_TOKEN=TPWspa3T5esw2YVh5Y7wemddnSSiLQ", "TPWspa3T5esw2YVh5Y7wemddnSSiLQ"),
+    ("ARIA_API_TOKEN=EXAMPLEnotarealtoken0123456789", "EXAMPLEnotarealtoken0123456789"),
     ("db_password=hunter2hunter2", "hunter2hunter2"),
 ])
 def test_real_credentials_are_still_removed(line: str, secret: str):
@@ -164,7 +165,7 @@ def test_rf2796_contract_preserved():
     assert "s3cr3tpw" not in redact_secrets("postgres://user:s3cr3tpw@db.internal:5432/aria")
     assert redact_secrets("") == ""
     assert redact_secrets(None) is None  # type: ignore[arg-type]
-    once = redact_secrets("ARIA_API_TOKEN=TPWspa3T5esw2YVh5Y7wemddnS")
+    once = redact_secrets("ARIA_API_TOKEN=EXAMPLEnotarealtoken012345")
     assert redact_secrets(once) == once, "idempotent"
 
 

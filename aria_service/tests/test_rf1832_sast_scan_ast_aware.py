@@ -1,3 +1,4 @@
+# allowlist-secret-file — R-F3683: this suite must contain credential-SHAPED strings to be worth anything. Every value here is SYNTHETIC; never paste a live credential into a file that has opted out.
 # -*- coding: utf-8 -*-
 """R-F1832 — capability tests for the AST-aware SAST scanner.
 

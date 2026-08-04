@@ -316,7 +316,24 @@ def _aria_service_token() -> str:
 # R-F1827 (Phase 3, staged) — control/destructive endpoints that require the OPERATOR
 # tier when ARIA_TOKEN_SCOPING=1. Chat/read/telemetry are deliberately NOT here.
 _OPERATOR_ONLY_RE = re.compile(
-    r"/api/aria/(?:autonomous/|autonomy/|self/(?:improve|deploy|code)|self/improvements/"
+    # R-F3684 — `read` and `files` added. POST /api/aria/self/read returns the
+    # CONTENTS of any file inside the image and was gated at NEITHER tier: not
+    # here, and server.mjs has no route for it (it has an explicit
+    # `requireAdmin` for /self/code at :3870), so it fell through to the
+    # `app.use('/api/aria', requireAuth, …)` catch-all, which admits any
+    # signed-in viewer. With `scripts/` copied into the image
+    # (aria_service/Dockerfile:169), that read scripts/verify_all.py — which
+    # until R-F3683 held a live bearer token. GET /self/files enumerates the
+    # same surface, so it is gated with it.
+    #
+    # Checked before gating, because R-F2567 records the cost of getting this
+    # wrong (coder/llm was mis-gated operator-only → the coder 403'd on EVERY
+    # LLM call → fixed=0): NOTHING calls these two over HTTP. The autonomous
+    # coder reaches the same capability IN-PROCESS via
+    # self_improve.read_own_code() (see intel/core_develop.py:250), which this
+    # gate does not touch. Repo-wide grep for "self/read"/"self/files" outside
+    # the route definitions themselves returns no caller.
+    r"/api/aria/(?:autonomous/|autonomy/|self/(?:improve|deploy|code|read|files)|self/improvements/"
     # R-F2567: coder/* is operator-only EXCEPT the two COMPUTE endpoints coder/rag/* (R-F2243)
     # and coder/llm. coder/llm just runs an LLM completion (no control/destructive/deploy action;
     # LLM $ is capped §17) and was DESIGNED to accept the INTERNAL token (see its docstring). It

@@ -1,5 +1,14 @@
 """R-F2796 (D9) — the ARIA CLI must not print customer secrets to the terminal.
 
+allowlist-secret-file — R-F3683. This suite must contain credential-SHAPED
+strings to test redaction at all, so the committed-secret gate in
+scripts/pre-commit skips it by declaration rather than by a per-line pragma
+that would rot. Every value below is SYNTHETIC. One was not: the
+ARIA_API_TOKEN fixture held the real production bearer token (also hardcoded
+in scripts/verify_all.py and scripts/check_mastery.py) and was replaced with a
+same-length synthetic value. Never paste a live credential here — the gate
+cannot save you in a file that has opted out.
+
 THE CONTRACT (operator directive 2026-07-19: "mirror what you offer to clients")
 --------------------------------------------------------------------------------
 A customer's terminal transcript gets screenshotted, pasted into tickets, and
@@ -52,7 +61,7 @@ from aria_cli.redact import REDACTED, redact_secrets
 SECRET_LINES = [
     "BRAVE_SEARCH_API_KEY=BSA1a2b3c4d5e6f7g8h9i0jKlMnOpQrSt",
     "export ANTHROPIC_API_KEY=sk-ant-api03-AbCdEf123456789_XyZ",
-    "ARIA_API_TOKEN=TPWspa3T5esw2YVh5Y7wemddnSSiLQAxZUz120u5uvk",
+    "ARIA_API_TOKEN=EXAMPLEnotarealtoken0123456789abcdefGHIJKLM",
     "JWT_SECRET=averylongsecretvaluethatmustnotbeprinted123",
     "  DATABASE_PASSWORD: hunter2hunter2hunter2",
     'api_key = "sk-proj-abcdefghijklmnopqrstuvwxyz123456"',
@@ -99,12 +108,12 @@ def test_bare_jwt_is_removed_even_without_a_key_name():
 def test_multiline_output_redacts_every_occurrence():
     text = "\n".join([
         "PATH=/usr/bin",
-        "ARIA_API_TOKEN=TPWspa3T5esw2YVh5Y7wemddnSSiLQAxZUz120u5uvk",
+        "ARIA_API_TOKEN=EXAMPLEnotarealtoken0123456789abcdefGHIJKLM",
         "HOME=/root",
         "ANTHROPIC_API_KEY=sk-ant-api03-secretsecretsecret",
     ])
     out = redact_secrets(text)
-    assert "TPWspa3T5esw2YVh5Y7wemddnSSiLQAxZUz120u5uvk" not in out
+    assert "EXAMPLEnotarealtoken0123456789abcdefGHIJKLM" not in out
     assert "sk-ant-api03-secretsecretsecret" not in out
     assert "/usr/bin" in out and "/root" in out, "non-secret env must survive"
 
@@ -138,7 +147,7 @@ def test_empty_and_none_safe():
 
 
 def test_redaction_is_idempotent():
-    once = redact_secrets("ARIA_API_TOKEN=TPWspa3T5esw2YVh5Y7wemddnS")
+    once = redact_secrets("ARIA_API_TOKEN=EXAMPLEnotarealtoken012345")
     assert redact_secrets(once) == once, "re-redacting must not compound"
 
 
