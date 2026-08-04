@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3688,
+  "next_available": 3693,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30875,6 +30875,51 @@
       "r_number": "R-F3687",
       "title": "the recovery probe sent an empty system prompt, which Anthropic rejects",
       "claimed_at": "2026-08-04T11:31:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3688",
+      "title": "the channel allow-list never learned the brains tender vocabulary",
+      "claimed_at": "2026-08-04T11:48:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3689",
+      "title": "the DD person path counted an unperformed sanctions screen as performed",
+      "claimed_at": "2026-08-04T11:49:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3690",
+      "title": "four more paths reported a clean sanctions verdict on a screen that never ran",
+      "claimed_at": "2026-08-04T11:49:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3691",
+      "title": "the canonical matcher returned CLEAR when it could not enumerate its candidates",
+      "claimed_at": "2026-08-04T11:49:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3692",
+      "title": "a CRITICAL answer could be cross-model verified by the model that wrote it",
+      "claimed_at": "2026-08-04T11:49:15Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
