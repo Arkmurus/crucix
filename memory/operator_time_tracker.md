@@ -289,3 +289,79 @@ review half of §24; and whether ARIA-Coder's staged fixes are any good, which
 cannot be known until she has produced some.
 
 **Runway for the next session:** `docs/training_cycle_runway_2026_08_04.md`.
+
+## Session 2026-08-04 — the LLM chain: a dead backup, a lockout that could not be lifted, and a channel gate that could not pass
+
+**R-numbers shipped: 9** — R-F3680, R-F3681, R-F3685, R-F3686, R-F3687, R-F3688,
+R-F3693, R-F3698, R-F3705. All ship-marked, pushed, and verified live by
+`build_rev` (aria-intel `d6a276fb`; aria-web `d6a86a34` for R-F3688). Plus one
+docs commit correcting a §18 entry that was inverted.
+
+**Operator hours: not supplied → pace_ratio deliberately blank.** Agent
+wall-clock spans most of a working day and includes ~10-minute cold boots per
+deploy and a peer agent's builds; substituting it would inflate the denominator
+with time nobody spent.
+
+**What it was.** Two WhatsApp pages ("no fallback left" / "every provider
+failed") that turned out to describe a chain running on ONE provider while two
+funded ones sat locked out, and — after the operator said "anthropic has credit"
+— a 24-hour lockout that no code path could ever lift.
+
+**The single finding that matters.** Five of the nine defects are the same
+shape: **a mechanism that exists to protect or heal silently no-ops, and the
+surface reports the opposite.** R-F1758's "she never goes silent" guard compared
+time REMAINING, so it shortened a cooldown by 5s instead of capping it at 5s and
+had never once delivered its guarantee. A hard cooldown could only be cleared by
+`_record_success`, and a cooling provider is never called — so the cooldown was
+the sole cause of the silence that sustained it, for the full 24h. The recovery
+probe built to fix that then failed on an unrelated HTTP 400 every 15 minutes
+forever, recording nothing. Its own wrapper swallowed a crash at `logger.debug`.
+The Telegram morning slot reported "no Grade A" for four days with twelve Grade A
+signals in the store. In every case the honest signal existed one layer away and
+nothing read it.
+
+**Notable individually:**
+- Two permanently-dead provider entries DISABLED the guard protecting the one
+  provider that worked — configuring a backup made ARIA *less* available than
+  she was with one. The readiness doc had predicted exactly this illusion; it had
+  simply landed in the dispatch path rather than on a health surface.
+- The pre-outage page named the provider that had **just failed** as the one
+  "still serving", so the operator got "answers are NOT degraded right now" and
+  "every provider failed" one minute apart.
+- `ARIA_LLM_SHADOW` meant *hold the sovereign back* in one consumer and *insert
+  it into production failover* in the other — the cautious action armed a
+  mostly-offline RunPod hop. R-F3636 had fixed half of this and never reached the
+  chain builder.
+- The Telegram allow-list knew `contract_award` but not `active_tender`, so the
+  procurement lane was split across two names and the open half — the lane the
+  channel exists for — was dropped silently.
+- §18 recorded the two API tokens as identical and warned against separating
+  them. They had been separated, and the entry had the consequence backwards:
+  while equal, `_auth_is_internal_var` could never be True, which did not "fail
+  safe" — it made R-F2778 dead code. The pairing test §18 demanded had never been
+  run; it was run this session and passes (external → 0 reports, internal → 27
+  across 8 owners).
+
+**Method note.** Three defects were found only by driving the live system by
+hand, not by tests: the probe's empty system prompt (green tests, permanently
+broken in production), the Telegram gate (verified by running the real selector
+against the real feed), and the two dark wrappers (found by a mechanical §21a
+audit of my own work rather than trusting the earlier wiring pass). Two of my own
+probes were invalid and were retracted rather than reported — a detached SSH
+process has no state-store connection, so its "0 gaps" proved nothing.
+
+**Operator decisions actioned:** autonomy set OFF — and the real switch was the
+durable override, not the fly secret, which was already `0`; setting it would
+have changed nothing while reporting success. Telegram channel scope widened to
+`active_tender` + `security_operation` + `political_transition`, `cyber_threat`
+declined. Provenance gate investigated rather than relaxed, and left intact.
+
+**Left open, honestly:** `test_rf762_state_backend_health` fails — NOT from this
+session's work (proven by re-running against a stashed tree) and in a peer
+agent's active files, so it was surfaced rather than fixed. The Telegram 07:00
+slot is unproven end-to-end: the selector was verified live but no post had gone
+out by session end. Of 39 live Golden Intel signals only 13 carry `source_adapter`
+provenance — the gate rejecting the other 26 is correct, but why the supply skews
+that way was never investigated. The full §16 suite was NOT measured: a peer agent
+committed four times during the session and §16 is explicit that a moving tree
+makes the measurement `VALID=NO`.
