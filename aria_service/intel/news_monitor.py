@@ -656,6 +656,66 @@ async def _is_seen(url: str) -> bool:
     return False
 
 
+async def _seen_snapshot() -> dict:
+    """R-F3672 — ONE read of the seen map, for callers that must test many URLs.
+
+    ``_is_seen`` re-reads the whole map per URL. That was tolerable while the poll
+    tested only 10 URLs per feed; ``_unseen_head`` has to test every entry a feed
+    returns, and 44 feeds x ~50 entries x a 5,665-key JSON decode per test is not
+    something to put on the poll path.
+
+    Returns ``{}`` when the store cannot be read — DELIBERATELY the same reading
+    ``_is_seen`` gives on a failed read (it returns False for a non-dict), i.e.
+    "nothing is known to be seen". The bias must stay on re-ingesting rather than
+    on skipping: the archive is idempotent on ``canonical_url_hash`` (a repeat is
+    recorded ``duplicate`` and only bumps ``last_seen_at``), so a re-ingest costs
+    a wasted write, whereas treating a broken read as "everything seen" would
+    silently stop ingest altogether.
+    """
+    seen_data = await rs.get_json(_SEEN_URLS_KEY)
+    return seen_data if isinstance(seen_data, dict) else {}
+
+
+def _unseen_head(articles: list[dict], seen: dict, limit: int) -> list[dict]:
+    """R-F3672 — the newest ``limit`` articles that have NOT been ingested before.
+
+    The poll used to do ``for article in articles[:limit]: if _is_seen: continue``
+    — it SLICED FIRST and filtered second. So a feed whose newest ``limit`` items
+    had all been ingested already yielded zero new articles, on every poll,
+    FOREVER — even when never-seen items sat further down the same feed. Nothing
+    ages out of the seen map in any useful sense (50,000 entries, no TTL), so the
+    starvation is permanent, not transient.
+
+    Measured live 2026-08-04, which is how this was found: UK NCSC's feed carried
+    20 items, the newest 10 already seen and items 11-20 never ingested. The
+    category `cyber_security` therefore held ZERO articles in both the hot corpus
+    and the durable archive, while the news page still offered a "cyber security"
+    filter button — the page could not have been made honest without fixing this.
+
+    Filtering before the bound makes a low-churn feed's backlog reachable while
+    keeping the per-poll cost identical for a high-churn feed (which fills the
+    same ``limit`` out of its newest entries either way).
+
+    Also de-dupes WITHIN the batch. The old in-loop ``_is_seen`` caught a URL
+    repeated inside one feed, because the first copy had been marked seen by the
+    time the second was tested; selecting against a single snapshot would not.
+    """
+    picked: list[dict] = []
+    taken: set[str] = set()
+    for article in articles:
+        url = str((article or {}).get("url") or "")
+        if not url:
+            continue
+        h = _article_hash(url)
+        if h in seen or h in taken:
+            continue
+        taken.add(h)
+        picked.append(article)
+        if len(picked) >= limit:
+            break
+    return picked
+
+
 async def _mark_seen(url: str) -> None:
     """Mark URL as processed."""
     h = _article_hash(url)
@@ -2461,9 +2521,13 @@ async def poll_feeds(
 
             total_fetched += len(articles)
             new_count = 0
-            for article in articles[:max_articles_per_feed]:
-                if await _is_seen(article["url"]):
-                    continue
+            # R-F3672 — pick the newest UNSEEN entries and THEN bound the batch.
+            # `articles[:max_articles_per_feed]` followed by a per-item seen-check
+            # starved any feed whose newest N were all already ingested: it
+            # returned 0 new forever while unseen items sat below the cut. One
+            # snapshot read replaces the per-URL re-read of the whole seen map.
+            _seen_map = await _seen_snapshot()
+            for article in _unseen_head(articles, _seen_map, max_articles_per_feed):
                 article["category"] = category
                 article["language"] = lang
                 article["tier"] = tier
@@ -2599,6 +2663,24 @@ async def poll_feeds(
 
 
 @fail_wire(module="news_monitor", gap_type="source_failure")
+def _norm_category(article: dict) -> str:
+    """R-F3671 — the ONE spelling of an article's category.
+
+    The breakdown keyed articles with ``a.get("category", "unknown")`` while the
+    filter compared ``str(a.get("category") or "").strip().lower()``. Those two
+    disagree for any article whose category key is absent, blank or cased: the
+    breakdown would show an "unknown" bucket, the page would offer an "unknown"
+    filter, and the filter would match nothing — reinstating the very
+    filter-says-one-thing-breakdown-says-another defect R-F3671 exists to close,
+    just on a different key.
+
+    Both callers now normalise through here, so the set of keys in
+    ``by_category`` and the set of values ``get_recent_articles`` can serve are
+    identical BY CONSTRUCTION rather than by two expressions staying in sync.
+    """
+    return str((article or {}).get("category") or "").strip().lower() or "unknown"
+
+
 async def get_recent_articles(limit: int = 50, category: str = "") -> list[dict]:
     """Get most recent articles for dashboard display.
 
@@ -2623,7 +2705,7 @@ async def get_recent_articles(limit: int = 50, category: str = "") -> list[dict]
             a = json.loads(r) if isinstance(r, str) else r
         except Exception:
             continue
-        if cat and str((a or {}).get("category") or "").strip().lower() != cat:
+        if cat and _norm_category(a) != cat:
             continue
         articles.append(a)
         if len(articles) >= limit:
@@ -2950,19 +3032,51 @@ async def get_stats() -> dict:
     by_category: dict[str, int] = {}
     by_source: dict[str, int] = {}
     for a in articles:
-        cat = a.get("category", "unknown")
+        # R-F3671 — same normaliser the category FILTER uses, so a key that
+        # appears in this breakdown is always one the filter can actually serve.
+        cat = _norm_category(a)
         by_category[cat] = by_category.get(cat, 0) + 1
         src = a.get("source", "unknown")
         by_source[src] = by_source.get(src, 0) + 1
 
     configured_sources = _dedupe_sources(list(NEWS_SOURCES))
+
+    # ── R-F3671 ──────────────────────────────────────────────────────────────
+    # `categories` and `by_category` answer DIFFERENT QUESTIONS over DIFFERENT
+    # POPULATIONS, and the news page rendered them as if they were one: it built
+    # its filter buttons from `categories` (what feeds are CONFIGURED) and the
+    # "Coverage by Category" panel from `by_category` (what the CORPUS holds).
+    # Live 2026-08-04 that was 9 buttons against 7 bars, so two buttons —
+    # `cyber_security` and `security` — could not return a single article no
+    # matter what the reader clicked, and the KPI tile read "9" for a corpus
+    # covering 7. This is the same defect class R-F3517/R-F3518 closed for the
+    # article list vs the breakdown; the FILTER was left on the old population.
+    #
+    # The fix is NOT to drop the empty categories from the list. A configured
+    # category with zero articles is exactly the fact an operator needs — it
+    # means coverage has gone dark (a quarantined feed, or a publisher slower
+    # than the retention window) — and hiding it would make the page honest by
+    # showing less, which is the failure mode this repo keeps having to undo.
+    # So both populations are reported, SEPARATELY and NAMED, and the page marks
+    # an empty category unavailable instead of offering a filter it cannot serve.
+    configured_cats = sorted({s[2] for s in configured_sources})
+    covered_cats = sorted(c for c, n in by_category.items() if n)
     result = {
         "total_sources": len(configured_sources),
         "recent_articles": len(articles),
         "retention_limit": _MAX_ARTICLES,
         "by_category": by_category,
         "top_sources": dict(sorted(by_source.items(), key=lambda x: x[1], reverse=True)[:20]),
-        "categories": sorted(set(s[2] for s in configured_sources)),
+        # Unchanged meaning, kept for existing readers: what ARIA is CONFIGURED
+        # to cover. On its own it overstates what is browsable.
+        "categories": configured_cats,
+        # What the retained corpus actually holds — the only set a category
+        # filter can serve. Includes anything present but not configured (e.g. a
+        # renamed or vault category) so nothing in the corpus is unfilterable.
+        "categories_with_articles": covered_cats,
+        # Configured but empty: coverage that is dark right now. Named so the UI
+        # can disable the button AND say why, rather than silently omitting it.
+        "empty_categories": [c for c in configured_cats if not by_category.get(c)],
         "poll_state": await _read_poll_state(),
     }
     _stats_cache = result

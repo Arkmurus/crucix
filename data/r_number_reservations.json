@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3669,
+  "next_available": 3673,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -30701,6 +30701,34 @@
       "r_number": "R-F3668",
       "title": "a sentence could be both [unverified] and CONFIRMED, and [CONFIRMED] exempted itself from grounding",
       "claimed_at": "2026-08-03T20:40:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f40d0c4f",
+      "notes": null,
+      "shipped_at": "2026-08-03T20:42:38Z"
+    },
+    {
+      "r_number": "R-F3670",
+      "title": "remove two corrupt one-off generator scripts",
+      "claimed_at": "2026-08-03T21:33:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3671",
+      "title": "news page: filter list and category breakdown were computed over two different populations",
+      "claimed_at": "2026-08-04T05:16:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3672",
+      "title": "news poll: per-feed slice applied before the seen-filter starved low-churn feeds to zero forever",
+      "claimed_at": "2026-08-04T05:16:50Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

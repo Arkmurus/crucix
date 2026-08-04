@@ -57,6 +57,10 @@
     .category-btn { padding:4px 12px; border-radius:16px; font-size:0.8em; cursor:pointer; border:1px solid #dcd8cf; background:#fff; color:#6b6862; transition:all 0.15s; }
     .category-btn:hover { border-color:#7c3aed; color:#6d28d9; }
     .category-btn.active { background:rgba(124,58,237,0.12); border-color:#7c3aed; color:#6d28d9; }
+    /* R-F3671 — a configured category with nothing retained. Shown, never hidden
+       (the dark coverage is the point), but not clickable: it cannot be served. */
+    .category-btn-empty { opacity:0.45; cursor:not-allowed; border-style:dashed; }
+    .category-btn-empty:hover { border-color:#dcd8cf; color:#6b6862; }
     .article-card { padding:14px 18px; border-bottom:1px solid #e9e6df; cursor:pointer; transition:background 0.1s; }
     .article-card:hover { background:#f5f4ef; }
     .article-card:last-child { border-bottom:none; }
@@ -261,17 +265,46 @@
       }).join('');
   }
 
+  // R-F3671 — the buttons and the "Coverage by Category" panel below them were
+  // built from two DIFFERENT populations: this list came from `stats.categories`
+  // (the CONFIGURED feeds) while the breakdown came from `stats.by_category`
+  // (the RETAINED CORPUS). Live 2026-08-04 that rendered 9 buttons over 7 bars,
+  // and two of them — "cyber security" and "security" — could not return a
+  // single article however many times they were clicked.
+  //
+  // An empty configured category is NOT hidden: that it has gone dark is the
+  // useful fact. It is rendered DISABLED with its count, so the page states the
+  // coverage gap instead of offering a filter that silently answers nothing.
   function renderCategoryFilters(stats) {
     const container = document.getElementById('category-filter');
     if (!stats || !stats.categories) return;
-    const cats = ['all', ...stats.categories.sort()];
+    const byCat = stats.by_category || {};
+    // Union: everything configured (so dark coverage stays visible) plus
+    // anything the corpus holds that is not configured (so no retained article
+    // is unreachable). Older servers send neither new field — the union then
+    // degrades to exactly the previous list rather than throwing.
+    const configured = stats.categories || [];
+    const present = stats.categories_with_articles || Object.keys(byCat).filter(c => byCat[c]);
+    const cats = ['all', ...Array.from(new Set([...configured, ...present])).sort()];
+
     container.innerHTML = cats.map(c => {
       const label = c === 'all' ? 'All' : c.replace(/_/g, ' ');
       const active = c === activeCategory ? ' active' : '';
-      return '<button class="category-btn' + active + '" data-category="' + c + '">' + escapeHtml(label) + '</button>';
+      if (c === 'all') {
+        return '<button class="category-btn' + active + '" data-category="all">All</button>';
+      }
+      const n = Number(byCat[c] || 0);
+      if (!n) {
+        // Configured, retained nothing. Say so; do not offer it as a filter.
+        return '<button class="category-btn category-btn-empty" disabled data-category="' + escapeHtml(c) + '"' +
+          ' title="No articles retained in this category — its feeds are quarantined or publish less often than the retention window. Nothing to filter.">' +
+          escapeHtml(label) + ' <span style="opacity:0.7">0</span></button>';
+      }
+      return '<button class="category-btn' + active + '" data-category="' + escapeHtml(c) + '">' +
+        escapeHtml(label) + ' <span style="opacity:0.6">' + n + '</span></button>';
     }).join('');
 
-    container.querySelectorAll('.category-btn').forEach(btn => {
+    container.querySelectorAll('.category-btn:not([disabled])').forEach(btn => {
       btn.addEventListener('click', () => {
         container.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
@@ -294,7 +327,26 @@
     document.getElementById('kpi-total-label').textContent =
       retentionLimit && recentTrue >= retentionLimit ? 'Retained Articles (cap)' : 'Retained Articles';
     document.getElementById('kpi-sources').textContent = stats ? stats.total_sources : '-';
-    document.getElementById('kpi-categories').textContent = stats && stats.categories ? stats.categories.length : '-';
+    // R-F3671 — this tile counted CONFIGURED categories and was read as coverage:
+    // it showed "9" while the corpus held articles in only 7. Show both, so the
+    // gap between what ARIA is configured to watch and what it actually retained
+    // is visible on the tile rather than only discoverable by clicking a dead
+    // filter button.
+    const catsEl = document.getElementById('kpi-categories');
+    if (!stats || !stats.categories) {
+      catsEl.textContent = '-';
+      catsEl.removeAttribute('title');
+    } else {
+      const byCat = stats.by_category || {};
+      const configured = stats.categories.length;
+      const covered = (stats.categories_with_articles
+        || Object.keys(byCat).filter(c => byCat[c])).length;
+      catsEl.textContent = covered < configured ? (covered + ' of ' + configured) : String(configured);
+      const empty = stats.empty_categories || [];
+      catsEl.title = empty.length
+        ? 'No articles retained for: ' + empty.map(c => c.replace(/_/g, ' ')).join(', ')
+        : 'Every configured category has retained articles.';
+    }
     const poll = stats && stats.poll_state;
     document.getElementById('kpi-last-poll').textContent =
       poll && typeof poll.articles_new === 'number' ? poll.articles_new + ' new' : 'Waiting…';
