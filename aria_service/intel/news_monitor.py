@@ -2774,6 +2774,20 @@ async def poll_feeds(
     except Exception:
         logger.debug("[news_monitor] classifier replay failed", exc_info=True)
 
+    # R-F3678 — drain the archive's deep-read retry queue. Same principle as the
+    # classifier replay above: a capability that improves must be applied to the
+    # evidence ALREADY collected, not only to URLs that happen to arrive next.
+    # Enrichment is otherwise attempted only at ingest, so an article that failed
+    # its deep read — or that arrived while the deep reader was broken, which
+    # R-F3676 showed was its entire history — never got a second chance.
+    # Bounded per cycle and cooled per article; guarded so it can never cost the
+    # poll its tail.
+    try:
+        from . import news_enrichment as _ne
+        summary["enrichment_retry"] = await _ne.drain_enrichment_retries()
+    except Exception:
+        logger.debug("[news_monitor] enrichment retry drain failed", exc_info=True)
+
     return summary
 
 

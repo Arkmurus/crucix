@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any, Optional
 
 from .engine_wiring import wire_failure, wire_success
@@ -220,4 +221,87 @@ async def enrich_archived_article(article_id: str) -> dict[str, Any]:
         )
     except Exception:
         pass
+    return out
+
+
+# ── R-F3678: the retry queue finally has a drain ────────────────────────────
+# `news_archive.pending_stage` is documented as "the retry queue" and had ZERO
+# production callers — only tests. R-F3486 built the §25 proprioception half of
+# the contract ("a failure is visible and retryable instead of swallowed") and
+# never built the retry half, so every recorded stage failure sat there forever.
+# That is the same engine-with-no-caller shape this module's own header refuses
+# to ship, one layer down.
+#
+# It went unnoticed because enrichment is only ever attempted at INGEST
+# (`news_monitor._ingest_article` -> `_maybe_enrich`). An article that failed —
+# or that was ingested during any outage of the enrichment path — never got a
+# second chance for the rest of its life. R-F3676 is exactly that case: the deep
+# reader was broken for the whole life of the feature, so 343 tier_1a/1b articles
+# carry `enrichment_failed` from a fetcher that could not have succeeded, and
+# fixing the fetcher did nothing for a single one of them.
+_RETRY_PER_CYCLE = int(os.getenv("ARIA_NEWS_ENRICH_RETRY_PER_CYCLE", "4"))
+_RETRY_COOLDOWN_S = int(os.getenv("ARIA_NEWS_ENRICH_RETRY_COOLDOWN_S", str(6 * 3600)))
+
+
+async def drain_enrichment_retries(limit: int = 0) -> dict[str, Any]:
+    """Re-read a bounded slice of articles whose deep read previously failed.
+
+    Bounded and cooled, for the two different queue shapes:
+      * LONG queue — `pending_stage` returns oldest-attempt-first and a retry
+        stamps `updated_at`, so the drain rotates instead of re-hammering the
+        head. 343 items at 4/cycle is a full sweep in ~86 polls.
+      * SHORT queue — once only genuinely unreadable URLs remain, rotation alone
+        would retry all of them every poll, so `not_before` enforces a per-article
+        cooldown. No attempt counter, therefore no schema migration.
+
+    Never raises: this runs on the poll tail and a retry pass failing must not
+    cost the poll its state write (R-F2630). Every outcome is reported so the
+    caller can surface it (§25) rather than the drain being another silent loop.
+    """
+    from . import news_archive as _na
+
+    n = int(limit or _RETRY_PER_CYCLE)
+    out: dict[str, Any] = {"attempted": 0, "recovered": 0, "still_failing": 0,
+                           "queue_seen": 0, "error": ""}
+    if n <= 0:
+        return out
+
+    try:
+        pending = await _na.pending_stage(
+            f"extraction:{STATUS_FAILED}", limit=n,
+            not_before=time.time() - _RETRY_COOLDOWN_S)
+    except Exception as exc:
+        out["error"] = f"queue read failed: {exc}"[:200]
+        logger.warning("[R-F3678] retry queue unreadable: %s", exc)
+        return out
+
+    out["queue_seen"] = len(pending)
+    for row in pending:
+        aid = str((row or {}).get("article_id") or "")
+        if not aid:
+            continue
+        out["attempted"] += 1
+        try:
+            res = await enrich_archived_article(aid)
+        except Exception as exc:
+            # enrich_archived_article is documented never to raise; if that ever
+            # stops being true the drain must still finish the rest of the slice.
+            out["still_failing"] += 1
+            logger.debug("[R-F3678] retry raised for %s: %s", aid, exc)
+            continue
+        if res.get("enriched"):
+            out["recovered"] += 1
+        else:
+            out["still_failing"] += 1
+
+    if out["recovered"]:
+        try:
+            wire_success(
+                module="news_enrichment",
+                summary=(f"deep-read retry recovered {out['recovered']} of "
+                         f"{out['attempted']} previously unreadable articles"),
+                source_id="news_enrichment:drain_enrichment_retries",
+            )
+        except Exception:
+            pass
     return out

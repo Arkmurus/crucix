@@ -375,6 +375,24 @@ def _db_set_extraction(article_id, status, excerpt, detail) -> None:
     conn.commit()
 
 
+def _db_settle_extraction_failures(article_id: str, status: str) -> None:
+    """R-F3677 — a successful read RESOLVES every prior failed extraction row."""
+    conn = _get_db()
+    now = time.time()
+    conn.execute(
+        "UPDATE news_article_stages SET ok=1, detail=?, updated_at=? "
+        "WHERE article_id=? AND stage LIKE 'extraction:%' AND ok=0",
+        (f"superseded by a successful read ({status})", now, article_id),
+    )
+    conn.execute(
+        "INSERT INTO news_article_stages (article_id, stage, ok, detail, updated_at) "
+        "VALUES (?,?,1,'',?) "
+        "ON CONFLICT(article_id, stage) DO UPDATE SET ok=1, updated_at=excluded.updated_at",
+        (article_id, f"extraction:{status}", now),
+    )
+    conn.commit()
+
+
 @fail_wire(module="news_archive", gap_type="engine_failure")
 async def set_extraction_status(article_id: str, status: str, *,
                                 excerpt: str = "", detail: str = "") -> None:
@@ -385,10 +403,29 @@ async def set_extraction_status(article_id: str, status: str, *,
     fetch is written as its own status rather than left looking un-attempted:
     "not tried", "tried and could not read it" and "read" must stay
     distinguishable, and none of the first two may be mistaken for the third.
+
+    R-F3677 — a SUCCESS now settles the prior FAILURE. This used to write a
+    failure row and never clear it, so once an article had failed extraction its
+    ``ok=0`` row survived forever: ``pending_stage`` (the retry queue) could
+    never shrink, and the §25 proprioception surface permanently over-reported
+    failure for articles that had since been read.
+
+    Proven on production while fixing R-F3676: two articles were successfully
+    re-read (``extraction_status='enriched'``, 5,766 and 3,478 chars) and the
+    pending count stayed at 343. Both the retry drain and the health surface read
+    that table, so a stale row is not cosmetic — it is a permanent lie about the
+    record AND a queue entry that can never be removed by succeeding.
+
+    Success is signalled by an EMPTY ``detail``, which was already this
+    function's implicit contract (callers pass a detail only when explaining a
+    failure); it is now explicit and acted upon. The prior failure is settled
+    rather than deleted, so the audit trail of "this was hard to read" survives.
     """
     await _adb(_db_set_extraction, article_id, status, excerpt, detail)
     if detail:
         await _adb(_db_mark_stage, article_id, f"extraction:{status}", False, detail)
+    else:
+        await _adb(_db_settle_extraction_failures, article_id, status)
 
 
 def _db_mark_stage(article_id, stage, ok, detail) -> None:
@@ -504,17 +541,37 @@ async def archived_subset(hashes: list[str]) -> set[str]:
     return await _adb(_db_archived_subset, list(hashes))
 
 
-def _db_pending(stage: str, limit: int) -> list[dict]:
+def _db_pending(stage: str, limit: int, not_before: float) -> list[dict]:
     conn = _get_db()
+    if not_before > 0:
+        return [dict(r) for r in conn.execute(
+            "SELECT article_id, detail, updated_at FROM news_article_stages "
+            "WHERE stage=? AND ok=0 AND updated_at <= ? ORDER BY updated_at LIMIT ?",
+            (stage, not_before, limit))]
     return [dict(r) for r in conn.execute(
         "SELECT article_id, detail, updated_at FROM news_article_stages "
         "WHERE stage=? AND ok=0 ORDER BY updated_at LIMIT ?", (stage, limit))]
 
 
 @fail_wire(module="news_archive", gap_type="engine_failure")
-async def pending_stage(stage: str, limit: int = 100) -> list[dict]:
-    """Articles whose named stage failed — the retry queue."""
-    return await _adb(_db_pending, stage, limit)
+async def pending_stage(stage: str, limit: int = 100,
+                        *, not_before: float = 0.0) -> list[dict]:
+    """Articles whose named stage failed — the retry queue.
+
+    Oldest attempt first, so a drain rotates fairly through the queue instead of
+    re-hammering the head of it.
+
+    R-F3678 — ``not_before`` is an epoch cut-off: only rows last touched at or
+    before it are returned. A drain that retried unconditionally would be fine
+    against a long queue (rotation alone spaces attempts out) but would hammer a
+    SHORT one — once only permanently-unreadable URLs remain, every poll would
+    retry all of them. Passing a cooldown bounds that without a per-article
+    attempt counter, and therefore without a schema migration: a retry updates
+    ``updated_at``, so a failure cannot be reattempted until the cooldown has
+    elapsed. ``0.0`` (the default) means no cut-off, preserving the existing
+    contract for callers that just want to see the queue.
+    """
+    return await _adb(_db_pending, stage, limit, float(not_before or 0.0))
 
 
 def _db_replay(cursor: float, limit: int) -> dict:
