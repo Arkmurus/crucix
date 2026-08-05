@@ -14,7 +14,9 @@
 # script exists precisely because one was. `--leave-running` is the explicit
 # opt-out for inspecting a cycle still in progress.
 set -uo pipefail
-REPO="${REPO:-/c/code/crucix}"; cd "$REPO"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
+REPO="${REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+cd "$REPO" || { echo "[harvest] FATAL: repository unavailable: $REPO"; exit 1; }
 API="https://rest.runpod.io/v1"
 KEY=$(grep -E '^RUNPOD_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r')
 [ -n "$KEY" ] || { echo "[harvest] FATAL: RUNPOD_API_KEY not in .env"; exit 1; }

@@ -22,7 +22,9 @@
 # is one cycle envelope plus margin rather than six hours. Six hours of a
 # $1.49/hr GPU is $9 for a run nobody collected.
 set -uo pipefail
-REPO="${REPO:-/c/code/crucix}"; cd "$REPO"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
+REPO="${REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+cd "$REPO" || { echo "[launch] FATAL: repository unavailable: $REPO"; exit 1; }
 API="https://rest.runpod.io/v1"
 KEY=$(grep -E '^RUNPOD_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r')
 [ -n "$KEY" ] || { echo "[launch] FATAL: RUNPOD_API_KEY not in .env"; exit 1; }

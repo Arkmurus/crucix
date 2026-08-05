@@ -81,6 +81,39 @@ pip install -q "transformers==4.46.3" "peft==0.13.2" "trl==0.12.2" \
     "accelerate>=0.34" bitsandbytes datasets sentencepiece protobuf \
     fastapi uvicorn httpx || { log "FATAL dep install"; exit 1; }
 
+# R-F3718 — prove the complete paid recipe before loading model weights. A
+# previous cycle trained an adapter successfully and only then discovered that
+# its serving environment lacked uvicorn. Train -> serve -> evaluate is one
+# capability and must pass as one.
+log "verifying train -> serve -> eval runtime..."
+python - <<'PY' || { log "FATAL runtime recipe preflight"; exit 1; }
+import importlib
+import sys
+
+required = (
+    "accelerate", "bitsandbytes", "datasets", "fastapi", "httpx", "peft",
+    "torch", "transformers", "trl", "uvicorn",
+)
+failed = []
+for name in required:
+    try:
+        importlib.import_module(name)
+    except Exception as exc:
+        failed.append(f"{name}: {type(exc).__name__}: {exc}")
+if failed:
+    print("runtime imports failed:\n- " + "\n- ".join(failed), file=sys.stderr)
+    raise SystemExit(1)
+
+import torch
+if not torch.cuda.is_available():
+    print("CUDA unavailable - refusing paid GPU training", file=sys.stderr)
+    raise SystemExit(1)
+if not torch.cuda.is_bf16_supported():
+    print("GPU does not support bf16 required by this recipe", file=sys.stderr)
+    raise SystemExit(1)
+print(f"runtime OK: CUDA {torch.version.cuda}, GPU {torch.cuda.get_device_name(0)}")
+PY
+
 log "verifying base architecture…"
 python - "$BASE_MODEL" <<'PY' || { log "FATAL base mismatch"; exit 1; }
 import sys

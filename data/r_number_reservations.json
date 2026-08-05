@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3718,
+  "next_available": 3722,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31158,6 +31158,44 @@
       "commit_sha": "ab637b13",
       "notes": null,
       "shipped_at": "2026-08-05T08:05:42Z"
+    },
+    {
+      "r_number": "R-F3718",
+      "title": "make training cycles diagnosable and compounding",
+      "claimed_at": "2026-08-05T08:51:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3719",
+      "title": "rotate the two service tokens leaked in the public repo and purge them from the tree",
+      "claimed_at": "2026-08-05T08:52:15Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-08-05T08:58:45Z",
+      "abandon_reason": "false premise: the committed strings are fly secrets-list DIGESTS (16 hex), not token values (43 chars, verified in-machine). No leak, no rotation needed."
+    },
+    {
+      "r_number": "R-F3720",
+      "title": "no secret scanning existed, so a credential could reach a public repo unchallenged",
+      "claimed_at": "2026-08-05T08:52:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3721",
+      "title": "section 18 recorded fly DIGESTS as if they were token VALUES, manufacturing a false credential leak",
+      "claimed_at": "2026-08-05T08:58:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

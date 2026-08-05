@@ -20,7 +20,9 @@
 # PRE-FLIGHT IS RUN LOCALLY FIRST and its exit code is honoured (§24: a cycle
 # that would train on unreviewed or contaminated data is cancelled, not run).
 set -uo pipefail
-REPO="${REPO:-/c/code/crucix}"; cd "$REPO"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
+REPO="${REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+cd "$REPO" || { echo "[cycle] FATAL: repository unavailable: $REPO"; exit 1; }
 API="https://rest.runpod.io/v1"
 KEY=$(grep -E '^RUNPOD_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r')
 [ -n "$KEY" ] || { echo "[smoke] FATAL: RUNPOD_API_KEY not in .env"; exit 1; }
