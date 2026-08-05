@@ -37,6 +37,7 @@ FLOORS = {
     "ip-address": ((10, 4, 0), "<=10.3.0"),
     "socket.io-parser": ((4, 2, 7), "4.0.0-4.2.6"),
     "undici": ((7, 29, 0), "7.0.0-7.28.0"),
+    "body-parser": ((2, 3, 0), "2.0.0-2.2.2"),      # R-F3740
 }
 
 
@@ -92,3 +93,70 @@ def test_no_c11_high_regressed_into_a_direct_dependency():
             f"{name} became a DIRECT dependency — re-assess the upgrade's blast "
             f"radius instead of relying on 'transitive, no usage'"
         )
+
+
+# ── R-F3740 — the body-parser CVE is only reachable VIA an invalid limit ──────
+#
+# body-parser <2.3.0 "silently disables size enforcement when the limit value is
+# invalid". Measured 2026-08-05: every limit this tree passes is well-formed
+# ('500kb', '1mb', '50kb'), so the exploit path was NOT live and the floor bump
+# is defence in depth.
+#
+# The durable risk is a future TYPO, and MEASURED against the real parser it is
+# worse than "the limit is ignored". `node -e "bytes.parse(...)"`, 2026-08-05:
+#
+#   '500kb'   -> 512000     well-formed
+#   '500 kb'  -> 512000     ALSO well-formed — bytes allows the space
+#   '5ooKB'   -> 5          a FIVE-BYTE cap, from an o-for-0 typo
+#   '1mb;'    -> 1          one byte
+#   '1 000kb' -> 1          one byte
+#   'abc'     -> null       this is the null case body-parser <2.3.0 mishandles
+#   ''        -> null
+#
+# So there are TWO failure classes, not one: a null makes body-parser <2.3.0
+# silently disable enforcement (the CVE), while a partially-parseable typo
+# silently yields a 1- or 5-byte cap, which the CVE does not cover and no version
+# bump fixes. Both are silent, which is what makes them dangerous.
+#
+# This guard is therefore deliberately STRICTER than `bytes`: it flags anything
+# not cleanly well-formed, catching the silently-tiny class as well as the
+# silently-disabled one. Same principle as everything else fixed today — a
+# control that fails quietly is worse than one that fails loudly.
+
+_LIMIT_RE = re.compile(r"limit:\s*['\"]([^'\"]+)['\"]")
+#: Stricter than `bytes` on purpose (see above): digits, optional decimal, one
+#: optional space, optional unit — and nothing else. `bytes` would silently
+#: accept several of the shapes this rejects, at a 1-byte cap.
+_VALID_LIMIT = re.compile(r"^\d+(?:\.\d+)?\s?(?:b|kb|mb|gb|tb|pb)?$", re.I)
+
+
+def _body_limit_sites() -> list[tuple[str, int, str]]:
+    import subprocess
+    out = subprocess.run(
+        ["git", "grep", "-n", "-E", r"express\.(json|urlencoded)\(\{[^}]*limit",
+         "--", "*.mjs", "*.js"],
+        cwd=str(repo_path(".")), capture_output=True, text=True,
+    ).stdout
+    sites = []
+    for line in out.splitlines():
+        parts = line.split(":", 2)
+        if len(parts) < 3:
+            continue
+        m = _LIMIT_RE.search(parts[2])
+        if m:
+            sites.append((parts[0], int(parts[1]), m.group(1)))
+    return sites
+
+
+def test_every_configured_body_limit_is_parseable():
+    """A malformed limit silently removes the body-size cap — see above."""
+    sites = _body_limit_sites()
+    assert sites, (
+        "found no express.json({limit: ...}) sites — if the body-size caps were "
+        "removed or refactored, this guard needs re-pointing, not deleting"
+    )
+    bad = [(f, ln, v) for f, ln, v in sites if not _VALID_LIMIT.match(v.strip())]
+    assert not bad, (
+        "these body limits are not parseable, so size enforcement is SILENTLY "
+        f"disabled at each: {bad}"
+    )
