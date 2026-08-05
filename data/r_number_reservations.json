@@ -31441,9 +31441,10 @@
       "title": "adjudicate DR-1 D-05: the export classifier does not default to a clean civilian; lock the three honesty signals",
       "claimed_at": "2026-08-05T15:52:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2c11f928",
+      "notes": null,
+      "shipped_at": "2026-08-05T15:55:05Z"
     }
   ]
 }
