@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3750,
+  "next_available": 3751,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31475,6 +31475,15 @@
       "commit_sha": "b1bda174",
       "notes": null,
       "shipped_at": "2026-08-05T17:13:00Z"
+    },
+    {
+      "r_number": "R-F3750",
+      "title": "adjudicate DR-1 D-08: waivers live in dd_schema not the PDF generator; pin who-declined-and-why",
+      "claimed_at": "2026-08-05T17:20:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

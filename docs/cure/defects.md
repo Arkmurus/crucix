@@ -79,7 +79,7 @@ fixture cannot be written for a symptom nobody has evidenced.
 
 ---
 
-## B. The DR-1 dozen — 5 ADJUDICATED (2026-08-05), 7 awaiting evidence
+## B. The DR-1 dozen — 6 ADJUDICATED (2026-08-05), 6 awaiting evidence
 
 Listed in the protocol's Phase 3 priority order. `Suspected location` is left blank
 where the census could not resolve it to a defensible file — a blank is honest, a guess
@@ -94,12 +94,30 @@ is not.
 | D-05 | Export-control classifier (no default "civilian") | P1 | **ADJUDICATED — ALREADY SATISFIED (R-F3746)** | `tech_classifier.py:639-640,650` | `test_rf3746_dr1_d05_export_default.py` |
 | D-06 | Financial-verdict vintage (`LAST_KNOWN_WITH_AGE` or refuse) | P1 | **ADJUDICATED — REAL GAP, FIXED (R-F3748)** | `financial_health.py:347-372` | `test_rf3748_dr1_d06_financial_vintage.py` |
 | D-07 | PSC second hop | P1 | UNADJUDICATED | test exists (`test_rf3542_psc_second_hop.py`); **implementation not located** | partial |
-| D-08 | Waiver rendering on page 1 | P1 | UNADJUDICATED | `lib/reports/pdf_generator.mjs` | none |
+| D-08 | Waiver rendering on page 1 | P1 | **ADJUDICATED — SATISFIED (R-F3750)** | `dd_schema.py:734-748,1033-1042`; `pdf_generator.mjs` has ZERO waiver refs | `test_rf3750_dr1_d08_waiver_rendering.py` |
 | D-09 | Person dedup | P2 | UNADJUDICATED | — | none |
 | D-10 | Findings duplication | P2 | UNADJUDICATED | — | none |
 | D-11 | Telemetry / `(Phase 2)` leakage | P2 | UNADJUDICATED | — | none |
 | D-12 | Truncation artifacts | P2 | UNADJUDICATED | — | none |
 | D-13 | Count reconciliation, grade legends | P2 | UNADJUDICATED | — | none |
+
+**On D-08 — ADJUDICATED, SATISFIED (R-F3750, 2026-08-05). Suspected location wrong
+for the THIRD time in six.** `lib/reports/pdf_generator.mjs` contains **zero** waiver
+references. Waivers are rendered in `dd_schema.py`, which builds the verdict string
+the PDF prints; adjudicating against the PDF generator would have found nothing.
+
+Satisfied by two earlier fixes that state the reasoning exactly:
+- **R-F3410** (`:734-748`) — `dd_scope.waivers` is PERSISTED, not derived: *"a WAIVER
+  cannot be recomputed from the evidence. 'Nobody screened this' and 'the operator
+  declined the screen, by name, for this reason' look identical in the output and are
+  completely different facts."*
+- **R-F3411** (`:1033-1042`) — a DECLINED screen is not the same sentence as a FAILED
+  one. Rendered verdict: `WAIVED by <who> — <why> (declined for this run; not a
+  clearance)`. Neither a silent tick nor an unexplained gap.
+
+The fixture asserts the rendered string (via `_source_probe`, not
+`inspect.getsource`), and its last check FAILS if waiver logic ever moves into the
+PDF generator — at which point D-08 must be re-adjudicated there.
 
 **On D-04 — ADJUDICATED, SATISFIED (R-F3749, 2026-08-05).** "The FRC class" decides
 the entry: the Financial Reporting Council is a **regulator**, and a
