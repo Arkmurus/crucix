@@ -31351,9 +31351,10 @@
       "title": "the cure usage flush counted its own failures and told nobody",
       "claimed_at": "2026-08-05T13:11:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9c98cad7",
+      "notes": null,
+      "shipped_at": "2026-08-05T13:16:58Z"
     }
   ]
 }
