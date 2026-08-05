@@ -147,9 +147,12 @@ async def test_snapshot_reports_unavailable_rather_than_lying(monkeypatch):
 async def test_snapshot_returns_observed_routes(monkeypatch):
     class _Store:
         @staticmethod
+        async def hgetall(key):
+            assert key == cure_usage.ROUTES_KEY
+            return {"GET /health": "12", "POST /api/aria/dd/{id}": "3"}
+
+        @staticmethod
         async def get_json(key):
-            if key == cure_usage.ROUTES_KEY:
-                return {"GET /health": 12, "POST /api/aria/dd/{id}": 3}
             return {"last_flush_epoch": 1.0}
 
     monkeypatch.setitem(
@@ -159,6 +162,59 @@ async def test_snapshot_returns_observed_routes(monkeypatch):
     assert snap["available"] is True
     assert snap["observed_routes"] == 2
     assert snap["total_requests"] == 15
+
+
+@pytest.mark.asyncio
+async def test_counts_are_read_with_the_same_type_they_are_written_with(monkeypatch):
+    """Regression for the accessor mismatch that shipped in R-F3730.
+
+    flush() writes with hincrby (a HASH). The first snapshot() read with
+    get_json (a JSON blob), which returns None for a hash — so live reported
+    observed_routes:0 while flush_failures:0 and last_flush_epoch was valid.
+    A write-succeeds/read-blind pair is the worst shape: it is indistinguishable
+    from 'nothing was ever observed', which is precisely what would have made
+    109 live-or-dead modules look uniformly unobserved and safe to delete.
+
+    This drives a REAL round trip through one fake store: write via flush(),
+    read via snapshot(), and require the counts to survive.
+    """
+    hashes: dict[str, dict[str, int]] = {}
+    blobs: dict[str, Any] = {}
+
+    class _RoundTripStore:
+        @staticmethod
+        async def hincrby(key, field, amount=1, **kw):
+            hashes.setdefault(key, {})
+            hashes[key][field] = hashes[key].get(field, 0) + amount
+            return hashes[key][field]
+
+        @staticmethod
+        async def hgetall(key):
+            return {k: str(v) for k, v in hashes.get(key, {}).items()}
+
+        @staticmethod
+        async def set_json(key, obj, ex=None, **kw):
+            blobs[key] = obj
+            return True
+
+        @staticmethod
+        async def get_json(key):
+            return blobs.get(key)
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "aria_service.intel.state_store", _RoundTripStore
+    )
+    cure_usage.record_route("/health/live", "GET")
+    cure_usage.record_route("/health/live", "GET")
+    cure_usage.record_route("/api/aria/dd/{id}", "POST")
+
+    await cure_usage.flush()
+    snap = await cure_usage.snapshot()
+
+    assert snap["available"] is True
+    assert snap["observed_routes"] == 2, "written counts must be readable back"
+    assert snap["total_requests"] == 3
+    assert snap["routes"]["GET /health/live"] == 2
 
 
 def test_maybe_schedule_flush_is_safe_without_a_running_loop():

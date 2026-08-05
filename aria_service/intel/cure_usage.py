@@ -156,7 +156,13 @@ async def snapshot() -> dict[str, Any]:
     observed: dict[str, int] = {}
     meta: dict[str, Any] = {}
     try:
-        raw = await state_store.get_json(ROUTES_KEY)
+        # MUST be hgetall, not get_json. flush() writes counts with hincrby,
+        # which stores a HASH; get_json expects a JSON blob and returns None for
+        # one. That mismatch shipped: live showed flush_failures=0 and a valid
+        # last_flush_epoch (so writes were landing) while observed_routes stayed
+        # 0 — the write worked and only the read was blind, which is the most
+        # dangerous shape because it reads as "nothing was ever observed".
+        raw = await state_store.hgetall(ROUTES_KEY)
         if isinstance(raw, dict):
             observed = {k: int(v) for k, v in raw.items() if str(v).lstrip("-").isdigit()}
     except Exception as e:
