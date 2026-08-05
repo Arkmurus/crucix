@@ -27,7 +27,12 @@ the same task twice — that is what dedupe is FOR.
 """
 from __future__ import annotations
 
-import inspect
+# R-F3724 — NOT inspect.getsource (§16/R-F3597). It slices the file at the line
+# numbers captured AT IMPORT, so any edit to engine.py during a run hands these
+# assertions a DIFFERENT function's body — silently, because the wrong slice is
+# still valid Python. Observed 2026-08-05: a mid-run commit to engine.py made all
+# four of these fail in the full suite while passing 18/18 in isolation.
+from ._source_probe import function_source
 
 
 def test_tick_loop_is_not_behind_the_startup_maintenance():
@@ -41,7 +46,7 @@ def test_tick_loop_is_not_behind_the_startup_maintenance():
     """
     from aria_service.autonomous import engine
 
-    src = inspect.getsource(engine._engine_loop)
+    src = function_source(engine, "_engine_loop")
     i_loop = src.index("while True:")
     i_dispatch = src.index("_startup_maintenance_task = asyncio.create_task")
 
@@ -76,7 +81,7 @@ def test_maintenance_preserves_repair_before_catchup_order():
     NULL-TTL markers the repair is clearing."""
     from aria_service.autonomous import engine
 
-    src = inspect.getsource(engine._engine_loop)
+    src = function_source(engine, "_engine_loop")
     i_repair = src.index("repair_nulled_dedupe_markers")
     i_catchup = src.index("catch_up_overdue_tasks(llm)")
     assert i_repair < i_catchup
@@ -89,7 +94,7 @@ def test_maintenance_task_is_strongly_referenced():
     from aria_service.autonomous import engine
 
     assert hasattr(engine, "_startup_maintenance_task")
-    src = inspect.getsource(engine._engine_loop)
+    src = function_source(engine, "_engine_loop")
     assert "global _startup_maintenance_task" in src
 
 
@@ -98,7 +103,7 @@ def test_maintenance_failure_cannot_stop_the_engine():
     failing catch-up must never take the engine down with it."""
     from aria_service.autonomous import engine
 
-    src = inspect.getsource(engine._engine_loop)
+    src = function_source(engine, "_engine_loop")
     start = src.index("async def _startup_maintenance")
     end = src.index("_startup_maintenance_task = asyncio.create_task")
     body = src[start:end]

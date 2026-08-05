@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3724,
+  "next_available": 3727,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31217,6 +31217,36 @@
       "commit_sha": "76926b4a",
       "notes": null,
       "shipped_at": "2026-08-05T09:34:39Z"
+    },
+    {
+      "r_number": "R-F3724",
+      "title": "inspect.getsource victims still misread a tree that moves under them",
+      "claimed_at": "2026-08-05T09:41:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-08-05T09:46:34Z"
+    },
+    {
+      "r_number": "R-F3725",
+      "title": "four training scripts cd to a checkout that no longer exists and continue silently",
+      "claimed_at": "2026-08-05T09:41:37Z",
+      "claimed_by": "claude",
+      "status": "abandoned",
+      "commit_sha": null,
+      "notes": null,
+      "abandoned_at": "2026-08-05T09:46:34Z",
+      "abandon_reason": "superseded by the peer agent's fix in the same session (SCRIPT_DIR-derived REPO + aborting cd, verified in tooluse_harvest.sh:17-19)"
+    },
+    {
+      "r_number": "R-F3726",
+      "title": "pin aria_service Python dependencies to production-proven versions (Cure C-01)",
+      "claimed_at": "2026-08-05T09:44:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

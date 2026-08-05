@@ -370,10 +370,14 @@ def test_repair_runs_after_the_startup_delay_not_during_boot(monkeypatch):
     (R-F2626 also needed the delay to keep a sentinel read honest; R-F2629
     retired the sentinel, but both ordering reasons above still stand.)
     """
-    import inspect
     from aria_service.autonomous import engine
 
-    src = inspect.getsource(engine._engine_loop)
+    # R-F3724 — resolve by NAME through the current AST, not by the line numbers
+    # inspect.getsource captured at import (§16/R-F3597): an edit to engine.py
+    # mid-run silently returns a different function's body.
+    from ._source_probe import function_source
+
+    src = function_source(engine, "_engine_loop")
     i_sleep = src.index("await asyncio.sleep(STARTUP_DELAY_SECONDS)")
     i_repair = src.index("repair_nulled_dedupe_markers")
     i_catchup = src.index("catch_up_overdue_tasks(llm)")
