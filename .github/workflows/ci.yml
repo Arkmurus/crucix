@@ -39,6 +39,11 @@ jobs:
           pip install pytest pytest-asyncio httpx
           pip install -r requirements-dev.txt 2>/dev/null || true
 
+      - name: Secret scan (R-F3720 — this repo is PUBLIC)
+        run: |
+          echo "Refusing any NEW credential value in tracked files..."
+          python scripts/admin/secret_scan.py
+
       - name: Pre-commit verification (--check-all)
         run: |
           echo "Checking ALL Python files for non-existent function calls..."
