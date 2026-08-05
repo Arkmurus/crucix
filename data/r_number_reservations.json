@@ -31193,18 +31193,20 @@
       "title": "section 18 recorded fly DIGESTS as if they were token VALUES, manufacturing a false credential leak",
       "claimed_at": "2026-08-05T08:58:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d7a96a85",
+      "notes": null,
+      "shipped_at": "2026-08-05T09:34:21Z"
     },
     {
       "r_number": "R-F3722",
       "title": "a store blip at boot reads as autonomy disabled, and the except branch wipes the cache",
       "claimed_at": "2026-08-05T09:15:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d7a96a85",
+      "notes": null,
+      "shipped_at": "2026-08-05T09:34:22Z"
     },
     {
       "r_number": "R-F3723",
