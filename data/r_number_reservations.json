@@ -31304,9 +31304,10 @@
       "title": "R-F3722 moved an import out of the try, so the never-raises master-switch refresh could raise into the unguarded tick loop",
       "claimed_at": "2026-08-05T11:55:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "302fee8e",
+      "notes": null,
+      "shipped_at": "2026-08-05T12:02:42Z"
     }
   ]
 }
