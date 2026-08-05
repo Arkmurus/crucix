@@ -31293,9 +31293,10 @@
       "title": "the deploy push-guard refused deploys into a log nobody reads",
       "claimed_at": "2026-08-05T11:32:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "14e08799",
+      "notes": null,
+      "shipped_at": "2026-08-05T11:42:53Z"
     }
   ]
 }
