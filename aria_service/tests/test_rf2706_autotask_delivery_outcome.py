@@ -18,6 +18,10 @@ import pytest
 import aria_service.autonomous.tasks as tasks
 import aria_service.intel.outcome_wire as ow
 
+# R-F3755/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 class _T:
     id = "daily_intel_scan"
@@ -89,7 +93,7 @@ async def test_deliberate_non_delivery_not_recorded_as_failure(monkeypatch):
 async def test_execute_task_calls_the_wire(monkeypatch):
     # STRUCTURAL: prove the real execute_task path invokes the wire after deliver().
     import inspect
-    src = inspect.getsource(tasks.execute_task)
+    src = function_source(tasks, "execute_task")
     assert "_wire_task_delivery_outcomes(" in src, (
         "execute_task must forward delivery outcomes to the proprioception wire"
     )

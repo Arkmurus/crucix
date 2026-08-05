@@ -16,6 +16,10 @@ import pytest
 
 from aria_service.intel import researcher, web_search
 
+# R-F3755/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 # Live third-party search-API signatures that must never appear in the
 # search code paths. (brave_answer / prior_brave are a historical RAG
@@ -33,7 +37,7 @@ def _strip_brave_answer_label(src: str) -> str:
 
 
 def test_researcher_web_search_has_no_third_party_search_api():
-    src = _strip_brave_answer_label(inspect.getsource(researcher.web_search))
+    src = _strip_brave_answer_label(function_source(researcher, "web_search"))
     hit = _FORBIDDEN.search(src)
     assert hit is None, (
         f"R-F1660: third-party search-API reference reintroduced into "
@@ -61,7 +65,7 @@ def test_rf3120_brave_is_the_sanctioned_paid_primary_not_a_forbidden_stub():
     search API OTHER than the sanctioned Brave primary may appear, and the continuous
     researcher (below) must stay on the free stack.
     """
-    src = inspect.getsource(web_search._search_brave)
+    src = function_source(web_search, "_search_brave")
     for forbidden in ("api.bing.microsoft.com", "serpapi", "google.com/customsearch"):
         assert forbidden not in src.lower(), (
             f"R-F3120: {forbidden} is NOT a sanctioned search provider — only Brave is."

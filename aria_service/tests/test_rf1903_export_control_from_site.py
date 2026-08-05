@@ -16,6 +16,10 @@ import inspect
 import aria_service.intel.dd_orchestrator as dd
 from aria_service.intel import tech_classifier
 
+# R-F3755/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def test_classifier_runs_on_self_described_defence_activity():
     # the layer must be able to classify a self-described activity string (dict result)
@@ -24,7 +28,7 @@ def test_classifier_runs_on_self_described_defence_activity():
 
 
 def test_identity_seeds_declared_activity_from_site():
-    src = inspect.getsource(dd._run_identity)
+    src = function_source(dd, "_run_identity")
     assert "R-F1903" in src, "declared_activity seeding from site missing"
     assert "report.identity.declared_activity = _act" in src
     # only when empty (don't clobber a registry-derived activity)
@@ -32,7 +36,7 @@ def test_identity_seeds_declared_activity_from_site():
 
 
 def test_compliance_export_control_falls_back_to_declared_activity():
-    src = inspect.getsource(dd._run_compliance)
+    src = function_source(dd, "_run_compliance")
     # product_text still falls back to declared_activity when nothing was supplied...
     assert "report.identity.declared_activity" in src
     # R-F3040 — the fallback CHAIN gained one earlier link: the registry's own SIC
@@ -53,7 +57,7 @@ def test_rf3040_registry_sic_outranks_self_description():
     """R-F3040 — a registry SIC code is a primary-source declaration by the company
     to the registrar; the website blurb is not. SIC must be consulted FIRST, and a
     self-described read must not be labelled self-described when SIC supplied it."""
-    src = inspect.getsource(dd._run_compliance)
+    src = function_source(dd, "_run_compliance")
     i = src.index("product_text = (target.get")
     window = src[i:i + 500]
     assert "_sic_text" in window

@@ -10,10 +10,14 @@ sees the rail populate) is the definitive proof.
 import inspect
 from pathlib import Path
 
+# R-F3755/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def test_stream_emits_entity_on_progress_event():
     from aria_service import aria_engine
-    src = inspect.getsource(aria_engine._aria_chat_stream_impl)
+    src = function_source(aria_engine, "_aria_chat_stream_impl")
     assert "R-F2358" in src                       # wiring present (catches revert)
     assert ('_emit("progress"' in src) or ("_emit('progress'" in src)
     assert "entity=_rail_entity" in src           # the progress event carries the entity

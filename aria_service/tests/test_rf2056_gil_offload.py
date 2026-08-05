@@ -7,6 +7,10 @@ from __future__ import annotations
 import pytest
 from aria_service.intel import crawl_enhancements as ce
 
+# R-F3755/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def test_extract_pdf_sync_extracts_text():
     fitz = pytest.importorskip("fitz")
@@ -32,5 +36,5 @@ def test_extract_pdf_sync_handles_garbage():
 def test_fetch_pdf_offloads_to_thread():
     # the GIL-heavy extraction must be invoked via asyncio.to_thread (not inline)
     import inspect
-    src = inspect.getsource(ce.fetch_pdf)
+    src = function_source(ce, "fetch_pdf")
     assert "asyncio.to_thread(_extract_pdf_sync" in src

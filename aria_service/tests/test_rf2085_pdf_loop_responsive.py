@@ -22,6 +22,10 @@ from types import SimpleNamespace
 
 import pytest
 
+# R-F3755/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _make_app():
     from fastapi import FastAPI
@@ -134,5 +138,5 @@ def test_rf2085_pdf_ingest_yields_per_page():
     so the per-page sync CPU can't starve /health/live."""
     import inspect
     from aria_service.intel import pdf_deep_ingest
-    src = inspect.getsource(pdf_deep_ingest.ingest_pdf_multi_page)
+    src = function_source(pdf_deep_ingest, "ingest_pdf_multi_page")
     assert "asyncio.sleep(0)" in src, "per-page loop must yield via asyncio.sleep(0)"

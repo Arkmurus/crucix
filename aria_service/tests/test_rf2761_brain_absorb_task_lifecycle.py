@@ -8,6 +8,10 @@ import inspect
 from aria_service.intel import brain_hook
 from aria_service import main
 
+# R-F3755/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def test_shutdown_drives_real_absorb_task_cleanup(monkeypatch) -> None:
     """The real shutdown function cancels, awaits, and removes owned tasks."""
@@ -40,7 +44,7 @@ def test_shutdown_drives_real_absorb_task_cleanup(monkeypatch) -> None:
 
 def test_lifespan_shutdown_calls_real_brain_task_owner() -> None:
     """Production shutdown must invoke the verified lifecycle function."""
-    source = inspect.getsource(main.lifespan)
+    source = function_source(main, "lifespan")
     assert "shutdown_background_tasks" in source
     assert source.index("shutdown_background_tasks") < source.index(
         'await _shutdown_await("knowledge", knowledge.shutdown())'

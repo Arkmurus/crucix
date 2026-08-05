@@ -5,6 +5,10 @@ import asyncio
 import inspect
 import time
 
+# R-F3755/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def test_modifiable_file_scan_yields_event_loop(monkeypatch):
     """The coder startup scan must not run recursive filesystem work on-loop."""
@@ -122,7 +126,7 @@ def test_lifespan_shutdown_closes_state_store():
     """Lifespan teardown must close aiosqlite workers before process exit."""
     from aria_service import main
 
-    source = inspect.getsource(main.lifespan)
+    source = function_source(main, "lifespan")
     assert "state_store" in source
     assert "_state_store_shut.close()" in source
 
@@ -131,7 +135,7 @@ def test_lifespan_startup_tasks_are_supervised():
     """Startup-owned work must be in _BG_TASKS so smoke teardown can cancel it."""
     from aria_service import main
 
-    source = inspect.getsource(main.lifespan)
+    source = function_source(main, "lifespan")
     assert "asyncio.create_task(_prewarm_heavy_imports())" not in source
     assert "_bg_task(asyncio.create_task(_prewarm_heavy_imports()" in source
     assert "asyncio.create_task(_register_all_contracts())" not in source

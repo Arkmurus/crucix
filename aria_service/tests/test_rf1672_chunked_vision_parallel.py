@@ -13,9 +13,13 @@ import pytest
 
 from aria_service.intel import document_reader as dr
 
+# R-F3755/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def test_chunked_uses_bounded_concurrent_gather():
-    src = inspect.getsource(dr._read_pdf_chunked)
+    src = function_source(dr, "_read_pdf_chunked")
     assert "asyncio.gather(" in src, (
         "R-F1672: _read_pdf_chunked must gather chunks concurrently, not loop serially."
     )

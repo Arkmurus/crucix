@@ -20,6 +20,10 @@ import importlib
 import inspect
 import os
 
+# R-F3755/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 # ── V-05 ─────────────────────────────────────────────────────────────────────
 def test_encode_offload_empty_timeout_env_does_not_crash_import(monkeypatch):
@@ -63,7 +67,7 @@ def test_gleif_single_token_query_does_not_match_padded_other_entity():
 # ── V-09 ─────────────────────────────────────────────────────────────────────
 def test_heavy_dd_layers_are_budget_clamped():
     import aria_service.intel.dd_orchestrator as dd
-    src = inspect.getsource(dd._orchestrate_dd_impl)
+    src = function_source(dd, "_orchestrate_dd_impl")
     # the 4 heavy layers must wait_for on a budget-CLAMPED timeout, not a fixed one
     for call in ("_run_sweep_intelligence(target, report)",
                  "_cc.assess_commercial_coherence(target, report)",
@@ -79,6 +83,6 @@ def test_heavy_dd_layers_are_budget_clamped():
 # ── V-13/14 ──────────────────────────────────────────────────────────────────
 def test_recover_orphaned_jobs_preserves_per_type_ttl():
     import aria_service.routes.aria as aria
-    src = inspect.getsource(aria.recover_orphaned_jobs)
+    src = function_source(aria, "recover_orphaned_jobs")
     assert "_READDOC_JOB_TTL_S if _prefix == _READDOC_JOB_PREFIX else _CHAT_JOB_TTL_S" in src
     assert "ex=_ttl" in src

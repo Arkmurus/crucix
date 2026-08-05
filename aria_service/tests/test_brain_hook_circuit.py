@@ -17,6 +17,10 @@ import time
 
 from aria_service.intel import brain_hook
 
+# R-F3755/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _reset_breaker():
     """Restore breaker to a known-fresh state. brain_hook keeps state in
@@ -245,7 +249,7 @@ def test_rf790_close_does_not_reference_pending_actions():
     _auto_resolve helper.
     """
     import inspect
-    src = inspect.getsource(brain_hook._maybe_close_breaker)
+    src = function_source(brain_hook, "_maybe_close_breaker")
     assert "pending_actions" not in src, (
         "R-F790 regression: _maybe_close_breaker references pending_actions. "
         "The premature auto-resolve was removed because cooldown ≠ cleared."

@@ -14,6 +14,10 @@ import inspect
 
 import aria_service.intel.dd_orchestrator as dd
 
+# R-F3755/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def test_extracts_hq_and_office_footprint_from_real_site_text():
     txt = ("Modirum GESPI defence solutions. Our global presence wherever you are. "
@@ -45,10 +49,10 @@ def test_headquartered_in_phrasing():
 def test_identity_layer_wires_site_jurisdiction_and_digital_reuses_pages():
     # static guards: identity seeds jurisdiction from the site when GLEIF didn't,
     # tags it self-reported, and stashes pages for digital to reuse (no double-mine).
-    src = inspect.getsource(dd._run_identity)
+    src = function_source(dd, "_run_identity")
     assert "_extract_site_locations(" in src, "identity layer does not extract site locations"
     assert "report.identity.jurisdiction_iso2 = _loc[\"hq_iso2\"]" in src
     assert 'target["_mined_pages"]' in src, "mined pages not stashed for reuse"
     assert "SELF-REPORTED" in src, "site jurisdiction not tagged self-reported"
-    dig = inspect.getsource(dd._run_digital)
+    dig = function_source(dd, "_run_digital")
     assert 'target.get("_mined_pages")' in dig, "digital layer does not reuse stashed pages"

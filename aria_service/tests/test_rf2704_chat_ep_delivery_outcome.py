@@ -20,7 +20,11 @@ import pytest
 
 import aria_service.routes.aria as aria
 
-_SRC = inspect.getsource(aria.chat_ep)
+# R-F3755/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
+_SRC = function_source(aria, "chat_ep")
 
 
 def test_chat_ep_finally_fires_delivery_outcome():
