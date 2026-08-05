@@ -17,9 +17,13 @@ import inspect
 import aria_service.intel.dd_orchestrator as dd
 import aria_service.intel.web_search as ws
 
+# R-F3754/§16 — NOT inspect.getsource: it slices at the line numbers captured
+# AT IMPORT, so an edit mid-run returns a DIFFERENT function's body, silently.
+from ._source_probe import function_source
+
 
 def test_digital_layer_flags_blocked_search():
-    src = inspect.getsource(dd._run_digital)
+    src = function_source(dd, "_run_digital")
     assert "get_last_search_ecosystem()" in src, "digital layer does not inspect the search ecosystem"
     assert 'health_signal' in src.lower() or "_eco_health" in src
     # keys off DEAD / DEGRADED / zero active backends

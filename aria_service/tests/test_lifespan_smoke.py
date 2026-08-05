@@ -25,6 +25,10 @@ import sys
 
 import pytest
 
+# R-F3754/§16 — NOT inspect.getsource: it slices at the line numbers captured
+# AT IMPORT, so an edit mid-run returns a DIFFERENT function's body, silently.
+from ._source_probe import function_source
+
 #: R-F3459 — the subprocess budget MUST stay strictly below the per-test budget below.
 #: See the invariant explained on test_lifespan_starts_and_shuts_down_cleanly.
 #:
@@ -251,7 +255,7 @@ def test_module_level_os_alias_not_shadowed_in_lifespan():
     import inspect
     import ast
     from aria_service import main
-    src = inspect.getsource(main.lifespan)
+    src = function_source(main, "lifespan")
     tree = ast.parse(src)
     local_os_import_lines = [
         node.lineno

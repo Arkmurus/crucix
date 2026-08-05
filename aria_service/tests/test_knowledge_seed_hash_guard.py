@@ -19,11 +19,15 @@ from __future__ import annotations
 
 import inspect
 
+# R-F3754/§16 — NOT inspect.getsource: it slices at the line numbers captured
+# AT IMPORT, so an edit mid-run returns a DIFFERENT function's body, silently.
+from ._source_probe import function_source
+
 
 def test_knowledge_seed_writes_hash_per_module():
     """The seed code must include the per-module hash stamp pattern."""
     from aria_service import main
-    src = inspect.getsource(main.lifespan)
+    src = function_source(main, "lifespan")
     assert "crucix:knowledge_seed:hash:" in src, (
         "knowledge seed must stamp a per-module hash so subsequent boots "
         "can skip when the file is unchanged"
@@ -37,7 +41,7 @@ def test_knowledge_seed_force_bypasses_hash_check():
     """force=True (from /reseed endpoint or env override) must bypass
     the hash-skip path so the operator can manually re-seed."""
     from aria_service import main
-    src = inspect.getsource(main.lifespan)
+    src = function_source(main, "lifespan")
     # The hash-check block is only entered when not force.
     assert "if not force:" in src
     # And the force-related skip log is the existing 6h cache-window check.
@@ -49,7 +53,7 @@ def test_knowledge_seed_handles_missing_module_file_gracefully():
     mode (no skip, fall through to ingest) is OK; raising would crash
     the seed loop and break boot."""
     from aria_service import main
-    src = inspect.getsource(main.lifespan)
+    src = function_source(main, "lifespan")
     # Helper must include a try/except around the file-read path
     assert "_module_hash" in src
     # The function body has a try/except returning '' — proven by the
@@ -65,7 +69,7 @@ def test_hash_ttl_is_long_enough_for_normal_deploy_cadence():
     re-seed on every boot in quiet weeks; too long is safe (hash
     invalidation is by content change, not by TTL)."""
     from aria_service import main
-    src = inspect.getsource(main.lifespan)
+    src = function_source(main, "lifespan")
     # 30-day TTL on the hash key
     assert "30 * 86400" in src, (
         "hash key TTL should be 30 days (long enough to span quiet "

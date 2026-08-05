@@ -14,9 +14,13 @@ import pytest
 
 from aria_service.intel import researcher as R
 
+# R-F3754/§16 — NOT inspect.getsource: it slices at the line numbers captured
+# AT IMPORT, so an edit mid-run returns a DIFFERENT function's body, silently.
+from ._source_probe import function_source
+
 
 def test_read_document_uses_concurrent_gather():
-    src = inspect.getsource(R.read_document)
+    src = function_source(R, "read_document")
     assert "asyncio.gather(" in src, (
         "R-F1675: read_document must analyse chunks via concurrent gather, not a serial loop."
     )

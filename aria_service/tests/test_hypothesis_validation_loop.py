@@ -14,12 +14,16 @@ key, otherwise we burn 3 LLM calls per cycle on the same item forever.
 """
 from __future__ import annotations
 
+# R-F3754/§16 — NOT inspect.getsource: it slices at the line numbers captured
+# AT IMPORT, so an edit mid-run returns a DIFFERENT function's body, silently.
+from ._source_probe import function_source
+
 
 def test_hypothesis_dict_key_contract():
     """The key inserted by _process_analysis must be 'hypothesis'."""
     from aria_service.intel import researcher
     import inspect
-    src = inspect.getsource(researcher._process_analysis)
+    src = function_source(researcher, "_process_analysis")
     # Confirm the dict literal uses "hypothesis" as key
     assert '"hypothesis": hyp["statement"]' in src, (
         "researcher._process_analysis stores hypotheses under key "
@@ -35,7 +39,7 @@ def test_main_validation_loop_reads_hypothesis_key():
     import inspect
     from aria_service import main
     # Locate the lifespan source
-    src = inspect.getsource(main.lifespan)
+    src = function_source(main, "lifespan")
     # The new code reads hyp_text = h.get("hypothesis", ""); the bug-pattern
     # was h.get("statement", ""). Assert the bug-pattern is gone.
     # Allow both `h.get("hypothesis"` and the assigned-then-used variant.
@@ -54,7 +58,7 @@ def test_validation_loop_sorts_oldest_first():
     """Sort key was added so we work the oldest-OPEN backlog first."""
     import inspect
     from aria_service import main
-    src = inspect.getsource(main.lifespan)
+    src = function_source(main, "lifespan")
     assert "open_hyps.sort" in src, (
         "validation loop should sort open hypotheses by age so older "
         "ones get a fresh evidence pass first"
@@ -67,7 +71,7 @@ def test_validation_loop_skips_empty_hypothesis_text():
     would substring-match anything and validate the wrong record)."""
     import inspect
     from aria_service import main
-    src = inspect.getsource(main.lifespan)
+    src = function_source(main, "lifespan")
     assert "if not hyp_text" in src, (
         "validation loop should skip empty-hypothesis-text rather than "
         "feed empty string into validate_hypothesis"

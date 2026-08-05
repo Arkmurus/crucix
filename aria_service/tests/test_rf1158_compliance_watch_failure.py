@@ -14,6 +14,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
+# R-F3754/§16 — NOT inspect.getsource: it slices at the line numbers captured
+# AT IMPORT, so an edit mid-run returns a DIFFERENT function's body, silently.
+from ._source_probe import function_source
+
 
 def _make_client(monkeypatch):
     """Create a TestClient with auth bypassed.
@@ -34,7 +38,7 @@ class TestComplianceWatchFailureWiring:
     def test_source_contains_failure_wiring(self) -> None:
         """The brain_signal_ep source must check capture result and record gap on failure."""
         from aria_service.routes import aria as a
-        src = inspect.getsource(a.brain_signal_ep)
+        src = function_source(a, "brain_signal_ep")
         # Must check the capture result
         assert '_cw_result.get("captured")' in src or 'not _cw_result' in src
         # Must record a gap on failure

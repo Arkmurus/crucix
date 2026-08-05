@@ -27,6 +27,10 @@ from fastapi.testclient import TestClient
 import aria_service.routes.aria as aria_routes
 from aria_service.main import app
 
+# R-F3754/§16 — NOT inspect.getsource: it slices at the line numbers captured
+# AT IMPORT, so an edit mid-run returns a DIFFERENT function's body, silently.
+from ._source_probe import function_source
+
 
 @pytest.fixture()
 def client_no_auth():
@@ -67,7 +71,7 @@ def test_orchestrate_canonical_precheck_uses_keyword_args():
     """Guard the exact regression: the call must pass entity_type+name by keyword
     (canonical_entity_id is keyword-only), and the except must use _log."""
     import inspect
-    src = inspect.getsource(aria_routes.dd_orchestrate_ep)
+    src = function_source(aria_routes, "dd_orchestrate_ep")
     # Strip inline comments + the docstring so the guard checks CODE, not the
     # comments that document the old bug (those legitimately mention it).
     code_lines = []

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3754,
+  "next_available": 3755,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31515,6 +31515,15 @@
       "commit_sha": "4c410997",
       "notes": null,
       "shipped_at": "2026-08-05T17:38:45Z"
+    },
+    {
+      "r_number": "R-F3754",
+      "title": "migrate a verified batch of 11 getsource tests to _source_probe; a Class.method shape is not convertible",
+      "claimed_at": "2026-08-05T17:50:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -21,6 +21,10 @@ import pytest
 from aria_service.intel import dd_orchestrator as ddo
 from aria_service.intel.dd_schema import ARKDDReport
 
+# R-F3754/§16 — NOT inspect.getsource: it slices at the line numbers captured
+# AT IMPORT, so an edit mid-run returns a DIFFERENT function's body, silently.
+from ._source_probe import function_source
+
 
 def test_keepalive_refreshes_interactive_during_dd():
     calls = []
@@ -76,7 +80,7 @@ def test_keepalive_cancel_is_in_a_finally():
     is impractical; the finally is what makes cancellation total.)"""
     import ast
     import inspect
-    src = inspect.getsource(ddo.orchestrate_dd)
+    src = function_source(ddo, "orchestrate_dd")
     tree = ast.parse(src)
     func = next(n for n in ast.walk(tree)
                 if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef)) and n.name == "orchestrate_dd")

@@ -14,12 +14,16 @@ import inspect
 
 import pytest
 
+# R-F3754/§16 — NOT inspect.getsource: it slices at the line numbers captured
+# AT IMPORT, so an edit mid-run returns a DIFFERENT function's body, silently.
+from ._source_probe import function_source
+
 
 # ── Cure 1: wire_success must use the lightweight metric path ────────────────
 
 def test_wire_success_uses_lightweight_record_signal_not_heavy_absorb():
     from aria_service.intel import engine_wiring
-    src = inspect.getsource(engine_wiring.wire_success)
+    src = function_source(engine_wiring, "wire_success")
     # Strip the docstring so explanatory prose ("heavy absorb_silent") doesn't
     # false-trip — check the actual call code only.
     body = src.split('"""')[-1] if '"""' in src else src
@@ -53,7 +57,7 @@ def test_neural_tier_runs_after_breaker_latency_in_source():
     """The neural encode must execute AFTER _record_latency/_maybe_trip_breaker,
     so the breaker measures durable-core latency, not the slow neural encode."""
     from aria_service.intel import brain_hook_bg
-    src = inspect.getsource(brain_hook_bg.absorb_tiers_bg)
+    src = function_source(brain_hook_bg, "absorb_tiers_bg")
     lat_pos = src.find("_record_latency(")
     breaker_pos = src.find("_maybe_trip_breaker(")
     neural_pos = src.rfind("learn_from_text(")

@@ -17,9 +17,13 @@ import inspect
 
 import aria_service.intel.dd_orchestrator as dd
 
+# R-F3754/§16 — NOT inspect.getsource: it slices at the line numbers captured
+# AT IMPORT, so an edit mid-run returns a DIFFERENT function's body, silently.
+from ._source_probe import function_source
+
 
 def test_verification_and_synthesis_are_budget_clamped():
-    src = inspect.getsource(dd._orchestrate_dd_impl)
+    src = function_source(dd, "_orchestrate_dd_impl")
     # the old unclamped fixed timeouts must be gone
     assert "timeout=30)" not in src, "verification still uses a fixed 30s timeout (unclamped)"
     assert "timeout=10)" not in src, "synthesis still uses a fixed 10s timeout (unclamped)"
@@ -34,7 +38,7 @@ def test_verification_and_synthesis_are_budget_clamped():
 def test_heavy_clamp_uses_reserved_deadline():
     """Heavy-layer _clamp must clamp to _heavy_deadline (budget − reserve), so
     synthesis always has its reserve."""
-    src = inspect.getsource(dd._orchestrate_dd_impl)
+    src = function_source(dd, "_orchestrate_dd_impl")
     # _clamp computes from _heavy_deadline; _clamp_final from _overall_deadline
     assert "rem = _heavy_deadline - time.time()" in src
     assert "rem = _overall_deadline - time.time()" in src

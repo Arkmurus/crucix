@@ -11,6 +11,10 @@ from pathlib import Path
 
 import pytest
 
+# R-F3754/§16 — NOT inspect.getsource: it slices at the line numbers captured
+# AT IMPORT, so an edit mid-run returns a DIFFERENT function's body, silently.
+from ._source_probe import function_source
+
 
 @pytest.mark.asyncio
 async def test_eagle_eye_start_stop():
@@ -141,7 +145,7 @@ async def test_eagle_eye_wired_in_lifespan():
     from aria_service import main
 
     import inspect
-    source = inspect.getsource(main.lifespan)
+    source = function_source(main, "lifespan")
     assert "eagle_eye.start" in source or "eagle_eye" in source, (
         "lifespan must call eagle_eye.start()"
     )
