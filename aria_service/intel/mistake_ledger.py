@@ -564,11 +564,23 @@ async def stats() -> dict:
         prevented_total = int(await rs.get(_KEY_PREVENTED_TOTAL) or 0)
     except Exception:
         prevented_total = 0
+    # R-F3735 — same collapse as audit_log's stats, and for the same reason the
+    # two chains got the same remedy in R-F3716: `_read_head()` (non-strict)
+    # answers with the GENESIS constant when the store fails, so this field
+    # reported "the ledger is at genesis" — empty, or wiped — when it simply
+    # could not be read. On a surface whose whole job is answering "is the chain
+    # intact?", a fabricated genesis is the worst possible answer.
+    try:
+        head = await _read_head(strict=True)
+        head_unreadable = False
+    except Exception:
+        head, head_unreadable = None, True
     return {
         "total_entries": len(sample),
         "prevented_total": prevented_total,
         "by_category": by_category,
-        "head_hash": await _read_head(),
+        "head_hash": head,
+        "head_unreadable": head_unreadable,
     }
 
 

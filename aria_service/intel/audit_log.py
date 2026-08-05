@@ -559,7 +559,17 @@ async def stats() -> dict:
         # in-memory store doesn't fully support it). Cap at 9999 as before.
         sample = await rs.lrange(_KEY_LOG, 0, 9999)
         total = len(sample)
-    head = await _read_head_hash()
+    # R-F3735 — a fabricated GENESIS is worse than no answer on a REPORTING
+    # surface. `_read_head_hash()` (non-strict) returns the genesis constant on a
+    # store failure as well as on a genuinely empty log, so this field told a
+    # reader checking chain integrity "the log is at genesis" — i.e. empty or
+    # wiped — when the truth was "the store is unreadable". R-F3711 fixed exactly
+    # this collapse on the WRITE path and left the read-out reporting it.
+    try:
+        head = await _read_head_hash(strict=True)
+        head_unreadable = False
+    except Exception:
+        head, head_unreadable = None, True
     # R-F2118/R-F2119 §21a — wire module active
     try:
         wire_success(module="audit_log",
@@ -575,6 +585,7 @@ async def stats() -> dict:
     return {
         "total_entries": total,
         "head_hash": head,
+        "head_unreadable": head_unreadable,
         "last_entry": {
             "ts": last.get("ts") if last else None,
             "action": last.get("action") if last else None,
