@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3748,
+  "next_available": 3749,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31455,6 +31455,15 @@
       "commit_sha": "ebc6a2d4",
       "notes": null,
       "shipped_at": "2026-08-05T16:02:08Z"
+    },
+    {
+      "r_number": "R-F3748",
+      "title": "D-06: financial verdicts stamped the fiscal year but never its AGE, so a stale filing read as current",
+      "claimed_at": "2026-08-05T16:05:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

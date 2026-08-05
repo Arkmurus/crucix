@@ -59,10 +59,18 @@ capability / state / parity ledgers, `ARIA_ENGINEERING_BRIEF`, the Hardening Cha
 and any DR-1 defect register returned nothing. The only near-match was
 `docs/rf557_stream_chat_parity_plan_2026_05_17.md`, which is unrelated.
 
-Consequently **every DR-1 entry in §B below is `UNADJUDICATED`**: the protocol names the
-defect class but this repo contains no report, run, or fixture proving the symptom or
-locating it. Seeding them with guessed module paths would manufacture exactly the kind
-of unfounded certainty the Honesty clause forbids.
+~~Consequently **every DR-1 entry in §B below is `UNADJUDICATED`**~~ — **SUPERSEDED
+2026-08-05: 4 of the 12 are now ADJUDICATED without the register** (D-02/R-F3747,
+D-03/R-F3745, D-05/R-F3746, D-06/R-F3748). The blocking claim was too broad. An entry
+naming a **testable invariant** can be adjudicated against this repo's own code; only
+an entry naming a **symptom or a rate** genuinely needs the missing evidence.
+
+The remaining eight do name symptoms or rates — D-01 is "0-in-n at a chosen bound",
+which cannot be derived from source at all — so for those the paragraph still holds:
+seeding them with guessed module paths would manufacture exactly the kind of unfounded
+certainty the Honesty clause forbids. D-03 proved the cost of a confident guess: the one
+entry that HAD a confident location was specified wrongly, and implementing it as
+written would have forced a false verdict.
 
 **Action required (operator):** supply the DR-1 adjudications and the transition
 ledgers, or authorise a fresh adjudication pass against real DD runs. Until then
@@ -71,7 +79,7 @@ fixture cannot be written for a symptom nobody has evidenced.
 
 ---
 
-## B. The DR-1 dozen — UNADJUDICATED, awaiting evidence
+## B. The DR-1 dozen — 4 ADJUDICATED (2026-08-05), 8 awaiting evidence
 
 Listed in the protocol's Phase 3 priority order. `Suspected location` is left blank
 where the census could not resolve it to a defensible file — a blank is honest, a guess
@@ -84,7 +92,7 @@ is not.
 | D-03 | Status ↔ verdict reconciliation (no GREEN over NOT CLEARED) | P0 | **ADJUDICATED — MIS-SPECIFIED (R-F3745)** | `dd_schema.py:3133`+scope_note, `pdf_generator.mjs:857-862,999,1811` | `test_rf3745_dr1_d03_verdict_readiness.py` |
 | D-04 | Materiality filter (the FRC class) | P1 | UNADJUDICATED | `aria_service/intel/dd_disciplines.py`, `dd_orchestrator.py` | none |
 | D-05 | Export-control classifier (no default "civilian") | P1 | **ADJUDICATED — ALREADY SATISFIED (R-F3746)** | `tech_classifier.py:639-640,650` | `test_rf3746_dr1_d05_export_default.py` |
-| D-06 | Financial-verdict vintage (`LAST_KNOWN_WITH_AGE` or refuse) | P1 | UNADJUDICATED | `aria_service/intel/financial_health.py` | none |
+| D-06 | Financial-verdict vintage (`LAST_KNOWN_WITH_AGE` or refuse) | P1 | **ADJUDICATED — REAL GAP, FIXED (R-F3748)** | `financial_health.py:347-372` | `test_rf3748_dr1_d06_financial_vintage.py` |
 | D-07 | PSC second hop | P1 | UNADJUDICATED | test exists (`test_rf3542_psc_second_hop.py`); **implementation not located** | partial |
 | D-08 | Waiver rendering on page 1 | P1 | UNADJUDICATED | `lib/reports/pdf_generator.mjs` | none |
 | D-09 | Person dedup | P2 | UNADJUDICATED | — | none |
@@ -92,6 +100,33 @@ is not.
 | D-11 | Telemetry / `(Phase 2)` leakage | P2 | UNADJUDICATED | — | none |
 | D-12 | Truncation artifacts | P2 | UNADJUDICATED | — | none |
 | D-13 | Count reconciliation, grade legends | P2 | UNADJUDICATED | — | none |
+
+**On D-06 — ADJUDICATED: a REAL gap, and the first one (R-F3748, 2026-08-05).**
+Three prior adjudications found no live defect (D-02, D-03, D-05). This one did.
+
+`financial_health`'s discipline is "UNKNOWN, not clean" — absent data never reads as
+healthy (module header, ~10 explicit UNKNOWN branches). Data that EXISTS and is OLD
+had no equivalent guard: `latest_fy` was recorded and **nothing anywhere compared it
+to the current year** — a repo-wide search found no age arithmetic on it at all. So
+a STABLE verdict computed from a five-year-old filing was returned with the same
+authority as one from last quarter, and the reader had to notice the FY and do the
+subtraction.
+
+That is the same failure the module already refuses in the absent case: a verdict
+claiming more currency than its evidence supports. The vintage was present; the AGE
+was not.
+
+**Fixed** by adding `latest_fy_age_years` + `financials_are_stale` to the contract,
+and appending a LAST KNOWN note to `summary` — because several callers render only
+`summary`, so a payload-only field would still show a stale verdict as current.
+
+**What was deliberately NOT done:** the verdict is not downgraded by age. D-06 could
+be "satisfied" by aging STABLE into WEAK; that would INVENT a financial finding, the
+exact fabrication this module exists to prevent. A test asserts same-inputs ->
+same-verdict regardless of age.
+
+The fixture **fails without the fix** (3 of 5) — the only DR-1 fixture so far that
+does, and what Phase 3 step 1 actually asks for.
 
 **On D-02 — ADJUDICATED (R-F3747, 2026-08-05). The suspected location was the wrong
 place to look.** Two findings:

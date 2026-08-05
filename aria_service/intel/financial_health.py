@@ -265,7 +265,13 @@ async def _assess_sec_edgar(name: str, cik: str | None = None) -> dict:
       {source, entity, cik, data_available: bool, reason (when not),
        currency, latest_fy, financials: {year: {revenue, net_income, ...}},
        ratios: {...}, altman_z: float|None, altman_zone, distress_flags: [...],
-       health_verdict: STRONG|STABLE|WEAK|DISTRESSED|UNKNOWN, summary: str}
+       health_verdict: STRONG|STABLE|WEAK|DISTRESSED|UNKNOWN, summary: str,
+       latest_fy_age_years: int|None, financials_are_stale: bool}
+
+    R-F3748 (DR-1 D-06) — `latest_fy_age_years` / `financials_are_stale` say how
+    OLD the position is. A verdict from a five-year-old filing is a LAST KNOWN
+    position, not a current one, and must not be read as the latter. The verdict
+    itself is never altered by age — that would invent a finding.
     """
     base = {
         "source": "sec_edgar_financials",
@@ -344,9 +350,37 @@ async def _assess_sec_edgar(name: str, cik: str | None = None) -> dict:
             cb.record_success()
             return base
 
+        # ── R-F3748 (DR-1 D-06) — stamp the AGE, not just the year ────────────
+        #
+        # This module's whole discipline is "UNKNOWN, not clean" (see the header):
+        # absent data never reads as healthy. But data that EXISTS and is OLD had
+        # no such guard. `latest_fy` was recorded, and nothing anywhere compared
+        # it to the current year — a repo-wide search found no age arithmetic on
+        # it at all. So a STABLE verdict computed from a five-year-old filing was
+        # returned with exactly the same authority as one from last quarter, and
+        # the reader had to notice the FY and do the subtraction themselves.
+        #
+        # That is the same failure this file already refuses in the absent case:
+        # a verdict that claims more currency than its evidence supports. D-06
+        # asks for "LAST_KNOWN_WITH_AGE or refuse"; the vintage was there, the AGE
+        # was not.
+        #
+        # The verdict itself is NOT altered. Downgrading STABLE to WEAK because a
+        # filing is old would invent a financial finding — the fabrication this
+        # module exists to prevent. Age is reported ALONGSIDE the verdict so the
+        # reader can discount it, which is what "LAST_KNOWN_WITH_AGE" means.
+        _fy_age = None
+        try:
+            if isinstance(latest_fy, int) or str(latest_fy).isdigit():
+                _fy_age = _dt.datetime.now(_dt.timezone.utc).year - int(latest_fy)
+        except Exception:       # a malformed FY must not break the assessment
+            _fy_age = None
+
         base.update({
             "data_available": True,
             "latest_fy": latest_fy,
+            "latest_fy_age_years": _fy_age,
+            "financials_are_stale": (_fy_age is not None and _fy_age >= 2),
             "financials": {str(y): {k: v for k, v in series[y].items() if v is not None} for y in years},
             "ratios": {k: v for k, v in ratios.items() if v is not None},
             "altman_z": z,
@@ -355,6 +389,16 @@ async def _assess_sec_edgar(name: str, cik: str | None = None) -> dict:
             "health_verdict": verdict,
         })
         base["summary"] = _build_summary(matched_title, latest_fy, latest, ratios, z, zone, flags, verdict)
+        # R-F3748 — the age must reach the READER, not just the payload. A caller
+        # that renders only `summary` (and several do) would otherwise still show
+        # an aged verdict as current.
+        if base.get("financials_are_stale"):
+            base["summary"] += (
+                f" NOTE: this is the LAST KNOWN position, from FY{latest_fy} — "
+                f"{_fy_age} years old. It is not evidence of the company's "
+                f"current financial state; more recent filings may exist "
+                f"elsewhere or may be overdue."
+            )
         cb.record_success()
         try:
             wire_success(
