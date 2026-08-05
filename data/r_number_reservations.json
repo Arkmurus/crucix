@@ -31144,18 +31144,20 @@
       "title": "the mistake ledger hash chain forked on a transient read like the audit chain",
       "claimed_at": "2026-08-04T14:35:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ab637b13",
+      "notes": null,
+      "shipped_at": "2026-08-05T08:05:41Z"
     },
     {
       "r_number": "R-F3717",
       "title": "a failed read wiped the honesty index that gate 1 depends on",
       "claimed_at": "2026-08-04T14:35:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ab637b13",
+      "notes": null,
+      "shipped_at": "2026-08-05T08:05:42Z"
     }
   ]
 }
