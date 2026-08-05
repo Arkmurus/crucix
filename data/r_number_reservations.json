@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3728,
+  "next_available": 3729,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31258,6 +31258,15 @@
       "commit_sha": "ac949bfe",
       "notes": null,
       "shipped_at": "2026-08-05T10:51:06Z"
+    },
+    {
+      "r_number": "R-F3728",
+      "title": "the wiring baseline keyed on a basename and message text, so it could collide and would break on a reword",
+      "claimed_at": "2026-08-05T11:01:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

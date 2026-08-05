@@ -51,55 +51,93 @@ def _in_scope() -> list[Path]:
             if "tests" not in p.parts and "__pycache__" not in p.parts]
 
 
-def _key(issue: str) -> str:
-    """Stable identity for an issue — the module path, not the issue wording."""
-    for tok in issue.replace("\\", "/").split():
-        if tok.endswith(".py") or "aria_service/" in tok:
-            return tok.strip(":,")
-    return issue.strip()
+def _verdict(issue: str) -> str:
+    """The CATEGORY of the finding, from its first line.
+
+    R-F3728 — keying on the whole message meant any reword invalidated every
+    entry at once, turning the gate into 66 spurious "NEW dark module" failures
+    and training people to re-baseline instead of read it. Keying on the
+    category keeps that stable while still noticing a module that changes
+    KIND — e.g. from fully dark to half-wired, which is progress that should be
+    re-recorded rather than silently accepted.
+    """
+    head = issue.strip().splitlines()[0] if issue.strip() else ""
+    low = head.lower()
+    if "no brain wiring" in low:
+        return "no-wiring"
+    if "no wire_failure" in low:
+        return "missing-failure"
+    if "no wire_success" in low:
+        return "missing-success"
+    return "other"
+
+
+def _scan() -> dict[str, str]:
+    """{posix path: verdict} — one entry per unwired module.
+
+    R-F3728 — scans PER FILE. check_wiring_present() emits the module's BASENAME
+    only ("git_utils.py: NO brain wiring found"), so a key parsed out of the
+    message is (a) ambiguous — this tree has same-named modules in different
+    packages, and two `db.py` would share one baseline entry, hiding whichever
+    was added second — and (b) tied to the message wording. Calling the checker
+    with a single file makes the path unambiguous because we already know it.
+    """
+    found: dict[str, str] = {}
+    for p in _in_scope():
+        for issue in check_wiring_present([p], require_intel=False):
+            found[p.as_posix()] = _verdict(issue)
+    return found
 
 
 def main() -> int:
     update = "--update-baseline" in sys.argv
-    scope = _in_scope()
-    issues = check_wiring_present(scope, require_intel=False)
+    found = _scan()
 
     if update:
         BASELINE.parent.mkdir(parents=True, exist_ok=True)
         BASELINE.write_text(json.dumps({
-            "_comment": ("R-F3727 — KNOWN-DARK modules (§21a debt), NOT an "
-                         "exemption list. A new dark module must NOT be added "
+            "_comment": ("R-F3727/R-F3728 — KNOWN-DARK modules (§21a debt), NOT "
+                         "an exemption list. A new dark module must NOT be added "
                          "here to make CI pass; wire it instead. Clearing an "
-                         "entry is a PR that makes this file shorter."),
-            "known_dark": sorted({_key(i) for i in issues}),
+                         "entry is a PR that makes this file shorter. Keyed by "
+                         "module PATH -> verdict category."),
+            "known_dark": dict(sorted(found.items())),
         }, indent=2) + "\n", encoding="utf-8")
-        print(f"[wiring] baseline written: {len({_key(i) for i in issues})} "
-              f"known-dark module(s) -> {BASELINE}")
+        print(f"[wiring] baseline written: {len(found)} known-dark module(s) "
+              f"-> {BASELINE}")
         return 0
 
-    known: set[str] = set()
+    known: dict[str, str] = {}
     if BASELINE.exists():
         try:
-            known = set(json.loads(BASELINE.read_text(encoding="utf-8"))
-                        .get("known_dark", []))
+            raw = json.loads(BASELINE.read_text(encoding="utf-8")).get("known_dark", {})
+            # tolerate the R-F3727 list form so a stale baseline is not silently empty
+            known = raw if isinstance(raw, dict) else {k: "other" for k in raw}
         except Exception as e:      # an unreadable baseline is not an empty one
             print(f"[wiring] COULD NOT READ BASELINE {BASELINE}: {e}", file=sys.stderr)
             return 2
 
-    new = [i for i in issues if _key(i) not in known]
-    fixed = known - {_key(i) for i in issues}
+    new = [(p, v) for p, v in sorted(found.items()) if p not in known]
+    changed = [(p, known[p], v) for p, v in sorted(found.items())
+               if p in known and known[p] != v]
+    fixed = set(known) - set(found)
 
-    print(f"[wiring] scanned {len(scope)} modules across aria_service/ "
-          f"({len(issues)} unwired, {len(known)} already known)")
+    print(f"[wiring] scanned {len(_in_scope())} modules across aria_service/ "
+          f"({len(found)} unwired, {len(known)} already known)")
     if fixed:
         print(f"[wiring] {len(fixed)} module(s) newly WIRED — run "
               f"--update-baseline to shrink the ledger:")
         for f in sorted(fixed)[:10]:
             print(f"    + {f}")
+    if changed:
+        print(f"[wiring] {len(changed)} module(s) changed CATEGORY "
+              f"(re-baseline to record):")
+        for p, was, now in changed[:10]:
+            print(f"    ~ {p}: {was} -> {now}")
     if new:
         print(f"[wiring] AUDIT FAILED — {len(new)} NEW dark module(s) (§21a):")
-        for i in new:
-            print(f"  {i}")
+        for p, v in new:
+            print(f"  {p}: {v}")
         print("\nWire the success AND failure branch to a brain sink (@wired is "
               "preferred — it covers both). Do NOT add it to the baseline to go "
               "green.")
