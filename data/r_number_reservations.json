@@ -31371,9 +31371,10 @@
       "title": "C-11 ip-address and socket.io-parser pinned inside SSRF-bypass and memory-exhaustion ranges",
       "claimed_at": "2026-08-05T14:17:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2b92c318",
+      "notes": null,
+      "shipped_at": "2026-08-05T14:19:00Z"
     }
   ]
 }
