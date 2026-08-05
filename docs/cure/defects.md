@@ -308,8 +308,40 @@ batch can be authorised from this census alone.
 **What is available:** `flyctl` is installed and authenticated; `aria-intel` answers
 `/health/live`. Fly's log retention is short and is **not** a 14-day access record, so
 the overlay needs a deliberate collection window opened now — it cannot be reconstructed
-retrospectively. Starting that clock is the single highest-leverage next action, because
-every Phase 4 decision waits on it.
+retrospectively.
+
+**Investigated 2026-08-05 — there is NOTHING to simply switch on.** The hope was that
+existing telemetry could serve the overlay, making this a configuration change rather
+than new code. It cannot:
+
+- `aria_service/main.py` registers **exactly one** HTTP middleware — `_limit_body_size`
+  (`main.py:4725`), a Content-Length cap. There is no request/route counter.
+- A repo-wide search for `route_hit` / `endpoint_usage` / `request_count` / `access_log`
+  / `usage_stats` / `route_metrics` matched **one** file (`routes/vetting.py`) and
+  nothing general.
+
+So none of the 782 FastAPI or 536 Express routes records that it was called.
+
+**The blocking chain, stated exactly:**
+
+```
+delete anything  →  requires 3 proofs (Phase 4.1)
+                 →  runtime proof requires the 0.3 overlay
+                 →  overlay requires usage instrumentation
+                 →  instrumentation must be DEPLOYED to observe production
+                 →  deploying a cure PR requires green e2e smoke (Phase 2.3)
+                 →  that smoke does not exist (Phase 2 unbuilt)
+```
+
+**This terminates at an operator decision, not at more engineering.** Either the Phase
+2.3 smoke gets built first (protocol order, slower), or the instrumentation deploy is
+authorised as an exception ahead of it (faster, and the observation window starts
+sooner). Both are legitimate; the choice is the operator's because it trades protocol
+order against 14 days of calendar time on the critical path.
+
+Note the instrumentation itself is protocol-sanctioned: Phase 4.2 step 1 is precisely
+*"add an entry-point counter/log line; deploy; observe 14 days."* The freeze does not
+forbid it. What blocks it is the deploy gate, not the code.
 
 ---
 
