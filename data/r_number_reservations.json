@@ -31431,9 +31431,10 @@
       "title": "adjudicate DR-1 D-03: the invariant as written would force a false verdict; the real one is verdict-never-without-readiness",
       "claimed_at": "2026-08-05T15:38:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "03bf260c",
+      "notes": null,
+      "shipped_at": "2026-08-05T15:47:36Z"
     }
   ]
 }
