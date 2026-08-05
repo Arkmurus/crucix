@@ -79,7 +79,7 @@ fixture cannot be written for a symptom nobody has evidenced.
 
 ---
 
-## B. The DR-1 dozen — 4 ADJUDICATED (2026-08-05), 8 awaiting evidence
+## B. The DR-1 dozen — 5 ADJUDICATED (2026-08-05), 7 awaiting evidence
 
 Listed in the protocol's Phase 3 priority order. `Suspected location` is left blank
 where the census could not resolve it to a defensible file — a blank is honest, a guess
@@ -90,7 +90,7 @@ is not.
 | D-01 | PI-leak gate (0-in-n at chosen bound) | P0 | UNADJUDICATED | — | none |
 | D-02 | Matcher surname / dataset gates | P0 | **ADJUDICATED — SATISFIED IN THE LIVE PATH (R-F3747)** | live: `_sanctions_classify.py:680-687,697+`; suspected `entityMatcher.mjs` is DORMANT | `test_rf3747_dr1_d02_matcher_gates.py` |
 | D-03 | Status ↔ verdict reconciliation (no GREEN over NOT CLEARED) | P0 | **ADJUDICATED — MIS-SPECIFIED (R-F3745)** | `dd_schema.py:3133`+scope_note, `pdf_generator.mjs:857-862,999,1811` | `test_rf3745_dr1_d03_verdict_readiness.py` |
-| D-04 | Materiality filter (the FRC class) | P1 | UNADJUDICATED | `aria_service/intel/dd_disciplines.py`, `dd_orchestrator.py` | none |
+| D-04 | Materiality filter (the FRC class) | P1 | **ADJUDICATED — SATISFIED (R-F3749)** | `dd_orchestrator.py:13585,12842`; `dd_disciplines.py` only INSTRUCTS | `test_rf3749_dr1_d04_materiality.py` |
 | D-05 | Export-control classifier (no default "civilian") | P1 | **ADJUDICATED — ALREADY SATISFIED (R-F3746)** | `tech_classifier.py:639-640,650` | `test_rf3746_dr1_d05_export_default.py` |
 | D-06 | Financial-verdict vintage (`LAST_KNOWN_WITH_AGE` or refuse) | P1 | **ADJUDICATED — REAL GAP, FIXED (R-F3748)** | `financial_health.py:347-372` | `test_rf3748_dr1_d06_financial_vintage.py` |
 | D-07 | PSC second hop | P1 | UNADJUDICATED | test exists (`test_rf3542_psc_second_hop.py`); **implementation not located** | partial |
@@ -100,6 +100,37 @@ is not.
 | D-11 | Telemetry / `(Phase 2)` leakage | P2 | UNADJUDICATED | — | none |
 | D-12 | Truncation artifacts | P2 | UNADJUDICATED | — | none |
 | D-13 | Count reconciliation, grade legends | P2 | UNADJUDICATED | — | none |
+
+**On D-04 — ADJUDICATED, SATISFIED (R-F3749, 2026-08-05).** "The FRC class" decides
+the entry: the Financial Reporting Council is a **regulator**, and a
+regulator/court/government finding is tier 1 ("official") in
+`_adverse_finding_tier` (`dd_orchestrator.py:12842`). So the FRC class is the case
+where a **single regulatory finding must be material on its own** — demanding
+corroboration for a regulator is precisely how a real enforcement action gets
+filtered out as noise.
+
+`_adverse_media_materiality` (`:13585`) sets
+`material = (len(official) >= 1) or (len(credible) >= _min_credible)`, so one
+official-tier finding is material with no second source, while weak tiers (3
+industry, 5 general) cannot move a verdict alone — the single-source
+false-positive guard. **`dd_disciplines.py` only INSTRUCTS** materiality (prompt
+text `:293`, schema `:312`); enforcement lives in the orchestrator. A suspected
+location can be the documentation, not the mechanism.
+
+The fixture also pins R-F3022 (a non-material sweep must not go SILENT — "matched
+names, no adverse content" is a more useful statement than nothing, and silence
+lets a reader assume the search never ran) and R-F3084 (raw diagnostics stay
+separate from the filtered set; the PDF once called 26 RAW hits items that
+"survived filtering"), plus three guards: weak-source-alone is not material, a
+duplicate URL counts once, and adverse media may RAISE a verdict but never soften
+a worse one.
+
+**Two fixture premises were wrong on the first run** — recorded because the next
+adjudication will hit them: `credibility_tier` is the INT web_search scale, and the
+subject name must appear in the finding's **text** (`_adverse_names_subject`
+tokenises content; a `subject_named` flag is not consulted). `_apply_adverse_media_
+to_verdict` also requires `ok: True` — a sweep that did not succeed must not move a
+verdict, which is itself correct.
 
 **On D-06 — ADJUDICATED: a REAL gap, and the first one (R-F3748, 2026-08-05).**
 Three prior adjudications found no live defect (D-02, D-03, D-05). This one did.

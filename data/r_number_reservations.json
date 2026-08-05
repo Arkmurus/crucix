@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3749,
+  "next_available": 3750,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31465,6 +31465,15 @@
       "commit_sha": "8f0eaf89",
       "notes": null,
       "shipped_at": "2026-08-05T16:21:21Z"
+    },
+    {
+      "r_number": "R-F3749",
+      "title": "adjudicate DR-1 D-04: one regulator finding is material on its own; pin the FRC class",
+      "claimed_at": "2026-08-05T17:10:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
