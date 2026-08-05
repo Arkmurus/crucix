@@ -140,3 +140,29 @@ def test_the_blindness_is_wired_to_the_brain():
         "a failure that can disable the entire autonomous subsystem was logged "
         "at debug level — invisible in production"
     )
+
+
+def test_refresh_never_raises_even_if_the_store_module_is_unimportable(monkeypatch):
+    """R-F3732 — `_engine_loop` awaits this BARE, so it must not throw.
+
+    R-F3722 lifted the redis_store import out of the try. The original wrapped
+    everything, so callers could rely on never-raises; the tick loop still does.
+    An unimportable store module is "no news", exactly like an unreadable one.
+    """
+    import builtins
+
+    engine = _engine(monkeypatch)
+    engine._RUNTIME_ENABLE_CACHE["val"] = "1"
+
+    real_import = builtins.__import__
+
+    def _boom(name, globals=None, locals=None, fromlist=(), level=0):
+        if "redis_store" in name or (fromlist and "redis_store" in fromlist):
+            raise ImportError("redis_store unavailable")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", _boom)
+    # must NOT raise, and must not erase the operator's enabled state
+    assert asyncio.run(engine.refresh_runtime_override()) == "1"
+    assert engine._RUNTIME_ENABLE_CACHE.get("val") == "1"
+    assert engine.is_enabled() is True

@@ -301,8 +301,15 @@ async def refresh_runtime_override() -> str | None:
     # previous cached value stands. Only a SUCCESSFUL read may change the
     # switch. Absent-and-readable still clears it, so /autonomous/enable's
     # "clear the override" path is unaffected.
-    from ..intel import redis_store as rs
+    # R-F3732 — the import stays INSIDE the try. R-F3722 lifted it out, which
+    # quietly broke this function's never-raises contract: the original wrapped
+    # EVERYTHING, so callers could rely on it not throwing. `_engine_loop`
+    # (≈:849) awaits it BARE — unlike the catch-up caller at ≈:609, which
+    # guards it — so a raise there propagates into the tick loop. An
+    # unimportable store module is also just "no news", and belongs on the same
+    # path as an unreadable one.
     try:
+        from ..intel import redis_store as rs
         v = await rs.get_strict(_REDIS_ENABLE_KEY)
     except Exception as e:
         prev = _RUNTIME_ENABLE_CACHE.get("val")
