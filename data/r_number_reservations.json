@@ -31184,9 +31184,10 @@
       "title": "no secret scanning existed, so a credential could reach a public repo unchallenged",
       "claimed_at": "2026-08-05T08:52:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7d92b315",
+      "notes": null,
+      "shipped_at": "2026-08-05T10:27:27Z"
     },
     {
       "r_number": "R-F3721",

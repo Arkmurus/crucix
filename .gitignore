@@ -182,3 +182,6 @@ scripts/_*.out
 # sanctions results). A gold corpus is committed deliberately after a human decides
 # the record may be retained, never swept in by an incidental `git add`.
 data/eval/dd_recordings/
+
+# Cure Protocol census — 3.6MB generated artifact; regenerate with scripts/cure/census.py
+docs/cure/census.json

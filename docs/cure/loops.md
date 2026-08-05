@@ -2,7 +2,7 @@
      re-run the census instead. Runtime proofs are absent until Phase 0.3. -->
 # loops.md — background loop census
 
-**Crucix Cure Protocol — Phase 0.2 static census** · commit `5277e187` · 4116 tracked files
+**Crucix Cure Protocol — Phase 0.2 static census** · commit `25f0d878` · 4127 tracked files
 
 Every `while True` loop, task spawn and timer, with the lease / singleton / restart-safety evidence the census can see.
 

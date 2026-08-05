@@ -2,7 +2,7 @@
      re-run the census instead. Runtime proofs are absent until Phase 0.3. -->
 # modules.md — module census
 
-**Crucix Cure Protocol — Phase 0.2 static census** · commit `5277e187` · 4116 tracked files
+**Crucix Cure Protocol — Phase 0.2 static census** · commit `25f0d878` · 4127 tracked files
 
 Every tracked Python and Node module, its importers, its entrypoints, and whether anything reaches it at all.
 
@@ -30,16 +30,16 @@ Every tracked Python and Node module, its importers, its entrypoints, and whethe
 
 | Class | Modules |
 |---|---|
-| TEST | 2069 |
-| ACTIVE-STATIC | 849 |
-| DEAD-CANDIDATE | 109 |
+| TEST | 2073 |
+| ACTIVE-STATIC | 948 |
+| DEAD-CANDIDATE | 27 |
 | DEPLOY-ENTRYPOINT | 20 |
-| DORMANT | 19 |
 | SERVED-ASSET | 8 |
+| DORMANT | 2 |
 
 
-Python files parsed: **2536/2536** ·
-parse errors: **0** · Node files: **538**
+Python files parsed: **2539/2539** ·
+parse errors: **0** · Node files: **539**
 
 A zero parse-error tree matters independently: CLAUDE.md §11c requires a whole-tree
 compile gate before any deploy, after autonomous annotation campaigns pushed 31 syntax
@@ -50,14 +50,14 @@ errors to `main`. This census parsed every tracked `.py` with `ast.parse` and fo
 
 | Package | Total | DEPLOY&#8209;ENTRYPOINT | ACTIVE&#8209;STATIC | DEPLOYED&#8209;DEP | SERVED&#8209;ASSET | SCRIPT&#8209;REFERENCED | DORMANT | DEAD&#8209;CANDIDATE | TEST |
 |---|---|---|---|---|---|---|---|---|---|
-| `aria_service/tests` | 1701 |  |  |  |  |  |  |  | 1701 |
+| `aria_service/tests` | 1704 |  |  |  |  |  |  |  | 1704 |
 | `aria_service/intel` | 442 |  | 441 |  |  |  |  | 1 |  |
 | `apis/sources` | 56 |  | 52 |  |  |  |  | 4 |  |
-| `scripts/train` | 54 |  | 33 |  |  |  | 3 | 18 |  |
+| `scripts/train` | 54 |  | 54 |  |  |  |  |  |  |
 | `aria_cli/tests` | 45 |  |  |  |  |  |  |  | 45 |
 | `aria_service/autonomous` | 23 |  | 22 |  |  |  |  |  | 1 |
 | `lib/aria` | 22 |  | 20 |  |  |  | 1 |  | 1 |
-| `scripts/admin` | 21 | 3 | 8 |  |  |  | 4 | 6 |  |
+| `scripts/admin` | 21 | 3 | 16 |  |  |  |  | 2 |  |
 | `aria_service/vetting` | 20 |  | 20 |  |  |  |  |  |  |
 | `aria_service/learning` | 18 |  | 18 |  |  |  |  |  |  |
 | `aria_service/llm` | 18 |  | 18 |  |  |  |  |  |  |
@@ -76,7 +76,7 @@ errors to `main`. This census parsed every tracked `.py` with `ast.parse` and fo
 | `lib/alerts` | 6 |  | 5 |  |  |  |  | 1 |  |
 | `lib/whatsapp` | 6 |  | 6 |  |  |  |  |  |  |
 | `aria_service/cli` | 5 |  | 5 |  |  |  |  |  |  |
-| `scripts/eval` | 5 |  | 3 |  |  |  | 1 | 1 |  |
+| `scripts/eval` | 5 |  | 5 |  |  |  |  |  |  |
 | `lib/billing` | 5 |  | 5 |  |  |  |  |  |  |
 | `aria_service/routes` | 4 |  | 4 |  |  |  |  |  |  |
 | `aria_service/utils` | 4 |  | 4 |  |  |  |  |  |  |
@@ -91,60 +91,10 @@ errors to `main`. This census parsed every tracked `.py` with `ast.parse` and fo
 | `test/helpers` | 3 |  |  |  |  |  |  |  | 3 |
 
 
-## DEAD-CANDIDATE (109) — unreferenced, unserved, untested
+## DEAD-CANDIDATE (27) — unreferenced, unserved, untested
 
 These have **two of three proofs** (static-unreferenced, test-untested). They are **not deletable** until the Phase 0.3 runtime window confirms they are unobserved, and then only through the quarantine ladder (tripwire → disable → delete).
 
-
-
-### `scripts/train` — 18 modules, 3,145 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/train/build_dd_framework_v07_corpus.py` | 793 | `__main__` |
-| `scripts/train/generate_v04_failure_corpus.py` | 362 | `__main__` |
-| `scripts/train/build_grounded_dpo_v2_widen.py` | 263 | `__main__` |
-| `scripts/train/generate_distill_batch.py` | 216 | `__main__` |
-| `scripts/train/validate_judge.py` | 178 | `__main__` |
-| `scripts/train/gen_questions_from_facts_v07.py` | 169 | `__main__` |
-| `scripts/train/build_grpo_keywords_v2.py` | 165 | `__main__` |
-| `scripts/train/capture_unavailable.py` | 131 | `__main__` |
-| `scripts/train/capture_adverse.py` | 123 | `__main__` |
-| `scripts/train/capture_challenge.py` | 114 | `__main__` |
-| `scripts/train/gen_questions_v06.py` | 114 | `__main__` |
-| `scripts/train/capture_person.py` | 113 | `__main__` |
-| `scripts/train/capture_resolution.py` | 102 | `__main__` |
-| `scripts/train/capture_news.py` | 100 | `__main__` |
-| `scripts/train/push_adapter_to_hf.py` | 74 | `__main__` |
-| `scripts/train/build_grpo_dataset.py` | 69 | `__main__` |
-| `scripts/train/_retry_pod_start.py` | 45 | — |
-| `scripts/train/_list_pods.py` | 14 | — |
-
-
-### `scripts/admin` — 6 modules, 1,145 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/admin/measure_trace_volume.py` | 364 | `__main__` |
-| `scripts/admin/rehash.mjs` | 213 | — |
-| `scripts/admin/watchlist_orphan_reconcile.py` | 189 | `__main__` |
-| `scripts/admin/auth-doctor.mjs` | 168 | — |
-| `scripts/admin/run_coder_first_gold.py` | 115 | `__main__` |
-| `scripts/admin/wiring_probe.py` | 96 | `__main__` |
-
-
-### `scripts/eval` — 1 modules, 747 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/eval/build_code_reasoning_heldout.py` | 747 | `__main__` |
-
-
-### `scripts/ingest_powershell_docs.py` — 1 modules, 595 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/ingest_powershell_docs.py` | 595 | `__main__` |
 
 
 ### `aria_service/static` — 1 modules, 566 LOC
@@ -164,13 +114,6 @@ These have **two of three proofs** (static-unreferenced, test-untested). They ar
 | `apis/sources/un_sc_sanctions.mjs` | 89 | — |
 
 
-### `scripts/ingest_linkedin.py` — 1 modules, 524 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/ingest_linkedin.py` | 524 | `__main__` |
-
-
 ### `scripts/workflows` — 4 modules, 419 LOC
 
 | Module | LOC | Contains |
@@ -181,54 +124,20 @@ These have **two of three proofs** (static-unreferenced, test-untested). They ar
 | `scripts/workflows/verify_aria_wa_gap_analysis.js` | 83 | — |
 
 
+### `scripts/admin` — 2 modules, 381 LOC
+
+| Module | LOC | Contains |
+|---|---|---|
+| `scripts/admin/rehash.mjs` | 213 | — |
+| `scripts/admin/auth-doctor.mjs` | 168 | — |
+
+
 ### `public/pelican` — 2 modules, 366 LOC
 
 | Module | LOC | Contains |
 |---|---|---|
 | `public/pelican/assets/js/validator.js` | 362 | — |
 | `public/pelican/assets/js/jquery.validate.min.js` | 4 | — |
-
-
-### `scripts/full_380_dd.py` — 1 modules, 362 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/full_380_dd.py` | 362 | — |
-
-
-### `scripts/probe_agents.py` — 1 modules, 347 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/probe_agents.py` | 347 | `__main__` |
-
-
-### `scripts/independence_self_test.py` — 1 modules, 322 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/independence_self_test.py` | 322 | `__main__` |
-
-
-### `scripts/rf1883_verify_rag_knowledge.py` — 1 modules, 313 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/rf1883_verify_rag_knowledge.py` | 313 | `__main__` |
-
-
-### `scripts/verify_portal_agents.py` — 1 modules, 303 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/verify_portal_agents.py` | 303 | — |
-
-
-### `scripts/rf1888_verify_powershell_knowledge.py` — 1 modules, 276 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/rf1888_verify_powershell_knowledge.py` | 276 | `__main__` |
 
 
 ### `lib/delta` — 1 modules, 258 LOC
@@ -245,34 +154,6 @@ These have **two of three proofs** (static-unreferenced, test-untested). They ar
 | `scripts/audit/landing_claim_truth.mjs` | 257 | — |
 
 
-### `scripts/synthetic_monitor.py` — 1 modules, 253 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/synthetic_monitor.py` | 253 | `__main__` 1 loops |
-
-
-### `scripts/full_system_dd.py` — 1 modules, 247 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/full_system_dd.py` | 247 | — |
-
-
-### `scripts/e2e` — 1 modules, 227 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/e2e/browser_e2e_rf2795.py` | 227 | `__main__` |
-
-
-### `scripts/ingest_python_windows_docs.py` — 1 modules, 224 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/ingest_python_windows_docs.py` | 224 | `__main__` |
-
-
 ### `(root)` — 3 modules, 211 LOC
 
 | Module | LOC | Contains |
@@ -282,39 +163,11 @@ These have **two of three proofs** (static-unreferenced, test-untested). They ar
 | `search_company.mjs` | 49 | — |
 
 
-### `scripts/design_partner_outreach.py` — 1 modules, 204 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/design_partner_outreach.py` | 204 | `__main__` |
-
-
-### `scripts/self_deploy.py` — 1 modules, 160 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/self_deploy.py` | 160 | `__main__` |
-
-
-### `.scripts/redis_key_audit.py` — 1 modules, 155 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `.scripts/redis_key_audit.py` | 155 | `__main__` |
-
-
 ### `lib/intel` — 1 modules, 138 LOC
 
 | Module | LOC | Contains |
 |---|---|---|
 | `lib/intel/source_registry_bootstrap.mjs` | 138 | — |
-
-
-### `scripts/loadtest_aria.py` — 1 modules, 135 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/loadtest_aria.py` | 135 | `__main__` |
 
 
 ### `scripts/setup_stripe.mjs` — 1 modules, 132 LOC
@@ -324,20 +177,6 @@ These have **two of three proofs** (static-unreferenced, test-untested). They ar
 | `scripts/setup_stripe.mjs` | 132 | — |
 
 
-### `scripts/audit_independence.py` — 1 modules, 124 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/audit_independence.py` | 124 | — |
-
-
-### `scripts/analyze_codebase_patterns.py` — 1 modules, 122 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/analyze_codebase_patterns.py` | 122 | `__main__` |
-
-
 ### `lib/alerts` — 1 modules, 106 LOC
 
 | Module | LOC | Contains |
@@ -345,172 +184,11 @@ These have **two of three proofs** (static-unreferenced, test-untested). They ar
 | `lib/alerts/alert_evaluator.mjs` | 106 | — |
 
 
-### `scripts/probe_dd_reports_page.py` — 1 modules, 104 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/probe_dd_reports_page.py` | 104 | — |
-
-
-### `scripts/rf1038_normalize_loggers.py` — 1 modules, 99 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/rf1038_normalize_loggers.py` | 99 | `__main__` |
-
-
-### `scripts/diagnose_registration.py` — 1 modules, 96 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/diagnose_registration.py` | 96 | `__main__` |
-
-
-### `scripts/apply_rf1128.py` — 1 modules, 92 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/apply_rf1128.py` | 92 | — |
-
-
-### `scripts/audit_pass1.py` — 1 modules, 89 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/audit_pass1.py` | 89 | `__main__` |
-
-
-### `scripts/audit_real_data_sources.py` — 1 modules, 83 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/audit_real_data_sources.py` | 83 | — |
-
-
-### `scripts/verify_session_fixes.py` — 1 modules, 81 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/verify_session_fixes.py` | 81 | — |
-
-
-### `scripts/verify_python_windows_ingest.py` — 1 modules, 63 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/verify_python_windows_ingest.py` | 63 | `__main__` |
-
-
-### `scripts/verify_all_code.py` — 1 modules, 59 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/verify_all_code.py` | 59 | — |
-
-
-### `scripts/check_real_registrations.py` — 1 modules, 51 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/check_real_registrations.py` | 51 | — |
-
-
-### `scripts/probe_contracts.py` — 1 modules, 51 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/probe_contracts.py` | 51 | `__main__` |
-
-
-### `scripts/check_rag_direct.py` — 1 modules, 49 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/check_rag_direct.py` | 49 | `__main__` |
-
-
-### `scripts/probe_vault_live.py` — 1 modules, 49 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/probe_vault_live.py` | 49 | — |
-
-
-### `scripts/keep_awake.py` — 1 modules, 44 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/keep_awake.py` | 44 | `__main__` |
-
-
-### `scripts/quick_vault_check.py` — 1 modules, 42 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/quick_vault_check.py` | 42 | — |
-
-
-### `scripts/iast` — 1 modules, 41 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/iast/run_iast.py` | 41 | — |
-
-
-### `scripts/probe_vault_pending.py` — 1 modules, 41 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/probe_vault_pending.py` | 41 | — |
-
-
-### `scripts/show_adversarial_stats.py` — 1 modules, 41 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/show_adversarial_stats.py` | 41 | — |
-
-
-### `scripts/replace_all_fetch.py` — 1 modules, 40 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/replace_all_fetch.py` | 40 | — |
-
-
-### `scripts/probe_vault_api.py` — 1 modules, 36 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/probe_vault_api.py` | 36 | — |
-
-
-### `scripts/prove_vault_fix.py` — 1 modules, 36 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/prove_vault_fix.py` | 36 | — |
-
-
-### `scripts/quick_agent_check.py` — 1 modules, 36 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/quick_agent_check.py` | 36 | — |
-
-
 ### `aria-app/next.config.mjs` — 1 modules, 35 LOC
 
 | Module | LOC | Contains |
 |---|---|---|
 | `aria-app/next.config.mjs` | 35 | — |
-
-
-### `scripts/apply_rf1128_v2.py` — 1 modules, 34 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/apply_rf1128_v2.py` | 34 | — |
 
 
 ### `scripts/dns_probe.js` — 1 modules, 34 LOC
@@ -527,137 +205,11 @@ These have **two of three proofs** (static-unreferenced, test-untested). They ar
 | `apis/utils/env.mjs` | 32 | — |
 
 
-### `scripts/check_fly_network.py` — 1 modules, 30 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/check_fly_network.py` | 30 | — |
-
-
-### `scripts/check_funcs.py` — 1 modules, 30 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/check_funcs.py` | 30 | — |
-
-
-### `scripts/generate_endpoint_manifest.py` — 1 modules, 30 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/generate_endpoint_manifest.py` | 30 | — |
-
-
-### `scripts/check_brain_ui_endpoints.py` — 1 modules, 26 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/check_brain_ui_endpoints.py` | 26 | — |
-
-
-### `scripts/check_identity.py` — 1 modules, 24 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/check_identity.py` | 24 | — |
-
-
-### `scripts/check_brain_modules.py` — 1 modules, 22 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/check_brain_modules.py` | 22 | — |
-
-
-### `scripts/trigger_portal_email.py` — 1 modules, 21 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/trigger_portal_email.py` | 21 | `__main__` |
-
-
-### `scripts/replace_fetch_calls.py` — 1 modules, 20 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/replace_fetch_calls.py` | 20 | — |
-
-
-### `scripts/check_brain_ui_auth.py` — 1 modules, 17 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/check_brain_ui_auth.py` | 17 | — |
-
-
-### `scripts/find_route_spot.py` — 1 modules, 14 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/find_route_spot.py` | 14 | — |
-
-
-### `scripts/check_vault.py` — 1 modules, 13 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/check_vault.py` | 13 | — |
-
-
-### `scripts/find_dd_new_btn.py` — 1 modules, 12 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/find_dd_new_btn.py` | 12 | — |
-
-
-### `scripts/trigger_email_b64.py` — 1 modules, 12 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/trigger_email_b64.py` | 12 | — |
-
-
-### `scripts/fix_backticks.py` — 1 modules, 11 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/fix_backticks.py` | 11 | — |
-
-
-### `scripts/find_auth_dep.py` — 1 modules, 9 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/find_auth_dep.py` | 9 | — |
-
-
-### `scripts/find_layer5c.py` — 1 modules, 9 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/find_layer5c.py` | 9 | — |
-
-
 ### `aria-app/postcss.config.mjs` — 1 modules, 9 LOC
 
 | Module | LOC | Contains |
 |---|---|---|
 | `aria-app/postcss.config.mjs` | 9 | — |
-
-
-### `scripts/check_fetch_pattern.py` — 1 modules, 7 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/check_fetch_pattern.py` | 7 | — |
-
-
-### `scripts/find_fetch_calls.py` — 1 modules, 7 LOC
-
-| Module | LOC | Contains |
-|---|---|---|
-| `scripts/find_fetch_calls.py` | 7 | — |
 
 
 ### `public/fonts` — 1 modules, 3 LOC
@@ -674,32 +226,15 @@ These have **two of three proofs** (static-unreferenced, test-untested). They ar
 | `aria_service/intel/auto/__init__.py` | 1 | — |
 
 
-## DORMANT (19) — reached only by tests
+## DORMANT (2) — reached only by tests
 
 A test is not a user. These are live enough to break CI but have no production caller; they are prime Phase 4 tripwire candidates *after* the runtime overlay.
 
 
 | Module | LOC | Test importers |
 |---|---|---|
-| `scripts/admin/reachability_sweep.py` | 476 | 0 |
-| `scripts/aria_terminal.py` | 469 | 1 |
-| `scripts/code_watch.py` | 435 | 1 |
 | `lib/telegram/editorialQueue.mjs` | 365 | 1 |
-| `scripts/seed_compliance.py` | 334 | 0 |
 | `lib/aria/entityMatcher.mjs` | 311 | 1 |
-| `scripts/eval/code_reasoning_eval.py` | 298 | 0 |
-| `scripts/admin/chat_smoke.py` | 257 | 0 |
-| `scripts/file_integrity_monitor.py` | 252 | 0 |
-| `scripts/verify_dashboard_api_routes.py` | 246 | 1 |
-| `scripts/probe_registry_liveness.py` | 210 | 0 |
-| `scripts/train/self_critique_sample.py` | 209 | 0 |
-| `scripts/admin/apply_wiring.py` | 199 | 0 |
-| `scripts/train/split_corpus.py` | 194 | 1 |
-| `scripts/train/build_tooluse_dpo.py` | 184 | 1 |
-| `data/training/train_aria_dpo.py` | 168 | 0 |
-| `scripts/admin/build_preference_pairs.py` | 155 | 0 |
-| `scripts/verify_test_counts.py` | 123 | 0 |
-| `scripts/install_git_hooks.py` | 45 | 0 |
 
 
 ## DEPLOY-ENTRYPOINT (20) — what production actually starts
@@ -737,8 +272,8 @@ A test is not a user. These are live enough to break CI but have no production c
 | `server.mjs` | 8,912 | DEPLOY-ENTRYPOINT | 1 |
 | `aria_service/aria_engine.py` | 5,753 | ACTIVE-STATIC | 6 |
 | `aria_service/main.py` | 5,621 | DEPLOY-ENTRYPOINT | 9 |
+| `lib/whatsapp/waListener.mjs` | 4,886 | ACTIVE-STATIC | 1 |
 | `aria_service/intel/researcher.py` | 4,857 | ACTIVE-STATIC | 16 |
-| `lib/whatsapp/waListener.mjs` | 4,765 | ACTIVE-STATIC | 1 |
 | `services/wa-listener/aria_wa_listener.mjs` | 4,420 | DEPLOY-ENTRYPOINT | 0 |
 | `aria_service/intel/state_store.py` | 3,882 | ACTIVE-STATIC | 11 |
 | `aria_service/intel/eval_golden_seed.py` | 3,545 | ACTIVE-STATIC | 7 |
