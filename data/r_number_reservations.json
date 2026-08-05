@@ -31511,9 +31511,10 @@
       "title": "C-11 aria-app: the register understated a live Next 14 exposure - middleware bypass and SSRF, not just image DoS",
       "claimed_at": "2026-08-05T17:37:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4c410997",
+      "notes": null,
+      "shipped_at": "2026-08-05T17:38:45Z"
     }
   ]
 }
