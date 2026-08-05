@@ -31392,9 +31392,10 @@
       "title": "C-11 sharp semver-major to 0.35.3 clearing four inherited libvips CVEs",
       "claimed_at": "2026-08-05T14:51:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fe28414f",
+      "notes": null,
+      "shipped_at": "2026-08-05T14:53:05Z"
     }
   ]
 }
