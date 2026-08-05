@@ -112,8 +112,21 @@ def entropy(s: str) -> float:
 
 
 def tracked_files(staged: bool) -> list[Path]:
+    # R-F3729 — include UNTRACKED-but-not-ignored files, not just `git ls-files`.
+    #
+    # Tracked-only had an ordering hole that bit within an hour of shipping:
+    # the gate's own test fixtures were baselined while the test file was still
+    # untracked, so the scan could not see them and reported CLEAN. The commit
+    # made them visible and CI went red on arrival — the precise failure the
+    # baseline exists to prevent.
+    #
+    # A scanner that only sees what is already committed always answers one
+    # commit late. The point is to catch a credential BEFORE it lands, so it
+    # must look at what is about to be added. --exclude-standard honours
+    # .gitignore, so scratch files and build output stay out.
     cmd = (["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"]
-           if staged else ["git", "ls-files"])
+           if staged else
+           ["git", "ls-files", "--cached", "--others", "--exclude-standard"])
     out = subprocess.run(cmd, capture_output=True, text=True, check=True)
     files = []
     for line in out.stdout.splitlines():

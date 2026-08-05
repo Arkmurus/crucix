@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3729,
+  "next_available": 3731,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31268,6 +31268,24 @@
       "commit_sha": "aa28b05f",
       "notes": null,
       "shipped_at": "2026-08-05T11:09:55Z"
+    },
+    {
+      "r_number": "R-F3729",
+      "title": "the secret gate went red on arrival because its own test fixtures were baselined before they were tracked",
+      "claimed_at": "2026-08-05T11:14:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3730",
+      "title": "Phase 0.3 runtime usage instrumentation - route/loop observation for the cure census overlay",
+      "claimed_at": "2026-08-05T11:16:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
