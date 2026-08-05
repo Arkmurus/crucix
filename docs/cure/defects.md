@@ -80,7 +80,7 @@ is not.
 | # | Defect class | Sev | Status | Suspected location | Gold fixture |
 |---|---|---|---|---|---|
 | D-01 | PI-leak gate (0-in-n at chosen bound) | P0 | UNADJUDICATED | — | none |
-| D-02 | Matcher surname / dataset gates | P0 | UNADJUDICATED | `lib/aria/entityMatcher.mjs` (DORMANT, 311 LOC, test-only reach) | none |
+| D-02 | Matcher surname / dataset gates | P0 | **ADJUDICATED — SATISFIED IN THE LIVE PATH (R-F3747)** | live: `_sanctions_classify.py:680-687,697+`; suspected `entityMatcher.mjs` is DORMANT | `test_rf3747_dr1_d02_matcher_gates.py` |
 | D-03 | Status ↔ verdict reconciliation (no GREEN over NOT CLEARED) | P0 | **ADJUDICATED — MIS-SPECIFIED (R-F3745)** | `dd_schema.py:3133`+scope_note, `pdf_generator.mjs:857-862,999,1811` | `test_rf3745_dr1_d03_verdict_readiness.py` |
 | D-04 | Materiality filter (the FRC class) | P1 | UNADJUDICATED | `aria_service/intel/dd_disciplines.py`, `dd_orchestrator.py` | none |
 | D-05 | Export-control classifier (no default "civilian") | P1 | **ADJUDICATED — ALREADY SATISFIED (R-F3746)** | `tech_classifier.py:639-640,650` | `test_rf3746_dr1_d05_export_default.py` |
@@ -92,6 +92,35 @@ is not.
 | D-11 | Telemetry / `(Phase 2)` leakage | P2 | UNADJUDICATED | — | none |
 | D-12 | Truncation artifacts | P2 | UNADJUDICATED | — | none |
 | D-13 | Count reconciliation, grade legends | P2 | UNADJUDICATED | — | none |
+
+**On D-02 — ADJUDICATED (R-F3747, 2026-08-05). The suspected location was the wrong
+place to look.** Two findings:
+
+1. `lib/aria/entityMatcher.mjs` is imported by exactly one file — its own test.
+   **Zero production reach**, so the defect cannot manifest there and adjudicating
+   against it would have proved nothing about production.
+2. The **live** matcher is `aria_service/intel/_sanctions_classify.py`, and it
+   already gates surname-only matches. Measured 2026-08-05:
+
+| query | candidate | overlap | verdict |
+|---|---|---|---|
+| Ivan Petrov | PETROV, Sergei Vladimirovich | 1 | `info` (demoted) |
+| Ahmed Hussein | HUSSEIN, Saddam | 1 | `info` (demoted) |
+| Vladimir Putin | Vladimir Vladimirovich Putin | 2 | `hard_stop` |
+| Rosoboronexport | ROSOBORONEKSPORT OAO | 0 | `hard_stop` (R-F569 bypass) |
+
+**A hypothesis this falsified, recorded because it read as a defect.** The
+meaningful-token filter (`:680-687`) excludes stopwords, corporate suffixes, digits
+and GEOGRAPHIC tokens (R-F277) but **not** common surnames, and the demotion rule
+tolerates a single shared token ≥5 chars — so "Petrov" (6) looked able to sustain a
+match alone. It cannot: that path also requires score and string-similarity
+thresholds a weak coincidence never reaches. **The code read suggested a defect;
+the measurement disproved it.** The fixture therefore asserts BEHAVIOUR, not greps.
+
+Also worth noting for whoever writes D-01's fixture: the first version of this
+probe omitted `topics`, and `classify_match` then returned `info` for
+**everything** — including a genuine Putin/OFAC hit. A green "no escalation
+anywhere" that meant only that the probe was malformed.
 
 **On D-03 — ADJUDICATED WITHOUT THE MISSING REGISTER, and the wording is wrong
 (R-F3745, 2026-08-05).** §A says Phase 3 cannot begin because no DR-1 evidence
