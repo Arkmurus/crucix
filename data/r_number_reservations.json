@@ -31381,9 +31381,10 @@
       "title": "C-11 body-parser: an invalid limit silently disables body-size enforcement",
       "claimed_at": "2026-08-05T14:28:38Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ab66e135",
+      "notes": null,
+      "shipped_at": "2026-08-05T14:31:16Z"
     }
   ]
 }
