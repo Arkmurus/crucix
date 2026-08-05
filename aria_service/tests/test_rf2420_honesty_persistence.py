@@ -33,6 +33,12 @@ def _inmemory_store(monkeypatch):
 
     monkeypatch.setattr(rs, "get_json", fake_get)
     monkeypatch.setattr(rs, "set_json", fake_set)
+    # R-F3717 — the strict reader must be backed by the SAME dict. In production
+    # get_json and get_json_strict read one store and differ only in how they
+    # report a FAILURE; a fake that emulates just the lenient one sends the
+    # read-before-write path to the real (empty) store, so the index reads absent
+    # every time and this test measures the fake, not the code.
+    monkeypatch.setattr(rs, "get_json_strict", fake_get)
     return store
 
 

@@ -103,13 +103,40 @@ def _signature(task_type: str, domain: str, what_class: str) -> str:
     return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
 
 
-async def _read_head() -> str:
+class MistakeChainUnreadable(RuntimeError):
+    """R-F3716 — the mistake-ledger head hash could not be READ.
+
+    Distinct from "the ledger is empty". Only one of those means genesis.
+    """
+
+
+async def _read_head(*, strict: bool = False) -> str:
+    """R-F3716 — sibling of the audit-chain defect fixed in R-F3711.
+
+    This collapsed "the ledger is empty" and "the store failed" into
+    ``_GENESIS``, because ``redis_store.get`` returns None on a store failure
+    (the documented None-on-error contract). ``record()`` then chained the next
+    mistake to genesis, SILENTLY FORKING the hash chain and orphaning every
+    prior entry.
+
+    It matters here for a second reason beyond integrity: this ledger is the
+    predictor's memory. ``lookup_similar`` asks "any past mistakes matching this
+    signature?" before every task, so a forked chain is also a lobotomy —
+    ARIA stops recognising mistakes she has already made.
+
+    Fixed identically to R-F3711 and deliberately so: two chains with the same
+    defect should not get two different remedies.
+    """
     from . import redis_store as rs
     try:
-        h = await rs.get(_KEY_HEAD_HASH)
-        return h if h else _GENESIS
-    except Exception:
+        h = await (rs.get_strict(_KEY_HEAD_HASH) if strict else rs.get(_KEY_HEAD_HASH))
+    except Exception as exc:
+        if strict:
+            raise MistakeChainUnreadable(str(exc)) from exc
         return _GENESIS
+    # An ABSENT key is the genuine empty-ledger case: the first entry must be
+    # able to chain to genesis. Only a store FAILURE is refused.
+    return h if h else _GENESIS
 
 
 @fail_wire(module="mistake_ledger", gap_type="engine_failure", control_flow_exempt=("ValueError",))
@@ -141,7 +168,25 @@ async def record(
     if not what_class:
         what_class = " ".join((what or "").split()[:3]).lower() or "unclassified"
 
-    prev_hash = await _read_head()
+    # R-F3716 — the WRITE path reads strictly (see _read_head). Chaining to
+    # genesis on a store blip would fork the chain and orphan every prior
+    # mistake, which also blinds lookup_similar. Refusing loses ONE record and
+    # keeps the ledger provable and searchable.
+    try:
+        prev_hash = await _read_head(strict=True)
+    except MistakeChainUnreadable as _mce:
+        logger.error(
+            "[R-F3716] mistake-ledger head UNREADABLE (%s) — refusing to record "
+            "category=%r rather than fork the chain", _mce, category,
+        )
+        try:  # §21a — a refused ledger write must not be silent
+            from .engine_wiring import wire_failure as _wf
+            _wf(module="mistake_ledger",
+                detail=f"record refused: head hash unreadable ({str(_mce)[:120]})",
+                gap_type="data_integrity", source="mistake_ledger:R-F3716")
+        except Exception:
+            pass
+        return {"ok": False, "recorded": False, "reason": "mistake_chain_unreadable"}
     ts = datetime.now(timezone.utc).isoformat()
     seq = int(time.time() * 1000)
     sig = _signature(task_type, domain, what_class)

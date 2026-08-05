@@ -331,19 +331,55 @@ async def record_judgment(
     }
     try:
         await rs.set_json(f"{JUDGMENT_KEY_PREFIX}{jid}", record, ex=JUDGMENT_TTL)
-        index = await rs.get_json(JUDGMENTS_KEY) or []
-        index.insert(0, {
-            "id": jid,
-            "ts": record["ts"],
-            "trace_id": trace_id or "",
-            "status": judgment.get("status"),
-            "honesty_score": judgment.get("honesty_score"),
-            "claims_total": len(judgment.get("claims") or []),
-            "supported_count": judgment.get("supported_count", 0),
-            "question_preview": record["question_preview"][:140],
-        })
-        index = index[:500]
-        await rs.set_json(JUDGMENTS_KEY, index, ex=JUDGMENT_TTL)
+        # ── R-F3717 — a failed READ must not WIPE the index ──────────────────
+        #
+        # THE DEFECT (R-F2664 class): `await rs.get_json(...) or []` treats a
+        # store failure exactly like an empty index, because get_json returns
+        # None on error. The code then inserts one entry and writes the result
+        # back — replacing an index of up to 500 judgments with a list of ONE.
+        # A single transient read during a slow boot or WAL recovery silently
+        # destroys the honesty history.
+        #
+        # It matters twice over: this index is the input to
+        # `get_honesty_stats`, which supplies 25% of the Phase A gate-#1
+        # composite. R-F3696/R-F3701 have just been spent getting that signal
+        # measured at all — a clobber here would zero it again and look like a
+        # genuine quality drop rather than data loss.
+        #
+        # Strict read + skip-on-failure: the individual judgment above is
+        # ALREADY persisted under its own key, so skipping the index update
+        # loses an index entry, never the judgment itself.
+        try:
+            index = await rs.get_json_strict(JUDGMENTS_KEY) or []
+        except Exception as _idx_err:
+            logger.error(
+                "[R-F3717] honesty index unreadable (%s) — SKIPPING the index "
+                "update rather than overwriting up to 500 judgments with one. "
+                "The judgment itself is already stored under %s%s.",
+                _idx_err, JUDGMENT_KEY_PREFIX, jid,
+            )
+            try:  # §21a — losing gate #1's input must reach the brain
+                from .engine_wiring import wire_failure as _wf
+                _wf(module="honesty_judge",
+                    detail=f"honesty index unreadable ({str(_idx_err)[:120]}) — "
+                           f"index update skipped to avoid a clobber",
+                    gap_type="data_integrity", source="honesty_judge:R-F3717")
+            except Exception:
+                pass
+            index = None
+        if index is not None:
+            index.insert(0, {
+                "id": jid,
+                "ts": record["ts"],
+                "trace_id": trace_id or "",
+                "status": judgment.get("status"),
+                "honesty_score": judgment.get("honesty_score"),
+                "claims_total": len(judgment.get("claims") or []),
+                "supported_count": judgment.get("supported_count", 0),
+                "question_preview": record["question_preview"][:140],
+            })
+            index = index[:500]
+            await rs.set_json(JUDGMENTS_KEY, index, ex=JUDGMENT_TTL)
     except Exception as e:
         logger.warning("record_judgment persist failed: %s", e)
 

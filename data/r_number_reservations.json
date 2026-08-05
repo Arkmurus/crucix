@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3716,
+  "next_available": 3718,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31134,6 +31134,24 @@
       "r_number": "R-F3715",
       "title": "the event loop had no executor cap and a new pool per chat turn",
       "claimed_at": "2026-08-04T14:16:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3716",
+      "title": "the mistake ledger hash chain forked on a transient read like the audit chain",
+      "claimed_at": "2026-08-04T14:35:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3717",
+      "title": "a failed read wiped the honesty index that gate 1 depends on",
+      "claimed_at": "2026-08-04T14:35:32Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
