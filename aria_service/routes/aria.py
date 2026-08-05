@@ -29946,3 +29946,39 @@ async def runpod_stop_ep() -> dict:
         return {"ok": True, "stop": res}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
+
+
+# ── R-F3730 — Cure Protocol Phase 0.3 observation surface ────────────────────
+# The census can classify a module statically and by test coverage, but the
+# third proof (Phase 4.1) is runtime observation. This is where that evidence is
+# read back so the overlay can be built. Bearer-gated by the router.
+@router.get("/cure/usage")
+async def cure_usage_ep() -> dict:
+    """Runtime route-usage observed since instrumentation went live.
+
+    `available: false` means the store could not be READ — it does NOT mean
+    nothing was observed. Collapsing those two is the CLAUDE.md §1 gate-#4
+    failure class, where an absent key read as a clean pass for months.
+    """
+    from ..intel import cure_usage as _cu
+    snap = await _cu.snapshot()
+    if not snap.get("available"):
+        return {
+            "ok": False,
+            "phase": "0.3",
+            "deletion_authorised": False,
+            "reason": snap.get("reason", "unknown"),
+            "note": "could not measure — NOT the same as 'nothing observed'",
+        }
+    return {
+        "ok": True,
+        "phase": "0.3",
+        # Deletion stays forbidden until an operator closes the window; this
+        # endpoint reports evidence, it does not grant authority.
+        "deletion_authorised": False,
+        "observed_routes": snap["observed_routes"],
+        "total_requests": snap["total_requests"],
+        "pending_in_buffer": snap["pending_in_buffer"],
+        "meta": snap.get("meta", {}),
+        "routes": snap["routes"],
+    }

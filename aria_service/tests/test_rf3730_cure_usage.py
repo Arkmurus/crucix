@@ -1,0 +1,177 @@
+"""R-F3730 — Phase 0.3 runtime usage observation.
+
+The census identified 109 DEAD-CANDIDATE modules and NONE is deletable, because
+the three-proof rule (Cure Protocol 4.1) needs a runtime proof that did not
+exist: no route in either tier recorded that it was called.
+
+These tests hold the properties that make it safe to run on every request to a
+single-process brain: no I/O on the request path, never raises, bounded
+cardinality, and coalesced flushes.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from aria_service.intel import cure_usage
+
+
+@pytest.fixture(autouse=True)
+def _clean():
+    cure_usage._reset_for_tests()
+    yield
+    cure_usage._reset_for_tests()
+
+
+def test_record_route_is_sync_and_does_no_io():
+    """The request path must not touch the store. If record_route ever became
+    async or did I/O, every request would pay for observability."""
+    assert not asyncio.iscoroutinefunction(cure_usage.record_route)
+    cure_usage.record_route("/api/aria/dd/{id}", "get")
+    assert cure_usage._buffer["GET /api/aria/dd/{id}"] == 1
+
+
+def test_counts_accumulate_per_method_and_template():
+    for _ in range(3):
+        cure_usage.record_route("/health", "GET")
+    cure_usage.record_route("/health", "POST")
+    assert cure_usage._buffer["GET /health"] == 3
+    assert cure_usage._buffer["POST /health"] == 1
+
+
+def test_record_route_never_raises_on_bad_input():
+    """Observability must never be able to break a request."""
+    for bad in [None, "", 42, object()]:
+        cure_usage.record_route(bad, "GET")  # type: ignore[arg-type]
+    for bad_m in [None, 42]:
+        cure_usage.record_route("/x", bad_m)  # type: ignore[arg-type]
+    # empty template is ignored, not counted
+    assert "GET " not in cure_usage._buffer
+
+
+def test_cardinality_is_capped():
+    """Keying on a raw path instead of a template would grow without bound.
+    The cap drops rather than grows, and records that it dropped."""
+    for i in range(cure_usage.MAX_TRACKED + 50):
+        cure_usage.record_route(f"/t/{i}", "GET")
+    assert len(cure_usage._buffer) == cure_usage.MAX_TRACKED
+    assert cure_usage._dropped == 50
+    # an ALREADY-TRACKED field still counts after the cap is hit
+    before = cure_usage._buffer["GET /t/0"]
+    cure_usage.record_route("/t/0", "GET")
+    assert cure_usage._buffer["GET /t/0"] == before + 1
+
+
+def test_should_flush_respects_interval_and_empty_buffer():
+    assert cure_usage.should_flush(now=0.0) is False, "empty buffer must not flush"
+    cure_usage.record_route("/health", "GET")
+    assert cure_usage.should_flush(now=0.0) is False, "interval not elapsed"
+    assert cure_usage.should_flush(now=cure_usage.FLUSH_INTERVAL_S + 1) is True
+
+
+@pytest.mark.asyncio
+async def test_flush_writes_counts_and_clears_buffer(monkeypatch):
+    writes: list[tuple[str, str, int]] = []
+
+    class _FakeStore:
+        @staticmethod
+        async def hincrby(key, field, amount=1, **kw):
+            writes.append((key, field, amount))
+            return amount
+
+        @staticmethod
+        async def set_json(key, obj, ex=None, **kw):
+            return True
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "aria_service.intel.state_store", _FakeStore
+    )
+    cure_usage.record_route("/health", "GET")
+    cure_usage.record_route("/health", "GET")
+    cure_usage.record_route("/api/aria/dd/{id}", "POST")
+
+    written = await cure_usage.flush()
+
+    assert written == 2, "one write per distinct field"
+    assert ("crucix:cure:usage_routes", "GET /health", 2) in writes
+    assert not cure_usage._buffer, "buffer drained after a successful flush"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_write_returns_the_count_to_the_buffer(monkeypatch):
+    """A store failure must not silently lose observations — losing them would
+    make a live module look unobserved and push it toward deletion."""
+
+    class _BrokenStore:
+        @staticmethod
+        async def hincrby(key, field, amount=1, **kw):
+            raise RuntimeError("store down")
+
+        @staticmethod
+        async def set_json(key, obj, ex=None, **kw):
+            raise RuntimeError("store down")
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "aria_service.intel.state_store", _BrokenStore
+    )
+    cure_usage.record_route("/health", "GET")
+    cure_usage.record_route("/health", "GET")
+
+    await cure_usage.flush()
+
+    assert cure_usage._buffer["GET /health"] == 2, "counts restored, not dropped"
+    assert cure_usage._flush_failures > 0
+
+
+@pytest.mark.asyncio
+async def test_snapshot_reports_unavailable_rather_than_lying(monkeypatch):
+    """A store read failure must not read as 'nothing was observed'. That is the
+    CLAUDE.md §1 gate-#4 failure class — a check certified by an absence."""
+
+    class _BrokenStore:
+        @staticmethod
+        async def get_json(key):
+            raise RuntimeError("store down")
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "aria_service.intel.state_store", _BrokenStore
+    )
+    snap = await cure_usage.snapshot()
+    assert snap["available"] is False
+    assert "store read failed" in snap["reason"]
+
+
+@pytest.mark.asyncio
+async def test_snapshot_returns_observed_routes(monkeypatch):
+    class _Store:
+        @staticmethod
+        async def get_json(key):
+            if key == cure_usage.ROUTES_KEY:
+                return {"GET /health": 12, "POST /api/aria/dd/{id}": 3}
+            return {"last_flush_epoch": 1.0}
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "aria_service.intel.state_store", _Store
+    )
+    snap = await cure_usage.snapshot()
+    assert snap["available"] is True
+    assert snap["observed_routes"] == 2
+    assert snap["total_requests"] == 15
+
+
+def test_maybe_schedule_flush_is_safe_without_a_running_loop():
+    """Called from a sync context it must return False, not explode."""
+    cure_usage.record_route("/health", "GET")
+    cure_usage._last_flush = -10_000.0
+    assert cure_usage.maybe_schedule_flush() is False
+
+
+def test_no_ttl_is_used_on_the_observation_keys():
+    """CLAUDE.md §7: ARIA's memory does not expire, and a 14-day window must
+    survive restarts. A TTL here would silently truncate the overlay."""
+    import inspect
+
+    src = inspect.getsource(cure_usage.flush)
+    assert "ex=" not in src, "observation writes must not set a TTL"

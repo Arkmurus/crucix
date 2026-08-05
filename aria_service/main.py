@@ -4738,6 +4738,36 @@ async def _limit_body_size(request, call_next):
     return await call_next(request)
 
 
+# R-F3730 — Cure Protocol Phase 0.3 runtime usage observation.
+#
+# The Phase 0.2 census found 109 DEAD-CANDIDATE modules and NONE is deletable:
+# the three-proof rule needs a runtime proof, and NOTHING in either tier recorded
+# that a route was called. This is that proof. The 14-day window cannot be
+# reconstructed retrospectively, so it only starts once this is live.
+#
+# Deliberately the LAST middleware added, so it wraps the smallest surface and
+# cannot interfere with the body-size guard above. It does NO I/O on the request
+# path — record_route() is a sync in-memory counter increment, and the durable
+# write is a coalesced fire-and-forget flush at most once per interval.
+@app.middleware("http")
+async def _observe_route_usage(request, call_next):
+    response = await call_next(request)
+    try:
+        # Key on the ROUTE TEMPLATE, never request.url.path — an unbounded id
+        # space in the raw path would explode the key set.
+        route = request.scope.get("route")
+        template = getattr(route, "path", None)
+        if template:
+            from aria_service.intel import cure_usage
+            cure_usage.record_route(template, request.method)
+            cure_usage.maybe_schedule_flush()
+    except Exception:
+        # Observability must never be able to break a request (CLAUDE.md §21a
+        # wants the signal, but not at the cost of the user's response).
+        pass
+    return response
+
+
 # Routes
 app.include_router(aria_router)
 app.include_router(vetting_router)   # R-F3138
