@@ -31411,9 +31411,10 @@
       "title": "C-11 uuid advisory unreachable; clear it by overriding uuid alone rather than a cron-semantics-changing node-cron major",
       "claimed_at": "2026-08-05T15:10:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "37237455",
+      "notes": null,
+      "shipped_at": "2026-08-05T15:13:39Z"
     }
   ]
 }
