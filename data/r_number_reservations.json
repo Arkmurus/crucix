@@ -31213,9 +31213,10 @@
       "title": "wire WA document-extraction degradation to the brain + declare pdf-parse/mammoth/xlsx",
       "claimed_at": "2026-08-05T09:21:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "76926b4a",
+      "notes": null,
+      "shipped_at": "2026-08-05T09:34:39Z"
     }
   ]
 }
