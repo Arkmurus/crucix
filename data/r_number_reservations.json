@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3741,
+  "next_available": 3742,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31314,9 +31314,10 @@
       "title": "enforce compounding checkpoint promotion",
       "claimed_at": "2026-08-05T12:08:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4b6fb081a92e19497859d1b985155aa1f2cad47e",
+      "notes": null,
+      "shipped_at": "2026-08-05T14:50:20Z"
     },
     {
       "r_number": "R-F3734",
@@ -31385,6 +31386,15 @@
       "commit_sha": "ab66e135",
       "notes": null,
       "shipped_at": "2026-08-05T14:31:16Z"
+    },
+    {
+      "r_number": "R-F3741",
+      "title": "C-11 sharp semver-major to 0.35.3 clearing four inherited libvips CVEs",
+      "claimed_at": "2026-08-05T14:51:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

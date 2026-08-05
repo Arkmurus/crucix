@@ -38,6 +38,13 @@ FLOORS = {
     "socket.io-parser": ((4, 2, 7), "4.0.0-4.2.6"),
     "undici": ((7, 29, 0), "7.0.0-7.28.0"),
     "body-parser": ((2, 3, 0), "2.0.0-2.2.2"),      # R-F3740
+    # R-F3741 — SEMVER-MAJOR (0.34.5 -> 0.35.3), unlike the four above. Justified
+    # by evidence, not convenience: nothing in this tree imports sharp; its only
+    # consumer is @whiskeysockets/baileys, which declares `sharp: "*"` as a peer
+    # (no constraint) and calls exactly four of sharp's most stable APIs —
+    # .jpeg(), .metadata(), .resize(), .toBuffer(); and 0.35.3 needs Node
+    # >=20.9.0 against a live runtime of v22.23.2 with the manifest at >=22.
+    "sharp": ((0, 35, 3), "<0.35.0"),
 }
 
 
