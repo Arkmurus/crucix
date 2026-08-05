@@ -81,7 +81,7 @@ is not.
 |---|---|---|---|---|---|
 | D-01 | PI-leak gate (0-in-n at chosen bound) | P0 | UNADJUDICATED | — | none |
 | D-02 | Matcher surname / dataset gates | P0 | UNADJUDICATED | `lib/aria/entityMatcher.mjs` (DORMANT, 311 LOC, test-only reach) | none |
-| D-03 | Status ↔ verdict reconciliation (no GREEN over NOT CLEARED) | P0 | UNADJUDICATED | `aria_service/intel/dd_schema.py`, `lib/reports/pdf_generator.mjs` | none |
+| D-03 | Status ↔ verdict reconciliation (no GREEN over NOT CLEARED) | P0 | **ADJUDICATED — MIS-SPECIFIED (R-F3745)** | `dd_schema.py:3133`+scope_note, `pdf_generator.mjs:857-862,999,1811` | `test_rf3745_dr1_d03_verdict_readiness.py` |
 | D-04 | Materiality filter (the FRC class) | P1 | UNADJUDICATED | `aria_service/intel/dd_disciplines.py`, `dd_orchestrator.py` | none |
 | D-05 | Export-control classifier (no default "civilian") | P1 | UNADJUDICATED | `aria_service/intel/tech_classifier.py` | none |
 | D-06 | Financial-verdict vintage (`LAST_KNOWN_WITH_AGE` or refuse) | P1 | UNADJUDICATED | `aria_service/intel/financial_health.py` | none |
@@ -92,6 +92,38 @@ is not.
 | D-11 | Telemetry / `(Phase 2)` leakage | P2 | UNADJUDICATED | — | none |
 | D-12 | Truncation artifacts | P2 | UNADJUDICATED | — | none |
 | D-13 | Count reconciliation, grade legends | P2 | UNADJUDICATED | — | none |
+
+**On D-03 — ADJUDICATED WITHOUT THE MISSING REGISTER, and the wording is wrong
+(R-F3745, 2026-08-05).** §A says Phase 3 cannot begin because no DR-1 evidence
+exists. That is true for the *adjudications*, but D-03's claim is a **testable
+invariant**, so it could be adjudicated from this repo's own code rather than
+waiting. The result: **implementing D-03 as written would be a regression.**
+
+- `dd_schema.py:3133` issues `status = DECISION_READY_FOR_HUMAN_REVIEW |
+  NOT_CLEARED`, and its own `scope_note` states decision readiness *"does not
+  replace the risk verdict"*. Risk and readiness are **orthogonal axes by design**.
+- `pdf_generator.mjs:857-862` states the renderer's rule: *"whatever ARIA found is
+  what gets printed — GREEN, AMBER or RED, unaltered. This renderer NEVER
+  upgrades, softens or omits a verdict, and NEVER prints a verdict without the
+  decision-readiness state beside it. **A GREEN classification paired with
+  NOT_CLEARED is the honest output** and both halves must appear together."*
+
+A blanket "no GREEN over NOT CLEARED" forces one of two falsehoods: suppress a
+GREEN the evidence supports, or print a worse verdict than was found. The second
+is fabrication and is the precise false-confidence failure the scorecard exists to
+prevent. GREEN + NOT_CLEARED means *"nothing adverse found, coverage not yet
+sufficient to rely on it"* — frequently the true state.
+
+**The real invariant is the second half of that rule: a verdict must never be
+rendered without the readiness state beside it.** A bare GREEN pill reads as
+clearance — the NorthRow failure `pdf_generator.mjs` cites in its own header.
+That is what the fixture now enforces, and it currently **passes**, so the
+correctly-specified defect is *not present*. The fixture locks it in.
+
+**Restate D-03 before building on it.** Its four checks are negative-controlled
+against the three shapes a "reconciliation" would actually take (readiness on the
+assignment RHS, readiness in a guarding condition, and a braced conditional
+rewrite) — the first two versions of that guard missed shapes 2 and 3.
 
 **On D-07:** `aria_service/tests/test_rf3542_psc_second_hop.py` exists, so the behaviour
 was addressed at some point under R-F3542. A targeted grep for a second-hop
