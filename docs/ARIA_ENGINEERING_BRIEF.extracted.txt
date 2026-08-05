@@ -1,0 +1,246 @@
+ARIA — ENGINEERING BRIEF
+The share-ready developer pack. Read top to bottom once; then use §2, §8 and §9 daily.
+Snapshot: commit · 2026-08-01 · change record R-F3623 Status vocabulary:
+dae009b2
+Implemented = evidenced by code/config in the repo · Configured = deploy config exists,
+live state not claimed · Planned = design only, no runtime path. Source-of-truth order when
+this document and reality disagree: code + tests → deployment manifests → live probes →
+this document → historical docs.
+1. What you are working on (30 seconds)
+ARIA is a multi-service intelligence platform: a browser UI, an identity/edge gateway, a
+Python intelligence brain, a WhatsApp adapter, a private metasearch service, and a local
+coding agent. It is a modular monolith across a few deployable processes, not
+microservices.
+The one design decision that explains everything else: the Python service ( )
+aria-intel
+is the authoritative brain. Everything else authenticates, normalizes, delivers, or renders —
+it does not reason, and it does not own intelligence state.
+Browser ──▶ aria-app (Next.js) ──▶ aria-web (Express edge) ──▶ aria-intel
+(FastAPI brain)
+WhatsApp ─▶ aria-wa (adapter) ────────────────────────────────▶ aria-intel
+──▶ aria-searxng / providers
+Dev machine ─▶ aria CLI ─────────────────────────────────────▶ aria-intel
+Service Tech Owns Stateful
+aria-app Next.js 14 / React Browser UI; forwards /api to aria-web; never calls No
+18 / TS the brain directly
+aria-web Node 22 / Auth, sessions, roles, quotas, 2FA, proxying, billing, Yes
+Express 5 legacy UI
+aria- Python / FastAPI Chat, DD workflows, RAG/knowledge, evidence, Yes
+autonomy, model orchestration
+intel
+aria-wa Node / Baileys WhatsApp connection + delivery only — a channel Yes
+adapter, never a second brain
+aria- SearXNG Internal metasearch; not a system of record Ops
+state
+searxng
+aria CLI Python Local coding agent; not in the browser path Local
+All deployed on Fly.io, region , private networking.
+lhr *.internal
+Standing note (ADR-WA-001): the Baileys connection is designated transitional.
+Production WhatsApp architecture is ARIA's own number on the official Business
+Platform. Do not build new features that deepen the Baileys dependency without
+checking the ADR.
+2. THE TWELVE INVARIANTS — the rules of the codebase
+Break one of these and the PR is wrong even if it works.
+1. The Python brain is authoritative for intelligence state. New reasoning lives in
+Python, not Node.
+2. The web tier is authoritative for browser identity and coarse role/quota enforcement.
+3. Object ownership is re-checked at the authoritative service. The edge is not a
+substitute for object-level checks.
+4. Channel adapters never become reasoning brains.
+5. Every user-visible action reports success AND failure. Delivery is separate from
+generation — a generated answer is not a delivered answer.
+6. Domain code uses the shared abstractions (state store, RAG store, model factory,
+brain wiring) — never raw DB connections or vendor SDKs.
+7. Facts and reports retain provenance. Absence of evidence is never a negative
+finding.
+8. Unknown or unmeasurable state is never converted into success.
+9. Background work is idempotent, lease-aware, restart-safe, non-blocking.
+10. No new store without ownership, retention, erasure, backup, and recovery rules.
+11. Streaming and non-streaming paths keep behavioral parity — any
+safety/audit/learning hook is applied to both.
+12. A deployment is complete only when the live matches the intended
+build_rev
+commit. A green image build proves nothing.
+3. Trust boundaries (who may talk to whom)
+1. Public boundary: browsers/public integrations terminate at , , or
+aria-app aria-web
+explicitly public FastAPI routes.
+2. Identity boundary: owns auth, sessions, roles, quotas, and the
+aria-web
+browser→brain authorization bridge.
+3. Internal boundary: services talk over Fly private networking with internal Bearer
+credentials.
+4. Intelligence boundary: independently validates authorization context on
+aria-intel
+every object.
+5. Provider boundary: search, LLM, email, messaging, public-data providers are
+untrusted — provenance, validation, timeouts, and failure classification are
+mandatory.
+6. Data boundary: Fly volumes are per-service and single-writer; the brain volume is
+deliberately single-writer.
+4. Where things live
+crucix/
+├── aria-app/ Next.js UI
+├── aria_cli/ local coding agent
+├── aria_service/ ★ the brain
+│ ├── routes/ FastAPI routers (aria.py = principal API)
+│ ├── intel/ DD, RAG, evidence, state, ledger — the largest
+module group
+│ ├── llm/ provider factory (factory.py) — the ONLY way to
+get a model
+│ ├── autonomous/ guardian/ learning/ metacognitive/ personas/
+│ ├── crawler/ integrations/ search_engine/ vetting/ writers/
+│ └── tests/
+├── lib/ Node domain modules (llm, reports, search,
+whatsapp, …)
+├── services/wa-listener/ independently deployed WhatsApp adapter
+├── searxng/ public/ middleware/ scripts/ test/ docs/ data/
+├── server.mjs Node composition root
+└── fly*.toml deployment manifests
+Key files for any architectural question: · ·
+server.mjs aria_service/main.py
+· ·
+aria_service/routes/aria.py aria_service/aria_engine.py
+· ·
+aria_service/intel/brain_hook.py aria_service/intel/state_store.py
+· ·
+aria_service/intel/rag_store.py aria_service/llm/factory.py services/wa-
+· · the set.
+listener/aria_wa_listener.mjs aria-app/lib/api.ts fly*.toml
+5. The three flows you must understand
+Browser chat: Browser → aria-app → aria-web (session/role/quota/ownership) → brain
+(Bearer + user context) → retrieval → grounded prompt → LLM → policy/evidence/quality
+checks → persist → respond or async job → normalized back up the chain. Sync and
+streaming are separate entry paths (invariant 11).
+WhatsApp: user → aria-wa (authenticate binding, dedupe, normalize) → brain with
+→ immediate answer or async → brain callback → aria-wa sends → aria-
+request_id job_id
+wa reports delivery outcome + latency back to the brain. The delivery-outcome leg is not
+optional (invariant 5).
+Due diligence: an orchestrated multi-layer workflow (identity → corporate/ownership →
+sanctions/PEP → adverse info → commercial/jurisdictional → verification → synthesis →
+report), where every layer emits structured output + provenance, layer failures are explicit
+and feed completeness/confidence, reports are stored by run/case ID, and rendering is
+downstream of structured evidence, never the data model. Read the live orchestrator +
+tests for the current layer set — historical docs contain stale layer counts.
+6. Data layer — use the abstractions
+State store ( ): Redis-like async API over durable SQLite — KV,
+intel/state_store.py
+JSON, lists, hashes, sorted sets, counters, TTL, leases, scans; bounded write queue +
+dedicated writer; hot/cold routing; strict read/write variants where "missing" ≠
+"store failed." Never open the databases directly.
+RAG store ( ): chunking, deterministic IDs, sanitization, content-
+intel/rag_store.py
+hash dedupe, shared embeddings (baked into the image, offline), semantic + hybrid
+search, credibility/recency inputs, retention/rights/erasure/purge, corruption
+quarantine, hot→cold offload. Lives under in production.
+/data
+Brain wiring ( via / ): the single
+brain_hook.absorb() wire_success() wire_failure()
+gateway through which outcomes become observable and learnable — signal
+recording, knowledge/RAG ingestion, learning observations, per-module health,
+backpressure and circuit breaking. Every feature wires both success and failure.
+Ownership: intel owns sessions/cases/evidence/RAG/ledgers; web owns
+users/sessions/quotas; wa owns device credentials/bindings; app owns nothing.
+Cross-service copies are projections/caches with an explicit owner — never a second
+authoritative copy.
+7. Models
+All Python model access goes through . Domain modules
+aria_service/llm/factory.py
+never import vendor SDKs. The layer guarantees provider-neutral contracts, env-driven
+config, bounded timeouts, classified failures, cost/latency metering, retrieval-before-
+generation for knowledge tasks, transparent fallbacks, and response verification before
+success is reported. Node adapters under exist for Node-owned features only —
+lib/llm/
+new reasoning goes in Python (invariant 1).
+8. Security rules for every PR
+Public routes are explicitly registered; everything else requires a session; privileged
+mutations require admin/infra roles; internal calls use the internal Bearer.
+User-scoped identifiers are pinned/checked at the edge and the brain.
+Route-specific body/upload limits at Express; document text sanitized before RAG
+ingestion; URLs and external content are untrusted; CLI output passes redaction.
+Secrets live in runtime env / Fly secrets — never in the repo, browser bundles, logs, or
+diagrams. Internal URLs are not secrets; tokens and provider credentials are.
+Any new store must declare: owner, retention class + legal basis, subject
+lookup/erasure, backup/recovery, provenance/correction semantics, and whether the
+data may enter model context or training exports (invariant 10).
+9. Recipes (follow exactly)
+New FastAPI capability: domain logic in its package (not , not the handler) →
+main.py
+verify signatures/sync-async → typed request/response models → wire success AND
+failure before the happy path → use state-store + factory abstractions → preserve
+provenance and ownership → register in the right router → explicit edge proxy route only if
+special auth/transformation is needed (else validate the catch-all) → tests including empty,
+malformed, provider-failure, store-failure.
+New data source: narrow adapter, normalized result contract → record source identity,
+retrieval time, jurisdiction, rights, credibility tier → distinguish no-match / unavailable /
+rate-limited / parse-failed / unauthorized → wire both outcomes → only validated content
+enters RAG → fixtures for normal/empty/malformed/changed upstream → register health +
+freshness.
+New channel: transport/device state in its own adapter service → normalize inbound to the
+brain contract with user identity + request ID → async completion for slow work → dedupe
+retries and callbacks → report actual delivery outcome → expose health, binding state,
+failure diagnostics.
+New model provider: implement the interface under → register in (no
+llm/ factory.py
+direct imports) → normalize timeout/auth/quota/safety/malformed failures → metering +
+provider identity in traces → test selection, success, failure, fallback through the factory.
+New background loop: one-shot vs recurring → singleton/leader lease → idempotent,
+restart-safe, bounded shutdown → capability test that drives the real loop body → load- and
+latency-aware (loops share resources with interactive traffic).
+10. Testing and deployment
+Layer Where
+Python unit + capability aria_service/tests/
+CLI (tools, safety, memory, providers) aria_cli/tests/
+Node unit/capability (routes, proxy, security, reports) test/
+WhatsApp (listener, callback, delivery, watchdog) services/wa-listener/test_*.mjs
+Build/compile gates scripts + package commands
+Live smoke deploy scripts/probes
+Local dev: · / · aria-app scripts on
+python -m aria_service.main npm start npm run dev
+:3200 · for Node composition. URLs/credentials are env-driven —
+docker-compose.yml
+never hardcode production endpoints.
+Two hard rules: changes touching or startup deps must exercise the lifespan path
+main.py
+(importing modules proves nothing — infrastructure initializes in lifespan). And a deploy is
+done only when live matches your commit — use /
+build_rev scripts/deploy.sh
+, which enforce push, build revision, health checks, and live verification.
+deploy.ps1
+Health model: liveness (can accept traffic) ≠ readiness/health (dependencies working) ≠
+diagnostic (why something is slow/stale/open-circuit) ≠ outcome (did the user-visible
+action actually complete and deliver). Don't conflate them when adding endpoints.
+11. Known structural constraints (design facts, not live-health claims)
+runs on a single attached volume → no horizontal scaling; leader/single-
+aria-intel
+writer design is mandatory.
+and are large composition roots → extractions must preserve
+server.mjs main.py
+middleware order and lifespan behavior.
+Background work shares resources with interactive requests.
+Browser traffic crosses two hops (aria-app → aria-web) during the frontend migration.
+Streaming vs non-streaming drift is a real failure mode — test parity.
+External sources vary in quality/availability — "no result" never proves absence.
+12. PR checklist (paste into your PR description)
+[ ] Reasoning/state changes are in aria_service (Py), not the edge or
+adapters
+[ ] Uses state_store / rag_store / llm factory / brain wiring — no raw DB or
+SDK imports
+[ ] wire_success AND wire_failure on every new user-visible path
+[ ] Ownership checked at the brain, not just the edge
+[ ] Provenance preserved; unknown ≠ success; absence ≠ negative finding
+[ ] Streaming + non-streaming parity (if chat-path)
+[ ] New store? owner/retention/erasure/backup/provenance declared
+[ ] New source? no-match vs unavailable vs failed distinguished; health
+registered
+[ ] Background loop? lease + idempotent + bounded shutdown + capability test
+[ ] Tests: empty, malformed, provider-failure, store-failure paths
+[ ] Lifespan path exercised if main.py/startup touched
+[ ] Deployed? live build_rev verified — not just image build
+This brief condenses (commit ). It deliberately
+ARIA_SOFTWARE_ARCHITECTURE.md dae009b2
+does not report live health, live volumes, model selection, route counts, or test-pass counts;
+does not treat roadmap as implemented; and contains no credentials or secrets. When in
+doubt: code and tests win.

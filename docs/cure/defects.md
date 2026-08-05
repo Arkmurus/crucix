@@ -19,6 +19,38 @@
 
 ---
 
+## A0. PARTIALLY UNBLOCKED — the ENGINEERING BRIEF has arrived (2026-08-05)
+
+The operator supplied `ARIA_ENGINEERING_BRIEF`, landed at
+`docs/ARIA_ENGINEERING_BRIEF.pdf` (+ `.extracted.txt`, since this box has no
+poppler and the PDF is not greppable). It is the source of **the twelve
+invariants** that Cure Protocol Appendix A binds as "unchanged and binding" but
+never enumerated — they were unavailable for every prior session.
+
+**A self-audit of this session's own shipped work against the twelve found one
+violation, now fixed:**
+
+| Inv | Rule | This session |
+|---|---|---|
+| 5 | Every user-visible action reports success AND failure; delivery ≠ generation | **R-F3723 exists precisely to satisfy this** — WA doc extraction reported neither |
+| 6 | Domain code uses the shared abstractions, never raw DB/SDK | ✅ `cure_usage` goes through `state_store` |
+| 8 | Unknown/unmeasurable state is never converted into success | ✅ `snapshot()` returns `available:false` on a read failure rather than an empty result — and R-F3734 was exactly this invariant breaking |
+| 9 | Background work idempotent, restart-safe, non-blocking | ✅ no I/O on the request path; coalesced flush; no respawn task |
+| **10** | **No new store without ownership, retention, erasure, backup, recovery** | ❌ **VIOLATED by R-F3730** — two keys shipped undeclared. Fixed in **R-F3736** |
+| 11 | Streaming/non-streaming parity for any audit hook | ✅ the counter is HTTP middleware, so it wraps both paths |
+| 12 | A deploy is complete only at live `build_rev` match | ✅ every deploy this session was verified live, not by a green build |
+
+**Invariant 10 (R-F3736).** `crucix:cure:usage_routes` and `crucix:cure:usage_meta`
+now declare owner, retention class, erasure, backup/recovery and
+model-context/training eligibility. The erasure answer rests on a structural
+property worth stating: **only the ROUTE TEMPLATE is recorded**, never the
+resolved path, query, body, headers, caller or IP — so there is no data subject.
+A regression test asserts the middleware cannot start recording `request.url.path`,
+because doing so would silently convert a counter into a personal-data store.
+
+**Still missing:** the DR-1 defect register / adjudications and the transition
+runtime-capability-state-parity ledgers. §A below stands for those.
+
 ## A. Blocking gap — the DR-1 evidence does not exist in this repository
 
 Phase 0.1 instructs: *"Reuse Spencer's audit first… Request them; do not redo them."*

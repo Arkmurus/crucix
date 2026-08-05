@@ -27,6 +27,36 @@ DESIGN CONSTRAINTS (this runs on every request to a single-process brain)
    never the raw path, so an unbounded id space cannot explode the key set.
 5. **No TTL.** CLAUDE.md §7 — ARIA's memory does not expire, and a 14-day
    observation window must survive restarts and redeploys.
+
+STORE DECLARATION (R-F3736 — ENGINEERING BRIEF invariant 10)
+------------------------------------------------------------
+Invariant 10: *"No new store without ownership, retention, erasure, backup, and
+recovery rules."* R-F3730 created two keys and declared none of them; this block
+is that declaration, added on a self-audit against the brief.
+
+* **Keys.** ``crucix:cure:usage_routes`` (hash: ``"<METHOD> <template>" -> count``)
+  and ``crucix:cure:usage_meta`` (json: flush bookkeeping).
+* **Owner.** ``aria_service.intel.cure_usage`` — sole writer. `aria-intel` runs on
+  a single attached volume and is single-writer by design (brief §11), so no
+  cross-writer coordination is required.
+* **Retention class.** Operational telemetry, no legal basis needed. Retained for
+  the Cure Protocol Phase 0.3 window and its analysis; **deletable in full**
+  once Phase 4 closes. No TTL by design — a TTL would silently truncate the
+  observation window and corrupt the deletion evidence.
+* **Personal data / erasure.** **NONE, structurally.** Only the ROUTE TEMPLATE is
+  recorded (``/api/aria/dd/{id}``), never the resolved path, query string, body,
+  headers, caller identity or IP. There is no data subject, so no subject-lookup
+  or erasure path is required. **This property is load-bearing** — keying on the
+  raw path would capture identifiers and turn a counter into a personal-data
+  store with all of invariant 10's obligations. The `MAX_TRACKED` cap and the
+  template-only key exist for that reason as much as for cardinality.
+* **Backup / recovery.** Covered by the existing `/data` volume backup; no
+  separate mechanism. **Loss is tolerable and fails safe in the honest
+  direction**: losing counts makes modules look LESS observed, which blocks
+  deletion rather than authorising it. Recovery is to restart the window.
+* **Model context / training exports.** **Never.** This data is not eligible for
+  RAG ingestion, prompt context, or a training export. It is deployment
+  telemetry about ARIA's own routes and has no analytical value to a model.
 """
 
 from __future__ import annotations

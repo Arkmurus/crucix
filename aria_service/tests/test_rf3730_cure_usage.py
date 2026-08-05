@@ -224,6 +224,45 @@ def test_maybe_schedule_flush_is_safe_without_a_running_loop():
     assert cure_usage.maybe_schedule_flush() is False
 
 
+def test_store_declaration_satisfies_engineering_brief_invariant_10():
+    """Invariant 10: no new store without ownership, retention, erasure, backup
+    and recovery rules. R-F3730 shipped two keys with NONE of them declared;
+    R-F3735 added the declaration after a self-audit against the brief.
+
+    Asserting on the docstring is deliberate — this repo has no store registry,
+    so the module docstring IS the declaration (the pattern news_archive.py
+    follows). A test keeps it from being quietly deleted.
+    """
+    doc = cure_usage.__doc__ or ""
+    for element in ("Owner.", "Retention class.", "erasure", "Backup / recovery.",
+                    "Model context"):
+        assert element in doc, f"invariant 10 declaration is missing: {element}"
+
+
+def test_only_route_templates_are_recorded_never_resolved_paths():
+    """The no-personal-data property that invariant 10's erasure exemption rests
+    on. If a resolved path were ever recorded, this counter would capture user
+    and case identifiers and become a personal-data store."""
+    # A resolved path is still stored verbatim if a caller passes one -- the
+    # guarantee lives at the CALL SITE, so assert the middleware uses the
+    # route template rather than request.url.path.
+    import inspect
+    from aria_service import main
+
+    src = inspect.getsource(main._observe_route_usage)
+    # Strip comments first: the middleware's own comment explains WHY it does not
+    # use request.url.path, and a naive substring check matches that explanation.
+    code = "\n".join(
+        ln for ln in src.splitlines() if not ln.lstrip().startswith("#")
+    )
+    assert 'request.scope.get("route")' in code or "scope.get('route')" in code, (
+        "the middleware must key on the ROUTE TEMPLATE"
+    )
+    assert "url.path" not in code, (
+        "recording request.url.path would capture ids and create a personal-data store"
+    )
+
+
 def test_no_ttl_is_used_on_the_observation_keys():
     """CLAUDE.md §7: ARIA's memory does not expire, and a 14-day window must
     survive restarts. A TTL here would silently truncate the overlay."""

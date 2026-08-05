@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3736,
+  "next_available": 3737,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31336,6 +31336,15 @@
       "commit_sha": "93cb4246",
       "notes": null,
       "shipped_at": "2026-08-05T12:47:29Z"
+    },
+    {
+      "r_number": "R-F3736",
+      "title": "declare the cure_usage store per ENGINEERING BRIEF invariant 10 (owner/retention/erasure/backup/recovery) - R-F3730 shipped it undeclared",
+      "claimed_at": "2026-08-05T13:04:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
