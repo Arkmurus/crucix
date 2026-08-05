@@ -289,7 +289,29 @@ live `SCAN` of the state store, which is Phase 0.3 work.
 
 ---
 
-## D. Phase 0.3 runtime overlay — NOT RUN, and it gates all deletion
+## D. Phase 0.3 runtime overlay — **WINDOW OPEN as of 2026-08-05 12:20 UTC**
+
+> **Status change.** The instrumentation is LIVE (R-F3730 + R-F3734,
+> `build_rev R-F3734 · sha b9db7221`) and the 14-day clock is running.
+> **Earliest date the runtime proof can be considered complete: 2026-08-19.**
+>
+> Live-verified end to end, not merely deployed:
+> `observed_routes: 43 · total_requests: 1241 · flush_failures: 0`,
+> read from `GET /api/aria/cure/usage`.
+>
+> **A defect shipped and was caught by that probe.** R-F3730 wrote counts with
+> `hincrby` (a hash) and read them with `get_json` (a JSON blob), so the surface
+> reported `observed_routes: 0` while `flush_failures: 0` and a valid
+> `last_flush_epoch` proved the writes were landing. A blind read here is
+> indistinguishable from "nothing was ever observed" — it would have made every
+> route in the estate look unobserved for 14 days and the whole census read as
+> safe to delete. Fixed in R-F3734 with a round-trip regression test.
+>
+> **Deletion is still NOT authorised** and the endpoint hardcodes
+> `deletion_authorised: false`. Collecting evidence is not the same as having it;
+> the window must actually elapse. Everything below records why.
+
+### Original entry (retained — this is what the gate looked like before)
 
 Phase 0.3 requires 14 days of access logs, loop execution records and sensor data
 overlaid on the census, tagging everything ACTIVE / DORMANT / DEAD-CANDIDATE. **It has
