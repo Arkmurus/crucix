@@ -398,3 +398,58 @@ WhatsApp is the acute example, **not the scope**. The delivery-outcome / self-aw
 - **Cross-tier:** Node web + WA + the Python brain.
 
 **Rule:** for ANY action ARIA takes that produces a result for a user, another agent, or herself, she must KNOW whether the intended result was actually produced — success AND failure reach the brain + a queryable proprioception surface, and failure is a self-heal trigger. WA is the **first implementation and the TEMPLATE**; generalize the same outcome-wire pattern to every surface and engine after WA proves it. "Sees/hears/knows everything" = aware of the state and outcome of every limb, always.
+
+## 26. CURE MODE — corrective freeze (Cure Protocol Phase 1.3, 2026-08-05)
+
+**This repository is under corrective freeze.** The Cure Protocol (`ARIA_Cure_Protocol.md`,
+v1.0) governs; `docs/cure/freeze.md` is the binding declaration and `docs/cure/defects.md`
+is the defect register.
+
+> **Why this is APPENDED, not a replacement.** Cure Protocol Appendix A says to drop a
+> Cure `CLAUDE.md` at repo root. Done literally that would have **overwritten §1–§25** —
+> gate adjudications, anti-fabrication laws, and operator directives that took months to
+> earn and exist nowhere else. The protocol's intent is that every session carries the
+> freeze; appending achieves that and destroys nothing. §1–§25 remain binding and are the
+> floor. Where this section and an earlier one conflict, the earlier one wins and the
+> conflict is an amendment to raise with the operator.
+
+**Allowed changes, and nothing else:**
+1. Defects listed in `docs/cure/defects.md`, **fixture-first** (write the failing test
+   before the fix, and show it RED then GREEN).
+2. Deletion-ladder steps recorded in `docs/cure/deletion_ledger.md`.
+3. Stability items from the Phase 5 list.
+4. A confirmed vulnerability with a known exploit path (security exception, freeze §1.1).
+5. Operational R-numbers and incident response — already carved out by §1.
+
+Anything else: **refuse and say so.**
+
+**Currently FORBIDDEN, and these are the ones that bite:**
+- **Deleting anything.** The Phase 0.3 runtime overlay has NOT run, so every module in
+  the census carries `proof_runtime: UNKNOWN`. The three-proof rule (Phase 4.1) requires
+  static + runtime + test; one missing proof means it stays DORMANT. 109 DEAD-CANDIDATE
+  modules are identified and **not one of them is deletable**.
+- **Deploying a cure PR.** Phase 2.3 makes green end-to-end smoke the deploy gate, and
+  that smoke does not exist yet.
+
+**Source of truth order:** production runtime evidence → code + tests → manifests → docs.
+A doc is the weakest evidence in this repo and has been wrong repeatedly (§1 records
+three Phase A gates certified by an absence).
+
+**Rules:** one defect or one deletion batch per PR · smallest possible diff · **no
+refactoring inside a fix PR** · never delete without three proofs + the quarantine ladder
+· never touch data stores destructively (archive with a manifest; `rm` is never the
+answer) · all gold-set fixtures + smoke must pass before any PR is called done · a
+deployment is complete only at live `build_rev` match · **a session that modifies code
+outside the allowed classes is a failed session.**
+
+**The census is re-runnable and self-checking:**
+```
+python scripts/cure/census.py && python scripts/cure/validate_census.py
+python scripts/cure/render.py && python scripts/cure/render_deps.py
+```
+`validate_census.py` asserts 11 ground-truth classifications and **fails** on
+self-reference contamination. Both guards exist because the census got it wrong once
+each way: its first pass classified the live `aria-wa` listener as DEAD-CANDIDATE, and
+after `docs/cure/` was committed it read its own report as evidence of life
+(DEAD-CANDIDATE 109 → 27 with no code deleted). **Never trust a census number that the
+validator has not passed.**

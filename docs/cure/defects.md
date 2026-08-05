@@ -207,12 +207,71 @@ already records two undiagnosed flaky tests that assert **event-loop latency** a
 hard threshold (`test_rf2144_chunked_knowledge_load`, `test_rf2200_neural_index_offload`)
 — both pass in isolation, both fail under load. Full list in `loops.md`.
 
-### C-09 · No vulnerability scanning is possible in this environment — P2
+### C-09 · ~~No vulnerability scanning possible~~ — **CLOSED 2026-08-05**
 
-`vulture`, `deptry`, `ruff`, `pyright`, `knip`, `depcheck`, `pip-audit` and `npm audit`
-are **all absent**. Phase 0.2 asks for "unused, unpinned, vulnerable"; `deps.md` delivers
-the first two by AST analysis and explicitly does **not** make any CVE claim. This is a
-declared gap, not a silent pass.
+Originally: `vulture`, `deptry`, `ruff`, `pyright`, `knip`, `depcheck`, `pip-audit` and
+`npm audit` were all absent, so `deps.md` made no CVE claim — a declared gap.
+
+**Closed.** `npm audit` needs no install and ran against all three manifests;
+`pip-audit` was installed into an **isolated scratch venv** (the shared project `.venv`
+is used by a peer agent and was deliberately left untouched), and when it stalled on its
+advisory service, OSV `querybatch` was queried directly for the full production set.
+Results are in **C-11**. The unused/unpinned halves were already delivered by AST
+analysis. `vulture`/`deptry`/`knip` remain uninstalled — their job here is done by the
+census, which is validated against ground truth and re-runnable.
+
+### C-11 · Dependency vulnerabilities — the C-09 gap, now MEASURED — P1
+
+C-09 recorded that no vulnerability scan was possible here. That gap is now **closed**:
+`npm audit` ran against all three Node manifests, and OSV was queried directly for the
+**143-package production Python set** (`pip freeze` inside the running aria-intel —
+pip-audit stalled on its advisory service, so OSV's `querybatch` was used instead, same
+data source).
+
+#### Python — 3 of 143 production packages carry advisories
+
+| Package | Sev | Advisory | Assessment |
+|---|---|---|---|
+| `chromadb==1.5.9` **(direct)** | CRITICAL | CVE-2026-45829 — pre-authentication code injection | **Exploit path NOT reachable here** — see below |
+| `setuptools==78.1.0` (transitive) | HIGH | CVE-2025-47273 — path traversal in `PackageIndex.download`; CVE-2026-59890 — sdist exclusion bypass | Build-time only; not on a request path |
+| `torch==2.12.0+cpu` (transitive) | LOW | CVE-2025-3000 — memory corruption via `torch.jit.script` | ARIA does not call `torch.jit.script` |
+
+**On chromadb — critical by CVSS, not critical in this deployment.** CVE-2026-45829 is a
+*pre-authentication* injection against the Chroma **server** API. ARIA instantiates
+chromadb **only** as an embedded, file-backed `PersistentClient`
+(`intel/rag_store.py:562`); there is no `HttpClient` and no `chroma_server` anywhere in
+`aria_service`, so nothing is listening for the attack to reach. Still worth upgrading
+as defence in depth, and worth a standing check that nobody introduces `HttpClient`.
+
+**R-F3726 pinned chromadb to this version — it did not introduce the vulnerability.**
+The `>=0.4.0` float had already resolved to 1.5.9 in production. Pinning made an existing
+exposure *visible and addressable*; before, the running version was whatever the last
+build happened to resolve.
+
+#### Node — 6 high, 2 moderate, 1 low
+
+| Manifest | Package | Sev | Issue | Fix |
+|---|---|---|---|---|
+| root | `undici` | HIGH | response desynchronisation via retry interceptor; cross-user info disclosure | available |
+| root | `sharp` | HIGH | inherited libvips CVE-2026-33327/33328/35590 | semver-major |
+| root | `socket.io-parser` | HIGH | zero-attachment memory exhaustion | available |
+| root | `ip-address` | HIGH | leading-zero octets decoded as decimal → SSRF/filter bypass | available |
+| root | `node-cron` / `uuid` | MODERATE | missing buffer bounds check (v3/v5/v6) | semver-major |
+| root | `body-parser` | LOW | invalid limit silently disables size enforcement | available |
+| `aria-app/` | `next`, `postcss` | HIGH | Image Optimizer DoS; PostCSS XSS + arbitrary file read | semver-major |
+| `services/wa-listener/` | — | — | **clean** | — |
+
+**`undici` is the one to act on first.** It is HIGH, the fix is available without a major
+bump, and root `overrides` currently *pins* it to the vulnerable `^7.24.4`
+(`package.json:76`) — so the version is deliberately held at a vulnerable release. Note
+this refines C-04: undici was correctly *declared*, and separately is vulnerable.
+
+`ip-address` deserves attention beyond its label on a platform doing sanctions and DD
+work: decoding leading-zero octets as decimal is an SSRF-filter-bypass primitive.
+
+**Freeze status:** `docs/cure/freeze.md` §1.1 carries a security exception, so these are
+admissible under the corrective freeze. They are **not yet fixed** — each needs its own
+R-number and, for the semver-major ones, a regression run.
 
 ### C-10 · Orphan stores cannot be detected without a live key-space scan — P1 (method gap)
 
