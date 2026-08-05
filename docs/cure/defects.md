@@ -276,6 +276,41 @@ the walk WITH A REASON, and a cycle is detected and declared. Each of those is t
 honest-termination property that matters: an ownership walk that stops must say why it
 stopped, or a reader cannot tell "ends here" from "we gave up".
 
+
+### C-11a · aria-app is the largest remaining exposure, and the register understates it — R-F3753 (2026-08-05)
+
+Measured 2026-08-05. **aria-app is LIVE and serving**: machine `837221f7725138`
+`started`, checks `1/1 passing`, on `aria-app.fly.dev` (deployed 2026-06-30). So this
+is reachable, not dormant — the reachability test that cleared `chromadb`,
+`body-parser` and `uuid` does **not** clear this one.
+
+`npm audit` in `aria-app/`: **2 HIGH, and `next` alone carries 17+ advisories**
+(installed `^14.2.35`, vulnerable `9.3.4-canary.0 – 16.3.0-preview.10`).
+
+**The register said "Image Optimizer DoS".** The reachable surface is far wider,
+because this app uses the features the other advisories target:
+- `aria-app/middleware.ts` → **Middleware/Proxy bypass** (Pages *and* App Router) and **middleware redirect cache-poisoning**
+- `aria-app/lib/actions.ts` → **SSRF in Server Actions on custom endpoints**, **DoS in App Router Server Actions**
+- App Router (`app/`) → **cross-site scripting in App Router applications**, **RSC cache poisoning / cache confusion of response bodies**
+- plus **HTTP request smuggling in rewrites** and **HTTP request deserialization DoS**
+
+**npm's suggested fix overshoots.** It offers `next@16.3.0` — *two* majors. Every
+advisory above is patched by **`<15.5.21`**, so **15.5.21 is sufficient** and 16.x is
+unnecessary risk.
+
+**Why this was NOT bumped here.** `next` 14→15 is coupled to a **React major**: the
+app pins `react ^18.3.1` / `react-dom ^18.3.1`, and Next 15 expects React 19. That is
+two coordinated framework majors on a live, internet-facing UI, and it cannot be
+verified by a version string or a unit test — it needs the app exercised. Shipping it
+blind would be the "fix more dangerous than the CVE" failure that R-F3743 refused for
+`node-cron`. **`postcss` is a devDependency** (build-time only), so it is the lesser
+half despite sharing the HIGH rating.
+
+**Recommended sequence:** pin `next@~15.5.21` + `react@19`/`react-dom@19` together,
+build, exercise sign-in (`components/signin-form.tsx`), middleware-gated routes and
+the Server Actions in `lib/actions.ts`, then deploy aria-app and verify live — its own
+app, its own deploy, not bundled with aria-web.
+
 ---
 
 ## C. Census-derived findings — ADJUDICATED (evidence cited)
@@ -467,7 +502,7 @@ build happened to resolve.
 | root | `ip-address` | HIGH | leading-zero octets decoded as decimal → SSRF/filter bypass | available |
 | root | `node-cron` / `uuid` | MODERATE | missing buffer bounds check (v3/v5/v6) | semver-major |
 | root | `body-parser` | LOW | invalid limit silently disables size enforcement | available |
-| `aria-app/` | `next`, `postcss` | HIGH | Image Optimizer DoS; PostCSS XSS + arbitrary file read | semver-major |
+| `aria-app/` | `next`, `postcss` | **HIGH — UNDERSTATED, see R-F3753** | **17+ advisories incl. middleware bypass, HTTP request smuggling, SSRF in Server Actions, App Router XSS, RSC cache poisoning** — not just image DoS | needs next 15.5.21+ (NOT 16.x) + React 19 |
 | `services/wa-listener/` | — | — | **clean** | — |
 
 **`undici` is the one to act on first.** It is HIGH, the fix is available without a major

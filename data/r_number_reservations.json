@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3753,
+  "next_available": 3754,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31505,6 +31505,15 @@
       "commit_sha": "656427ed",
       "notes": null,
       "shipped_at": "2026-08-05T17:32:54Z"
+    },
+    {
+      "r_number": "R-F3753",
+      "title": "C-11 aria-app: the register understated a live Next 14 exposure - middleware bypass and SSRF, not just image DoS",
+      "claimed_at": "2026-08-05T17:37:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
