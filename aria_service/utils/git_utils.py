@@ -144,6 +144,57 @@ def check_push_guard(
     commit_sha: str,
     git_root: Optional[Path] = None,
 ) -> bool:
+    """Verify HEAD matches origin/main. §21a-wired wrapper — see _impl below.
+
+    R-F3731 — THE REFUSALS WENT INTO A LOG NOBODY READS.
+
+    This guard is what stops a deploy of un-pushed code (§11), and every one of
+    its SEVEN refusal paths ended at `logger.warning`/`logger.error` and nothing
+    else. So "the deploy guard refused" — including "I could not read
+    origin/main", which is an infrastructure fault, not a developer mistake —
+    never reached the brain, could not raise a gap, and could not self-heal.
+    §21a is explicit that a local log is DARK, not wired.
+
+    Wrapping rather than patching each `return False`: the refusals are spread
+    over seven branches today and a future eighth would silently miss its
+    signal. A wrapper covers every path by construction, including ones not yet
+    written.
+
+    The import is LAZY and failure-tolerant on purpose — this module's contract
+    is "no dependencies beyond the standard library" (see the module docstring),
+    and a wiring import must never be what stops a deploy guard from answering.
+    """
+    ok = False
+    try:
+        ok = _check_push_guard_impl(commit_sha, git_root)
+        return ok
+    finally:
+        try:
+            from ..intel.engine_wiring import wire_failure, wire_success
+            if ok:
+                wire_success(
+                    module="git_utils",
+                    summary="push guard passed: HEAD == origin/main",
+                    detail=f"commit {commit_sha[:8]}",
+                    source_id="git_utils:check_push_guard",
+                )
+            else:
+                wire_failure(
+                    module="git_utils",
+                    detail=(f"push guard REFUSED deploy of {commit_sha[:8]} — "
+                            f"HEAD/origin-main mismatch or refs unreadable "
+                            f"(see git_utils warnings for which)"),
+                    gap_type="engine_failure",
+                    source="git_utils:check_push_guard:R-F3731",
+                )
+        except Exception:       # never let wiring break the guard itself
+            pass
+
+
+def _check_push_guard_impl(
+    commit_sha: str,
+    git_root: Optional[Path] = None,
+) -> bool:
     """Verify HEAD matches origin/main.
 
     This prevents deploying un-pushed commits — the live server would

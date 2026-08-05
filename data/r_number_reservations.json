@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3731,
+  "next_available": 3732,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31283,6 +31283,15 @@
       "r_number": "R-F3730",
       "title": "Phase 0.3 runtime usage instrumentation - route/loop observation for the cure census overlay",
       "claimed_at": "2026-08-05T11:16:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3731",
+      "title": "the deploy push-guard refused deploys into a log nobody reads",
+      "claimed_at": "2026-08-05T11:32:04Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
