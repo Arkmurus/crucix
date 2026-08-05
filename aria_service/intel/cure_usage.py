@@ -135,10 +135,55 @@ def maybe_schedule_flush() -> bool:
 _INFLIGHT: set[asyncio.Task] = set()
 
 
+def _wire_flush_outcome(written: int, new_failures: int, exc: Exception | None = None) -> None:
+    """R-F3737 — report the flush outcome to the brain (§21a, BOTH branches).
+
+    Separate function, and deliberately total: wiring must never be what breaks
+    the instrument it observes, and `flush()` is called from a fire-and-forget
+    task where a raise would be swallowed anyway.
+    """
+    try:
+        from aria_service.intel.engine_wiring import wire_failure, wire_success
+        if new_failures or exc is not None:
+            wire_failure(
+                module="cure_usage",
+                detail=(
+                    f"usage flush degraded: {new_failures} store write(s) failed"
+                    + (f"; {type(exc).__name__}: {str(exc)[:100]}" if exc else "")
+                    + f"; {written} field(s) written. Phase 0.3 runtime evidence "
+                      f"is INCOMPLETE for this interval — an unrecorded route "
+                      f"reads as an uncalled one."
+                ),
+                gap_type="data_integrity",
+                source="cure_usage:flush:R-F3737",
+            )
+        elif written:
+            wire_success(
+                module="cure_usage",
+                summary=f"usage flush wrote {written} route counter(s)",
+                source_id="cure_usage:flush",
+            )
+    except Exception:       # never let telemetry break the measurement
+        pass
+
+
 async def flush() -> int:
     """Drain the buffer into the durable store. Returns fields written."""
     global _last_flush, _flush_in_flight, _flush_failures
     written = 0
+    # R-F3737 — §21a. This loop already COUNTED its own failures into
+    # `_flush_failures` and then told nobody: the per-field and meta-write
+    # failures were silent, and the outer handler reached `log.warning` only,
+    # which §21a defines as DARK, not wired.
+    #
+    # It matters more than a usual counter. This module IS the Phase 0.3 runtime
+    # proof — the evidence that decides whether 109 dead-candidate modules may be
+    # deleted. A flush that silently stops writing does not look broken; it looks
+    # like "that route was never called", which is the exact reading that makes a
+    # live module deletable. A measurement instrument that fails quietly is worse
+    # than one that fails loudly, because its silence is indistinguishable from a
+    # real result (Invariant 8).
+    _failures_at_entry = _flush_failures
     try:
         if not _buffer:
             return 0
@@ -169,10 +214,12 @@ async def flush() -> int:
             )
         except Exception:
             _flush_failures += 1
+        _wire_flush_outcome(written, _flush_failures - _failures_at_entry)
         return written
     except Exception as e:  # pragma: no cover
         log.warning("[R-F3730] usage flush failed: %s", e)
         _flush_failures += 1
+        _wire_flush_outcome(written, _flush_failures - _failures_at_entry, exc=e)
         return written
     finally:
         _last_flush = time.monotonic()

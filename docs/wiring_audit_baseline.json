@@ -44,7 +44,6 @@
     "aria_service/static/aria_client/aria.py": "no-wiring",
     "aria_service/static/aria_client/aria_tui.py": "no-wiring",
     "aria_service/utils/command_cache.py": "no-wiring",
-    "aria_service/utils/git_utils.py": "no-wiring",
     "aria_service/vetting/crypto.py": "no-wiring",
     "aria_service/vetting/decisions.py": "no-wiring",
     "aria_service/vetting/documents.py": "missing-success",

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3737,
+  "next_available": 3738,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31341,6 +31341,15 @@
       "r_number": "R-F3736",
       "title": "declare the cure_usage store per ENGINEERING BRIEF invariant 10 (owner/retention/erasure/backup/recovery) - R-F3730 shipped it undeclared",
       "claimed_at": "2026-08-05T13:04:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3737",
+      "title": "the cure usage flush counted its own failures and told nobody",
+      "claimed_at": "2026-08-05T13:11:16Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
