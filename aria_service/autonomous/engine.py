@@ -281,15 +281,50 @@ async def refresh_runtime_override() -> str | None:
 
     Returns the cached value ("1", "0", or None) for logging.
     """
+    # ── R-F3722 — an UNREADABLE store is not "no override" ───────────────────
+    #
+    # THE DEFECT (the R-F2664/R-F3716/R-F3717 class, in the master switch):
+    # this read `rs.get`, which returns None on a store FAILURE as well as on a
+    # genuinely absent key, and then wrote that None into the cache. Both the
+    # success path and the `except` path erased a good "1".
+    #
+    # `is_enabled()` falls through to ARIA_AUTONOMOUS_ENABLED when the cache is
+    # None, and that env var is "0" in production (§18/§1 gate #5: the durable
+    # override is the ONLY thing keeping autonomy on). So one unreadable read
+    # turned the whole metabolism OFF — and at BOOT that is not a one-tick
+    # flicker: `main.py:3966` calls `start_engine()` exactly once, it hard-
+    # refuses when `is_enabled()` is False, and nothing retries. That is the
+    # R-F2004 outage class (187h dark) reachable from a slow-booting store,
+    # which §11c says is the NORMAL cold-boot condition.
+    #
+    # Fixed by reading strictly and treating a read failure as NO NEWS: the
+    # previous cached value stands. Only a SUCCESSFUL read may change the
+    # switch. Absent-and-readable still clears it, so /autonomous/enable's
+    # "clear the override" path is unaffected.
+    from ..intel import redis_store as rs
     try:
-        from ..intel import redis_store as rs
-        v = await rs.get(_REDIS_ENABLE_KEY)
-        cleaned = (v or "").strip()
-        _RUNTIME_ENABLE_CACHE["val"] = cleaned if cleaned in ("0", "1") else None
-        _RUNTIME_ENABLE_CACHE["ts"] = time.time()
+        v = await rs.get_strict(_REDIS_ENABLE_KEY)
     except Exception as e:
-        logger.debug("[autonomous engine] runtime override read failed: %s", e)
-        _RUNTIME_ENABLE_CACHE["val"] = None
+        prev = _RUNTIME_ENABLE_CACHE.get("val")
+        logger.warning(
+            "[R-F3722] autonomy override UNREADABLE (%s) — KEEPING the previous "
+            "value %r rather than falling back to %s=%s. An unreadable store is "
+            "not a decision to disable autonomy.",
+            e, prev, _ENABLED_VAR, os.getenv(_ENABLED_VAR, "0"),
+        )
+        try:  # §21a — the master switch going blind must reach the brain
+            from ..intel.engine_wiring import wire_failure as _wf
+            _wf(module="autonomous_engine",
+                detail=(f"runtime override unreadable ({str(e)[:120]}) — retained "
+                        f"cached value {prev!r}; autonomy NOT silently disabled"),
+                gap_type="data_integrity",
+                source="autonomous_engine:R-F3722")
+        except Exception:
+            pass
+        return prev
+    cleaned = (v or "").strip()
+    _RUNTIME_ENABLE_CACHE["val"] = cleaned if cleaned in ("0", "1") else None
+    _RUNTIME_ENABLE_CACHE["ts"] = time.time()
     return _RUNTIME_ENABLE_CACHE.get("val")
 
 
@@ -368,7 +403,32 @@ async def maybe_autorecover_master_switch() -> dict:
         if override == "0":
             return {"recovered": False, "reason": "deliberately disabled (override=0) — respected"}
         from ..intel import redis_store as rs
-        desired = (await rs.get(_DESIRED_KEY) or "").strip()
+        # R-F3722 — the SAFETY NET had the same blindness as the switch it
+        # guards. `rs.get` returns None on a store failure, so an unreadable
+        # store produced desired="" and this returned "no desired-enabled
+        # marker" — a FALSE CAUSE. Both this and refresh_runtime_override()
+        # run at boot, against the same store, in the same reconnect window
+        # (§11c), so the net could never catch the fall it exists for: the
+        # switch read disabled and the recovery agreed, for the same reason,
+        # and reported a different one.
+        try:
+            desired = (await rs.get_strict(_DESIRED_KEY) or "").strip()
+        except Exception as e:
+            logger.warning(
+                "[R-F3722] desired-enabled marker UNREADABLE (%s) — cannot tell "
+                "'operator never enabled it' from 'the store is down', so NOT "
+                "claiming the former.", e,
+            )
+            try:  # §21a — a blind safety net must not be silent
+                from ..intel.engine_wiring import wire_failure as _wf
+                _wf(module="autonomous_engine",
+                    detail=(f"autorecover could not read the desired-enabled marker "
+                            f"({str(e)[:120]}) — recovery deferred, not refused"),
+                    gap_type="data_integrity",
+                    source="autonomous_engine:R-F3722")
+            except Exception:
+                pass
+            return {"recovered": False, "reason": "desired marker UNREADABLE — store down, not a decision"}
         if desired != "1":
             return {"recovered": False, "reason": "no desired-enabled marker — not auto-restoring"}
         # Lost-flag recovery: override is None + desired=1 → restore to enabled.

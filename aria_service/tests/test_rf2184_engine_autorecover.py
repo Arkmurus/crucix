@@ -39,6 +39,11 @@ def _patch_rs(monkeypatch, store):
     monkeypatch.setattr(rs, "get", fget)
     monkeypatch.setattr(rs, "set", fset)
     monkeypatch.setattr(rs, "delete", fdel)
+    # R-F3722 — back the STRICT reader with the same dict. Production has one
+    # store; get and get_strict differ only in how they report a FAILURE. A fake
+    # that emulates the lenient reader alone sends strict reads to the real
+    # (empty) store, so the test measures the fake instead of the code.
+    monkeypatch.setattr(rs, "get_strict", fget)
 
 
 def test_rf2184_recovers_lost_flag(monkeypatch):
