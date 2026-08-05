@@ -18,6 +18,28 @@ import pytest
 from aria_service.intel import cure_usage
 
 
+
+
+def _swap_store(monkeypatch, store):
+    """R-F3752 — swap the store BOTH ways; the package attribute is the
+    load-bearing half.
+
+    `cure_usage.flush()`/`snapshot()` do `from aria_service.intel import
+    state_store`. That resolves the PACKAGE ATTRIBUTE once the submodule has been
+    imported; it does NOT re-consult sys.modules. So a sys.modules-only swap works
+    when this file runs alone (state_store not yet imported) and SILENTLY STOPS
+    WORKING once any earlier test imports it — the real store is used and the
+    branch under test never executes.
+
+    Measured 2026-08-05: these tests passed alone and five of them failed once
+    test_rf3716_3717 ran first, because it imports redis_store, which pulls in
+    state_store. A test seam has to be independent of import order.
+    """
+    import sys as _sys
+    import aria_service.intel as _pkg
+    monkeypatch.setitem(_sys.modules, "aria_service.intel.state_store", store)
+    monkeypatch.setattr(_pkg, "state_store", store, raising=False)
+
 @pytest.fixture(autouse=True)
 def _clean():
     cure_usage._reset_for_tests()
@@ -85,9 +107,7 @@ async def test_flush_writes_counts_and_clears_buffer(monkeypatch):
         async def set_json(key, obj, ex=None, **kw):
             return True
 
-    monkeypatch.setitem(
-        __import__("sys").modules, "aria_service.intel.state_store", _FakeStore
-    )
+    _swap_store(monkeypatch, _FakeStore)
     cure_usage.record_route("/health", "GET")
     cure_usage.record_route("/health", "GET")
     cure_usage.record_route("/api/aria/dd/{id}", "POST")
@@ -113,9 +133,7 @@ async def test_a_failed_write_returns_the_count_to_the_buffer(monkeypatch):
         async def set_json(key, obj, ex=None, **kw):
             raise RuntimeError("store down")
 
-    monkeypatch.setitem(
-        __import__("sys").modules, "aria_service.intel.state_store", _BrokenStore
-    )
+    _swap_store(monkeypatch, _BrokenStore)
     cure_usage.record_route("/health", "GET")
     cure_usage.record_route("/health", "GET")
 
@@ -135,9 +153,7 @@ async def test_snapshot_reports_unavailable_rather_than_lying(monkeypatch):
         async def get_json(key):
             raise RuntimeError("store down")
 
-    monkeypatch.setitem(
-        __import__("sys").modules, "aria_service.intel.state_store", _BrokenStore
-    )
+    _swap_store(monkeypatch, _BrokenStore)
     snap = await cure_usage.snapshot()
     assert snap["available"] is False
     assert "store read failed" in snap["reason"]
@@ -155,9 +171,7 @@ async def test_snapshot_returns_observed_routes(monkeypatch):
         async def get_json(key):
             return {"last_flush_epoch": 1.0}
 
-    monkeypatch.setitem(
-        __import__("sys").modules, "aria_service.intel.state_store", _Store
-    )
+    _swap_store(monkeypatch, _Store)
     snap = await cure_usage.snapshot()
     assert snap["available"] is True
     assert snap["observed_routes"] == 2
@@ -201,9 +215,7 @@ async def test_counts_are_read_with_the_same_type_they_are_written_with(monkeypa
         async def get_json(key):
             return blobs.get(key)
 
-    monkeypatch.setitem(
-        __import__("sys").modules, "aria_service.intel.state_store", _RoundTripStore
-    )
+    _swap_store(monkeypatch, _RoundTripStore)
     cure_usage.record_route("/health/live", "GET")
     cure_usage.record_route("/health/live", "GET")
     cure_usage.record_route("/api/aria/dd/{id}", "POST")

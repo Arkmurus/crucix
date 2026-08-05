@@ -45,8 +45,24 @@ class _Store:
 
 
 def _use_store(monkeypatch, store):
-    monkeypatch.setitem(
-        __import__("sys").modules, "aria_service.intel.state_store", store)
+    """Swap the store BOTH ways, and the second one is the load-bearing half.
+
+    `flush()` does `from aria_service.intel import state_store`. That resolves the
+    PACKAGE ATTRIBUTE `aria_service.intel.state_store` once the submodule has been
+    imported — it does NOT re-consult sys.modules. So a sys.modules-only swap
+    works when this file runs alone (state_store not yet imported) and SILENTLY
+    STOPS WORKING once any earlier test imports it: the real store is used, the
+    write succeeds, and the failure path under test never executes.
+
+    Observed exactly that: these tests passed alone and failed after
+    test_rf3716_3717 ran first, because it imports redis_store, which pulls in
+    state_store. Patching the package attribute makes the swap independent of
+    import order — which is the property a test seam has to have.
+    """
+    import sys as _sys
+    import aria_service.intel as _pkg
+    monkeypatch.setitem(_sys.modules, "aria_service.intel.state_store", store)
+    monkeypatch.setattr(_pkg, "state_store", store, raising=False)
 
 
 @pytest.fixture()

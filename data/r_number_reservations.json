@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3752,
+  "next_available": 3753,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31495,6 +31495,15 @@
       "commit_sha": "9351279b",
       "notes": null,
       "shipped_at": "2026-08-05T17:22:12Z"
+    },
+    {
+      "r_number": "R-F3752",
+      "title": "a sys.modules-only test seam silently stopped working once an earlier test imported the submodule",
+      "claimed_at": "2026-08-05T17:27:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
