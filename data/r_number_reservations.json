@@ -31451,9 +31451,10 @@
       "title": "adjudicate DR-1 D-02: register pointed at a dormant matcher; the live one gates surname-only matches",
       "claimed_at": "2026-08-05T16:00:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ebc6a2d4",
+      "notes": null,
+      "shipped_at": "2026-08-05T16:02:08Z"
     }
   ]
 }
