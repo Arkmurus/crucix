@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3738,
+  "next_available": 3739,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31355,6 +31355,15 @@
       "commit_sha": "9c98cad7",
       "notes": null,
       "shipped_at": "2026-08-05T13:16:58Z"
+    },
+    {
+      "r_number": "R-F3738",
+      "title": "undici pinned into a vulnerable range: 5 HIGH advisories fixed in 7.29.0",
+      "claimed_at": "2026-08-05T13:42:22Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
