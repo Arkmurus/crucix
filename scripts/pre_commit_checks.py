@@ -604,7 +604,7 @@ def _absorb_success_directions(content: str) -> set[str]:
     return found
 
 
-def check_wiring_present(files: list[Path]) -> list[str]:
+def check_wiring_present(files: list[Path], *, require_intel: bool = True) -> list[str]:
     """Check that every changed intel module has at least one wire_success or wire_failure call (brain wiring).
 
     Modules that are purely data/configuration or are themselves wiring
@@ -615,8 +615,22 @@ def check_wiring_present(files: list[Path]) -> list[str]:
     issues = []
 
     for file_path in files:
-        # Only check intel modules
-        if "intel" not in file_path.parts:
+        # R-F3727 — scope is now a PARAMETER, and there is still exactly ONE
+        # definition of "wired" (the comment below warns that two definitions in
+        # one repo is a hazard that has bitten here before — so this widens the
+        # SCOPE, never the vocabulary).
+        #
+        # §21b says "no new module, engine, route, guard, or feature ships dark",
+        # but enforcement only ever looked at aria_service/intel/. Measured
+        # 2026-08-05: 33 modules OUTSIDE intel/ reach no brain sink at all and
+        # swallow at least one failure — including 7 in metacognitive/ and 6 in
+        # learning/, which are core cognition, not peripheral tooling. CI has
+        # been reporting "All intel modules have brain wiring" the whole time,
+        # which is true and reads as "everything is wired".
+        #
+        # Default stays intel-only so the pre-commit hook's behaviour is
+        # unchanged; the CI audit passes require_intel=False.
+        if require_intel and "intel" not in file_path.parts:
             continue
         if file_path.suffix != ".py":
             continue

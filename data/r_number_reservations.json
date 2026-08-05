@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3727,
+  "next_available": 3728,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31248,6 +31248,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3727",
+      "title": "the wiring guard enforced section 21 in one directory while 33 modules outside it shipped dark",
+      "claimed_at": "2026-08-05T10:37:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5b0e3269",
+      "notes": null,
+      "shipped_at": "2026-08-05T10:50:27Z"
     }
   ]
 }
