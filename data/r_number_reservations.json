@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3742,
+  "next_available": 3744,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31396,6 +31396,24 @@
       "commit_sha": "fe28414f",
       "notes": null,
       "shipped_at": "2026-08-05T14:53:05Z"
+    },
+    {
+      "r_number": "R-F3742",
+      "title": "resumable tool-use evaluation and evidence-gated compounding",
+      "claimed_at": "2026-08-05T15:08:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3743",
+      "title": "C-11 uuid advisory unreachable; clear it by overriding uuid alone rather than a cron-semantics-changing node-cron major",
+      "claimed_at": "2026-08-05T15:10:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

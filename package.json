@@ -82,6 +82,7 @@
     },
     "@whiskeysockets/baileys": {},
     "protobufjs": "^7.6.5",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "uuid": "^11.1.1"
   }
 }

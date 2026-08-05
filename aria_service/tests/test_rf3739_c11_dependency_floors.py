@@ -45,6 +45,12 @@ FLOORS = {
     # .jpeg(), .metadata(), .resize(), .toBuffer(); and 0.35.3 needs Node
     # >=20.9.0 against a live runtime of v22.23.2 with the manifest at >=22.
     "sharp": ((0, 35, 3), "<0.35.0"),
+    # R-F3743 — uuid was reached ONLY through node-cron, which hard-pins
+    # `uuid: "8.3.2"` (exact). npm audit's suggested fix was node-cron 4.6.0, a
+    # SEMVER-MAJOR on the library that decides WHEN scheduled jobs run — a bump
+    # that can change cron-expression semantics silently. Overriding uuid alone
+    # clears the advisory and leaves cron semantics untouched.
+    "uuid": ((11, 1, 1), "<11.1.1"),
 }
 
 
@@ -166,4 +172,40 @@ def test_every_configured_body_limit_is_parseable():
     assert not bad, (
         "these body limits are not parseable, so size enforcement is SILENTLY "
         f"disabled at each: {bad}"
+    )
+
+
+def test_node_cron_was_deliberately_NOT_majored():
+    """R-F3743 — record the decision, so nobody "finishes the job" later.
+
+    npm audit flagged node-cron 3.0.2-3.0.3 and offered node-cron 4.6.0. Measured
+    2026-08-05, node-cron has NO vulnerability of its own: it is flagged purely as
+    the parent of uuid@8.3.2, which it hard-pins. And the uuid advisory
+    ("missing buffer bounds check in v3/v5/v6 when buf is provided") is
+    unreachable here for three independent reasons:
+
+      1. nothing in this tree imports uuid at all;
+      2. its only consumer, node-cron, calls ONLY uuid.v4() — never v3/v5/v6
+         (verified in node-cron/src: scheduled-task.js, storage.js,
+         background-scheduled-task/index.js);
+      3. `buf` is never passed.
+
+    So the offered fix was a semver-major on the library that decides WHEN
+    scheduled jobs run, to remedy something unreachable. A cron-expression
+    semantics change is silent by nature — nothing errors, the schedule just
+    drifts — which makes that fix more dangerous than the finding.
+
+    Overriding uuid alone clears the advisory with no cron risk, and was
+    functionally proven: uuid.v4() works under CJS require, all six cron shapes
+    this repo uses still validate, and a scheduled task fired 3x in 2.2s.
+
+    If node-cron IS majored later, do it for its own reasons and re-verify every
+    live cron expression against 4.x parsing first.
+    """
+    pkg = _pkg()
+    declared = (pkg.get("dependencies") or {}).get("node-cron")
+    assert declared and declared.startswith("^3."), (
+        f"node-cron is declared {declared!r}. If this was bumped to 4.x, the cron "
+        f"EXPRESSIONS must be re-verified against 4.x parsing — a semantics change "
+        f"here alters WHEN jobs run and reports nothing. See this test's docstring."
     )
