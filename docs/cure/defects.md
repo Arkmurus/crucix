@@ -83,7 +83,7 @@ is not.
 | D-02 | Matcher surname / dataset gates | P0 | UNADJUDICATED | `lib/aria/entityMatcher.mjs` (DORMANT, 311 LOC, test-only reach) | none |
 | D-03 | Status ↔ verdict reconciliation (no GREEN over NOT CLEARED) | P0 | **ADJUDICATED — MIS-SPECIFIED (R-F3745)** | `dd_schema.py:3133`+scope_note, `pdf_generator.mjs:857-862,999,1811` | `test_rf3745_dr1_d03_verdict_readiness.py` |
 | D-04 | Materiality filter (the FRC class) | P1 | UNADJUDICATED | `aria_service/intel/dd_disciplines.py`, `dd_orchestrator.py` | none |
-| D-05 | Export-control classifier (no default "civilian") | P1 | UNADJUDICATED | `aria_service/intel/tech_classifier.py` | none |
+| D-05 | Export-control classifier (no default "civilian") | P1 | **ADJUDICATED — ALREADY SATISFIED (R-F3746)** | `tech_classifier.py:639-640,650` | `test_rf3746_dr1_d05_export_default.py` |
 | D-06 | Financial-verdict vintage (`LAST_KNOWN_WITH_AGE` or refuse) | P1 | UNADJUDICATED | `aria_service/intel/financial_health.py` | none |
 | D-07 | PSC second hop | P1 | UNADJUDICATED | test exists (`test_rf3542_psc_second_hop.py`); **implementation not located** | partial |
 | D-08 | Waiver rendering on page 1 | P1 | UNADJUDICATED | `lib/reports/pdf_generator.mjs` | none |
@@ -124,6 +124,30 @@ correctly-specified defect is *not present*. The fixture locks it in.
 against the three shapes a "reconciliation" would actually take (readiness on the
 assignment RHS, readiness in a guarding condition, and a braced conditional
 rewrite) — the first two versions of that guard missed shapes 2 and 3.
+
+**On D-05 — ADJUDICATED, ALREADY SATISFIED (R-F3746, 2026-08-05).** Same method as
+D-03: the entry names a testable invariant, so it did not need the missing
+register. `classify_export_control` does **not** assert "civilian" on a non-match.
+Its no-hits branch (`tech_classifier.py:639-640,650`) emits three honesty signals
+together — `recommendation = "civilian or unclassified"` (ambiguous, not an
+assertion), `confidence = 0.40`, and a note *"No export-control hits — verify
+classification with specific product datasheet"*.
+
+Measured live 2026-08-05:
+
+| input | recommendation | conf | regime hits |
+|---|---|---|---|
+| office stationery, paper clips, A4 paper | `civilian or unclassified` | 0.40 | none |
+| 5.56×45mm ammunition + night-vision optics | `ITAR primary` | 0.85 | ML1/ML15/ML3, USML I/III/XII |
+
+So the classifier discriminates, and "no hits" is reported as *not matched*, never
+as *civilian*. **Residual risk, which is why the fixture exists anyway:** the
+string contains the word "civilian", so any consumer that substring-matches,
+truncates to the first word, or maps it to a boolean re-creates the false clean
+OUTSIDE this module. The renderer currently prints the full string, so it is
+honest today. The fixture pins all three signals, and its fourth check is a
+negative control — without it, a classifier returning "unclassified" for
+*everything* would pass the first three vacuously.
 
 **On D-07:** `aria_service/tests/test_rf3542_psc_second_hop.py` exists, so the behaviour
 was addressed at some point under R-F3542. A targeted grep for a second-hop

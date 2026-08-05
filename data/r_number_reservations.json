@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3746,
+  "next_available": 3747,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31435,6 +31435,15 @@
       "commit_sha": "03bf260c",
       "notes": null,
       "shipped_at": "2026-08-05T15:47:36Z"
+    },
+    {
+      "r_number": "R-F3746",
+      "title": "adjudicate DR-1 D-05: the export classifier does not default to a clean civilian; lock the three honesty signals",
+      "claimed_at": "2026-08-05T15:52:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
