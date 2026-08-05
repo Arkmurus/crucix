@@ -31491,9 +31491,10 @@
       "title": "resolve DR-1 D-07: the PSC second-hop implementation is walk_psc_ownership, not absent",
       "claimed_at": "2026-08-05T17:21:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9351279b",
+      "notes": null,
+      "shipped_at": "2026-08-05T17:22:12Z"
     }
   ]
 }
