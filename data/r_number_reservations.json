@@ -31531,9 +31531,10 @@
       "title": "second verified getsource batch: 13 files; a multi-line import block is the second unconvertible shape",
       "claimed_at": "2026-08-05T18:00:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cd58d843",
+      "notes": null,
+      "shipped_at": "2026-08-05T18:00:33Z"
     }
   ]
 }
