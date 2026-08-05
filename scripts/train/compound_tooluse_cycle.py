@@ -1,7 +1,9 @@
-"""R-F3733 — build retention curriculum and gate checkpoint promotion.
+"""R-F3733/R-F3742 — gate promotion and prescribe evidence-backed training.
 
-Only aggregate axis scores from the held-out report influence curriculum
-weights; held-out prompts and answers are never copied into training data.
+Held-out rows diagnose failure contracts but are never copied into training.
+A rejected candidate requires its own failed generations on TRAIN entities;
+duplicating an entire axis is forbidden because SFT supplies no negative signal
+for the plausible-looking fabrications this cycle is trying to remove.
 """
 from __future__ import annotations
 
@@ -32,11 +34,42 @@ def promotion_verdict(incumbent: dict, candidate: dict) -> dict:
             "reason": "strict_compounding" if promote else "retention_gate_failed"}
 
 
+def classify_failure_contract(errors: list[str]) -> str:
+    """Map validator errors to the behavioural contract training must address."""
+    text = " ".join(str(error).lower() for error in errors)
+    if any(marker in text for marker in (
+        "cites", "outlet", "tool result contains", "search did not return",
+        "appears nowhere in the tool output",
+    )):
+        return "source_grounding"
+    if "cleared" in text or "closed matter" in text:
+        return "procedural_state"
+    if "never names the subject" in text or "not responsive" in text:
+        return "responsiveness"
+    if "sanctions hit" in text or "clean screen" in text:
+        return "screen_semantics"
+    return "other"
+
+
+def failure_contracts(candidate: dict) -> dict[str, int]:
+    """Count failed rows once each; repeated validator messages do not inflate n."""
+    counts: dict[str, int] = {}
+    for row in candidate.get("rows") or []:
+        if row.get("honest"):
+            continue
+        contract = classify_failure_contract(list(row.get("errors") or []))
+        counts[contract] = counts.get(contract, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 def build_retention_curriculum(train: list[dict], verdict: dict) -> list[dict]:
-    """Replay regressed training axes once, preserving every original row."""
-    labels = {row["label"] for row in verdict.get("regressions") or []}
-    replay = [row for row in train if str(row.get("label")) in labels]
-    return list(train) + replay
+    """Refuse the superseded whole-axis replay intervention."""
+    if verdict.get("regressions"):
+        raise ValueError(
+            "blind axis replay is forbidden: collect failed generations over the "
+            "train split and build preference pairs with build_tooluse_dpo.py"
+        )
+    return list(train)
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -59,15 +92,26 @@ def main(argv: list[str] | None = None) -> int:
     incumbent = json.loads(args.incumbent.read_text(encoding="utf-8"))
     candidate = json.loads(args.candidate.read_text(encoding="utf-8"))
     verdict = promotion_verdict(incumbent, candidate)
+    verdict.update({"incumbent_sha256": _sha(args.incumbent),
+                    "candidate_sha256": _sha(args.candidate),
+                    "train_sha256": _sha(args.train),
+                    "failure_contracts": failure_contracts(candidate)})
+    if not verdict["promote"]:
+        verdict.update({
+            "intervention": "collect_train_generations_for_dpo",
+            "training_output_written": False,
+        })
+        args.verdict_out.parent.mkdir(parents=True, exist_ok=True)
+        args.verdict_out.write_text(json.dumps(verdict, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(verdict, indent=2))
+        return 3
+
     curriculum = build_retention_curriculum(_load_jsonl(args.train), verdict)
-    if len(curriculum) <= len(_load_jsonl(args.train)) and verdict["regressions"]:
-        raise ValueError("regressed axes had no training rows; refusing empty intervention")
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in curriculum),
                         encoding="utf-8", newline="\n")
-    verdict.update({"incumbent_sha256": _sha(args.incumbent),
-                    "candidate_sha256": _sha(args.candidate),
-                    "train_sha256": _sha(args.train), "train_rows": len(curriculum)})
+    verdict.update({"intervention": "promote_candidate",
+                    "training_output_written": True, "train_rows": len(curriculum)})
     args.verdict_out.write_text(json.dumps(verdict, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(verdict, indent=2))
     return 0

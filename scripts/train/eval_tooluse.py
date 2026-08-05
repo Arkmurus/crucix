@@ -35,7 +35,9 @@ from __future__ import annotations
 
 import argparse
 import collections
+import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -136,6 +138,30 @@ def build_report(rows: list[dict]) -> dict:
     }
 
 
+def _run_fingerprint(traces: list[dict], *, target: str, model: str,
+                     max_tokens: int) -> dict:
+    """Identity of an eval run; stale partial reports must never be resumed."""
+    corpus = json.dumps(traces, ensure_ascii=False, sort_keys=True,
+                        separators=(",", ":")).encode("utf-8")
+    return {
+        "eval_sha256": hashlib.sha256(corpus).hexdigest(),
+        "target": target.rstrip("/"),
+        "model": model,
+        "max_tokens": max_tokens,
+        "total": len(traces),
+    }
+
+
+def _write_progress(path: Path, rows: list[dict], run: dict, *, complete: bool) -> None:
+    """Atomically persist completed cases so interruption loses at most one row."""
+    report = {**build_report(rows), "rows": rows, "run": run, "complete": complete}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(report, ensure_ascii=False, indent=2),
+                   encoding="utf-8", newline="\n")
+    os.replace(tmp, path)
+
+
 def _ask(client: Any, target: str, model: str, msgs: list[dict],
          api_key: str, timeout: float, max_tokens: int = 900) -> tuple[str | None, str | None]:
     headers = {"Content-Type": "application/json"}
@@ -182,21 +208,44 @@ def main(argv: list[str] | None = None) -> int:
         print("BLOCKED: eval set is empty — refusing to report a rate", file=sys.stderr)
         return 2
 
+    run = _run_fingerprint(traces, target=a.target, model=a.model,
+                           max_tokens=a.max_tokens)
     rows: list[dict] = []
+    if a.out.exists():
+        prior = json.loads(a.out.read_text(encoding="utf-8"))
+        if prior.get("run") != run:
+            print("BLOCKED: existing eval checkpoint belongs to a different run; "
+                  "refusing a mixed report", file=sys.stderr)
+            return 2
+        rows = list(prior.get("rows") or [])
+        if len(rows) > len(traces):
+            print("BLOCKED: eval checkpoint has more rows than the eval set",
+                  file=sys.stderr)
+            return 2
+        for index, row in enumerate(rows):
+            trace = traces[index]
+            if (row.get("label"), row.get("subject")) != (
+                str(trace.get("label") or "unlabelled"), trace.get("subject")
+            ):
+                print(f"BLOCKED: eval checkpoint row {index + 1} does not match "
+                      "the eval-set prefix", file=sys.stderr)
+                return 2
+        print(f"resuming eval at {len(rows)}/{len(traces)} completed rows",
+              file=sys.stderr)
+
     with httpx.Client() as client:                  # no-breaker: offline eval tool
-        for i, t in enumerate(traces, 1):
+        for i, t in enumerate(traces[len(rows):], len(rows) + 1):
             ans, err = _ask(client, a.target, a.model, prompt_messages(t),
                             a.api_key, a.timeout, a.max_tokens)
             row = score_one(t, ans, error=err)
             rows.append(row)
+            _write_progress(a.out, rows, run, complete=False)
             mark = "ok " if row["honest"] else "FAIL"
             print(f"  [{i}/{len(traces)}] {mark} {row['label']:<28} "
-                  f"{(row['errors'] or [''])[0][:70]}", file=sys.stderr)
+                  f"{(row['errors'] or [''])[0][:70]}", file=sys.stderr, flush=True)
 
     rep = build_report(rows)
-    a.out.parent.mkdir(parents=True, exist_ok=True)
-    a.out.write_text(json.dumps({**rep, "rows": rows}, ensure_ascii=False, indent=2),
-                     encoding="utf-8", newline="\n")
+    _write_progress(a.out, rows, run, complete=True)
 
     rate = rep["honest_rate"]
     print(f"\ntool-use honesty: {rep['honest']}/{rep['total']} = "

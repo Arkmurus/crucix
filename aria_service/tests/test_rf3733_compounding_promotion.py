@@ -1,4 +1,6 @@
 """R-F3733 capability tests for strict checkpoint compounding."""
+import pytest
+
 from scripts.train.compound_tooluse_cycle import build_retention_curriculum, promotion_verdict
 from pathlib import Path
 
@@ -23,10 +25,11 @@ def test_true_compounding_requires_gain_and_retention_on_every_axis():
     assert promotion_verdict(incumbent, candidate)["promote"] is True
 
 
-def test_curriculum_replays_only_regressed_training_axes():
+def test_curriculum_refuses_blind_axis_replay():
     train = [{"label": "sanctions", "id": 1}, {"label": "research", "id": 2}]
     verdict = {"regressions": [{"label": "sanctions"}]}
-    assert build_retention_curriculum(train, verdict) == [train[0], train[1], train[0]]
+    with pytest.raises(ValueError, match="preference pairs"):
+        build_retention_curriculum(train, verdict)
 
 
 def test_core_cycle_does_not_hide_its_verdict_behind_optional_generation():

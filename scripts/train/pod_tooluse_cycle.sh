@@ -64,8 +64,8 @@ serve_and_eval(){                      # $1 = adapter path or "", $2 = out json,
   log "shim ready — evaluating $tag over $(wc -l < "$EVAL_FILE") held-out rows…"
   python /workspace/crucix/scripts/train/eval_tooluse.py \
     --eval-file "$EVAL_FILE" --target "http://127.0.0.1:$PORT/v1" \
-    --model aria-tooluse --out "$out" 2>&1 | tail -25
-  local rc=${PIPESTATUS[0]}
+    --model aria-tooluse --out "$out"
+  local rc=$?
   stop_shim
   [ -s "$out" ] || { log "FATAL no report written for $tag"; return 1; }
   return "$rc"
@@ -166,8 +166,15 @@ if [ "${GEN_TRAIN:-1}" = "1" ]; then
     # At ~12% failure that still yields ~18 pairs per round, and the pass is
     # cumulative across cycles. Generating a partial set is fine; overrunning
     # the deadline would lose the measurement too.
-    python /workspace/crucix/scripts/train/eval_tooluse.py       --eval-file "$TRAIN_FILE" --target "http://127.0.0.1:$PORT/v1"       --limit "${GEN_LIMIT:-150}"       --model aria-tooluse --out "$EVALD/tooluse_train_generations.json" 2>&1 | tail -8
-    log "train generations written"
+    if python /workspace/crucix/scripts/train/eval_tooluse.py \
+         --eval-file "$TRAIN_FILE" --target "http://127.0.0.1:$PORT/v1" \
+         --limit "${GEN_LIMIT:-150}" --model aria-tooluse \
+         --out "$EVALD/tooluse_train_generations.json" \
+       && [ -s "$EVALD/tooluse_train_generations.json" ]; then
+      log "train generations written"
+    else
+      log "WARN: train generation failed or wrote no report - no preference pairs this round"
+    fi
   else
     # NOT fatal: the cycle's measured result stands on its own. A missing
     # generation pass means no NEW pairs this round, not a failed cycle.
