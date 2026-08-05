@@ -31471,9 +31471,10 @@
       "title": "adjudicate DR-1 D-04: one regulator finding is material on its own; pin the FRC class",
       "claimed_at": "2026-08-05T17:10:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b1bda174",
+      "notes": null,
+      "shipped_at": "2026-08-05T17:13:00Z"
     }
   ]
 }
