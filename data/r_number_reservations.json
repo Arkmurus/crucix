@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3735,
+  "next_available": 3736,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31322,6 +31322,15 @@
       "r_number": "R-F3734",
       "title": "R-F3730 follow-up: usage counts written with hincrby were read with get_json, so observed_routes read 0 while writes succeeded",
       "claimed_at": "2026-08-05T12:09:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3735",
+      "title": "both chain stats surfaces reported a fabricated genesis head when the store was unreadable",
+      "claimed_at": "2026-08-05T12:11:17Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -35,6 +35,10 @@ GOLDEN="${GOLDEN:-data/eval_frozen/aria_eval_500q.jsonl}"
 BASE_MODEL="${BASE_MODEL:-mistralai/Mistral-7B-Instruct-v0.3}"
 PYBIN="${PYBIN:-.venv/Scripts/python.exe}"
 EPOCHS="${EPOCHS:-3}"
+# R-F3733 — checkpoint measurement is the critical cycle. Preference generation
+# is a separate follow-on job; letting it trail the eval caused a complete,
+# measured checkpoint to miss its sentinel and look failed.
+GEN_TRAIN="${GEN_TRAIN:-0}"
 RETRY_SECS=${RETRY_SECS:-90}
 MAX_TRIES=${MAX_TRIES:-15}
 START_WAIT_TICKS=${START_WAIT_TICKS:-40}
@@ -130,7 +134,7 @@ TSSH -p "$PORT" root@"$HOST" \
 
 log "starting cycle detached…"
 TSSH -p "$PORT" root@"$HOST" \
-  "rm -f /workspace/eval/_cycle_status; BASE_MODEL='$BASE_MODEL' EPOCHS=$EPOCHS setsid nohup bash /workspace/pod_tooluse_cycle.sh >/workspace/logs/tooluse_cycle.log 2>&1 </dev/null & echo STARTED" \
+  "rm -f /workspace/eval/_cycle_status; BASE_MODEL='$BASE_MODEL' EPOCHS=$EPOCHS GEN_TRAIN=$GEN_TRAIN setsid nohup bash /workspace/pod_tooluse_cycle.sh >/workspace/logs/tooluse_cycle.log 2>&1 </dev/null & echo STARTED" \
   | grep -q STARTED || die "cycle did not start"
 
 mkdir -p "$(dirname "$STATE_FILE")"
