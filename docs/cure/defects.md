@@ -79,7 +79,7 @@ fixture cannot be written for a symptom nobody has evidenced.
 
 ---
 
-## B. The DR-1 dozen — 6 ADJUDICATED (2026-08-05), 6 awaiting evidence
+## B. The DR-1 dozen — 7 ADJUDICATED (2026-08-05), 5 awaiting evidence
 
 Listed in the protocol's Phase 3 priority order. `Suspected location` is left blank
 where the census could not resolve it to a defensible file — a blank is honest, a guess
@@ -93,7 +93,7 @@ is not.
 | D-04 | Materiality filter (the FRC class) | P1 | **ADJUDICATED — SATISFIED (R-F3749)** | `dd_orchestrator.py:13585,12842`; `dd_disciplines.py` only INSTRUCTS | `test_rf3749_dr1_d04_materiality.py` |
 | D-05 | Export-control classifier (no default "civilian") | P1 | **ADJUDICATED — ALREADY SATISFIED (R-F3746)** | `tech_classifier.py:639-640,650` | `test_rf3746_dr1_d05_export_default.py` |
 | D-06 | Financial-verdict vintage (`LAST_KNOWN_WITH_AGE` or refuse) | P1 | **ADJUDICATED — REAL GAP, FIXED (R-F3748)** | `financial_health.py:347-372` | `test_rf3748_dr1_d06_financial_vintage.py` |
-| D-07 | PSC second hop | P1 | UNADJUDICATED | test exists (`test_rf3542_psc_second_hop.py`); **implementation not located** | partial |
+| D-07 | PSC second hop | P1 | **ADJUDICATED — SATISFIED (R-F3751)** | `companies_house.py:841` `walk_psc_ownership` | `test_rf3542_psc_second_hop.py` (15 tests, complete) |
 | D-08 | Waiver rendering on page 1 | P1 | **ADJUDICATED — SATISFIED (R-F3750)** | `dd_schema.py:734-748,1033-1042`; `pdf_generator.mjs` has ZERO waiver refs | `test_rf3750_dr1_d08_waiver_rendering.py` |
 | D-09 | Person dedup | P2 | UNADJUDICATED | — | none |
 | D-10 | Findings duplication | P2 | UNADJUDICATED | — | none |
@@ -262,11 +262,19 @@ honest today. The fixture pins all three signals, and its fourth check is a
 negative control — without it, a classifier returning "unclassified" for
 *everything* would pass the first three vacuously.
 
-**On D-07:** `aria_service/tests/test_rf3542_psc_second_hop.py` exists, so the behaviour
-was addressed at some point under R-F3542. A targeted grep for a second-hop
-implementation across `aria_service/intel`, `aria_service/vetting` and `lib` found no
-match — meaning either the logic is named differently or the test drives it indirectly.
-Resolve before writing a fixture against it.
+**On D-07 — RESOLVED and ADJUDICATED, SATISFIED (R-F3751, 2026-08-05).** The earlier
+note said "a targeted grep found no match — either the logic is named differently or
+the test drives it indirectly." **It is named differently.** The implementation is
+`companies_house.walk_psc_ownership` (`:841`); the grep searched for *second-hop*
+terminology while the code is named for the WALK. The test drives it directly, via
+`_drive()` monkeypatching `ch.get_psc` and calling `walk_psc_ownership("ROOT")`.
+
+The fixture is **complete, not partial** — 15 tests, all passing, covering: the second
+hop is traversed to an ultimate owner, it walks MORE than two hops, an unanchored
+corporate controller is a declared GAP (not silently dropped), a foreign registry ends
+the walk WITH A REASON, and a cycle is detected and declared. Each of those is the
+honest-termination property that matters: an ownership walk that stops must say why it
+stopped, or a reader cannot tell "ends here" from "we gave up".
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3751,
+  "next_available": 3752,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31485,6 +31485,15 @@
       "commit_sha": "2422afff",
       "notes": null,
       "shipped_at": "2026-08-05T17:20:54Z"
+    },
+    {
+      "r_number": "R-F3751",
+      "title": "resolve DR-1 D-07: the PSC second-hop implementation is walk_psc_ownership, not absent",
+      "claimed_at": "2026-08-05T17:21:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
