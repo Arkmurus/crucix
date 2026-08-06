@@ -796,14 +796,53 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         from ..intel import ecosystem_reassess as _er
         report = await _er.run()
         # Also evaluate operating mode auto-transitions (hourly check)
+        # ── R-F3761 — this evaluation is the ONLY route out of DEGRADED ──────
+        #
+        # It was `except Exception: logger.debug(...)`. DEBUG is not emitted at
+        # the running log level, so a failure here was INVISIBLE — and this call
+        # is the only thing that returns the platform to NORMAL. DEGRADED
+        # suppresses all external delivery (`should_deliver_external` returns
+        # `mode == NORMAL`), so a silent failure means customer-facing output
+        # stays off with nothing anywhere saying why.
+        #
+        # Measured 2026-08-06: the platform sat DEGRADED from 2026-08-05T18:00Z.
+        # Driving this task on demand returned status=ok in 1.3s and did NOT
+        # transition — no history entry, no log line, no signal. The logic itself
+        # is sound (grounded_rate None -> 1.0 -> target NORMAL != current
+        # DEGRADED -> set_mode), so something inside threw and landed here, where
+        # it was discarded. 26 health samples over 78 minutes confirmed it stuck.
+        #
+        # Now: the outcome is REPORTED either way. A failure is an ERROR, is
+        # wired (§21a), and is put in the report so `/autonomous/run-now` shows
+        # it in the response — the diagnosis should not require log access to a
+        # level nobody runs at. `mode_evaluated` records the no-change case too,
+        # so "evaluated and nothing to do" is distinguishable from "never ran".
         try:
             from ..intel import operating_modes as _om
+            _mode_before = (await _om.get_mode()).name
             transition = await _om.evaluate_auto_transition()
+            report["mode_evaluated"] = {"before": _mode_before,
+                                        "transitioned": bool(transition)}
             if transition:
                 report["mode_transition"] = transition
                 logger.warning("[ecosystem_reassess] operating mode auto-transition: %s", transition)
         except Exception as _e:
-            logger.debug("operating mode evaluation failed (non-fatal): %s", _e)
+            report["mode_evaluation_error"] = f"{type(_e).__name__}: {_e}"
+            logger.error(
+                "[R-F3761] operating-mode evaluation FAILED (%s: %s) — the platform "
+                "cannot leave DEGRADED without this, and DEGRADED suppresses ALL "
+                "external delivery. This was previously logged at debug and lost.",
+                type(_e).__name__, _e, exc_info=True,
+            )
+            try:
+                from ..intel.engine_wiring import wire_failure as _wf
+                _wf(module="operating_modes",
+                    detail=(f"auto-transition evaluation failed ({type(_e).__name__}: "
+                            f"{str(_e)[:110]}) — platform cannot recover from DEGRADED"),
+                    gap_type="engine_failure",
+                    source="tasks:ecosystem_reassess:R-F3761")
+            except Exception:
+                pass
         # Compute composite autonomy score (hourly tracking)
         try:
             from ..intel import autonomy_scorer as _as
