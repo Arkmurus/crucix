@@ -2813,6 +2813,18 @@ def _norm_category(article: dict) -> str:
     return str((article or {}).get("category") or "").strip().lower() or "unknown"
 
 
+# R-F3762 — §21a. This shipped unwired, which is why test_rf1783's
+# "all gates clean" assertion could never pass: the AST gate correctly flagged a
+# public async function with no @fail_wire, and the failure was read as a stale
+# test rather than as the gap it was reporting.
+#
+# It matters beyond gate hygiene. This is the DASHBOARD's article feed, and its
+# failure mode is an EMPTY LIST — indistinguishable from "no recent news". A
+# reader cannot tell "nothing happened" from "the read broke", which is the same
+# absence-as-measurement collapse fixed in R-F3716/R-F3717/R-F3722/R-F3758/
+# R-F3759. Wiring it means a failed read reaches the brain instead of rendering
+# as a quiet, empty panel.
+@fail_wire(module="news_monitor", gap_type="source_failure")
 async def get_recent_articles(limit: int = 50, category: str = "") -> list[dict]:
     """Get most recent articles for dashboard display.
 
