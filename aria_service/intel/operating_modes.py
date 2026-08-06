@@ -67,12 +67,19 @@ async def get_mode() -> Mode:
     and then fell through to `Mode.NORMAL`. So an unreadable store did not report
     "I don't know" — it asserted NORMAL.
 
-    That is the dangerous direction. DEGRADED **suppresses external delivery**
-    (`:189`) and the autonomous engine **skips tasks** on it
-    (`autonomous/engine.py:670`). A store blip therefore silently UN-suppressed
-    delivery that a degraded mode had deliberately stopped, and let skipped tasks
-    fire — a safety control switching itself off because a read failed, with
-    nothing said.
+    That is the dangerous direction. DEGRADED **suppresses external delivery** —
+    `should_deliver_external` returns `mode == NORMAL`, so a false NORMAL sends
+    output the degraded mode had deliberately withheld. A safety control
+    switching itself off because a read failed, with nothing said.
+
+    R-F3760 — an earlier version of this note also claimed DEGRADED "skips
+    tasks". It does NOT: `should_task_run` returns True for DEGRADED
+    ("tasks run, delivery is gated"), and only EMERGENCY restricts the task set.
+    The distinction is load-bearing rather than pedantic — it is why the hourly
+    `ecosystem_reassess` still runs while DEGRADED and can therefore clear the
+    mode itself. If tasks WERE skipped, a degraded platform could never
+    re-evaluate its way out, and the correct response to this state would be
+    manual intervention instead of waiting.
 
     Measured 2026-08-06: the live app reported `operating_mode_degraded` while a
     fresh process on the same machine read `NORMAL` from this function — because

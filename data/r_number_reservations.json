@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3760,
+  "next_available": 3761,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31575,6 +31575,15 @@
       "commit_sha": "3bf585de",
       "notes": null,
       "shipped_at": "2026-08-06T07:01:12Z"
+    },
+    {
+      "r_number": "R-F3760",
+      "title": "correct my own R-F3758/R-F3759 comments: DEGRADED gates delivery, it does not skip tasks",
+      "claimed_at": "2026-08-06T07:23:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

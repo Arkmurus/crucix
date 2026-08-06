@@ -658,8 +658,9 @@ async def record_verification(
         # This one is worse than R-F3717's because of what consumes it:
         #   * operating_modes.evaluate_auto_transition reads avg_grounded_rate
         #     and DEGRADES the whole platform below 30% — which SUPPRESSES
-        #     EXTERNAL DELIVERY (operating_modes.py:189) and makes the engine
-        #     SKIP TASKS (autonomous/engine.py:670);
+        #     EXTERNAL DELIVERY (should_deliver_external returns mode == NORMAL).
+        #     It does NOT skip tasks: should_task_run returns True for DEGRADED
+        #     ("tasks run, delivery is gated"); only EMERGENCY restricts tasks;
         #   * it is the verification axis of the Phase A gate-#1 composite.
         #
         # Live evidence, 2026-08-06: the platform sat in DEGRADED since
