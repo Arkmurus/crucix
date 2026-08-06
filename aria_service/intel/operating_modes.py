@@ -53,15 +53,67 @@ EMERGENCY_ALLOWED = {
 }
 
 
+#: R-F3758 — last SUCCESSFULLY read mode. Only a successful read updates it.
+_MODE_CACHE: dict[str, "Mode | None"] = {"val": None}
+
+
 async def get_mode() -> Mode:
-    """Current operating mode from Redis."""
+    """Current operating mode from Redis.
+
+    ── R-F3758 — this failed OPEN, and OPEN is the unsafe direction here ──────
+
+    THE DEFECT (the R-F2664/R-F3716/R-F3717/R-F3722 class, again): this read with
+    `rs.get`, which returns None on a store FAILURE as well as on an absent key,
+    and then fell through to `Mode.NORMAL`. So an unreadable store did not report
+    "I don't know" — it asserted NORMAL.
+
+    That is the dangerous direction. DEGRADED **suppresses external delivery**
+    (`:189`) and the autonomous engine **skips tasks** on it
+    (`autonomous/engine.py:670`). A store blip therefore silently UN-suppressed
+    delivery that a degraded mode had deliberately stopped, and let skipped tasks
+    fire — a safety control switching itself off because a read failed, with
+    nothing said.
+
+    Measured 2026-08-06: the live app reported `operating_mode_degraded` while a
+    fresh process on the same machine read `NORMAL` from this function — because
+    that process could not reach the store ("no read connection") and this
+    fabricated NORMAL rather than admitting it could not tell. The running app
+    was right; this function was inventing the safe-looking answer.
+
+    Fixed the same way as R-F3722: read strictly, and treat a read failure as NO
+    NEWS — the last successfully-read mode stands. An absent key still means
+    NORMAL (a system that has never been degraded is normal); only a FAILURE is
+    refused. Nothing is cached across a successful read, so /autonomous mode
+    flips are still seen immediately.
+    """
+    from . import redis_store as rs
     try:
-        from . import redis_store as rs
-        val = await rs.get(_K_MODE)
-        if val is not None:
-            return Mode(int(val))
-    except Exception:
-        pass
+        val = await rs.get_strict(_K_MODE)
+    except Exception as e:
+        prev = _MODE_CACHE.get("val")
+        logger.warning(
+            "[R-F3758] operating mode UNREADABLE (%s) — retaining %s rather than "
+            "asserting NORMAL. An unreadable store must not un-suppress delivery.",
+            e, prev.name if prev else "NORMAL (never read)",
+        )
+        try:  # §21a — a safety control going blind must reach the brain
+            from .engine_wiring import wire_failure as _wf
+            _wf(module="operating_modes",
+                detail=(f"operating mode unreadable ({str(e)[:110]}) — retained "
+                        f"{prev.name if prev else 'NORMAL'}; NOT defaulted to NORMAL"),
+                gap_type="data_integrity", source="operating_modes:R-F3758")
+        except Exception:
+            pass
+        return prev if prev is not None else Mode.NORMAL
+    if val is not None:
+        try:
+            _MODE_CACHE["val"] = Mode(int(val))
+            return _MODE_CACHE["val"]
+        except Exception:            # a corrupt value is not a licence to be NORMAL
+            logger.warning("[R-F3758] operating mode value %r is not a Mode", val)
+            prev = _MODE_CACHE.get("val")
+            return prev if prev is not None else Mode.NORMAL
+    _MODE_CACHE["val"] = Mode.NORMAL     # absent-and-readable genuinely is NORMAL
     return Mode.NORMAL
 
 
