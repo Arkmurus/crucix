@@ -31602,9 +31602,10 @@
       "title": "news_monitor.get_recent_articles shipped unwired, so the wiring gate could not be clean",
       "claimed_at": "2026-08-06T17:51:27Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "861adaaa",
+      "notes": null,
+      "shipped_at": "2026-08-06T17:57:21Z"
     }
   ]
 }
