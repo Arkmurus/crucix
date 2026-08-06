@@ -19,6 +19,10 @@ import pytest
 
 from aria_service.routes import aria as aria_routes
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -28,13 +32,13 @@ class TestReadOnlyAndSafe:
     def test_it_uses_the_shared_redis_store_helper(self):
         """Must go through redis_store.get (the live pool), never sqlite3/
         aiosqlite directly."""
-        src = inspect.getsource(aria_routes.admin_state_key_ep)
+        src = function_source(aria_routes, "admin_state_key_ep")
         assert "_rs.get(" in src, "does not read through the shared helper"
         for banned in ("sqlite3.connect", "aiosqlite.connect", "_open_cold_store"):
             assert banned not in src, f"opens its own connection: {banned}"
 
     def test_it_never_writes(self):
-        src = inspect.getsource(aria_routes.admin_state_key_ep)
+        src = function_source(aria_routes, "admin_state_key_ep")
         for banned in ("set_json", "set_key", "_rs.set(", "delete("):
             assert banned not in src, f"diagnostic must be read-only: {banned}"
 

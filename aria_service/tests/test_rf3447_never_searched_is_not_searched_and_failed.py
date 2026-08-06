@@ -26,6 +26,10 @@ import pytest
 
 from aria_service.intel import dd_standard as ds
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 ELECTION = [{"question_id": "IS-17b", "elected_by": "acorrea@arkmurus.com"}]
 
@@ -139,7 +143,7 @@ def test_the_needles_are_actually_present_in_the_orchestrator_text():
     import inspect
     from aria_service.intel import dd_orchestrator as ddo
 
-    src = inspect.getsource(ddo._run_ccj_search) + inspect.getsource(ddo._preflight_elections)
+    src = function_source(ddo, "_run_ccj_search") + function_source(ddo, "_preflight_elections")
     lowered = src.lower()
     for needle in ("could not run", "cannot be searched"):
         assert needle in lowered, (

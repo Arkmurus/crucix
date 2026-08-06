@@ -36,6 +36,10 @@ import pytest
 
 from aria_service.intel import dd_orchestrator as ddo
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 class _Layer:
     """Minimal stand-in for a report layer: only data_gaps is touched."""
@@ -155,7 +159,7 @@ def test_investigate_accepts_and_publishes_progress() -> None:
     assert "progress" in sig.parameters, "investigate() must accept a progress dict"
     assert sig.parameters["progress"].default is None, "it must stay optional"
 
-    src = inspect.getsource(dr.investigate)
+    src = function_source(dr, "investigate")
     assert 'progress["stage"] = name' in src, (
         "the helper must WRITE the stage; a parameter nobody assigns is the "
         "producer-with-no-writer defect"
@@ -167,7 +171,7 @@ def test_investigate_accepts_and_publishes_progress() -> None:
 def test_the_gap_wording_carries_no_ai_dashes() -> None:
     """Report copy is customer-facing; house style forbids em and en dashes."""
     import inspect
-    src = inspect.getsource(ddo._bounded_dd_op)
+    src = function_source(ddo, "_bounded_dd_op")
     for line in src.splitlines():
         stripped = line.strip()
         if stripped.startswith("#"):

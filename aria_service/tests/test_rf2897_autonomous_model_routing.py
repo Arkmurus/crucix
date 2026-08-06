@@ -18,6 +18,10 @@ import pytest
 
 from aria_service.llm import tier_router as tr
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 CHEAP = tr.claude_model_for_intent("entity_extraction")   # claude-haiku-4-5
 STANDARD = tr._model_standard()                           # claude-sonnet-5
@@ -156,7 +160,7 @@ class TestQualityCriticalPathsUntouched:
         import inspect
         from aria_service.intel import researcher
 
-        src = inspect.getsource(researcher.validate_hypothesis)
+        src = function_source(researcher, "validate_hypothesis")
         assert "claude_model_for_intent" not in src, (
             "validate_hypothesis was wired to model routing — it returns a "
             "verdict; confirm that is intended before changing this test"

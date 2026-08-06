@@ -35,6 +35,10 @@ import aria_service.intel.dd_orchestrator as dd
 from aria_service.intel.dd_schema import ARKDDReport
 from aria_service.intel.registry_adapters import RegistryStatus, _build_us_stub
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _stub_result() -> dict:
     """A REAL stub result from the real builder — no registry was queried."""
@@ -193,7 +197,7 @@ def test_the_identity_layer_actually_calls_the_single_authority_path():
     isolation, and never wired — this asserts the wiring itself."""
     import inspect
 
-    src = inspect.getsource(dd._run_identity)
+    src = function_source(dd, "_run_identity")
     assert "_apply_registry_result(" in src, (
         "_run_identity does not call the single authority path — the registry "
         "result is still being applied inline")
@@ -204,7 +208,7 @@ def test_no_second_confirmed_registry_finding_survives_inline():
     one, which would emit the CONFIRMED finding all over again."""
     import inspect
 
-    src = inspect.getsource(dd._run_identity)
+    src = function_source(dd, "_run_identity")
     assert 'title=f"Registry lookup: {reg_result.get(' not in src, (
         "the old inline CONFIRMED registry finding is still present")
 
@@ -237,7 +241,7 @@ def test_vault_cap_is_disclosed_not_silent():
     everything'. No silent caps."""
     import inspect
 
-    src = inspect.getsource(dd._consult_vault_sources)
+    src = function_source(dd, "_consult_vault_sources")
     assert "_vault_text_names_subject(" in src, (
         "the vault consult still uses a bare substring match")
     assert "data_gaps" in src, (

@@ -36,6 +36,10 @@ from aria_service.intel import dd_orchestrator as ddo
 from aria_service.intel.dd_schema import ARKDDReport
 from aria_service.intel.sources import employment_tribunal as et
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -156,7 +160,7 @@ def test_a_short_query_is_skipped():
 
 def test_the_identity_layer_calls_it():
     import inspect
-    assert "_run_employment_tribunal(report)" in inspect.getsource(ddo._run_identity)
+    assert "_run_employment_tribunal(report)" in function_source(ddo, "_run_identity")
 
 
 def _report(name="Testco Ltd") -> ARKDDReport:

@@ -29,6 +29,10 @@ from aria_service.intel import dd_orchestrator as ddo
 from aria_service.intel.dd_schema import ARKDDReport
 from aria_service.intel.sources import gazette as gz
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -76,7 +80,7 @@ def _gaps(r):
 
 def test_the_identity_layer_calls_it():
     import inspect
-    assert "_run_gazette_insolvency(report)" in inspect.getsource(ddo._run_identity), (
+    assert "_run_gazette_insolvency(report)" in function_source(ddo, "_run_identity"), (
         "the adapter exists but the DD never runs it — the state R-F3422 had to fix "
         "for the CH registers"
     )

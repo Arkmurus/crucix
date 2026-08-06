@@ -17,6 +17,10 @@ import pytest
 from aria_service.intel import cost_tracker as ct
 from aria_service.intel import self_improve as si
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -186,7 +190,7 @@ class TestFeatureAttribution:
         import inspect
         from aria_service.intel import researcher
 
-        src = inspect.getsource(researcher._analyse_article)
+        src = function_source(researcher, "_analyse_article")
         assert 'feature("research_extraction")' in src, (
             "the article-extraction call lost its cost attribution"
         )

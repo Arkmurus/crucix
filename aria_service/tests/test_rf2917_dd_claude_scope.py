@@ -19,6 +19,10 @@ import pytest
 from aria_service.llm import fallback as fb
 from aria_service.llm.fallback import FallbackProvider, provider_scope
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -163,7 +167,7 @@ class TestDDOrchestratorWiring:
         import inspect
         from aria_service.intel import dd_orchestrator
 
-        src = inspect.getsource(dd_orchestrator.orchestrate_dd)
+        src = function_source(dd_orchestrator, "orchestrate_dd")
         assert "_preferred_provider.set" in src, "DD no longer pins its provider"
         assert "_preferred_provider.reset" in src, "DD no longer releases the pin"
         assert "ARIA_DD_LLM_PROVIDER" in src, "the env override was removed"

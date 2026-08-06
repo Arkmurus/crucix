@@ -32,6 +32,10 @@ from aria_service.intel import companies_house as ch
 from aria_service.intel import dd_orchestrator as ddo
 from aria_service.intel.dd_schema import ARKDDReport
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -71,7 +75,7 @@ def _gaps(r):
 
 def test_the_identity_layer_calls_it():
     import inspect
-    assert "_run_ch_free_registers(report, profile)" in inspect.getsource(ddo._run_identity), (
+    assert "_run_ch_free_registers(report, profile)" in function_source(ddo, "_run_identity"), (
         "the registers are built but nothing runs them — the R-F3404 state this fixes"
     )
 

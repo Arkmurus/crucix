@@ -10,6 +10,10 @@ from __future__ import annotations
 import asyncio
 from unittest import mock
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _run_cost_pressure(spent, cap, *, enabled=True):
     from aria_service.intel import load_governor as lg
@@ -70,6 +74,6 @@ def test_rf2961_student_loop_gates_brave_on_paid_shed():
     regress."""
     import inspect
     from aria_service.intel import student
-    src = inspect.getsource(student._study_weak_regional_cells)
+    src = function_source(student, "_study_weak_regional_cells")
     assert "should_shed_paid()" in src
     assert "and not _paid_shed" in src, "Brave escalation must be gated by the cost-shed flag"

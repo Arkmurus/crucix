@@ -35,6 +35,10 @@ import pytest
 
 from aria_service.intel import r_number_registry as reg
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 @pytest.fixture()
 def registry(tmp_path):
@@ -129,7 +133,7 @@ def test_rf3187_save_surfaces_persistent_permission_failure(registry, monkeypatc
 def test_rf3187_temp_file_is_unique_per_process(registry):
     """Two agents saving at once must not share one scratch file."""
     import inspect
-    src = inspect.getsource(reg._save_atomic)
+    src = function_source(reg, "_save_atomic")
     assert 'with_suffix(".json.tmp")' not in src, (
         "R-F3187 REGRESSION: a single shared temp name is back — two processes "
         "serialising into the same scratch file corrupt each other")

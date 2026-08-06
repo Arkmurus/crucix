@@ -47,6 +47,10 @@ import pytest
 
 from aria_service.autonomous import tasks as _tasks
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 class _Router:
     """Stand-in for reasoning_router with a scriptable outcome."""
@@ -142,7 +146,7 @@ class TestUnmeasuredNeverTouchesMastery:
         bug this change exists to remove, reintroduced silently.
         """
         import ast, inspect, textwrap
-        tree = ast.parse(textwrap.dedent(inspect.getsource(_tasks.fill_knowledge_gaps)))
+        tree = ast.parse(textwrap.dedent(function_source(_tasks, "fill_knowledge_gaps")))
 
         # Find the update call and prove it sits inside a None-guard, rather
         # than grepping for one exact phrasing (the wording could change while
@@ -171,5 +175,5 @@ class TestUnmeasuredNeverTouchesMastery:
         """Documents WHY the guard above is load-bearing."""
         from aria_service.intel import student
         import inspect
-        src = inspect.getsource(student.update_regional_mastery)
+        src = function_source(student, "update_regional_mastery")
         assert "1.0 if correct else 0.0" in src

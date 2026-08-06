@@ -35,6 +35,10 @@ import pytest
 from aria_service.intel import dd_orchestrator as ddo
 from aria_service.intel.dd_schema import ARKDDReport
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -184,7 +188,7 @@ def test_scope_waived_signal_is_caught_before_the_generic_handler():
     it first, a declined screen would land in the report as 'Sanctions screen failed' —
     an ERROR where the truth is a decision."""
     import inspect
-    src = inspect.getsource(ddo._run_identity)
+    src = function_source(ddo, "_run_identity")
     i_waived = src.index("except _ScopeWaived")
     i_generic = src.index("except Exception as e:\n        logger.warning(\"Identity: sanctions screen failed")
     assert i_waived < i_generic, (
@@ -209,7 +213,7 @@ def test_orchestrator_sets_dd_scope_before_any_layer_runs():
     takes), so the delegation itself is pinned below.
     """
     import inspect
-    src = inspect.getsource(ddo._orchestrate_dd_impl)
+    src = function_source(ddo, "_orchestrate_dd_impl")
     assert "report.dd_scope = _dd_scope_from_target(target)" in src
     assert src.index("report.dd_scope") < src.index("_run_identity"), (
         "scope must be set BEFORE the identity layer, or the first screen runs "
@@ -221,4 +225,4 @@ def test_the_public_entrypoint_still_delegates_to_the_impl():
     """Guards the assumption the test above rests on: if `orchestrate_dd` ever stops
     delegating, the scope assertion would be checking dead code."""
     import inspect
-    assert "_orchestrate_dd_impl" in inspect.getsource(ddo.orchestrate_dd)
+    assert "_orchestrate_dd_impl" in function_source(ddo, "orchestrate_dd")

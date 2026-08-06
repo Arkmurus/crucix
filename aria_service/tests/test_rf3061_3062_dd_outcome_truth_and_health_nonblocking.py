@@ -26,6 +26,10 @@ import pytest
 from aria_service.intel import dd_orchestrator as ddo
 from aria_service.intel import ecosystem_map as em
 
+# R-F3757/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 # ---------------------------------------------------------------------------
 # R-F3061 — a layer's honest state
@@ -205,7 +209,7 @@ def test_rf3062_wait_is_shielded_so_a_timeout_cannot_discard_the_build():
     """
     import inspect
 
-    src = inspect.getsource(em.get_coverage_nonblocking)
+    src = function_source(em, "get_coverage_nonblocking")
     assert "asyncio.shield" in src, (
         "the bounded wait is not shielded — a timeout would cancel the build "
         "and the cache could never warm"
