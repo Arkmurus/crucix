@@ -647,7 +647,56 @@ async def record_verification(
     }
     try:
         await rs.set_json(f"{VERIFICATION_KEY_PREFIX}{vid}", record, ex=VERIFICATION_TTL)
-        index = await rs.get_json(VERIFICATIONS_KEY) or []
+        # ── R-F3759 — a failed READ must not WIPE the index ──────────────────
+        #
+        # THE DEFECT, identical to R-F3717 in honesty_judge and found by tracing
+        # a LIVE symptom back here: `get_json(...) or []` treats a store FAILURE
+        # exactly like an empty index, because get_json returns None on error.
+        # One entry is then inserted and the result written back — replacing up
+        # to 500 verifications with a list of ONE.
+        #
+        # This one is worse than R-F3717's because of what consumes it:
+        #   * operating_modes.evaluate_auto_transition reads avg_grounded_rate
+        #     and DEGRADES the whole platform below 30% — which SUPPRESSES
+        #     EXTERNAL DELIVERY (operating_modes.py:189) and makes the engine
+        #     SKIP TASKS (autonomous/engine.py:670);
+        #   * it is the verification axis of the Phase A gate-#1 composite.
+        #
+        # Live evidence, 2026-08-06: the platform sat in DEGRADED since
+        # 2026-08-05T18:00:52Z on "grounded rate 0% < 30%", and the store now
+        # reports total=0 with lifetime_sample_size=0 — the index is empty
+        # LIFETIME. get_verification_stats is correct and never fabricates a
+        # zero (it returns None when there are no samples, and operating_modes
+        # deliberately treats None as healthy), so the 0% was computed from a
+        # real but CLOBBERED index, and the platform degraded itself on data
+        # loss rather than on quality.
+        #
+        # Strict read + skip-on-failure. The individual verification is ALREADY
+        # persisted under its own key above, so skipping the index update loses
+        # an index entry, never the verification.
+        try:
+            index = await rs.get_json_strict(VERIFICATIONS_KEY) or []
+        except Exception as _idx_err:
+            logger.error(
+                "[R-F3759] verification index unreadable (%s) — SKIPPING the index "
+                "update rather than overwriting up to 500 verifications with one. "
+                "The verification itself is stored under %s%s. Wiping this index "
+                "degrades the PLATFORM (delivery suppression + task skipping) on "
+                "data loss, not on quality.",
+                _idx_err, VERIFICATION_KEY_PREFIX, vid,
+            )
+            try:  # §21a — losing the grounded-rate signal must reach the brain
+                from .engine_wiring import wire_failure as _wf
+                _wf(module="source_verifier",
+                    detail=(f"verification index unreadable ({str(_idx_err)[:110]}) "
+                            f"— index update skipped to avoid a clobber that would "
+                            f"drive an operating-mode downgrade"),
+                    gap_type="data_integrity", source="source_verifier:R-F3759")
+            except Exception:
+                pass
+            index = None
+        if index is None:
+            return
         index.insert(0, {
             "id": vid,
             "ts": record["ts"],
