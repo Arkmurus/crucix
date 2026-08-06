@@ -200,7 +200,22 @@ Every paid API call (Brave/Anthropic/DeepSeek) writes its output to `brain_hook`
 
 ## 17. Cost discipline
 
-- LLM monthly cap: `$300` (raised from $100 on 2026-04-27).
+- LLM monthly cap: **`$600`** — raised from `$300` on 2026-08-06 by operator
+  authorisation ("if the cap is an issue increase it to 600 per month"); `$300` was
+  itself raised from `$100` on 2026-04-27.
+  - **Enforced by the `ARIA_MONTHLY_CAP_USD` secret, NOT by the code default.**
+    `cost_tracker.DEFAULT_MONTHLY_CAP_USD` is still `300.0` and is deliberately left
+    alone — the env var is the operator's lever and the default stays a conservative
+    floor for any environment where the secret is absent. Read the LIVE value in-machine
+    (`flyctl ssh console -a aria-intel`), never from `flyctl secrets list`, whose DIGEST
+    column is a hash and not the value (R-F3721).
+  - ⚠️ **R-F3756 STAGED, NOT LIVE.** Set with `--stage` on 2026-08-06 because a secret
+    set restarts aria-intel (~10 min boot, §11c) and a peer agent's training cycle was
+    reading the golden set from it at the time. The live effective cap was measured at
+    `300.0` when staged. **It becomes `600` on the next aria-intel deploy** — until then
+    the ceiling is still `$300`. Verify after any deploy with
+    `cost_tracker._monthly_cap_usd()`.
+  - `ARIA_USER_MONTHLY_CAP_USD` is a SEPARATE per-user cap and was NOT changed.
 - **Acting on an LLM billing top-up (R-F3513, 2026-07-30):** a billing failure sets a **24h HARD cooldown** (R-F678) that is mirrored to Redis and **REHYDRATED ON BOOT**, and `_record_success` is the only thing that clears it — but a cooling provider is never called, so it sustains itself for the full 24h. **Restarting does NOT clear it** (the old `fallback.py` comment claiming otherwise was wrong and is corrected). Paying for credit therefore had no effect for ~18h on 2026-07-30. To make a top-up take effect immediately:
   `POST /api/aria/admin/llm/cooldown/clear?provider=deepseek` — **operator token only** (it re-enables provider spend). Omit `provider` to clear the whole chain. It clears the in-process stats **and** deletes the Redis mirror; clearing either alone lets the other restore it. The response reports `was_cooling`, so it never claims to have lifted a cooldown that was not there.
 - Autonomy gate: **OPEN AT L3 FULL** as of 2026-05-22 R-F794 per operator direction "finish all". Live secrets on fly aria-intel: `ARIA_AUTONOMOUS_ENABLED=1`, `ARIA_AUTONOMY_LEVEL=3`, `ARIA_AUTONOMOUS_DRY_RUN=0`, `ARIA_OUTPUT_HARVEST_ENABLED=1`, `ARIA_SELF_IMPROVE_AUTO_DEPLOY=1`. Reverses R-F462 for `change_type=bug_fix` only. 24h observation gates SKIPPED by operator choice — code-enforced `$300` cap + `safety.py` per-task guardrails remain. Watch `/api/aria/cost/monthly/status` daily; pause via `POST /api/aria/autonomous/pause` if burn spikes.

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3756,
+  "next_available": 3757,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31535,6 +31535,15 @@
       "commit_sha": "cd58d843",
       "notes": null,
       "shipped_at": "2026-08-05T18:00:33Z"
+    },
+    {
+      "r_number": "R-F3756",
+      "title": "raise the LLM monthly cap to 600 per operator authorisation; staged not live",
+      "claimed_at": "2026-08-06T05:43:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
