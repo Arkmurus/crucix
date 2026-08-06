@@ -12,6 +12,7 @@ STATE_FILE="${STATE_FILE:-data/eval_reports/.tooluse_pod_state}"
 LOG_FILE="${LOG_FILE:-data/eval_reports/aria_tooluse_unattended.log}"
 POLL_SECS="${POLL_SECS:-180}"
 MAX_POLLS="${MAX_POLLS:-80}"
+ADAPTER_LOCAL="${ADAPTER_LOCAL:-data/training/checkpoints/aria_tooluse_candidate_latest.tgz}"
 
 mkdir -p "$(dirname "$LOG_FILE")"
 log(){ printf '[%s] [driver] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$LOG_FILE"; }
@@ -50,9 +51,36 @@ sentinel(){
     2>/dev/null | tr -d '\r[:space:]'
 }
 
+harvest_adapter_early(){
+  [ -s "$ADAPTER_LOCAL" ] && return 0
+  timeout 35 ssh -i "$KEYF" -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+    -p "$PORT" root@"$HOST" \
+    'test -s /workspace/eval/aria_tooluse_candidate_adapter.tgz' \
+    >/dev/null 2>&1 || return 0
+  mkdir -p "$(dirname "$ADAPTER_LOCAL")"
+  local partial="${ADAPTER_LOCAL}.part"
+  # `reget` retains byte progress when the bounded transfer expires. R-F3744
+  # measured a host link slower than 50 MB/10 min; deleting the partial on each
+  # poll guaranteed that even a lean 311 MB adapter could never be recovered.
+  printf 'reget %s %s\n' \
+    /workspace/eval/aria_tooluse_candidate_adapter.tgz "$partial" \
+    | timeout 600 sftp -b - -i "$KEYF" -o StrictHostKeyChecking=no \
+        -o ConnectTimeout=20 -P "$PORT" root@"$HOST" >/dev/null 2>&1
+  if tar -tzf "$partial" 2>/dev/null \
+      | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }'; then
+    mv "$partial" "$ADAPTER_LOCAL"
+    log "candidate adapter eagerly persisted: $ADAPTER_LOCAL"
+  else
+    local bytes=0
+    [ -f "$partial" ] && bytes=$(wc -c < "$partial")
+    log "candidate adapter transfer incomplete: $bytes bytes retained for resume"
+  fi
+}
+
 log "handoff loaded: pod=$POD_ID host=$HOST:$PORT"
 deadline_collection=0
 for i in $(seq 1 "$MAX_POLLS"); do
+  harvest_adapter_early
   rc=$(sentinel)
   if [ -n "$rc" ]; then
     log "completion sentinel rc=$rc; harvesting"

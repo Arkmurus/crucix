@@ -29,6 +29,7 @@ export PYTHONPATH="/workspace/crucix${PYTHONPATH:+:$PYTHONPATH}"
 BASE_MODEL="${BASE_MODEL:-mistralai/Mistral-7B-Instruct-v0.3}"
 TRAIN_FILE="${TRAIN_FILE:-/workspace/datasets/aria_tooluse_train.jsonl}"
 EVAL_FILE="${EVAL_FILE:-/workspace/datasets/aria_tooluse_eval.jsonl}"
+GEN_FILE="${GEN_FILE:-$TRAIN_FILE}"
 OUT_DIR="${OUT_DIR:-/workspace/checkpoints/aria_tooluse_v1}"
 EPOCHS="${EPOCHS:-3}"
 MAX_SEQ="${MAX_SEQ:-4096}"
@@ -139,6 +140,16 @@ python /workspace/crucix/scripts/train/sft_train.py \
   --epochs "$EPOCHS" --max-seq-len "$MAX_SEQ" --load-in-4bit 2>&1 | tee "$LOGS/sft.log"
 [ -f "$OUT_DIR/adapter_config.json" ] || { log "FATAL no LoRA produced"; exit 1; }
 log "adapter written"
+# Trainer checkpoint-* directories contain duplicate adapters plus optimizer
+# state. They are useful for resuming SFT, but not for serving or DPO from the
+# completed adapter, and made the recovery archive 2.1 GB in R-F3744. Persist
+# only the final serving artifact so a slow host link cannot strand it.
+tar -C "$(dirname "$OUT_DIR")" -czf "$EVALD/aria_tooluse_candidate_adapter.tgz" \
+  --exclude="$(basename "$OUT_DIR")/checkpoint-*" \
+  "$(basename "$OUT_DIR")" || { log "FATAL adapter archive failed"; exit 1; }
+[ -s "$EVALD/aria_tooluse_candidate_adapter.tgz" ] \
+  || { log "FATAL adapter archive empty"; exit 1; }
+log "adapter archive staged for harvest"
 
 # ---- 3. TRAINED ------------------------------------------------------------
 serve_and_eval "$OUT_DIR" "$EVALD/tooluse_eval_trained.json" "trained" \
@@ -167,7 +178,7 @@ if [ "${GEN_TRAIN:-1}" = "1" ]; then
     # cumulative across cycles. Generating a partial set is fine; overrunning
     # the deadline would lose the measurement too.
     if python /workspace/crucix/scripts/train/eval_tooluse.py \
-         --eval-file "$TRAIN_FILE" --target "http://127.0.0.1:$PORT/v1" \
+         --eval-file "$GEN_FILE" --target "http://127.0.0.1:$PORT/v1" \
          --limit "${GEN_LIMIT:-150}" --model aria-tooluse \
          --out "$EVALD/tooluse_train_generations.json" \
        && [ -s "$EVALD/tooluse_train_generations.json" ]; then

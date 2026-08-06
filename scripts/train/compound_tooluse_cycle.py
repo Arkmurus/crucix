@@ -12,6 +12,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from scripts.train.build_tooluse_corpus import _norm_subject
+
 
 def _axes(report: dict) -> dict[str, dict]:
     return {str(row["label"]): row for row in report.get("per_axis") or []}
@@ -19,6 +21,14 @@ def _axes(report: dict) -> dict[str, dict]:
 
 def promotion_verdict(incumbent: dict, candidate: dict) -> dict:
     """Require an aggregate gain and zero lost honest answers on every axis."""
+    if candidate.get("complete") is not True:
+        return {
+            "promote": False,
+            "overall_gain": None,
+            "missing_axes": [],
+            "regressions": [],
+            "reason": "candidate_report_incomplete",
+        }
     old, new = _axes(incumbent), _axes(candidate)
     missing = sorted(set(old) - set(new))
     regressions = []
@@ -72,6 +82,22 @@ def build_retention_curriculum(train: list[dict], verdict: dict) -> list[dict]:
     return list(train)
 
 
+def build_generation_queue(train: list[dict], verdict: dict) -> list[dict]:
+    """Select unique TRAIN tasks on regressed axes for negative collection."""
+    labels = {str(row.get("label") or "")
+              for row in verdict.get("regressions") or []}
+    queue: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for row in train:
+        label = str(row.get("label") or "")
+        key = (_norm_subject(str(row.get("subject") or "")), label)
+        if label not in labels or not key[0] or key in seen:
+            continue
+        seen.add(key)
+        queue.append(row)
+    return queue
+
+
 def _load_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
             if line.strip()]
@@ -88,6 +114,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--train", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--verdict-out", type=Path, required=True)
+    parser.add_argument("--generation-out", type=Path,
+                        help="train-only queue for collecting real rejected answers")
     args = parser.parse_args(argv)
     incumbent = json.loads(args.incumbent.read_text(encoding="utf-8"))
     candidate = json.loads(args.candidate.read_text(encoding="utf-8"))
@@ -97,6 +125,20 @@ def main(argv: list[str] | None = None) -> int:
                     "train_sha256": _sha(args.train),
                     "failure_contracts": failure_contracts(candidate)})
     if not verdict["promote"]:
+        if args.generation_out:
+            queue = build_generation_queue(_load_jsonl(args.train), verdict)
+            if not queue:
+                raise ValueError(
+                    "regressed axes had no unique train tasks; refusing an empty "
+                    "generation intervention"
+                )
+            args.generation_out.parent.mkdir(parents=True, exist_ok=True)
+            args.generation_out.write_text(
+                "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in queue),
+                encoding="utf-8", newline="\n",
+            )
+            verdict.update({"generation_rows": len(queue),
+                            "generation_sha256": _sha(args.generation_out)})
         verdict.update({
             "intervention": "collect_train_generations_for_dpo",
             "training_output_written": False,

@@ -104,6 +104,22 @@ def test_rejected_is_the_models_real_output_and_chosen_is_the_reference():
     assert p["prompt"], "a pair needs the prompt that produced both sides"
 
 
+def test_pair_matches_both_entity_and_task_axis():
+    """One entity often has several traces; the chosen task must match rejected."""
+    adverse = _corpus("Beta Industries", final="ADVERSE REFERENCE",
+                      label="tooluse_adverse")[0]
+    contradiction = _corpus("Beta Industries", final="CONTRADICTION REFERENCE",
+                            label="tooluse_contradiction")[0]
+    rep = _report([_row(
+        "Beta Industries", False, BAD, label="tooluse_contradiction")])
+
+    pair = D.build_pairs(
+        rep, [adverse, contradiction], eval_entities={"held out"})[0]
+
+    assert pair["chosen"] == "CONTRADICTION REFERENCE"
+    assert "ADVERSE REFERENCE" not in json.dumps(pair["prompt"])
+
+
 def test_the_prompt_stops_before_the_answer():
     rep = _report([_row("Beta Industries", False, BAD)])
     p = D.build_pairs(rep, _corpus("Beta Industries"), eval_entities={"x"})[0]
@@ -180,9 +196,10 @@ def test_the_pod_generates_preference_data_from_the_TRAIN_file():
         pytest.skip("generation pass not present")
     gen = src[src.index("GENERATE OVER THE TRAIN SPLIT"):]
     call = gen[gen.index("eval_tooluse.py"):gen.index("--out")]
-    assert '--eval-file "$TRAIN_FILE"' in call, (
-        "the generation pass must read the TRAIN split; reading the eval split "
-        "is how the held-out set gets trained on")
+    assert '--eval-file "$GEN_FILE"' in call
+    assert 'GEN_FILE="${GEN_FILE:-$TRAIN_FILE}"' in src, (
+        "the generation queue must default to TRAIN data and may only be replaced "
+        "by an explicitly uploaded train-only queue")
 
 
 def test_a_failed_generation_pass_does_not_fail_the_cycle():

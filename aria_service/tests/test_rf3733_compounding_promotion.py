@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def _report(total, honest, axes):
-    return {"total": total, "honest": honest, "per_axis": [
+    return {"total": total, "honest": honest, "complete": True, "per_axis": [
         {"label": label, "total": n, "honest": score} for label, (score, n) in axes.items()]}
 
 
@@ -25,6 +25,18 @@ def test_true_compounding_requires_gain_and_retention_on_every_axis():
     assert promotion_verdict(incumbent, candidate)["promote"] is True
 
 
+def test_partial_checkpoint_cannot_be_promoted() -> None:
+    incumbent = _report(20, 15, {"sanctions": (8, 10), "research": (7, 10)})
+    candidate = _report(10, 10, {"sanctions": (10, 10)})
+    candidate["complete"] = False
+
+    result = promotion_verdict(incumbent, candidate)
+
+    assert result["promote"] is False
+    assert result["reason"] == "candidate_report_incomplete"
+    assert result["overall_gain"] is None
+
+
 def test_curriculum_refuses_blind_axis_replay():
     train = [{"label": "sanctions", "id": 1}, {"label": "research", "id": 2}]
     verdict = {"regressions": [{"label": "sanctions"}]}
@@ -36,4 +48,6 @@ def test_core_cycle_does_not_hide_its_verdict_behind_optional_generation():
     launch = (Path(__file__).resolve().parents[2] / "scripts" / "train" /
               "tooluse_launch.sh").read_text(encoding="utf-8")
     assert 'GEN_TRAIN="${GEN_TRAIN:-0}"' in launch
-    assert "GEN_TRAIN=$GEN_TRAIN setsid nohup" in launch
+    assert "GEN_TRAIN=$GEN_TRAIN" in launch
+    assert "GEN_FILE=/workspace/datasets/aria_tooluse_generation.jsonl" in launch
+    assert "setsid nohup bash /workspace/pod_tooluse_cycle.sh" in launch

@@ -41,6 +41,18 @@ SSH="ssh -i $KEYF -o StrictHostKeyChecking=no -o ConnectTimeout=15"
 TSSH(){ timeout 60 $SSH "$@"; }
 PULL(){ timeout 120 scp -i "$KEYF" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":"$1" "$2" 2>/dev/null; }
 
+PULL_ADAPTER(){
+  local out="$1" partial="${1}.part"
+  [ -s "$out" ] && return 0
+  printf 'reget %s %s\n' \
+    /workspace/eval/aria_tooluse_candidate_adapter.tgz "$partial" \
+    | timeout 600 sftp -b - -i "$KEYF" -o StrictHostKeyChecking=no \
+        -o ConnectTimeout=20 -P "$PORT" root@"$HOST" >/dev/null 2>&1
+  tar -tzf "$partial" 2>/dev/null \
+    | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }' || return 1
+  mv "$partial" "$out"
+}
+
 stop_pod(){
   if [ "$KEEP" = 1 ]; then
     log "--leave-running: pod $POD_ID NOT stopped (it self-stops at its deadline)"
@@ -68,6 +80,9 @@ PULL /workspace/eval/tooluse_cycle_result.json data/eval_reports/aria_tooluse_cy
 PULL /workspace/eval/tooluse_eval_base.json    data/eval_reports/aria_tooluse_eval_base.json    || log "(base report not pulled)"
 PULL /workspace/eval/tooluse_eval_trained.json data/eval_reports/aria_tooluse_eval_trained.json || log "(trained report not pulled)"
 PULL /workspace/eval/tooluse_train_generations.json data/eval_reports/aria_tooluse_train_generations.json || log "(train generations not pulled - no preference pairs this round)"
+mkdir -p data/training/checkpoints
+PULL_ADAPTER data/training/checkpoints/aria_tooluse_candidate_latest.tgz \
+  || log "(candidate adapter transfer incomplete; partial retained for resume)"
 
 if [ -z "$RC" ]; then
   log "--- run log tail (cycle still in progress) ---"

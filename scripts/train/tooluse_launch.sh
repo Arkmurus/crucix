@@ -31,6 +31,7 @@ KEY=$(grep -E '^RUNPOD_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr 
 
 TRAIN_LOCAL="${TRAIN_LOCAL:-data/training/split_v1/train.jsonl}"
 EVAL_LOCAL="${EVAL_LOCAL:-data/training/split_v1/eval.jsonl}"
+GEN_LOCAL="${GEN_LOCAL:-$TRAIN_LOCAL}"
 GOLDEN="${GOLDEN:-data/eval_frozen/aria_eval_500q.jsonl}"
 BASE_MODEL="${BASE_MODEL:-mistralai/Mistral-7B-Instruct-v0.3}"
 PYBIN="${PYBIN:-.venv/Scripts/python.exe}"
@@ -39,6 +40,7 @@ EPOCHS="${EPOCHS:-3}"
 # is a separate follow-on job; letting it trail the eval caused a complete,
 # measured checkpoint to miss its sentinel and look failed.
 GEN_TRAIN="${GEN_TRAIN:-0}"
+GEN_LIMIT="${GEN_LIMIT:-150}"
 RETRY_SECS=${RETRY_SECS:-90}
 MAX_TRIES=${MAX_TRIES:-15}
 START_WAIT_TICKS=${START_WAIT_TICKS:-40}
@@ -125,6 +127,7 @@ RSCP scripts/train/build_tooluse_corpus.py  /workspace/crucix/scripts/train/buil
 RSCP scripts/train/__init__.py              /workspace/crucix/scripts/train/__init__.py        || true
 RSCP "$TRAIN_LOCAL" /workspace/datasets/aria_tooluse_train.jsonl                               || die "scp train set"
 RSCP "$EVAL_LOCAL"  /workspace/datasets/aria_tooluse_eval.jsonl                                || die "scp eval set"
+RSCP "$GEN_LOCAL"   /workspace/datasets/aria_tooluse_generation.jsonl                          || die "scp generation set"
 
 # ---- arm the watchdog BEFORE the work, and refuse to run unbounded ---------
 log "arming self-stop watchdog (DEADLINE=${DEADLINE}s, GRACE=${GRACE}s, COLLECT_GRACE=${COLLECT_GRACE}s)…"
@@ -134,7 +137,7 @@ TSSH -p "$PORT" root@"$HOST" \
 
 log "starting cycle detached…"
 TSSH -p "$PORT" root@"$HOST" \
-  "rm -f /workspace/eval/_cycle_status; BASE_MODEL='$BASE_MODEL' EPOCHS=$EPOCHS GEN_TRAIN=$GEN_TRAIN setsid nohup bash /workspace/pod_tooluse_cycle.sh >/workspace/logs/tooluse_cycle.log 2>&1 </dev/null & echo STARTED" \
+  "rm -f /workspace/eval/_cycle_status; BASE_MODEL='$BASE_MODEL' EPOCHS=$EPOCHS GEN_TRAIN=$GEN_TRAIN GEN_LIMIT=$GEN_LIMIT GEN_FILE=/workspace/datasets/aria_tooluse_generation.jsonl setsid nohup bash /workspace/pod_tooluse_cycle.sh >/workspace/logs/tooluse_cycle.log 2>&1 </dev/null & echo STARTED" \
   | grep -q STARTED || die "cycle did not start"
 
 mkdir -p "$(dirname "$STATE_FILE")"

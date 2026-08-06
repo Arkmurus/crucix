@@ -84,11 +84,12 @@ def build_pairs(
             "Pass the held-out split's entities so contamination can be refused."
         )
 
-    by_entity: dict[str, dict] = {}
+    by_task: dict[tuple[str, str], dict] = {}
     for t in corpus:
         key = _norm(str(t.get("subject") or ""))
-        if key:
-            by_entity.setdefault(key, t)
+        label = str(t.get("label") or "")
+        if key and label:
+            by_task.setdefault((key, label), t)
 
     pairs: list[dict] = []
     for row in (report.get("rows") or []):
@@ -102,10 +103,12 @@ def build_pairs(
                 f"HELD-OUT split. Generations for DPO must come from the TRAIN split, "
                 f"or the eval set is trained on and the only honest measure is lost."
             )
-        trace = by_entity.get(key)
+        label = str(row.get("label") or "")
+        trace = by_task.get((key, label))
         if trace is None:
-            print(f"  skip {subject}: no corpus reference to prefer (would have to "
-                  f"invent the 'chosen' side)", file=sys.stderr)
+            print(f"  skip {subject} [{label}]: no matching entity+axis corpus "
+                  f"reference to prefer (would have to invent the 'chosen' side)",
+                  file=sys.stderr)
             continue
         rejected = str(row.get("answer") or "")
         chosen = _reference_of(trace)

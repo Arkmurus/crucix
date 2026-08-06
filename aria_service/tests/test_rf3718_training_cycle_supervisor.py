@@ -67,3 +67,34 @@ def test_driver_collects_inside_the_watchdog_grace_before_exit() -> None:
     window = source[deadline:not_running]
     assert "--leave-running" in window
     assert "collection attempt" in window
+
+
+def test_driver_eagerly_persists_adapter_before_cycle_completion() -> None:
+    """A later eval overrun must not strand an already-trained checkpoint."""
+    source = DRIVER.read_text(encoding="utf-8")
+    loop = source[source.index('for i in $(seq 1 "$MAX_POLLS")'):]
+    assert loop.index("harvest_adapter_early") < loop.index("rc=$(sentinel)")
+    assert "aria_tooluse_candidate_adapter.tgz" in source
+    assert "tar -tzf" in source
+    assert "adapter_config.json" in source
+    assert "awk" in source
+    assert "sftp -b -" in source
+    assert "reget %s %s" in source
+    assert 'rm -f "$partial"' not in source
+
+
+def test_pod_archive_excludes_non_serving_trainer_checkpoints() -> None:
+    """Optimizer checkpoints must not make adapter recovery structurally impossible."""
+    source = _read("pod_tooluse_cycle.sh")
+    archive = source[source.index("tar -C"):source.index('log "adapter archive staged')]
+    assert '--exclude="$(basename "$OUT_DIR")/checkpoint-*"' in archive
+
+
+def test_final_harvest_resumes_adapter_and_keeps_partial_progress() -> None:
+    source = _read("tooluse_harvest.sh")
+    function = source[source.index("PULL_ADAPTER(){"):source.index("stop_pod(){")]
+    assert "sftp -b -" in function
+    assert "reget %s %s" in function
+    assert "tar -tzf" in function
+    assert "awk" in function
+    assert 'rm -f "$partial"' not in function
