@@ -31591,9 +31591,10 @@
       "title": "the operating-mode auto-transition failure was swallowed at debug, hiding why a degraded platform could not recover",
       "claimed_at": "2026-08-06T08:51:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "67a24a0f",
+      "notes": null,
+      "shipped_at": "2026-08-06T09:44:45Z"
     }
   ]
 }
