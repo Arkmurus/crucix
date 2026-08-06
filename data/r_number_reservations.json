@@ -31561,9 +31561,10 @@
       "title": "get_mode failed OPEN to NORMAL on an unreadable store, silently un-suppressing delivery a DEGRADED mode had stopped",
       "claimed_at": "2026-08-06T06:19:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "44841677",
+      "notes": null,
+      "shipped_at": "2026-08-06T06:26:32Z"
     }
   ]
 }
