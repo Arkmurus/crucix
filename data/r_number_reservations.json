@@ -31541,9 +31541,10 @@
       "title": "raise the LLM monthly cap to 600 per operator authorisation; staged not live",
       "claimed_at": "2026-08-06T05:43:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cee7a2cf",
+      "notes": null,
+      "shipped_at": "2026-08-06T05:43:54Z"
     }
   ]
 }
