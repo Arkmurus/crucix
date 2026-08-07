@@ -656,6 +656,11 @@ CODER_LANE_VAR = "ARIA_CODER_ENABLED"
 _CODER_LANE_TRUTHY = ("1", "true", "yes")
 
 
+# R-F3767 — §21a. A BOOL gate on the coder lane: a failure reads as "the lane is
+# disabled", which is safe but SILENT — the autonomous coder would simply stop
+# doing anything with nothing explaining why (the R-F897 "sees gaps but cannot
+# act" P0). Failing closed is right; failing closed quietly is not.
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 def is_coder_lane_enabled() -> bool:
     """True when the operator has consented to the autonomous coder lane.
 

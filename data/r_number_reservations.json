@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3767,
+  "next_available": 3768,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31646,6 +31646,15 @@
       "commit_sha": "bc22f2f4",
       "notes": null,
       "shipped_at": "2026-08-07T13:30:37Z"
+    },
+    {
+      "r_number": "R-F3767",
+      "title": "wire the last four gate_a functions: a quota reset, a usage endpoint, a lane switch and a provider-pin read",
+      "claimed_at": "2026-08-07T14:09:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -362,6 +362,12 @@ async def get_opensanctions_quota_state() -> dict:
     return {"exhausted": True, **state}
 
 
+# R-F3767 — §21a. Returns a BOOL, so a failure reads as "the quota was not
+# cleared" — the same shape as "there was nothing to clear". This is the reset
+# for the OpenSanctions quota-exhausted state (§18), so a silent failure leaves
+# screening on the local canonical floor while the operator believes the plan
+# was restored. gap_type mirrors the module's own convention (5 existing uses).
+@fail_wire(module="sanctions", gap_type="source_failure")
 async def clear_opensanctions_quota_state() -> bool:
     """Operator lever: forget the exhaustion record now.
 

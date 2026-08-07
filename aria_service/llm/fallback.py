@@ -125,6 +125,12 @@ def preference_only_providers() -> set[str]:
     return {p.strip().lower() for p in (raw or "").split(",") if p.strip()}
 
 
+# R-F3767 — §21a. Returns a SET, so a failure reads as an EMPTY set — i.e. "no
+# provider is pinned as non-degrading". That is the §14 rule (a cooling provider
+# with a healthy fallback must report operational, not degraded): losing the pin
+# silently turns an expected cooldown — anthropic on billing, deliberately
+# declined per §18 — back into a DEGRADED health reading.
+@fail_wire(module="fallback", gap_type="engine_failure")
 def non_degrading_pins() -> set[str]:
     """Providers whose EXPLICIT pin is a contract, not an ordering hint.
 

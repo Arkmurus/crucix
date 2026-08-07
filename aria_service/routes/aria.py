@@ -29953,6 +29953,11 @@ async def runpod_stop_ep() -> dict:
 # third proof (Phase 4.1) is runtime observation. This is where that evidence is
 # read back so the overlay can be built. Bearer-gated by the router.
 @router.get("/cure/usage")
+# R-F3767 — §21a. The Phase 0.3 usage read-out. Its sibling write path was wired
+# in R-F3737 for the same reason: this is the RUNTIME PROOF deciding whether 109
+# dead-candidate modules may be deleted, so a failed read that renders as "no
+# usage" is the reading that makes a LIVE module look deletable.
+@fail_wire(module="aria", gap_type="engine_failure")
 async def cure_usage_ep() -> dict:
     """Runtime route-usage observed since instrumentation went live.
 
