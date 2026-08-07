@@ -790,14 +790,45 @@ async def get_verification_stats() -> dict:
         rate_n_24h = 0
         rate_sum_all = 0.0
         rate_n_all = 0
+        # ── R-F3765 — partition EVAL from PRODUCTION before production exists ──
+        #
+        # Today `record_verification` has exactly ONE production caller:
+        # eval_runner.py:762, which tags `tool_used="eval"`. The chat path is an
+        # acknowledged no-op — aria_engine.py:5398 literally says "Intentional
+        # no-op until source_verifier verdict is plumbed here". So every record
+        # in this index is an EVAL record.
+        #
+        # `avg_grounded_rate` is consumed by operating_modes.evaluate_auto_
+        # transition, which DEGRADES the whole platform below 30% and thereby
+        # SUPPRESSES ALL EXTERNAL DELIVERY. The moment production verifications
+        # start being recorded, they would silently join that average and change
+        # what the delivery gate means — with no code change and no signal. Eval
+        # questions are curated; production traffic is not, so the two
+        # populations are not interchangeable.
+        #
+        # This split is written NOW, while it is provably INERT (there are no
+        # production records yet), precisely so that wiring production recording
+        # later cannot surprise anyone. `avg_grounded_rate` keeps its existing
+        # meaning — the EVAL rate — and production is reported alongside it.
+        # Whoever wires production must then make a DELIBERATE decision about
+        # what the gate keys on, rather than inheriting a changed number.
+        eval_sum, eval_n = 0.0, 0
+        prod_sum, prod_n = 0.0, 0
         for e in index:
             v = e.get("verdict", "unknown")
             by_verdict[v] = by_verdict.get(v, 0) + 1
             ts = e.get("ts", 0)
             r = e.get("grounded_rate")
+            is_eval = str(e.get("tool_used") or "").strip().lower() == "eval"
             if r is not None:
                 rate_sum_all += r
                 rate_n_all += 1
+                if is_eval:
+                    eval_sum += r
+                    eval_n += 1
+                else:
+                    prod_sum += r
+                    prod_n += 1
             if ts >= cutoff:
                 recent_24h += 1
                 if r is not None:
@@ -838,6 +869,20 @@ async def get_verification_stats() -> dict:
             # R-F590: now lifetime-fallback-aware instead of nullable.
             "rolling_grounded_rate": effective_rate,
             "avg_grounded_rate": effective_rate,
+            # ── R-F3765 — the two populations, reported separately ───────────
+            # `avg_grounded_rate` above is what operating_modes gates delivery
+            # on. These say WHICH traffic it is made of. While production
+            # recording is a no-op (aria_engine.py:5398) production_* is None
+            # and eval_* equals the headline — the split is inert today and
+            # exists so that turning production recording on is a visible,
+            # deliberate change rather than a silent one.
+            "eval_grounded_rate": (round(eval_sum / eval_n, 3) if eval_n else None),
+            "eval_sample_size": eval_n,
+            "production_grounded_rate": (round(prod_sum / prod_n, 3) if prod_n else None),
+            "production_sample_size": prod_n,
+            #: True while NO production verification has ever been recorded — i.e.
+            #: the delivery gate is being driven purely by the eval benchmark.
+            "gate_is_eval_only": prod_n == 0,
             "rate_sample_size": rate_n_24h,
             # ── R-F3696 — the sample size that MATCHES effective_rate ────────
             #
