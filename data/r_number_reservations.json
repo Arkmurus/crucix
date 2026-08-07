@@ -31622,9 +31622,10 @@
       "title": "the platform degrades on a grounded rate with no minimum sample size, so one eval sample suppresses all delivery",
       "claimed_at": "2026-08-07T11:34:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a5325342",
+      "notes": null,
+      "shipped_at": "2026-08-07T11:38:04Z"
     }
   ]
 }
