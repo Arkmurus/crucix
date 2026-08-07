@@ -40,6 +40,14 @@ class Mode(IntEnum):
 
 # Thresholds for auto-transition
 DEGRADED_GROUNDED_RATE = 0.30
+#: R-F3764 — minimum observations before a grounded rate may take the platform
+#: offline. 5 mirrors the honesty composite's own scored-sample floor, so the two
+#: quality signals demand the same evidentiary weight. Below this the rate is
+#: treated as NO SIGNAL, not as a verdict.
+#: Deliberately a plain constant, not an env read: this module imports neither
+#: `os` nor an env helper, and adding one to make a safety floor TUNABLE invites
+#: it being tuned to 0 — which restores the defect exactly.
+GROUNDED_MIN_SAMPLES = 5
 SUPERVISED_ADVERSARIAL_SCORE = 0.50
 EMERGENCY_BLOCK_COUNT = 5
 
@@ -198,12 +206,53 @@ async def evaluate_auto_transition() -> dict | None:
     # code used `recent.get("avg_grounded_rate", 1.0)` which returned
     # None (not 1.0) when the key existed with a None value -- the
     # comparison `None < 0.X` then raised TypeError out of this function.
+    # ── R-F3764 — a rate with no sample size is not a measurement ────────────
+    #
+    # This treated a MISSING rate as healthy (correct) but a rate from ONE
+    # sample as authoritative. `avg_grounded_rate < 0.30` degraded the entire
+    # platform regardless of how many observations produced it — and DEGRADED
+    # suppresses ALL external delivery (`should_deliver_external`). So a single
+    # eval answer scoring 0 took customer-facing output offline.
+    #
+    # That is not hypothetical. Live history shows the platform degrading on
+    # "grounded rate 0% < 30%" at 2026-08-05T18:00:52Z and again at
+    # 2026-08-07T00:00:48Z, while `get_verification_stats` reported
+    # lifetime_sample_size=0 hours later. The signal is thin and intermittent,
+    # and every dip took delivery down with it.
+    #
+    # The stats layer ALREADY solved the hard half: R-F3696 added
+    # `effective_sample_size` — the count that MATCHES `effective_rate`, since
+    # the rate may have fallen back from the 24h window to the lifetime
+    # average — precisely "so a consumer applying a minimum-sample guard" does
+    # not judge a value from window A by a count from window B. The most
+    # consequential consumer never applied one.
+    #
+    # Below the floor the rate is treated as NO SIGNAL, exactly like None. A
+    # genuine collapse still degrades: enough samples at a low rate trips it,
+    # which is the behaviour worth keeping. This raises the evidentiary bar for
+    # taking delivery offline; it does not remove the control.
+    grounded_rate = 1.0
+    grounded_n = None
     try:
         from . import source_verifier
         recent = await source_verifier.get_verification_stats()
-        grounded_rate = recent.get("avg_grounded_rate")
-        if grounded_rate is None:
-            grounded_rate = 1.0
+        _rate = recent.get("avg_grounded_rate")
+        # effective_sample_size matches effective_rate (R-F3696); rate_sample_size
+        # is the 24h count and can disagree after a lifetime fallback.
+        grounded_n = recent.get("effective_sample_size")
+        if grounded_n is None:
+            grounded_n = recent.get("rate_sample_size")
+        if _rate is None:
+            grounded_rate = 1.0                      # no data — assume healthy
+        elif (grounded_n or 0) < GROUNDED_MIN_SAMPLES:
+            logger.info(
+                "[R-F3764] grounded rate %.0f%% ignored — only %s sample(s), "
+                "below the %s-sample floor. Too thin to take delivery offline.",
+                float(_rate) * 100, grounded_n, GROUNDED_MIN_SAMPLES,
+            )
+            grounded_rate = 1.0                      # thin signal — not a verdict
+        else:
+            grounded_rate = _rate
     except Exception:
         grounded_rate = 1.0
 
