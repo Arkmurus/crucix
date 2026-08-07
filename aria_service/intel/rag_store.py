@@ -1643,6 +1643,20 @@ def _rag_serve_owned_to_all() -> bool:
     return str(_os.getenv("ARIA_RAG_SERVE_OWNED_TO_ALL", "")).strip().lower() in {"1", "true", "yes"}
 
 
+# ── R-F3766 — §21a. This shipped unwired, and it is the worst place for it ───
+#
+# `search()` returns a LIST. Its failure mode is an EMPTY list, which is
+# indistinguishable from "the store holds nothing relevant" — and this is the
+# retrieval path feeding DD and chat answers. An unwired failure here does not
+# produce a visible error; it produces a CONFIDENT ANSWER WITH LESS EVIDENCE
+# BEHIND IT, which is the one failure a due-diligence product cannot afford.
+#
+# Same class as every other fix in this sweep (R-F3716/17, R-F3722, R-F3758,
+# R-F3759, R-F3762, R-F3764): a value that cannot distinguish "looked and found
+# nothing" from "the lookup broke". The module already imports fail_wire and
+# uses it at :311 and :476 with gap_type="embedder_failure"; that is the
+# retrieval convention here, so it is reused rather than inventing a new type.
+@fail_wire(module="rag_store", gap_type="embedder_failure")
 async def search(
     query: str,
     *,

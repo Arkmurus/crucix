@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3766,
+  "next_available": 3767,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31636,6 +31636,15 @@
       "commit_sha": "02f34ccf",
       "notes": null,
       "shipped_at": "2026-08-07T12:37:41Z"
+    },
+    {
+      "r_number": "R-F3766",
+      "title": "rag_store.search shipped unwired, so a retrieval failure returned an empty list indistinguishable from no matches",
+      "claimed_at": "2026-08-07T13:03:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
