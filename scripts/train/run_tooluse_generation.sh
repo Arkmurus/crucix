@@ -23,6 +23,8 @@ STATE_FILE="${STATE_FILE:-data/eval_reports/.tooluse_generation_pod_state}"
 # envelope plus >20% rather than a blanket extension.
 UPLOAD_DEADLINE="${UPLOAD_DEADLINE:-5400}"
 GENERATION_DEADLINE="${GENERATION_DEADLINE:-7200}"
+UPLOAD_SLICE="${UPLOAD_SLICE:-720}"
+UPLOAD_SLICES="${UPLOAD_SLICES:-7}"
 GRACE="${GRACE:-900}"
 COLLECT_GRACE="${COLLECT_GRACE:-900}"
 RETRY_SECS="${RETRY_SECS:-90}"
@@ -119,18 +121,31 @@ ARMED=1
 mkdir -p "$(dirname "$STATE_FILE")"
 { echo "POD_ID=$POD_ID"; echo "HOST=$HOST"; echo "PORT=$PORT"; echo "LAUNCHED_AT=$(date -u +%s)"; } > "$STATE_FILE"
 log "uploading validated serving adapter with resumable SFTP"
-if TSSH -p "$PORT" root@"$HOST" 'test -f /workspace/aria_tooluse_candidate.tgz' \
-    >/dev/null 2>&1; then
-  SFTP_UPLOAD=reput
-  log "remote partial found; resuming adapter upload"
-else
-  SFTP_UPLOAD=put
-  log "no remote partial; starting adapter upload"
-fi
-printf '%s %s %s\n' "$SFTP_UPLOAD" "$ADAPTER_LOCAL" /workspace/aria_tooluse_candidate.tgz \
-  | sftp -b - -i "$KEYF" -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
-      -P "$PORT" root@"$HOST" >/dev/null \
-  || { log "FATAL adapter upload"; exit 1; }
+UPLOAD_OK=0
+for slice in $(seq 1 "$UPLOAD_SLICES"); do
+  if TSSH -p "$PORT" root@"$HOST" 'test -f /workspace/aria_tooluse_candidate.tgz' \
+      >/dev/null 2>&1; then
+    SFTP_UPLOAD=reput
+  else
+    SFTP_UPLOAD=put
+  fi
+  log "adapter transfer slice $slice/$UPLOAD_SLICES mode=$SFTP_UPLOAD"
+  if printf '%s %s %s\n' "$SFTP_UPLOAD" "$ADAPTER_LOCAL" \
+      /workspace/aria_tooluse_candidate.tgz \
+      | timeout "$UPLOAD_SLICE" sftp -b - -i "$KEYF" \
+          -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
+          -P "$PORT" root@"$HOST" >/dev/null; then
+    UPLOAD_OK=1
+    break
+  fi
+  STATE=$(pod_state)
+  REMOTE_BYTES=$(TSSH -p "$PORT" root@"$HOST" \
+    'stat -c %s /workspace/aria_tooluse_candidate.tgz 2>/dev/null || echo 0' \
+    2>/dev/null | tr -d '\r[:space:]')
+  log "slice incomplete: remote_bytes=${REMOTE_BYTES:-unknown} state=$STATE"
+  [ "$STATE" = RUNNING ] || break
+done
+[ "$UPLOAD_OK" = 1 ] || { log "FATAL bounded adapter upload incomplete"; exit 1; }
 TSSH -p "$PORT" root@"$HOST" \
   "tar -tzf /workspace/aria_tooluse_candidate.tgz | awk '/\\/adapter_config.json$/ { found=1 } END { exit !found }' && tar -xzf /workspace/aria_tooluse_candidate.tgz -C /workspace/checkpoints" \
   || { log "FATAL remote adapter validation/extract"; exit 1; }

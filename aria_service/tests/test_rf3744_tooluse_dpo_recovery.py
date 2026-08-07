@@ -79,6 +79,10 @@ def test_fresh_generation_driver_arms_watchdog_before_adapter_upload() -> None:
     assert "SFTP_UPLOAD=reput" in code
     assert "SFTP_UPLOAD=put" in code
     assert "test -f /workspace/aria_tooluse_candidate.tgz" in code
+    assert 'timeout "$UPLOAD_SLICE" sftp' in code
+    assert 'REMOTE_BYTES=$(TSSH' in code
+    assert 'state=$STATE' in code
+    assert '"$STATE" = RUNNING' in code
     state_written = code.index('echo "POD_ID=$POD_ID"')
     assert armed < state_written < uploaded
     assert "DEADLINE=$UPLOAD_DEADLINE" in code
