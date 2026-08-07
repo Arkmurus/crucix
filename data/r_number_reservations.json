@@ -31652,9 +31652,10 @@
       "title": "wire the last four gate_a functions: a quota reset, a usage endpoint, a lane switch and a provider-pin read",
       "claimed_at": "2026-08-07T14:09:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "52876b36",
+      "notes": null,
+      "shipped_at": "2026-08-07T21:30:14Z"
     }
   ]
 }
