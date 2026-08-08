@@ -16,6 +16,10 @@ import inspect
 from aria_service.intel import contract_intelligence as ci
 from aria_service.routes import aria as a
 
+# R-F3786/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 class _StubLLM:
     is_configured = True
@@ -66,7 +70,7 @@ def test_synthesis_prompt_strips_contamination_and_adds_misses():
 
 
 def test_chat_caller_no_longer_dumps_raw_findings():
-    src = inspect.getsource(a)
+    src = module_source(a)
     # the old verbatim-dump header must be gone
     assert "Contract self-review audit" not in src
     # the caller synthesises and records findings as metadata, not chat text

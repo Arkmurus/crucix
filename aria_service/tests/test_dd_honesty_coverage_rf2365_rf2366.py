@@ -24,6 +24,10 @@ from aria_service.intel.dd_orchestrator import (
 )
 from aria_service.intel.dd_schema import structured_view
 
+# R-F3786/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 # ─────────────────────────── R-F2365 UBO-walk honesty ──────────────────────────
 
@@ -159,7 +163,7 @@ def test_rf2365_identity_registry_gap_not_gb_only():
     """The identity-layer registry-gap text no longer falsely says 'GB only'."""
     import aria_service.intel.dd_orchestrator as ddo
     import inspect
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert "Companies House coverage for GB only" not in src, (
         "R-F2365: the false 'Companies House coverage for GB only' data_gap survives"
     )

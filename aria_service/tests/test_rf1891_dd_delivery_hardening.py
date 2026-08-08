@@ -16,6 +16,10 @@ import inspect
 
 import aria_service.routes.aria as aria
 
+# R-F3786/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -23,7 +27,7 @@ def _run(coro):
 
 def test_inline_dd_budget_default_lowered_to_300():
     # Static guard: the inline WA DD budget default is 300s, not the old 720s.
-    src = inspect.getsource(aria)
+    src = module_source(aria)
     assert 'os.getenv("ARIA_DD_CHAT_BUDGET_S", "300")' in src, "inline DD budget default is not 300s"
     assert 'os.getenv("ARIA_DD_CHAT_BUDGET_S", "720")' not in src, "old 720s default still present"
 

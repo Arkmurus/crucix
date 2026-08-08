@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3786,
+  "next_available": 3787,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31834,6 +31834,15 @@
       "commit_sha": "8955ffa1",
       "notes": null,
       "shipped_at": "2026-08-08T17:17:33Z"
+    },
+    {
+      "r_number": "R-F3786",
+      "title": "a plain import binds a module; the import map only knew from-imports",
+      "claimed_at": "2026-08-08T17:22:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

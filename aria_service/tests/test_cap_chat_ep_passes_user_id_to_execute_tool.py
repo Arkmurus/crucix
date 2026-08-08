@@ -8,7 +8,11 @@ passes user_id.
 import inspect
 import aria_service.routes.aria as aria
 
-src = inspect.getsource(aria)
+# R-F3786/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
+src = module_source(aria)
 
 
 def test_chat_ep_passes_user_id_to_execute_tool():

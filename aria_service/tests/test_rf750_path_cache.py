@@ -20,6 +20,10 @@ realistic max is ~500 distinct emit sites).
 """
 from __future__ import annotations
 
+# R-F3786/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def test_cache_hit_returns_same_result():
     """R-F750: same pathname → same cached string."""
@@ -124,6 +128,6 @@ def test_rf750_marker_present():
     """R-F750: marker comment present for revert detection."""
     from aria_service.intel import error_log_handler as elh
     import inspect
-    src = inspect.getsource(elh)
+    src = module_source(elh)
     assert "R-F750" in src
     assert "_PATH_CACHE" in src

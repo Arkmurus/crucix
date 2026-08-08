@@ -13,6 +13,10 @@ from __future__ import annotations
 from aria_service.routes import aria as a
 from aria_service.intel import security_protocol as sp
 
+# R-F3786/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _wa_message(doc_body: str, question: str) -> str:
     return (
@@ -52,6 +56,6 @@ def test_real_injection_in_question_still_blocked():
 
 def test_source_wires_stripped_scan():
     import inspect
-    src = inspect.getsource(a)
+    src = module_source(a)
     assert "_scan_text = _strip_attached_document(req.message)" in src
     assert "detect_prompt_injection(_scan_text)" in src

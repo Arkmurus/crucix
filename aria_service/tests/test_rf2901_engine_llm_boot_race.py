@@ -20,6 +20,10 @@ import pytest
 
 from aria_service.main import await_llm_provider
 
+# R-F3786/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 class _State:
     def __init__(self, provider=None):
@@ -99,7 +103,7 @@ def test_bootstrap_actually_calls_the_helper():
 
     import aria_service.main as m
 
-    src = inspect.getsource(m)
+    src = module_source(m)
     start_idx = src.find("_bootstrap_autonomous_engine_bg")
     assert start_idx != -1, "bootstrap function not found — test drove nothing"
     window = src[start_idx:start_idx + 4000]

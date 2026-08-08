@@ -13,6 +13,10 @@ import os
 os.environ.setdefault("ARIA_CONFIDENCE_FOOTER", "1")
 from aria_service.intel import confidence_footer as cf
 
+# R-F3786/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def test_doc_grounded_no_tool_shows_attached_document():
     f = cf.build_footer(
@@ -49,5 +53,5 @@ def test_real_tool_still_wins_over_doc_flag():
 def test_callers_pass_document_grounded():
     import inspect
     from aria_service.routes import aria as a
-    src = inspect.getsource(a)
+    src = module_source(a)
     assert src.count('document_grounded=("[ATTACHED DOCUMENT" in (req.message or "")') >= 2
