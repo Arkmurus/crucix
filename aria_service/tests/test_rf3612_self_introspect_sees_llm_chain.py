@@ -37,6 +37,10 @@ from aria_service.intel.self_introspect_guard import (
     zero_activity_warning_lines,
 )
 
+# R-F3789/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -229,7 +233,7 @@ def test_get_health_key_names_still_exist():
     # NB: the class is FallbackProvider, not FallbackLLM — verified at
     # fallback.py:113. Guessing the name cost a red test here; that is the
     # §3b rule doing its job.
-    src = inspect.getsource(fb.FallbackProvider.get_health)
+    src = function_source(fb.FallbackProvider, "get_health")
     for key in ("resilient", "last_exhaustion_age_s", "serving_provider",
                 "active_providers", "cooling_providers"):
         assert f'"{key}"' in src, f"get_health() no longer returns {key}"

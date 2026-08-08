@@ -66,6 +66,10 @@ import pytest
 from aria_service.llm import fallback as fb
 from aria_service.llm.provider import LLMProvider, ProviderError
 
+# R-F3789/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -342,7 +346,7 @@ def test_record_failure_always_names_the_failer():
     failer silently restores the 11:29 contradiction. There is exactly one
     production caller — assert it passes it."""
     import inspect
-    src = inspect.getsource(fb.FallbackProvider._record_failure)
+    src = function_source(fb.FallbackProvider, "_record_failure")
     assert "_check_redundancy_lost(failed_provider=" in src, (
         "the only production caller must name who failed, or the page can "
         "again report the failing provider as the one still serving"

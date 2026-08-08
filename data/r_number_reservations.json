@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3789,
+  "next_available": 3790,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31864,6 +31864,15 @@
       "commit_sha": "eab74359",
       "notes": null,
       "shipped_at": "2026-08-08T17:34:08Z"
+    },
+    {
+      "r_number": "R-F3789",
+      "title": "chained receiver: mod.Class.method, refusing any Call in the chain",
+      "claimed_at": "2026-08-08T17:46:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

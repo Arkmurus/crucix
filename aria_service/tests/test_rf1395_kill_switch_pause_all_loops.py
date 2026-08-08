@@ -21,6 +21,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
 
+# R-F3789/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 @pytest.mark.asyncio
 async def test_self_coder_does_not_check_pause_flag():
@@ -31,7 +35,7 @@ async def test_self_coder_does_not_check_pause_flag():
     from aria_service.autonomous import self_coder as sc
 
     import inspect
-    source = inspect.getsource(sc.ARIACoder.run_forever)
+    source = function_source(sc.ARIACoder, "run_forever")
 
     # The loop should check is_engine_paused or equivalent
     has_pause_check = (
@@ -55,7 +59,7 @@ async def test_gap_detector_does_not_check_pause_flag():
     from aria_service.autonomous import gap_detector as gd
 
     import inspect
-    source = inspect.getsource(gd.GapDetector.run_forever)
+    source = function_source(gd.GapDetector, "run_forever")
 
     has_pause_check = (
         "is_engine_paused" in source
@@ -77,7 +81,7 @@ async def test_self_improve_loop_does_not_check_pause_flag():
     import inspect
     from aria_service import main
 
-    source = inspect.getsource(main)
+    source = module_source(main)
 
     # Find the _self_improve_loop function
     import re
@@ -108,7 +112,7 @@ async def test_engine_loop_does_check_pause_flag():
     from aria_service.autonomous import engine as ae
 
     import inspect
-    source = inspect.getsource(ae._engine_loop)
+    source = function_source(ae, "_engine_loop")
 
     has_pause_check = (
         "is_engine_paused" in source
@@ -129,7 +133,7 @@ async def test_pause_endpoint_wires_to_brain():
     from aria_service.autonomous import safety as sf
 
     import inspect
-    source = inspect.getsource(sf.pause_engine)
+    source = function_source(sf, "pause_engine")
 
     assert "wire_success" in source, (
         "FAIL: pause_engine does not wire success to brain"
@@ -145,7 +149,7 @@ async def test_research_loop_checks_pause():
     import inspect
     from aria_service import main
 
-    source = inspect.getsource(main)
+    source = module_source(main)
     import re
     match = re.search(r"async def _research_loop.*?(?=\n\s{4}(?:async def|#))", source, re.DOTALL)
     assert match is not None, "Could not find _research_loop in main.py"
@@ -169,7 +173,7 @@ async def test_quiz_loop_checks_pause():
     import inspect
     from aria_service import main
 
-    source = inspect.getsource(main)
+    source = module_source(main)
     import re
     match = re.search(r"async def _quiz_loop.*?(?=\n\s{4}(?:async def|#))", source, re.DOTALL)
     assert match is not None, "Could not find _quiz_loop in main.py"
@@ -193,7 +197,7 @@ async def test_reading_loop_checks_pause():
     import inspect
     from aria_service import main
 
-    source = inspect.getsource(main)
+    source = module_source(main)
     import re
     match = re.search(r"async def _reading_loop.*?(?=\n\s{4}(?:async def|#))", source, re.DOTALL)
     assert match is not None, "Could not find _reading_loop in main.py"
@@ -217,7 +221,7 @@ async def test_library_consolidate_loop_checks_pause():
     import inspect
     from aria_service import main
 
-    source = inspect.getsource(main)
+    source = module_source(main)
     import re
     match = re.search(r"async def _library_consolidate_loop.*?(?=\n\s{4}(?:async def|#))", source, re.DOTALL)
     assert match is not None, "Could not find _library_consolidate_loop in main.py"
@@ -241,7 +245,7 @@ async def test_memory_wal_drain_loop_checks_pause():
     import inspect
     from aria_service import main
 
-    source = inspect.getsource(main)
+    source = module_source(main)
     import re
     match = re.search(r"async def _memory_wal_drain_loop.*?(?=\n\s{4}(?:async def|#))", source, re.DOTALL)
     assert match is not None, "Could not find _memory_wal_drain_loop in main.py"
@@ -265,7 +269,7 @@ async def test_proactive_loop_checks_pause():
     import inspect
     from aria_service import main
 
-    source = inspect.getsource(main)
+    source = module_source(main)
     import re
     match = re.search(r"async def _proactive_loop.*?(?=\n\s{4}(?:async def|#))", source, re.DOTALL)
     assert match is not None, "Could not find _proactive_loop in main.py"
@@ -289,7 +293,7 @@ async def test_weekly_report_loop_checks_pause():
     import inspect
     from aria_service import main
 
-    source = inspect.getsource(main)
+    source = module_source(main)
     import re
     match = re.search(r"async def _weekly_report_loop.*?(?=\n\s{4}(?:async def|#))", source, re.DOTALL)
     assert match is not None, "Could not find _weekly_report_loop in main.py"
@@ -313,7 +317,7 @@ async def test_watchlist_rescreen_loop_checks_pause():
     import inspect
     from aria_service import main
 
-    source = inspect.getsource(main)
+    source = module_source(main)
     import re
     match = re.search(r"async def _watchlist_rescreen_loop.*?(?=\n\s{4}(?:async def|#))", source, re.DOTALL)
     assert match is not None, "Could not find _watchlist_rescreen_loop in main.py"
@@ -337,7 +341,7 @@ async def test_tender_monitor_loop_checks_pause():
     import inspect
     from aria_service import main
 
-    source = inspect.getsource(main)
+    source = module_source(main)
     import re
     match = re.search(r"async def _tender_monitor_loop.*?(?=\n\s{4}(?:async def|#))", source, re.DOTALL)
     assert match is not None, "Could not find _tender_monitor_loop in main.py"

@@ -50,6 +50,10 @@ import pytest
 from aria_service.llm import fallback as fb
 from aria_service.llm.provider import LLMProvider, LLMResult, ProviderError
 
+# R-F3789/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -303,7 +307,7 @@ def test_the_lockout_evidence_is_recorded_so_it_can_be_audited():
     because nothing durable recorded the body that justified it. A 24h
     non-retryable lockout must carry its reason."""
     import inspect
-    src = inspect.getsource(fb.FallbackProvider._mirror_cooldown_to_redis)
+    src = function_source(fb.FallbackProvider, "_mirror_cooldown_to_redis")
     assert "evidence" in src, (
         "the mirror must persist WHY a hard cooldown was armed"
     )

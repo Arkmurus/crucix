@@ -39,6 +39,10 @@ from aria_service.intel.sources._common import (
     OUTCOME_UNAVAILABLE,
 )
 
+# R-F3789/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 class _FakeResult:
     def __init__(self, text: str, model: str = "fake-model", routed_via: str = ""):
@@ -233,7 +237,7 @@ def test_synthesised_claims_are_not_born_grounded():
 
     from aria_service.intel import grounded_reasoner as gr_mod
 
-    src = inspect.getsource(gr_mod.GroundedReasoner._reason_over_evidence)
+    src = function_source(gr_mod.GroundedReasoner, "_reason_over_evidence")
     tree = ast.parse(inspect.cleandoc(src))
     checked = 0
     for node in ast.walk(tree):
@@ -462,7 +466,7 @@ def test_eval_runner_passes_an_id_when_building_eval_questions():
 
     from aria_service.intel import eval_runner
 
-    src = inspect.getsource(eval_runner)
+    src = module_source(eval_runner)
     tree = ast.parse(src)
     builds = [
         node for node in ast.walk(tree)

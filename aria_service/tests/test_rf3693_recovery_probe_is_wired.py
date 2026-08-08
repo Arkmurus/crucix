@@ -31,6 +31,10 @@ import pytest
 from aria_service.llm import fallback as fb
 from aria_service.llm.provider import LLMProvider, LLMResult, ProviderError
 
+# R-F3789/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -196,7 +200,7 @@ def test_no_dark_branch_remains_in_the_probe():
     """Structural pin against the exact regression: every outcome branch of the
     probe must reach the brain, so a future edit cannot quietly re-darken one."""
     import inspect
-    src = inspect.getsource(fb.FallbackProvider._probe_recovery)
+    src = function_source(fb.FallbackProvider, "_probe_recovery")
     assert src.count("_wire_probe_outcome") >= 3, (
         "recovered / confirmed-down / inconclusive are three distinct outcomes "
         "and all three must be observed"

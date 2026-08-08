@@ -11,6 +11,10 @@ import inspect
 import aria_service.intel.coding_rag_indexer as cri
 import aria_service.intel.constitutional_rules as cr
 
+# R-F3789/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 class _FakeCollection:
     def __init__(self):
@@ -89,6 +93,6 @@ def test_rf2130_clears_orphans_on_resync(monkeypatch):
 def test_rf2130_coder_grounding_queries_constitutional():
     """Lock the wiring: the main coder grounding path must query constitutional rules."""
     import aria_service.autonomous.self_coder as sc
-    src = inspect.getsource(sc.ARIACoder._ground_context_with_rag)
+    src = function_source(sc.ARIACoder, "_ground_context_with_rag")
     assert "query_constitutional_constraints" in src, \
         "the coder grounding must retrieve constitutional rules (R-F2130)"

@@ -33,6 +33,10 @@ import time
 
 import pytest
 
+# R-F3789/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # R-F3702 — the frozen benchmark
@@ -133,7 +137,7 @@ def test_autogen_holds_a_refused_promotion_instead_of_dropping_it():
     """add_golden_entry RETURNS a refusal; it does not raise."""
     from aria_service.intel import golden_autogen
 
-    src = inspect.getsource(golden_autogen)
+    src = module_source(golden_autogen)
     assert '_res or {}).get("ok")' in src, (
         "the autogen must inspect the RESULT — the pre-existing `except` could "
         "not see a returned refusal, so a held candidate was counted as "
@@ -269,7 +273,7 @@ def test_the_self_coding_machinery_is_protected(path):
 def test_record_gap_tells_the_caller_when_a_write_is_dropped():
     from aria_service.intel import capability_gaps
 
-    src = inspect.getsource(capability_gaps.record_gap)
+    src = function_source(capability_gaps, "record_gap")
     assert '"dropped": True' in src, (
         "record_gap returned the SUCCESS shape on a dropped write, so the "
         "tree-wide fail_wire sink could not distinguish recorded from lost — "
@@ -355,7 +359,7 @@ def test_unreadable_cooldowns_report_unknown_not_available(monkeypatch):
 def test_health_degrades_on_operating_mode_and_names_the_reason():
     from aria_service import main
 
-    src = inspect.getsource(main)
+    src = module_source(main)
     assert "_degraded_reasons" in src
     assert "operating_mode_" in src, (
         "/health certified 'operational' while operating_mode was DEGRADED — "
@@ -371,7 +375,7 @@ def test_health_live_stays_a_pure_liveness_probe():
     """Restart decisions must not flap on a quality signal."""
     from aria_service import main
 
-    src = inspect.getsource(main)
+    src = module_source(main)
     idx = src.find('@app.get("/health/live")')
     assert idx > -1
     block = src[idx:idx + 900]
@@ -381,7 +385,7 @@ def test_health_live_stays_a_pure_liveness_probe():
 def test_the_cache_merges_the_inner_chain_stats():
     from aria_service.llm import resilience
 
-    src = inspect.getsource(resilience.LLMResponseCache.get_stats)
+    src = function_source(resilience.LLMResponseCache, "get_stats")
     assert "inner_stats" in src and "**inner_stats" in src, (
         "app.state.llm_provider IS this cache, so /health's "
         "hasattr(llm,'get_stats') resolved here and the field named "
@@ -393,7 +397,7 @@ def test_the_cache_merges_the_inner_chain_stats():
 def test_clear_resets_errors_with_hits_and_misses():
     from aria_service.llm import resilience
 
-    src = inspect.getsource(resilience.LLMResponseCache.clear)
+    src = function_source(resilience.LLMResponseCache, "clear")
     assert "self._errors = 0" in src, (
         "after a clear, errors described a longer window than hits/misses so "
         "the three could not be read against each other"

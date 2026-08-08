@@ -27,6 +27,10 @@ import pytest
 from aria_service.llm import fallback as fb
 from aria_service.llm.provider import LLMProvider, LLMResult, ProviderError
 
+# R-F3789/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -238,7 +242,7 @@ def test_the_alert_never_uses_the_llm():
     import inspect
     # R-F3616 moved the send into the SHARED sender so the outage page and the
     # pre-outage page cannot drift. Assert the property at its real home.
-    src = inspect.getsource(fb.FallbackProvider._dispatch_operator_page)
+    src = function_source(fb.FallbackProvider, "_dispatch_operator_page")
     assert "wa_notifier" in src
     for forbidden in ("self.complete", "self.stream", "llm.complete"):
         assert forbidden not in src, f"the alert must not call {forbidden}"
@@ -249,7 +253,7 @@ def test_an_unconfigured_alert_channel_is_reported_not_silent():
     unconfigured alerter is a dark path that only reveals itself in the outage
     it was built for."""
     import inspect
-    src = inspect.getsource(fb.FallbackProvider._dispatch_operator_page)
+    src = function_source(fb.FallbackProvider, "_dispatch_operator_page")
     assert "is_configured" in src
     assert "nobody was paged" in src
     assert "wire_failure" in src or "_wf" in src
