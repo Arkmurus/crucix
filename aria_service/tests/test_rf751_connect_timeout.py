@@ -32,6 +32,11 @@ from __future__ import annotations
 
 import inspect
 
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_default_connect_timeout_is_3s():
     """R-F751: connect-phase ceiling = 3.0 seconds."""
@@ -53,7 +58,7 @@ def test_make_httpx_timeout_caps_connect():
 def test_http_get_text_uses_make_httpx_timeout():
     """R-F751: http_get_text source wires the per-phase Timeout."""
     from aria_service.intel.sources import _common
-    src = inspect.getsource(_common.http_get_text)
+    src = function_source(_common, "http_get_text")
     assert "_make_httpx_timeout" in src
     assert "R-F751" in src
 
@@ -61,7 +66,7 @@ def test_http_get_text_uses_make_httpx_timeout():
 def test_http_get_json_uses_make_httpx_timeout():
     """R-F751: http_get_json source wires the per-phase Timeout."""
     from aria_service.intel.sources import _common
-    src = inspect.getsource(_common.http_get_json)
+    src = function_source(_common, "http_get_json")
     assert "_make_httpx_timeout" in src
     assert "R-F751" in src
 

@@ -25,6 +25,11 @@ from __future__ import annotations
 
 import inspect
 
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_rf572_default_threshold_is_at_least_0_85():
     """The sec_edgar.lookup default threshold must be ≥0.85
@@ -116,7 +121,7 @@ def test_rf572_score_bypass_present_at_0_95():
     keeps the two gates consistent so future tuning lands in both."""
     import inspect
     from aria_service.intel.sources import sec_edgar
-    src = inspect.getsource(sec_edgar.lookup)
+    src = function_source(sec_edgar, "lookup")
     assert "0.95" in src, (
         f"R-F572 REGRESSION: the score≥0.95 bypass constant is "
         f"missing from sec_edgar.lookup; gate may be over-strict on "

@@ -31,6 +31,11 @@ import pytest
 
 # Import the project root so the package imports resolve
 import sys
+
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 
@@ -1295,7 +1300,7 @@ class TestWorldBankGuidanceCorrection:
         NOT direct the operator to a non-existent registration portal."""
         import inspect
         from aria_service.intel.sources import worldbank_debarred
-        src = inspect.getsource(worldbank_debarred.lookup)
+        src = function_source(worldbank_debarred, "lookup")
         # The OLD stale guidance must not appear
         assert "register free at worldbank.org" not in src, \
             "stale 'register at worldbank.org developer portal' guidance must be purged"

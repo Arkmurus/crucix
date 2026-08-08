@@ -23,6 +23,11 @@ from __future__ import annotations
 
 import asyncio
 
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 # ── consistency_suite fix tests ───────────────────────────────────────
 
@@ -32,7 +37,7 @@ def test_rf703_consistency_similarity_wraps_encode_in_to_thread():
     via asyncio.to_thread + _safe_encode, not sync on the event loop."""
     import inspect
     from aria_service.intel import consistency_suite as cs
-    src = inspect.getsource(cs._similarity)
+    src = function_source(cs, "_similarity")
     # Must contain the to_thread wrapper
     assert "to_thread" in src, (
         "R-F703 expected to_thread wrapping in _similarity; not found"
@@ -55,7 +60,7 @@ def test_rf703_stall_detector_function_present_in_main():
     """The lifespan must register the event-loop stall detector."""
     import inspect
     from aria_service import main
-    src = inspect.getsource(main.lifespan)
+    src = function_source(main, "lifespan")
     assert "_event_loop_stall_detector" in src, (
         "R-F703 expected _event_loop_stall_detector function in lifespan"
     )
@@ -71,7 +76,7 @@ def test_rf703_stall_detector_threshold_and_settle_constants():
     arming)."""
     import inspect
     from aria_service import main
-    src = inspect.getsource(main.lifespan)
+    src = function_source(main, "lifespan")
     assert "_STALL_WARN_THRESHOLD_S = 5.0" in src, (
         "R-F703 expected 5.0s stall threshold"
     )
@@ -86,7 +91,7 @@ def test_rf703_stall_detector_uses_monotonic_clock():
     is the only reliable measurement primitive for stall detection."""
     import inspect
     from aria_service import main
-    src = inspect.getsource(main.lifespan)
+    src = function_source(main, "lifespan")
     assert "_time.monotonic()" in src, (
         "R-F703 expected monotonic clock measurement"
     )
@@ -98,7 +103,7 @@ def test_rf703_stall_detector_handles_cancellation():
     the shutdown logs."""
     import inspect
     from aria_service import main
-    src = inspect.getsource(main.lifespan)
+    src = function_source(main, "lifespan")
     assert "CancelledError" in src, (
         "R-F703 expected CancelledError handling in stall detector"
     )
@@ -109,7 +114,7 @@ def test_rf703_stall_detector_logs_at_warning_level():
     ledger + dashboard recent-errors panel (R-F381)."""
     import inspect
     from aria_service import main
-    src = inspect.getsource(main.lifespan)
+    src = function_source(main, "lifespan")
     # The actual log line invocation
     assert "logger.warning(" in src, (
         "R-F703 expected logger.warning() call for stall events"

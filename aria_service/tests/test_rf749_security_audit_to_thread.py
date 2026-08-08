@@ -27,6 +27,11 @@ from __future__ import annotations
 import asyncio
 import inspect
 
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_run_security_audit_still_async():
     """R-F749: public API contract preserved — must remain `async def`."""
@@ -86,7 +91,7 @@ def test_async_wrapper_dispatches_via_to_thread():
     `asyncio.to_thread(_run_security_audit_sync,` dispatch. Catches
     accidental revert / rebase loss."""
     from aria_service.intel import security_protocol as sp
-    src = inspect.getsource(sp.run_security_audit)
+    src = function_source(sp, "run_security_audit")
     assert "R-F749" in src
     assert "asyncio.to_thread(_run_security_audit_sync" in src
 

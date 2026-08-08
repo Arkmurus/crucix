@@ -15,6 +15,11 @@ from pathlib import Path
 import aria_service.main as m
 from aria_service.routes import aria as a
 
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_endpoint_registered_under_api_aria():
     paths = [getattr(r, "path", "") for r in m.app.routes]
@@ -22,7 +27,7 @@ def test_endpoint_registered_under_api_aria():
 
 
 def test_endpoint_routes_failure_vs_content():
-    src = inspect.getsource(a.brain_signal_ep)
+    src = function_source(a, "brain_signal_ep")
     # failure-type → capability_gaps (coder-visible); else → brain_hook.absorb
     assert "_is_failure" in src
     assert "capability_gaps" in src and "record_gap(" in src

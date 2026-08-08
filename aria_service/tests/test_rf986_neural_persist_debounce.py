@@ -14,6 +14,11 @@ import asyncio
 
 import aria_service.intel.neural_memory as nm
 
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_rf986_maybe_persist_is_debounced(monkeypatch):
     persists = {"n": 0}
@@ -57,7 +62,7 @@ def test_rf986_persist_itself_still_always_writes(monkeypatch):
     _persist() callers (learn_explicit / consolidate / migration guard) and the
     R-F371 protection are unaffected."""
     import inspect
-    src = inspect.getsource(nm._persist)
+    src = function_source(nm, "_persist")
     assert "_NEURONS_MIN_WRITE_INTERVAL_S" not in src, (
         "_persist must not contain the debounce — it would break the R-F371 "
         "guard tests and the immediate-durability contract."

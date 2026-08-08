@@ -24,13 +24,18 @@ import inspect
 
 import pytest
 
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_rf541_spider_fetch_calls_politeness_is_allowed_source_check():
     """Source-text pin: knowledge_spider._fetch must import + call
     politeness.is_allowed. Catches the case where someone deletes the
     wire-in by accident in a future refactor."""
     from aria_service.learning import knowledge_spider
-    src = inspect.getsource(knowledge_spider._fetch)
+    src = function_source(knowledge_spider, "_fetch")
     assert "politeness" in src, (
         "knowledge_spider._fetch must reference politeness "
         "(R-F541 wired the robots.txt check)"

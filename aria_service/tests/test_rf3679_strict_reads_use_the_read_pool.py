@@ -34,6 +34,11 @@ import pytest
 
 from aria_service.intel import state_store as ss
 
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 @pytest.fixture
 async def store(tmp_path, monkeypatch):
@@ -144,5 +149,5 @@ async def test_rf3679_redis_store_wrapper_still_maps_the_error():
 
     assert issubclass(rs.StoreReadError, Exception)
     import inspect
-    src = inspect.getsource(rs.get_strict)
+    src = function_source(rs, "get_strict")
     assert "StateReadError" in src and "StoreReadError" in src

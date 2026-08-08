@@ -11,6 +11,11 @@ from __future__ import annotations
 
 from aria_service.intel.self_claim_guard import scan_response
 
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 _FAB = ("The current President is Donald Trump. This has been verified via the "
         "official White House website, which I queried using corrected search parameters.")
 
@@ -43,6 +48,6 @@ def test_plain_answer_without_verification_claim_is_clean():
 def test_footer_threads_web_tool_ran():
     import inspect
     from aria_service.intel import confidence_footer as cf
-    src = inspect.getsource(cf.build_footer)
+    src = function_source(cf, "build_footer")
     assert "_web_tool_ran" in src
     assert "web_tool_ran=_web_tool_ran" in src

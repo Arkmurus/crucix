@@ -17,6 +17,11 @@ from pathlib import Path
 
 from aria_service.routes import aria as a
 
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def _wa_source() -> str:
     return (
@@ -45,7 +50,7 @@ def test_rf925_signal_type_is_classified_as_failure_by_endpoint():
     """The endpoint routes a signal to capability_gaps only when its
     signal_type matches the failure tuple. `wa_chat_failed` must match so it
     reaches the coder (not the learning-absorb path)."""
-    src = inspect.getsource(a.brain_signal_ep)
+    src = function_source(a, "brain_signal_ep")
     # the endpoint detects failures by substring; "fail" is in the tuple
     assert '"fail"' in src or "'fail'" in src
     # and our signal_type contains it

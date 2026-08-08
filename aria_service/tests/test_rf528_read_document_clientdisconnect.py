@@ -22,12 +22,17 @@ import pytest
 
 from aria_service.routes import aria as aria_routes
 
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_rf528_source_has_clientdisconnect_handler():
     """Source-text check: /read-document endpoint contains a
     try/except around request.json() that catches ClientDisconnect
     and returns 499."""
-    src = inspect.getsource(aria_routes.read_document_ep)
+    src = function_source(aria_routes, "read_document_ep")
     assert "ClientDisconnect" in src, (
         "R-F528: /read-document must import + catch ClientDisconnect "
         "from starlette.requests"

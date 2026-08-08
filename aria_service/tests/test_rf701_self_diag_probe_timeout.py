@@ -16,6 +16,11 @@ from __future__ import annotations
 
 import asyncio
 
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_rf701_check_endpoint_uses_15s_timeout():
     """The probe should now use a 15s timeout, not the prior 6s.
@@ -23,7 +28,7 @@ def test_rf701_check_endpoint_uses_15s_timeout():
     httpx client to mutate it."""
     import inspect
     from aria_service.intel import self_diagnostic as sd
-    src = inspect.getsource(sd._check_endpoint)
+    src = function_source(sd, "_check_endpoint")
     assert "timeout=15.0" in src, (
         "R-F701 expected timeout=15.0 in _check_endpoint; got source without it"
     )
@@ -38,7 +43,7 @@ def test_rf701_probe_error_includes_exception_type_when_str_is_empty():
     than a dangling colon."""
     import inspect
     from aria_service.intel import self_diagnostic as sd
-    src = inspect.getsource(sd._check_endpoint)
+    src = function_source(sd, "_check_endpoint")
     # The fix uses `str(e)[:100] or type(e).__name__`
     assert "type(e).__name__" in src, (
         "R-F701 expected type(e).__name__ fallback in the exception branch"

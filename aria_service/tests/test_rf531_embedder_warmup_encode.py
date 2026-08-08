@@ -33,13 +33,18 @@ from __future__ import annotations
 import asyncio
 import inspect
 
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_rf531_prewarm_runs_warmup_encode_source_check():
     """The prewarm function must call `_safe_encode` so the lazy-init
     JIT/buffer-allocation work fires during lifespan, not on the first
     real request."""
     from aria_service.intel import semantic_search
-    src = inspect.getsource(semantic_search.prewarm_embedder)
+    src = function_source(semantic_search, "prewarm_embedder")
     # Tag is present
     assert "R-F531" in src, "R-F531 tag missing from prewarm_embedder"
     # Calls _safe_encode (NOT just _get_embedder/aget_embedder)

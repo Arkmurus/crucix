@@ -20,6 +20,11 @@ from datetime import datetime, timedelta, timezone
 
 from aria_service.intel import knowledge as kn
 
+# R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def _iso(days_ago: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
@@ -90,6 +95,6 @@ def test_rf962_still_merges_duplicates(monkeypatch):
 def test_rf962_no_age_deletion_logic_in_source():
     """Regression guard (mirrors R-F242's §7 scan, for knowledge.py): the
     consolidate_facts source must not re-introduce an age-based deletion."""
-    src = inspect.getsource(kn.consolidate_facts)
+    src = function_source(kn, "consolidate_facts")
     assert "pruned += 1" not in src, "R-F962 regression: age-prune counter crept back"
     assert 'f["stale"] = True' in src, "R-F962: non-destructive staleness flag must remain"
