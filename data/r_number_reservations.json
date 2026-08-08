@@ -31800,9 +31800,10 @@
       "title": "getsource batch 9",
       "claimed_at": "2026-08-08T17:03:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6e34f1c7",
+      "notes": null,
+      "shipped_at": "2026-08-08T17:04:35Z"
     }
   ]
 }
