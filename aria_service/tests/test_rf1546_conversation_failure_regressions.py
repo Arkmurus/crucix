@@ -11,6 +11,10 @@ or the document-grounded mode prompt) and asserts the correct behaviour.
 """
 import pytest
 
+# R-F3788/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 class TestHikvisionSanctionsJurisdiction:
     """Regression: Hikvision was claimed as UK-sanctioned based on a US OFAC hit.
@@ -53,7 +57,7 @@ class TestHikvisionSanctionsJurisdiction:
         # We can't easily mock here, but we can verify the function exists
         # and has the right structure
         import inspect
-        source = inspect.getsource(live_primary_check)
+        source = function_source("aria_service.intel.sanctions_claim_guard", "live_primary_check")
         assert "Matching jurisdictions:" in source, (
             "live_primary_check must build a jurisdiction list in citation_block"
         )
@@ -79,7 +83,7 @@ class TestZU23DocumentMisread:
         from aria_service import aria_engine
         
         import inspect
-        source = inspect.getsource(aria_engine)
+        source = module_source(aria_engine)
         assert "STRUCTURED EXTRACTION SUMMARY" in source, (
             "Document-grounded mode must include structured extraction summary rule"
         )
@@ -95,7 +99,7 @@ class TestZU23DocumentMisread:
         from aria_service import aria_engine
         
         import inspect
-        source = inspect.getsource(aria_engine)
+        source = module_source(aria_engine)
         assert "Quantities & prices" in source, (
             "The extraction summary must list quantities and prices"
         )
@@ -146,7 +150,7 @@ class TestContextLoss:
         from aria_service import aria_engine
         
         import inspect
-        source = inspect.getsource(aria_engine)
+        source = module_source(aria_engine)
         assert "RECALL CONTEXT" in source, (
             "Document-grounded mode must fence recall context"
         )
@@ -207,7 +211,7 @@ class TestAdversarialGraderRefusal:
         from aria_service.intel.operating_modes import evaluate_auto_transition
         
         import inspect
-        source = inspect.getsource(evaluate_auto_transition)
+        source = function_source("aria_service.intel.operating_modes", "evaluate_auto_transition")
         assert "degraded" in source.lower(), (
             "evaluate_auto_transition must check the degraded flag"
         )
@@ -225,7 +229,7 @@ class TestRegistryAutoFire:
         from aria_service.routes.aria import _detect_tool_intent
         
         import inspect
-        source = inspect.getsource(_detect_tool_intent)
+        source = function_source("aria_service.routes.aria", "_detect_tool_intent")
         assert "REGISTRY_JURISDICTIONS" in source, (
             "_detect_tool_intent must include REGISTRY_JURISDICTIONS"
         )

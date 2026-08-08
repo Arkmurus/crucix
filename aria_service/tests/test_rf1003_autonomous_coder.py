@@ -4,6 +4,10 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
+# R-F3788/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import class_source
+
 
 class TestAutonomousCoder:
     """Test the Autonomous Coder."""
@@ -109,7 +113,7 @@ class TestAutonomousCoder:
         import inspect
         from aria_service.intel.autonomous_coder import AutonomousCoder
         
-        source = inspect.getsource(AutonomousCoder)
+        source = class_source("aria_service.intel.autonomous_coder", "AutonomousCoder")
         assert "deepseek" not in source.lower()
         assert "anthropic" not in source.lower()
         assert "openai" not in source.lower()

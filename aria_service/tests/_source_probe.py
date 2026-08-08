@@ -192,6 +192,37 @@ def function_source(module_or_path, name: str) -> str:
     return "".join(lines[start:node.end_lineno])
 
 
+def class_source(module_or_path, name: str) -> str:
+    """The CURRENT source of a CLASS, resolved by NAME through the AST.
+
+    R-F3787 — the last shape in the §16 backlog with no reader. `function_source`
+    searches for FunctionDef/AsyncFunctionDef only, so `inspect.getsource(SomeClass)`
+    had nowhere to go: converting it to `function_source(mod, "SomeClass")` raises
+    "no function named 'SomeClass'", and the converter correctly refused those files
+    rather than emit a call that cannot work.
+
+    Same contract as function_source, for the same reason: resolve by NAME against the
+    file as it is NOW, so a concurrent edit cannot hand back a different class's body.
+    The slice starts at the first decorator, so a @dataclass or @final is included —
+    without that, an assertion about a decorator would fail on a correct class.
+
+    Scoped to TOP-LEVEL classes. A nested class is not searched, because a nested and a
+    top-level class of the same name would be ambiguous and this module exists to
+    refuse ambiguity rather than resolve it silently.
+    """
+    path, _cls = _resolve_target(module_or_path)
+    text, tree = _parse(str(path))
+    lines = text.splitlines(keepends=True)
+    for n in tree.body:
+        if isinstance(n, ast.ClassDef) and n.name == name:
+            start = (n.decorator_list[0].lineno - 1) if n.decorator_list else (n.lineno - 1)
+            return "".join(lines[start:n.end_lineno])
+    raise SourceProbeError(
+        f"no class named {name!r} in {path} — it was renamed or removed, which is a "
+        f"real change, not a read failure"
+    )
+
+
 def module_source(module_or_path) -> str:
     """The CURRENT full text of a module, read fresh (no linecache staleness)."""
     path = getattr(module_or_path, "__file__", None) or str(module_or_path)

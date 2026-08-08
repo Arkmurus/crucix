@@ -7,6 +7,10 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from aria_service.intel.knowledge import _auto_verify_fact
 
+# R-F3788/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 class TestVerifyBounded:
     """R-F1656: _auto_verify_fact is bounded — semaphore, timeout, circuit-breaker shed."""
@@ -24,7 +28,7 @@ class TestVerifyBounded:
         # The semaphore is created lazily inside the try block when a loop
         # is available. We verify the code structure by checking the source.
         import inspect
-        source = inspect.getsource(_auto_verify_fact)
+        source = function_source("aria_service.intel.knowledge", "_auto_verify_fact")
         assert "asyncio.Semaphore(4)" in source, "Semaphore(4) must be in source"
         assert "asyncio.wait_for" in source, "wait_for timeout must be in source"
         assert "circuit_breaker" in source, "circuit breaker check must be in source"
@@ -131,7 +135,7 @@ class TestBackendNames:
         """_backend_names must not contain 'brave' as an actual name entry."""
         from aria_service.intel.web_search import search
         import inspect
-        source = inspect.getsource(search)
+        source = function_source("aria_service.intel.web_search", "search")
         lines = source.split('\n')
         for i, line in enumerate(lines):
             if '_backend_names' in line:
@@ -151,5 +155,5 @@ class TestBackendNames:
         """Telemetry counter names must not contain 'brave_lang'."""
         from aria_service.intel.web_search import search
         import inspect
-        source = inspect.getsource(search)
+        source = function_source("aria_service.intel.web_search", "search")
         assert "brave_lang" not in source, "brave_lang still in telemetry code"

@@ -14,13 +14,17 @@ This test proves:
 """
 import pytest
 
+# R-F3788/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 def test_collab_bridge_drain_tool_registered():
     """Prove the collab_bridge_drain tool kind is registered in _execute_direct_tool."""
     from aria_service.autonomous.tasks import _execute_direct_tool
     import inspect
 
-    source = inspect.getsource(_execute_direct_tool)
+    source = function_source("aria_service.autonomous.tasks", "_execute_direct_tool")
     assert 'tool_kind == "collab_bridge_drain"' in source, (
         "collab_bridge_drain must be registered in _execute_direct_tool"
     )
@@ -49,7 +53,7 @@ def test_collab_bridge_drain_is_reachable_from_run_task():
 
     from aria_service.autonomous import tasks as t
 
-    source = inspect.getsource(t)
+    source = module_source(t)
     # Comments are stripped first: a parenthesis inside one would truncate the
     # tuple match and make this pass vacuously (the bug test_autonomous_
     # dispatch_parity's own extractor was written to avoid).

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3787,
+  "next_available": 3789,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31844,6 +31844,24 @@
       "commit_sha": "a226cce9",
       "notes": null,
       "shipped_at": "2026-08-08T17:23:52Z"
+    },
+    {
+      "r_number": "R-F3787",
+      "title": "class_source: read a class body, the one target with no reader",
+      "claimed_at": "2026-08-08T17:26:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3788",
+      "title": "the class branch could not fire: kind_in_module built a path named after the class",
+      "claimed_at": "2026-08-08T17:34:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
