@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3774,
+  "next_available": 3775,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31715,6 +31715,15 @@
       "commit_sha": "384f4572",
       "notes": null,
       "shipped_at": "2026-08-08T12:36:45Z"
+    },
+    {
+      "r_number": "R-F3774",
+      "title": "brittle string assertions fail when a task gains a name; satisfying them would strip the diagnostic",
+      "claimed_at": "2026-08-08T12:54:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -22,6 +22,7 @@ R-F703 ships two defensive moves:
 from __future__ import annotations
 
 import asyncio
+import re        # R-F3774 — assert scheduling, not a byte-for-byte call string
 
 # R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
 # IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
@@ -64,8 +65,25 @@ def test_rf703_stall_detector_function_present_in_main():
     assert "_event_loop_stall_detector" in src, (
         "R-F703 expected _event_loop_stall_detector function in lifespan"
     )
-    # Must be scheduled
-    assert "asyncio.create_task(_event_loop_stall_detector())" in src, (
+    # ── R-F3774 — this asserted the EXACT string
+    # "asyncio.create_task(_event_loop_stall_detector())", with empty args.
+    #
+    # It broke the moment the task gained a NAME:
+    #   _bg_task(asyncio.create_task(_event_loop_stall_detector(),
+    #                                name="stall_detector"))   # main.py:1933
+    # which is an IMPROVEMENT — a named task is identifiable in a task dump, and
+    # naming background tasks is how a stalled or dead one gets diagnosed at all.
+    #
+    # So the test failed because the code got BETTER, and the one-line "fix" it
+    # invites is to delete `name="stall_detector"` — removing a diagnostic to
+    # satisfy a string match. The watchdog was never missing; only the literal
+    # was. Same shape as R-F3772 (test_rf522), where the tempting fix would have
+    # reintroduced an SSRF hole.
+    #
+    # Assert the BEHAVIOUR the test cares about — the detector is scheduled as a
+    # task — not the byte-for-byte call. Argument order and kwargs are free to
+    # change; scheduling is not.
+    assert re.search(r"create_task\(\s*_event_loop_stall_detector\(\)", src), (
         "R-F703 expected _event_loop_stall_detector to be scheduled as a task"
     )
 
