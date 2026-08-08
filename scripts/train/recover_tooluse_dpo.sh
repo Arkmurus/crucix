@@ -14,17 +14,25 @@ jget(){ "$PYBIN" -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1','')
 pmget(){ "$PYBIN" -c "import sys,json;d=json.load(sys.stdin);print((d.get('portMappings') or {}).get('22') or '')" 2>/dev/null; }
 stop(){ log "stopping pod $POD_ID"; curl -s -X POST "$API/pods/$POD_ID/stop" -H "Authorization: Bearer $KEY" >/dev/null 2>&1; }
 trap stop EXIT
+KEYF=/tmp/rpkey_dpo_recover; cp ~/.ssh/runpod_aria "$KEYF"; chmod 600 "$KEYF"
+SSH="ssh -i $KEYF -o StrictHostKeyChecking=no -o ConnectTimeout=2"
+TSSH(){ timeout 15 $SSH "$@"; }
 START=$(curl -s -w '\n%{http_code}' -X POST "$API/pods/$POD_ID/start" -H "Authorization: Bearer $KEY")
 HTTP=$(printf '%s' "$START" | tail -1); BODY=$(printf '%s' "$START" | sed '$d')
 [ "$HTTP" = 200 ] || { log "BLOCKED start HTTP $HTTP: $BODY"; exit 2; }
-HOST=""; PORT=""
-for _ in $(seq 1 60); do
+HOST=""; PORT=""; SECURED=0
+for _ in $(seq 1 120); do
   PD=$(curl -s "$API/pods/$POD_ID" -H "Authorization: Bearer $KEY")
   ST=$(printf '%s' "$PD" | jget desiredStatus); HOST=$(printf '%s' "$PD" | jget publicIp); PORT=$(printf '%s' "$PD" | pmget)
-  [ "$ST" = RUNNING ] && [ -n "$HOST" ] && [ -n "$PORT" ] && break; sleep 10
+  case "$ST" in EXITED|STOPPED|TERMINATED) log "FATAL pod returned to $ST before recovery secured"; exit 1;; esac
+  if [ "$ST" = RUNNING ] && [ -n "$HOST" ] && [ -n "$PORT" ]; then
+    if TSSH -p "$PORT" root@"$HOST" "pkill -f '[p]od_selfstop_watch_v04.sh' 2>/dev/null || true; pkill -f '[p]od_tooluse_dpo.sh|[e]val_tooluse.py|[s]erve_eval_shim.py' 2>/dev/null || true; echo RECOVERY_READY" 2>/dev/null | grep -q RECOVERY_READY; then
+      SECURED=1; break
+    fi
+  fi
+  sleep 1
 done
-[ -n "$HOST" ] && [ -n "$PORT" ] || { log "FATAL retained pod unavailable"; exit 1; }
-KEYF=/tmp/rpkey_dpo_recover; cp ~/.ssh/runpod_aria "$KEYF"; chmod 600 "$KEYF"
+[ "$SECURED" = 1 ] || { log "FATAL retained pod unavailable before stale watchdog fired"; exit 1; }
 SSH="ssh -i $KEYF -o StrictHostKeyChecking=no -o ConnectTimeout=15"
 TSSH(){ timeout 75 $SSH "$@"; }
 for _ in $(seq 1 40); do TSSH -p "$PORT" root@"$HOST" 'test -f /workspace/checkpoints/aria_tooluse_dpo_v2/adapter_config.json' 2>/dev/null && break; sleep 5; done

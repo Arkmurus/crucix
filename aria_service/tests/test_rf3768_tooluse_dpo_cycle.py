@@ -100,3 +100,10 @@ def test_recovery_persists_full_epoch_adapter_before_eval_without_retraining() -
     assert "build_tooluse_corpus.py" in code
     assert 'd.get("complete") is True' in code
     assert 'len(d.get("rows") or [])==n' in code
+    prepared = code.index("KEYF=/tmp/rpkey_dpo_recover")
+    started_pod = code.index('POST "$API/pods/$POD_ID/start"')
+    killed_stale = code.index("'[p]od_selfstop_watch_v04.sh'")
+    persisted = code.index('log "persisting full-epoch adapter before evaluation"')
+    assert prepared < started_pod < killed_stale < persisted
+    assert "sleep 1" in code
+    assert "pod returned to $ST before recovery secured" in code
