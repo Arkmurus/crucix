@@ -98,6 +98,45 @@ def _resolve_target(target) -> tuple[str, str]:
                 f"{target.__name__} — its module is not importable by name"
             )
         return str(path), target.__name__
+
+    # R-F3778 — a DOTTED MODULE NAME is a target.
+    #
+    # This unblocks the shape that dominates what is left of the §16 backlog: 160 of
+    # the ~231 remaining getsource calls are `inspect.getsource(foo)` on a bare name.
+    # A bare name carries no module to resolve against, and for the common
+    # `from a.b.c import foo` there IS no module bound in the file — `a.b.c` was
+    # never named, only `foo` was. So there was literally nothing to pass here, and
+    # the converter had to skip the majority of the work.
+    #
+    # A dotted string closes it: `function_source("a.b.c", "foo")` is exactly as
+    # specific as the import that introduced the name, and needs no new import line
+    # in the test (which is what makes the conversion mechanical and safe).
+    #
+    # Distinguishing a module name from a PATH is done on structure, not a guess: a
+    # path has a separator or a .py suffix, a module name has neither. Anything
+    # ambiguous stays a path, preserving the pre-existing contract.
+    if isinstance(target, str):
+        looks_like_path = ("/" in target or "\\" in target or target.endswith(".py"))
+        if not looks_like_path and "." in target:
+            mod = _sys.modules.get(target)
+            if mod is None:
+                try:
+                    import importlib
+                    mod = importlib.import_module(target)
+                except Exception as e:
+                    raise SourceProbeError(
+                        f"cannot import module {target!r} to read its source: {e} — "
+                        f"a module that will not import is a real failure, not a "
+                        f"read failure"
+                    ) from e
+            path = getattr(mod, "__file__", None)
+            if not path:
+                raise SourceProbeError(
+                    f"module {target!r} has no __file__ (namespace package or "
+                    f"builtin) — there is no source to read"
+                )
+            return str(path), ""
+
     return str(getattr(target, "__file__", None) or target), ""
 
 
