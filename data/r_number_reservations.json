@@ -31790,9 +31790,10 @@
       "title": "getsource batch 8: converter rebuilt, three defects fixed at the root",
       "claimed_at": "2026-08-08T17:01:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "302d70ef",
+      "notes": null,
+      "shipped_at": "2026-08-08T17:02:41Z"
     }
   ]
 }
