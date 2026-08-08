@@ -111,9 +111,37 @@ def main() -> None:
 
     import torch
     from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
-    from datasets import load_dataset
+    from datasets import Dataset, load_dataset
     from peft import PeftModel
     from trl import DPOTrainer, DPOConfig
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        str(args.sft_checkpoint), trust_remote_code=True
+    )
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    logger.info("Loading DPO dataset")
+    raw_ds = load_dataset("json", data_files=str(args.dpo_file), split="train")
+    logger.info("DPO pairs: %d", len(raw_ds))
+
+    # R-F1353: FORMAT CONSISTENCY — the v0.2 collapse root cause.
+    # SFT (sft_train.py:_format_chat) trained on conversational `messages`, so
+    # SFTTrainer applied the Mistral chat template ([INST]…[/INST]); serving
+    # (serve_eval_shim.py) also calls apply_chat_template. But the DPO pairs are
+    # RAW STRINGS, which TRL's maybe_apply_chat_template leaves UN-templated —
+    # so DPO trained the model on a different prompt format than SFT+serving,
+    # dragging it off-distribution into mode-collapse. Render every prompt with
+    # the SAME tokenizer template before DPOTrainer sees the dataset.
+    rendered_rows = [render_dpo_example(example, tokenizer) for example in raw_ds]
+    ds = Dataset.from_list(rendered_rows)
+    if not len(ds):
+        raise ValueError("DPO dataset is empty")
+    first = ds[0]
+    if not all(isinstance(first.get(name), str) for name in ("prompt", "chosen", "rejected")):
+        raise TypeError("DPO rendered columns are not strings")
+    tokenizer(first["prompt"], add_special_tokens=False)
+    logger.info("Rendered and tokenized %d string-schema prompts before model load", len(ds))
 
     logger.info("Loading base + SFT adapter")
     bnb_config = None
@@ -124,13 +152,6 @@ def main() -> None:
             bnb_4bit_quant_type="nf4",
             bnb_4bit_use_double_quant=True,
         )
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        str(args.sft_checkpoint), trust_remote_code=True
-    )
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
     base = AutoModelForCausalLM.from_pretrained(
         args.base_model,
         torch_dtype=torch.bfloat16,
@@ -141,27 +162,6 @@ def main() -> None:
     model = PeftModel.from_pretrained(base, str(args.sft_checkpoint), is_trainable=True)
     model.config.use_cache = False
     model.config.pad_token_id = tokenizer.pad_token_id
-
-    logger.info("Loading DPO dataset")
-    ds = load_dataset("json", data_files=str(args.dpo_file), split="train")
-    logger.info("DPO pairs: %d", len(ds))
-
-    # R-F1353: FORMAT CONSISTENCY — the v0.2 collapse root cause.
-    # SFT (sft_train.py:_format_chat) trained on conversational `messages`, so
-    # SFTTrainer applied the Mistral chat template ([INST]…[/INST]); serving
-    # (serve_eval_shim.py) also calls apply_chat_template. But the DPO pairs are
-    # RAW STRINGS, which TRL's maybe_apply_chat_template leaves UN-templated —
-    # so DPO trained the model on a different prompt format than SFT+serving,
-    # dragging it off-distribution into mode-collapse. Render every prompt with
-    # the SAME tokenizer template before DPOTrainer sees the dataset.
-    if len(ds):
-        ds = ds.map(
-            lambda example: render_dpo_example(example, tokenizer),
-            remove_columns=ds.column_names,  # drop raw str prompt/chosen/rejected/meta
-            desc="render DPO prompts",
-        )
-        logger.info("Rendered %d prompts to strings and removed metadata "
-                    "(chat template matches SFT + serving)", len(ds))
 
     dpo_config = DPOConfig(
         output_dir=str(args.output_dir),

@@ -70,3 +70,13 @@ def test_dpo_normalization_rejects_malformed_tool_trace() -> None:
             {"prompt": [{"role": "tool"}], "chosen": "a", "rejected": "b"},
             object(),
         )
+
+
+def test_trainer_rebuilds_arrow_schema_and_probes_before_model_load() -> None:
+    code = (ROOT / "scripts/train/dpo_train.py").read_text(encoding="utf-8")
+    rebuilt = code.index("Dataset.from_list(rendered_rows)")
+    probed = code.index('tokenizer(first["prompt"], add_special_tokens=False)')
+    model_loaded = code.index("base = AutoModelForCausalLM.from_pretrained")
+    assert rebuilt < probed < model_loaded
+    assert "ds.map(" not in code
+    assert 'raise TypeError("DPO rendered columns are not strings")' in code
