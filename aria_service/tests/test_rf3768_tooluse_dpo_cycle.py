@@ -41,6 +41,11 @@ def test_orchestrator_pins_inputs_and_bounds_paid_artifact_recovery() -> None:
     assert "UNREADABLE" in code and "NOT_RUNNING" in code
     assert code.count("END { exit !found }") == 3
     assert "grep -q '/adapter_config.json$'" not in code
+    assert "build_tooluse_corpus.py:/workspace/crucix/scripts/train/build_tooluse_corpus.py" in code
+
+    pod = (ROOT / "scripts/train/pod_tooluse_dpo.sh").read_text(encoding="utf-8")
+    assert "cd /workspace/crucix" in pod
+    assert "eval_tooluse.py build_tooluse_corpus.py" in pod
 
 
 def test_mixed_tool_trace_pair_is_normalized_and_metadata_removed() -> None:

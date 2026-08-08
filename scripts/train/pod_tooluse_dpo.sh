@@ -14,6 +14,7 @@ LOGS="/workspace/logs"
 PORT=8888
 EXPECTED_EVAL_ROWS="${EXPECTED_EVAL_ROWS:-168}"
 export HF_HOME=/workspace/.cache/huggingface
+cd /workspace/crucix || { echo "[FATAL] staged repository unavailable" >&2; exit 1; }
 
 mkdir -p "$DPO_OUT" /workspace/eval "$LOGS"
 rm -f /workspace/eval/_cycle_status
@@ -24,7 +25,7 @@ fail(){ echo "[FATAL] $*" >&2; exit 1; }
 [ -f "$SFT_ADAPTER/adapter_config.json" ] || fail "recovered SFT adapter missing"
 [ -s "$DPO_FILE" ] || fail "DPO corpus missing"
 [ -s "$EVAL_FILE" ] || fail "held-out eval missing"
-for script in dpo_train.py serve_eval_shim.py eval_tooluse.py; do
+for script in dpo_train.py serve_eval_shim.py eval_tooluse.py build_tooluse_corpus.py; do
   [ -f "$SCRIPTS/$script" ] || fail "$script missing"
 done
 
