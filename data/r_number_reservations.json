@@ -31830,9 +31830,10 @@
       "title": "the multi-line-import skip was obsoleted by the AST insertion point",
       "claimed_at": "2026-08-08T17:13:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8955ffa1",
+      "notes": null,
+      "shipped_at": "2026-08-08T17:17:33Z"
     }
   ]
 }
