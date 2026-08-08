@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# R-F3768 — continue the recovered tool-use SFT adapter with evidence-derived DPO.
+set -uo pipefail
+
+BASE_MODEL="${BASE_MODEL:-mistralai/Mistral-7B-Instruct-v0.3}"
+SFT_ADAPTER="${SFT_ADAPTER:-/workspace/checkpoints/aria_tooluse_v1}"
+DPO_FILE="${DPO_FILE:-/workspace/datasets/aria_tooluse_dpo_v2_complete.jsonl}"
+EVAL_FILE="${EVAL_FILE:-/workspace/datasets/aria_tooluse_eval.jsonl}"
+DPO_OUT="${DPO_OUT:-/workspace/checkpoints/aria_tooluse_dpo_v2}"
+REPORT="${REPORT:-/workspace/eval/aria_tooluse_dpo_eval.json}"
+ARCHIVE="${ARCHIVE:-/workspace/eval/aria_tooluse_dpo_adapter.tgz}"
+SCRIPTS="/workspace/crucix/scripts/train"
+LOGS="/workspace/logs"
+PORT=8888
+EXPECTED_EVAL_ROWS="${EXPECTED_EVAL_ROWS:-168}"
+export HF_HOME=/workspace/.cache/huggingface
+
+mkdir -p "$DPO_OUT" /workspace/eval "$LOGS"
+rm -f /workspace/eval/_cycle_status
+trap 'rc=$?; echo "$rc" > /workspace/eval/_cycle_status 2>/dev/null || true' EXIT
+log(){ echo "[$(date -u +%H:%M:%S)] [tooluse-dpo] $*"; }
+fail(){ echo "[FATAL] $*" >&2; exit 1; }
+
+[ -f "$SFT_ADAPTER/adapter_config.json" ] || fail "recovered SFT adapter missing"
+[ -s "$DPO_FILE" ] || fail "DPO corpus missing"
+[ -s "$EVAL_FILE" ] || fail "held-out eval missing"
+for script in dpo_train.py serve_eval_shim.py eval_tooluse.py; do
+  [ -f "$SCRIPTS/$script" ] || fail "$script missing"
+done
+
+python - "$DPO_FILE" <<'PY' || fail "DPO corpus validation failed"
+import json, sys
+rows = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
+if len(rows) != 14:
+    raise SystemExit(f"expected 14 DPO pairs, got {len(rows)}")
+for i, row in enumerate(rows, 1):
+    if not all(isinstance(row.get(k), str) and row[k].strip() for k in ("prompt", "chosen", "rejected")):
+        raise SystemExit(f"pair {i} has an invalid field")
+    if row["chosen"] == row["rejected"]:
+        raise SystemExit(f"pair {i} has identical preferences")
+print("verified 14 non-degenerate DPO pairs")
+PY
+
+log "installing pinned train and evaluation runtime"
+pip install -q "transformers==4.46.3" "peft==0.13.2" "trl==0.12.2" \
+  "accelerate>=0.34" bitsandbytes datasets sentencepiece protobuf fastapi uvicorn httpx \
+  || fail "dependency installation failed"
+python - <<'PY' || fail "runtime preflight failed"
+import torch, transformers, peft, trl, bitsandbytes, accelerate  # noqa: F401
+if not torch.cuda.is_available():
+    raise SystemExit("CUDA unavailable")
+if not torch.cuda.is_bf16_supported():
+    raise SystemExit("bf16 unavailable")
+print(torch.cuda.get_device_name(0))
+PY
+
+log "DPO training: 14 pairs, one epoch, beta=0.1, lr=5e-6, batch=2"
+python "$SCRIPTS/dpo_train.py" \
+  --base-model "$BASE_MODEL" --sft-checkpoint "$SFT_ADAPTER" \
+  --dpo-file "$DPO_FILE" --output-dir "$DPO_OUT" \
+  --epochs 1 --beta 0.1 --lr 5e-6 --batch-size 2 \
+  --max-seq-len 4096 --max-grad-norm 0.3 --load-in-4bit \
+  2>&1 | tee "$LOGS/tooluse_dpo_train.log"
+[ -f "$DPO_OUT/adapter_config.json" ] || fail "DPO produced no adapter"
+
+# Persist the serving artifact before the long eval so a later host failure cannot
+# erase paid training. Optimizer checkpoints are deliberately excluded.
+tar --exclude='checkpoint-*' -czf "$ARCHIVE" -C "$(dirname "$DPO_OUT")" "$(basename "$DPO_OUT")" \
+  || fail "adapter archive failed"
+tar -tzf "$ARCHIVE" | grep -q '/adapter_config.json$' || fail "adapter archive invalid"
+log "DPO adapter staged before held-out evaluation"
+
+ADAPTER="$DPO_OUT" MODEL_NAME=aria-tooluse-dpo PORT=$PORT BASE_MODEL="$BASE_MODEL" \
+  setsid nohup python "$SCRIPTS/serve_eval_shim.py" >"$LOGS/tooluse_dpo_shim.log" 2>&1 </dev/null &
+for i in $(seq 1 60); do
+  curl -fsS --max-time 5 "http://localhost:$PORT/v1/models" | grep -q aria-tooluse-dpo && break
+  [ "$i" -eq 60 ] && { tail -40 "$LOGS/tooluse_dpo_shim.log"; fail "evaluation shim unavailable"; }
+  sleep 10
+done
+
+log "evaluating unchanged 168-row held-out set"
+python "$SCRIPTS/eval_tooluse.py" --target "http://localhost:$PORT/v1" \
+  --model aria-tooluse-dpo --eval-file "$EVAL_FILE" --out "$REPORT" \
+  2>&1 | tee "$LOGS/tooluse_dpo_eval.log" || fail "held-out evaluation failed"
+python - "$REPORT" "$EXPECTED_EVAL_ROWS" <<'PY' || fail "held-out completeness gate failed"
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+n = int(sys.argv[2])
+if d.get("complete") is not True or d.get("total") != n or len(d.get("rows") or []) != n:
+    raise SystemExit(f"report does not prove {n} complete rows")
+print(f"verified complete held-out evaluation: n={n}")
+PY
+pkill -f serve_eval_shim 2>/dev/null || true
+log "cycle complete"
