@@ -35,6 +35,10 @@ import pytest
 
 from aria_service.learning import verification_gate as vg
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 class _Prov:
     def __init__(self, name: str, configured: bool = True):
@@ -172,7 +176,7 @@ def test_rate_limiter_preserves_the_fallback_routing_tag():
     import inspect
     from aria_service.llm import rate_limiter
 
-    src = inspect.getsource(rate_limiter)
+    src = module_source(rate_limiter)
     assert 'startswith("fallback:")' in src, (
         "RateLimitedProvider.complete must NOT clobber an inner "
         "`fallback:<name>` tag — that tag is the only record of which provider "

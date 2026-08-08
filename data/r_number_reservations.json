@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3784,
+  "next_available": 3785,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31814,6 +31814,15 @@
       "commit_sha": "d2d74dfd",
       "notes": null,
       "shipped_at": "2026-08-08T17:08:58Z"
+    },
+    {
+      "r_number": "R-F3784",
+      "title": "getsource batch 11",
+      "claimed_at": "2026-08-08T17:11:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -44,6 +44,10 @@ import pytest
 
 from aria_service.intel import dd_orchestrator as dd
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 @pytest.fixture()
 def store(monkeypatch):
@@ -178,7 +182,7 @@ def test_the_user_facing_route_asks_for_enrolment(store):
 
     from aria_service.routes import aria as routes_aria
 
-    src = inspect.getsource(routes_aria.dd_watchlist_add_ep)
+    src = function_source(routes_aria, "dd_watchlist_add_ep")
     assert "requested_by_user=True" in src, (
         "the manual add route does not request enrolment, so a user clicking "
         "'Add Entity' is refused")
@@ -190,8 +194,8 @@ def test_no_automatic_caller_passes_the_flag():
 
     from aria_service.autonomous import tasks as auto_tasks
 
-    dd_src = inspect.getsource(dd)
-    auto_src = inspect.getsource(auto_tasks)
+    dd_src = module_source(dd)
+    auto_src = module_source(auto_tasks)
 
     # R-F878's enrol block in dd_orchestrator.
     enrol = dd_src[dd_src.index("R-F878 (2026-05-25)"):]
@@ -224,7 +228,7 @@ def test_add_to_watchlist_is_the_only_function_that_can_create_an_entry():
     import inspect
     import re
 
-    src = inspect.getsource(dd).split("\n")
+    src = module_source(dd).split("\n")
     allowed = {
         "add_to_watchlist", "update_watchlist_schedule", "remove_from_watchlist",
         "get_watchlist", "delete_report", "rescreen_watchlist",
@@ -248,7 +252,7 @@ def test_add_to_watchlist_is_the_only_function_that_can_create_an_entry():
 
     # And the gate itself must still hold both of its writes: the enrichment
     # path and the create path.
-    fn_src = inspect.getsource(dd.add_to_watchlist)
+    fn_src = function_source(dd, "add_to_watchlist")
     assert len(re.findall(r"set_json\(\s*WATCHLIST_KEY", fn_src)) == 2
     # The create write must sit AFTER the refusal, or the gate is unreachable.
     assert fn_src.index("if not requested_by_user") < fn_src.rindex(

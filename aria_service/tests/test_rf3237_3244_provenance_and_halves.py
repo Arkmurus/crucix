@@ -18,6 +18,10 @@ import inspect
 from aria_service.intel import dd_orchestrator as ddo
 from aria_service.intel import dd_schema, sanctions
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 # ── R-F3237 — provenance, not spelling, decides ─────────────────────────────
 
@@ -28,7 +32,7 @@ REAL_NAMES = ["Marks & Spencer Group plc", "Smith & Nephew plc",
 def test_rf3237_dd_enrolment_uses_the_same_standard_as_the_screen():
     """A name R-F3228 screens must not be refused by the watchlist on the same
     page. Both now ask `_screenable(..., trusted=True)`."""
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     # R-F3280 — anchor says R-F3239, not R-F3237. The code was RENUMBERED after
     # the R-F3237 collision (the peer had already shipped R-F3237 for a source
     # health claim) and this test kept the pre-collision number, so the anchor
@@ -42,7 +46,7 @@ def test_rf3237_dd_enrolment_uses_the_same_standard_as_the_screen():
 
 
 def test_rf3237_operator_curated_public_entry_accepts_real_names():
-    src = inspect.getsource(ddo.add_public_watchlist_entity)
+    src = function_source(ddo, "add_public_watchlist_entity")
     assert "_screenable(name, trusted=True)" in src, src
 
 
@@ -50,7 +54,7 @@ def test_rf3237_purge_keeps_provenanced_entries():
     """THE DEFECT R-F3228 would otherwise have created: the re-screen purge
     deletes by name shape and persists it, so a monitored counterparty would
     vanish with no event."""
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     # R-F3280 — same renumber: shipped as R-F3239, with a plain hyphen.
     i = src.index("R-F3239 - PURGE BY PROVENANCE, NOT BY NAME SHAPE")
     window = src[i:i + 2600]

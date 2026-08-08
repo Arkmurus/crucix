@@ -21,6 +21,10 @@ from __future__ import annotations
 
 import pytest
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _routes():
     from aria_service.routes.aria import router
@@ -91,7 +95,7 @@ def test_every_gdpr_capability_now_has_a_caller():
         if callable(fn) and not name.startswith("_")
         and name in {"erase_by_subject", "retention_review", "purge_by_keywords"}
     }
-    src = inspect.getsource(_routes_mod)
+    src = module_source(_routes_mod)
     unreachable = sorted(n for n in public if n not in src)
     assert not unreachable, (
         f"these GDPR capabilities exist but no route invokes them: {unreachable}. "

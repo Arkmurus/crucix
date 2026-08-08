@@ -19,6 +19,10 @@ import pytest
 from aria_service.intel.dd_schema import ARKDDReport, _gated_requirement_lines
 from aria_service.intel.dd_orchestrator import _gated_search_permitted
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 @pytest.fixture(autouse=True)
 def _credentialed(monkeypatch):
@@ -165,7 +169,7 @@ def test_every_bound_paid_resolver_is_gated_on_an_election():
                       if s.access == ds.Access.PAID_PER_SEARCH.value and s.is_built()]
     if not paid_and_built:
         pytest.skip("no paid resolver is bound yet — guard is dormant, see docstring")
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert "_gated_search_permitted" in src, (
         f"a metered resolver is bound ({[s.id for s in paid_and_built]}) but the "
         f"orchestrator never checks _gated_search_permitted — it can spend without "

@@ -38,6 +38,10 @@ import pytest
 
 from aria_service.intel.sources import gazette as gz
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -215,7 +219,7 @@ def test_the_shared_json_helper_is_not_called():
     import ast
     import inspect
 
-    tree = ast.parse(inspect.getsource(gz))
+    tree = ast.parse(module_source(gz))
     called = {
         n.func.id if isinstance(n.func, ast.Name) else getattr(n.func, "attr", "")
         for n in ast.walk(tree) if isinstance(n, ast.Call)

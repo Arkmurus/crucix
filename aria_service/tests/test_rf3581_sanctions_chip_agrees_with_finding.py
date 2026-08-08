@@ -20,6 +20,10 @@ import inspect
 from aria_service.intel import dd_orchestrator as dd
 from aria_service.intel.dd_schema import _sanctions_match_metric as chip
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _screen(total, noise, actionable, worst="info"):
     return {"matches": [{}] * total,
@@ -58,7 +62,7 @@ def test_a_screen_that_never_ran_is_still_distinguishable():
 def test_the_writeback_is_wired_into_the_filter():
     """R-F3515's lesson: a helper nothing calls is indistinguishable from no fix.
     The write-back must sit with the coincidence filter that produces the drop."""
-    src = inspect.getsource(dd)
+    src = module_source(dd)
     i = src.index("_coincidences = [")
     blk = src[i: i + 2600]
     assert 'match_classification' in blk, (

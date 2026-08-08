@@ -26,6 +26,10 @@ import inspect
 
 from aria_service.intel import dd_orchestrator as dd
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 # ── the decision ──────────────────────────────────────────────────────────────
 
@@ -78,7 +82,7 @@ def test_empty_and_malformed_input_is_safe():
 
 def _identity_source() -> str:
     """The filter lives inline in the identity layer; find it by its anchor."""
-    src = inspect.getsource(dd)
+    src = module_source(dd)
     i = src.index("_coincidences = [")
     return src[i - 1200: i + 1800]
 

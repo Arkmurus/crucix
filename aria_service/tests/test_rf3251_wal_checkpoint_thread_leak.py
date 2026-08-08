@@ -47,6 +47,10 @@ import threading
 
 import pytest
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 def _live_connection_threads() -> int:
     """Live aiosqlite connection worker threads.
@@ -302,7 +306,7 @@ def test_the_gauge_survives_the_redis_store_worker_patch():
 
     from aria_service.intel import state_store as ss
 
-    src = inspect.getsource(ss.connection_gauge)
+    src = function_source(ss, "connection_gauge")
     assert "_patched_worker" in src, (
         "the gauge does not know about redis_store's patched worker name — it "
         "will read 0 in production")
@@ -342,7 +346,7 @@ def test_the_gauge_has_an_http_route_not_just_a_function():
 
     from aria_service.routes import aria as aria_routes
 
-    src = inspect.getsource(aria_routes)
+    src = module_source(aria_routes)
     assert '"/admin/state/connections"' in src, (
         "no HTTP route exposes the connection gauge — it is reachable only "
         "from inside the process, which is where it was already stuck")

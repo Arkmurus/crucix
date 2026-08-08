@@ -31,6 +31,10 @@ import pytest
 
 from aria_service.vetting.documents import decode_text_best_effort
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 def _pdf_bytes(text: str) -> bytes:
     fitz = pytest.importorskip("fitz")
@@ -108,7 +112,7 @@ def test_extraction_is_bounded_so_one_document_cannot_hang_an_upload():
 
     from aria_service.vetting import documents as d
 
-    src = inspect.getsource(d)
+    src = module_source(d)
     assert "_MAX_EXTRACT_PAGES" in src, (
         "extraction has no page bound — a large scan can stall an upload")
     assert "_MAX_EXTRACT_CHARS" in src, "extraction has no character bound"
@@ -121,6 +125,6 @@ def test_ocr_is_a_fallback_not_the_default():
 
     from aria_service.vetting import documents as d
 
-    src = inspect.getsource(d._extract_pdf)
+    src = function_source(d, "_extract_pdf")
     assert "if" in src and "ocr" in src.lower(), (
         "OCR does not appear to be conditional on the text layer being empty")

@@ -37,13 +37,17 @@ import inspect
 
 import pytest
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def test_the_staleness_gate_runs_off_the_event_loop():
     """THE regression. The call that appeared on the blocked main thread must
     not be awaited inline."""
     from aria_service import main
 
-    src = inspect.getsource(main)
+    src = module_source(main)
     # The gate must be handed to a worker thread, like the refresh it guards.
     assert "to_thread(_ss.newest_entry_refresh" in src or \
            "to_thread(\n            _ss.newest_entry_refresh" in src, (

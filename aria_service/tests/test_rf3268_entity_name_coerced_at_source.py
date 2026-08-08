@@ -32,6 +32,10 @@ import pytest
 from aria_service.intel import dd_orchestrator as ddo
 from aria_service.intel import researcher as res
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def test_the_crashing_leaf_still_rejects_a_list() -> None:
     """Baseline: this is the live failure, and it is NOT what we are fixing.
@@ -59,7 +63,7 @@ def test_entity_name_is_coerced_at_every_assignment_site() -> None:
     import ast
     import inspect
 
-    tree = ast.parse(inspect.getsource(ddo))
+    tree = ast.parse(module_source(ddo))
 
     def _is_entity_name_target(node) -> bool:
         return isinstance(node, ast.Attribute) and node.attr == "entity_name" and \
@@ -93,7 +97,7 @@ def test_adverse_media_params_never_carry_a_non_string_name() -> None:
     search queries and a wrong type there costs the entire adverse-media sweep.
     """
     import inspect
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     bad = []
     for i, line in enumerate(src.splitlines(), start=1):
         s = line.strip()

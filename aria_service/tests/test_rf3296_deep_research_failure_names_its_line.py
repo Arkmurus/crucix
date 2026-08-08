@@ -24,6 +24,10 @@ import re
 
 import pytest
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def test_the_module_can_actually_format_a_location() -> None:
     """The no-op guard: prove the basename path works in THIS module's namespace.
@@ -42,7 +46,7 @@ def test_the_catch_records_file_and_line() -> None:
     import inspect
     from aria_service.intel import dd_orchestrator as ddo
 
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     i = src.index("R-F3296")
     window = src[i:i + 1600]
 

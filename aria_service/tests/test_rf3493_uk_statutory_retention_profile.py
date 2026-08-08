@@ -39,6 +39,10 @@ import pytest
 from aria_service.intel import rag_store
 from aria_service.intel.rag_store import DATA_JURISDICTION_KEY, RETENTION_CLASS_KEY
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 class _Coll:
     def __init__(self, metas):
@@ -163,7 +167,7 @@ def test_the_trigger_caveat_is_documented_in_the_module():
     RELATIONSHIP, and the review measures from ingest. If that caveat is ever deleted,
     the numbers become confident and wrong."""
     import inspect
-    src = inspect.getsource(rag_store)
+    src = module_source(rag_store)
     assert "END OF THE BUSINESS RELATIONSHIP" in src
     assert "EARLIEST possible due date" in src
 

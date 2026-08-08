@@ -26,6 +26,10 @@ import pathlib
 
 import pytest
 
+# R-F3784/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def replay_source_results(recording: dict, labels: list[str]) -> list:
     """Rebuild the adapter result list, in `labels` order, from a recording.
@@ -142,6 +146,6 @@ def test_the_recorder_itself_never_reads_recordings():
     cache of sanctions answers is a stale screen waiting to happen."""
     import inspect
     from aria_service.intel import dd_evidence_recorder as rec
-    src = inspect.getsource(rec)
+    src = module_source(rec)
     assert "read_text" not in src, "the recorder reads recordings — that is a cache"
     assert "def record_source_results" in src
