@@ -20,6 +20,10 @@ import pytest
 
 from aria_service.intel import dd_orchestrator as dd
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _report(press_coverage=None, adverse=None):
     return types.SimpleNamespace(
@@ -133,7 +137,7 @@ def test_synthesis_reads_the_helper_and_not_the_unassigned_field():
     made the difference between 0 rows and 15 on the real captured report."""
     import inspect
 
-    src = inspect.getsource(dd._run_synthesis)
+    src = function_source(dd, "_run_synthesis")
     assert "_positive_source_rows(report)" in src, (
         "synthesis is not using the populated producer"
     )
@@ -215,7 +219,7 @@ def test_the_followup_call_site_is_reachable_and_correctly_ordered():
     index row the list surface reads."""
     import inspect
 
-    src = inspect.getsource(dd._run_adverse_media_followup)
+    src = function_source(dd, "_run_adverse_media_followup")
     assert "_promote_positives_into_body(_body, _am_result)" in src, (
         "the follow-up does not promote; adverse-borne credentials stay dropped"
     )

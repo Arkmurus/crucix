@@ -34,6 +34,10 @@ import re
 
 import pytest
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 _REPO = pathlib.Path(__file__).resolve().parents[2]
 _RETIRED_KEY = "crucix:brain:incoming_signals"
@@ -123,7 +127,7 @@ def test_the_monitor_does_not_re_read_source_files_every_cycle():
     assert hasattr(wiring_monitor._cached_source, "cache_info"), (
         "_cached_source is not memoised — every monitor cycle re-reads the files"
     )
-    src = inspect.getsource(wiring_monitor.test_brain_signal_path)
+    src = function_source(wiring_monitor, "test_brain_signal_path")
     assert "with open(" not in src, (
         "a raw open() is back in the monitor's per-cycle path; route it through "
         "_cached_source so the loop does not block on constant data"

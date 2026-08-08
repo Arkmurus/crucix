@@ -39,6 +39,10 @@ import pytest
 from aria_service.intel import dd_orchestrator as o
 import aria_service.intel.redis_store as rs
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 class _Store:
     """Fake store whose STRICT reader can be made to fail, which is the only way to
@@ -179,7 +183,7 @@ def test_there_is_one_strict_reader_not_a_copy():
     """A second copy of the strict-read-or-skip logic is how the private and public
     watchlists drifted apart. The key is a parameter."""
     import inspect
-    src = inspect.getsource(o._read_watchlist_or_skip)
+    src = function_source(o, "_read_watchlist_or_skip")
     assert "key: str = WATCHLIST_KEY" in src, "the reader is not key-parameterised"
     assert "get_json_strict(key)" in src, (
         "the reader still hardcodes a key — the public path is reading the private one")

@@ -29,6 +29,10 @@ import pytest
 
 from aria_service.routes.aria import RiskRequest, compliance_risk_ep
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 async def _risk(country: str) -> dict:
     return await compliance_risk_ep(RiskRequest(country=country))
@@ -172,7 +176,7 @@ async def test_an_unresolvable_country_cannot_match_any_risk_set():
     from aria_service.routes import aria as _aria_routes
     import inspect
 
-    src = inspect.getsource(_aria_routes.compliance_risk_ep)
+    src = function_source(_aria_routes, "compliance_risk_ep")
     for token in ('EMBARGOED = {', 'HIGH_RISK = {', 'MEDIUM_RISK = {'):
         assert token in src, f"{token} moved; this guard needs updating"
     assert '"??"' not in src.split('EMBARGOED = {')[1].split('}')[0]

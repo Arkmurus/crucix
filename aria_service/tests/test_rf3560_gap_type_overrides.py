@@ -24,6 +24,10 @@ import pytest
 from aria_service.intel import wiring_harness as wh
 from aria_service.intel.capability_gaps import VALID_GAP_TYPES
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 # ── The blocking case actually clears ─────────────────────────────────────────
 
@@ -130,7 +134,7 @@ def test_gate_c_resolves_the_same_per_function_type_as_gate_b():
     being wrong: whichever you satisfy, the other fails."""
     import inspect
 
-    src = inspect.getsource(wh.run_gate_c)
+    src = function_source(wh, "run_gate_c")
     assert "_expected_types" in src, "gate C still asserts against the module type alone"
     assert 'get_gap_type(module_name, f["name"])' in src, (
         "gate C must resolve the per-function type, exactly as gate B does"

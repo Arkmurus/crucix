@@ -31,6 +31,10 @@ import pytest
 
 from aria_service import aria_engine as ae
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 COMPACT = ae.ARIA_SYSTEM_PROMPT_COMPACT
 FULL = ae.ARIA_SYSTEM_PROMPT
@@ -89,7 +93,7 @@ def test_rf3665_compact_prompt_is_actually_used_in_production_shape():
     """_compact_prompt_active() keys off ARIA_LLM_URL. This is not a dormant
     path — pin the coupling so the blast radius stays visible."""
     import inspect
-    src = inspect.getsource(ae._compact_prompt_active)
+    src = function_source(ae, "_compact_prompt_active")
     assert "ARIA_LLM_URL" in src, (
         "compact-prompt activation no longer keys off ARIA_LLM_URL — if that "
         "changed deliberately, update docs/decisions_pending_operator_2026_08_03.md"

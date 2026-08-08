@@ -44,6 +44,10 @@ import pytest
 from aria_service.llm import fallback
 from aria_service.llm import model_router as mr
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 class _Stub:
     def __init__(self, name):
@@ -175,7 +179,7 @@ def test_the_chain_builder_no_longer_reads_the_legacy_flag():
     """
     import inspect
     import re
-    src = inspect.getsource(fallback.create_fallback_chain)
+    src = function_source(fallback, "create_fallback_chain")
     reads = re.findall(r"getenv\(\s*[\"']ARIA_LLM_SHADOW[\"']", src)
     assert reads == [], (
         "create_fallback_chain must not READ ARIA_LLM_SHADOW: that variable's "

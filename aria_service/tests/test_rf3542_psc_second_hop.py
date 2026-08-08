@@ -30,6 +30,10 @@ import pytest
 
 from aria_service.intel import companies_house as ch
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _drive(graph, **kw):
     """Run the walker against a fake register."""
@@ -144,7 +148,7 @@ def test_only_ownership_kinds_become_edges_or_ultimates():
     directorship can never enter this chain — asserted so a future 'enrichment' cannot
     reintroduce the category error."""
     import inspect
-    src = inspect.getsource(ch.walk_psc_ownership)
+    src = function_source(ch, "walk_psc_ownership")
     assert "get_psc(" in src
     for forbidden in ("get_officers", "officers", "appointments"):
         assert forbidden not in src, (

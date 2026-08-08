@@ -27,6 +27,10 @@ import pathlib
 
 import pytest
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 _SPEC = importlib.util.spec_from_file_location(
     "lhc", pathlib.Path(__file__).resolve().parents[2] / "scripts" / "live_health_check.py")
 lhc = importlib.util.module_from_spec(_SPEC)
@@ -66,7 +70,7 @@ def test_the_fallback_runs_only_AFTER_the_normal_check():
     """It must widen the pass condition, never replace it — the substring check is the
     cheap path and stays first."""
     import inspect
-    src = inspect.getsource(lhc.check_app_health)
+    src = function_source(lhc, "check_app_health")
     assert src.index('config["health_check"]') < src.index("_live_contains_expected"), (
         "the ancestry fallback runs before the primary check")
     assert "elif _live_contains_expected" in src, (
@@ -77,5 +81,5 @@ def test_the_pass_message_says_a_later_batch_shipped_past():
     """A PASS that looks identical to an exact match would hide that someone else's
     commits are also live — which is exactly what an operator needs to know."""
     import inspect
-    src = inspect.getsource(lhc.check_app_health)
+    src = function_source(lhc, "check_app_health")
     assert "CONTAINS" in src and "shipped past this commit" in src

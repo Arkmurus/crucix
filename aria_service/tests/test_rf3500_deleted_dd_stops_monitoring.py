@@ -41,6 +41,10 @@ import pytest
 
 from aria_service.intel import sanctions, dd_orchestrator
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 class TestBreakerSkipDoesNotNameTheSubject:
 
@@ -106,7 +110,7 @@ class TestDeletingADdStopsTheMonitoring:
     async def test_cascade_is_reached_from_delete_report(self):
         """Guard the WIRING, not just the helper."""
         import ast, inspect, textwrap
-        src = textwrap.dedent(inspect.getsource(dd_orchestrator.delete_report))
+        src = textwrap.dedent(function_source(dd_orchestrator, "delete_report"))
         tree = ast.parse(src)
         called = {getattr(c.func, "id", "") or getattr(c.func, "attr", "")
                   for c in ast.walk(tree) if isinstance(c, ast.Call)}

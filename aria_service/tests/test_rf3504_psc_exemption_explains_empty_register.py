@@ -53,6 +53,10 @@ import pytest
 from aria_service.intel import dd_orchestrator as orch
 from aria_service.intel.dd_schema import ARKDDReport
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 SRC = (pathlib.Path(__file__).resolve().parents[1]
        / "intel" / "dd_orchestrator.py").read_text(encoding="utf-8", errors="replace")
 
@@ -162,7 +166,7 @@ def test_it_uses_the_readers_real_keys():
     exemption branch unreachable — a wiring that looks done and does nothing."""
     from aria_service.intel import companies_house as ch
     import inspect
-    reader = inspect.getsource(ch.get_psc_exemptions)
+    reader = function_source(ch, "get_psc_exemptions")
     for key in ('"checked"', '"has_active_exemption"', '"active"'):
         assert key in reader, f"the reader no longer returns {key}"
     assert "active_exemptions" not in SRC, "the invented key is back"

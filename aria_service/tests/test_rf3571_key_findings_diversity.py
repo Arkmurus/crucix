@@ -18,6 +18,10 @@ import types
 
 from aria_service.intel import dd_orchestrator as dd
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _f(sev, source, title):
     return types.SimpleNamespace(severity=sev, source=source, title=title, detail="")
@@ -88,7 +92,7 @@ def test_the_synthesis_call_site_uses_the_rollup():
     indistinguishable from no fix at all."""
     import inspect
 
-    src = inspect.getsource(dd._run_synthesis)
+    src = function_source(dd, "_run_synthesis")
     assert "_rollup_key_findings(all_findings)" in src
     assert "key_findings = all_findings[:10]" not in src, (
         "the un-capped slice is still assigning key_findings"

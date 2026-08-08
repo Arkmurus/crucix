@@ -36,6 +36,10 @@ import sys
 
 import pytest
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "admin" / "suite_baseline.py"
 
@@ -314,7 +318,7 @@ def test_a_dead_single_process_run_is_not_reported_as_zero_failures():
     this repo applies to its intel sources, applied to its own measurement.
     """
     mod = _load()
-    src = inspect.getsource(mod._run_single_process)
+    src = function_source(mod, "_run_single_process")
     assert "hung" in src
     # The guard: no 'passed' AND no 'failed' in the output => hung, not clean.
     assert '"passed" not in out' in src and '"failed" not in out' in src, src[-400:]

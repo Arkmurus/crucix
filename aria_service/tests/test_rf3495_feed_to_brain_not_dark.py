@@ -29,6 +29,10 @@ import pytest
 
 from aria_service.intel import news_monitor as nm, news_archive
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 @pytest.fixture(autouse=True)
 def _isolated(tmp_path, monkeypatch):
@@ -87,7 +91,7 @@ class TestDownstreamFailuresReachTheBrain:
         """Guard the CLASS: §21a forbids a failure branch whose only output is a
         debug log. Applies to _feed_to_brain, where all three lived."""
         import ast, inspect, textwrap
-        src = textwrap.dedent(inspect.getsource(nm._feed_to_brain))
+        src = textwrap.dedent(function_source(nm, "_feed_to_brain"))
         tree = ast.parse(src)
         offenders = []
         for handler in (n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)):

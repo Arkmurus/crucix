@@ -43,6 +43,10 @@ import pytest
 
 from aria_service.intel import rag_store as rs
 
+# R-F3770/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 @pytest.fixture(autouse=True)
 def _reset_client(monkeypatch):
@@ -148,7 +152,7 @@ def test_the_build_body_cannot_re_enter_the_lock():
     """
     import inspect
     import re
-    body = inspect.getsource(rs._get_client_unlocked)
+    body = function_source(rs, "_get_client_unlocked")
     assert not re.search(r"[^_\w]_get_client\(", body), (
         "the build body calls _get_client() — non-reentrant lock, guaranteed deadlock")
 
@@ -159,5 +163,5 @@ def test_r_f2855_breaker_still_present_and_not_relied_on_for_this():
     threshold of 2, so it oscillates and never trips."""
     assert rs._CRASH_BREAKER_THRESHOLD >= 2
     import inspect
-    src = inspect.getsource(rs._get_client_unlocked)
+    src = function_source(rs, "_get_client_unlocked")
     assert "_crash_counter_bump()" in src, "the corrupt-store breaker was removed"
