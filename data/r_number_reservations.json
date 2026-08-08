@@ -31731,9 +31731,10 @@
       "title": "record the 16 core-cognition wiring gaps so ARIA's coder can drain them per SS21e",
       "claimed_at": "2026-08-08T13:01:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2834de4c",
+      "notes": null,
+      "shipped_at": "2026-08-08T16:03:29Z"
     }
   ]
 }
