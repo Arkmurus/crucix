@@ -31701,9 +31701,10 @@
       "title": "R-F522 test demanded follow_redirects=True, which R-F1851 replaced with per-hop SSRF revalidation",
       "claimed_at": "2026-08-08T12:02:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e55a4aff",
+      "notes": null,
+      "shipped_at": "2026-08-08T12:28:56Z"
     }
   ]
 }
