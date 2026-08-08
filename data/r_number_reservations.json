@@ -31751,9 +31751,10 @@
       "title": "the remaining getsource backlog is a DIFFERENT shape than the first 84",
       "claimed_at": "2026-08-08T16:33:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7d0a688e",
+      "notes": null,
+      "shipped_at": "2026-08-08T16:34:00Z"
     }
   ]
 }
