@@ -31870,9 +31870,10 @@
       "title": "chained receiver: mod.Class.method, refusing any Call in the chain",
       "claimed_at": "2026-08-08T17:46:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9f0ae14c",
+      "notes": null,
+      "shipped_at": "2026-08-08T17:47:59Z"
     }
   ]
 }
