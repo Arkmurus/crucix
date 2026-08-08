@@ -107,3 +107,4 @@ def test_recovery_persists_full_epoch_adapter_before_eval_without_retraining() -
     assert prepared < started_pod < killed_stale < persisted
     assert "sleep 1" in code
     assert "pod returned to $ST before recovery secured" in code
+    assert 'POD_ID="${POD_ID_OVERRIDE:-$POD_ID}"' in code

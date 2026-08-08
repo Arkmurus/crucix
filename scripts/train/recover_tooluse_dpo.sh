@@ -5,6 +5,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
 REPO=$(cd "$SCRIPT_DIR/../.." && pwd) || exit 1; cd "$REPO" || exit 1
 API=https://rest.runpod.io/v1; PYBIN=.venv/Scripts/python.exe
 STATE_FILE="${STATE_FILE:-data/eval_reports/.tooluse_dpo_pod_state}"; . "$STATE_FILE"
+POD_ID="${POD_ID_OVERRIDE:-$POD_ID}"
 : "${POD_ID:?POD_ID missing}"
 OUTPUT_LOCAL="${OUTPUT_LOCAL:-data/training/checkpoints/aria_tooluse_dpo_v2.tgz}"
 REPORT_LOCAL="${REPORT_LOCAL:-data/eval_reports/aria_tooluse_dpo_eval.json}"
