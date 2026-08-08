@@ -67,7 +67,8 @@ python "$SCRIPTS/dpo_train.py" \
 # erase paid training. Optimizer checkpoints are deliberately excluded.
 tar --exclude='checkpoint-*' -czf "$ARCHIVE" -C "$(dirname "$DPO_OUT")" "$(basename "$DPO_OUT")" \
   || fail "adapter archive failed"
-tar -tzf "$ARCHIVE" | grep -q '/adapter_config.json$' || fail "adapter archive invalid"
+tar -tzf "$ARCHIVE" | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }' \
+  || fail "adapter archive invalid"
 log "DPO adapter staged before held-out evaluation"
 
 ADAPTER="$DPO_OUT" MODEL_NAME=aria-tooluse-dpo PORT=$PORT BASE_MODEL="$BASE_MODEL" \

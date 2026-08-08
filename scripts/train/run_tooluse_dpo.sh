@@ -34,7 +34,8 @@ KEY=$(grep -E '^RUNPOD_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr 
 for f in "$ADAPTER_LOCAL" "$DPO_LOCAL" "$EVAL_LOCAL" "$TRAIN_PROOF"; do [ -s "$f" ] || { log "FATAL missing $f"; exit 1; }; done
 printf '%s  %s\n%s  %s\n%s  %s\n' "$ADAPTER_SHA256" "$ADAPTER_LOCAL" "$DPO_SHA256" "$DPO_LOCAL" "$EVAL_SHA256" "$EVAL_LOCAL" \
   | sha256sum -c - || { log "FATAL immutable input hash mismatch"; exit 1; }
-tar -tzf "$ADAPTER_LOCAL" | grep -q '/adapter_config.json$' || { log "FATAL invalid SFT archive"; exit 1; }
+tar -tzf "$ADAPTER_LOCAL" | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }' \
+  || { log "FATAL invalid SFT archive"; exit 1; }
 "$PYBIN" -m scripts.train.preflight_cycle --train-file "$TRAIN_PROOF" --eval-file "$EVAL_LOCAL" \
   --base-model mistralai/Mistral-7B-Instruct-v0.3 --golden-set "$GOLDEN" --strict || exit 3
 "$PYBIN" - "$DPO_LOCAL" <<'PY' || exit 3
@@ -79,7 +80,7 @@ for slice in $(seq 1 "$UPLOAD_SLICES"); do
   [ "$STATE" = RUNNING ] || break
 done
 [ "$UPLOAD_OK" = 1 ] || { log "FATAL bounded adapter upload incomplete"; exit 1; }
-TSSH -p "$PORT" root@"$HOST" "printf '%s  %s\n%s  %s\n%s  %s\n' '$ADAPTER_SHA256' /workspace/aria_tooluse_candidate.tgz '$DPO_SHA256' /workspace/datasets/aria_tooluse_dpo_v2_complete.jsonl '$EVAL_SHA256' /workspace/datasets/aria_tooluse_eval.jsonl | sha256sum -c - && tar -tzf /workspace/aria_tooluse_candidate.tgz | grep -q '/adapter_config.json$' && tar -xzf /workspace/aria_tooluse_candidate.tgz -C /workspace/checkpoints" || { log "FATAL remote immutable input validation"; exit 1; }
+TSSH -p "$PORT" root@"$HOST" "printf '%s  %s\n%s  %s\n%s  %s\n' '$ADAPTER_SHA256' /workspace/aria_tooluse_candidate.tgz '$DPO_SHA256' /workspace/datasets/aria_tooluse_dpo_v2_complete.jsonl '$EVAL_SHA256' /workspace/datasets/aria_tooluse_eval.jsonl | sha256sum -c - && tar -tzf /workspace/aria_tooluse_candidate.tgz | awk '/\\/adapter_config.json$/ { found=1 } END { exit !found }' && tar -xzf /workspace/aria_tooluse_candidate.tgz -C /workspace/checkpoints" || { log "FATAL remote immutable input validation"; exit 1; }
 TSSH -p "$PORT" root@"$HOST" "kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$CYCLE_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_cycle_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" | grep -q ARMED || exit 1
 TSSH -p "$PORT" root@"$HOST" 'setsid nohup bash /workspace/pod_tooluse_dpo.sh >/workspace/logs/tooluse_dpo_cycle.log 2>&1 </dev/null & echo STARTED' | grep -q STARTED || exit 1
 RSCP_PULL(){ timeout 600 scp -i "$KEYF" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":"$1" "$2" 2>/dev/null; }
@@ -93,7 +94,7 @@ harvest_logs(){ mkdir -p data/eval_reports; RSCP_PULL /workspace/logs/tooluse_dp
 [ "$RC" = 0 ] || { harvest_logs; log "FATAL cycle rc=${RC:-missing}; diagnostics harvested"; exit 1; }
 mkdir -p "$(dirname "$OUTPUT_LOCAL")" "$(dirname "$REPORT_LOCAL")"
 RSCP_PULL /workspace/eval/aria_tooluse_dpo_adapter.tgz "$OUTPUT_LOCAL" || exit 1; RSCP_PULL /workspace/eval/aria_tooluse_dpo_eval.json "$REPORT_LOCAL" || exit 1
-tar -tzf "$OUTPUT_LOCAL" | grep -q '/adapter_config.json$' || exit 1
+tar -tzf "$OUTPUT_LOCAL" | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }' || exit 1
 "$PYBIN" - "$REPORT_LOCAL" <<'PY' || exit 1
 import json, sys
 d=json.load(open(sys.argv[1], encoding="utf-8")); n=168
