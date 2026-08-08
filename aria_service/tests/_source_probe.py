@@ -34,6 +34,7 @@ from __future__ import annotations
 import ast
 import functools
 import pathlib
+import sys as _sys        # R-F3771 — resolve a class's defining module
 
 
 #: Repo root, derived from this file's own location (aria_service/tests/_source_probe.py).
@@ -73,18 +74,62 @@ def _parse(path: str) -> tuple[str, ast.Module]:
         raise SourceProbeError(f"{path} does not parse: {e}") from e
 
 
+def _resolve_target(target) -> tuple[str, str]:
+    """(path, class_name) for a module, a path, or a CLASS.
+
+    R-F3771 — a CLASS is now a first-class target. Previously only a module or a
+    path resolved: `getattr(cls, "__file__")` is None, so a class fell through to
+    `str(cls)` and raised "source file not found". That left every
+    `inspect.getsource(SomeClass.method)` test unmigratable — roughly 120 of the
+    ~196 files in the §16 backlog, i.e. the majority, blocked on a two-line gap.
+
+    Resolving a class also makes the lookup STRICTER, which is the real gain. The
+    module-level search matches a method by NAME anywhere in the file, so
+    `function_source(mod, "start")` would happily return `OtherClass.start`. Given
+    the class, the method is found inside THAT class's body only — no ambiguity,
+    and no silent wrong-slice, which is the entire point of this module.
+    """
+    if isinstance(target, type):
+        mod = _sys.modules.get(target.__module__)
+        path = getattr(mod, "__file__", None)
+        if not path:
+            raise SourceProbeError(
+                f"cannot locate the file defining {target.__module__}."
+                f"{target.__name__} — its module is not importable by name"
+            )
+        return str(path), target.__name__
+    return str(getattr(target, "__file__", None) or target), ""
+
+
 def function_source(module_or_path, name: str) -> str:
-    """The CURRENT source of top-level (or one-level-nested) function `name`.
+    """The CURRENT source of a function, method, or one-level-nested definition.
 
     Resolves by NAME through the AST of the file as it exists now, so a concurrent
     edit shifts nothing: worst case the function moved and we find it at its new
-    position. `module_or_path` may be a module object or a filesystem path.
+    position. `module_or_path` may be a module, a filesystem path, or (R-F3771) a
+    CLASS — pass the class to scope the lookup to that class's own body, which is
+    both unambiguous and the only way to read a method whose name is reused
+    elsewhere in the file.
     """
-    path = getattr(module_or_path, "__file__", None) or str(module_or_path)
+    path, cls_name = _resolve_target(module_or_path)
     text, tree = _parse(str(path))
     lines = text.splitlines(keepends=True)
 
+    def _in_body(nodes):
+        for n in nodes:
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name:
+                return n
+        return None
+
     def _find(nodes):
+        # R-F3771 — when a class was named, search ONLY that class. Falling back
+        # to a file-wide search here would reintroduce the ambiguity the class
+        # argument exists to remove, and would do it silently.
+        if cls_name:
+            for n in nodes:
+                if isinstance(n, ast.ClassDef) and n.name == cls_name:
+                    return _in_body(n.body)
+            return None
         for n in nodes:
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name:
                 return n
@@ -99,8 +144,9 @@ def function_source(module_or_path, name: str) -> str:
 
     node = _find(tree.body)
     if node is None:
+        _where = f"class {cls_name} in {path}" if cls_name else str(path)
         raise SourceProbeError(
-            f"no function named {name!r} in {path} — it was renamed or removed, "
+            f"no function named {name!r} in {_where} — it was renamed or removed, "
             f"which is a real change, not a read failure"
         )
     start = (node.decorator_list[0].lineno - 1) if node.decorator_list else (node.lineno - 1)
