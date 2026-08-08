@@ -21,6 +21,10 @@ import pytest
 
 from aria_service.intel import deep_researcher as dr
 
+# R-F3782/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 class _FakeLLM:
     is_configured = True
@@ -150,7 +154,7 @@ def test_rf3018_orchestrator_passes_a_deadline_and_reports_honestly():
     what WAS gathered rather than asserting a false 'partial result'."""
     import inspect
     from aria_service.intel import dd_orchestrator as ddo
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert "deadline_s=_dr_deadline" in src, "the bound must be handed to the engine"
     assert 'dr.get("partial")' in src, "the honest gap must key off the engine's own flag"
     # the gap text must not resurrect the false wording

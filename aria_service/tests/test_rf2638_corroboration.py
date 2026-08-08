@@ -29,6 +29,10 @@ import pytest
 
 from aria_service.intel import corroboration as corr
 
+# R-F3782/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _sig(title, source, url, published="Wed, 15 Jul 2026 10:00:00 +0000", countries=("Iran",), tier="tier_2"):
     # NB: the default is RFC 2822 — the format the LIVE RSS feed actually emits
@@ -147,7 +151,7 @@ def test_rf2638_uses_the_existing_independence_checker():
     """Do not reinvent independence. verified_intel.SourceIndependenceChecker already
     models wire-service/family syndication; this engine must delegate to it."""
     import inspect
-    src = inspect.getsource(corr)
+    src = module_source(corr)
     assert "SourceIndependenceChecker" in src, (
         "corroboration must delegate to verified_intel.SourceIndependenceChecker — "
         "reimplementing independence would miss wire syndication (Reuters via 5 outlets)"

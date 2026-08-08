@@ -34,6 +34,10 @@ import pytest
 
 from aria_service.intel import dd_orchestrator as DDO
 
+# R-F3782/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 # The suffixes that triggered this, plus the jurisdictions they wrongly captured.
 DECLARED_CASES = [
@@ -111,7 +115,7 @@ def test_no_signal_at_all_returns_none_not_a_guess():
 def test_orchestrator_uses_the_shared_resolver():
     """The identity layer must not keep its own copy of this logic."""
     import inspect
-    src = inspect.getsource(DDO)
+    src = module_source(DDO)
     idx = src.find("Auto-detect jurisdiction from clues")
     assert idx > -1, "the identity resolution block must still exist"
     window = src[idx - 800:idx + 800]

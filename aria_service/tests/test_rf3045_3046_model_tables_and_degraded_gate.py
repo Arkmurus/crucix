@@ -27,6 +27,10 @@ import math
 
 import pytest
 
+# R-F3782/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 # ---------------------------------------------------------------------------
 # R-F3045 — cross-table model coverage
@@ -128,7 +132,7 @@ def test_rf3046_source_uses_ceil_not_int():
     import inspect
     from aria_service.intel import adversarial_challenge as ac
 
-    src = inspect.getsource(ac)
+    src = module_source(ac)
     assert "int(len(attack.turns) * 0.80)" not in src, (
         "the int() floor is back — single-turn attacks will be unconditionally "
         "flagged degraded and the SUPERVISED governor goes blind again"

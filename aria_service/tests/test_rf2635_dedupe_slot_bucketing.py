@@ -34,6 +34,10 @@ import time
 
 import pytest
 
+# R-F3782/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 async def _true(v):
     return v
@@ -201,7 +205,7 @@ def test_tick_and_catchup_key_the_same_slot_identically():
     import inspect
     from aria_service.autonomous import engine
 
-    src = inspect.getsource(engine)
+    src = module_source(engine)
     # Both cron-driven call sites must resolve the entity the SAME way.
     assert src.count("_resolve_task_entity(task) or task_id") >= 1, (
         "catch_up must use the shared entity resolver"

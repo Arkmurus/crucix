@@ -21,6 +21,10 @@ thin report because it is confidently wrong.
 """
 from aria_service.intel import companies_house as ch
 
+# R-F3782/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 MITIE = [
     {"company_number": "07281729", "title": "MITIE FACILITIES MANAGEMENT LIMITED",
@@ -105,7 +109,7 @@ def test_rf3123_decision_is_optional_so_callers_are_unaffected():
 
 def test_rf3123_investigate_returns_the_resolution_key():
     import inspect
-    src = inspect.getsource(ch.investigate_uk_entity)
+    src = function_source(ch, "investigate_uk_entity")
     assert '"resolution": _resolution' in src, (
         "the DD cannot disclose what the adapter does not return")
     assert "_resolution: dict = {}" in src, (
@@ -116,7 +120,7 @@ def test_rf3123_the_dd_surfaces_it_as_a_finding_AND_a_gap():
     """A prose-only disclosure never reaches the decision scorecard."""
     import inspect
     from aria_service.intel import dd_orchestrator as ddo
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert 'Company name is AMBIGUOUS' in src
     assert "Subject identity INFERRED from an ambiguous name" in src
     assert 'source="companies_house.resolve:R-F3123"' in src

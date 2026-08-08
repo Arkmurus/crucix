@@ -19,6 +19,10 @@ Four stacked causes, each covered below:
 from aria_service.intel import dd_orchestrator as ddo
 from aria_service.intel import researcher as rs
 
+# R-F3782/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _f(**kw):
     """A finding in the shape researcher._deep_adverse_media_search actually writes
@@ -148,7 +152,7 @@ def test_rf3023_contradicted_items_do_not_count_toward_a_verdict():
 
 def test_rf3023_findings_carry_result_derived_provenance():
     import inspect
-    src = inspect.getsource(rs)
+    src = module_source(rs)
     assert '"source_domain": _domain' in src
     assert '"source_class_corroborated"' in src
 
