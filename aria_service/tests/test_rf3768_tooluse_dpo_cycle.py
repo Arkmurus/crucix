@@ -1,6 +1,10 @@
 """R-F3768 capability tests for the bounded tool-use DPO cycle."""
 from pathlib import Path
 
+import pytest
+
+from scripts.train.dpo_train import normalize_dpo_example
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -36,3 +40,23 @@ def test_orchestrator_pins_inputs_and_bounds_paid_artifact_recovery() -> None:
     assert "UNREADABLE" in code and "NOT_RUNNING" in code
     assert code.count("END { exit !found }") == 3
     assert "grep -q '/adapter_config.json$'" not in code
+
+
+def test_mixed_tool_trace_pair_is_normalized_and_metadata_removed() -> None:
+    row = {
+        "prompt": [{"role": "system", "content": "ground claims"},
+                   {"role": "tool", "content": "evidence"}],
+        "chosen": "honest answer",
+        "rejected": "unsupported answer",
+        "subject": "must not reach trainer",
+    }
+    normalized = normalize_dpo_example(row)
+    assert set(normalized) == {"prompt", "chosen", "rejected"}
+    assert normalized["prompt"] == row["prompt"]
+    assert normalized["chosen"] == [{"role": "assistant", "content": "honest answer"}]
+    assert normalized["rejected"] == [{"role": "assistant", "content": "unsupported answer"}]
+
+
+def test_dpo_normalization_rejects_malformed_tool_trace() -> None:
+    with pytest.raises(ValueError, match="invalid message"):
+        normalize_dpo_example({"prompt": [{"role": "tool"}], "chosen": "a", "rejected": "b"})

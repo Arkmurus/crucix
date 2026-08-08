@@ -34,8 +34,14 @@ rows = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8") if line
 if len(rows) != 14:
     raise SystemExit(f"expected 14 DPO pairs, got {len(rows)}")
 for i, row in enumerate(rows, 1):
-    if not all(isinstance(row.get(k), str) and row[k].strip() for k in ("prompt", "chosen", "rejected")):
-        raise SystemExit(f"pair {i} has an invalid field")
+    prompt = row.get("prompt")
+    if not isinstance(prompt, list) or not prompt:
+        raise SystemExit(f"pair {i} has no conversational prompt")
+    if not all(isinstance(m, dict) and isinstance(m.get("role"), str)
+               and isinstance(m.get("content"), str) for m in prompt):
+        raise SystemExit(f"pair {i} has an invalid prompt message")
+    if not all(isinstance(row.get(k), str) and row[k].strip() for k in ("chosen", "rejected")):
+        raise SystemExit(f"pair {i} has an invalid preference")
     if row["chosen"] == row["rejected"]:
         raise SystemExit(f"pair {i} has identical preferences")
 print("verified 14 non-degenerate DPO pairs")

@@ -38,6 +38,28 @@ logger = logging.getLogger("aria.train.dpo")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
+def normalize_dpo_example(example: dict) -> dict:
+    """Return one preference row in TRL's conversational schema."""
+    prompt = example.get("prompt")
+    chosen = example.get("chosen")
+    rejected = example.get("rejected")
+    if isinstance(prompt, str):
+        prompt = [{"role": "user", "content": prompt}]
+    elif not isinstance(prompt, list) or not prompt:
+        raise ValueError("DPO prompt must be a non-empty string or message list")
+    if isinstance(chosen, str):
+        chosen = [{"role": "assistant", "content": chosen}]
+    if isinstance(rejected, str):
+        rejected = [{"role": "assistant", "content": rejected}]
+    for name, messages in (("prompt", prompt), ("chosen", chosen), ("rejected", rejected)):
+        if not isinstance(messages, list) or not messages:
+            raise ValueError(f"DPO {name} must be a non-empty string or message list")
+        if not all(isinstance(m, dict) and isinstance(m.get("role"), str)
+                   and isinstance(m.get("content"), str) for m in messages):
+            raise ValueError(f"DPO {name} contains an invalid message")
+    return {"prompt": prompt, "chosen": chosen, "rejected": rejected}
+
+
 def _import_or_die() -> None:
     missing = []
     for pkg in ("torch", "transformers", "trl", "peft", "datasets"):
@@ -117,20 +139,14 @@ def main() -> None:
     # dragging it off-distribution into mode-collapse. Wrap the string pairs as
     # conversational so DPOTrainer applies the SAME template. No-op if the data
     # is already conversational (idempotent / future-proof).
-    if len(ds) and isinstance(ds[0].get("prompt"), str):
-        def _to_conversational(ex):
-            return {
-                "prompt": [{"role": "user", "content": ex["prompt"]}],
-                "chosen": [{"role": "assistant", "content": ex["chosen"]}],
-                "rejected": [{"role": "assistant", "content": ex["rejected"]}],
-            }
+    if len(ds):
         ds = ds.map(
-            _to_conversational,
+            normalize_dpo_example,
             remove_columns=ds.column_names,  # drop raw str prompt/chosen/rejected/meta
-            desc="R-F1353 wrap conversational",
+            desc="normalize conversational preferences",
         )
-        logger.info("R-F1353: wrapped %d raw-string pairs as conversational "
-                    "(chat template will now match SFT + serving)", len(ds))
+        logger.info("Normalized %d pairs as conversational and removed metadata "
+                    "(chat template matches SFT + serving)", len(ds))
 
     dpo_config = DPOConfig(
         output_dir=str(args.output_dir),
