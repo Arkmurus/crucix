@@ -31721,9 +31721,10 @@
       "title": "brittle string assertions fail when a task gains a name; satisfying them would strip the diagnostic",
       "claimed_at": "2026-08-08T12:54:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7b8e0e8a",
+      "notes": null,
+      "shipped_at": "2026-08-08T12:55:27Z"
     }
   ]
 }
