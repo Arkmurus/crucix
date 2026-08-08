@@ -29,6 +29,10 @@ from aria_service.intel.dd_schema import (
     _format_previous_name,
 )
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 def _report(name="EFT CONSULT LTD"):
     r = ARKDDReport()
@@ -65,7 +69,7 @@ def test_rf3024_profile_carries_name_history():
     import inspect
     from aria_service.intel import companies_house as ch
     assert '"previous_company_names": data.get("previous_company_names")' \
-        in inspect.getsource(ch.get_company_profile)
+        in function_source(ch, "get_company_profile")
 
 
 # ── R-F3025 — FCA attribution ──────────────────────────────────────────────
@@ -85,7 +89,7 @@ def test_rf3025_postcode_corroboration_is_tri_state():
 
 def test_rf3025_orchestrator_reports_a_non_attribution_not_an_amber():
     import inspect
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert 'elif _fca.get("best_candidate"):' in src
     i = src.index('elif _fca.get("best_candidate"):')
     window = src[i:i + 1400]
@@ -159,12 +163,12 @@ _UNANCHORED = [{"controller_name": "Raven Delta Limited",
 def test_rf3027_corporate_psc_without_a_regno_is_carried_not_dropped():
     import inspect
     from aria_service.intel import companies_house as ch
-    src = inspect.getsource(ch.investigate_uk_entity)
+    src = function_source(ch, "investigate_uk_entity")
     # R-F3037 widened the kind test from corporate-only to include legal-person
     # controllers (state / statutory bodies), which were falling through BOTH lists.
     assert '_is_controller_kind = ("corporate" in kind) or ("legal-person" in kind)' in src
     assert "if _is_controller_kind and not regno:" in src
-    assert '"controlled_by_unanchored"' in inspect.getsource(ch)
+    assert '"controlled_by_unanchored"' in module_source(ch)
 
 
 def test_rf3027_ownership_is_not_answered_while_a_controller_is_untraversed():

@@ -29,6 +29,10 @@ import inspect
 import re
 from pathlib import Path
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 ARIA_HTML = Path(__file__).resolve().parents[2] / "public" / "aria.html"
 
 
@@ -36,7 +40,7 @@ def test_backend_progress_emitter_present():
     """R-F737: chat_stream_ep generator emits progress events."""
     from aria_service.routes import aria as routes
 
-    src = inspect.getsource(routes)
+    src = module_source(routes)
     # Find chat_stream_ep
     assert "R-F737" in src, "R-F737 marker missing from routes/aria.py"
     # Backend emits all four stage values
@@ -51,7 +55,7 @@ def test_backend_progress_event_has_message_field():
     render a human-readable status string."""
     from aria_service.routes import aria as routes
 
-    src = inspect.getsource(routes)
+    src = module_source(routes)
     # All four progress emissions reference message
     matches = re.findall(
         r'"type":"progress"[^}]*"message"', src,
@@ -67,7 +71,7 @@ def test_backend_tool_execution_moved_inside_generator():
     (so progress events fire DURING the wait, not after)."""
     from aria_service.routes import aria as routes
 
-    src = inspect.getsource(routes)
+    src = module_source(routes)
 
     # Search for the chat_stream_ep function block and check tool
     # execution is no longer at endpoint scope above the generator.

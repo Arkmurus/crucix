@@ -25,6 +25,10 @@ from aria_service.vetting.models import (
 # Severity and Finding live in rules.py, not models.py (verified, §3b).
 from aria_service.vetting.rules import Severity, referee_findings
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def _entry(entry_id="e1", etype=CareerEntryType.EMPLOYMENT, **kw):
     base = dict(entry_id=entry_id, entry_type=etype,
@@ -134,6 +138,6 @@ def test_rf3206_is_wired_into_assess():
     hitting — protection that exists but is not on the path."""
     import inspect
     from aria_service.vetting import rules
-    src = inspect.getsource(rules.assess)
+    src = function_source(rules, "assess")
     assert "referee_findings" in src, (
         "R-F3206 REGRESSION: referee_findings is no longer called by assess()")

@@ -28,6 +28,10 @@ import pytest
 
 from aria_service.intel import operating_modes as om
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _stats(rate, n):
     return {"avg_grounded_rate": rate, "effective_sample_size": n,
@@ -104,7 +108,7 @@ def test_a_missing_rate_is_still_treated_as_healthy(_normal, monkeypatch):
 def test_the_floor_is_not_env_tunable():
     """A safety floor that can be set to 0 restores the defect exactly."""
     import inspect
-    src = inspect.getsource(om)
+    src = module_source(om)
     i = src.find("GROUNDED_MIN_SAMPLES =")
     assert i > 0
     line = src[i:src.find("\n", i)]

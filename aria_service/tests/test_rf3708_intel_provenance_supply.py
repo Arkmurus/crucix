@@ -32,6 +32,10 @@ import pytest
 
 from aria_service.intel.golden_intel_bridge import _is_item_specific
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 # ── The gate itself must NOT have been relaxed ─────────────────────────────
 
@@ -86,7 +90,7 @@ def test_sanctions_diff_why_opens_with_the_entity():
     import inspect
     from aria_service.intel import golden_intel_bridge as gib
 
-    src = inspect.getsource(gib)
+    src = module_source(gib)
     assert 'why = (f"{entity}: "' in src, (
         "sanctions_diff must name its subject — the entity is already bound as "
         "`target` two lines below, it was simply never put in the sentence"
@@ -97,7 +101,7 @@ def test_public_watchlist_prefixes_the_entity_when_detail_omits_it():
     import inspect
     from aria_service.intel import golden_intel_bridge as gib
 
-    src = inspect.getsource(gib)
+    src = module_source(gib)
     assert 'entity.lower() in _clean(a.get("detail")).lower()' in src, (
         "when upstream `detail` already names the entity we must not duplicate "
         "it; when it does not, the subject has to be prefixed"
@@ -114,7 +118,7 @@ def test_public_watchlist_does_not_read_a_field_that_does_not_exist():
     # structural assertion matched its subject's prose instead of its code;
     # matching prose is how a structural test lies to you.
     src = "\n".join(
-        ln for ln in inspect.getsource(gib).splitlines()
+        ln for ln in module_source(gib).splitlines()
         if not ln.strip().startswith("#")
     )
     assert 'a.get("country")' not in src, (

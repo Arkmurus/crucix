@@ -28,6 +28,10 @@ import asyncio
 
 import pytest
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 def _health(monkeypatch, *, reachable=True, mode_normal=True, chain_resilient=True,
             autonomous_ok=True):
@@ -194,7 +198,7 @@ def test_the_cache_predicate_is_shared_between_read_and_write():
 
     assert ss._is_error_log_key("crucix:aria:error_log") is True
     assert ss._is_error_log_key("crucix:aria:knowledge") is False
-    src = inspect.getsource(ss)
+    src = module_source(ss)
     assert src.count('"error_log" in (key or "")') == 1, (
         "the predicate must exist exactly once — the read path and the write "
         "invalidation must not be able to drift apart"
@@ -228,7 +232,7 @@ def test_the_wire_balance_scan_runs_off_the_event_loop():
     assert hasattr(wm, "_audit_wire_balance_sync"), (
         "the CPU-bound scan must be a separate sync function so it can be offloaded"
     )
-    src = inspect.getsource(wm.audit_wire_balance)
+    src = function_source(wm, "audit_wire_balance")
     assert "asyncio.to_thread(_audit_wire_balance_sync)" in src, (
         "glob + ast.parse over every intel module must not hold the loop — same "
         "class as R-F3475 (HTML extraction) and R-F1890 (encodes)"
@@ -241,7 +245,7 @@ def test_the_brain_wiring_stays_on_the_loop():
     import inspect
     from aria_service.intel import wiring_monitor as wm
 
-    sync_src = inspect.getsource(wm._audit_wire_balance_sync)
+    sync_src = function_source(wm, "_audit_wire_balance_sync")
     assert "wire_failure(" not in sync_src and "wire_success(" not in sync_src, (
         "the thread half must not emit brain signals — engine_wiring falls back "
         "when there is no running loop (engine_wiring.py:108-111)"

@@ -33,6 +33,10 @@ import inspect
 
 import pytest
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # R-F3699 — RAG tenant scoping
@@ -101,7 +105,7 @@ def test_ingest_document_accepts_and_stamps_an_owner_key():
     from aria_service.intel import rag_store
     sig = inspect.signature(rag_store.ingest_document)
     assert "owner_key" in sig.parameters
-    src = inspect.getsource(rag_store.ingest_document)
+    src = function_source(rag_store, "ingest_document")
     assert 'base_meta["owner_key"]' in src, (
         "the owner must be stamped into chunk metadata or search has nothing "
         "to filter on"
@@ -116,7 +120,7 @@ def test_ocr_threads_the_owner_into_its_rag_ingest():
     from aria_service.intel import ocr
     sig = inspect.signature(ocr.extract_text_from_image)
     assert "owner_key" in sig.parameters
-    src = inspect.getsource(ocr)
+    src = module_source(ocr)
     assert "owner_key=owner_key" in src, (
         "extract_text_from_image must pass the owner through to "
         "rag_store.ingest_document"
@@ -126,7 +130,7 @@ def test_ocr_threads_the_owner_into_its_rag_ingest():
 def test_the_search_query_over_fetches_when_filtering():
     """Otherwise another tenant's chunks crowd out the caller's own."""
     from aria_service.intel import rag_store
-    src = inspect.getsource(rag_store.search)
+    src = function_source(rag_store, "search")
     assert "_owner_filter_active" in src and "top_k * 4" in src, (
         "the owner filter runs in Python (chroma's `where` cannot express "
         "'field absent'), so the query must over-fetch or a page of foreign "
@@ -141,7 +145,7 @@ def test_the_search_query_over_fetches_when_filtering():
 def test_vault_precheck_is_ownership_gated():
     from aria_service.routes import aria as routes
 
-    src = inspect.getsource(routes.dd_orchestrate_ep)
+    src = function_source(routes, "dd_orchestrate_ep")
     assert "_dd_owned_entity_ids" in src, (
         "the vault pre-check must consult the ownership oracle — R-F2097 "
         "already gates the sibling read at /dd/case/{id}"
@@ -156,7 +160,7 @@ def test_vault_precheck_falls_through_rather_than_404ing():
     """The caller is entitled to run their OWN DD on the same entity."""
     from aria_service.routes import aria as routes
 
-    src = inspect.getsource(routes.dd_orchestrate_ep)
+    src = function_source(routes, "dd_orchestrate_ep")
     assert "_may_reuse" in src
     # No 404 raised in the vault-check block — an unowned entity must simply
     # look like a never-before-seen one and proceed to a real run.
@@ -179,7 +183,7 @@ def test_the_ownership_oracle_fails_closed():
     """`_dd_owned_entity_ids` returns an empty set on error, not None."""
     from aria_service.routes import aria as routes
 
-    src = inspect.getsource(routes._dd_owned_entity_ids)
+    src = function_source(routes, "_dd_owned_entity_ids")
     assert "return set()" in src, (
         "on error a real user must see nothing, not everything"
     )
@@ -193,7 +197,7 @@ def test_the_scheduled_eval_records():
     """Without record=True the composite's stores are never populated."""
     from aria_service.autonomous import tasks
 
-    src = inspect.getsource(tasks)
+    src = module_source(tasks)
     assert "record=_record" in src, (
         "run_eval must be called with record so each answered entry flows "
         "through source_verifier.record_verification + honesty_judge."
@@ -205,7 +209,7 @@ def test_the_scheduled_eval_records():
 def test_the_scheduled_eval_is_bounded_so_it_can_finish():
     from aria_service.autonomous import tasks
 
-    src = inspect.getsource(tasks)
+    src = module_source(tasks)
     assert "limit=_limit" in src
     assert '_cfg.get("limit", 40)' in src, (
         "the full 500-entry set cannot finish in the task's 600s timeout, and "
@@ -248,7 +252,7 @@ def test_run_eval_still_supports_the_full_set():
 def test_the_sampler_is_representative_not_head_n():
     from aria_service.intel import eval_runner
 
-    src = inspect.getsource(eval_runner.run_eval)
+    src = function_source(eval_runner, "run_eval")
     assert "stride" in src, (
         "a bounded run must stride across the set; the first N entries would "
         "all be one category and the pass_rate would not describe the benchmark"

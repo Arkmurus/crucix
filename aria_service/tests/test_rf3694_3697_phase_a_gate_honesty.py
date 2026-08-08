@@ -33,6 +33,10 @@ import asyncio
 
 import pytest
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # R-F3694 — gate #2: an unmeasured cell is never a miss
@@ -189,7 +193,7 @@ def test_the_error_level_was_not_downgraded():
     import inspect
     from aria_service.intel import capability_gaps as cg
 
-    src = inspect.getsource(cg.record_gap)
+    src = function_source(cg, "record_gap")
     assert "logger.error" in src, (
         "a dropped capability gap must still be an ERROR: if drops persist "
         "after the fingerprint fix the store is genuinely unhealthy and gate #3 "
@@ -256,7 +260,7 @@ def test_source_verifier_reports_a_matching_sample_size():
     import inspect
     from aria_service.intel import source_verifier
 
-    src = inspect.getsource(source_verifier)
+    src = module_source(source_verifier)
     assert '"effective_sample_size"' in src, (
         "get_verification_stats must publish the sample size that corresponds "
         "to the window avg_grounded_rate actually came from"
@@ -322,7 +326,7 @@ def test_phase_gates_preserves_the_tri_state(monkeypatch):
     import inspect
     from aria_service.intel import phase_gates
 
-    src = inspect.getsource(phase_gates)
+    src = module_source(phase_gates)
     assert "bool(cs4.get(\"gate_passes\"))" not in src, (
         "gate #4's pass must not be coerced with bool() — that collapses the "
         "UNMEASURABLE None into a measured failure"

@@ -109,6 +109,10 @@ def test_rf3055_online_and_pdf_use_the_same_status_vocabulary():
 # ── R-F3060 — the decision-ready summary (concern + advice) ────────────────
 from aria_service.intel.dd_schema import _adverse_media_summary
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 def test_rf3060_unfinished_screening_advises_not_to_decide_yet():
     s = _adverse_media_summary({"status": "in_progress"})
@@ -178,7 +182,7 @@ def test_rf3067_success_path_stamps_an_explicit_status():
     case looked right while success silently had none."""
     import inspect
     from aria_service.intel import dd_orchestrator as ddo
-    src = inspect.getsource(ddo._run_adverse_media_followup)
+    src = function_source(ddo, "_run_adverse_media_followup")
     assert 'if isinstance(_am_result, dict) and not _am_result.get("status"):' in src
     assert '_am_result["status"] = "partial" if _am_result.get("partial") else "completed"' in src
     assert '_am_result["status"] = "incomplete"' in src

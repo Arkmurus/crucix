@@ -24,11 +24,15 @@ from __future__ import annotations
 
 import inspect
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def test_rf688_fetcher_uses_max_redirects_5():
     """fetch_for_crawl must pass max_redirects=5 to httpx.AsyncClient."""
     from aria_service.crawler import fetcher
-    src = inspect.getsource(fetcher)
+    src = module_source(fetcher)
     # Find the AsyncClient call in fetch_for_crawl and assert the cap is set.
     assert "max_redirects=5" in src, (
         "R-F688: fetcher's AsyncClient must cap redirects at 5"
@@ -39,7 +43,7 @@ def test_rf688_politeness_still_capped():
     """Sanity guard for the existing politeness.py:90 cap so it doesn't
     regress while we're touching adjacent code."""
     from aria_service.crawler import politeness
-    src = inspect.getsource(politeness)
+    src = module_source(politeness)
     assert "max_redirects=5" in src, (
         "R-F688: politeness.py's robots.txt fetcher must keep its cap"
     )

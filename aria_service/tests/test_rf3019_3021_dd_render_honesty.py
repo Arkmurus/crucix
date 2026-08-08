@@ -14,6 +14,10 @@ from aria_service.intel.dd_schema import (
     ARKDDReport, LayerStatus, _render_screened_lists, _status_label,
 )
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _report(name: str) -> ARKDDReport:
     r = ARKDDReport()
@@ -36,7 +40,7 @@ _SCREEN = {
 def test_rf3019_screen_stamps_a_date():
     """The field did not exist before — an undated clean is undatable."""
     import inspect
-    src = inspect.getsource(sanctions)
+    src = module_source(sanctions)
     assert '"screened_at"' in src, "the screen must record WHEN it ran"
 
 
@@ -137,6 +141,6 @@ def test_rf3021_issued_lei_is_stated_not_silent():
 def test_rf3021_orchestrator_only_flags_lapsed_on_a_real_gleif_status():
     import inspect
     from aria_service.intel import dd_orchestrator as ddo
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert 'report.identity.lei_registration = {' in src
     assert '{"LAPSED", "RETIRED", "ANNULLED"}' in src, "only GLEIF's own lapse states"

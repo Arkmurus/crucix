@@ -30,6 +30,10 @@ from aria_service.intel.dd_orchestrator import (
     _person_match_is_coincidence as coincidence,
 )
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 # ── D1 — a job title is not a person ───────────────────────────────────────
 @pytest.mark.parametrize("value", [
@@ -96,7 +100,7 @@ def test_rf3126_d2_is_asymmetric_by_design():
 def test_rf3126_both_gates_are_applied_at_the_screening_site():
     import inspect
     from aria_service.intel import dd_orchestrator as ddo
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert "if not _is_screenable_person_name(_v):" in src, (
         "D1 must filter candidates BEFORE they are screened")
     assert "_person_match_is_coincidence(" in src, (

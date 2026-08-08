@@ -29,6 +29,10 @@ import time
 
 import pytest
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def test_rf530_lock_exists_at_module_scope():
     from aria_service.intel import semantic_search
@@ -117,7 +121,7 @@ def test_rf530_semantic_search_call_sites_use_safe_encode():
     _safe_encode. Docstring mentions and the wrapped call INSIDE
     _safe_encode itself are fine."""
     from aria_service.intel import semantic_search
-    src = inspect.getsource(semantic_search)
+    src = module_source(semantic_search)
     lines = src.split("\n")
     offenders = []
     # Lines that contain a real call: `= model.encode(` or `return model.encode(`
@@ -146,7 +150,7 @@ def test_rf530_rag_store_chromadb_path_uses_safe_encode():
     route through _safe_encode so the two embedder paths share one
     serialisation point."""
     from aria_service.intel import rag_store
-    src = inspect.getsource(rag_store)
+    src = module_source(rag_store)
     assert "_safe_encode" in src, (
         "R-F530: rag_store.py must import + use _safe_encode for its "
         "chromadb embedding-function. The bare model.encode() path on "

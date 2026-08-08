@@ -32,6 +32,10 @@ from aria_service.intel.rag_store import (
     RETENTION_CLASS_KEY,
 )
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 
 @pytest.fixture
 def captured(monkeypatch):
@@ -119,7 +123,7 @@ def test_the_written_key_is_what_erase_by_subject_matches_on():
     another, both would look correct in isolation and erase nothing together — the
     producer/consumer mismatch this codebase keeps finding."""
     import inspect
-    src = inspect.getsource(rag_store.erase_by_subject)
+    src = function_source(rag_store, "erase_by_subject")
     assert "DATA_SUBJECT_KEY" in src, (
         "erase_by_subject no longer matches on the constant ingest writes")
 

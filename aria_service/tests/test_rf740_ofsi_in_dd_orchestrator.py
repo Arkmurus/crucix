@@ -33,13 +33,17 @@ from __future__ import annotations
 
 import inspect
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def test_rf740_wiring_present_in_dd_orchestrator():
     """R-F740: fcdo_sanctions import + lookup call must be in the
     company identity layer."""
     from aria_service.intel import dd_orchestrator
 
-    src = inspect.getsource(dd_orchestrator)
+    src = module_source(dd_orchestrator)
     assert "R-F740" in src, "R-F740 marker missing from dd_orchestrator.py"
     assert "fcdo_sanctions" in src, (
         "R-F740 regression: fcdo_sanctions module not imported by "
@@ -54,7 +58,7 @@ def test_rf740_verified_sources_includes_uk_ofsi():
     """R-F740: 'uk_ofsi' must be appended to screen['verified_sources']."""
     from aria_service.intel import dd_orchestrator
 
-    src = inspect.getsource(dd_orchestrator)
+    src = module_source(dd_orchestrator)
     assert "uk_ofsi" in src, (
         "R-F740 regression: 'uk_ofsi' string not appended to "
         "verified_sources — UI will still list OFSI as a gap."
@@ -67,7 +71,7 @@ def test_rf740_failure_is_fail_open():
     fallback."""
     from aria_service.intel import dd_orchestrator
 
-    src = inspect.getsource(dd_orchestrator)
+    src = module_source(dd_orchestrator)
     import ast
 
     tree = ast.parse(src)
@@ -90,7 +94,7 @@ def test_rf740_merged_hits_have_uk_ofsi_list_marker():
     correctly + the report renderer labels them properly."""
     from aria_service.intel import dd_orchestrator
 
-    src = inspect.getsource(dd_orchestrator)
+    src = module_source(dd_orchestrator)
     assert '"list":   "UK_OFSI"' in src or "'list':   'UK_OFSI'" in src or '"UK_OFSI"' in src, (
         "R-F740 regression: merged OFSI hits missing the 'UK_OFSI' "
         "list label."
@@ -103,7 +107,7 @@ def test_rf740_citation_url_anchored_at_ofsi():
     This is the load-bearing reason for R-F740."""
     from aria_service.intel import dd_orchestrator
 
-    src = inspect.getsource(dd_orchestrator)
+    src = module_source(dd_orchestrator)
     assert "ofsistorage" in src or "ofsi.gov.uk" in src, (
         "R-F740 regression: OFSI citation_url anchor missing."
     )

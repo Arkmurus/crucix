@@ -22,6 +22,10 @@ from aria_service.intel.adversarial_challenge import (
     _draft_amendment, ATTACK_LIBRARY, AttackCategory,
 )
 
+# R-F3785/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source
+
 _QKEY = "aria:adversarial:amendments_queue"
 
 
@@ -105,6 +109,6 @@ def test_rf2710_no_crossattack_similarity_merge_in_source():
     """The draft-text-similarity merge across DISTINCT attack_ids is removed —
     the else-branch of the staging insert must create a fresh row, not merge."""
     import inspect
-    src = inspect.getsource(ac._stage_amendments_for_failures)
+    src = function_source(ac, "_stage_amendments_for_failures")
     assert "_find_similar_existing_entry(proposed_text, queue)" not in src, \
         "cross-attack similarity merge must be gone from the staging path"
