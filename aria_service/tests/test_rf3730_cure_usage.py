@@ -17,6 +17,11 @@ import pytest
 
 from aria_service.intel import cure_usage
 
+# R-F3772/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 
 
@@ -261,7 +266,7 @@ def test_only_route_templates_are_recorded_never_resolved_paths():
     import inspect
     from aria_service import main
 
-    src = inspect.getsource(main._observe_route_usage)
+    src = function_source(main, "_observe_route_usage")
     # Strip comments first: the middleware's own comment explains WHY it does not
     # use request.url.path, and a naive substring check matches that explanation.
     code = "\n".join(
@@ -280,5 +285,5 @@ def test_no_ttl_is_used_on_the_observation_keys():
     survive restarts. A TTL here would silently truncate the overlay."""
     import inspect
 
-    src = inspect.getsource(cure_usage.flush)
+    src = function_source(cure_usage, "flush")
     assert "ex=" not in src, "observation writes must not set a TTL"

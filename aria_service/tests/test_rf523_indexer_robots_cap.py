@@ -15,12 +15,17 @@ import inspect
 
 from aria_service.crawler import politeness
 
+# R-F3772/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_rf523_fetch_robots_txt_has_max_redirects_cap():
     """Confirm max_redirects=5 is in the AsyncClient construction inside
     politeness._fetch_robots_txt — defuses the 12:41:30 BST imo.org
     redirect storm that R-F522 missed."""
-    src = inspect.getsource(politeness._fetch_robots_txt)
+    src = function_source(politeness, "_fetch_robots_txt")
     assert "max_redirects=5" in src, (
         f"R-F523 redirect cap missing from politeness._fetch_robots_txt — "
         f"indexer cold-boot will re-fire the 2026-05-14 12:41:30 BST "

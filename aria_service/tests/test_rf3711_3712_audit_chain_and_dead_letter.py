@@ -31,6 +31,11 @@ import json
 
 import pytest
 
+# R-F3772/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # R-F3711 — the audit chain
@@ -93,7 +98,7 @@ def test_the_verifier_keeps_the_lenient_read():
     import inspect
     from aria_service.intel import audit_log
 
-    src = inspect.getsource(audit_log._read_head_hash)
+    src = function_source(audit_log, "_read_head_hash")
     assert "strict: bool = False" in src, (
         "strict must be OPT-IN so the verifier's genesis fallback — which is "
         "visible in its output — is unchanged"
@@ -105,7 +110,7 @@ def test_a_refused_audit_write_is_wired_to_the_brain():
     import inspect
     from aria_service.intel import audit_log
 
-    src = inspect.getsource(audit_log.record)
+    src = function_source(audit_log, "record")
     assert "wire_failure" in src and "data_integrity" in src
 
 

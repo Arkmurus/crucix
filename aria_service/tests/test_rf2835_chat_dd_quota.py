@@ -30,6 +30,11 @@ import pytest
 
 from aria_service.intel import quota_client as QC
 
+# R-F3772/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 @pytest.mark.asyncio
 async def test_no_user_id_is_exempt():
@@ -93,7 +98,7 @@ def test_orchestrator_gates_on_quota_at_the_single_choke_point():
     import inspect
     from aria_service.intel import dd_orchestrator as DDO
 
-    src = inspect.getsource(DDO.orchestrate_dd)
+    src = function_source(DDO, "orchestrate_dd")
     assert "consume_dd_quota" in src, (
         "orchestrate_dd must consult the plan quota — gating in the chat handlers "
         "instead would repeat the §13 stream-bypass defect, where a hook added to "

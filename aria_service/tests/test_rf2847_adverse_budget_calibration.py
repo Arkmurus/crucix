@@ -36,6 +36,11 @@ import pytest
 
 from aria_service.intel import researcher as R
 
+# R-F3772/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_the_per_search_bound_is_not_below_measured_cost():
     """A bound beneath the real cost guarantees 100% timeouts."""
@@ -66,7 +71,7 @@ def test_the_deadline_check_is_what_bounds_the_sweep():
     searches complete and R-F2667's pre-existing deadline check stops the loop when
     the budget is spent — which is the correct mechanism and was already there.
     """
-    src = inspect.getsource(R.run_adverse_media_deep_search)
+    src = function_source(R, "run_adverse_media_deep_search")
     assert "deadline_s is not None" in src, (
         "the R-F2667 deadline check must remain — it is what bounds the sweep"
     )
@@ -78,7 +83,7 @@ def test_the_deadline_check_is_what_bounds_the_sweep():
 
 def test_the_loop_uses_the_calibrated_bound():
     """The calibrated bound must actually be wired in, not merely defined."""
-    src = inspect.getsource(R.run_adverse_media_deep_search)
+    src = function_source(R, "run_adverse_media_deep_search")
     assert "ADVERSE_SEARCH_TIMEOUT_S" in src, (
         "the loop must use the calibrated bound, not a hardcoded 10.0"
     )
@@ -89,7 +94,7 @@ def test_the_loop_uses_the_calibrated_bound():
 
 def test_the_cap_is_reported_not_hidden():
     """A silently truncated sweep would read as a completed one."""
-    src = inspect.getsource(R.run_adverse_media_deep_search)
+    src = function_source(R, "run_adverse_media_deep_search")
     for field in ("templates_capped_at", "templates_total_in_set", "templates_searched"):
         assert field in src, (
             f"{field} must be reported so the customer can see the sweep was bounded "

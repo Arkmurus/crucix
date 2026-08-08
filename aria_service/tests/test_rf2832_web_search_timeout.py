@@ -43,6 +43,11 @@ import pytest
 
 from aria_service.intel import researcher as R
 
+# R-F3772/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def _patch_backends(monkeypatch, *, delay: float, results=None):
     """Patch the REAL symbols _web_search uses: `web_search.search_multilingual`
@@ -170,7 +175,7 @@ async def test_fast_search_is_unaffected(monkeypatch):
 def test_adverse_media_loop_asks_for_strict_timeouts():
     """The honesty-critical caller must opt in, or its accounting silently rots."""
     import inspect
-    src = inspect.getsource(R.run_adverse_media_deep_search)
+    src = function_source(R, "run_adverse_media_deep_search")
     assert "raise_on_timeout=True" in src, (
         "run_adverse_media_deep_search must request strict timeout behaviour so a "
         "timed-out template is counted as a breaker skip, never as a template that "

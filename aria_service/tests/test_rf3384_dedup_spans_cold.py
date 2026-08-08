@@ -35,6 +35,11 @@ import pytest
 
 from aria_service.intel import rag_store as RS
 
+# R-F3772/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -135,7 +140,7 @@ def test_helper_is_total_on_junk():
 
 def test_ingest_dedup_calls_the_two_collection_helper():
     import inspect
-    src = inspect.getsource(RS.ingest_document)
+    src = function_source(RS, "ingest_document")
     assert "_existing_content_hashes" in src, (
         "ingest still queries one collection directly — offloaded chunks will "
         "re-duplicate, which is the R-F257 class all over again"
@@ -144,7 +149,7 @@ def test_ingest_dedup_calls_the_two_collection_helper():
 
 def test_ingest_no_longer_queries_documents_collection_directly_for_dedup():
     import inspect
-    src = inspect.getsource(RS.ingest_document)
+    src = function_source(RS, "ingest_document")
     assert 'where={"content_hash"' not in src, (
         "the hot-only dedup query is still present"
     )

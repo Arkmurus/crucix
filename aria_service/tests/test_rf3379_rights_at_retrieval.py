@@ -39,6 +39,11 @@ import pytest
 from aria_service.intel import rag_store as RS
 from aria_service.intel import corpus_ingest as CI
 
+# R-F3772/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def _chunk(text="body text here", rights=None, score=0.9):
     r = {"text": text, "score": score, "title": "T", "source": "corpus:A:owned:f.pdf",
@@ -54,7 +59,7 @@ def test_search_result_shape_carries_rights():
     """Guard against the exact regression: a selected-field list that silently
     omits the marking makes every downstream check impossible."""
     import inspect
-    src = inspect.getsource(RS.search)
+    src = function_source(RS, "search")
     assert '"rights"' in src, "search() drops `rights` — the gate cannot fire downstream"
 
 
@@ -117,7 +122,7 @@ def test_gate_delegates_to_may_quote_verbatim():
     import inspect
     # the rule lives in _rights_marker, which the renderer calls — assert on the
     # unit that decides, not the one that formats
-    src = inspect.getsource(RS._rights_marker) + inspect.getsource(RS._format_rag_context)
+    src = function_source(RS, "_rights_marker") + function_source(RS, "_format_rag_context")
     assert "may_quote_verbatim" in src, (
         "the renderer re-implements the rights rule instead of calling the "
         "canonical predicate — two measures of one thing is how they drift"

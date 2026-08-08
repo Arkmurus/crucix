@@ -13,9 +13,14 @@ import inspect
 
 import aria_service.main as M
 
+# R-F3772/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_rf2122_heavy_inits_not_on_synchronous_boot_path():
-    src = inspect.getsource(M.lifespan)
+    src = function_source(M, "lifespan")
     # the synchronous _run_boot_inits block is everything before the warmup def
     pre_warmup = src.split("_warmup_heavy_graphs")[0]
     assert '("knowledge", knowledge.init)' not in pre_warmup, \
@@ -25,7 +30,7 @@ def test_rf2122_heavy_inits_not_on_synchronous_boot_path():
 
 
 def test_rf2122_heavy_inits_are_in_the_background_warmup():
-    src = inspect.getsource(M.lifespan)
+    src = function_source(M, "lifespan")
     assert "_warmup_heavy_graphs" in src, "the background warmup task must exist"
     warmup = src.split("_warmup_heavy_graphs", 1)[1]
     # knowledge + neural + the freeze all move into the warmup

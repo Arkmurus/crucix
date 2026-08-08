@@ -43,6 +43,11 @@ import pytest
 from aria_service.intel import corpus_ingest as CI
 from aria_service.intel import pii_redaction as PR
 
+# R-F3772/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -101,7 +106,7 @@ def test_detect_pii_is_total_on_junk():
 
 def test_detection_uses_the_canonical_redactor():
     import inspect
-    src = inspect.getsource(CI.detect_pii)
+    src = function_source(CI, "detect_pii")
     assert "redact_pii" in src, (
         "a second pattern set would drift from pii_redaction — delegate to it"
     )

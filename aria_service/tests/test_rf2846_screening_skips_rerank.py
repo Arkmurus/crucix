@@ -40,6 +40,11 @@ import pytest
 from aria_service.intel import web_search as ws
 from aria_service.intel import researcher as R
 
+# R-F3772/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_search_accepts_a_screening_flag():
     sig = inspect.signature(ws.search)
@@ -55,7 +60,7 @@ def test_search_accepts_a_screening_flag():
 def test_search_multilingual_forwards_the_flag():
     sig = inspect.signature(ws.search_multilingual)
     assert "screening" in sig.parameters
-    src = inspect.getsource(ws.search_multilingual)
+    src = function_source(ws, "search_multilingual")
     assert "screening=screening" in src, (
         "search_multilingual must FORWARD the flag to each per-language search(); "
         "accepting it and dropping it is the half-wire that makes a fix look done"
@@ -69,7 +74,7 @@ def test_web_search_exposes_it_too():
 
 def test_the_adverse_media_loop_opts_out():
     """The caller that motivated this must actually use it."""
-    src = inspect.getsource(R.run_adverse_media_deep_search)
+    src = function_source(R, "run_adverse_media_deep_search")
     assert "screening=True" in src, (
         "run_adverse_media_deep_search must request screening=True — at ~120s per "
         "re-ranked search it completed ZERO of 34 templates in its 180s budget"

@@ -12,6 +12,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+# R-F3772/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def _run_extractor(content: str) -> list[dict]:
     """Run StaticAnalysisExtractor.extract() against a temp file.
@@ -193,7 +198,7 @@ def test_rf1537_extract_drives_real_path():
 
     # Verify the security patterns are in the source
     import inspect
-    source = inspect.getsource(StaticAnalysisExtractor._analyse_file)
+    source = function_source(StaticAnalysisExtractor, "_analyse_file")
     assert "dangerous_builtin" in source, "_analyse_file must contain dangerous_builtin check"
     assert "hardcoded_secret" in source, "_analyse_file must contain hardcoded_secret check"
     assert "os.system" in source, "_analyse_file must check for os.system"

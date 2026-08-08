@@ -30,6 +30,11 @@ import pytest
 
 from aria_service.intel import financial_health as FH
 
+# R-F3772/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_capability_registry_exists_and_is_the_single_source_of_truth():
     """Adding an evidence source must be a registry entry, not a new hardcoded call."""
@@ -155,7 +160,7 @@ async def test_a_failing_enricher_does_not_stamp_its_capability(monkeypatch):
 def test_fresh_assessments_are_stamped_too():
     """A profile written today must carry the stamp, or it is stale the moment it lands."""
     import inspect
-    src = inspect.getsource(FH.assess)
+    src = function_source(FH, "assess")
     assert "current_capabilities()" in src or "_stamp_capabilities" in src, (
         "assess() must stamp the capability set on the profiles it writes; an "
         "unstamped fresh profile would be re-enriched on every subsequent read"

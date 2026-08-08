@@ -4,6 +4,11 @@ of the autonomous engine, so Claude's notes are never stuck.
 """
 import pytest
 
+# R-F3772/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 @pytest.mark.asyncio
 async def test_collab_drain_task_in_scheduler():
@@ -11,7 +16,7 @@ async def test_collab_drain_task_in_scheduler():
     from aria_service.intel.autonomous_scheduler import AutonomousScheduler
     
     import inspect
-    source = inspect.getsource(AutonomousScheduler.start)
+    source = function_source(AutonomousScheduler, "start")
     assert "collab_drain" in source, (
         "AutonomousScheduler.start must include a collab_drain task"
     )
@@ -36,7 +41,7 @@ async def test_collab_drain_interval_is_short():
     from aria_service.intel.autonomous_scheduler import AutonomousScheduler
     
     import inspect
-    source = inspect.getsource(AutonomousScheduler.start)
+    source = function_source(AutonomousScheduler, "start")
     # Find the collab_drain interval
     import re
     m = re.search(r'collab_drain.*?(\d+)', source)
