@@ -31840,9 +31840,10 @@
       "title": "a plain import binds a module; the import map only knew from-imports",
       "claimed_at": "2026-08-08T17:22:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a226cce9",
+      "notes": null,
+      "shipped_at": "2026-08-08T17:23:52Z"
     }
   ]
 }
