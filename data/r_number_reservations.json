@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3776,
+  "next_available": 3777,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31735,6 +31735,15 @@
       "commit_sha": "2834de4c",
       "notes": null,
       "shipped_at": "2026-08-08T16:03:29Z"
+    },
+    {
+      "r_number": "R-F3776",
+      "title": "the recorder crashed at module level anywhere but its own directory",
+      "claimed_at": "2026-08-08T16:13:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

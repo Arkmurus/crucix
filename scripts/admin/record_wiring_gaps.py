@@ -43,7 +43,35 @@ import sys
 import urllib.error
 import urllib.request
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+def _repo_root() -> pathlib.Path:
+    """Repo root, tolerant of being run from somewhere other than scripts/admin/.
+
+    The first version was `parents[2]` unconditionally. That is right in the tree and
+    an IndexError anywhere else — and it fired at MODULE level, so the script could
+    not even print --help. It surfaced immediately: the live image predates this file,
+    so the only way to run it inside the machine is to pipe it to /tmp, where
+    parents[2] does not exist.
+
+    Resolution order: an explicit env override, then the location relative to this
+    file, then the working directory. Each candidate must actually CONTAIN the
+    baseline — a root that does not is not the root, and picking it would produce a
+    "no baseline, refusing" that blames the wrong thing.
+    """
+    here = pathlib.Path(__file__).resolve()
+    cands = []
+    if os.environ.get("ARIA_REPO_ROOT"):
+        cands.append(pathlib.Path(os.environ["ARIA_REPO_ROOT"]))
+    cands += list(here.parents)[:4] + [pathlib.Path.cwd()]
+    for c in cands:
+        try:
+            if (c / "docs" / "wiring_audit_baseline.json").exists():
+                return c
+        except Exception:                       # pragma: no cover - defensive
+            continue
+    return cands[0] if cands else pathlib.Path.cwd()
+
+
+REPO_ROOT = _repo_root()
 BASELINE = REPO_ROOT / "docs" / "wiring_audit_baseline.json"
 
 #: R-F3775 — taken from the ENUM, never typed as a literal.
