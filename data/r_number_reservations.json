@@ -31741,9 +31741,10 @@
       "title": "the recorder crashed at module level anywhere but its own directory",
       "claimed_at": "2026-08-08T16:13:30Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bc2afcdd",
+      "notes": null,
+      "shipped_at": "2026-08-08T16:13:30Z"
     }
   ]
 }
