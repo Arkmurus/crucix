@@ -3,6 +3,10 @@ from __future__ import annotations
 import asyncio
 from aria_service.routes import aria as R
 
+# R-F3781/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def test_admission_constant_and_sentinel():
     assert isinstance(R._DD_INLINE_ADMISSION_S, float)
@@ -27,7 +31,7 @@ def test_admission_bounds_wait_when_saturated():
 
 def test_handler_wires_admission_and_busy_reply():
     import inspect
-    src = inspect.getsource(R)
+    src = module_source(R)
     assert "raise _DDAdmissionBusy()" in src                       # gate raises on timeout
     assert "except _DDAdmissionBusy:" in src                       # busy handler present
     assert "dd_orchestrate — BUSY" in src                          # honest busy reply

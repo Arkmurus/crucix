@@ -44,6 +44,10 @@ import pytest
 from aria_service.intel import news_monitor as nm
 from aria_service.intel.engine_wiring import wire_failure
 
+# R-F3781/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 async def test_rf2630_wire_failure_call_signature_is_valid():
     """§3b — the exact call at news_monitor.py:1325 must actually bind.
@@ -63,7 +67,7 @@ async def test_rf2630_wire_failure_call_signature_is_valid():
         pytest.fail(f"the corrected wire_failure call does not bind: {e}")
 
     # And the OLD kwargs must NOT be what the code uses any more.
-    src = inspect.getsource(nm)
+    src = module_source(nm)
     assert "summary=f\"Feed poll failed" not in src, (
         "news_monitor still passes summary=/source_id= to wire_failure — that "
         "raises TypeError into `except: pass`, so every feed failure stays DARK"

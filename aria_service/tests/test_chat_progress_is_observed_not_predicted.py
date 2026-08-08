@@ -33,8 +33,12 @@ import re
 
 from aria_service.routes import aria as R
 
+# R-F3781/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
 
-SRC = inspect.getsource(R)
+
+SRC = module_source(R)
 
 
 def test_chat_request_carries_the_progress_job_id():

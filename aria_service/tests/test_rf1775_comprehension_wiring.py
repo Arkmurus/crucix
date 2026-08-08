@@ -14,10 +14,14 @@ import pytest
 
 from aria_service import aria_engine
 
+# R-F3781/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _get_source() -> str:
     """Return the full source of aria_engine.py for static analysis."""
-    return inspect.getsource(aria_engine)
+    return module_source(aria_engine)
 
 
 def test_rf1775_comprehension_import_present():

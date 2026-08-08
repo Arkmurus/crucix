@@ -25,6 +25,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+# R-F3781/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 # ── Test 1: clean response → correct=True with normal weight ────────────
 
@@ -208,7 +212,7 @@ def test_aria_engine_chat_paths_use_honest_helper():
     one of them, this test fires."""
     import aria_service.aria_engine as ae
 
-    source = inspect.getsource(ae)
+    source = module_source(ae)
     # Find each chat-response block and confirm it calls the helper
     assert "_update_mastery_honestly" in source, (
         "aria_engine.py must define + call _update_mastery_honestly"

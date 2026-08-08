@@ -20,6 +20,10 @@ import pytest
 
 from aria_service.intel import ocr
 
+# R-F3781/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 @pytest.mark.asyncio
 async def test_tesseract_runs_off_the_event_loop_and_loop_stays_alive(monkeypatch):
@@ -64,6 +68,6 @@ def test_chain_still_routes_through_async_wrapper():
     """extract_text_from_image's tesseract step must still await the
     (now thread-offloading) wrapper — source-level guard."""
     import inspect
-    src = inspect.getsource(ocr)
+    src = module_source(ocr)
     assert "return await _ocr_via_tesseract(image_data)" in src
     assert "asyncio.to_thread(_tesseract_extract_sync, image_data)" in src

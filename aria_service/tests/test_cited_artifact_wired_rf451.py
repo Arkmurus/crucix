@@ -21,6 +21,10 @@ import sys
 
 import pytest
 
+# R-F3781/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 # ── Test 1: verifier flags fabricated IDs with deception summary ────────
 
@@ -86,7 +90,7 @@ def test_dd_orchestrator_wires_cited_artifact_verifier():
     from aria_service.intel import dd_orchestrator
     import inspect
 
-    source = inspect.getsource(dd_orchestrator)
+    source = module_source(dd_orchestrator)
 
     # The R-F451 marker must be present
     assert "R-F451" in source, (
@@ -159,7 +163,7 @@ def test_brain_hook_keeps_cited_artifact_listing():
     from aria_service.intel import brain_hook
     import inspect
 
-    source = inspect.getsource(brain_hook)
+    source = module_source(brain_hook)
     assert "cited_artifact_verifier" in source, (
         "brain_hook.py should still list cited_artifact_verifier "
         "(it gets a topic-tag weight there)"

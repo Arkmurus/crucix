@@ -9,6 +9,10 @@ import time
 
 from aria_service.intel import portal_registry
 
+# R-F3781/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def test_rf2463_cooldown_skips_recently_failed(monkeypatch):
     monkeypatch.setattr(portal_registry, "_ENABLED", True, raising=False)
@@ -40,7 +44,7 @@ def test_rf2462_student_prefilters_short_facts_matching_knowledge_threshold():
     # threshold so it skips exactly what would be rejected (and no longer credits
     # mastery for rejected facts).
     from aria_service.intel import student, knowledge
-    assert "len(_fact_content.strip()) < 50" in inspect.getsource(student), \
+    assert "len(_fact_content.strip()) < 50" in module_source(student), \
         "student reading loop must pre-filter facts <50 chars"
-    assert "< 50" in inspect.getsource(knowledge), \
+    assert "< 50" in module_source(knowledge), \
         "knowledge reject threshold must stay 50 (keep student's pre-filter in sync)"

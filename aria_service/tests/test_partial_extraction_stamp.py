@@ -10,6 +10,10 @@ whenever the parser dropped content.
 
 from aria_service.routes.aria import _stamp_partial_extraction
 
+# R-F3781/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def test_no_stamp_when_full_extraction():
     """No banner when the parser captured everything."""
@@ -71,7 +75,7 @@ def test_constitution_clause_12_has_partial_guard():
     prevents a future refactor from silently dropping the rule."""
     from aria_service import aria_engine
     import inspect
-    src = inspect.getsource(aria_engine)
+    src = module_source(aria_engine)
     assert "PARTIAL EXTRACTION DISCIPLINE" in src
     assert "[!PARTIAL EXTRACTION" in src
     assert "not present in the extracted portion" in src

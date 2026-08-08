@@ -14,6 +14,10 @@ from __future__ import annotations
 import asyncio
 import os
 
+# R-F3781/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Academic source adapters
@@ -59,7 +63,7 @@ def test_web_search_wires_academic_backend():
     results alongside Brave / SearXNG / Google News."""
     import inspect
     from aria_service.intel import web_search
-    src = inspect.getsource(web_search.search)
+    src = function_source(web_search, "search")
     assert "_search_academic" in src, (
         "web_search.search() must call _search_academic in its "
         "backend fan-out. Regression: the academic adapters aren't "
@@ -161,7 +165,7 @@ def test_output_harvester_wired_into_chat_pipeline():
     final response. Regression: accidental removal of the hook."""
     import inspect
     from aria_service import aria_engine
-    src = inspect.getsource(aria_engine)
+    src = module_source(aria_engine)
     # Should appear at least twice (one for /chat, one for /chat/stream)
     assert src.count("output_harvester") >= 3, (
         "output_harvester hook missing from one of the chat branches "

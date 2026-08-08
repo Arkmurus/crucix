@@ -27,6 +27,10 @@ import pytest
 
 from aria_service.intel import conflict_tracker as ct
 
+# R-F3781/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _mk_client(post_resp=None, get_resp=None):
     """Build a mock httpx.AsyncClient usable as `async with`."""
@@ -71,7 +75,7 @@ async def test_rf2627_deprecated_legacy_host_is_not_called():
     )
 
     # No EXECUTABLE line may mention the dead host (comments/docstrings may).
-    src = inspect.getsource(ct)
+    src = module_source(ct)
     in_doc = False
     offenders = []
     for i, raw in enumerate(src.splitlines(), 1):

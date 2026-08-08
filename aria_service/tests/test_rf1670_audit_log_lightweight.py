@@ -10,9 +10,13 @@ import inspect
 
 from aria_service.intel import audit_log
 
+# R-F3781/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def test_audit_feed_brain_uses_record_signal_not_heavy_absorb():
-    src = inspect.getsource(audit_log)
+    src = module_source(audit_log)
     # Find the feed_brain block.
     assert "feed_brain" in src
     body = src.split("if feed_brain:", 1)[1]
