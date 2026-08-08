@@ -13,6 +13,7 @@ def test_pod_cycle_continues_recovered_adapter_and_persists_before_eval() -> Non
     code = (ROOT / "scripts/train/pod_tooluse_dpo.sh").read_text(encoding="utf-8")
     assert 'SFT_ADAPTER="${SFT_ADAPTER:-/workspace/checkpoints/aria_tooluse_v1}"' in code
     assert "--epochs 1 --beta 0.1 --lr 5e-6 --batch-size 2" in code
+    assert "--gradient-accumulation-steps 1" in code
     assert "--max-seq-len 4096 --max-grad-norm 0.3 --load-in-4bit" in code
     assert '--target "http://localhost:$PORT/v1"' in code
     assert '--eval-file "$EVAL_FILE" --out "$REPORT"' in code
@@ -80,3 +81,5 @@ def test_trainer_rebuilds_arrow_schema_and_probes_before_model_load() -> None:
     assert rebuilt < probed < model_loaded
     assert "ds.map(" not in code
     assert 'raise TypeError("DPO rendered columns are not strings")' in code
+    assert 'ap.add_argument("--gradient-accumulation-steps", type=int, default=4)' in code
+    assert "gradient_accumulation_steps=args.gradient_accumulation_steps" in code

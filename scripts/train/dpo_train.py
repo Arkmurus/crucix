@@ -98,6 +98,7 @@ def main() -> None:
     ap.add_argument("--beta", type=float, default=0.1)
     ap.add_argument("--lr", type=float, default=5e-6)
     ap.add_argument("--batch-size", type=int, default=2)
+    ap.add_argument("--gradient-accumulation-steps", type=int, default=4)
     ap.add_argument("--max-seq-len", type=int, default=4096)
     ap.add_argument("--load-in-4bit", action="store_true")
     # R-F1356: tight gradient clipping to tame the DPO grad-norm explosion
@@ -167,7 +168,7 @@ def main() -> None:
         output_dir=str(args.output_dir),
         num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
-        gradient_accumulation_steps=4,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.lr,
         lr_scheduler_type="cosine",
         warmup_ratio=0.05,

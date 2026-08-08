@@ -65,6 +65,7 @@ python "$SCRIPTS/dpo_train.py" \
   --base-model "$BASE_MODEL" --sft-checkpoint "$SFT_ADAPTER" \
   --dpo-file "$DPO_FILE" --output-dir "$DPO_OUT" \
   --epochs 1 --beta 0.1 --lr 5e-6 --batch-size 2 \
+  --gradient-accumulation-steps 1 \
   --max-seq-len 4096 --max-grad-norm 0.3 --load-in-4bit \
   2>&1 | tee "$LOGS/tooluse_dpo_train.log"
 [ -f "$DPO_OUT/adapter_config.json" ] || fail "DPO produced no adapter"
