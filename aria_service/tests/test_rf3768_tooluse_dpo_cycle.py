@@ -88,3 +88,15 @@ def test_trainer_rebuilds_arrow_schema_and_probes_before_model_load() -> None:
     assert 'raise TypeError("DPO rendered columns are not strings")' in code
     assert 'ap.add_argument("--gradient-accumulation-steps", type=int, default=4)' in code
     assert "gradient_accumulation_steps=args.gradient_accumulation_steps" in code
+
+
+def test_recovery_persists_full_epoch_adapter_before_eval_without_retraining() -> None:
+    code = (ROOT / "scripts/train/recover_tooluse_dpo.sh").read_text(encoding="utf-8")
+    persisted = code.index('log "persisting full-epoch adapter before evaluation"')
+    started = code.index("SKIP_TRAIN=1")
+    assert persisted < started
+    assert "aria_tooluse_dpo_adapter.tgz" in code
+    assert "trap stop EXIT" in code
+    assert "build_tooluse_corpus.py" in code
+    assert 'd.get("complete") is True' in code
+    assert 'len(d.get("rows") or [])==n' in code

@@ -13,6 +13,7 @@ SCRIPTS="/workspace/crucix/scripts/train"
 LOGS="/workspace/logs"
 PORT=8888
 EXPECTED_EVAL_ROWS="${EXPECTED_EVAL_ROWS:-168}"
+SKIP_TRAIN="${SKIP_TRAIN:-0}"
 export HF_HOME=/workspace/.cache/huggingface
 cd /workspace/crucix || { echo "[FATAL] staged repository unavailable" >&2; exit 1; }
 
@@ -61,14 +62,18 @@ if not torch.cuda.is_bf16_supported():
 print(torch.cuda.get_device_name(0))
 PY
 
-log "DPO training: 14 pairs, one epoch, beta=0.1, lr=5e-6, batch=2"
-python "$SCRIPTS/dpo_train.py" \
-  --base-model "$BASE_MODEL" --sft-checkpoint "$SFT_ADAPTER" \
-  --dpo-file "$DPO_FILE" --output-dir "$DPO_OUT" \
-  --epochs 1 --beta 0.1 --lr 5e-6 --batch-size 2 \
-  --gradient-accumulation-steps 1 \
-  --max-seq-len 4096 --max-grad-norm 0.3 --load-in-4bit \
-  2>&1 | tee "$LOGS/tooluse_dpo_train.log"
+if [ "$SKIP_TRAIN" != 1 ]; then
+  log "DPO training: 14 pairs, one epoch, beta=0.1, lr=5e-6, batch=2"
+  python "$SCRIPTS/dpo_train.py" \
+    --base-model "$BASE_MODEL" --sft-checkpoint "$SFT_ADAPTER" \
+    --dpo-file "$DPO_FILE" --output-dir "$DPO_OUT" \
+    --epochs 1 --beta 0.1 --lr 5e-6 --batch-size 2 \
+    --gradient-accumulation-steps 1 \
+    --max-seq-len 4096 --max-grad-norm 0.3 --load-in-4bit \
+    2>&1 | tee "$LOGS/tooluse_dpo_train.log"
+else
+  log "recovery mode: reusing retained full-epoch DPO adapter"
+fi
 [ -f "$DPO_OUT/adapter_config.json" ] || fail "DPO produced no adapter"
 
 # Persist the serving artifact before the long eval so a later host failure cannot
