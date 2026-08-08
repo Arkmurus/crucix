@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3777,
+  "next_available": 3778,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31745,6 +31745,15 @@
       "commit_sha": "bc2afcdd",
       "notes": null,
       "shipped_at": "2026-08-08T16:13:30Z"
+    },
+    {
+      "r_number": "R-F3777",
+      "title": "the remaining getsource backlog is a DIFFERENT shape than the first 84",
+      "claimed_at": "2026-08-08T16:33:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

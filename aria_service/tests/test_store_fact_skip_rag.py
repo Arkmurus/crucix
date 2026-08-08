@@ -21,6 +21,11 @@ import asyncio
 import inspect
 from unittest.mock import AsyncMock, patch
 
+# R-F3777/§16 — NOT inspect.getsource: it slices at line numbers captured AT
+# IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
+# target scopes the lookup to that class's own body (R-F3771).
+from ._source_probe import function_source
+
 
 def test_store_fact_signature_has_skip_rag_ingest():
     from aria_service.intel.knowledge import store_fact
@@ -123,7 +128,7 @@ def test_process_analysis_uses_skip_flag():
     """The researcher's _process_analysis loop must pass the flag so
     its add_facts_batch tail isn't doing duplicate work."""
     from aria_service.intel import researcher
-    src = inspect.getsource(researcher._process_analysis)
+    src = function_source(researcher, "_process_analysis")
     assert "skip_rag_ingest=True" in src, (
         "_process_analysis must pass skip_rag_ingest=True to store_fact "
         "since it does the RAG upsert via add_facts_batch at the end"
