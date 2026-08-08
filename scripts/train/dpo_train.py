@@ -38,8 +38,8 @@ logger = logging.getLogger("aria.train.dpo")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
-def normalize_dpo_example(example: dict) -> dict:
-    """Return one preference row in TRL's conversational schema."""
+def render_dpo_example(example: dict, tokenizer) -> dict:
+    """Render one preference row to TRL's stable string schema."""
     prompt = example.get("prompt")
     chosen = example.get("chosen")
     rejected = example.get("rejected")
@@ -47,17 +47,33 @@ def normalize_dpo_example(example: dict) -> dict:
         prompt = [{"role": "user", "content": prompt}]
     elif not isinstance(prompt, list) or not prompt:
         raise ValueError("DPO prompt must be a non-empty string or message list")
-    if isinstance(chosen, str):
-        chosen = [{"role": "assistant", "content": chosen}]
-    if isinstance(rejected, str):
-        rejected = [{"role": "assistant", "content": rejected}]
-    for name, messages in (("prompt", prompt), ("chosen", chosen), ("rejected", rejected)):
-        if not isinstance(messages, list) or not messages:
-            raise ValueError(f"DPO {name} must be a non-empty string or message list")
-        if not all(isinstance(m, dict) and isinstance(m.get("role"), str)
-                   and isinstance(m.get("content"), str) for m in messages):
-            raise ValueError(f"DPO {name} contains an invalid message")
-    return {"prompt": prompt, "chosen": chosen, "rejected": rejected}
+    if not all(isinstance(m, dict) and isinstance(m.get("role"), str)
+               and isinstance(m.get("content"), str) for m in prompt):
+        raise ValueError("DPO prompt contains an invalid message")
+
+    def completion_text(name: str, value) -> str:
+        if isinstance(value, str) and value:
+            return value
+        if (isinstance(value, list) and len(value) == 1
+                and value[0].get("role") == "assistant"
+                and isinstance(value[0].get("content"), str)
+                and value[0]["content"]):
+            return value[0]["content"]
+        raise ValueError(f"DPO {name} must be a non-empty assistant completion")
+
+    # R-F3768: TRL 0.12.2's conversational preprocessor left tool-trace prompts
+    # as lists and its tokenizer then crashed. Render with the same tokenizer
+    # path as sft_train._render_text and serve_eval_shim before DPOTrainer.
+    rendered_prompt = tokenizer.apply_chat_template(
+        prompt, tokenize=False, add_generation_prompt=True,
+    )
+    if not isinstance(rendered_prompt, str) or not rendered_prompt:
+        raise ValueError("DPO prompt rendered empty")
+    return {
+        "prompt": rendered_prompt,
+        "chosen": completion_text("chosen", chosen),
+        "rejected": completion_text("rejected", rejected),
+    }
 
 
 def _import_or_die() -> None:
@@ -136,16 +152,15 @@ def main() -> None:
     # (serve_eval_shim.py) also calls apply_chat_template. But the DPO pairs are
     # RAW STRINGS, which TRL's maybe_apply_chat_template leaves UN-templated —
     # so DPO trained the model on a different prompt format than SFT+serving,
-    # dragging it off-distribution into mode-collapse. Wrap the string pairs as
-    # conversational so DPOTrainer applies the SAME template. No-op if the data
-    # is already conversational (idempotent / future-proof).
+    # dragging it off-distribution into mode-collapse. Render every prompt with
+    # the SAME tokenizer template before DPOTrainer sees the dataset.
     if len(ds):
         ds = ds.map(
-            normalize_dpo_example,
+            lambda example: render_dpo_example(example, tokenizer),
             remove_columns=ds.column_names,  # drop raw str prompt/chosen/rejected/meta
-            desc="normalize conversational preferences",
+            desc="render DPO prompts",
         )
-        logger.info("Normalized %d pairs as conversational and removed metadata "
+        logger.info("Rendered %d prompts to strings and removed metadata "
                     "(chat template matches SFT + serving)", len(ds))
 
     dpo_config = DPOConfig(

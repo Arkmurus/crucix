@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.train.dpo_train import normalize_dpo_example
+from scripts.train.dpo_train import render_dpo_example
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -43,6 +43,13 @@ def test_orchestrator_pins_inputs_and_bounds_paid_artifact_recovery() -> None:
 
 
 def test_mixed_tool_trace_pair_is_normalized_and_metadata_removed() -> None:
+    class Tokenizer:
+        def apply_chat_template(self, messages, *, tokenize, add_generation_prompt):
+            assert messages[1]["role"] == "tool"
+            assert tokenize is False
+            assert add_generation_prompt is True
+            return "<rendered-tool-trace>"
+
     row = {
         "prompt": [{"role": "system", "content": "ground claims"},
                    {"role": "tool", "content": "evidence"}],
@@ -50,13 +57,16 @@ def test_mixed_tool_trace_pair_is_normalized_and_metadata_removed() -> None:
         "rejected": "unsupported answer",
         "subject": "must not reach trainer",
     }
-    normalized = normalize_dpo_example(row)
+    normalized = render_dpo_example(row, Tokenizer())
     assert set(normalized) == {"prompt", "chosen", "rejected"}
-    assert normalized["prompt"] == row["prompt"]
-    assert normalized["chosen"] == [{"role": "assistant", "content": "honest answer"}]
-    assert normalized["rejected"] == [{"role": "assistant", "content": "unsupported answer"}]
+    assert normalized["prompt"] == "<rendered-tool-trace>"
+    assert normalized["chosen"] == "honest answer"
+    assert normalized["rejected"] == "unsupported answer"
 
 
 def test_dpo_normalization_rejects_malformed_tool_trace() -> None:
     with pytest.raises(ValueError, match="invalid message"):
-        normalize_dpo_example({"prompt": [{"role": "tool"}], "chosen": "a", "rejected": "b"})
+        render_dpo_example(
+            {"prompt": [{"role": "tool"}], "chosen": "a", "rejected": "b"},
+            object(),
+        )
