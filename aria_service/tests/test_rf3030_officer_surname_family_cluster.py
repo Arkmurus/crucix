@@ -21,6 +21,10 @@ from unittest.mock import patch, AsyncMock
 
 from aria_service.intel import network_walker as nw
 
+# R-F3783/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 def test_rf3030_surname_honours_the_companies_house_comma_form():
     assert nw._officer_surname("ELLARD, Sarah Louise") == "ELLARD"
@@ -107,7 +111,7 @@ def test_rf3030_a_genuine_shared_surname_still_reports_but_does_not_assert_kinsh
 
 def test_rf3030_wording_no_longer_asserts_a_family_relationship():
     import inspect
-    src = inspect.getsource(nw)
+    src = module_source(nw)
     # check the TITLE, not the file (the defect is quoted in the explanatory comment)
     assert 'f"Family cluster detected' not in src, "the title asserted kinship as fact"
     assert "officers share the surname" in src
@@ -120,7 +124,7 @@ def test_rf3030_pep_family_link_uses_the_same_surname_rule():
     """That branch emits AMBER — a mis-read forename there fabricates a PEP link
     against a named individual."""
     import inspect
-    src = inspect.getsource(nw)
+    src = module_source(nw)
     i = src.index("For PEP-flagged directors")
     window = src[i:i + 900]
     assert "_officer_surname(pep_name)" in window
@@ -135,7 +139,7 @@ def test_rf3031_dd_screen_blob_carries_screened_at():
     said "screening date not recorded" about a screen it had just run."""
     import inspect
     from aria_service.intel import dd_orchestrator as ddo
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     i = src.index('"verified_sources": _dvs(all_matches')
     window = src[i:i + 900]
     assert '"screened_at"' in window, "the DD's own screen blob must carry the date"
@@ -172,7 +176,7 @@ def test_rf3037_legal_person_psc_is_carried_as_an_unanchored_controller():
     to report."""
     import inspect
     from aria_service.intel import companies_house as ch
-    src = inspect.getsource(ch.investigate_uk_entity)
+    src = function_source(ch, "investigate_uk_entity")
     assert '_is_controller_kind = ("corporate" in kind) or ("legal-person" in kind)' in src
     assert "if _is_controller_kind and not regno:" in src
     # the Grade-A anchored edge stays corporate-only (a state body has no regno)
@@ -182,7 +186,7 @@ def test_rf3037_legal_person_psc_is_carried_as_an_unanchored_controller():
 def test_rf3037_controller_kind_is_recorded_so_the_wording_cannot_misdescribe_it():
     import inspect
     from aria_service.intel import companies_house as ch
-    src = inspect.getsource(ch.investigate_uk_entity)
+    src = function_source(ch, "investigate_uk_entity")
     assert '"controller_kind"' in src
     assert "State / statutory (legal-person) controller" in src, (
         "calling a government authority a 'corporate controller' misdescribes it")

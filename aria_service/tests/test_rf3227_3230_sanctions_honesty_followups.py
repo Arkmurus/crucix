@@ -17,6 +17,10 @@ from aria_service.intel import dd_orchestrator as ddo
 from aria_service.intel import sanctions
 from aria_service.intel.dd_schema import ARKDDReport
 
+# R-F3783/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 # ── R-F3230 — never hand the verdict model a clean it did not earn ──────────
 
@@ -52,7 +56,7 @@ def test_rf3230_the_raw_screen_dict_no_longer_reaches_the_prompt():
     import ast
     import inspect
 
-    tree = ast.parse(inspect.getsource(ddo))
+    tree = ast.parse(module_source(ddo))
     for node in ast.walk(tree):
         body = getattr(node, "body", None)
         if not isinstance(body, list) or not body:
@@ -152,7 +156,7 @@ def test_rf3228_default_source_is_untrusted():
 
 def test_rf3228_the_dd_subject_path_declares_its_provenance():
     import inspect
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert 'screen_with_aliases(name, source="dd_subject")' in src
     assert 'source="registry"' in src
 

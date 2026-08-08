@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3783,
+  "next_available": 3784,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31804,6 +31804,15 @@
       "commit_sha": "6e34f1c7",
       "notes": null,
       "shipped_at": "2026-08-08T17:04:35Z"
+    },
+    {
+      "r_number": "R-F3783",
+      "title": "the edit text now comes from the AST node, not a hand-assembled string",
+      "claimed_at": "2026-08-08T17:05:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

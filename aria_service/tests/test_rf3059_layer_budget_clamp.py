@@ -23,6 +23,10 @@ from unittest.mock import patch
 from aria_service.intel import dd_orchestrator as ddo
 from aria_service.intel.dd_schema import ARKDDReport
 
+# R-F3783/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 def _layer():
     return ARKDDReport().digital
@@ -119,7 +123,7 @@ def test_rf3059_every_bounded_layer_publishes_its_deadline():
     import ast
     import inspect
 
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert src.count("_LAYER_DEADLINE.set(") >= 3, (
         "digital, compliance and network must each publish a deadline")
 
@@ -175,7 +179,7 @@ def test_rf3066_rag_and_neural_blocks_are_bounded():
     """LIVE: ops WERE bounded (45s + 37s honoured) yet the layer still overran at
     180s — because these blocks ran free."""
     import inspect
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert '_OP_T_RAG, report.digital, "RAG context"' in src
     assert '"neural associations"' in src
 
@@ -185,7 +189,7 @@ def test_rf3066_link_tree_budget_is_derived_not_flat():
     that had already spent ~82s (multi-query 45 + deep research 37). 82+90 > 180, so
     a deep DD was arithmetically certain to blow the layer."""
     import inspect
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert "wall_budget_s=min(90.0, _lt_budget)" in src, "must not claim a flat 90s"
     assert "_lt_budget = min(90.0, _layer_budget_left(default=90.0) * 0.6)" in src, (
         "a trailing op must take at most a FRACTION of the remainder, or it starves "
@@ -195,7 +199,7 @@ def test_rf3066_link_tree_budget_is_derived_not_flat():
 
 def test_rf3066_link_tree_skips_honestly_when_there_is_no_budget():
     import inspect
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     i = src.index("_lt_budget = min(90.0, _layer_budget_left")
     window = src[i:i + 900]
     assert "if _lt_budget < 15.0:" in window
@@ -207,7 +211,7 @@ def test_rf3066_a_real_tail_is_reserved_for_the_layers_own_work():
     overran on its own post-op work (press processing, tiering, wiring)."""
     assert ddo._LAYER_TAIL_S >= 5.0
     import inspect
-    assert "_dl - time.monotonic() - _LAYER_TAIL_S" in inspect.getsource(ddo._bounded_dd_op)
+    assert "_dl - time.monotonic() - _LAYER_TAIL_S" in function_source(ddo, "_bounded_dd_op")
 
 
 def test_rf3066_the_last_op_cannot_consume_the_whole_remainder():

@@ -32,6 +32,10 @@ import pytest
 
 from aria_service.intel.dd_schema import _quality_penalties
 
+# R-F3783/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _metrics(**kw):
     base = dict(
@@ -64,7 +68,7 @@ def test_rf3183_memory_url_is_tiered_memory_only():
     """THE DEFECT: tier by the source, not by the branch that fetched it."""
     import inspect
     from aria_service.intel import dd_orchestrator as ddo
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     i = src.index("R-F3183 — a memory:// URL is ARIA'S OWN RAG")
     window = src[i:i + 2200]
     code = "\n".join(l for l in window.splitlines() if not l.strip().startswith("#"))

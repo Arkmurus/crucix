@@ -33,6 +33,10 @@ import inspect
 from aria_service.intel import dd_orchestrator as ddo
 from aria_service.intel import web_search
 
+# R-F3783/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _readiness(answered=2, clearance=False, **over):
     base = {
@@ -89,7 +93,7 @@ def test_rf3116_cleared_report_is_unaffected():
 def test_rf3116_there_is_exactly_ONE_bluf_writer():
     """THE ROOT. A second writer is how R-F3091/R-F3092 ended up dead on the live
     path, and how the phase gates once disagreed with themselves (R-F2639)."""
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert src.count('f"Resolve decision-readiness blocker: {') == 0, (
         "R-F3116 REGRESSION: a writer is emitting verbatim blocker restatements again")
     # both call sites must delegate
@@ -98,14 +102,14 @@ def test_rf3116_there_is_exactly_ONE_bluf_writer():
 
 
 def test_rf3116_synthesis_writer_delegates():
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert "_bluf = compose_decision_bluf(_ready, name)" in src, (
         "the SYNTHESIS writer — the one that runs on every live DD — must delegate")
 
 
 # ── R-F3119 — Brave is the DD search tier ──────────────────────────────────
 def test_rf3119_dd_scope_drops_the_free_stack():
-    src = inspect.getsource(web_search)
+    src = module_source(web_search)
     assert "_brave_exclusive" in src
     assert "backend_tasks = backend_tasks[:1]" in src, (
         "R-F3119 REGRESSION: DD scope is fanning out to the free stack again, which "
@@ -115,7 +119,7 @@ def test_rf3119_dd_scope_drops_the_free_stack():
 def test_rf3119_backend_names_cannot_drift_from_the_tasks():
     """R-F2318 already had an off-by-one label drift here. If the names list keeps
     naming backends that are no longer launched, every result is mislabelled."""
-    src = inspect.getsource(web_search)
+    src = module_source(web_search)
     assert "[] if _brave_exclusive else" in src, (
         "the ecosystem snapshot must not name backends that did not run")
 
@@ -123,13 +127,13 @@ def test_rf3119_backend_names_cannot_drift_from_the_tasks():
 def test_rf3119_is_scoped_to_DD_not_global():
     """The continuous researcher never sets the Brave flag and must keep its free
     stack — this is a DD-scope change, not a global one."""
-    src = inspect.getsource(web_search)
+    src = module_source(web_search)
     assert "_brave_exclusive = _brave_on and (" in src, (
         "exclusivity must be gated on the Brave SCOPE, never applied globally")
 
 
 def test_rf3119_has_an_escape_hatch():
-    src = inspect.getsource(web_search)
+    src = module_source(web_search)
     assert "ARIA_DD_BRAVE_EXCLUSIVE" in src, (
         "a routing change this load-bearing needs an env kill-switch")
 
@@ -137,7 +141,7 @@ def test_rf3119_has_an_escape_hatch():
 def test_rf3119_memory_backend_is_retained():
     """`memory` is our own $0 local cache (R-F185/§15 pay-once) — it cannot time out
     on a network and must not be dropped with the external free stack."""
-    src = inspect.getsource(web_search)
+    src = module_source(web_search)
     i = src.index("_brave_exclusive = _brave_on")
     j = src.index("_all_tasks = [", i)
     assert "_query_memory" in src[j:j + 400], "the memory task must still be launched"
@@ -148,7 +152,7 @@ def test_rf3122_searxng_is_the_fallback_and_it_is_sovereign():
     """OPERATOR (2026-07-26): "if brave fails utilise aria searxng". The fallback is
     ARIA's OWN self-hosted SearXNG (R-F183), not the third-party free stack. R-F3119
     dropped everything, leaving DD with NO web tier when Brave fails."""
-    src = inspect.getsource(web_search)
+    src = module_source(web_search)
     assert "_brave_fallback_tasks = backend_tasks[1:2]" in src, (
         "R-F3122 REGRESSION: the DD fallback is not exactly one backend (SearXNG)")
     assert '_backend_names + ["searxng"]' in src, "the fallback must be SearXNG alone"
@@ -156,7 +160,7 @@ def test_rf3122_searxng_is_the_fallback_and_it_is_sovereign():
 
 def test_rf3122_third_party_backends_are_not_in_the_dd_path_at_all():
     """Neither phase may use DuckDuckGo/GNews/Google/Bing/academic/defence/GDELT."""
-    src = inspect.getsource(web_search)
+    src = module_source(web_search)
     i = src.index("_brave_fallback_tasks: list = []")
     window = src[i:i + 900]
     for third_party in ("duckduckgo", "gnews", "google_news", "bing_news", "gdelt"):
@@ -165,7 +169,7 @@ def test_rf3122_third_party_backends_are_not_in_the_dd_path_at_all():
 
 
 def test_rf3122_fallback_only_fires_when_the_primary_yields_nothing():
-    src = inspect.getsource(web_search)
+    src = module_source(web_search)
     assert "if _primary_yield == 0:" in src, (
         "SearXNG must run ONLY on the primary's failure path, never alongside it")
 
@@ -173,14 +177,14 @@ def test_rf3122_fallback_only_fires_when_the_primary_yields_nothing():
 def test_rf3122_unused_coroutines_are_closed():
     """The list literal CONSTRUCTS all nine coroutines before we choose; the ones we
     never await must be closed or each search leaks them with a RuntimeWarning."""
-    src = inspect.getsource(web_search)
+    src = module_source(web_search)
     assert "for _unused in backend_tasks[2:]:" in src and "_unused.close()" in src
     assert "_t.close()" in src
 
 
 def test_rf3122_fallback_use_is_DISCLOSED_never_silent():
     """§14: cooling is not breaking, but it must be visible."""
-    src = inspect.getsource(web_search)
+    src = module_source(web_search)
     assert '"brave_fallback_used"' in src and '"brave_primary"' in src
 
 
@@ -189,7 +193,7 @@ def test_rf3122_rationale_does_not_claim_unproven_contention():
     including Brave, while a direct Brave call answered in 1.2s — event-loop
     starvation, not contention. An unsupported causal claim must not survive as
     justification in a comment."""
-    src = inspect.getsource(web_search)
+    src = module_source(web_search)
     i = src.index("R-F3122 — RATIONALE CORRECTED")
     window = src[i:i + 1200]
     assert "NOT budget contention" in window

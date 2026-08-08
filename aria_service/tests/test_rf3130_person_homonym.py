@@ -27,9 +27,13 @@ import inspect
 
 from aria_service.intel import dd_orchestrator as ddo
 
+# R-F3783/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _block() -> str:
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     i = src.index("R-F3130 — A HOMONYM IS NOT AN IDENTIFICATION")
     return src[i:i + 6500]   # must span the comment AND the detail strings
 

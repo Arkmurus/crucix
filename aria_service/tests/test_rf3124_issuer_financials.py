@@ -20,6 +20,10 @@ import pytest
 
 from aria_service.intel import financial_health as fh
 
+# R-F3783/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 # ── G1 PROVENANCE — the issuer's own domain ────────────────────────────────
 @pytest.mark.parametrize("url,expected", [
@@ -149,7 +153,7 @@ def test_rf3124_does_not_claim_a_ratio_model_it_does_not_have():
     """SEC EDGAR (route 1) is the only path to an Altman Z''. Claiming more than the
     document supports is the overreach the gate chain exists to prevent."""
     import inspect
-    src = inspect.getsource(fh._verdict_from_issuer_report)
+    src = function_source(fh, "_verdict_from_issuer_report")
     assert "altman" in src.lower() and "edgar" in src.lower(), (
         "the docstring must state that Altman Z'' remains EDGAR-only")
     assert "equity_ratio" in src, "the verdict is a structural equity read, nothing more"
@@ -162,7 +166,7 @@ def test_rf3124_success_and_failure_are_both_wired():
     R-F3128 moved the logic out of the inline assess() block into the registered
     capability; the guarantee is unchanged, so the assertion follows it there."""
     import inspect
-    src = inspect.getsource(fh._enrich_with_issuer_report)
+    src = function_source(fh, "_enrich_with_issuer_report")
     assert "wire_success(" in src, "the verified path must reach the brain"
     assert "wire_failure(" in src, "the not-usable path must reach the brain too"
     assert 'gap_type="knowledge_gap"' in src, "must be a REGISTERED gap type"
@@ -171,12 +175,12 @@ def test_rf3124_success_and_failure_are_both_wired():
 def test_rf3124_failure_leaves_the_honest_unknown_intact():
     """The whole design: any gate failure changes nothing about the existing verdict."""
     import inspect
-    src = inspect.getsource(fh._enrich_with_issuer_report)
+    src = function_source(fh, "_enrich_with_issuer_report")
     assert src.index('if not iss.get("ok"):') < src.index('result["data_available"] = True'), (
         "data_available may ONLY be set AFTER the ok check returns False early")
     assert "return False" in src.split('result["data_available"] = True')[0], (
         "the not-ok path must return before anything is marked available")
-    assert "still UNKNOWN" in inspect.getsource(fh.assess), (
+    assert "still UNKNOWN" in function_source(fh, "assess"), (
         "assess() must still say UNKNOWN when the capability declined")
 
 
@@ -198,7 +202,7 @@ def test_rf3128_issuer_report_is_a_REGISTERED_capability():
 def test_rf3128_there_is_exactly_one_implementation():
     """The inline copy is what diverged from the registered path. One caller only."""
     import inspect
-    src = inspect.getsource(fh)
+    src = module_source(fh)
     assert src.count("await extract_issuer_financials(") == 1, (
         "more than one call site means the fresh and backfill paths can drift again")
     assert "_enrich_with_issuer_report(\n                    result, name" in src, (
@@ -209,14 +213,14 @@ def test_rf3128_capability_only_stamps_on_success():
     """A blocked fetch or refused gate must retry on the next read, not freeze an
     UNKNOWN for 30 days — the enricher returns False so the stamp is withheld."""
     import inspect
-    src = inspect.getsource(fh._enrich_with_issuer_report)
+    src = function_source(fh, "_enrich_with_issuer_report")
     assert "if not iss.get(\"ok\"):" in src and "return False" in src
 
 
 def test_rf3128_does_not_override_a_stronger_route():
     """SEC EDGAR (structured) must win; the issuer report is the fallback."""
     import inspect
-    src = inspect.getsource(fh._enrich_with_issuer_report)
+    src = function_source(fh, "_enrich_with_issuer_report")
     assert 'if result.get("data_available") and result.get("has_financials"):' in src
 
 

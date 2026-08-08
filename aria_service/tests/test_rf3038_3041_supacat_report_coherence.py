@@ -22,11 +22,15 @@ R-F3041  the basis line cited "the small-company exemption" on a FULL-accounts f
 from aria_service.intel import dd_orchestrator as ddo
 from aria_service.intel import financial_health as fh
 
+# R-F3783/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 
 # ── R-F3038 ────────────────────────────────────────────────────────────────
 def test_rf3038_both_screen_assignment_sites_stamp_a_date():
     import inspect
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     # R-F3219 added a THIRD site — the re-screen under the registered legal name,
     # once Companies House resolves a different name from the one supplied. This
     # test's own instruction was "if a third appears, it needs the stamp too", so
@@ -57,13 +61,13 @@ def test_rf3038_both_screen_assignment_sites_stamp_a_date():
     assert '"screened_at": datetime.now(timezone.utc)' in src      # site 1 (R-F3031)
     assert 'screen["screened_at"] = datetime.now(timezone.utc)' in src  # site 2 (R-F3038)
     # site 3 (R-F3219) — stamped before it is assigned, same never-overwrite rule
-    _rescreen = inspect.getsource(ddo._rescreen_under_registered_name)
+    _rescreen = function_source(ddo, "_rescreen_under_registered_name")
     assert 'screen["screened_at"] = datetime.now(timezone.utc)' in _rescreen
     assert 'if not screen.get("screened_at")' in _rescreen
 
     # site 4 (R-F3411) — the WAIVED screen. It must carry screened_at=None and screened
     # False, so the R-F3229 branch renders it as declined and it can never read as CLEAN.
-    _waived = inspect.getsource(ddo._record_waived_screen)
+    _waived = function_source(ddo, "_record_waived_screen")
     assert '"screened_at": None' in _waived, (
         "a waived screen must NOT carry a screen date — a timestamp would claim the "
         "screen was performed when the operator declined it")
@@ -74,7 +78,7 @@ def test_rf3038_both_screen_assignment_sites_stamp_a_date():
 
 def test_rf3038_existing_stamp_is_never_overwritten():
     import inspect
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert 'if isinstance(screen, dict) and not screen.get("screened_at"):' in src
 
 
@@ -126,7 +130,7 @@ def test_rf3040_the_live_declared_activity_string_yields_the_military_code():
 
 def test_rf3040_a_civilian_read_against_a_military_sic_is_flagged_amber():
     import inspect
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     i = src.index("_mil_sics = _military_sic_codes(_sic_codes)")
     window = src[i:i + 2200]
     assert '"civilian" in _rec.lower()' in window
@@ -207,7 +211,7 @@ def test_rf3043_never_raises_on_a_malformed_profile():
 
 def test_rf3043_is_wired_into_the_vault_hit_path():
     import inspect
-    src = inspect.getsource(fh.assess)
+    src = function_source(fh, "assess")
     i = src.index('cached["from_vault"] = True')
     window = src[i:i + 1800]
     assert "_refresh_derived_text(cached)" in window
@@ -222,7 +226,7 @@ def test_rf3050_both_bluf_writers_use_the_shared_helper():
     copy. That follow-up is precisely what moves a report from 4/5 to 5/5, so the
     one path able to produce "only 5/5" was the one still unfixed."""
     import inspect
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert src.count("def _coverage_clause(") == 1, "exactly one implementation"
     # R-F3116 — STRENGTHENED, not relaxed. R-F3050 made the two BLUF writers share
     # the coverage CLAUSE; they still had two copies of everything else, and that

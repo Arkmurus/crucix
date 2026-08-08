@@ -24,6 +24,10 @@ import pytest
 from aria_service.intel import dd_orchestrator as ddo
 from aria_service.intel import dd_schema, sanctions
 
+# R-F3783/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import function_source, module_source
+
 SUPPLIED = "Rossi Security (Rossi Facility Services Ltd)"
 REGISTERED = "ROSSI FACILITY SERVICES LTD"
 
@@ -75,7 +79,7 @@ def _clean_branch_code() -> str:
     comment proves nothing — the R-F3129 lesson, and this file's comment names
     every key it is asserting about."""
     import inspect
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     i = src.index("R-F3217 — FAIL CLOSED ON *ANY* UNPERFORMED SCREEN")
     # Walk back to the `elif` that opens the branch, forward past the CLEAN else.
     start = src.rindex("elif (", 0, i)
@@ -100,7 +104,7 @@ def test_rf3217_unperformed_screen_reason_is_named():
     """Telling a reader the SOURCE was unreachable when the truth is 'the name was
     not screenable' sends them to check a system that is working (R-F3125 class)."""
     import inspect
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     i = src.index("R-F3217 — name the REASON THIS screen failed")
     window = src[i:i + 1800]
     assert 'not_entity_shaped' in window
@@ -233,7 +237,7 @@ def test_rf3222_citation_penalty_names_the_real_obstacle():
 def test_rf3222_no_unreachable_bluf_block():
     """A second BLUF writer is how R-F3019/R-F3039/R-F3091 each shipped broken."""
     import inspect
-    src = inspect.getsource(ddo._refresh_persisted_decision_readiness)
+    src = function_source(ddo, "_refresh_persisted_decision_readiness")
     # Everything after the FINAL return is unreachable by construction.
     tail = src[src.rindex("return readiness") + len("return readiness"):]
     assert "bottom_line" not in tail, (

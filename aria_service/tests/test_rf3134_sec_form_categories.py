@@ -32,6 +32,10 @@ import pytest
 
 from aria_service.intel import dd_orchestrator as ddo
 
+# R-F3783/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 # ── the real filings EDGAR returned for Babcock, verbatim from the stored report ──
 BABCOCK_HITS = [
@@ -168,7 +172,7 @@ def test_rf3134_form_summary_survives_junk():
 
 def test_rf3134_the_old_promise_string_is_gone_unconditionally():
     """Belt and braces: the unconditional string must not exist in the module."""
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     # The surviving occurrence is inside the has-financial-statements branch and is
     # prefixed; the bare unconditional form must not reappear.
     assert "Full filings available for financial DD review" not in src, (

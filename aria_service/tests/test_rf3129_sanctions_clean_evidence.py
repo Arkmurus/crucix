@@ -29,6 +29,10 @@ import inspect
 
 from aria_service.intel import dd_orchestrator as ddo
 
+# R-F3783/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
+
 
 def _clean_branch(code_only: bool = False) -> str:
     """The R-F3129 branch. `code_only` strips comment lines.
@@ -36,7 +40,7 @@ def _clean_branch(code_only: bool = False) -> str:
     A source-grep guard that matches its OWN explanatory comment proves nothing —
     hit twice today (R-F3092's slice check did the same). Stripping comments makes
     the assertion about the CODE, which is what it is meant to constrain."""
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     i = src.index("R-F3129 — NAME ONLY THE LISTS YOU CAN EVIDENCE")
     window = src[i:i + 3200]
     if not code_only:
@@ -47,7 +51,7 @@ def _clean_branch(code_only: bool = False) -> str:
 
 def test_rf3129_the_hardcoded_authority_list_is_gone():
     """THE DEFECT: five named authorities in a string, independent of the evidence."""
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert "no matches across OFAC SDN, UK OFSI, EU Consolidated" not in src, (
         "R-F3129 REGRESSION: the CLEAN finding is again naming authorities it cannot "
         "show were queried")
@@ -111,7 +115,7 @@ def test_rf3129_still_distinguishes_source_unavailable():
     #     _scr.get("screened") is False or _scr.get("source_unavailable")  (:1861)
     # A string match would also have gone red on the em-dash sweep (R-F3278)
     # without anything about the behaviour changing at all.
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert "Sanctions screen NOT performed" in src, (
         "the unscreenable-entity finding must still be raised"
     )

@@ -61,13 +61,13 @@ def test_rf3063_never_raises_on_a_malformed_report():
 
 # ── every company-only path is gated ───────────────────────────────────────
 def test_rf3063_identity_companies_house_block_excludes_persons():
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert 'if jurisdiction_iso2 == "GB" and not _subject_is_person(report):' in src, (
         "the identity CH block passes company_name=<subject name> — it must not see a person")
 
 
 def test_rf3063_officer_backfill_excludes_persons():
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     i = src.index("R-F2515 — Companies House officer BACKFILL")
     window = src[i:i + 2500]
     assert "_subject_is_person(report)" in window, (
@@ -76,7 +76,7 @@ def test_rf3063_officer_backfill_excludes_persons():
 
 def test_rf3063_financial_health_excludes_persons():
     """Defence in depth: a verdict this defamatory must not depend on one guard."""
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     i = src.index("Financial health (R-F2322")
     window = src[i:i + 1600]
     assert "not _subject_is_person(report)" in window
@@ -84,13 +84,17 @@ def test_rf3063_financial_health_excludes_persons():
 
 def test_rf3063_the_three_paths_use_one_shared_guard():
     """Three copies of a condition drift; one helper cannot."""
-    src = inspect.getsource(ddo)
+    src = module_source(ddo)
     assert src.count("def _subject_is_person(") == 1
     assert src.count("_subject_is_person(report)") >= 3
 
 
 # ── the scorecard must be entity-type aware ────────────────────────────────
 from aria_service.intel.dd_schema import _dd_decision_readiness
+
+# R-F3783/§16 — NOT inspect.getsource: it slices at line numbers captured
+# AT IMPORT, so a mid-run edit silently returns a DIFFERENT function's body.
+from ._source_probe import module_source
 
 
 def _person_payload():
