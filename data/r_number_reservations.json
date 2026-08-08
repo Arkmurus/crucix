@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3768,
+  "next_available": 3770,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31656,6 +31656,24 @@
       "commit_sha": "52876b36",
       "notes": null,
       "shipped_at": "2026-08-07T21:30:14Z"
+    },
+    {
+      "r_number": "R-F3768",
+      "title": "bounded tool-use DPO train and held-out gate",
+      "claimed_at": "2026-08-07T21:54:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3769",
+      "title": "the deploy verifier read build_rev and discarded it, certifying a failed deploy because the OLD build was alive",
+      "claimed_at": "2026-08-08T08:18:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

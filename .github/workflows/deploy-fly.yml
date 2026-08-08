@@ -160,7 +160,10 @@ jobs:
         if: steps.deploy.outcome == 'failure'
         run: |
           set -uo pipefail
-          echo "flyctl exited non-zero — falling through to authoritative /health probe"
+          # R-F3769 — the SHA this run was supposed to ship. `build_rev` embeds the
+          # SHORT sha (e.g. "R-F3766 · sha 6cd1fc88"), so compare on 8 chars.
+          EXPECTED_SHA=$(git rev-parse --short=8 HEAD)
+          echo "flyctl exited non-zero — falling through to /health probe, expecting sha ${EXPECTED_SHA}"
           echo "flyctl version (for the run log):"
           flyctl version 2>&1 | head -5 || echo "flyctl version itself failed"
 
@@ -183,8 +186,31 @@ jobs:
               svc_status=$(jq -r '.status // "unknown"' /tmp/health.json 2>/dev/null || echo "jq_fail")
               if [ "${svc_status}" = "operational" ] || [ "${svc_status}" = "degraded" ]; then
                 build_rev=$(curl -sS -m 5 https://aria-intel.fly.dev/health/live 2>/dev/null | jq -r '.build_rev // "unknown"' 2>/dev/null || echo "unknown")
-                echo "::notice::Release v${latest_version} verified live (status=${svc_status}, build_rev=${build_rev}, flyctl_status=${latest_status})"
-                exit 0
+                # ── R-F3769 — COMPARE the build_rev; do not merely print it ────
+                #
+                # This step is the fallback for a flyctl that exited non-zero
+                # while the release may still have completed (§11c: a torch build
+                # can outlast the client). That intent is right. The bug was that
+                # it exited 0 as soon as /health was ALIVE — and then fetched
+                # build_rev only to echo it.
+                #
+                # So when the deploy genuinely FAILED, the PREVIOUS build was
+                # still serving happily, /health said operational, and the run
+                # was certified green. Observed 2026-08-07 on run 31220316865:
+                # "success", zero new fly releases, live build_rev still the
+                # prior commit. It also skipped the R-F1080 rollback below, so a
+                # failed deploy left the old build serving with no signal at all.
+                #
+                # A step named "Verify release" that verifies LIVENESS is the
+                # absence-read-as-presence defect this repo keeps producing —
+                # here in the one place meant to catch it. CLAUDE.md §11 already
+                # states the rule ("a dispatched run is not a deploy until
+                # build_rev matches"); the value was in hand and thrown away.
+                if [ "${build_rev}" != "${build_rev#*${EXPECTED_SHA}}" ]; then
+                  echo "::notice::Release v${latest_version} verified live — build_rev=${build_rev} MATCHES ${EXPECTED_SHA} (status=${svc_status}, flyctl_status=${latest_status})"
+                  exit 0
+                fi
+                echo "poll ${i}/36: alive but build_rev=${build_rev} does NOT contain ${EXPECTED_SHA} — the OLD build is still serving, not a deploy"
               fi
               echo "poll ${i}/36: /health returned 200 but status=${svc_status}"
             else
@@ -195,7 +221,7 @@ jobs:
           echo "=== /health response body at timeout ==="
           cat /tmp/health.json 2>/dev/null || echo "(no body)"
           echo "==========================================================="
-          echo "::error::Release v${latest_version} did not reach operational|degraded within 180s"
+          echo "::error::Deploy NOT verified within 180s — /health never reported operational|degraded carrying sha ${EXPECTED_SHA} (v${latest_version}). A live OLD build is a FAILED deploy, not a passing one (R-F3769)."
           # R-F1080 — automated rollback on verify failure
           echo "Attempting automated rollback to previous release..."
           PREV_IMAGE=$(flyctl releases -a aria-intel -t "${{ secrets.FLY_API_TOKEN }}" --json 2>/dev/null | jq -r '.[1].Image // ""' 2>/dev/null || echo "")
