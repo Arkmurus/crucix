@@ -40,7 +40,11 @@ def test_unverified_request_is_explainable_and_cannot_be_priority():
     # Pinned deliberately, not derived from the module: a schema change must be
     # a conscious edit here. 1.1.0 → 1.2.0 at R-F3531, which added the trust
     # transitions, trust_is_established and next_action_code.
-    assert result["schema_version"] == "1.2.0"
+    # 1.2.0 → 1.3.0 at R-F3633 (5cf46fb5, "make access requests actionable"), which
+    # replaced the triage with an owned access-decision workflow. R-F3804 — the pin
+    # did exactly its job: it demanded a conscious edit and R-F3633 never made one,
+    # so this has been red since. Recording the bump is the edit it asked for.
+    assert result["schema_version"] == "1.3.0"
     assert result["trust_state"] == "submitted_unverified"
     assert result["readiness"] == "needs_verification"
     assert "priority" not in result
@@ -57,10 +61,18 @@ def test_unverified_request_is_explainable_and_cannot_be_priority():
 
 
 def test_consumer_email_and_missing_context_are_explicit_gaps():
+    # R-F3804 — `use_case` must be a value the product actually treats as
+    # non-specific. This read "ARIA landing page", a string the system never
+    # produces: the web tier sends the user's own typed text plus a separate
+    # `source: 'landing'` (server.mjs:2925), so the fixture was asserting against an
+    # arbitrary sentence. R-F3633 defines the vocabulary explicitly
+    # (`_NON_SPECIFIC_USE_CASES = {"", "other", "use case"}`), so the test now uses
+    # it and still asserts the intent: a non-specific use case is an EXPLICIT gap,
+    # never a credited evidence factor.
     result = ri.assess_access_request(
         name="A Visitor",
         email="visitor@gmail.com",
-        use_case="ARIA landing page",
+        use_case="other",
     )
 
     assert set(result["gaps"]) == {
