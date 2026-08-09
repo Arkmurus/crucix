@@ -32,13 +32,13 @@ def test_pod_cycle_continues_recovered_adapter_and_persists_before_eval() -> Non
 
 def test_orchestrator_pins_inputs_and_bounds_paid_artifact_recovery() -> None:
     code = (ROOT / "scripts/train/run_tooluse_dpo.sh").read_text(encoding="utf-8")
-    assert "ADAPTER_SHA256=0fd0b88b16a47bc9276bc1dc96b90a488dad810b8bf296a00147b8fe989f1656" in code
-    assert "DPO_SHA256=ef87c13d77e241ca295eb540ed64142e5c3669283b4f3913fa36923c05f5f991" in code
+    assert 'ADAPTER_SHA256="${ADAPTER_SHA256:-0fd0b88b16a47bc9276bc1dc96b90a488dad810b8bf296a00147b8fe989f1656}"' in code
+    assert 'DPO_SHA256="${DPO_SHA256:-ef87c13d77e241ca295eb540ed64142e5c3669283b4f3913fa36923c05f5f991}"' in code
     assert "EVAL_SHA256=d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00" in code
     assert 'ADAPTER_LOCAL="${ADAPTER_LOCAL:-data/training/checkpoints/aria_tooluse_dpo_v2.tgz}"' in code
     assert 'DPO_LOCAL="${DPO_LOCAL:-data/training/aria_tooluse_dpo_v3.jsonl}"' in code
     assert 'OUTPUT_LOCAL="${OUTPUT_LOCAL:-data/training/checkpoints/aria_tooluse_dpo_v3.tgz}"' in code
-    assert code.count("sha256sum -c -") == 2
+    assert code.count("sha256sum -c -") == 3
     assert "SFTP_UPLOAD=reput" in code and "SFTP_UPLOAD=put" in code
     assert 'timeout "$UPLOAD_SLICE" sftp' in code
     assert "DEADLINE=$UPLOAD_DEADLINE" in code

@@ -5,6 +5,8 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
 REPO="${REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}"; cd "$REPO" || exit 1
 API=https://rest.runpod.io/v1
 PYBIN="${PYBIN:-.venv/Scripts/python.exe}"
+FRESH_BASE="${FRESH_BASE:-0}"
+EXPECTED_DPO_PAIRS="${EXPECTED_DPO_PAIRS:-8}"
 ADAPTER_LOCAL="${ADAPTER_LOCAL:-data/training/checkpoints/aria_tooluse_dpo_v2.tgz}"
 RESUME_ADAPTER_LOCAL="${RESUME_ADAPTER_LOCAL:-}"
 RESUME_REPORT_LOCAL="${RESUME_REPORT_LOCAL:-}"
@@ -15,8 +17,9 @@ GOLDEN="${GOLDEN:-data/eval_frozen/aria_eval_500q.jsonl}"
 REPORT_LOCAL="${REPORT_LOCAL:-data/eval_reports/aria_tooluse_dpo_v3_eval.json}"
 OUTPUT_LOCAL="${OUTPUT_LOCAL:-data/training/checkpoints/aria_tooluse_dpo_v3.tgz}"
 STATE_FILE="${STATE_FILE:-data/eval_reports/.tooluse_dpo_v3_pod_state}"
-ADAPTER_SHA256=0fd0b88b16a47bc9276bc1dc96b90a488dad810b8bf296a00147b8fe989f1656
-DPO_SHA256=ef87c13d77e241ca295eb540ed64142e5c3669283b4f3913fa36923c05f5f991
+REMOTE_DPO_OUT="${REMOTE_DPO_OUT:-/workspace/checkpoints/aria_tooluse_dpo_v3}"
+ADAPTER_SHA256="${ADAPTER_SHA256:-0fd0b88b16a47bc9276bc1dc96b90a488dad810b8bf296a00147b8fe989f1656}"
+DPO_SHA256="${DPO_SHA256:-ef87c13d77e241ca295eb540ed64142e5c3669283b4f3913fa36923c05f5f991}"
 EVAL_SHA256=d24be361fb30ff0e51272b2a7338be2924b8df5428d55a469f1c907bd28c3b00
 # Separate measured envelopes: prior 311 MB upload <=64 min; 168-row eval ~74 min.
 UPLOAD_DEADLINE="${UPLOAD_DEADLINE:-5400}"; CYCLE_DEADLINE="${CYCLE_DEADLINE:-7200}"
@@ -39,13 +42,22 @@ if [ -n "$RESUME_ADAPTER_LOCAL" ] || [ -n "$RESUME_REPORT_LOCAL" ]; then
     || { log "FATAL resume adapter and report must be supplied together"; exit 1; }
   RESUME_MODE=1
 fi
+[ "$FRESH_BASE" != 1 ] || [ "$RESUME_MODE" = 0 ] \
+  || { log "FATAL fresh-base mode cannot resume an adapter"; exit 1; }
 UPLOAD_ADAPTER_LOCAL="$ADAPTER_LOCAL"
 [ "$RESUME_MODE" = 0 ] || UPLOAD_ADAPTER_LOCAL="$RESUME_ADAPTER_LOCAL"
-for f in "$UPLOAD_ADAPTER_LOCAL" "$DPO_LOCAL" "$EVAL_LOCAL" "$TRAIN_PROOF"; do [ -s "$f" ] || { log "FATAL missing $f"; exit 1; }; done
+REQUIRED_FILES=("$DPO_LOCAL" "$EVAL_LOCAL" "$TRAIN_PROOF")
+[ "$FRESH_BASE" = 1 ] || REQUIRED_FILES+=("$UPLOAD_ADAPTER_LOCAL")
+for f in "${REQUIRED_FILES[@]}"; do [ -s "$f" ] || { log "FATAL missing $f"; exit 1; }; done
 [ "$RESUME_MODE" = 0 ] || [ -s "$RESUME_REPORT_LOCAL" ] || { log "FATAL missing resume report"; exit 1; }
 if [ "$RESUME_MODE" = 0 ]; then
-  printf '%s  %s\n%s  %s\n%s  %s\n' "$ADAPTER_SHA256" "$ADAPTER_LOCAL" "$DPO_SHA256" "$DPO_LOCAL" "$EVAL_SHA256" "$EVAL_LOCAL" \
-    | sha256sum -c - || { log "FATAL immutable input hash mismatch"; exit 1; }
+  if [ "$FRESH_BASE" = 1 ]; then
+    printf '%s  %s\n%s  %s\n' "$DPO_SHA256" "$DPO_LOCAL" "$EVAL_SHA256" "$EVAL_LOCAL" \
+      | sha256sum -c - || { log "FATAL immutable fresh input hash mismatch"; exit 1; }
+  else
+    printf '%s  %s\n%s  %s\n%s  %s\n' "$ADAPTER_SHA256" "$ADAPTER_LOCAL" "$DPO_SHA256" "$DPO_LOCAL" "$EVAL_SHA256" "$EVAL_LOCAL" \
+      | sha256sum -c - || { log "FATAL immutable input hash mismatch"; exit 1; }
+  fi
 else
   "$PYBIN" - "$RESUME_REPORT_LOCAL" <<'PY' || exit 3
 import json, sys
@@ -56,16 +68,19 @@ assert d.get("run", {}).get("total") == 168
 print(f"verified resumable held-out prefix: {len(d['rows'])}/168")
 PY
 fi
-tar -tzf "$UPLOAD_ADAPTER_LOCAL" | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }' \
-  || { log "FATAL invalid SFT archive"; exit 1; }
+if [ "$FRESH_BASE" != 1 ]; then
+  tar -tzf "$UPLOAD_ADAPTER_LOCAL" | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }' \
+    || { log "FATAL invalid SFT archive"; exit 1; }
+fi
 "$PYBIN" -m scripts.train.preflight_cycle --train-file "$TRAIN_PROOF" --eval-file "$EVAL_LOCAL" \
   --base-model mistralai/Mistral-7B-Instruct-v0.3 --golden-set "$GOLDEN" --strict || exit 3
-"$PYBIN" - "$DPO_LOCAL" <<'PY' || exit 3
+"$PYBIN" - "$DPO_LOCAL" "$EXPECTED_DPO_PAIRS" <<'PY' || exit 3
 import json, sys
 r=[json.loads(x) for x in open(sys.argv[1], encoding="utf-8") if x.strip()]
-assert len(r)==8, f"expected 8 pairs, got {len(r)}"
+expected=int(sys.argv[2])
+assert len(r)==expected, f"expected {expected} pairs, got {len(r)}"
 assert all(x.get("chosen") and x.get("rejected") and x["chosen"]!=x["rejected"] for x in r)
-print("verified 8 non-degenerate DPO pairs")
+print(f"verified {expected} non-degenerate DPO pairs")
 PY
 POD_ID=""; HOST=""; PORT=""
 release(){ [ -z "$POD_ID" ] || { log "stopping pod $POD_ID"; curl -s -X POST "$API/pods/$POD_ID/stop" -H "Authorization: Bearer $KEY" >/dev/null 2>&1; }; }
@@ -93,21 +108,23 @@ for item in "scripts/train/pod_tooluse_dpo.sh:/workspace/pod_tooluse_dpo.sh" "sc
 done
 [ "$RESUME_MODE" = 0 ] || RSCP "$RESUME_REPORT_LOCAL" /workspace/eval/aria_tooluse_dpo_eval.json \
   || { log "FATAL upload resume report"; exit 1; }
-TSSH -p "$PORT" root@"$HOST" "POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$UPLOAD_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_upload_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" | grep -q ARMED || exit 1
 mkdir -p "$(dirname "$STATE_FILE")"; { echo "POD_ID=$POD_ID"; echo "HOST=$HOST"; echo "PORT=$PORT"; } > "$STATE_FILE"
-log "uploading recovered SFT adapter with bounded resumable slices"; UPLOAD_OK=0
-for slice in $(seq 1 "$UPLOAD_SLICES"); do
-  if TSSH -p "$PORT" root@"$HOST" 'test -f /workspace/aria_tooluse_candidate.tgz' >/dev/null 2>&1; then SFTP_UPLOAD=reput; else SFTP_UPLOAD=put; fi
-  log "slice $slice/$UPLOAD_SLICES mode=$SFTP_UPLOAD"
-  if printf '%s %s %s\n' "$SFTP_UPLOAD" "$UPLOAD_ADAPTER_LOCAL" /workspace/aria_tooluse_candidate.tgz | timeout "$UPLOAD_SLICE" sftp -b - -i "$KEYF" -o StrictHostKeyChecking=no -o ConnectTimeout=20 -P "$PORT" root@"$HOST" >/dev/null; then UPLOAD_OK=1; break; fi
-  STATE=$(pod_state); BYTES=$(TSSH -p "$PORT" root@"$HOST" 'stat -c %s /workspace/aria_tooluse_candidate.tgz 2>/dev/null || echo 0' 2>/dev/null | tr -d '\r[:space:]'); log "slice incomplete bytes=${BYTES:-unknown} state=$STATE"
-  [ "$STATE" = RUNNING ] || break
-done
-[ "$UPLOAD_OK" = 1 ] || { log "FATAL bounded adapter upload incomplete"; exit 1; }
-UPLOAD_ADAPTER_SHA256=$(sha256sum "$UPLOAD_ADAPTER_LOCAL" | awk '{print $1}')
-TSSH -p "$PORT" root@"$HOST" "printf '%s  %s\n%s  %s\n%s  %s\n' '$UPLOAD_ADAPTER_SHA256' /workspace/aria_tooluse_candidate.tgz '$DPO_SHA256' /workspace/datasets/aria_tooluse_dpo_v3.jsonl '$EVAL_SHA256' /workspace/datasets/aria_tooluse_eval.jsonl | sha256sum -c - && tar -tzf /workspace/aria_tooluse_candidate.tgz | awk '/\\/adapter_config.json$/ { found=1 } END { exit !found }' && tar -xzf /workspace/aria_tooluse_candidate.tgz -C /workspace/checkpoints" || { log "FATAL remote immutable input validation"; exit 1; }
-TSSH -p "$PORT" root@"$HOST" "kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$CYCLE_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_cycle_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" | grep -q ARMED || exit 1
-TSSH -p "$PORT" root@"$HOST" "SKIP_TRAIN=$RESUME_MODE setsid nohup bash /workspace/pod_tooluse_dpo.sh >/workspace/logs/tooluse_dpo_cycle.log 2>&1 </dev/null & echo STARTED" | grep -q STARTED || exit 1
+if [ "$FRESH_BASE" != 1 ]; then
+  TSSH -p "$PORT" root@"$HOST" "POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$UPLOAD_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_upload_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" | grep -q ARMED || exit 1
+  log "uploading recovered SFT adapter with bounded resumable slices"; UPLOAD_OK=0
+  for slice in $(seq 1 "$UPLOAD_SLICES"); do
+    if TSSH -p "$PORT" root@"$HOST" 'test -f /workspace/aria_tooluse_candidate.tgz' >/dev/null 2>&1; then SFTP_UPLOAD=reput; else SFTP_UPLOAD=put; fi
+    log "slice $slice/$UPLOAD_SLICES mode=$SFTP_UPLOAD"
+    if printf '%s %s %s\n' "$SFTP_UPLOAD" "$UPLOAD_ADAPTER_LOCAL" /workspace/aria_tooluse_candidate.tgz | timeout "$UPLOAD_SLICE" sftp -b - -i "$KEYF" -o StrictHostKeyChecking=no -o ConnectTimeout=20 -P "$PORT" root@"$HOST" >/dev/null; then UPLOAD_OK=1; break; fi
+    STATE=$(pod_state); BYTES=$(TSSH -p "$PORT" root@"$HOST" 'stat -c %s /workspace/aria_tooluse_candidate.tgz 2>/dev/null || echo 0' 2>/dev/null | tr -d '\r[:space:]'); log "slice incomplete bytes=${BYTES:-unknown} state=$STATE"
+    [ "$STATE" = RUNNING ] || break
+  done
+  [ "$UPLOAD_OK" = 1 ] || { log "FATAL bounded adapter upload incomplete"; exit 1; }
+  UPLOAD_ADAPTER_SHA256=$(sha256sum "$UPLOAD_ADAPTER_LOCAL" | awk '{print $1}')
+  TSSH -p "$PORT" root@"$HOST" "printf '%s  %s\n%s  %s\n%s  %s\n' '$UPLOAD_ADAPTER_SHA256' /workspace/aria_tooluse_candidate.tgz '$DPO_SHA256' /workspace/datasets/aria_tooluse_dpo_v3.jsonl '$EVAL_SHA256' /workspace/datasets/aria_tooluse_eval.jsonl | sha256sum -c - && tar -tzf /workspace/aria_tooluse_candidate.tgz | awk '/\\/adapter_config.json$/ { found=1 } END { exit !found }' && tar -xzf /workspace/aria_tooluse_candidate.tgz -C /workspace/checkpoints" || { log "FATAL remote immutable input validation"; exit 1; }
+fi
+TSSH -p "$PORT" root@"$HOST" "if [ -s /workspace/eval/_watchdog_pid ]; then kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; fi; rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$CYCLE_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_cycle_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" | grep -q ARMED || exit 1
+TSSH -p "$PORT" root@"$HOST" "SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS DPO_OUT='$REMOTE_DPO_OUT' setsid nohup bash /workspace/pod_tooluse_dpo.sh >/workspace/logs/tooluse_dpo_cycle.log 2>&1 </dev/null & echo STARTED" | grep -q STARTED || exit 1
 RSCP_PULL(){ timeout 600 scp -i "$KEYF" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":"$1" "$2" 2>/dev/null; }
 log "cycle started"; RC=""
 for i in $(seq 1 100); do

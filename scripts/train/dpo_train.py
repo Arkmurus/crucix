@@ -91,7 +91,9 @@ def _import_or_die() -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description="ARIA-LLM DPO trainer")
     ap.add_argument("--base-model", default="meta-llama/Llama-3.3-70B-Instruct")
-    ap.add_argument("--sft-checkpoint", type=Path, required=True)
+    ap.add_argument("--sft-checkpoint", type=Path)
+    ap.add_argument("--fresh-lora", action="store_true",
+                    help="initialize a new LoRA from the base instead of continuing an adapter")
     ap.add_argument("--dpo-file", type=Path, required=True)
     ap.add_argument("--output-dir", type=Path, required=True)
     ap.add_argument("--epochs", type=int, default=1)
@@ -106,6 +108,8 @@ def main() -> None:
     # mode collapse). 0.3 + a low lr + bf16 stabilises the update.
     ap.add_argument("--max-grad-norm", type=float, default=0.3)
     args = ap.parse_args()
+    if args.fresh_lora == bool(args.sft_checkpoint):
+        ap.error("choose exactly one of --fresh-lora or --sft-checkpoint")
 
     _import_or_die()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -113,12 +117,11 @@ def main() -> None:
     import torch
     from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
     from datasets import Dataset, load_dataset
-    from peft import PeftModel
+    from peft import PeftModel, LoraConfig, TaskType, get_peft_model
     from trl import DPOTrainer, DPOConfig
 
-    tokenizer = AutoTokenizer.from_pretrained(
-        str(args.sft_checkpoint), trust_remote_code=True
-    )
+    tokenizer_source = args.base_model if args.fresh_lora else str(args.sft_checkpoint)
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -144,7 +147,7 @@ def main() -> None:
     tokenizer(first["prompt"], add_special_tokens=False)
     logger.info("Rendered and tokenized %d string-schema prompts before model load", len(ds))
 
-    logger.info("Loading base + SFT adapter")
+    logger.info("Loading base%s", " + SFT adapter" if args.sft_checkpoint else " + fresh LoRA")
     bnb_config = None
     if args.load_in_4bit:
         bnb_config = BitsAndBytesConfig(
@@ -160,7 +163,22 @@ def main() -> None:
         quantization_config=bnb_config,
         trust_remote_code=True,
     )
-    model = PeftModel.from_pretrained(base, str(args.sft_checkpoint), is_trainable=True)
+    if args.fresh_lora:
+        if getattr(base, "enable_input_require_grads", None):
+            base.enable_input_require_grads()
+        model = get_peft_model(base, LoraConfig(
+            r=32,
+            lora_alpha=64,
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                            "gate_proj", "up_proj", "down_proj"],
+            lora_dropout=0.05,
+            bias="none",
+            task_type=TaskType.CAUSAL_LM,
+        ))
+    else:
+        model = PeftModel.from_pretrained(
+            base, str(args.sft_checkpoint), is_trainable=True,
+        )
     model.config.use_cache = False
     model.config.pad_token_id = tokenizer.pad_token_id
 

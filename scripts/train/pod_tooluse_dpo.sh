@@ -17,6 +17,7 @@ EXPECTED_DPO_PAIRS="${EXPECTED_DPO_PAIRS:-8}"
 DPO_BETA="${DPO_BETA:-0.3}"
 DPO_LR="${DPO_LR:-2e-6}"
 SKIP_TRAIN="${SKIP_TRAIN:-0}"
+FRESH_BASE="${FRESH_BASE:-0}"
 export HF_HOME=/workspace/.cache/huggingface
 cd /workspace/crucix || { echo "[FATAL] staged repository unavailable" >&2; exit 1; }
 
@@ -26,7 +27,7 @@ trap 'rc=$?; echo "$rc" > /workspace/eval/_cycle_status 2>/dev/null || true' EXI
 log(){ echo "[$(date -u +%H:%M:%S)] [tooluse-dpo] $*"; }
 fail(){ echo "[FATAL] $*" >&2; exit 1; }
 
-if [ "$SKIP_TRAIN" != 1 ]; then
+if [ "$SKIP_TRAIN" != 1 ] && [ "$FRESH_BASE" != 1 ]; then
   [ -f "$SFT_ADAPTER/adapter_config.json" ] || fail "recovered SFT adapter missing"
 fi
 [ -s "$DPO_FILE" ] || fail "DPO corpus missing"
@@ -70,8 +71,10 @@ PY
 
 if [ "$SKIP_TRAIN" != 1 ]; then
   log "DPO training: $EXPECTED_DPO_PAIRS pairs, one epoch, beta=$DPO_BETA, lr=$DPO_LR, batch=2"
+  PARENT_ARGS=(--sft-checkpoint "$SFT_ADAPTER")
+  [ "$FRESH_BASE" != 1 ] || PARENT_ARGS=(--fresh-lora)
   python "$SCRIPTS/dpo_train.py" \
-    --base-model "$BASE_MODEL" --sft-checkpoint "$SFT_ADAPTER" \
+    --base-model "$BASE_MODEL" "${PARENT_ARGS[@]}" \
     --dpo-file "$DPO_FILE" --output-dir "$DPO_OUT" \
     --epochs 1 --beta "$DPO_BETA" --lr "$DPO_LR" --batch-size 2 \
     --gradient-accumulation-steps 1 \
