@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# R-F3768 — continue the recovered tool-use SFT adapter with evidence-derived DPO.
+# R-F3815 — continue the measured v2 tool-use adapter on newly observed failures.
 set -uo pipefail
 
 BASE_MODEL="${BASE_MODEL:-mistralai/Mistral-7B-Instruct-v0.3}"
-SFT_ADAPTER="${SFT_ADAPTER:-/workspace/checkpoints/aria_tooluse_v1}"
-DPO_FILE="${DPO_FILE:-/workspace/datasets/aria_tooluse_dpo_v2_complete.jsonl}"
+SFT_ADAPTER="${SFT_ADAPTER:-/workspace/checkpoints/aria_tooluse_dpo_v2}"
+DPO_FILE="${DPO_FILE:-/workspace/datasets/aria_tooluse_dpo_v3.jsonl}"
 EVAL_FILE="${EVAL_FILE:-/workspace/datasets/aria_tooluse_eval.jsonl}"
-DPO_OUT="${DPO_OUT:-/workspace/checkpoints/aria_tooluse_dpo_v2}"
+DPO_OUT="${DPO_OUT:-/workspace/checkpoints/aria_tooluse_dpo_v3}"
 REPORT="${REPORT:-/workspace/eval/aria_tooluse_dpo_eval.json}"
 ARCHIVE="${ARCHIVE:-/workspace/eval/aria_tooluse_dpo_adapter.tgz}"
 SCRIPTS="/workspace/crucix/scripts/train"
 LOGS="/workspace/logs"
 PORT=8888
 EXPECTED_EVAL_ROWS="${EXPECTED_EVAL_ROWS:-168}"
+EXPECTED_DPO_PAIRS="${EXPECTED_DPO_PAIRS:-8}"
+DPO_BETA="${DPO_BETA:-0.3}"
+DPO_LR="${DPO_LR:-2e-6}"
 SKIP_TRAIN="${SKIP_TRAIN:-0}"
 export HF_HOME=/workspace/.cache/huggingface
 cd /workspace/crucix || { echo "[FATAL] staged repository unavailable" >&2; exit 1; }
@@ -23,18 +26,21 @@ trap 'rc=$?; echo "$rc" > /workspace/eval/_cycle_status 2>/dev/null || true' EXI
 log(){ echo "[$(date -u +%H:%M:%S)] [tooluse-dpo] $*"; }
 fail(){ echo "[FATAL] $*" >&2; exit 1; }
 
-[ -f "$SFT_ADAPTER/adapter_config.json" ] || fail "recovered SFT adapter missing"
+if [ "$SKIP_TRAIN" != 1 ]; then
+  [ -f "$SFT_ADAPTER/adapter_config.json" ] || fail "recovered SFT adapter missing"
+fi
 [ -s "$DPO_FILE" ] || fail "DPO corpus missing"
 [ -s "$EVAL_FILE" ] || fail "held-out eval missing"
 for script in dpo_train.py serve_eval_shim.py eval_tooluse.py build_tooluse_corpus.py; do
   [ -f "$SCRIPTS/$script" ] || fail "$script missing"
 done
 
-python - "$DPO_FILE" <<'PY' || fail "DPO corpus validation failed"
+python - "$DPO_FILE" "$EXPECTED_DPO_PAIRS" <<'PY' || fail "DPO corpus validation failed"
 import json, sys
 rows = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
-if len(rows) != 14:
-    raise SystemExit(f"expected 14 DPO pairs, got {len(rows)}")
+expected = int(sys.argv[2])
+if len(rows) != expected:
+    raise SystemExit(f"expected {expected} DPO pairs, got {len(rows)}")
 for i, row in enumerate(rows, 1):
     prompt = row.get("prompt")
     if not isinstance(prompt, list) or not prompt:
@@ -46,7 +52,7 @@ for i, row in enumerate(rows, 1):
         raise SystemExit(f"pair {i} has an invalid preference")
     if row["chosen"] == row["rejected"]:
         raise SystemExit(f"pair {i} has identical preferences")
-print("verified 14 non-degenerate DPO pairs")
+print(f"verified {expected} non-degenerate DPO pairs")
 PY
 
 log "installing pinned train and evaluation runtime"
@@ -63,11 +69,11 @@ print(torch.cuda.get_device_name(0))
 PY
 
 if [ "$SKIP_TRAIN" != 1 ]; then
-  log "DPO training: 14 pairs, one epoch, beta=0.1, lr=5e-6, batch=2"
+  log "DPO training: $EXPECTED_DPO_PAIRS pairs, one epoch, beta=$DPO_BETA, lr=$DPO_LR, batch=2"
   python "$SCRIPTS/dpo_train.py" \
     --base-model "$BASE_MODEL" --sft-checkpoint "$SFT_ADAPTER" \
     --dpo-file "$DPO_FILE" --output-dir "$DPO_OUT" \
-    --epochs 1 --beta 0.1 --lr 5e-6 --batch-size 2 \
+    --epochs 1 --beta "$DPO_BETA" --lr "$DPO_LR" --batch-size 2 \
     --gradient-accumulation-steps 1 \
     --max-seq-len 4096 --max-grad-norm 0.3 --load-in-4bit \
     2>&1 | tee "$LOGS/tooluse_dpo_train.log"
@@ -93,7 +99,7 @@ for i in $(seq 1 60); do
 done
 
 log "evaluating unchanged 168-row held-out set"
-python "$SCRIPTS/eval_tooluse.py" --target "http://localhost:$PORT/v1" \
+python -m scripts.train.eval_tooluse --target "http://localhost:$PORT/v1" \
   --model aria-tooluse-dpo --eval-file "$EVAL_FILE" --out "$REPORT" \
   2>&1 | tee "$LOGS/tooluse_dpo_eval.log" || fail "held-out evaluation failed"
 python - "$REPORT" "$EXPECTED_EVAL_ROWS" <<'PY' || fail "held-out completeness gate failed"
