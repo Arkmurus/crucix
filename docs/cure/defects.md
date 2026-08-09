@@ -600,6 +600,53 @@ fact rather than passing as "unchanged".
 > them today (checked). Left alone deliberately: moving the call site is a behaviour
 > change and this PR is already one defect wide.
 
+### C-13 · The "36 new failures" were mostly not regressions — P1 — **CLOSED (R-F3795…R-F3812, 2026-08-09)**
+
+Triage of every failure the 2026-08-08 run added over the 2026-08-01 baseline. **All 36
+are resolved**; 34 were real entries and 2 were a counting artefact. Not one was a
+change in product behaviour that broke something — the taxonomy is the finding:
+
+| n | Class | What it actually was |
+|---|---|---|
+| 6 | Instrument went blind | C-12: `app.routes` stopped enumerating (R-F3791/2) |
+| 7 | **Environment, not code** | no win-arm64 wheel: chromadb, PyMuPDF, tesseract binary, sentence-transformers (R-F3795, R-F3805) |
+| 7 | Test inherited a superseded default | R-F3628 flipped `_AUTH_INTERNAL_DEFAULT` to fail-closed; 6 DD tests still assumed the permissive one (R-F3800/1) |
+| 5 | Test pinned a superseded policy | schema 1.2.0→1.3.0 (R-F3633), ambient-signal grading (R-F3536), open tenders (R-F3688) |
+| 4 | Test asserted a spelling, not a property | source-text and URL-literal assertions broken by refactors that changed nothing they cared about (R-F3811) |
+| 3 | Guard's own fixture rotted | a 400-commit search window, a positional call to a keyword-only fn, a half-uniquified fixture (R-F3796/3807/3808) |
+| 2 | Counting artefact | parametrized ids truncated at the first space (R-F3809) |
+| 2 | **Genuine product defects** | the adverse-media gate (R-F3802) and the missing corp suffix (R-F3806) |
+
+**Two findings worth carrying forward.**
+
+**1. A red test is not evidence of a regression, and here it usually wasn't.** Only two
+of 34 were live product defects. The dominant class is a *guard that outlived its
+premise* — the assertion stayed still while the thing it described moved. Both
+directions of the session's standing defect appear: an absence read as a measurement
+(the blind enumeration), and a red signal whose literal satisfaction would have
+degraded the system. Three fixes would have caused real harm if taken at face value:
+restoring `_AUTH_INTERNAL_DEFAULT = True` reopens cross-tenant DD read/delete;
+reverting the sanctions stop list restores a false SAR recommendation; making
+`test_rf3536` green by deleting `active_tender` reverses an operator ruling.
+
+**2. R-F3802 is the one to remember.** One helper served two OPPOSITE requirements —
+sanctions screening needs recall, the adverse-media relevance gate needs precision — so
+a stop-list change correct for the first silently attributed a different company's
+wrongdoing to a DD subject. Shared helpers across opposing requirements are a defect
+class this repo should look for deliberately.
+
+**Also fixed on the way through:** the boot thread-pool bound had **never applied**
+(R-F3798 — bare `os` in a module that aliases it, NameError swallowed into a warning),
+and R-F3688's comment claimed a pinning test with a `DELIBERATELY_EXCLUDED` set that
+**does not exist anywhere in the tree** (R-F3810).
+
+> **Residual, honestly stated.** Two order-dependent failures observed in sweeps and
+> passing standalone (`test_rf1839` — since fixed — and
+> `test_rf333_rf334::test_rf334_capability_save_then_load_round_trip`, which touches
+> knowledge sharding this branch does not modify). The §16 baseline itself has **not**
+> been re-measured: that needs a quiet tree and a 40-minute run, and R-F3794 now
+> records the environment alongside it so the next diff can separate the two deltas.
+
 ---
 
 ## D. Phase 0.3 runtime overlay — **WINDOW OPEN as of 2026-08-05 12:20 UTC**
