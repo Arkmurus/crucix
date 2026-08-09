@@ -531,6 +531,75 @@ unconditional. Three Phase A gates have now been certified by an absence.
 **Therefore `stores.md` must not be read as an orphan list.** Producing one requires a
 live `SCAN` of the state store, which is Phase 0.3 work.
 
+### C-12 · The duplicate-route guard had gone blind — P0 — **FIXED (R-F3791, 2026-08-08)**
+
+`route_audit.find_duplicate_routes` walked `app.routes` as a FLAT list. Under the
+FastAPI that C-01's fix pinned (`fastapi==0.141.1`, R-F3726), `include_router` no
+longer copies a sub-router's routes into `app.routes` — it appends **one lazy wrapper
+per call** holding the child by reference. `getattr(route, "path", None)` returns
+`None` for a wrapper, so the `if not path` guard skipped every one, and the detector
+returned `{}` **for an app with 770 routes**.
+
+Nothing raised. The boot-time check (`main.py:4783`) logged nothing and the CI gate
+(`test_rf2278`) passed on an empty inventory. **A guard whose universe is empty always
+certifies** — the same shape as the three Phase A gates §1 records as "certified by an
+absence", and the reason R-F2278's entire failure class (a second handler silently
+becoming dead code, shipped three times) had lost its detector.
+
+**Evidence it was the instrument and not the routes**, same app, same interpreter:
+`/health/live` → 200 · `/api/aria/health/perf` → 200 · POST-only
+`/api/aria/brain/signal` → **405** (a 405 proves the route exists) ·
+`app.openapi()["paths"]` → 723. Nothing was unmounted.
+
+**Blast radius.** `route_audit` is the only non-test module that enumerates routes
+(checked repo-wide), so no request ever mis-routed — the cost was the lost guard, plus
+five test failures that read as missing endpoints. Measured at the fix: **770 routes
+visible, 0 genuine duplicates**, so restoring sight raised no boot ERROR and did not
+disturb Phase A gate #3's streak.
+
+**This is C-01's predicted failure, arriving.** C-01 warned the §16 baseline was
+"unreproducible in principle — a torch or chromadb minor bump can move it with no
+commit at all". It was `fastapi`, and it moved five entries. Pinning made the set
+reproducible; it did not make a dependency-driven baseline shift *legible*. A baseline
+diff across a venv rebuild is a code-delta and an environment-delta added together,
+and nothing in the process separates them.
+
+**Fix shape (shipped):** one flattening — `route_audit.iter_routes` — recursing through
+include wrappers and Mounts, applying `include_context.prefix`, preserving declaration
+order so first-registered-wins stays observable. Matched by **duck-typing**
+(`original_router`), not `isinstance(_IncludedRouter)`: the wrapper is private and
+version-specific, so the recursion simply never fires on the older flattening FastAPI
+and a future pin bump in either direction cannot re-blind it. The tests read the
+**same** function via `tests/_app_probe.py` rather than a second copy — §1 records what
+happens when one measure gets forked in two.
+
+**R-F3792 — the guard now reports, and can say "I am blind".** Fixing the walk alone
+would have left the same class free to recur silently, so the detector was also
+§21a-wired (it previously reached the brain on NEITHER branch — `logger.error` only,
+which §21a defines as DARK). It now distinguishes an empty RESULT from an empty
+UNIVERSE: if routes are declared but none are enumerable, that is reported as
+`boot_state_regression` and explicitly **not** certified as clean. Clean audits emit
+`wire_success`; real duplicates emit a `module_bug` naming `test_rf2278` as the
+reproducer, which is what R-F1857 requires before the coder will spend budget on it.
+A cycle guard keyed on the **ancestor chain** (not a visited-set — that would blind
+the detector to the same router included twice, i.e. a real duplicate) makes a
+self-referential container terminate instead of exhausting the stack.
+
+**R-F3794 — the environment now travels with the baseline.** `suite_baseline.py`
+records interpreter + platform + a normalised `pip freeze` hash + the pins that have
+historically moved the number, and the compare path prints an explicit warning when
+they differ — or when the baseline predates fingerprinting, which is the state of the
+committed `docs/suite_baseline.json` today. "Not captured" is reported as its own
+fact rather than passing as "unchanged".
+
+> **Residual, measured but NOT fixed here (LEAD).** The boot audit sees **754** routes
+> where a post-import call sees **770**: `main.py:4783` runs it before the tail of
+> `main.py` registers `/static`, `/`, and the `/download/*` routes. So ~16 routes are
+> outside the boot guard's view, and `test_rf2278`'s `_build_app()` mounts only the
+> aria router, so the CI gate does not cover them either. No duplicate exists among
+> them today (checked). Left alone deliberately: moving the call site is a behaviour
+> change and this PR is already one defect wide.
+
 ---
 
 ## D. Phase 0.3 runtime overlay — **WINDOW OPEN as of 2026-08-05 12:20 UTC**

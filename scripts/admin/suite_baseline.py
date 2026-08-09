@@ -62,6 +62,94 @@ TESTS = ROOT / "aria_service" / "tests"
 BASELINE = ROOT / "docs" / "suite_baseline.json"
 
 
+def environment_fingerprint() -> dict:
+    """Identify the interpreter + installed package set this measurement ran on.
+
+    R-F3794. A baseline diff answers "which tests newly fail", and every reader has
+    taken that to mean "which commits broke something". It does not: the failure set
+    is a function of the CODE and the ENVIRONMENT, and nothing recorded the second
+    one. On 2026-08-08 a diff of 126-vs-103 produced "36 new failures", of which at
+    least five were caused by no commit at all — this box's venv had been rebuilt on
+    2026-08-03 and the FastAPI it resolved changed `include_router` so that
+    `app.routes` no longer enumerates (R-F3791, defects.md C-12).
+
+    C-01 predicted exactly this ("a bump can move the baseline with no commit at
+    all") and pinning did not solve it: pinning makes the set REPRODUCIBLE, while
+    this makes a shift LEGIBLE. They are different problems, and only the second one
+    stops a dependency change from being mistaken for a regression.
+
+    `packages_sha256` is taken over a sorted, normalised `pip freeze` so it is stable
+    across pip's ordering. Editable installs are dropped: their line embeds an
+    absolute checkout path, which would make the hash machine-specific and therefore
+    useless for comparing two runs.
+    """
+    fp: dict = {
+        "python": sys.version.split()[0],
+        "platform": sys.platform,
+        "machine": __import__("platform").machine(),
+    }
+    try:
+        frozen = subprocess.run([sys.executable, "-m", "pip", "freeze"],
+                                capture_output=True, text=True, timeout=120).stdout
+    except Exception as exc:  # never let fingerprinting break a measurement
+        # Honest absence, not a fabricated value: a reader must be able to tell
+        # "not captured" from "captured and identical".
+        fp["packages_sha256"] = None
+        fp["error"] = f"{type(exc).__name__}: {exc}"
+        return fp
+
+    lines = sorted(ln.strip() for ln in frozen.splitlines()
+                   if ln.strip() and not ln.startswith("-e "))
+    fp["packages"] = len(lines)
+    fp["packages_sha256"] = hashlib.sha256("\n".join(lines).encode()).hexdigest()[:16]
+    # A few pins worth reading at a glance, because these are the ones that have
+    # actually moved a baseline. Names are matched case-insensitively: pip freeze
+    # echoes the distribution's own casing.
+    watched = {"fastapi", "starlette", "pydantic", "httpx", "pytest", "torch", "chromadb"}
+    fp["key_packages"] = {
+        name.lower(): ver
+        for name, _, ver in (ln.partition("==") for ln in lines)
+        if name.lower() in watched and ver
+    }
+    return fp
+
+
+def environment_drift_report(base_env: dict | None, now_env: dict) -> list[str]:
+    """Lines warning that the dependency set moved between two measurements.
+
+    R-F3794. Returns [] only when both environments are fingerprinted AND identical
+    — the single case in which a new failure can be attributed to code without
+    further thought.
+
+    A MISSING baseline fingerprint yields a warning rather than silence. "Not
+    captured" and "captured and identical" are different facts, and collapsing the
+    first into the second is precisely the defect class §1 keeps recording: an
+    absence read as a clean measurement.
+    """
+    if not base_env or not base_env.get("packages_sha256"):
+        return ["",
+                "NOTE: this baseline predates environment fingerprinting (R-F3794), so a",
+                "dependency change CANNOT be ruled out as the cause of any new failure below.",
+                f"This run: python {now_env.get('python')}, "
+                f"packages {now_env.get('packages_sha256')}."]
+
+    if base_env.get("packages_sha256") == now_env.get("packages_sha256"):
+        return []
+
+    lines = ["", "*** ENVIRONMENT CHANGED SINCE THE BASELINE ***",
+             f"  python   {base_env.get('python')} -> {now_env.get('python')}",
+             f"  packages {base_env.get('packages_sha256')} -> {now_env.get('packages_sha256')}"]
+    was_pkgs = base_env.get("key_packages") or {}
+    now_pkgs = now_env.get("key_packages") or {}
+    for name in sorted(set(was_pkgs) | set(now_pkgs)):
+        if was_pkgs.get(name) != now_pkgs.get(name):
+            lines.append(f"    {name}: {was_pkgs.get(name)} -> {now_pkgs.get(name)}")
+    lines.append("  Any NEW failure below may be an environment delta, not a code "
+                 "regression.")
+    lines.append("  Rule the environment out before attributing it to a commit.")
+    return lines
+
+
 # ── R-F3622: the validity record, and why it lives HERE now ──────────────────
 #
 # docs/suite_baseline.md says its 2026-08-01 figure was "measured by
@@ -411,6 +499,10 @@ def main() -> int:
             # not have to trust that whoever recorded it checked.
             "valid": True,
             "tree_hash": hash_before,
+            # R-F3794 — the environment travels WITH the number, for the same reason
+            # R-F3622 made the validity record travel with it: a reader must not have
+            # to assume the two runs being compared ran on the same dependency set.
+            "environment": environment_fingerprint(),
             "totals": {"failed": total_f, "passed": total_p,
                        "total": total_f + total_p, "files": len(files)},
             "failures": observed,
@@ -426,9 +518,18 @@ def main() -> int:
         print(f"no baseline at {args.baseline} — run with --record first")
         return 0
 
-    known = set(json.loads(args.baseline.read_text(encoding="utf-8"))["failures"])
+    _baseline_doc = json.loads(args.baseline.read_text(encoding="utf-8"))
+    known = set(_baseline_doc["failures"])
     complete = args.resume_from == 0 and not hung_segments and not args.max_segments
     new, fixed = compare(observed, known, complete)
+
+    # R-F3794 — say so BEFORE the failure lists, because it changes how they read.
+    # A new failure under a changed dependency set is not yet evidence of a code
+    # regression, and the 2026-08-08 diff was read as 36 regressions when at least
+    # five were a FastAPI behaviour change (defects.md C-12).
+    for _line in environment_drift_report(_baseline_doc.get("environment"),
+                                          environment_fingerprint()):
+        print(_line)
 
     if fixed:
         print(f"\nFIXED since the baseline ({len(fixed)}):")

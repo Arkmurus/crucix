@@ -23,6 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from ._app_probe import mounted_paths
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PUBLIC_DIR = REPO_ROOT / "public"
 SERVER_MJS = REPO_ROOT / "server.mjs"
@@ -313,10 +315,17 @@ def _mounted_api_routes() -> set[str]:
     Result: a live, working endpoint was reported as a dead UI call. A guard that
     cries wolf gets muted, and then it protects nothing.
 
-    `app.routes` cannot drift from reality — it IS reality, prefixes applied.
+    The app's route table cannot drift from reality — it IS reality, prefixes
+    applied. But it must be READ correctly: R-F3791 found that a flat walk of
+    `app.routes` had stopped returning routes at all (include_router now appends a
+    lazy wrapper instead of copying the child's routes up), so this inventory
+    silently emptied and reported all six live watchlist endpoints as dead calls.
+    That is the third defect in this one helper, and the same shape as the first
+    two — the instrument, not the routes. `iter_routes` is the shared enumeration
+    the production duplicate-route guard also uses.
     """
     from aria_service.main import app
-    return {p for p in (getattr(r, "path", "") for r in app.routes) if p}
+    return mounted_paths(app)
 
 
 def _route_matches(call: str, routes: set[str]) -> bool:

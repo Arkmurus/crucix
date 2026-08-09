@@ -111,6 +111,27 @@ VALID_GAP_TYPES = frozenset({
                                        # attempt failed. Distinct from source_failure,
                                        # which is a fetch against an ALREADY onboarded
                                        # source.
+    # ── R-F3793 — two more emitted-but-unregistered types, same class as above ──
+    # Read at their emit sites before registering, per the R-F3428 precedent. Both
+    # were checked against the nearest existing types rather than assumed distinct:
+    "compliance_layer_failure",        # dd_layer_extensions._wire_layer_failure:64 —
+                                       # a DD COMPLIANCE layer threw. Deliberately not
+                                       # folded into `layer_extension_failure`, which
+                                       # the SAME file already emits 429 lines later
+                                       # (:493) for a generic extension fault, nor into
+                                       # `dd_layer_failure` (dd_orchestrator:12655),
+                                       # which is the orchestrator's own layer signal.
+                                       # Three emitters, three scopes; collapsing them
+                                       # would make the compliance failure unfilterable.
+    "invalid_state_transition",        # relationship_intelligence
+                                       # .record_operator_action_rejected:506 — an
+                                       # operator advanced an access request from a
+                                       # state that forbids it. Not `validation_failure`
+                                       # (bad input) and not `dialogue_state_failure`
+                                       # (dialogue_state.py:472, a different machine):
+                                       # this is a refused transition on the GDPR access
+                                       # -request workflow, and the emitter is careful to
+                                       # carry no contact PII.
     # ── R-F3520 — two more emitted-but-unregistered types, same class as above ──
     # Read at their emit sites before registering, per the R-F3428 precedent, rather
     # than rubber-stamped to turn the drift guard green.

@@ -18,12 +18,15 @@ from aria_service.routes import aria as a
 # R-F3773/§16 — NOT inspect.getsource: it slices at line numbers captured AT
 # IMPORT, so a mid-run edit silently returns a DIFFERENT function's body. A CLASS
 # target scopes the lookup to that class's own body (R-F3771).
+from ._app_probe import mounted_paths
 from ._source_probe import function_source
 
 
 def test_endpoint_registered_under_api_aria():
-    paths = [getattr(r, "path", "") for r in m.app.routes]
-    assert "/api/aria/brain/signal" in paths
+    # R-F3791 — NOT a flat walk of `m.app.routes`: include_router appends a lazy
+    # wrapper rather than copying the child's routes up, so that walk returned only
+    # the four FastAPI built-ins and this read as a 404 black hole reopening.
+    assert "/api/aria/brain/signal" in mounted_paths(m.app)
 
 
 def test_endpoint_routes_failure_vs_content():
