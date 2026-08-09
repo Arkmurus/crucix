@@ -168,6 +168,17 @@ SYSTEM_PROMPT = (
 _CITE_RE = re.compile(r"\[from ([^\]]+)\]")
 
 
+def _citation_tokens(citation: str) -> list[str]:
+    """Return every exact source named by one citation marker.
+
+    Models sometimes group independently returned outlets in one marker. The
+    validator previously compared that entire string to a set of individual
+    domains, falsely rejecting grounded answers. Keep empty members so malformed
+    groups still fail closed.
+    """
+    return [token.strip() for token in citation.split(",")]
+
+
 def _norm_cite(source: object) -> str:
     """R-F3649 — the ONE spelling of a source identity, for BOTH sides of a
     citation check.
@@ -585,19 +596,19 @@ def validate_trace(trace: Any) -> list[str]:
         str(m.get("content") or "") for m in msgs
         if isinstance(m, dict) and m.get("role") == "tool"
     )
-    for cited in _CITE_RE.findall(final):
-        tok = cited.strip()
-        if ":" in tok:
-            register, _, ident = tok.partition(":")
-            if ident and ident in _payload_text and register in TOOL_NAMES | {"companies_house"}:
-                continue
-        # R-F3649 — compare NORMALISED, both sides. The error text still shows what
-        # the model actually wrote, so a genuine miss stays legible.
-        if _norm_cite(cited) not in {_norm_cite(a) for a in allowed}:
-            errs.append(
-                f"final answer cites {cited.strip()!r}, which no tool result contains "
-                f"(available: {sorted(allowed) or 'none'})"
-            )
+    for citation in _CITE_RE.findall(final):
+        for cited in _citation_tokens(citation):
+            if ":" in cited:
+                register, _, ident = cited.partition(":")
+                if ident and ident in _payload_text and register in TOOL_NAMES | {"companies_house"}:
+                    continue
+            # R-F3649 — compare NORMALISED, both sides. The error text still shows what
+            # the model actually wrote, so a genuine miss stays legible.
+            if _norm_cite(cited) not in {_norm_cite(a) for a in allowed}:
+                errs.append(
+                    f"final answer cites {cited!r}, which no tool result contains "
+                    f"(available: {sorted(allowed) or 'none'})"
+                )
 
     # ---- verdict must match the evidence
     # R-F3367 — verdict rules apply to the SCREEN result. In a multi-hop chain the
@@ -634,14 +645,15 @@ def validate_trace(trace: Any) -> list[str]:
         indep: set[str] = set()
         for p in search_payloads:
             indep |= _independent_sources(p)
-        for cited in _CITE_RE.findall(final):
-            # R-F3649 — same normalisation as the generic check above; this is the
-            # site that produced the news_impact 1.000 -> 0.833 regression.
-            if _norm_cite(cited) not in {_norm_cite(s) for s in indep}:
-                errs.append(
-                    f"analysis cites outlet {cited.strip()!r}, which the search did not "
-                    f"return as an independent source (available: {sorted(indep) or 'none'})"
-                )
+        for citation in _CITE_RE.findall(final):
+            for cited in _citation_tokens(citation):
+                # R-F3649 — same normalisation as the generic check above; this is the
+                # site that produced the news_impact 1.000 -> 0.833 regression.
+                if _norm_cite(cited) not in {_norm_cite(s) for s in indep}:
+                    errs.append(
+                        f"analysis cites outlet {cited!r}, which the search did not "
+                        f"return as an independent source (available: {sorted(indep) or 'none'})"
+                    )
         if (_CORROB_CLAIM_RE.search(final) and not _CORROB_DENIAL_RE.search(final)
                 and len(indep) < 2):
             errs.append(

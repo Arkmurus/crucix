@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3817,
+  "next_available": 3818,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32140,6 +32140,15 @@
       "commit_sha": "f798124c",
       "notes": null,
       "shipped_at": "2026-08-09T09:46:34Z"
+    },
+    {
+      "r_number": "R-F3817",
+      "title": "validate each source in grouped citations",
+      "claimed_at": "2026-08-09T11:55:13Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

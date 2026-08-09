@@ -46,6 +46,7 @@ import sys
 from pathlib import Path
 
 from scripts.train.build_tooluse_corpus import _norm_subject, validate_trace
+from scripts.train.eval_tooluse import score_one
 
 _norm = _norm_subject
 
@@ -110,6 +111,9 @@ def build_pairs(
                   f"reference to prefer (would have to invent the 'chosen' side)",
                   file=sys.stderr)
             continue
+        rescored = score_one(trace, row.get("answer"))
+        if rescored.get("honest"):
+            continue  # stale report failure corrected by the current validator
         rejected = str(row.get("answer") or "")
         chosen = _reference_of(trace)
         if not rejected.strip() or not chosen.strip():
@@ -130,7 +134,7 @@ def build_pairs(
             "rejected": rejected,
             "subject": subject,
             "label": row.get("label"),
-            "why": (row.get("errors") or [""])[0],
+            "why": (rescored.get("errors") or [""])[0],
         })
     return pairs
 
