@@ -35,6 +35,68 @@ logger = logging.getLogger("aria.crawler.runner")
 _DEFAULT_STARTUP_DELAY_SEC = 60
 
 
+#: R-F3821 — how many UNVETTED tier-4 discovery domains one cycle may fetch.
+#: Operator-tunable without a deploy; the right number is operational, not structural.
+_DEFAULT_DISCOVERY_PER_CYCLE = 500
+
+
+def _discovery_budget() -> int:
+    """Per-cycle ration for tier-4 discovery. Never returns <= 0 on a bad value.
+
+    A typo in an env var must not stop ARIA crawling — that would be a config error
+    silently becoming an outage, which is the failure shape §1 keeps recording.
+    """
+    import os
+    raw = (os.getenv("ARIA_CRAWL_DISCOVERY_PER_CYCLE") or "").strip()
+    if not raw:
+        return _DEFAULT_DISCOVERY_PER_CYCLE
+    try:
+        n = int(raw)
+    except ValueError:
+        logger.warning(
+            "[R-F3821] ARIA_CRAWL_DISCOVERY_PER_CYCLE=%r is not an integer — "
+            "using the %d default rather than stopping the sweep",
+            raw, _DEFAULT_DISCOVERY_PER_CYCLE)
+        return _DEFAULT_DISCOVERY_PER_CYCLE
+    return max(0, n)
+
+
+def _prioritise_sweep(domains: list[dict], discovery_budget: int) -> list[dict]:
+    """Curated seeds first, then a rationed, ROTATING slice of tier-4 discovery.
+
+    R-F3821. Measured live 2026-08-09: of 22,115 registry rows, **21,953 were tier-4
+    `discovered` (99.3%)**, all enabled, and `crawl_loop` fetched every one of them
+    every 6 hours. The 147 curated tier-1..3 seeds — OFAC, BIS, the EU Commission,
+    defence media — were interleaved with twenty thousand speculative rows admitted
+    before R-F3820's ingress gate existed. The fly logs showed the result as a plain
+    alphabetical march: `investors.xpinc → investors.yeti → invoicefly.com`.
+
+    Two properties, and the second is as important as the first:
+
+    * CURATED IS NEVER RATIONED. The ration applies to discovery only, so a budget of
+      zero still sweeps every seed. Those are the product's backbone.
+    * DISCOVERY ROTATES, oldest-crawled first. `list_domains` orders by
+      `tier ASC, domain ASC`, which is STABLE — so a naive `[:budget]` would re-fetch
+      the same alphabetical prefix every cycle and the tail would never be crawled at
+      all. Sorting by `last_crawled_at` (never-crawled first) makes the ration fair
+      instead of merely smaller.
+
+    WHAT THIS DOES NOT DO. It does not disable, demote or delete anything (§7). The
+    tempting alternative — judge each crawled page and switch off the off-mission
+    ones — was tested against ARIA's own live index and **13 of 14 curated tier-1
+    sources came back off_topic**, including `ofac.treasury.gov` ("Home | Office of
+    Foreign Assets Control") and `bis.doc.gov`. It would have disabled OFAC. A
+    homepage title is navigational, not topical; that is why R-F3820 judges a SERP
+    title+snippet and never a bare domain.
+    """
+    curated = [d for d in domains if (d.get("tier") or 4) <= 3]
+    discovery = [d for d in domains if (d.get("tier") or 4) >= 4]
+    # None (never crawled) sorts first — it is owed a turn most.
+    discovery.sort(key=lambda d: (d.get("last_crawled_at") is not None,
+                                  d.get("last_crawled_at") or 0))
+    return curated + discovery[:max(0, discovery_budget)]
+
+
 async def crawl_seed_homepages(limit: int | None = None,
                                  use_polite_crawler: bool = True) -> dict:
     """Fetch the home page of every enabled seed domain and index it.
@@ -71,6 +133,32 @@ async def crawl_seed_homepages(limit: int | None = None,
             "R-F687: crawl sweep skipped %d auto-registered garbage domain(s) "
             "from %d total", skipped_garbage, before_count,
         )
+    # R-F3821 — curated seeds first, discovery rationed and rotated. Before this the
+    # sweep fetched all ~20,700 enabled domains every cycle, 99.3% of them unvetted
+    # tier-4 rows, with the 147 curated seeds interleaved among them.
+    _budget = _discovery_budget()
+    _curated_n = sum(1 for d in domains if (d.get("tier") or 4) <= 3)
+    _discovery_n = len(domains) - _curated_n
+    domains = _prioritise_sweep(domains, _budget)
+    _deferred = (_curated_n + _discovery_n) - len(domains)
+    logger.info(
+        "[R-F3821] sweep plan: %d curated + %d discovery (of %d, budget %d); "
+        "%d discovery deferred to a later cycle (oldest-crawled first)",
+        _curated_n, len(domains) - _curated_n, _discovery_n, _budget, _deferred,
+    )
+    # §21a — the sweep's SHAPE is a real signal: if curated ever drops to 0 the
+    # product is crawling only speculation, and nothing else would say so.
+    try:
+        from aria_service.intel.engine_wiring import wire_success
+        wire_success(
+            module="crawler.runner",
+            summary=(f"sweep plan: {_curated_n} curated + "
+                     f"{len(domains) - _curated_n} discovery, {_deferred} deferred"),
+            source_id="crawler.runner:crawl_seed_homepages",
+        )
+    except Exception:      # pragma: no cover - observability never blocks the crawl
+        pass
+
     if limit is not None:
         domains = domains[:limit]
 

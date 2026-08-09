@@ -700,8 +700,32 @@ several legitimate domains beside one adult one.
 **Residual, stated:** 5 documents / ~10 facts (mostly those bundles) / 7 distill lines
 still match strong adult markers, none from the `reading_region` path. `domains_total`
 grew 22,100 → 22,115 *during* the work, which is why the ingress gate — not the
-quarantine — is the actual fix. **Still open: C-14b**, the 6h sweep still walks 99.3%
-unvetted tier-4 discovery alphabetically.
+quarantine — is the actual fix.
+
+### C-14b · The 6h sweep crawled 99.3% unvetted discovery — **FIXED (R-F3821, 2026-08-09)**
+
+`crawl_loop` called `crawl_seed_homepages()` with no limit, so every enabled domain
+was fetched every cycle under `ORDER BY tier ASC, domain ASC` — the plain alphabetical
+march the fly logs showed (`investors.xpinc → investors.yeti → invoicefly.com`). The
+147 curated tier-1..3 seeds (OFAC, BIS, EU Commission, defence media) were interleaved
+with ~21,953 speculative tier-4 rows admitted before R-F3820 existed.
+
+Fixed by ORDER and VOLUME only: curated first and **never rationed** (a budget of zero
+still sweeps every seed), then a rationed slice of discovery taken **oldest-crawled
+first**. The rotation is not decoration — `ORDER BY tier, domain` is stable, so a naive
+`[:budget]` would re-fetch the same alphabetical prefix forever and the tail would
+never be crawled at all. Budget is `ARIA_CRAWL_DISCOVERY_PER_CYCLE` (default 500), and
+a malformed value warns and falls back rather than stopping the crawl. §21a-wired: the
+sweep reports its curated/discovery split, so "curated dropped to 0" becomes visible.
+
+> **The fix that was rejected on evidence.** "Judge each crawled page and disable the
+> off-mission ones" was tested against ARIA's OWN live index first and **13 of 14
+> curated tier-1 sources came back off_topic** — `ofac.treasury.gov` ("Home | Office of
+> Foreign Assets Control"), `bis.doc.gov`, `state.gov` ("Technical Difficulties"),
+> `ec.europa.eu` ("Language selection"). It would have switched off OFAC. A homepage
+> title is NAVIGATIONAL, not topical, which is exactly why R-F3820 judges a SERP
+> title+snippet and never a bare domain. **Nothing is disabled, demoted or deleted
+> here** (§7).
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3821,
+  "next_available": 3822,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32174,6 +32174,15 @@
       "r_number": "R-F3820",
       "title": "domain auto-registration admits anything: gate it on security/defence relevance using the existing topical judge",
       "claimed_at": "2026-08-09T12:45:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3821",
+      "title": "crawl sweep treats 21953 unvetted tier-4 rows like curated seeds: prioritise curated, rotate discovery on a budget",
+      "claimed_at": "2026-08-09T13:10:04Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
