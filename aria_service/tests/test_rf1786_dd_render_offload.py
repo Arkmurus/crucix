@@ -31,6 +31,14 @@ async def test_dd_report_markdown_render_does_not_starve_loop(monkeypatch):
 
     monkeypatch.setattr(_ddo, "get_report", _get_report, raising=False)
 
+    # R-F3801 — DECLARE the internal tier. R-F3628 flipped
+    # `_AUTH_INTERNAL_DEFAULT` to False (fail-closed), so an unscoped call
+    # (user_id="") from a context that never set the var is now DENIED. The
+    # denial is a deliberate 404 ("report not found") so existence is not
+    # leaked, which is correct — and is why this read as a missing fixture
+    # rather than an auth decision.
+    A._auth_is_internal_var.set(True)
+
     SLEEP = 0.3  # stands in for the cx-132 CPU-bound render
 
     # R-F3449 — record WHICH THREAD the render ran on. This is the property the test is

@@ -15,6 +15,13 @@ from aria_service.routes import aria as aria_routes
 
 @pytest.mark.asyncio
 async def test_empty_index_returns_empty_and_persists_nothing():
+    # R-F3801 — DECLARE the internal tier. R-F3628 flipped
+    # `_AUTH_INTERNAL_DEFAULT` to False (fail-closed), so an unscoped call
+    # (user_id="") from a context that never set the var is now DENIED. The
+    # denial is a deliberate 404 ("report not found") so existence is not
+    # leaked, which is correct — and is why this read as a missing fixture
+    # rather than an auth decision.
+    aria_routes._auth_is_internal_var.set(True)
     with patch("aria_service.intel.dd_orchestrator.list_reports",
                new=AsyncMock(return_value=[])) as lr, \
          patch("aria_service.intel.dd_orchestrator._persist_report",
@@ -27,6 +34,13 @@ async def test_empty_index_returns_empty_and_persists_nothing():
 
 @pytest.mark.asyncio
 async def test_real_reports_passed_through_unchanged():
+    # R-F3801 — DECLARE the internal tier. R-F3628 flipped
+    # `_AUTH_INTERNAL_DEFAULT` to False (fail-closed), so an unscoped call
+    # (user_id="") from a context that never set the var is now DENIED. The
+    # denial is a deliberate 404 ("report not found") so existence is not
+    # leaked, which is correct — and is why this read as a missing fixture
+    # rather than an auth decision.
+    aria_routes._auth_is_internal_var.set(True)
     real = [{"run_id": "dd_real_1", "entity_name": "Real Entity Ltd", "risk_classification": "GREEN"}]
     with patch("aria_service.intel.dd_orchestrator.list_reports",
                new=AsyncMock(return_value=real)), \
