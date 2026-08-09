@@ -94,3 +94,15 @@ def test_fresh_generation_driver_arms_watchdog_before_adapter_upload() -> None:
     assert '"${REPORT_LOCAL}.partial"' in code
     assert 'REMOTE_ADAPTER="/workspace/checkpoints/$ARCHIVE_ADAPTER_DIR"' in code
     assert '"ADAPTER=\'$REMOTE_ADAPTER\' setsid nohup' in code
+
+
+def test_dpo_driver_trains_from_the_adapter_selected_by_its_archive() -> None:
+    code = (Path(__file__).resolve().parents[2] / "scripts" / "train" /
+            "run_tooluse_dpo.sh").read_text(encoding="utf-8")
+
+    assert 'ADAPTER_CONFIG_ENTRIES=$(tar -tzf "$UPLOAD_ADAPTER_LOCAL"' in code
+    assert 'SFT archive must contain exactly one adapter' in code
+    assert 'ARCHIVE_ADAPTER_DIR=${ADAPTER_CONFIG_ENTRIES%/adapter_config.json}' in code
+    assert 'REMOTE_SFT_ADAPTER="/workspace/checkpoints/$ARCHIVE_ADAPTER_DIR"' in code
+    assert 'SFT_ADAPTER=\'$REMOTE_SFT_ADAPTER\'' in code
+    assert "unsafe SFT adapter archive path" in code

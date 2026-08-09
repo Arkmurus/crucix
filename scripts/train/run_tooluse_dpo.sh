@@ -69,8 +69,15 @@ print(f"verified resumable held-out prefix: {len(d['rows'])}/168")
 PY
 fi
 if [ "$FRESH_BASE" != 1 ]; then
-  tar -tzf "$UPLOAD_ADAPTER_LOCAL" | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }' \
-    || { log "FATAL invalid SFT archive"; exit 1; }
+  ADAPTER_CONFIG_ENTRIES=$(tar -tzf "$UPLOAD_ADAPTER_LOCAL" | awk '/\/adapter_config.json$/ { print }') \
+    || { log "FATAL unreadable SFT archive"; exit 1; }
+  [ "$(printf '%s\n' "$ADAPTER_CONFIG_ENTRIES" | awk 'NF { n++ } END { print n+0 }')" = 1 ] \
+    || { log "FATAL SFT archive must contain exactly one adapter"; exit 1; }
+  ARCHIVE_ADAPTER_DIR=${ADAPTER_CONFIG_ENTRIES%/adapter_config.json}
+  case "$ARCHIVE_ADAPTER_DIR" in
+    ""|/*|..|../*|*/../*|*/..) log "FATAL unsafe SFT adapter archive path"; exit 1;;
+  esac
+  REMOTE_SFT_ADAPTER="/workspace/checkpoints/$ARCHIVE_ADAPTER_DIR"
 fi
 "$PYBIN" -m scripts.train.preflight_cycle --train-file "$TRAIN_PROOF" --eval-file "$EVAL_LOCAL" \
   --base-model mistralai/Mistral-7B-Instruct-v0.3 --golden-set "$GOLDEN" --strict || exit 3
@@ -124,7 +131,9 @@ if [ "$FRESH_BASE" != 1 ]; then
   TSSH -p "$PORT" root@"$HOST" "printf '%s  %s\n%s  %s\n%s  %s\n' '$UPLOAD_ADAPTER_SHA256' /workspace/aria_tooluse_candidate.tgz '$DPO_SHA256' /workspace/datasets/aria_tooluse_dpo_v3.jsonl '$EVAL_SHA256' /workspace/datasets/aria_tooluse_eval.jsonl | sha256sum -c - && tar -tzf /workspace/aria_tooluse_candidate.tgz | awk '/\\/adapter_config.json$/ { found=1 } END { exit !found }' && tar -xzf /workspace/aria_tooluse_candidate.tgz -C /workspace/checkpoints" || { log "FATAL remote immutable input validation"; exit 1; }
 fi
 TSSH -p "$PORT" root@"$HOST" "if [ -s /workspace/eval/_watchdog_pid ]; then kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; fi; rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$CYCLE_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_cycle_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" | grep -q ARMED || exit 1
-TSSH -p "$PORT" root@"$HOST" "SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS DPO_OUT='$REMOTE_DPO_OUT' setsid nohup bash /workspace/pod_tooluse_dpo.sh >/workspace/logs/tooluse_dpo_cycle.log 2>&1 </dev/null & echo STARTED" | grep -q STARTED || exit 1
+POD_ENV="SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS DPO_FILE=/workspace/datasets/aria_tooluse_dpo_v3.jsonl DPO_OUT='$REMOTE_DPO_OUT'"
+[ "$FRESH_BASE" = 1 ] || POD_ENV="$POD_ENV SFT_ADAPTER='$REMOTE_SFT_ADAPTER'"
+TSSH -p "$PORT" root@"$HOST" "$POD_ENV setsid nohup bash /workspace/pod_tooluse_dpo.sh >/workspace/logs/tooluse_dpo_cycle.log 2>&1 </dev/null & echo STARTED" | grep -q STARTED || exit 1
 RSCP_PULL(){ timeout 600 scp -i "$KEYF" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":"$1" "$2" 2>/dev/null; }
 log "cycle started"; RC=""
 for i in $(seq 1 100); do
