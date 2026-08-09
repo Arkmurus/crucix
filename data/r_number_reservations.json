@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3812,
+  "next_available": 3813,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32068,6 +32068,15 @@
       "r_number": "R-F3811",
       "title": "rf887 asserted source text of a function whose wiring was extracted to a helper; assert the capability instead",
       "claimed_at": "2026-08-09T08:10:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3812",
+      "title": "rf3201 asserted pre-R-F3536 grades for ambient natural-hazard signals",
+      "claimed_at": "2026-08-09T08:17:00Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
