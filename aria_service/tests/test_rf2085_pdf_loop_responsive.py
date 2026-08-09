@@ -26,6 +26,10 @@ import pytest
 # AT IMPORT, so an edit mid-run silently returns a DIFFERENT function's body.
 from ._source_probe import function_source
 
+# R-F3795 — the fixture builds a real PDF with fitz (PyMuPDF), which has no
+# win-arm64 wheel (§16). ENVIRONMENT gap; runs in the Linux image.
+from ._env_probe import requires_module
+
 
 def _make_app():
     from fastapi import FastAPI
@@ -80,6 +84,7 @@ def _captured(monkeypatch):
     return seen
 
 
+@requires_module("fitz")
 def test_rf2085_async_path_skips_image_ocr(_captured):
     """The async (WhatsApp) doc path must NOT trigger per-page image OCR — that
     is the in-loop CPU that stalled /health/live and false-killed the doc read."""
@@ -115,6 +120,7 @@ def test_rf2085_async_path_skips_image_ocr(_captured):
     )
 
 
+@requires_module("fitz")
 def test_rf2085_sync_path_keeps_image_ocr(_captured):
     """Sync callers (email/small uploads) keep image OCR — only the async path skips it."""
     from fastapi.testclient import TestClient

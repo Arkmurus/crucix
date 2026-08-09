@@ -56,6 +56,11 @@ from pathlib import Path
 
 import pytest
 
+# R-F3795 — priming queries the chromadb-backed coding RAG. Without chromadb the
+# store reports DEGRADED and returns zero rules, which is correct behaviour for a
+# machine with no wheel (§16) — not the silent no-op this test hunts.
+from ._env_probe import requires_module
+
 ROOT = Path(__file__).resolve().parents[2]
 
 # Drives the exact call CLAUDE.md §20 tells an agent to run at session open.
@@ -107,6 +112,7 @@ def test_priming_does_not_crash_the_process():
 
 
 @pytest.mark.slow
+@requires_module("chromadb")
 def test_priming_returns_actual_constitutional_rules():
     """Not crashing is not enough — it has to RETURN the rules.
 

@@ -4,6 +4,11 @@ import sys
 
 import pytest
 
+# R-F3795 — OCR shells out to the `tesseract` EXECUTABLE. pytesseract (the
+# binding) is installed here while the binary is not, so a module probe would
+# wrongly call this satisfied. ENVIRONMENT gap, not a code defect.
+from ._env_probe import requires_binary
+
 # Ensure tesseract is in PATH for Windows
 if sys.platform == "win32":
     tesseract_paths = [
@@ -36,6 +41,7 @@ def _make_test_image(text: str = "Hello World 123") -> bytes:
     return buf.getvalue()
 
 
+@requires_binary("tesseract")
 def test_read_image_tool_extracts_text():
     """Capability: read_image() extracts text from a PNG image."""
     from aria_cli.coder_tools import CoderToolbox

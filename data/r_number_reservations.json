@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3795,
+  "next_available": 3796,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31915,6 +31915,15 @@
       "r_number": "R-F3794",
       "title": "record interpreter + pip-freeze fingerprint in the 16 suite baseline",
       "claimed_at": "2026-08-08T23:32:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3795",
+      "title": "tests that need an absent optional dependency must SKIP with a reason, not FAIL as if the code broke",
+      "claimed_at": "2026-08-09T07:07:44Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
