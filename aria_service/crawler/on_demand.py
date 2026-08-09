@@ -427,14 +427,110 @@ def _safe_domain_for_register(domain: str) -> bool:
     return True
 
 
+def _registration_is_on_mission(domain: str, evidence: str | None) -> tuple[bool, str]:
+    """R-F3820 — may this domain earn a PERMANENT registry row?
+
+    Returns (ok, reason). The reason is always populated on a refusal so a drop can
+    be explained rather than asserted (§22).
+
+    WHY RELEVANCE AND NOT A BLOCKLIST. ARIA was crawling porn (live, 2026-08-09:
+    `GET https://jerk-porn.com/` as ARIA-Intel/1.0), and the pages reached the brain
+    as `reading_region:market_intel:lusophone` facts grading Phase A gate #2. The
+    obvious fix — an adult/gambling word blocklist — was measured against ARIA's own
+    data first and flagged `internationaldefenceanalysis.com`, `stockanalysis.com`
+    ("anal" inside ANALysis), `repository.essex.ac.uk` ("sex" inside esSEX), "The
+    Defense Post", "ASPI Strategist" and the German word "Fersensporn" (heel spur).
+    Those are core defence sources. A blocklist is also unbounded: every new porn
+    farm is a new string.
+
+    Asking "is this on mission" instead excludes porn, gambling, Amazon and consumer
+    noise BY CONSTRUCTION, because none of them are ever about defence, and it needs
+    no maintenance as the spam changes.
+
+    The judge is `news_monitor._topical_relevance`, which already exists and is
+    already calibrated for exactly this question ("fit for a security / defence /
+    procurement / compliance feed"), rather than a second, divergent classifier —
+    §1 records what happens when one measure gets forked in two.
+
+    FAILS CLOSED, including on absent evidence. §7 forbids eviction, so a wrongly
+    ADMITTED domain is permanent while a wrongly REJECTED one is simply re-registered
+    the next time it appears with better evidence. Those costs are not symmetric, so
+    forgetting to pass evidence must DENY — otherwise the gate is bypassable by
+    omission, which is precisely how the original hole worked.
+    """
+    text = (evidence or "").strip()
+    if not text:
+        return False, "no_evidence"
+    try:
+        from ..intel.news_monitor import _topical_relevance
+    except Exception as exc:                      # pragma: no cover - import guard
+        # Cannot judge → cannot admit. An unavailable judge must not become a pass;
+        # that is the "absence read as a measurement" shape §1 keeps recording.
+        return False, f"judge_unavailable:{type(exc).__name__}"
+    try:
+        verdict = _topical_relevance({"title": text, "summary": "",
+                                      "category": "", "topics": []})
+    except Exception as exc:                      # pragma: no cover
+        return False, f"judge_error:{type(exc).__name__}"
+    if verdict.get("on_topic"):
+        return True, f"on_topic:{verdict.get('score')}"
+    return False, f"off_mission:{verdict.get('reason') or 'no_domain_terms'}"
+
+
 async def auto_register_domain(
-    domain: str, *, tier: int = 4, sector: str = "discovered",
+    domain: str, *, evidence: str = "", requested_entity: str = "",
+    tier: int = 4, sector: str = "discovered",
     rate_limit_per_sec: float = 0.5,
 ) -> bool:
     """Register a discovered domain at tier 4 if we don't know it yet.
+
     Returns True iff a new row was created. Idempotent — repeated calls
-    for the same domain are no-ops."""
+    for the same domain are no-ops.
+
+    R-F3820 — a domain must be JUSTIFIED, and there are exactly two justifications:
+
+    `evidence`  — the text of an unsolicited search result (title+snippet). Judged on
+                  topical relevance, because nobody asked for this domain; it merely
+                  appeared in a SERP. This is the path that admitted 163 adult and 41
+                  gambling domains.
+    `requested_entity` — ARIA was ASKED to research this entity and derived the
+                  candidate URL from its NAME (`guess_entity_urls`). Justified by
+                  INTENT, not by lexicon.
+
+    THE SECOND ONE EXISTS BECAUSE THE FIRST WOULD BREAK DUE DILIGENCE. Measured:
+    `Rheinmetall AG` scores 0.65 and `BAE Systems plc` 0.25, but `Acme Ventures Ltd`,
+    `Gazprom` and `Modirum Gespi` all score ZERO — an arbitrary counterparty's name
+    contains no defence vocabulary, by construction. DD is precisely the business of
+    investigating names nobody has heard of, so relevance-gating that path would
+    disable the product's primary function while looking like a safety improvement.
+
+    The distinction is provenance, and it is the honest one: the porn arrived as
+    UNSOLICITED SERP domains, never as a requested entity. `guess_entity_urls` derives
+    candidates from the query string itself, so this path cannot admit `jerk-porn.com`
+    unless somebody explicitly asks ARIA to research it.
+
+    Neither supplied → REFUSED. See `_registration_is_on_mission` for why deny is the
+    default when nothing justifies the row.
+    """
     if not _safe_domain_for_register(domain):
+        return False
+    if (requested_entity or "").strip():
+        on_mission, why = True, f"entity_request:{requested_entity.strip()[:60]}"
+    else:
+        on_mission, why = _registration_is_on_mission(domain, evidence)
+    if not on_mission:
+        # §21a — a refusal is a real decision and must not be silent, or the registry
+        # simply appears to stop growing with no way to tell a working gate from a
+        # broken crawler.
+        logger.info("[R-F3820] registration refused: %s (%s)", domain, why)
+        try:
+            from ..intel.engine_wiring import wire_failure
+            wire_failure(module="crawler.on_demand",
+                         detail=f"domain registration refused: {domain} ({why})",
+                         gap_type="source_validator_rejected",
+                         source="on_demand:auto_register_domain")
+        except Exception:      # pragma: no cover - observability never blocks
+            pass
         return False
     existing = await db.get_domain(domain)
     if existing is not None:
@@ -495,7 +591,13 @@ async def ensure_indexed(
             from .politeness import domain_of
             d = domain_of(url)
             if d:
-                created = await auto_register_domain(d)
+                # R-F3820 — justified by INTENT, not by lexicon. These candidates come
+                # from `guess_entity_urls(query)`, i.e. an entity ARIA was asked to
+                # research, and the URL is derived from the NAME. Relevance-gating this
+                # path would break due diligence outright: measured, `Acme Ventures
+                # Ltd`, `Gazprom` and `Modirum Gespi` all score zero on the defence
+                # lexicon, because an unknown counterparty's name is exactly that.
+                created = await auto_register_domain(d, requested_entity=query)
                 if created:
                     new_domains_registered += 1
         except Exception:

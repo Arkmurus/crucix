@@ -647,6 +647,62 @@ and R-F3688's comment claimed a pinning test with a `DELIBERATELY_EXCLUDED` set 
 > been re-measured: that needs a quiet tree and a 40-minute run, and R-F3794 now
 > records the environment alongside it so the next diff can separate the two deltas.
 
+### C-14 · ARIA crawled and absorbed pornography — P0 — **CONTAINED + ROOT-FIXED (R-F3817/R-F3820, 2026-08-09)**
+
+Confirmed from the production machine, not inferred: `GET https://jerk-porn.com/` with
+`User-Agent: ARIA-Intel/1.0 (research crawler)`. Live registry held **163 adult + 41
+gambling domains, all enabled**, swept every 6h, of 22,100 rows — 21,953 of which are
+tier-4 `sector='discovered'`.
+
+**It reached the brain.** Porn page titles were absorbed as regional intelligence and
+graded Phase A gate #2 mastery:
+`reading_region:market_intel:lusophone → "market intel Angola Mozambique: Fake Taxi Uk
+Porn Videos | Pornhub.com"`, plus `sanctions:nato → "'facesitting toilet slave' Search
+- XVIDEOS.COM"`. 86 adult pages sat in ARIA's own search index.
+
+**Root cause, one line.** `researcher.py` registered `domain_of(link)` for EVERY
+external search result and **discarded the title and snippet** — the only signal that
+could judge the domain. `auto_register_domain` then accepted anything
+`_safe_domain_for_register` did not reject, and that checks only length, numeric
+labels and RFC-2606 placeholders. With §7 (no eviction) one SEO-spam SERP buys a porn
+farm a permanent row.
+
+**The obvious fix was measured and rejected.** A substring blocklist of adult terms,
+run against ARIA's OWN data, flagged `internationaldefenceanalysis.com`,
+`stockanalysis.com`, `repository.essex.ac.uk`, "The Defense Post", "ASPI Strategist",
+"Brazilian frigate Tamandaré … Fraterno XXXIX" and the German word **"Fersensporn"**
+(heel spur) — via *anal* in AN**AL**ysis, *sex* in es**SEX**, *xxx* in a Roman numeral.
+Those are core defence sources. It is also unbounded: every new farm is a new string.
+
+**Shipped instead:** an ON-MISSION gate reusing `news_monitor._topical_relevance`, the
+judge already calibrated for "security / defence / procurement / compliance" — not a
+second, divergent classifier (§1 on forking one measure). Porn, gambling, Amazon and
+consumer noise all score **0.0**; Rheinmetall/sanctions/peacekeeping/Companies House
+score 0.25–1.0.
+
+> **The over-correction that a naive fix would have shipped.** Gating *every* path on
+> relevance breaks due diligence: measured, `Acme Ventures Ltd`, `Gazprom` and
+> `Modirum Gespi` all score **zero**, because an unknown counterparty's name contains
+> no defence vocabulary by construction. DD is precisely the business of investigating
+> names nobody has heard of. So admission now has **two** justifications —
+> `evidence` (unsolicited SERP, relevance-judged) and `requested_entity` (ARIA was
+> ASKED; `guess_entity_urls` derives the URL from the name, so it cannot admit
+> jerk-porn.com unless somebody researches it). Both absent → refused; forgetting to
+> justify must DENY, since that omission is exactly how the original hole worked.
+
+**Containment (R-F3817, live, no deploy):** 202 domains set `enabled=0` (rows retained
+per §7, reversible), 25 knowledge facts, 86 indexed documents and 12 distill lines
+archived-then-removed under `/data/quarantine/`. Legitimate intel **proven surviving**:
+the SCMP child-molestation conviction, the Erena So gambling arrest, the DR Congo
+peacekeeping item and Fersensporn. All 218 `web_atlas` crawl bundles kept — each lists
+several legitimate domains beside one adult one.
+
+**Residual, stated:** 5 documents / ~10 facts (mostly those bundles) / 7 distill lines
+still match strong adult markers, none from the `reading_region` path. `domains_total`
+grew 22,100 → 22,115 *during* the work, which is why the ingress gate — not the
+quarantine — is the actual fix. **Still open: C-14b**, the 6h sweep still walks 99.3%
+unvetted tier-4 discovery alphabetically.
+
 ---
 
 ## D. Phase 0.3 runtime overlay — **WINDOW OPEN as of 2026-08-05 12:20 UTC**

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3819,
+  "next_available": 3821,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32155,6 +32155,24 @@
       "r_number": "R-F3818",
       "title": "record the 2026-08-09 §16 baseline: 89 failed, measured on a quiet worktree with an environment fingerprint",
       "claimed_at": "2026-08-09T12:05:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3819",
+      "title": "fresh base DPO with retention curriculum",
+      "claimed_at": "2026-08-09T12:12:37Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3820",
+      "title": "domain auto-registration admits anything: gate it on security/defence relevance using the existing topical judge",
+      "claimed_at": "2026-08-09T12:45:30Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

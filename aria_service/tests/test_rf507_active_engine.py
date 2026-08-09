@@ -97,8 +97,17 @@ def test_safe_domain_rejects_garbage(bad):
 # ─────────────────────────────────────────────────────────────────
 
 def test_auto_register_creates_tier4(db_ready):
+    """R-F3820 — registration now requires a JUSTIFICATION, so this test supplies one.
+
+    It previously called `auto_register_domain("newdomain.example")` bare, which is
+    the contract that let 163 adult and 41 gambling domains into a registry §7 forbids
+    evicting from. The row-shape assertions below are unchanged and still the point;
+    only the admission argument is new.
+    """
     async def go():
-        created = await on_demand.auto_register_domain("newdomain.example")
+        created = await on_demand.auto_register_domain(
+            "newdomain.example",
+            evidence="EU sanctions three entities over Russian arms procurement")
         assert created is True
         d = await db.get_domain("newdomain.example")
         assert d is not None
@@ -110,9 +119,13 @@ def test_auto_register_creates_tier4(db_ready):
 
 
 def test_auto_register_idempotent(db_ready):
+    """Idempotency is unchanged by R-F3820: the second call still sees the existing
+    row. Uses the entity-request justification, the path DD relies on."""
     async def go():
-        c1 = await on_demand.auto_register_domain("idem.example")
-        c2 = await on_demand.auto_register_domain("idem.example")
+        c1 = await on_demand.auto_register_domain(
+            "idem.example", requested_entity="Modirum Gespi")
+        c2 = await on_demand.auto_register_domain(
+            "idem.example", requested_entity="Modirum Gespi")
         assert c1 is True
         assert c2 is False  # second call sees existing row
     _run(go())

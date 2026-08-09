@@ -1749,7 +1749,21 @@ async def _web_search(
                 if d and d not in _seen_doms:
                     _seen_doms.add(d)
                     try:
-                        await auto_register_domain(d)
+                        # R-F3820 — pass the EVIDENCE, don't discard it.
+                        #
+                        # This registered `domain_of(link)` and threw the title and
+                        # snippet away, so the registry could only ever be judged on
+                        # a domain STRING. That is how 163 adult and 41 gambling
+                        # domains became permanent tier-4 rows swept every 6h, and how
+                        # "Fake Taxi Uk Porn Videos | Pornhub.com" ended up absorbed
+                        # as Lusophone market intel. The title+snippet is the only
+                        # signal that can answer "is this on mission", and it was
+                        # sitting right here in `r` the whole time.
+                        await auto_register_domain(
+                            d,
+                            evidence=f"{r.get('title') or ''} "
+                                     f"{r.get('snippet') or ''}".strip() or query,
+                        )
                     except Exception:
                         pass
             # If the internal index returned NOTHING for this query and
