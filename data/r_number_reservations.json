@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3814,
+  "next_available": 3815,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32086,6 +32086,15 @@
       "r_number": "R-F3813",
       "title": "record the 36-failure baseline triage taxonomy in the cure defect register",
       "claimed_at": "2026-08-09T08:30:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3814",
+      "title": "operator amendment: authorise deploy of the live-defect cure PRs ahead of the Phase 2.3 smoke gate",
+      "claimed_at": "2026-08-09T08:37:56Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -86,7 +86,7 @@ are prioritised"* — not *"this is proven correct."* Do not quote it as the lat
 | Stability items from the Phase 5 list | **Yes** | Phase 5 |
 | Operational R-numbers / incident response | **Yes** | CLAUDE.md §1 |
 | **Delete anything** | **NO** | Phase 0.3 runtime overlay has not run; every module carries `proof_runtime: UNKNOWN`, so the three-proof rule (4.1) is unmet |
-| Deploy a cure PR | **NO** | Phase 2.3 makes green smoke the deploy gate; the smoke does not exist |
+| Deploy a cure PR | **OPERATOR-AUTHORISED, case by case** (was NO) | See the 2026-08-09 amendment. The Phase 2.3 smoke still does not exist; the gate is now an explicit operator decision per deploy, not an automatic pass |
 | Any new capability, refactor, or migration | **NO** | 1.1 |
 
 **The deletion gate is the load-bearing one.** 109 DEAD-CANDIDATE modules are identified
@@ -104,3 +104,4 @@ amended the same way (Cure Protocol, Standing rules).
 | Date | Amendment | Reason |
 |---|---|---|
 | 2026-08-05 | Security exception added to 1.1 | `npm audit` found 6 high-severity vulnerabilities with known fixes; a freeze that forbids patching them trades a real risk for a process one |
+| 2026-08-09 | **Deploy gate relaxed to operator-authorised (R-F3814)** | Same trade as the 2026-08-05 amendment, one layer along. The freeze was written to stop UNREVIEWED change reaching production; it had begun holding back fixes for defects that are live *now*. Three in this batch: **R-F3798** — the R-F3715 thread-pool bound had never once applied (bare `os` in a module that aliases it; the NameError was swallowed into a warning), so production runs the host-sized default pool on the `redis_store` hot path, which is the exact thrash R-F3715 exists to prevent. **R-F3802** — the adverse-media relevance gate reduced `"Acme Ventures Ltd"` to `{"acme"}` and attributed *other companies'* wrongdoing to a DD subject, inflating the adverse exposure that feeds the evidence grade. **R-F3806** — a 12-char legal-form token could confirm two unrelated entities as one. Keeping a compliance-integrity defect in production to protect a process gate inverts what the gate is for. Operator decision, 2026-08-09, reaffirmed after the constraint was surfaced. **This does NOT open the deletion gate**, which stays NO on the three-proof rule, and it does not authorise a blanket deploy: each cure deploy remains an explicit operator call until the Phase 2.3 smoke exists. Building that smoke is now the highest-value Phase 2 item, precisely because this amendment is what stands in for it. |
