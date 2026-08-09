@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3803,
+  "next_available": 3807,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31987,6 +31987,42 @@
       "r_number": "R-F3802",
       "title": "adverse-media relevance gate borrowed the recall-tuned sanctions tokenizer and lost its precision",
       "claimed_at": "2026-08-09T07:36:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3803",
+      "title": "select exact adapter for train generation",
+      "claimed_at": "2026-08-09T07:41:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3804",
+      "title": "rf3481 pinned schema 1.2.0 through R-F3633's deliberate 1.3.0 bump; fixture used a value the product never emits",
+      "claimed_at": "2026-08-09T07:42:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3805",
+      "title": "timeout inversion in the secret-scan and wiring-gate tests: inner bound above the per-test budget",
+      "claimed_at": "2026-08-09T07:45:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3806",
+      "title": "corp-suffix list has inc but not incorporated, creating a 12-char false-match token",
+      "claimed_at": "2026-08-09T07:48:41Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
