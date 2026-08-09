@@ -23,6 +23,8 @@ from aria_service.route_audit import (
     log_duplicate_routes,
 )
 
+from ._app_probe import route_endpoints
+
 
 def _build_app() -> FastAPI:
     """Mirror how main.py mounts the router (prefix + all handlers)."""
@@ -56,19 +58,11 @@ def test_router_has_no_duplicate_routes():
 def test_previously_colliding_paths_resolve_to_canonical_handler():
     """The three R-F2278 paths must now each resolve to exactly one handler, and
     it must be the CANONICAL one the live consumers read."""
-    app = _build_app()
-    by_key: dict[tuple[str, str], str] = {}
-    for route in app.routes:
-        path = getattr(route, "path", None)
-        methods = getattr(route, "methods", None)
-        if not path or not methods:
-            continue
-        ep = getattr(route, "endpoint", None)
-        name = getattr(ep, "__name__", "") if ep is not None else ""
-        for method in methods:
-            if method in ("HEAD", "OPTIONS"):
-                continue
-            by_key.setdefault((method, path), name)  # first registered wins == served
+    # R-F3791 — NOT a flat walk of `app.routes`: `include_router` appends a lazy
+    # wrapper rather than copying the child's routes up, so the flat walk saw only
+    # the four FastAPI built-ins and this assertion failed on a healthy app. The
+    # shared enumeration keeps first-registered-wins, which is what "served" means.
+    by_key = route_endpoints(_build_app())
 
     # /health/perf → the full R-F396 self-introspection handler (not the stub).
     assert ("GET", "/api/aria/health/perf") in by_key

@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import re
 
+from ._app_probe import mounted_paths
 from ._source_probe import repo_path
 
 
@@ -225,10 +226,9 @@ def test_rf332_rag_search_endpoint_is_registered():
     os.environ.setdefault("TESTING", "1")
     from aria_service.main import app
 
-    rag_paths = [
-        r.path for r in app.routes
-        if hasattr(r, "path") and "rag" in r.path.lower()
-    ]
+    # R-F3791 — the flat `app.routes` walk this used stopped seeing router-mounted
+    # routes entirely, so `rag_paths` was [] and this read as an R-F332 regression.
+    rag_paths = sorted(p for p in mounted_paths(app) if "rag" in p.lower())
     # Must have both /rag/search and /rag/stats wired
     assert any("/rag/search" in p for p in rag_paths), (
         f"R-F332 regression: /rag/search not registered. Got {rag_paths}"

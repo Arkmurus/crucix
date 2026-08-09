@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3790,
+  "next_available": 3795,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31874,6 +31874,51 @@
       "commit_sha": "9f0ae14c",
       "notes": null,
       "shipped_at": "2026-08-08T17:47:59Z"
+    },
+    {
+      "r_number": "R-F3790",
+      "title": "fix staged tooluse eval import root",
+      "claimed_at": "2026-08-08T18:39:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3791",
+      "title": "test route probe: app.routes no longer flattens under FastAPI 0.141 lazy include_router",
+      "claimed_at": "2026-08-08T19:43:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3792",
+      "title": "wire duplicate-route guard to brain (was log-only = dark per 21a)",
+      "claimed_at": "2026-08-08T23:32:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3793",
+      "title": "register two gap types emitted in production but unregistered (signals demoted to noise)",
+      "claimed_at": "2026-08-08T23:32:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3794",
+      "title": "record interpreter + pip-freeze fingerprint in the 16 suite baseline",
+      "claimed_at": "2026-08-08T23:32:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
