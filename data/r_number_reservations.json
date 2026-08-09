@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3802,
+  "next_available": 3803,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31978,6 +31978,15 @@
       "r_number": "R-F3801",
       "title": "sweep: every test driving an unscoped DD path without declaring the internal tier (R-F3628 fallout)",
       "claimed_at": "2026-08-09T07:31:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3802",
+      "title": "adverse-media relevance gate borrowed the recall-tuned sanctions tokenizer and lost its precision",
+      "claimed_at": "2026-08-09T07:36:57Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

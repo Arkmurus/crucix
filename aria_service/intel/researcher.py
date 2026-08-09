@@ -4407,13 +4407,55 @@ async def get_research_summary(llm: LLMProvider) -> dict:
 # + cost expectations (each entity = 20-50 new searches; circuit breakers
 # in place per R-F150 for backends that 202/429).
 
+#: R-F3802 — legal FORM suffixes only. Deliberately NOT `_sanctions_classify.
+#: _CORP_SUFFIXES`; see `_adverse_relevance_token_sets` for why the two must differ.
+_ADVERSE_LEGAL_FORMS = frozenset({
+    "ltd", "limited", "llc", "llp", "lp", "plc", "inc", "incorporated", "corp",
+    "corporation", "co", "company", "gmbh", "ag", "kg", "mbh", "bv", "nv", "sa",
+    "sas", "sarl", "srl", "spa", "spz", "oy", "ab", "as", "apS", "aps", "pty",
+    "pte", "sdn", "bhd", "jsc", "ojsc", "cjsc", "pjsc", "ooo", "oao", "zao",
+    "doo", "dd", "ae", "epe", "kk", "yk", "trust", "holdings", "holding", "group",
+})
+
+
 @fail_wire(module="researcher", gap_type="source_failure")
 def _adverse_relevance_token_sets(names: list[str]) -> list[set[str]]:
-    """R-F2745 — meaningful token set per subject name (entity + directors + UBOs)."""
-    from ._sanctions_classify import _tokenize_entity_name
+    """R-F2745 — meaningful token set per subject name (entity + directors + UBOs).
+
+    R-F3802 — this used `_sanctions_classify._tokenize_entity_name` and inherited a
+    stop list tuned for the OPPOSITE requirement, which silently reopened the exact
+    defect R-F2745 exists to prevent.
+
+    That helper drops "ventures", "capital", "investments", "fund", "management" and
+    similar as non-distinctive. For SANCTIONS SCREENING that is right and must not be
+    touched: run dd_29368fbb8b3d HARD_STOP'd "BATSELA CAPITAL INVESTMENTS L.L.P"
+    against OFAC's "D.G.D. INVESTMENTS LTD." on the single shared token
+    "investments", and told the operator to consider filing a SAR. Screening needs
+    RECALL with distinctiveness guards.
+
+    This gate needs PRECISION. It asks "is this article about MY subject", and there
+    the commercial descriptor is exactly what distinguishes one company from another.
+    Borrowing the screening tokenizer reduced "Acme Ventures Ltd" to {"acme"}, so
+    "Acme Widgets Inc under investigation" satisfied the subset test and a DIFFERENT
+    company's adverse media was attributed to the subject — inflating the adverse
+    exposure that feeds the evidence grade, on a compliance product.
+
+    So only true legal FORMS are stripped here. The trade-off is deliberate: an
+    article naming the company informally ("Acme fined $2m") is now dropped. On a DD
+    product, attributing the WRONG company's wrongdoing is far worse than missing a
+    loosely-worded mention, which is R-F2745's stated contract ("kept only if the
+    article names the subject"). Drops are counted in `_off_subject_dropped`, so the
+    cost is observable rather than silent.
+    """
+    import unicodedata as _ud
+
     out: list[set[str]] = []
     for n in names:
-        ts = _tokenize_entity_name(n or "")
+        normalised = _ud.normalize("NFKD", str(n or ""))
+        normalised = "".join(c for c in normalised if not _ud.combining(c))
+        tokens = re.sub(r"[^a-zA-Z0-9]+", " ", normalised).lower().split()
+        ts = {t for t in tokens
+              if len(t) >= 3 and t not in _ADVERSE_LEGAL_FORMS and not t.isdigit()}
         if ts:
             out.append(ts)
     return out
