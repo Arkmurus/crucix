@@ -50,8 +50,16 @@ KEY=$(grep -E '^RUNPOD_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr 
 [ -s "$QUEUE" ] || { log "FATAL queue missing: $QUEUE"; exit 1; }
 [ "$EXPECTED_ROWS" -gt 0 ] || { log "FATAL queue has no rows"; exit 1; }
 [ -s "$ADAPTER_LOCAL" ] || { log "FATAL adapter missing: $ADAPTER_LOCAL"; exit 1; }
+ADAPTER_SHA256=$(sha256sum "$ADAPTER_LOCAL" | awk '{print $1}')
+[ -n "$ADAPTER_SHA256" ] || { log "FATAL adapter hash unavailable"; exit 1; }
 tar -tzf "$ADAPTER_LOCAL" | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }' \
   || { log "FATAL adapter archive invalid"; exit 1; }
+ARCHIVE_ADAPTER_DIR=$(tar -tzf "$ADAPTER_LOCAL" \
+  | awk -F/ '/\/adapter_config.json$/ { print $1; exit }')
+case "$ARCHIVE_ADAPTER_DIR" in
+  ""|*/*|*".."*) log "FATAL unsafe adapter directory in archive"; exit 1 ;;
+esac
+REMOTE_ADAPTER="/workspace/checkpoints/$ARCHIVE_ADAPTER_DIR"
 
 log "strict preflight of train-only generation queue"
 "$PYBIN" -m scripts.train.preflight_cycle \
@@ -147,14 +155,14 @@ for slice in $(seq 1 "$UPLOAD_SLICES"); do
 done
 [ "$UPLOAD_OK" = 1 ] || { log "FATAL bounded adapter upload incomplete"; exit 1; }
 TSSH -p "$PORT" root@"$HOST" \
-  "tar -tzf /workspace/aria_tooluse_candidate.tgz | awk '/\\/adapter_config.json$/ { found=1 } END { exit !found }' && tar -xzf /workspace/aria_tooluse_candidate.tgz -C /workspace/checkpoints" \
+  "printf '%s  %s\n' '$ADAPTER_SHA256' /workspace/aria_tooluse_candidate.tgz | sha256sum -c - && tar -tzf /workspace/aria_tooluse_candidate.tgz | awk '/\\/adapter_config.json$/ { found=1 } END { exit !found }' && tar -xzf /workspace/aria_tooluse_candidate.tgz -C /workspace/checkpoints" \
   || { log "FATAL remote adapter validation/extract"; exit 1; }
 
 TSSH -p "$PORT" root@"$HOST" \
   "kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$GENERATION_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_generation_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" \
   | grep -q ARMED || { log "FATAL generation watchdog not armed"; exit 1; }
 TSSH -p "$PORT" root@"$HOST" \
-  'setsid nohup bash /workspace/pod_tooluse_generate.sh >/workspace/logs/tooluse_generation.log 2>&1 </dev/null & echo STARTED' \
+  "ADAPTER='$REMOTE_ADAPTER' setsid nohup bash /workspace/pod_tooluse_generate.sh >/workspace/logs/tooluse_generation.log 2>&1 </dev/null & echo STARTED" \
   | grep -q STARTED || { log "FATAL generation start"; exit 1; }
 
 log "generation started; waiting for completion sentinel"

@@ -80,6 +80,8 @@ def test_fresh_generation_driver_arms_watchdog_before_adapter_upload() -> None:
     assert "SFTP_UPLOAD=put" in code
     assert "test -f /workspace/aria_tooluse_candidate.tgz" in code
     assert 'timeout "$UPLOAD_SLICE" sftp' in code
+    assert 'ADAPTER_SHA256=$(sha256sum "$ADAPTER_LOCAL"' in code
+    assert "printf '%s  %s\\n' '$ADAPTER_SHA256' /workspace/aria_tooluse_candidate.tgz | sha256sum -c -" in code
     assert 'REMOTE_BYTES=$(TSSH' in code
     assert 'state=$STATE' in code
     assert '"$STATE" = RUNNING' in code
@@ -90,3 +92,5 @@ def test_fresh_generation_driver_arms_watchdog_before_adapter_upload() -> None:
     assert "kill \\$(cat /workspace/eval/_watchdog_pid)" in code
     assert "NOT_RUNNING" in code
     assert '"${REPORT_LOCAL}.partial"' in code
+    assert 'REMOTE_ADAPTER="/workspace/checkpoints/$ARCHIVE_ADAPTER_DIR"' in code
+    assert '"ADAPTER=\'$REMOTE_ADAPTER\' setsid nohup' in code
