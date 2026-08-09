@@ -73,10 +73,31 @@ def test_brain_accepts_wa_failure_payload_and_routes_to_capability_gap(monkeypat
     assert body["routed"] == "capability_gap", "WA failure must route to a coder-visible gap"
     # Background task ran → the gap was actually recorded with the failure shape.
     assert spy.await_count >= 1, "record_gap must be invoked for a WA failure signal"
-    kwargs = spy.await_args.kwargs
-    assert kwargs.get("gap_type") == "operational:output_rejection"
-    assert "aria-wa" in (kwargs.get("source") or "")
-    assert "wa_chat_failed" in (kwargs.get("detail") or "")
+
+    # R-F3811 — search the call LIST, don't read `await_args`.
+    #
+    # `record_gap` is patched on the module, so the spy catches EVERY caller in the
+    # request, not just this one. `await_args` is the LAST await, and an unrelated
+    # background writer (observed: gap_type="data_integrity") lands after the WA gap,
+    # so the assertion compared this contract against somebody else's call and failed
+    # with a confusing "data_integrity != operational:output_rejection".
+    #
+    # This is order-dependent by construction, which is why it passed in the
+    # 2026-08-08 full-suite ordering and fails standalone. Asserting "one of the
+    # recorded gaps has this shape" is the property actually being claimed, and it
+    # cannot be broken by an unrelated caller arriving later.
+    matches = [
+        c.kwargs for c in spy.await_args_list
+        if c.kwargs.get("gap_type") == "operational:output_rejection"
+        and "aria-wa" in (c.kwargs.get("source") or "")
+    ]
+    assert matches, (
+        "no record_gap call carried the WA failure shape; got "
+        f"{[c.kwargs.get('gap_type') for c in spy.await_args_list]}"
+    )
+    assert any("wa_chat_failed" in (kw.get("detail") or "") for kw in matches), (
+        "the WA gap must name the originating signal type in its detail"
+    )
 
 
 def test_brain_routes_non_failure_signal_to_absorb_not_gap(monkeypatch):
