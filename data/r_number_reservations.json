@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3797,
+  "next_available": 3800,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31933,6 +31933,33 @@
       "r_number": "R-F3796",
       "title": "rf3371 reproduction fixtures fell out of a 400-commit search window; resolve by grep over all history",
       "claimed_at": "2026-08-09T07:16:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3797",
+      "title": "rf1958 guard counted only imports as available, so a locally-defined check read as a NameError",
+      "claimed_at": "2026-08-09T07:22:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3798",
+      "title": "R-F3715 thread-pool bound never applied: bare os in main.py NameError'd into a warning",
+      "claimed_at": "2026-08-09T07:24:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3799",
+      "title": "orphan baseline pinned a module that has never existed in the repo",
+      "claimed_at": "2026-08-09T07:25:57Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

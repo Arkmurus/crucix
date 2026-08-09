@@ -105,7 +105,13 @@ ORPHAN_BASELINE_TEST_ONLY = {
     'intel/sipri_ingest.py',
     'intel/strategic_evolution.py',
     'intel/system_health.py',
-    'intel/training_orchestrator.py',
+    # R-F3799 — 'intel/training_orchestrator.py' removed. It is not an orphan that
+    # got wired; the file has NEVER existed. Absent from disk AND from the entire
+    # git history (`git log --all --diff-filter=A` finds no add). The baseline was
+    # pinning debt for a module that was never in the repo, which is the decay
+    # R-F3573's own test is written against: "a pinned list that outlives the debt
+    # it records is a lie". An allowlist entry nothing can ever match is worse than
+    # stale — it can never be discharged.
     'intel/truth_verifier.py',
     'intel/uk_ofsi_ingest.py',
     'intel/un_sanctions_ingest.py',
