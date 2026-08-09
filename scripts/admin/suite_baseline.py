@@ -232,6 +232,45 @@ def _test_files() -> list[pathlib.Path]:
     return sorted(TESTS.glob("test_*.py"))
 
 
+def _node_id(failed_line: str) -> str:
+    """Extract the node id from a pytest `FAILED <nodeid> - <error>` summary line.
+
+    R-F3809 — this was `line[len("FAILED "):].split(" ")[0]`, which truncates at the
+    FIRST SPACE. pytest's separator is `" - "`, and a parametrized id may contain
+    spaces, so any such test was recorded under a chopped name:
+
+        FAILED ...::test_x[M 5.0 - 38 km SSE of Spearman, Texas-PAGER ...]
+        recorded as                    ...::test_x[M
+
+    Two consequences, both seen in the 2026-08-08 diff. The chopped ids are lossy, so
+    distinct parametrize cases can collapse onto one another; and a baseline recorded
+    by this parser cannot be compared with a failure list produced any other way — the
+    same two rf3201 cases appeared as BOTH "new" and "gone" in one diff, which is the
+    signature of an id that does not survive a round trip.
+
+    NEITHER naive split works, and both were tried before this landed:
+      * `partition(" - ")` cuts at the FIRST " - ", which in the id above is inside
+        the parametrize label ("M 5.0 - 38 km ...") — it yields `test_x[M 5.0`.
+      * `rpartition(" - ")` cuts at the LAST one, which is the label's " - GREEN".
+      * `rfind("]")` is no better: an assertion message may itself end in "]"
+        ("assert [1] == [2]").
+
+    pytest's separator is a " - " that sits OUTSIDE the parametrize brackets, so that
+    is what this looks for: the first " - " at bracket depth zero. A line with no
+    error message keeps the whole id.
+    """
+    body = failed_line[len("FAILED "):].strip()
+    depth = 0
+    for i, ch in enumerate(body):
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth = max(0, depth - 1)
+        elif depth == 0 and body.startswith(" - ", i):
+            return body[:i].strip()
+    return body.strip()
+
+
 def _normalise(node_id: str, tests_dir: pathlib.Path) -> str:
     """`<path>::<test>` -> tests-dir-relative, forward slashes.
 
@@ -267,7 +306,7 @@ def _run_segment(files: list[pathlib.Path], timeout_s: int, tests_dir: pathlib.P
             failed = int(n)
         elif kind == "passed":
             passed = int(n)
-    failures = [_normalise(line[len("FAILED "):].split(" ")[0], tests_dir)
+    failures = [_normalise(_node_id(line), tests_dir)
                 for line in out.splitlines() if line.startswith("FAILED ")]
     # A hung segment is the wedge signature: no summary, a pytest-timeout dump.
     hung = "Timeout ++" in out or ("passed" not in out and "failed" not in out)
@@ -310,7 +349,7 @@ def _run_single_process(tests_dir: pathlib.Path, timeout_s: int) -> tuple[int, i
             failed = int(n)
         elif kind == "passed":
             passed = int(n)
-    failures = [_normalise(line[len("FAILED "):].split(" ")[0], tests_dir)
+    failures = [_normalise(_node_id(line), tests_dir)
                 for line in out.splitlines() if line.startswith("FAILED ")]
     # No summary at all means the process died (external kill / wedge), NOT a clean
     # run. Treating that as "0 failures" would publish a fabricated pass.

@@ -160,3 +160,32 @@ def test_the_recorder_persists_the_fingerprint(mod):
 
     src = function_source(mod, "main")
     assert '"environment": environment_fingerprint()' in src
+
+
+# ── R-F3809: node ids must survive a round trip ──────────────────────────────
+
+def test_a_parametrized_node_id_containing_spaces_is_not_truncated(mod):
+    """The id is the join key between two runs. Chop it and the same test reads as
+    both 'new' and 'gone' — which is exactly what the 2026-08-08 diff showed for the
+    two rf3201 cases."""
+    line = ("FAILED aria_service/tests/test_rf3201_authoritative_feed_value.py::"
+            "test_x[M 5.0 - 38 km SSE of Spearman, Texas-PAGER - GREEN] - "
+            "AssertionError: boom")
+    assert mod._node_id(line) == (
+        "aria_service/tests/test_rf3201_authoritative_feed_value.py::"
+        "test_x[M 5.0 - 38 km SSE of Spearman, Texas-PAGER - GREEN]"
+    ), "the id must keep every ' - ' that belongs to the parametrize label"
+
+
+def test_a_plain_failed_line_without_an_error_message_is_unchanged(mod):
+    assert mod._node_id("FAILED aria_service/tests/test_a.py::test_b") == \
+        "aria_service/tests/test_a.py::test_b"
+
+
+def test_the_error_message_is_always_dropped(mod):
+    assert mod._node_id("FAILED t.py::x - ValueError: nope") == "t.py::x"
+
+
+def test_an_error_message_ending_in_a_bracket_does_not_confuse_the_parse(mod):
+    """rfind(']') would have grabbed the assertion's bracket, not the id's."""
+    assert mod._node_id("FAILED t.py::x[a] - AssertionError: assert [1] == [2]") == "t.py::x[a]"
