@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3796,
+  "next_available": 3797,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31924,6 +31924,15 @@
       "r_number": "R-F3795",
       "title": "tests that need an absent optional dependency must SKIP with a reason, not FAIL as if the code broke",
       "claimed_at": "2026-08-09T07:07:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3796",
+      "title": "rf3371 reproduction fixtures fell out of a 400-commit search window; resolve by grep over all history",
+      "claimed_at": "2026-08-09T07:16:27Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

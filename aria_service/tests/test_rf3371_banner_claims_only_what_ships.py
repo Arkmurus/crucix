@@ -61,12 +61,26 @@ def _banner_r_numbers(commits: list[str]) -> list[str]:
     return sorted(out)
 
 
-def _find(pattern: str, limit: int = 400) -> str | None:
-    """Newest commit whose subject matches, within the recent history."""
-    for sha in _git("log", f"-{limit}", "--pretty=%H").splitlines():
-        if re.search(pattern, _git("log", "-1", "--pretty=%s", sha)):
-            return sha
-    return None
+def _find(pattern: str) -> str | None:
+    """Newest commit whose SUBJECT matches `pattern`, searched over ALL history.
+
+    R-F3796 — this used to walk only the newest 400 commits, so the three commits
+    these tests reproduce against silently fell out of the window as the repo grew.
+    Measured 2026-08-09: `fix: R-F3365` is 600 commits back. `_find` returned None,
+    and all three tests failed claiming "the commit must exist" — for commits that
+    do exist. A moving window that reports absence is the same defect class §1
+    records elsewhere: a lookup whose failure is indistinguishable from a real
+    negative. Raising the limit would only move the date it breaks again.
+
+    `--grep` also makes this ONE subprocess instead of 401 (the old loop shelled out
+    per commit to read each subject, which is why this file took ~55s).
+
+    `-E` for POSIX ERE, and `--no-merges` so a merge commit that quotes the subject
+    in its own message cannot shadow the real one.
+    """
+    sha = _git("log", "--all", "--no-merges", "-E", f"--grep={pattern}",
+               "--pretty=%H", "-1")
+    return sha or None
 
 
 def test_rf3371_a_cited_r_number_does_not_reach_the_banner():
