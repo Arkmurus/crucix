@@ -4462,6 +4462,17 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
+    # R-F2278 / R-F3816 — the duplicate-route audit. Runs HERE, not at import:
+    # the route table is complete by now (import-time it was 754 of 770 routes,
+    # missing /static, / and /download/*), and the loop and state store exist, so
+    # the R-F3792 brain signal can actually land. See the note at the
+    # include_router block for the measurements.
+    try:
+        from .route_audit import log_duplicate_routes as _log_dup_routes
+        _log_dup_routes(app)
+    except Exception:  # pragma: no cover - never let the audit break boot
+        logger.debug("[R-F3816] route audit failed to run", exc_info=True)
+
     yield
 
 
@@ -4787,11 +4798,24 @@ app.include_router(vetting_portal_router)   # R-F3180 (unauthenticated)
 # /dd/layer-5c/stats feature collision, the /ingest shadow). The CI test
 # (test_rf2278_no_duplicate_routes) is the hard gate; this boot log makes any
 # future slip-through visible in the fly logs instead of invisible.
-try:
-    from .route_audit import log_duplicate_routes as _log_dup_routes
-    _log_dup_routes(app)
-except Exception:  # pragma: no cover - never let the audit break boot
-    pass
+#
+# R-F3816 — the call MOVED into `lifespan` (see `_run_route_audit`). It used to run
+# here, at module-import time, which was wrong in two ways that only showed up when
+# it was live-verified:
+#
+#   1. IT AUDITED AN INCOMPLETE TABLE. Measured 2026-08-09: 754 routes here versus
+#      770 after import finishes. `/static`, `/`, and the `/download/*` handlers are
+#      registered BELOW this line, so ~16 routes were never audited at all — and a
+#      duplicate among them was exactly the class this guard exists to catch.
+#   2. ITS BRAIN SIGNAL WAS DROPPED. R-F3792 wired both branches to the brain, and
+#      /api/aria/brain/stats showed NO `route_audit` module after the deploy that
+#      shipped it — while `intel_ledger`, which wires the same way, was there. The
+#      signal is emitted before the state store is ready, so it goes nowhere. A
+#      wiring that emits into a store that cannot accept it is DARK by §21a, which
+#      is precisely what R-F3792 set out to fix.
+#
+# Running it from lifespan fixes both: the table is complete, and the loop and store
+# exist. Nothing is lost by the delay — this is a startup audit, not a request gate.
 
 # R-F1241: Serve static files (ARIA demo page) + public demo endpoint
 import os as _static_os

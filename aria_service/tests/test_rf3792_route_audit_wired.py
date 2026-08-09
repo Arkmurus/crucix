@@ -174,3 +174,63 @@ def test_wiring_never_propagates_an_exception_to_boot(monkeypatch):
 
     assert route_audit.log_duplicate_routes(_clean_app()) == {}
     assert route_audit.log_duplicate_routes(_duplicated_app()) != {}
+
+
+# ── 6. R-F3816: WHERE the audit runs decides whether its wiring reaches anyone ──
+
+def test_the_audit_is_not_invoked_at_module_import():
+    """R-F3816 — it used to run at import (main.py, just after include_router).
+
+    That was wrong twice over, and both only surfaced when the deploy was verified
+    live rather than assumed:
+      * it audited 754 of 770 routes, because /static, / and /download/* are
+        registered further down the module;
+      * its R-F3792 brain signal was emitted before the state store existed, so
+        /api/aria/brain/stats showed no `route_audit` module at all — a wiring that
+        emits into a store which cannot accept it is DARK by §21a, which is the very
+        condition R-F3792 was written to remove.
+
+    Pinned by source: an import-time call cannot be observed from inside a test that
+    has already imported the module.
+    """
+    import aria_service.main as _m
+
+    from ._source_probe import module_source
+
+    # module_source takes a module OBJECT or a path — not a dotted name.
+    src = module_source(_m)
+    head = src.split("async def lifespan", 1)[0]
+    assert "_log_dup_routes(app)" not in head, (
+        "the route audit is being invoked at module-import time again — it will "
+        "audit an incomplete table and its brain signal will be dropped"
+    )
+    assert "_log_dup_routes(app)" in src, "the audit must still run somewhere"
+
+
+def test_the_audit_runs_during_lifespan_over_the_complete_table():
+    """CAPABILITY: drive the real lifespan and assert the signal that reaches the
+    brain describes the WHOLE route table."""
+    import asyncio
+
+    from aria_service.intel import engine_wiring
+    from aria_service.main import app, lifespan
+    from aria_service.route_audit import iter_routes
+
+    seen: list[dict] = []
+    orig = engine_wiring.wire_success
+    engine_wiring.wire_success = lambda **kw: seen.append(kw)
+    try:
+        async def _go():
+            async with lifespan(app):
+                pass
+        asyncio.run(_go())
+    finally:
+        engine_wiring.wire_success = orig
+
+    audits = [kw for kw in seen if kw.get("module") == "route_audit"]
+    assert audits, "the route audit did not report to the brain during lifespan"
+    total = sum(1 for _ in iter_routes(app))
+    assert f"{total} routes" in audits[-1]["summary"], (
+        f"the audit must cover the COMPLETE table ({total} routes); "
+        f"got {audits[-1]['summary']!r}"
+    )

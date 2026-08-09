@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3815,
+  "next_available": 3817,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32095,6 +32095,24 @@
       "r_number": "R-F3814",
       "title": "operator amendment: authorise deploy of the live-defect cure PRs ahead of the Phase 2.3 smoke gate",
       "claimed_at": "2026-08-09T08:37:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3815",
+      "title": "pin gentler cumulative tooluse DPO cycle",
+      "claimed_at": "2026-08-09T09:11:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3816",
+      "title": "route audit runs at import before routes finish mounting and before the brain is reachable; move it into lifespan",
+      "claimed_at": "2026-08-09T09:24:30Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
