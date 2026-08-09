@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3810,
+  "next_available": 3811,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32050,6 +32050,15 @@
       "r_number": "R-F3809",
       "title": "baseline parser truncated parametrized node ids at the first space instead of pytest's ' - ' separator",
       "claimed_at": "2026-08-09T08:00:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3810",
+      "title": "record the operator ruling that R-F3688 reverses R-F3536 on open tenders",
+      "claimed_at": "2026-08-09T08:04:46Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

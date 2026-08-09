@@ -216,10 +216,30 @@ def test_the_corroboration_rule_reuses_the_constitutional_source_list():
 # ── Channel policy: procurement is a workflow item, not intelligence ─────────
 
 
-def test_the_intel_channel_no_longer_publishes_open_tenders():
+def test_the_intel_channel_publishes_open_tenders_again():
+    """R-F3810 — R-F3536's exclusion was REVERSED, by operator ruling 2026-08-09.
+
+    This test asserted `'active_tender' not in allowed` on R-F3536's editorial line:
+    an open tender is only that a buyer exists, which is a workflow item rather than
+    intelligence. R-F3688 (2026-08-04) then re-added it, reading the absence as
+    accidental drift from the Python taxonomy — the brain emits BOTH `active_tender`
+    and `contract_award`, and only the second was listed.
+
+    The two R-numbers genuinely contradicted each other and the test had been red
+    ever since. Put to the operator with both rationales; R-F3688 stands, on its
+    measured harm: the 07:00 slot held for four consecutive days reporting "no
+    Grade A" while twelve fresh signals existed.
+
+    So this now pins the CURRENT policy rather than the superseded one. Reversing it
+    again is an operator decision, not a code cleanup — do not "restore" R-F3536's
+    line because this docstring mentions it.
+    """
     hooks = (_REPO / "lib" / "telegram" / "channelServerHooks.mjs").read_text(encoding="utf-8")
     allowed = hooks.split("_GOLDEN_ALLOWED_TYPES = new Set([", 1)[1].split("]);", 1)[0]
-    assert "'active_tender'" not in allowed, "open tenders are still published as intelligence"
+    assert "'active_tender'" in allowed, (
+        "open tenders were dropped again — R-F3688 is the standing policy (operator "
+        "ruling 2026-08-09); reversing it needs a new operator decision, not a patch"
+    )
     for keep in ("'sanctions_change'", "'conflict_escalation'", "'competitor_activity'",
                  "'contract_award'", "'budget_movement'", "'programme_signal'"):
         assert keep in allowed, f"{keep} was dropped from the channel"
