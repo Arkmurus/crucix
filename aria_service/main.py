@@ -970,14 +970,22 @@ async def lifespan(app: FastAPI):
     try:
         import asyncio as _aio_boot
         from concurrent.futures import ThreadPoolExecutor as _TPE_boot
-        _pool_workers = max(2, int(os.getenv("ARIA_THREAD_POOL_WORKERS", "8") or 8))
+        # R-F3798 — `_os`, not `os`. main.py binds the module ONLY as `os as _os`
+        # (line 16), so both calls here raised NameError, the `except` below caught
+        # it, and R-F3715 has never once applied: the default executor stayed at
+        # Python's `min(32, cpu_count() + 4)` — sized from the HOST's cores on fly,
+        # which is the exact 32-worker thrash R-F3715 was written to prevent.
+        # Runtime-proven 2026-08-09 by driving lifespan():
+        #   "[R-F3715] could not bound the default executor: name 'os' is not defined"
+        # It read as a benign tuning-knob warning, which is why it survived.
+        _pool_workers = max(2, int(_os.getenv("ARIA_THREAD_POOL_WORKERS", "8") or 8))
         _aio_boot.get_running_loop().set_default_executor(
             _TPE_boot(max_workers=_pool_workers, thread_name_prefix="aria_default")
         )
         logger.info(
             "[R-F3715] default thread executor bounded at %d workers "
             "(os.cpu_count()=%s reports the HOST on fly, not this machine)",
-            _pool_workers, os.cpu_count(),
+            _pool_workers, _os.cpu_count(),
         )
     except Exception as _tpe_err:  # never block boot on a tuning knob
         logger.warning("[R-F3715] could not bound the default executor: %s", _tpe_err)
