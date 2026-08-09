@@ -4,14 +4,40 @@
 > `suite_baseline_2026_07_30.md`.** Both are retained only as the history section at
 > the bottom. There is ONE baseline; do not add a fourth file.
 
-## Current baseline — 2026-08-01 (re-measured), tool-recorded and provably clean
+## Current baseline — 2026-08-09, tool-recorded, provably clean, environment-stamped
 
 ```
 VALID=YES
-103 failed, 13,850 passed   (13,953 collected across 1,655 files)
-sha cd522878   tree 8d58541fc710a681 (identical before AND after)
+89 failed, 14,610 passed   (14,699 collected across 1,731 files)
+sha e68f0088   tree 8acea472e2979109 (identical before AND after)
+env  python 3.13.14 · 121 packages · 0871fe4d97709643 · fastapi 0.141.1
 recorded by:  python scripts/admin/suite_baseline.py --single-process --record
+measured on:  a git worktree at e68f0088 (see "quiet tree" below)
 ```
+
+**Set diff against 2026-08-01 (103 @ `cd522878`): 87 standing · 16 fixed · 2 new.**
+Both new entries pass standalone, so they are order-dependent rather than deterministic
+regressions; the cause is not established and is recorded as open in CLAUDE.md §16.
+
+**R-F3794 — this is the first baseline carrying an ENVIRONMENT fingerprint.** A failure
+set is a function of the code AND the installed packages, and only the first was ever
+recorded. The 2026-08-08 diff read as "36 new failures" when at least five were a
+FastAPI behaviour change and two were an id-parsing artefact. The compare path now
+prints a warning when the environment differs, or when a baseline predates
+fingerprinting at all.
+
+**R-F3818 — measure on a QUIET WORKTREE.** Two attempts in the main checkout failed,
+for two different reasons, and the tool caught both rather than a human noticing:
+
+| attempt | result | why |
+|---|---|---|
+| 1 | `VALID=YES`, **refused to record** | two tracked files had uncommitted changes, so the `commit` label would have named a sha that did not contain what ran |
+| 2 | `VALID=NO` | the peer agent rewrote those same files mid-run |
+| 3 | `VALID=YES`, recorded | run in `git worktree add /c/aria_m e68f0088`, which the peer cannot reach |
+
+Confirm the worktree is equivalent before trusting it — a data-dependent subset gave
+an identical 1-failed / 118-passed in both checkouts. Copy the recorded JSON back into
+the main checkout to commit it.
 
 **Command** (single process, no env overrides, network guard ON):
 
