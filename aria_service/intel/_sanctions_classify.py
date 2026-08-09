@@ -540,6 +540,18 @@ _CORP_SUFFIXES: set[str] = {
     "ltd", "limited", "plc", "llp", "lp", "pty",
     # US
     "llc", "inc", "corp", "corporation", "company", "co", "lllp",
+    # R-F3806 — "incorporated" was MISSING while "inc" was present, and every other
+    # long form here ("corporation", "limited", "company", "partnership") has its
+    # short form alongside it, so this was an oversight rather than a decision.
+    #
+    # It is not cosmetic: at twelve characters it clears the ">=5 chars" bar in the
+    # single-shared-token rules (usaspending._recipient_confirms:49, and the same
+    # shape in _name_overlap), so two unrelated "<X> INCORPORATED" entities shared a
+    # token strong enough to confirm each other on a purely grammatical word. That is
+    # the BATSELA CAPITAL failure mode described below, in a word nobody listed.
+    # Dropping it cannot lose identity signal — a legal form carries none — and an
+    # exact-name hit still takes the R-F569 bypass before overlap is consulted.
+    "incorporated",
     # French / Belgian / Lux
     "sa", "sarl", "sas", "scs", "scrl", "sprl", "eurl",
     # Spanish / Portuguese / LatAm

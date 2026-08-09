@@ -38,6 +38,11 @@ import pytest
 
 from aria_service.intel import coding_rag_indexer as cri
 
+# R-F3795 — these two monkeypatch chromadb.PersistentClient to prove no SECOND
+# client is built, so they need chromadb importable. Absent here (no win-arm64
+# wheel, §16); present in the Linux image. ENVIRONMENT, not a code defect.
+from ._env_probe import requires_module
+
 
 def test_capability_it_returns_the_shared_client(monkeypatch):
     sentinel = object()
@@ -46,6 +51,7 @@ def test_capability_it_returns_the_shared_client(monkeypatch):
     assert cri._get_chromadb_client() is sentinel
 
 
+@requires_module("chromadb")
 def test_capability_no_client_means_DEGRADED_not_a_second_client(monkeypatch):
     """THE DEFECT. rag_store declining to give a client is a REASON not to build one."""
     monkeypatch.setattr("aria_service.intel.rag_store._get_client", lambda: None)
@@ -65,6 +71,7 @@ def test_capability_no_client_means_DEGRADED_not_a_second_client(monkeypatch):
         "same-path use-after-free that crash-looped production")
 
 
+@requires_module("chromadb")
 def test_capability_an_exception_from_rag_store_also_degrades(monkeypatch):
     def _raise():
         raise RuntimeError("store unavailable")

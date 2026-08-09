@@ -50,12 +50,23 @@ def test_deep_dd_dedup_still_rejects_same_key(monkeypatch):
     saved = set(aria._DD_DEEP_BG_INFLIGHT)
     try:
         aria._DD_DEEP_BG_INFLIGHT.clear()
-        # canonical id of "DupCo" for userP — compute the same way the fn does
-        try:
-            from aria_service.intel.dd_versioning import canonical_entity_id as _canon
-            ent = _canon("DupCo")
-        except Exception:
-            ent = "dupco"
+        # Canonical id of "DupCo" for userP — computed the same way the function
+        # does, which is the whole point of the fixture.
+        #
+        # R-F3807 — this called `_canon("DupCo")` POSITIONALLY inside a bare
+        # `except Exception: ent = "dupco"`. `canonical_entity_id` is KEYWORD-ONLY,
+        # so the call raised TypeError, the except swallowed it, and the test keyed
+        # on the lowercased raw string — reproducing precisely the defect R-F3648
+        # fixed in production (aria.py:8745-8761), where the same swallowed TypeError
+        # downgraded the de-dup key so two spellings of one entity could stack
+        # concurrent 840s deep-DD jobs. The test therefore asserted against the OLD
+        # key while production used the new one: no match, no de-dup, and the call
+        # fell through to `asyncio.create_task` outside a loop.
+        #
+        # No fallback: if the key cannot be computed the fixture is invalid and must
+        # fail loudly rather than quietly test the wrong thing.
+        from aria_service.intel.dd_versioning import canonical_entity_id as _canon
+        ent = _canon(entity_type="company", name="DupCo") or "dupco"
         aria._DD_DEEP_BG_INFLIGHT.add((ent, "userP"))
         launched = aria._launch_deep_dd_bg(
             {"name": "DupCo"}, llm=None, user_id="userP", user_email=None)

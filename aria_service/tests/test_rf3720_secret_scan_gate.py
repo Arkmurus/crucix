@@ -35,7 +35,11 @@ SCANNER = repo_path("scripts/admin/secret_scan.py")
 def _run(cwd: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(SCANNER), *args],
-        cwd=str(cwd), capture_output=True, text=True, timeout=300,
+        # R-F3805 — 90s, not 300: it must stay BELOW the 120s per-test budget so
+        # this bound trips FIRST and yields one named failure, instead of
+        # pytest-timeout killing the process with no summary (R-F3459).
+        # Measured 2026-08-09: all 8 tests in this file run in ~28s total.
+        cwd=str(cwd), capture_output=True, text=True, timeout=90,
     )
 
 

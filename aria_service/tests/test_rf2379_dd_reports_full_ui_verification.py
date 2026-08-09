@@ -601,7 +601,17 @@ def test_dd_case_endpoint_returns_valid_shape(app, monkeypatch):
     from fastapi.testclient import TestClient
 
     with TestClient(app) as c:
-        resp = c.get("/api/aria/dd/case/company_GB_TEST")
+        # R-F3801 — request AS THE OWNER. This used to call the endpoint with no
+        # user_id at all and relied on the unscoped bypass, which R-F3628 closed:
+        # `_dd_owned_entity_ids` now returns an empty set for an unscoped caller that
+        # is not the internal service token, so the R-F2097 ownership gate 404s
+        # (aria.py:1725) with "no DD case file found" — a deliberate no-leak message
+        # that reads like a missing fixture rather than an auth decision.
+        #
+        # `test-user` is the owner `_fake_list_reports` already reports for
+        # `company_GB_TEST`, so this drives the REAL ownership path end to end
+        # instead of depending on a bypass that no longer exists.
+        resp = c.get("/api/aria/dd/case/company_GB_TEST?user_id=test-user")
         assert resp.status_code == 200, f"dd/case returned {resp.status_code}: {resp.text[:200]}"
         data = resp.json()
         assert isinstance(data, dict), f"Expected dict, got {type(data)}"

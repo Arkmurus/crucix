@@ -51,7 +51,29 @@ def test_access_helper_matrix():
     assert f({**R, "share_to_company": False}, "colleague_b", "arkmurus.com") is False  # opted out
     assert f(R, "colleague_b", "evil.com") is False           # different company
     assert f(R, "colleague_b", "") is False                   # no domain → blocked
-    assert f(R, "", "") is True                               # admin / unscoped
+
+    # R-F3800 — the unscoped admin path must be DECLARED, not inherited.
+    #
+    # This line read `assert f(R, "", "") is True` with no context set. It passed
+    # only because `_auth_is_internal_var` used to default True, and R-F3628
+    # deliberately flipped that default to False (fail-closed) precisely because
+    # "True GRANTS to any context where the setter never ran". R-F3628's own comment
+    # names the tests that would go red and says to fix them by setting the var
+    # explicitly; rf1820 and rf2097 were done, this one was missed.
+    #
+    # Restoring the permissive default to make this green would reopen the
+    # cross-tenant hole R-F2778/R-F3709 closed — an external API-token caller with no
+    # user_id would regain read/delete on any report by id. So the TEST declares the
+    # internal tier it is asserting about, and the token-less case is pinned below.
+    routes._auth_is_internal_var.set(True)
+    assert f(R, "", "") is True                               # internal / unscoped
+
+    routes._auth_is_internal_var.set(False)
+    assert f(R, "", "") is False, (
+        "an unscoped caller that is NOT the internal service token must be scoped to "
+        "nothing (R-F2778) — this is the half that must never be relaxed"
+    )
+    routes._auth_is_internal_var.set(True)
     # R-F2402 — owner-less report now FAILS CLOSED for an arbitrary scoped user
     # (was fail-open `return True` = a GDPR cross-tenant leak). Admin (user_id='')
     # still bypasses above; only the configured legacy operator may read owner-less

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3795,
+  "next_available": 3814,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -31915,6 +31915,177 @@
       "r_number": "R-F3794",
       "title": "record interpreter + pip-freeze fingerprint in the 16 suite baseline",
       "claimed_at": "2026-08-08T23:32:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3795",
+      "title": "tests that need an absent optional dependency must SKIP with a reason, not FAIL as if the code broke",
+      "claimed_at": "2026-08-09T07:07:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3796",
+      "title": "rf3371 reproduction fixtures fell out of a 400-commit search window; resolve by grep over all history",
+      "claimed_at": "2026-08-09T07:16:27Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3797",
+      "title": "rf1958 guard counted only imports as available, so a locally-defined check read as a NameError",
+      "claimed_at": "2026-08-09T07:22:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3798",
+      "title": "R-F3715 thread-pool bound never applied: bare os in main.py NameError'd into a warning",
+      "claimed_at": "2026-08-09T07:24:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3799",
+      "title": "orphan baseline pinned a module that has never existed in the repo",
+      "claimed_at": "2026-08-09T07:25:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3800",
+      "title": "rf2291 ACL matrix inherited the pre-R-F3628 permissive internal default",
+      "claimed_at": "2026-08-09T07:29:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3801",
+      "title": "sweep: every test driving an unscoped DD path without declaring the internal tier (R-F3628 fallout)",
+      "claimed_at": "2026-08-09T07:31:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3802",
+      "title": "adverse-media relevance gate borrowed the recall-tuned sanctions tokenizer and lost its precision",
+      "claimed_at": "2026-08-09T07:36:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3803",
+      "title": "select exact adapter for train generation",
+      "claimed_at": "2026-08-09T07:41:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3804",
+      "title": "rf3481 pinned schema 1.2.0 through R-F3633's deliberate 1.3.0 bump; fixture used a value the product never emits",
+      "claimed_at": "2026-08-09T07:42:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3805",
+      "title": "timeout inversion in the secret-scan and wiring-gate tests: inner bound above the per-test budget",
+      "claimed_at": "2026-08-09T07:45:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3806",
+      "title": "corp-suffix list has inc but not incorporated, creating a 12-char false-match token",
+      "claimed_at": "2026-08-09T07:48:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3807",
+      "title": "rf1915 dedup test computed its key with the positional call R-F3648 fixed, so it tested the old defect",
+      "claimed_at": "2026-08-09T07:53:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3808",
+      "title": "rf1231 vault test uniquified site_id but not site_url, so it always hit the duplicate path",
+      "claimed_at": "2026-08-09T07:55:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3809",
+      "title": "baseline parser truncated parametrized node ids at the first space instead of pytest's ' - ' separator",
+      "claimed_at": "2026-08-09T08:00:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3810",
+      "title": "record the operator ruling that R-F3688 reverses R-F3536 on open tenders",
+      "claimed_at": "2026-08-09T08:04:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3811",
+      "title": "rf887 asserted source text of a function whose wiring was extracted to a helper; assert the capability instead",
+      "claimed_at": "2026-08-09T08:10:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3812",
+      "title": "rf3201 asserted pre-R-F3536 grades for ambient natural-hazard signals",
+      "claimed_at": "2026-08-09T08:17:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3813",
+      "title": "record the 36-failure baseline triage taxonomy in the cure defect register",
+      "claimed_at": "2026-08-09T08:30:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

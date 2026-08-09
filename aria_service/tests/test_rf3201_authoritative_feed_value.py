@@ -114,38 +114,47 @@ def test_rf3201_hurricane_agency_name_does_not_invent_an_active_storm() -> None:
 
 
 @pytest.mark.parametrize(
-    ("title", "summary", "expected_entity"),
+    ("title", "summary", "expected_entity", "expected_grade"),
     [
+        # A named PRODUCT is a portfolio nexus -> decision-grade.
         (
             "2026-009: Critical Vulnerabilities in Microsoft SharePoint",
             "",
             "Microsoft SharePoint",
+            "A",
         ),
         (
             "2026-004: Critical Vulnerability in SharePoint Exploited",
             "",
             "SharePoint",
+            "A",
         ),
         (
             "Critical Vulnerability in Cisco Secure Email and Web Manager "
             "On December 17",
             "",
             "Cisco Secure Email and Web Manager",
+            "A",
         ),
         (
             "Critical Vulnerability in Windows Netlogon On 12 May 2026",
             "",
             "Windows Netlogon",
+            "A",
         ),
+        # R-F3812 — AMBIENT: the entity is extracted, but an event in a country is
+        # not a portfolio nexus, so R-F3536 grades it B. See the note in the body.
         (
             "Hurricane Genevieve Public Advisory Number 10",
             "The hurricane is southwest of Mexico.",
             "Hurricane Genevieve",
+            "B",
         ),
         (
             "M 5.0 - 38 km SSE of Spearman, Texas",
             "PAGER - GREEN; ShakeMap - VI",
             "Earthquake near 38 km SSE of Spearman, Texas",
+            "B",
         ),
     ],
 )
@@ -153,6 +162,7 @@ def test_rf3201_official_sector_entities_earn_customer_grade(
     title: str,
     summary: str,
     expected_entity: str,
+    expected_grade: str,
 ) -> None:
     """Real affected assets/events must satisfy the Grade A entity evidence gate."""
     signal = nm._build_intel_signal({
@@ -168,9 +178,26 @@ def test_rf3201_official_sector_entities_earn_customer_grade(
     entities = (signal["entities"].get("products") or []) + (
         signal["entities"].get("events") or []
     )
+    # R-F3201's actual subject — the affected asset/event must be EXTRACTED.
     assert expected_entity in entities
-    assert signal["intel_grade"] == "A"
     assert signal["target"] in {expected_entity, "Mexico"}
+
+    # R-F3812 — the grade was asserted as "A" for ALL six fixtures, which encoded the
+    # pre-R-F3536 policy and had been red on the two ambient ones.
+    #
+    # R-F3536 introduced `_AMBIENT_SIGNAL_TYPES` ({"natural_hazard",
+    # "political_transition"}): types that describe the WORLD rather than a
+    # counterparty are "official and true, but not a decision on their own". The
+    # hurricane and earthquake fixtures populate `countries` and `events` but no
+    # `oems`/`products`/`facilities`, so `_has_specific_nexus` is False and they grade
+    # B. The four CVE fixtures name a PRODUCT, which IS a portfolio nexus, so they
+    # still earn A — the demotion is conditional, not a blanket rule about hazards.
+    #
+    # The expectation is therefore per-fixture rather than one blanket assertion; a
+    # single value here is what let the superseded policy hide in four passing cases.
+    assert signal["intel_grade"] == expected_grade
+    if expected_grade == "B":
+        assert "no portfolio nexus" in signal["grade_reason"]
 
 
 def test_rf3201_ncsc_reports_are_not_mislabeled_as_live_early_warning() -> None:
@@ -254,3 +281,26 @@ async def test_rf3201_classifier_replay_promotes_once_and_records_completion() -
         finally:
             _na._reset_for_tests()
             _na._DB_PATH = _orig_db
+
+
+def test_rf3812_the_ambient_demotion_is_conditional_on_a_portfolio_nexus() -> None:
+    """R-F3812 — the other half of R-F3536's rule, so the demotion above cannot be
+    mistaken for "natural hazards can never be Grade A".
+
+    An ambient signal is demoted only while nothing in the customer's portfolio is
+    named. Add an OEM and the SAME signal type earns A. Without this, a future change
+    that demoted every natural_hazard unconditionally would still pass.
+    """
+    kw = dict(source_tier="tier_1a", signal_type="natural_hazard", priority="HIGH",
+              evidence_count=2, url="https://example.gov/evidence")
+
+    grade, reason = nm._compute_intel_grade(
+        **kw, entities={"countries": ["Mexico"], "events": ["Hurricane X"]})
+    assert grade == "B" and "no portfolio nexus" in reason
+
+    grade, reason = nm._compute_intel_grade(
+        **kw, entities={"countries": ["Mexico"], "oems": ["Airbus"]})
+    assert grade == "A", (
+        "an ambient signal that names a portfolio asset IS decision-grade — "
+        f"got {grade}: {reason}"
+    )

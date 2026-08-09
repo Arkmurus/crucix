@@ -65,7 +65,12 @@ def test_verdicts_are_from_the_known_vocabulary():
 
 def test_the_repo_passes_its_own_wiring_gate():
     r = subprocess.run([sys.executable, str(AUDIT)], cwd=str(repo_path(".")),
-                       capture_output=True, text=True, timeout=600)
+                       capture_output=True, text=True,
+                       # R-F3805 — 90s, not 600: must stay BELOW the 120s per-test
+                       # budget so this bound trips FIRST and names the failure,
+                       # rather than pytest-timeout killing the process silently
+                       # (R-F3459). Measured 2026-08-09: all 6 tests here run in ~22s.
+                       timeout=90)
     assert r.returncode == 0, (
         f"the tree does not pass the wiring audit, so CI is red on arrival:\n{r.stdout}"
     )
@@ -90,7 +95,7 @@ def test_a_new_dark_module_fails_the_gate(tmp_path):
     )
     try:
         r = subprocess.run([sys.executable, str(AUDIT)], cwd=str(repo_path(".")),
-                           capture_output=True, text=True, timeout=600)
+                           capture_output=True, text=True, timeout=90)
         assert r.returncode == 1, f"a NEW dark module must FAIL the gate\n{r.stdout}"
         assert "_rf3728_probe.py" in r.stdout
         # and it must be named by PATH, so it can actually be found and fixed
@@ -107,7 +112,7 @@ def test_an_unreadable_ledger_fails_closed(tmp_path, monkeypatch):
     BASELINE.write_text("{ not json", encoding="utf-8")
     try:
         r = subprocess.run([sys.executable, str(AUDIT)], cwd=str(repo_path(".")),
-                           capture_output=True, text=True, timeout=600)
+                           capture_output=True, text=True, timeout=90)
         assert r.returncode == 2, (
             f"a corrupt ledger must exit 2 (cannot run), never 0 (clean)\n"
             f"{r.stdout}{r.stderr}"

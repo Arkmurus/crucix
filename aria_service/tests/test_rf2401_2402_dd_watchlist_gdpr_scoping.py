@@ -217,7 +217,18 @@ def test_ownerless_report_failclosed_for_stranger(monkeypatch):
     monkeypatch.delenv("ARIA_CODER_OPERATOR_USER_ID", raising=False)
     f = routes._dd_report_access_allowed
     assert f({"run_id": "x"}, "stranger", "evil.com") is False
-    assert f({"run_id": "x"}, "", "") is True  # admin bypass unchanged
+
+    # R-F3800 — declare the internal tier rather than inheriting it. R-F3628 flipped
+    # `_AUTH_INTERNAL_DEFAULT` to False (fail-closed), so an undeclared context is now
+    # denied; this line passed only on the old permissive default.
+    routes._auth_is_internal_var.set(True)
+    assert f({"run_id": "x"}, "", "") is True  # internal bypass unchanged
+
+    # And the half that must never be relaxed: unscoped WITHOUT the internal service
+    # token stays closed, even on an owner-less report (R-F2778 + R-F2402 together).
+    routes._auth_is_internal_var.set(False)
+    assert f({"run_id": "x"}, "", "") is False
+    routes._auth_is_internal_var.set(True)
 
 
 def test_ownerless_report_allowed_for_legacy_operator(monkeypatch):

@@ -1406,9 +1406,16 @@ def _dd_report_access_allowed(report: dict, user_id: str, user_email_domain: str
         # no user_id must NOT read/delete an arbitrary report by id. Only the INTERNAL
         # service token (WA/web/CLI/autonomous) keeps the unrestricted admin path. This
         # mirrors _dd_owned_entity_ids; without it, the by-id GET/DELETE fell open for
-        # external tokens even after the list view was scoped. _auth_is_internal_var
-        # defaults True for auth-bypass callers (tests / public-bypass), so their
-        # behaviour is unchanged.
+        # external tokens even after the list view was scoped.
+        #
+        # R-F3800 — the rest of this note used to read "_auth_is_internal_var defaults
+        # True for auth-bypass callers (tests / public-bypass), so their behaviour is
+        # unchanged". That is NO LONGER TRUE and was the most dangerous sentence here:
+        # R-F3628 flipped `_AUTH_INTERNAL_DEFAULT` to False precisely because a True
+        # default GRANTS to any context where the setter never ran. A caller that does
+        # not declare the internal tier is now DENIED, which is the point. Do not
+        # "restore" the old default to make an inheriting test green — that reopens the
+        # cross-tenant by-id read/delete for every external token.
         if not _auth_is_internal_var.get():
             return False
         # R-F3709 — an unscoped DESTRUCTIVE call needs the OPERATOR tier.

@@ -30,6 +30,14 @@ import asyncio
 
 import pytest
 
+# R-F3805 — this one case reaches the semantic-similarity branch, and the
+# TF-IDF fallback used when sentence-transformers is absent scores this pair
+# 0.179 against a 0.45 threshold. With the real embedder it is ~0.572 (the
+# figure detect_pr_echo's own docstring records), so the verdict flips on the
+# EMBEDDER, not on the code under test. ENVIRONMENT gap (§16: no win-arm64
+# wheel); it runs in the Linux image.
+from ._env_probe import requires_module
+
 from aria_service.intel.dd_independent_verifier import (
     detect_pr_echo,
     has_own_reporting,
@@ -77,6 +85,7 @@ def test_the_fixtures_are_the_hard_case_not_a_strawman():
         assert has_pr_marker(t) is True
 
 
+@requires_module("sentence_transformers")
 def test_pr_marked_pair_with_no_own_reporting_is_an_echo():
     """CAPABILITY: the last C-3 false positive, closed."""
     is_echo, reason = asyncio.run(detect_pr_echo(_ECHO_A, _ECHO_B))

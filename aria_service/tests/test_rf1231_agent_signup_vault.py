@@ -373,15 +373,28 @@ class TestVaultAPI:
 
     def test_vault_record_and_get_endpoint(self, client):
         """POST /api/aria/vault then GET /api/aria/vault/{id} should work."""
-        # R-F1477: use unique site_id per test run to avoid test isolation issues
+        # R-F1477: use unique site_id per test run to avoid test isolation issues.
+        #
+        # R-F3808 — the URL must be unique too, and that is the whole failure. The
+        # vault's duplicate check matches on site_id OR site_url
+        # (`_find_vault_source_duplicate`, aria.py:29562), and this test posted a
+        # CONSTANT "https://api-test.gov". So from its second run onward it always hit
+        # the duplicate branch, which correctly returns `success: True` with the
+        # PRE-EXISTING entry — carrying an older run's site_id. Observed 2026-08-09:
+        # expected api_test_site_1786261394, got api_test_site_1785780841 (a run from
+        # 2026-08-03 still persisted in the vault on disk).
+        #
+        # The endpoint is behaving correctly; refusing to re-register a source URL is
+        # the point. Only the fixture's isolation was half-done.
         import time
-        unique_id = f"api_test_site_{int(time.time())}"
+        _stamp = int(time.time())
+        unique_id = f"api_test_site_{_stamp}"
         response = client.post(
             "/api/aria/vault",
             json={
                 "site_id": unique_id,
                 "site_name": "API Test Site",
-                "site_url": "https://api-test.gov",
+                "site_url": f"https://api-test-{_stamp}.gov",
                 "agent_id": "test_agent",
                 "status": "pending",
             },
