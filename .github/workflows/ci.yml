@@ -14,6 +14,15 @@ on:
       - '**/*.md'
   pull_request:
     branches: [main]
+  # R-F3826 — lets the suite-baseline-gate job RECORD its CI-environment baseline
+  # on demand. Without this there is no way to create docs/suite_baseline.ci.json,
+  # and the gate would sit permanently in its "no baseline yet" no-op state.
+  workflow_dispatch:
+    inputs:
+      record_baseline:
+        description: "Record docs/suite_baseline.ci.json instead of gating on it"
+        type: boolean
+        default: false
 
 jobs:
   test:
@@ -93,6 +102,67 @@ jobs:
         run: |
           echo "Checking syntax of all Python files..."
           python scripts/ci/syntax_check.py
+
+  # ── R-F3826 — the REAL §16 suite gate (R-F3373), finally runnable in CI ──────
+  #
+  # The advisory step above cannot pass honestly: that job installs pytest+httpx
+  # only, so 42 test files fail at import on `from fastapi import ...`. This job
+  # installs the runtime manifest and runs the gate that actually means something —
+  # `scripts/admin/suite_baseline.py`, which fails ONLY on failures NEW since the
+  # recorded baseline, not on the standing set.
+  #
+  # THREE THINGS THAT HAD TO BE TRUE FIRST, each of which was measured:
+  #
+  # 1. A SEPARATE JOB. The `test` job caps at timeout-minutes: 25 (R-F3556, so a
+  #    hang frees the runner). A single-process §16 run was measured at ~40 minutes,
+  #    so it cannot live there without either timing out or weakening that cap for
+  #    the fast checks too.
+  # 2. A REDUCED DEP SET. requirements-ci.txt is requirements.txt minus five heavy,
+  #    import-guarded packages (torch arrives via sentence-transformers; chromadb
+  #    ships a native core). Verified: ZERO tests import any of the five at module
+  #    level, and R-F3795 makes the tests that need them SKIP with a stated reason.
+  # 3. ITS OWN BASELINE. docs/suite_baseline.json is stamped `win32 / ARM64`
+  #    (R-F3794). CI is linux/x86_64. Gating CI against a laptop baseline would
+  #    report every platform difference as a regression — the precise false alarm
+  #    the advisory step's comment warns about. So this compares against
+  #    docs/suite_baseline.ci.json, recorded IN this environment.
+  #
+  # BOOTSTRAP, and why adding this job cannot break main: until that CI baseline
+  # exists the tool prints "no baseline … run with --record first" and exits 0. Run
+  # this workflow via workflow_dispatch with record_baseline=true ONCE to create it,
+  # commit the file, and the gate becomes real from the next run.
+  suite-baseline-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install runtime deps (minus the five heavy, import-guarded ones)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r aria_service/requirements-ci.txt
+          pip install -r requirements-dev.txt
+
+      - name: Suite baseline gate (fails only on NEW failures)
+        run: |
+          python scripts/admin/suite_baseline.py \
+            --single-process \
+            --timeout 600 \
+            --baseline docs/suite_baseline.ci.json \
+            ${{ github.event.inputs.record_baseline == 'true' && '--record' || '' }}
+
+      - name: Upload the recorded baseline (dispatch + record only)
+        if: ${{ github.event.inputs.record_baseline == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: suite-baseline-ci
+          path: docs/suite_baseline.ci.json
 
   # R-F1794 (2026-06-23) — aria-web supply-chain + Node-test gate (audit #13/#1).
   # The Node tier was entirely outside CI: no npm audit, and 77 test/*.test.mjs

@@ -1,0 +1,154 @@
+# aria_service/requirements-ci.txt — R-F3826
+#
+# The runtime manifest MINUS five heavy, import-guarded packages, for the CI suite
+# gate. NOT a second source of truth: it is derived from requirements.txt line for
+# line, with exactly five entries commented out and everything else — including all
+# 93 explanatory comments — left untouched.
+#
+# WHY OMIT THEM. They are the expensive install (torch arrives via
+# sentence-transformers; chromadb ships a native core), and R-F3795 already makes
+# every test that needs them SKIP with a stated reason rather than fail. Verified
+# before writing this: ZERO tests import any of the five at module level, so their
+# absence cannot error at collection.
+#
+# WHY NOT JUST USE requirements.txt. Because CI would then spend minutes installing
+# torch to run tests that skip. If a future test needs one of these, restore the line
+# here — do not "fix" a skip by deleting the guard.
+# ARIA Python Service — Dependencies
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+# R-F709 (2026-05-19) — required by FastAPI when an endpoint declares
+# `UploadFile`/`File`/`Form`. /extract-document needs it for the
+# aria.html "📎 Attach" chat composer upload. Without it, FastAPI
+# refuses to start any endpoint declaring multipart fields — pure-Python
+# wheel (~30 KB), no native deps.
+python-multipart==0.0.32
+httpx==0.28.1
+redis==8.1.0
+tenacity==9.1.4
+pydantic==2.13.4
+# R-F3155 — already present transitively (verifiable_ledger.py imports it at
+# module scope), now DECLARED because vetting crypto-shredding depends on it
+# for Art. 17 erasure. An erasure mechanism must not rest on a package nobody
+# declared: a transitive dep can vanish in a routine upgrade, and this one
+# failing would either stop uploads or store plaintext.
+cryptography==50.0.0
+pydantic-settings==2.14.2
+python-dotenv==1.2.2
+# R-F3826 (CI): omitted — sentence-transformers==5.6.1
+numpy==2.5.1
+# R-F3826 (CI): omitted — PyMuPDF==1.28.0
+# R-F715 (2026-05-19) — primary PDF text extractor (Strategy 1 in
+# document_reader.py). PyMuPDF/fitz handles OCR + vision strategies,
+# but the fast text-extraction path uses pdfplumber. Without it, every
+# PDF upload (e.g. /extract-document from aria.html attach) falls
+# straight to slow OCR or fails outright — the "Failed to process
+# <pdf>: 502" UX symptom traces to this gap.
+pdfplumber==0.11.10
+openpyxl==3.1.5
+xlrd==2.0.2  # legacy .xls (BIFF) fallback; openpyxl only reads .xlsx/.xlsm
+
+# R-F1757 — python-docx for .docx extraction (fallback when direct XML parse
+# fails on complex documents with tracked changes, content controls, etc.).
+# Without this, the document_reader._read_docx fallback path hits ImportError
+# and returns gap_description="python-docx not installed".
+python-docx==1.2.0
+
+# R-F242 (2026-05-11) — PowerPoint extraction for defence-DD briefings.
+# Vendor decks + MoD capability summaries arrive as .pptx routinely;
+# python-pptx walks slides + text frames + tables + speaker notes. R-F243
+# (.eml) uses stdlib `email` — no extra dependency.
+python-pptx==1.0.2
+PyYAML==6.0.3  # corpus_registry.yaml loader
+
+# ── R-F235 (2026-05-11) + R-F745 (2026-05-20) — SQLite state backend ────
+# Replaces Upstash Redis on single-instance fly.io. state_store.py uses
+# aiosqlite for the async API surface. ARIA_STATE_BACKEND env var picks
+# 'sqlite' (default since R-F745), 'upstash' (legacy, subscription cancelled
+# 2026-05-12), or 'memory' (tests/break-glass).
+# See docs/dependency_minimisation_2026_05_11.md.
+aiosqlite==0.22.1
+
+# ── HTML structured extraction (Track C, 2026-04-18) ─────────────────────
+# BeautifulSoup + lxml back the new extractors/structured.py module which
+# replaces per-page LLM extraction with pure-Python parsing of tables,
+# JSON-LD, microdata, OpenGraph, schema.org. Zero LLM cost on crawl.
+# lxml is the fast C parser; bs4 falls back to stdlib html.parser if it's
+# missing, but lxml is ~10x faster on large pages.
+beautifulsoup4==4.15.0
+lxml==6.1.1
+# R-F2370 — hardened XML parsing for RSS/sanctions/source-ingest paths.
+# These parse untrusted remote XML; stdlib ElementTree is vulnerable to
+# entity-expansion attacks. defusedxml is pure-Python and mandatory here.
+defusedxml==0.7.1
+# R-F3551 — orjson is a HARD top-level import (neural_memory.py:31) that was
+# never declared. It survives in the image only because chromadb depends on it
+# (`pip show orjson` -> Required-by: chromadb, live 2026-07-31). The comment on
+# that import reads "in image; verified live" — which is the whole problem: it
+# was verified PRESENT rather than declared REQUIRED. If chromadb ever drops it
+# or is swapped out, neural_memory fails at import and takes the brain's boot
+# with it. Declared here so it is our dependency, not someone else's side effect.
+orjson==3.11.9
+# R-F2204 — clean main-content extraction (readability-grade) for modern div-based sites;
+# wraps the regex extractor in researcher._extract_structured_html (best-effort, import-guarded).
+trafilatura==2.2.0
+
+# ── RAG store (chromadb persistent vector database, fully local) ──────────
+# Persistent retrieval-augmented generation backbone. Stores chunked
+# documents + facts in a local file-backed vector database. No vendor,
+# no network calls, no Pinecone bill. Data lives at /data/aria_rag if a
+# fly.io volume is mounted there, else /tmp/aria_rag (non-persistent).
+# R-F3826 (CI): omitted — chromadb==1.5.9
+
+# ── Local-first image OCR (no external LLM required) ──────────────────────
+# These give ARIA independent vision capability — she can read invoices,
+# screenshots, contracts, product specs from WhatsApp without needing
+# Anthropic / OpenAI / Gemini. Pin one or both:
+#
+#   pytesseract requires the Tesseract binary on the host:
+#     - Windows:  https://github.com/UB-Mannheim/tesseract/wiki
+#     - macOS:    brew install tesseract tesseract-lang
+#     - Debian:   apt install tesseract-ocr tesseract-ocr-por tesseract-ocr-fra
+#
+#   easyocr was removed (incident 2026-04-08): cold-loading the 200MB ONNX
+#   model on a 2GB fly.io machine OOM-killed the worker on every first image,
+#   returning 502. Tesseract handles ~95% of WhatsApp screenshots with ~30MB
+#   resident and is now the only local backend.
+pytesseract==0.3.13
+Pillow==12.3.0
+
+# R-F1858 — OpenCV for image preprocessing before OCR (adaptive thresholding,
+# denoising, deskewing, morphological ops). Significantly improves Tesseract
+# accuracy on photos of documents (WhatsApp snaps of contracts, invoices,
+# tenders). The Dockerfile already has the system deps (libgl1, libglib2.0-0,
+# libsm6, libxext6, libxrender1) so this installs cleanly.
+# R-F3826 (CI): omitted — opencv-python==5.0.0.93
+
+# ── Anthropic SDK for active_challenge_engine, claim_ledger, ground_truth ──
+# These three modules use the Claude API directly (not through ARIA's own
+# LLM provider abstraction) to keep their logic self-contained. The SDK is
+# also imported defensively — modules load without it (import guarded) but
+# their LLM-powered methods return empty results if it is missing.
+anthropic==0.120.2
+
+# ── R-F664 (2026-05-17) — FSRS spaced-repetition scheduler (OSS Tier-1) ──
+# Free Spaced Repetition Scheduler v6 — what Anki/RemNote use. Replaces
+# hand-rolled mastery decay in student.py with the SOTA forgetting-curve
+# model. Pure-Python, ~22 KB, MIT licence, no network calls, no LLM. Part
+# of the OSS-only learning framework (R-F664 + R-F662) that lets ARIA's
+# learning loop run without Anthropic / DeepSeek.
+fsrs==6.3.1
+
+# ── Lightpanda headless browser (JS rendering fallback) ──────────────────
+# Playwright acts as a thin CDP client connecting to Lightpanda's server —
+# no Chromium browser install needed. Lightpanda binary is installed in the
+# Dockerfile (~24MB). Only invoked on-demand when httpx returns thin/JS-only
+# content (React SPAs, dashboards, modern defence ministry sites).
+playwright==1.62.0
+
+# R-F956 (2026-05-28) — WhatsApp voice-note transcription (OSS, self-hosted).
+# faster-whisper = CTranslate2 Whisper; int8/CPU, no paid STT API, audio stays
+# in-infra. Decodes Opus/OGG via bundled PyAV. Model baked in the Dockerfile so
+# it loads from disk offline (HF_HUB_OFFLINE). Flag-gated (ARIA_VOICE_TRANSCRIBE_ENABLED).
+# R-F3826 (CI): omitted — faster-whisper==1.2.1
+tzdata==2026.3  # R-F1335: IANA db for zoneinfo Europe/London (no-op where system tzdata exists)
