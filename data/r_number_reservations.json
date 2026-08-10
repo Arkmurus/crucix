@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3828,
+  "next_available": 3842,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32194,9 +32194,10 @@
       "title": "derive DPO continuation adapter path",
       "claimed_at": "2026-08-09T13:18:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "99fc7dc0b25d526902ad94374050b93f8ff39628",
+      "notes": null,
+      "shipped_at": "2026-08-10T09:46:32Z"
     },
     {
       "r_number": "R-F3823",
@@ -32223,9 +32224,10 @@
       "title": "atomic DPO artifact harvest",
       "claimed_at": "2026-08-10T08:52:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c698756d",
+      "notes": null,
+      "shipped_at": "2026-08-10T09:46:32Z"
     },
     {
       "r_number": "R-F3826",
@@ -32240,6 +32242,135 @@
       "r_number": "R-F3827",
       "title": "two secret checkers disagree: pre-commit fails on fixtures secret_scan.py allowlists, so CI is permanently red",
       "claimed_at": "2026-08-10T09:28:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3828",
+      "title": "pin DPO continuation reference adapter",
+      "claimed_at": "2026-08-10T09:56:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8d530a6a",
+      "notes": null,
+      "shipped_at": "2026-08-10T20:42:03Z"
+    },
+    {
+      "r_number": "R-F3829",
+      "title": "align DPO archive guard test",
+      "claimed_at": "2026-08-10T09:59:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "887a7b01",
+      "notes": null,
+      "shipped_at": "2026-08-10T20:42:03Z"
+    },
+    {
+      "r_number": "R-F3830",
+      "title": "base-only balanced DPO collection",
+      "claimed_at": "2026-08-10T10:04:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "878b191a",
+      "notes": null,
+      "shipped_at": "2026-08-10T20:42:03Z"
+    },
+    {
+      "r_number": "R-F3831",
+      "title": "Node tier: session-id allowlist stops path traversal into the brain proxy",
+      "claimed_at": "2026-08-10T10:13:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3832",
+      "title": "Node tier: account-id allowlist stops path traversal into the WA listener",
+      "claimed_at": "2026-08-10T10:13:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3833",
+      "title": "Node tier: localhost bypass keys off socket peer not forgeable req.ip",
+      "claimed_at": "2026-08-10T10:13:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3834",
+      "title": "Node tier: 2FA pre-auth token is no longer a valid session token",
+      "claimed_at": "2026-08-10T10:13:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3835",
+      "title": "Node tier: password change and reset revoke live sessions",
+      "claimed_at": "2026-08-10T10:13:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3836",
+      "title": "Node tier: close account enumeration on verify and resend paths",
+      "claimed_at": "2026-08-10T10:13:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3837",
+      "title": "Node tier: sanitise runId in Content-Disposition filename",
+      "claimed_at": "2026-08-10T10:13:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3838",
+      "title": "Node tier: share-link token guard matches the mint charset",
+      "claimed_at": "2026-08-10T10:13:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3839",
+      "title": "Node tier: XSS pass over dd-reports aria-brain and dashboard",
+      "claimed_at": "2026-08-10T10:13:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3840",
+      "title": "Node tier: remove unsafe-inline from script-src CSP",
+      "claimed_at": "2026-08-10T10:13:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3841",
+      "title": "two order-dependent tests depend on module-global state their patches cannot reach",
+      "claimed_at": "2026-08-10T21:48:18Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

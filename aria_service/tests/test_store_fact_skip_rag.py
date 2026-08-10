@@ -27,6 +27,50 @@ from unittest.mock import AsyncMock, patch
 from ._source_probe import function_source
 
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolate_knowledge_dedup_indices():
+    """R-F3841 — reset the MODULE-GLOBAL dedup indices around every test here.
+
+    THE FLAKE IS REAL: `test_store_fact_default_runs_rag_ingest` passes alone and
+    flips in full runs, observed independently on win-arm64 (local §16 run) and on
+    linux (the CI gate), so it is order-dependent rather than a platform artefact.
+
+    WHAT THIS FIXTURE IS, STATED HONESTLY: isolation of state the test provably
+    depends on and provably cannot control — NOT a confirmed fix for a reproduced
+    mechanism. `knowledge._topic_index` / `_content_index` / `_index_count` are
+    MODULE globals (knowledge.py:98, ~1119-1160). The test patches `_load`, which
+    controls the STORE but not those indices; if `store_fact` takes its topic-dedup
+    branch it returns `{"action": "updated"}` BEFORE the `rag_store.ingest_fact` call
+    at knowledge.py:1592 — and `"updated"` is in the set the first assertion accepts,
+    so the test would sail past it and fail on `len(ingest_calls) == 1` with zero
+    calls. That matches the observed failure exactly.
+
+    IT WAS NOT REPRODUCED. Seeding `_topic_index` before the test does NOT break it:
+    `_ensure_indices` rebuilds whenever `_index_count != len(db["facts"])`, which
+    wipes the seed. Surviving that needs `id(db)` reuse AND matching counts, and the
+    counts are maintained in lock-step, so the combination looks unreachable by that
+    route. The trigger is therefore still UNKNOWN and this fixture may not be the
+    cure — it removes one class of coupling and is cheap, but do not read it as
+    proof. If the test flips again, this docstring is the record of what was already
+    ruled out.
+    """
+
+    from aria_service.intel import knowledge as _k
+
+    saved = (dict(_k._topic_index), dict(_k._content_index),
+             _k._index_count, _k._indexed_cache_id)
+    _k._topic_index, _k._content_index = {}, {}
+    _k._index_count, _k._indexed_cache_id = 0, None
+    try:
+        yield
+    finally:
+        (_k._topic_index, _k._content_index,
+         _k._index_count, _k._indexed_cache_id) = saved
+
+
 def test_store_fact_signature_has_skip_rag_ingest():
     from aria_service.intel.knowledge import store_fact
     sig = inspect.signature(store_fact)
