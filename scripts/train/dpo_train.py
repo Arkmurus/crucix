@@ -37,6 +37,9 @@ from pathlib import Path
 logger = logging.getLogger("aria.train.dpo")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+POLICY_ADAPTER = "default"
+REFERENCE_ADAPTER = "reference"
+
 
 def render_dpo_example(example: dict, tokenizer) -> dict:
     """Render one preference row to TRL's stable string schema."""
@@ -86,6 +89,30 @@ def _import_or_die() -> None:
     if missing:
         logger.error("Missing training dependencies: %s", ", ".join(missing))
         sys.exit(1)
+
+
+def load_continuation_adapters(base, checkpoint: Path, peft_model_cls):
+    """Load trainable and frozen copies of the parent for a true DPO reference."""
+    model = peft_model_cls.from_pretrained(
+        base, str(checkpoint), adapter_name=POLICY_ADAPTER, is_trainable=True,
+    )
+    model.load_adapter(
+        str(checkpoint), adapter_name=REFERENCE_ADAPTER, is_trainable=False,
+    )
+    model.set_adapter(POLICY_ADAPTER)
+    _verify_continuation_adapters(model)
+    return model
+
+
+def _verify_continuation_adapters(model) -> None:
+    """Fail closed unless policy and reference weights exist with correct mutability."""
+    named = list(model.named_parameters())
+    policy = [p for name, p in named if f".{POLICY_ADAPTER}." in name]
+    reference = [p for name, p in named if f".{REFERENCE_ADAPTER}." in name]
+    if not policy or not any(p.requires_grad for p in policy):
+        raise RuntimeError("trainable DPO policy adapter is missing")
+    if not reference or any(p.requires_grad for p in reference):
+        raise RuntimeError("frozen DPO reference adapter is missing or trainable")
 
 
 def main() -> None:
@@ -175,10 +202,13 @@ def main() -> None:
             bias="none",
             task_type=TaskType.CAUSAL_LM,
         ))
+        adapter_names = {}
     else:
-        model = PeftModel.from_pretrained(
-            base, str(args.sft_checkpoint), is_trainable=True,
-        )
+        model = load_continuation_adapters(base, args.sft_checkpoint, PeftModel)
+        adapter_names = {
+            "model_adapter_name": POLICY_ADAPTER,
+            "ref_adapter_name": REFERENCE_ADAPTER,
+        }
     model.config.use_cache = False
     model.config.pad_token_id = tokenizer.pad_token_id
 
@@ -200,6 +230,7 @@ def main() -> None:
         max_prompt_length=args.max_seq_len // 2,
         gradient_checkpointing=True,
         report_to="none",
+        **adapter_names,
     )
 
     # R-F1345: trl >=0.12 renamed DPOTrainer's `tokenizer` arg to
@@ -212,7 +243,9 @@ def main() -> None:
         processing_class=tokenizer,
     )
     trainer.train()
-    trainer.save_model(str(args.output_dir))
+    model.save_pretrained(
+        str(args.output_dir), selected_adapters=[POLICY_ADAPTER],
+    )
     tokenizer.save_pretrained(str(args.output_dir))
     logger.info("DPO complete. ARIA-LLM v0.1 LoRA at %s", args.output_dir)
 

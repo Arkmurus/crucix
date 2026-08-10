@@ -3,7 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from scripts.train.dpo_train import render_dpo_example
+from scripts.train.dpo_train import (
+    POLICY_ADAPTER,
+    REFERENCE_ADAPTER,
+    load_continuation_adapters,
+    render_dpo_example,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -115,3 +120,53 @@ def test_recovery_persists_full_epoch_adapter_before_eval_without_retraining() -
     assert "sleep 1" in code
     assert "pod returned to $ST before recovery secured" in code
     assert 'POD_ID="${POD_ID_OVERRIDE:-$POD_ID}"' in code
+
+
+def test_continuation_pins_a_frozen_copy_of_the_parent_as_dpo_reference() -> None:
+    class Parameter:
+        def __init__(self, requires_grad: bool):
+            self.requires_grad = requires_grad
+
+    class Model:
+        def __init__(self):
+            self.loaded = []
+            self.active = None
+
+        def load_adapter(self, checkpoint, *, adapter_name, is_trainable):
+            self.loaded.append((checkpoint, adapter_name, is_trainable))
+
+        def set_adapter(self, adapter_name):
+            self.active = adapter_name
+
+        def named_parameters(self):
+            return [
+                ("layer.lora_A.default.weight", Parameter(True)),
+                ("layer.lora_A.reference.weight", Parameter(False)),
+            ]
+
+    class Peft:
+        created = None
+
+        @classmethod
+        def from_pretrained(cls, base, checkpoint, *, adapter_name, is_trainable):
+            assert base == "quantized-base"
+            assert adapter_name == POLICY_ADAPTER
+            assert is_trainable is True
+            cls.created = Model()
+            return cls.created
+
+    model = load_continuation_adapters("quantized-base", Path("parent"), Peft)
+
+    assert model is Peft.created
+    assert model.loaded == [("parent", REFERENCE_ADAPTER, False)]
+    assert model.active == POLICY_ADAPTER
+
+
+def test_trainer_names_both_adapters_and_saves_only_the_policy() -> None:
+    code = (ROOT / "scripts/train/dpo_train.py").read_text(encoding="utf-8")
+
+    assert '"model_adapter_name": POLICY_ADAPTER' in code
+    assert '"ref_adapter_name": REFERENCE_ADAPTER' in code
+    assert "**adapter_names" in code
+    assert 'selected_adapters=[POLICY_ADAPTER]' in code
+    assert "trainer.save_model" not in code
