@@ -388,6 +388,42 @@ def _entity_hash(entity: str) -> str:
 
 
 @fail_wire(module="safety", gap_type="agent_cycle_failure")
+async def is_recent_duplicate(
+    task_id: str, entity: str, *, slot: int | None = None,
+) -> bool:
+    """READ-ONLY: would `check_and_mark_dedupe` reject this as a recent duplicate?
+
+    R-F3823 — exists so `can_task_run` can refuse a duplicate WITHOUT first spending
+    a rate-bucket slot on it. It writes nothing; marking stays
+    `check_and_mark_dedupe`'s job, and must happen only once the slot is secured.
+
+    Keying is identical to `check_and_mark_dedupe` by construction (same
+    `_dedupe_key`), because two dedupe key formats that drifted apart would be worse
+    than the bug this fixes — the pre-check would clear work the marker then blocks.
+    """
+    if not task_id:
+        return False
+    key, _window = _dedupe_key(task_id, entity, slot)
+    try:
+        return bool(await rs.get(key))
+    except Exception as e:      # pragma: no cover - a store blip must not block work
+        logger.debug("[autonomous safety] dedupe pre-check failed for %s: %s",
+                     task_id, e)
+        return False
+
+
+def _dedupe_key(task_id: str, entity: str, slot: int | None) -> tuple[str, int]:
+    """The dedupe key + TTL for a task+entity(+slot). ONE definition, two callers."""
+    key = _DEDUPE_KEY_FMT.format(
+        task_id=task_id, entity_hash=_entity_hash(entity),
+    )
+    window = DEDUPE_WINDOW_SECONDS
+    if slot is not None:
+        key = f"{key}:{slot}"
+        window = DEDUPE_SLOT_WINDOW_SECONDS
+    return key, window
+
+
 async def check_and_mark_dedupe(
     task_id: str, entity: str, *, slot: int | None = None,
 ) -> bool:
@@ -422,15 +458,12 @@ async def check_and_mark_dedupe(
     """
     if not task_id:
         return True
-    key = _DEDUPE_KEY_FMT.format(
-        task_id=task_id, entity_hash=_entity_hash(entity),
-    )
-    window = DEDUPE_WINDOW_SECONDS
-    if slot is not None:
-        # Same task+entity, same scheduled minute => same key => deduped.
-        # Next scheduled minute => different key => allowed.
-        key = f"{key}:{slot}"
-        window = DEDUPE_SLOT_WINDOW_SECONDS
+    # R-F3823 — one key definition, shared with `is_recent_duplicate`. Two formats
+    # that drifted apart would be worse than the bug this fixes: the pre-check would
+    # clear work that the marker then blocks.
+    #   Same task+entity, same scheduled minute => same key => deduped.
+    #   Next scheduled minute => different key => allowed.
+    key, window = _dedupe_key(task_id, entity, slot)
     try:
         existing = await rs.get(key)
         if existing:
@@ -930,6 +963,24 @@ async def can_task_run(
     within_budget, spent = await check_cost_cap()
     if not within_budget:
         return False, f"daily_cost_cap_exceeded:{spent:.4f}"
+    # R-F3823 — REFUSE A DUPLICATE BEFORE SPENDING A SLOT ON IT.
+    #
+    # This check used to live below the rate limiter, so an attempt that was about to
+    # be discarded as a duplicate had already consumed a fix slot. The docstring above
+    # states the invariant it broke — "rate limit is the LAST check that increments
+    # state" — dedupe was simply on the wrong side of it.
+    #
+    # Survivable at the 500/hour default, fatal at the live one. Measured 2026-08-09:
+    # ARIA_CODER_MAX_FIXES_PER_HOUR=6, dedupe window 23h, coder re-attempting the same
+    # gaps every 15-minute scan. Four no-op duplicates ate four of six slots, the rest
+    # hit `rate_limit_exceeded:6`, and the loop fixed ZERO of 96-100 detected gaps —
+    # the §21c P0 ("sees gaps but cannot act").
+    #
+    # This is a READ. The authoritative check-and-MARK stays below, after the slot is
+    # secured, because marking here would lock out a task the rate limiter then
+    # refuses — 23h of `duplicate_recent_run` for work that never ran.
+    if await is_recent_duplicate(task_id, entity, slot=slot):
+        return False, "duplicate_recent_run"
     # R-F901 — the coder uses its OWN hourly bucket so the shared 87-task budget
     # can't starve it. Engine-pause + cost-cap above still apply uniformly.
     if coder:
