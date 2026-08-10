@@ -727,6 +727,46 @@ sweep reports its curated/discovery split, so "curated dropped to 0" becomes vis
 > title+snippet and never a bare domain. **Nothing is disabled, demoted or deleted
 > here** (§7).
 
+### C-15 · Residual live signals — triaged 2026-08-10, two dissolved on inspection
+
+Three signals were reported from a live review. Verified on the box before acting;
+**only one is a defect, and it is external.**
+
+| signal | verdict |
+|---|---|
+| `POST /api/aria/report` → 400, repeatedly | **NOT A DEFECT.** `web_integrity_agent.py:138` declares `expected_status: 400` — it POSTs an empty body ON PURPOSE to verify input validation. The endpoint answers `{"detail":"report_type and subject required"}`, which is correct. The probe passing is why the cycle logs `9 passed, 0 failed`. |
+| RSS 6735MB over the 6144MB threshold | **REAL PRESSURE, NOT CURRENTLY BREACHING.** Measured: app `pid=719` RSS **5701.5MB**, 54 threads, plus a 706MB `multiprocessing` child (encode_offload). The reported figure was a point-in-time peak. Watch, do not act yet. |
+| Circuit breakers OPEN | **CONFIRMED, and worse-shaped than reported.** 5 of 50 open: `archive_is`, `wayback`, `search:duckduckgo`, `semantic_scholar`, `openalex`. That is not five unrelated sources — it is **two entire CATEGORIES dark**: archive 0/2 and academic 0/2. Search is unaffected (Brave is primary, §18). |
+
+**The breakers are behaving correctly** — they are backing off failing external
+services, which is what they are for, and §14 says a cooling provider is "operational",
+not "degraded". Live health agrees: `operational`, `degraded_reasons: []`. Nothing to
+"fix" in the breaker layer.
+
+> **The open question this raises, which is NOT a breaker bug.** With archive coverage
+> at 0/2, a DD report that would have cited an archived snapshot now simply has none.
+> R-F3529 established the pattern for exactly this — when OpenSanctions was quota-spent,
+> local canonical lists became the FLOOR and the DD line said so rather than reading
+> clean. There is no equivalent floor beneath the archive category, and no check that a
+> report DECLARES archive evidence was unavailable. That is the honest gap: not that a
+> source is down, but that its absence may be silent. Left recorded rather than fixed —
+> it is a report-honesty change, not an incident.
+
+### C-16 · CI was red on every commit — two secret checkers, one file — **FIXED (R-F3827)**
+
+The `test` job failed on every recent push (`cba53e22`, `c15e8ec8`, `c698756d`,
+`ace08f84`), blocking the pipeline for everyone. The finding was the secret scanner's
+OWN fixtures in `test_rf3720_secret_scan_gate.py`.
+
+`scripts/admin/secret_scan.py` accepted them via its hash-keyed baseline (27 fixtures)
+and reported CLEAN; `scripts/pre-commit --check-all` uses an at-the-site pragma and
+failed on the same three values. Both mechanisms are deliberate — the pre-commit
+comment argues for its own ("people delete baselines; a file declaring itself is
+auditable"). This was not drift: **one file was declared to only one of them.** Fixed
+with the existing `allowlist-secret-file` pragma its two sibling fixture files already
+carry (R-F3683), not a new mechanism, and not three per-line annotations that would
+fail again on the fourth fixture.
+
 ---
 
 ## D. Phase 0.3 runtime overlay — **WINDOW OPEN as of 2026-08-05 12:20 UTC**
