@@ -32184,9 +32184,10 @@
       "title": "crawl sweep treats 21953 unvetted tier-4 rows like curated seeds: prioritise curated, rotate discovery on a budget",
       "claimed_at": "2026-08-09T13:10:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c15e8ec8",
+      "notes": null,
+      "shipped_at": "2026-08-10T08:47:41Z"
     },
     {
       "r_number": "R-F3822",
@@ -32202,18 +32203,20 @@
       "title": "coder rate budget is consumed by duplicate_recent_run: dedupe is checked AFTER the rate counter increments",
       "claimed_at": "2026-08-09T13:25:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c15e8ec8",
+      "notes": null,
+      "shipped_at": "2026-08-10T08:47:41Z"
     },
     {
       "r_number": "R-F3824",
       "title": "engine heartbeat ticks per poll iteration, so a long task reads as a blackout; tick during execution but not forever",
       "claimed_at": "2026-08-10T08:22:37Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c15e8ec8",
+      "notes": null,
+      "shipped_at": "2026-08-10T08:47:41Z"
     }
   ]
 }
