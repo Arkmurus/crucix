@@ -424,6 +424,7 @@ def _dedupe_key(task_id: str, entity: str, slot: int | None) -> tuple[str, int]:
     return key, window
 
 
+@fail_wire(module="safety", gap_type="agent_cycle_failure")
 async def check_and_mark_dedupe(
     task_id: str, entity: str, *, slot: int | None = None,
 ) -> bool:

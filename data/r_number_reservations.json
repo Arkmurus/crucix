@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3842,
+  "next_available": 3843,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32371,6 +32371,15 @@
       "r_number": "R-F3841",
       "title": "two order-dependent tests depend on module-global state their patches cannot reach",
       "claimed_at": "2026-08-10T21:48:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3842",
+      "title": "R-F3823 inserted functions between @fail_wire and check_and_mark_dedupe, stealing its decorator",
+      "claimed_at": "2026-08-10T22:49:50Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
