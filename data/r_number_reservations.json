@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3827,
+  "next_available": 3828,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32231,6 +32231,15 @@
       "r_number": "R-F3826",
       "title": "wire the R-F3373 suite gate into CI with a CI-environment baseline and a reduced dep set",
       "claimed_at": "2026-08-10T08:53:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3827",
+      "title": "two secret checkers disagree: pre-commit fails on fixtures secret_scan.py allowlists, so CI is permanently red",
+      "claimed_at": "2026-08-10T09:28:46Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

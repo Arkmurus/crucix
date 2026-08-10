@@ -1,3 +1,15 @@
+# allowlist-secret-file — R-F3827: this suite is the SECRET SCANNER'S OWN test
+# fixtures, so it must contain credential-SHAPED strings to be worth anything.
+# Every value here is SYNTHETIC; never paste a live credential into a file that
+# has opted out. Same declaration as its siblings test_rf1563_chat_pii_redaction
+# and test_rf1832_sast_scan_ast_aware (R-F3683).
+#
+# WHY THIS WAS NEEDED. scripts/admin/secret_scan.py accepted these three values
+# via its hash-keyed baseline (docs/secret_scan_baseline.json, 27 fixtures) and
+# reported CLEAN, while scripts/pre-commit --check-all uses an at-the-site PRAGMA
+# and failed on the same three. Two deliberate mechanisms answering one question,
+# and this file was declared to only one of them — so CI's pre-commit step failed
+# on EVERY commit, blocking the pipeline for everybody.
 """R-F3720 — CAPABILITY: the gate that keeps a credential out of a PUBLIC repo.
 
 `Arkmurus/crucix` is public and had NO secret scanning of any kind — no gitleaks,
