@@ -46,7 +46,7 @@ def test_orchestrator_pins_inputs_and_bounds_paid_artifact_recovery() -> None:
     assert "aria_tooluse_dpo_adapter.tgz" in code
     assert "trap release EXIT" in code
     assert "UNREADABLE" in code and "NOT_RUNNING" in code
-    assert code.count("END { exit !found }") == 3
+    assert code.count("END { exit !found }") == 2
     assert "grep -q '/adapter_config.json$'" not in code
     assert "build_tooluse_corpus.py:/workspace/crucix/scripts/train/build_tooluse_corpus.py" in code
 
