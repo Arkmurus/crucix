@@ -6,6 +6,7 @@ cd /workspace/crucix 2>/dev/null || exit 1
 export PYTHONPATH="/workspace/crucix${PYTHONPATH:+:$PYTHONPATH}"
 
 BASE_MODEL="${BASE_MODEL:-mistralai/Mistral-7B-Instruct-v0.3}"
+BASE_ONLY="${BASE_ONLY:-0}"
 ADAPTER="${ADAPTER:-/workspace/checkpoints/aria_tooluse_v1}"
 TRAIN_FILE="${TRAIN_FILE:-/workspace/datasets/aria_tooluse_dpo_generation.jsonl}"
 OUT="${OUT:-/workspace/eval/tooluse_train_generations.json}"
@@ -20,7 +21,8 @@ stop_shim(){ [ -n "$SHIM_PID" ] && kill "$SHIM_PID" 2>/dev/null; SHIM_PID=""; }
 finish(){ rc=$?; stop_shim; echo "$rc" > "$STATUS"; log "generation exit rc=$rc"; }
 trap finish EXIT
 
-[ -f "$ADAPTER/adapter_config.json" ] || { log "FATAL candidate adapter missing"; exit 1; }
+[ "$BASE_ONLY" = 1 ] || [ -f "$ADAPTER/adapter_config.json" ] \
+  || { log "FATAL candidate adapter missing"; exit 1; }
 [ -s "$TRAIN_FILE" ] || { log "FATAL train generation queue missing"; exit 1; }
 
 log "installing pinned serving/evaluation runtime"
@@ -49,8 +51,10 @@ if not torch.cuda.is_available():
 print(f"runtime OK: CUDA {torch.version.cuda}, GPU {torch.cuda.get_device_name(0)}")
 PY
 
-log "serving recovered candidate adapter"
-BASE_MODEL="$BASE_MODEL" ADAPTER="$ADAPTER" MODEL_NAME="aria-tooluse" PORT="$PORT" \
+log "serving generation model base_only=$BASE_ONLY"
+SERVE_ADAPTER="$ADAPTER"
+[ "$BASE_ONLY" != 1 ] || SERVE_ADAPTER=""
+BASE_MODEL="$BASE_MODEL" ADAPTER="$SERVE_ADAPTER" MODEL_NAME="aria-tooluse" PORT="$PORT" \
   python scripts/train/serve_eval_shim.py >"$LOGS/shim_generation.log" 2>&1 &
 SHIM_PID=$!
 ready=0

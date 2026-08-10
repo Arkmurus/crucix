@@ -8,6 +8,7 @@ cd "$REPO" || { echo "[generation] FATAL repository unavailable"; exit 1; }
 
 API="https://rest.runpod.io/v1"
 PYBIN="${PYBIN:-.venv/Scripts/python.exe}"
+BASE_ONLY="${BASE_ONLY:-0}"
 QUEUE="${QUEUE:-data/training/tooluse_dpo_generation_v2.jsonl}"
 EVAL_LOCAL="${EVAL_LOCAL:-data/training/split_v2/eval.jsonl}"
 GOLDEN="${GOLDEN:-data/eval_frozen/aria_eval_500q.jsonl}"
@@ -49,17 +50,19 @@ KEY=$(grep -E '^RUNPOD_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr 
 [ -n "$KEY" ] || { log "FATAL API key unavailable"; exit 1; }
 [ -s "$QUEUE" ] || { log "FATAL queue missing: $QUEUE"; exit 1; }
 [ "$EXPECTED_ROWS" -gt 0 ] || { log "FATAL queue has no rows"; exit 1; }
-[ -s "$ADAPTER_LOCAL" ] || { log "FATAL adapter missing: $ADAPTER_LOCAL"; exit 1; }
-ADAPTER_SHA256=$(sha256sum "$ADAPTER_LOCAL" | awk '{print $1}')
-[ -n "$ADAPTER_SHA256" ] || { log "FATAL adapter hash unavailable"; exit 1; }
-tar -tzf "$ADAPTER_LOCAL" | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }' \
-  || { log "FATAL adapter archive invalid"; exit 1; }
-ARCHIVE_ADAPTER_DIR=$(tar -tzf "$ADAPTER_LOCAL" \
-  | awk -F/ '/\/adapter_config.json$/ { print $1; exit }')
-case "$ARCHIVE_ADAPTER_DIR" in
-  ""|*/*|*".."*) log "FATAL unsafe adapter directory in archive"; exit 1 ;;
-esac
-REMOTE_ADAPTER="/workspace/checkpoints/$ARCHIVE_ADAPTER_DIR"
+if [ "$BASE_ONLY" != 1 ]; then
+  [ -s "$ADAPTER_LOCAL" ] || { log "FATAL adapter missing: $ADAPTER_LOCAL"; exit 1; }
+  ADAPTER_SHA256=$(sha256sum "$ADAPTER_LOCAL" | awk '{print $1}')
+  [ -n "$ADAPTER_SHA256" ] || { log "FATAL adapter hash unavailable"; exit 1; }
+  tar -tzf "$ADAPTER_LOCAL" | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }' \
+    || { log "FATAL adapter archive invalid"; exit 1; }
+  ARCHIVE_ADAPTER_DIR=$(tar -tzf "$ADAPTER_LOCAL" \
+    | awk -F/ '/\/adapter_config.json$/ { print $1; exit }')
+  case "$ARCHIVE_ADAPTER_DIR" in
+    ""|*/*|*".."*) log "FATAL unsafe adapter directory in archive"; exit 1 ;;
+  esac
+  REMOTE_ADAPTER="/workspace/checkpoints/$ARCHIVE_ADAPTER_DIR"
+fi
 
 log "strict preflight of train-only generation queue"
 "$PYBIN" -m scripts.train.preflight_cycle \
@@ -121,13 +124,14 @@ for item in \
   src=${item%%:*}; dst=${item#*:}
   RSCP "$src" "$dst" || { log "FATAL upload $src"; exit 1; }
 done
+mkdir -p "$(dirname "$STATE_FILE")"
 TSSH -p "$PORT" root@"$HOST" \
   "POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$UPLOAD_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_upload_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" \
   | grep -q ARMED || { log "FATAL watchdog not armed"; exit 1; }
 ARMED=1
-
-mkdir -p "$(dirname "$STATE_FILE")"
 { echo "POD_ID=$POD_ID"; echo "HOST=$HOST"; echo "PORT=$PORT"; echo "LAUNCHED_AT=$(date -u +%s)"; } > "$STATE_FILE"
+
+if [ "$BASE_ONLY" != 1 ]; then
 log "uploading validated serving adapter with resumable SFTP"
 UPLOAD_OK=0
 for slice in $(seq 1 "$UPLOAD_SLICES"); do
@@ -157,12 +161,15 @@ done
 TSSH -p "$PORT" root@"$HOST" \
   "printf '%s  %s\n' '$ADAPTER_SHA256' /workspace/aria_tooluse_candidate.tgz | sha256sum -c - && tar -tzf /workspace/aria_tooluse_candidate.tgz | awk '/\\/adapter_config.json$/ { found=1 } END { exit !found }' && tar -xzf /workspace/aria_tooluse_candidate.tgz -C /workspace/checkpoints" \
   || { log "FATAL remote adapter validation/extract"; exit 1; }
+fi
 
 TSSH -p "$PORT" root@"$HOST" \
   "kill \$(cat /workspace/eval/_watchdog_pid) 2>/dev/null || true; rm -f /workspace/eval/_cycle_status; POD_ID=$POD_ID RP_KEY='$KEY' DEADLINE=$GENERATION_DEADLINE GRACE=$GRACE COLLECT_GRACE=$COLLECT_GRACE setsid nohup bash /workspace/pod_selfstop_watch_v04.sh >/workspace/logs/_generation_watch.log 2>&1 </dev/null & echo \$! >/workspace/eval/_watchdog_pid; echo ARMED" \
   | grep -q ARMED || { log "FATAL generation watchdog not armed"; exit 1; }
+POD_ENV="BASE_ONLY=$BASE_ONLY"
+[ "$BASE_ONLY" = 1 ] || POD_ENV="$POD_ENV ADAPTER='$REMOTE_ADAPTER'"
 TSSH -p "$PORT" root@"$HOST" \
-  "ADAPTER='$REMOTE_ADAPTER' setsid nohup bash /workspace/pod_tooluse_generate.sh >/workspace/logs/tooluse_generation.log 2>&1 </dev/null & echo STARTED" \
+  "$POD_ENV setsid nohup bash /workspace/pod_tooluse_generate.sh >/workspace/logs/tooluse_generation.log 2>&1 </dev/null & echo STARTED" \
   | grep -q STARTED || { log "FATAL generation start"; exit 1; }
 
 log "generation started; waiting for completion sentinel"

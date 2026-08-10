@@ -39,7 +39,7 @@ def test_generation_driver_requires_complete_report_from_train_queue() -> None:
     assert 'not d.get("complete")' in code
     assert 'len(d.get("rows") or []) != int(d.get("total", -1))' in code
     install = code.index('log "installing pinned serving/evaluation runtime')
-    serving = code.index('log "serving recovered candidate adapter')
+    serving = code.index('log "serving generation model base_only=$BASE_ONLY"')
     assert install < serving
     assert '"uvicorn"' in code[install:serving]
     assert "torch.cuda.is_available()" in code[install:serving]
@@ -93,7 +93,8 @@ def test_fresh_generation_driver_arms_watchdog_before_adapter_upload() -> None:
     assert "NOT_RUNNING" in code
     assert '"${REPORT_LOCAL}.partial"' in code
     assert 'REMOTE_ADAPTER="/workspace/checkpoints/$ARCHIVE_ADAPTER_DIR"' in code
-    assert '"ADAPTER=\'$REMOTE_ADAPTER\' setsid nohup' in code
+    assert 'POD_ENV="$POD_ENV ADAPTER=\'$REMOTE_ADAPTER\'"' in code
+    assert '"$POD_ENV setsid nohup' in code
 
 
 def test_dpo_driver_trains_from_the_adapter_selected_by_its_archive() -> None:
