@@ -106,3 +106,16 @@ def test_dpo_driver_trains_from_the_adapter_selected_by_its_archive() -> None:
     assert 'REMOTE_SFT_ADAPTER="/workspace/checkpoints/$ARCHIVE_ADAPTER_DIR"' in code
     assert 'SFT_ADAPTER=\'$REMOTE_SFT_ADAPTER\'' in code
     assert "unsafe SFT adapter archive path" in code
+
+
+def test_dpo_driver_persists_final_artifacts_atomically() -> None:
+    code = (Path(__file__).resolve().parents[2] / "scripts" / "train" /
+            "run_tooluse_dpo.sh").read_text(encoding="utf-8")
+
+    assert 'download="${2}.download"' in code
+    assert 'tar -tzf "$download"' in code
+    assert 'json.load(open(sys.argv[1]' in code
+    assert 'mv "$download" "$destination"' in code
+    report = code.index('persist_report /workspace/eval/aria_tooluse_dpo_eval.json "$REPORT_LOCAL"')
+    adapter = code.index('persist_adapter /workspace/eval/aria_tooluse_dpo_adapter.tgz "$OUTPUT_LOCAL"')
+    assert report < adapter

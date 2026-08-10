@@ -135,17 +135,33 @@ POD_ENV="SKIP_TRAIN=$RESUME_MODE FRESH_BASE=$FRESH_BASE EXPECTED_DPO_PAIRS=$EXPE
 [ "$FRESH_BASE" = 1 ] || POD_ENV="$POD_ENV SFT_ADAPTER='$REMOTE_SFT_ADAPTER'"
 TSSH -p "$PORT" root@"$HOST" "$POD_ENV setsid nohup bash /workspace/pod_tooluse_dpo.sh >/workspace/logs/tooluse_dpo_cycle.log 2>&1 </dev/null & echo STARTED" | grep -q STARTED || exit 1
 RSCP_PULL(){ timeout 600 scp -i "$KEYF" -o StrictHostKeyChecking=no -P "$PORT" root@"$HOST":"$1" "$2" 2>/dev/null; }
+persist_adapter(){
+  local remote=$1 destination=$2 download="${2}.download"
+  RSCP_PULL "$remote" "$download" || return 1
+  tar -tzf "$download" | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }' || return 1
+  mv "$download" "$destination"
+}
+persist_report(){
+  local remote=$1 destination=$2 download="${2}.download"
+  RSCP_PULL "$remote" "$download" || return 1
+  "$PYBIN" - "$download" <<'PY' || return 1
+import json, sys
+d=json.load(open(sys.argv[1], encoding="utf-8"))
+assert isinstance(d.get("rows"), list) and isinstance(d.get("complete"), bool)
+PY
+  mv "$download" "$destination"
+}
 log "cycle started"; RC=""
 for i in $(seq 1 100); do
   RC=$(TSSH -p "$PORT" root@"$HOST" 'cat /workspace/eval/_cycle_status 2>/dev/null' 2>/dev/null | tr -d '\r[:space:]'); [ -n "$RC" ] && break
-  if [ $((i % 5)) -eq 0 ]; then mkdir -p "$(dirname "$OUTPUT_LOCAL")" "$(dirname "$REPORT_LOCAL")"; RSCP_PULL /workspace/eval/aria_tooluse_dpo_adapter.tgz "${OUTPUT_LOCAL}.partial" || true; RSCP_PULL /workspace/eval/aria_tooluse_dpo_eval.json "${REPORT_LOCAL}.partial" || true; fi
+  if [ $((i % 5)) -eq 0 ]; then mkdir -p "$(dirname "$OUTPUT_LOCAL")" "$(dirname "$REPORT_LOCAL")"; persist_adapter /workspace/eval/aria_tooluse_dpo_adapter.tgz "${OUTPUT_LOCAL}.partial" || true; persist_report /workspace/eval/aria_tooluse_dpo_eval.json "${REPORT_LOCAL}.partial" || true; fi
   STATE=$(pod_state); [ "$STATE" = NOT_RUNNING ] && break; [ "$STATE" = UNREADABLE ] && log "control plane unreadable"; sleep 90
 done
 harvest_logs(){ mkdir -p data/eval_reports; RSCP_PULL /workspace/logs/tooluse_dpo_cycle.log data/eval_reports/aria_tooluse_dpo_cycle.log || true; RSCP_PULL /workspace/logs/tooluse_dpo_train.log data/eval_reports/aria_tooluse_dpo_train.log || true; RSCP_PULL /workspace/logs/tooluse_dpo_eval.log data/eval_reports/aria_tooluse_dpo_eval.log || true; }
 [ "$RC" = 0 ] || { harvest_logs; log "FATAL cycle rc=${RC:-missing}; diagnostics harvested"; exit 1; }
 mkdir -p "$(dirname "$OUTPUT_LOCAL")" "$(dirname "$REPORT_LOCAL")"
-RSCP_PULL /workspace/eval/aria_tooluse_dpo_adapter.tgz "$OUTPUT_LOCAL" || exit 1; RSCP_PULL /workspace/eval/aria_tooluse_dpo_eval.json "$REPORT_LOCAL" || exit 1
-tar -tzf "$OUTPUT_LOCAL" | awk '/\/adapter_config.json$/ { found=1 } END { exit !found }' || exit 1
+persist_report /workspace/eval/aria_tooluse_dpo_eval.json "$REPORT_LOCAL" || exit 1
+persist_adapter /workspace/eval/aria_tooluse_dpo_adapter.tgz "$OUTPUT_LOCAL" || exit 1
 "$PYBIN" - "$REPORT_LOCAL" <<'PY' || exit 1
 import json, sys
 d=json.load(open(sys.argv[1], encoding="utf-8")); n=168
