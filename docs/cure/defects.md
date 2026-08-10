@@ -752,6 +752,44 @@ not "degraded". Live health agrees: `operational`, `degraded_reasons: []`. Nothi
 > source is down, but that its absence may be silent. Left recorded rather than fixed —
 > it is a report-honesty change, not an incident.
 
+### C-17 · The §16 CI gate is WIRED and PROVEN FIRING — with two known flaky tests
+
+R-F3826 put `scripts/admin/suite_baseline.py` (R-F3373) into CI as its own
+`suite-baseline-gate` job. This repo's own record says *"R-F3373 shipped a gate nobody
+had seen fire"*, so it was made to fire before being called done.
+
+**Proven, on a dispatch run against the committed CI baseline:**
+
+```
+165 failed, 14577 passed        VALID=YES  (totals identical to the baseline)
+*** ENVIRONMENT CHANGED SINCE THE BASELINE ***
+  packages 077f0d71359f2d0b -> 2adcfcef16206c33
+FIXED since the baseline (1):  test_rf3768_tooluse_dpo_cycle::…paid_artifact_recovery
+NEW FAILURES (1):            ! test_store_fact_skip_rag::test_store_fact_default_runs_rag_ingest
+```
+
+Three things that all worked as designed: the gate compares SETS not counts (identical
+totals, yet it still caught a 1-for-1 swap); R-F3794's environment warning fired on a
+package-set change **between two CI runs two hours apart**, which means
+`requirements-ci.txt` pins direct dependencies but transitives still drift; and the
+run was self-validating (`VALID=YES`).
+
+> **KNOWN FLAKY, and the gate will fail intermittently until they are fixed.**
+> `test_store_fact_skip_rag::test_store_fact_default_runs_rag_ingest` and
+> `test_rf2507_brain_queue_integration::test_drain_failure_retries` were BOTH flagged
+> as order-dependent in the 2026-08-09 local §16 diff, both pass standalone, and CI has
+> now independently confirmed the first flipping on a different platform. They are
+> therefore genuinely flaky, not platform artefacts.
+>
+> **Do not silence this by muting the gate** — a gate people mute protects nothing,
+> which is the lesson the advisory test step already records. Fix the two tests, then
+> re-record the baseline. Until then an occasional red `suite-baseline-gate` on an
+> unchanged tree is EXPECTED and is not a regression; check the named test against this
+> list before hunting a commit.
+
+**Cost, measured not estimated:** 18m21s on `ubuntu-latest`, against ~40 minutes for
+the same run on the win-arm64 dev box.
+
 ### C-16 · CI was red on every commit — two secret checkers, one file — **FIXED (R-F3827)**
 
 The `test` job failed on every recent push (`cba53e22`, `c15e8ec8`, `c698756d`,
