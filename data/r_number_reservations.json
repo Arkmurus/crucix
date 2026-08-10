@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3824,
+  "next_available": 3825,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32201,6 +32201,15 @@
       "r_number": "R-F3823",
       "title": "coder rate budget is consumed by duplicate_recent_run: dedupe is checked AFTER the rate counter increments",
       "claimed_at": "2026-08-09T13:25:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3824",
+      "title": "engine heartbeat ticks per poll iteration, so a long task reads as a blackout; tick during execution but not forever",
+      "claimed_at": "2026-08-10T08:22:37Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

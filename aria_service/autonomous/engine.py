@@ -708,6 +708,51 @@ async def catch_up_overdue_tasks(llm) -> int:
 
 # ── The polling loop ───────────────────────────────────────────────────────
 
+#: R-F3824 — how often to tick while a task runs, and for how long. The interval
+#: must stay well under `self_restart._BLACKOUT_THRESHOLD_S` (300s) or the tick is
+#: too late to prevent a false blackout; the window must be a MULTIPLE of it so a
+#: genuinely hung task still trips the detector.
+_TASK_HEARTBEAT_INTERVAL_S = 60.0
+_TASK_HEARTBEAT_MAX_BUSY_S = 900.0     # 3x the blackout threshold
+
+
+async def _heartbeat_during_task(
+    task_id: str, tick, *, interval: float = _TASK_HEARTBEAT_INTERVAL_S,
+    max_busy_s: float = _TASK_HEARTBEAT_MAX_BUSY_S,
+) -> None:
+    """Keep the engine heartbeat fresh while a task executes — but NOT forever.
+
+    R-F3824. The heartbeat was ticked once per POLLING-LOOP iteration, so any task
+    running longer than the 300s blackout threshold made a healthy engine look dead.
+    Live 2026-08-10, twice: `heartbeat stale 301.1s` / `310.4s` with `Task-143
+    (_engine_loop) done=False cancelled=False` parked at the `execute_task` await.
+    One signal was standing for two very different states, "busy" and "wedged".
+
+    THE BOUND IS THE POINT. Ticking for as long as `execute_task` is on the stack
+    would remove the false blackout and the true one together: a task hung forever
+    would hold the heartbeat fresh forever and R-F1146 could never fire again. That
+    trades a noisy alarm for no alarm. So this stops at `max_busy_s` and lets the
+    detector do its job for anything beyond a plausible task duration.
+
+    `tick` is injected rather than imported so the call site keeps its existing
+    ImportError guard, and so this is testable without the store.
+    """
+    waited = 0.0
+    while waited < max_busy_s:
+        await asyncio.sleep(interval)
+        waited += interval
+        try:
+            tick("autonomous_engine")
+        except Exception:      # observability must never kill the loop it observes
+            logger.debug("[R-F3824] heartbeat tick failed during task %s", task_id,
+                         exc_info=True)
+    logger.warning(
+        "[R-F3824] task %s has been running %.0fs — heartbeat ticking STOPS here so a "
+        "genuine wedge is still detectable by the R-F1146 blackout detector",
+        task_id, max_busy_s,
+    )
+
+
 async def _engine_loop(llm) -> None:
     """The main engine loop. Runs forever (until cancelled at shutdown).
 
@@ -1016,11 +1061,34 @@ async def _engine_loop(llm) -> None:
                 # to call it and not let an exception escape into the
                 # polling loop.
                 try:
-                    await tasks_mod.execute_task(
-                        task=task,
-                        llm=llm,
-                        dry_run=is_dry_run(),
-                    )
+                    # R-F3824 — keep the heartbeat fresh WHILE the task runs.
+                    #
+                    # This await is engine.py:1019, the exact line the live blackout
+                    # dumps name: `Task-143 (_engine_loop) done=False cancelled=False`
+                    # with `heartbeat stale 301.1s`. The heartbeat is ticked once per
+                    # polling-loop iteration (above), so any task outliving the 300s
+                    # threshold made a healthy engine read as dead.
+                    #
+                    # Bounded on purpose — see `_heartbeat_during_task`: ticking for
+                    # as long as this await is on the stack would disarm the wedge
+                    # detector entirely.
+                    _hb_task = None
+                    try:
+                        _hb_task = asyncio.create_task(
+                            _heartbeat_during_task(task_id, tick_heartbeat),
+                            name=f"engine_hb:{task_id}",
+                        )
+                    except Exception:      # NameError if the R-F1146 import failed
+                        _hb_task = None
+                    try:
+                        await tasks_mod.execute_task(
+                            task=task,
+                            llm=llm,
+                            dry_run=is_dry_run(),
+                        )
+                    finally:
+                        if _hb_task is not None:
+                            _hb_task.cancel()
                     # R-F1059 — wire task success to brain
                     try:
                         from ..intel.engine_wiring import wire_success as _ws
