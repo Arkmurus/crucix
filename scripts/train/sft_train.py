@@ -62,6 +62,16 @@ def _import_or_die() -> None:
         sys.exit(1)
 
 
+def load_sft_parent(base, checkpoint: Path, peft_model_cls):
+    """Load an accepted LoRA parent as the trainable positive-SFT policy."""
+    model = peft_model_cls.from_pretrained(base, str(checkpoint), is_trainable=True)
+    trainable = [parameter for name, parameter in model.named_parameters()
+                 if "lora_" in name and parameter.requires_grad]
+    if not trainable:
+        raise RuntimeError("trainable SFT parent adapter is missing")
+    return model
+
+
 def _format_chat(record: dict) -> dict:
     """Normalise an SFT record into a chat `messages` column.
 
@@ -152,6 +162,8 @@ def main() -> None:
                     help=f"HF model id. ARIA's agreed base is {ARIA_BASE_MODEL}.")
     ap.add_argument("--train-file", type=Path, required=True)
     ap.add_argument("--output-dir", type=Path, required=True)
+    ap.add_argument("--sft-checkpoint", type=Path,
+                    help="accepted LoRA parent to continue with positive SFT")
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--lora-rank", type=int, default=32)
     ap.add_argument("--lora-alpha", type=int, default=64)
@@ -172,7 +184,7 @@ def main() -> None:
     import torch
     from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
     from datasets import load_dataset
-    from peft import LoraConfig, get_peft_model, TaskType
+    from peft import LoraConfig, PeftModel, get_peft_model, TaskType
     from trl import SFTTrainer, SFTConfig, DataCollatorForCompletionOnlyLM
 
     logger.info("Loading base model %s", args.base_model)
@@ -212,16 +224,23 @@ def main() -> None:
     if getattr(model, "enable_input_require_grads", None):
         model.enable_input_require_grads()
 
-    lora = LoraConfig(
-        r=args.lora_rank,
-        lora_alpha=args.lora_alpha,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj"],
-        lora_dropout=0.05,
-        bias="none",
-        task_type=TaskType.CAUSAL_LM,
-    )
-    model = get_peft_model(model, lora)
+    if args.sft_checkpoint:
+        if not (args.sft_checkpoint / "adapter_config.json").is_file():
+            raise ValueError("SFT parent has no adapter_config.json")
+        if args.sft_checkpoint.resolve() == args.output_dir.resolve():
+            raise ValueError("SFT output must not overwrite its accepted parent")
+        model = load_sft_parent(model, args.sft_checkpoint, PeftModel)
+    else:
+        lora = LoraConfig(
+            r=args.lora_rank,
+            lora_alpha=args.lora_alpha,
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                            "gate_proj", "up_proj", "down_proj"],
+            lora_dropout=0.05,
+            bias="none",
+            task_type=TaskType.CAUSAL_LM,
+        )
+        model = get_peft_model(model, lora)
     model.print_trainable_parameters()
 
     logger.info("Loading dataset from %s", args.train_file)
