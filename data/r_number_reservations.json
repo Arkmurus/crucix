@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3877,
+  "next_available": 3878,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32695,18 +32695,20 @@
       "title": "search health is blind to blocked engines - consume SearXNG unresponsive_engines",
       "claimed_at": "2026-08-11T14:35:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b0e089a4",
+      "notes": null,
+      "shipped_at": "2026-08-11T15:24:37Z"
     },
     {
       "r_number": "R-F3874",
       "title": "Brave headroom gauge fed only by 429 - read published limits on every response",
       "claimed_at": "2026-08-11T14:35:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8ca447de",
+      "notes": null,
+      "shipped_at": "2026-08-11T15:24:37Z"
     },
     {
       "r_number": "R-F3875",
@@ -32723,9 +32725,20 @@
       "title": "aria-web 360: design-partners nav SVG escaped to text; account _sym out of scope",
       "claimed_at": "2026-08-11T14:53:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5a29e7d6",
+      "notes": null,
+      "shipped_at": "2026-08-11T15:12:00Z"
+    },
+    {
+      "r_number": "R-F3877",
+      "title": "recognize none as sanctions negation",
+      "claimed_at": "2026-08-11T15:14:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0c33fefe",
+      "notes": null,
+      "shipped_at": "2026-08-11T15:25:38Z"
     }
   ]
 }

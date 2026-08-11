@@ -439,3 +439,66 @@ redundancy loss, not a blackout. `plan_limits` will only populate once the live
 server itself calls Brave — verified by parsing real headers, not by waiting for
 it. The full §16 suite was NOT re-measured: a peer agent and Codex were both
 committing, and §16 is explicit that a moving tree makes it `VALID=NO`.
+
+---
+
+## Session 2026-08-11 (continuation) — the two "left open, honestly" items, closed
+
+**R-numbers shipped: 2** — R-F3873 (`b0e089a4`), R-F3874 (`8ca447de`). Both live and
+verified: `aria-intel` build_rev advanced `d0efeb34` → `8ca447de` → `729055df` via
+workflow dispatch (peer had uncommitted work in `public/`, so `deploy.ps1` was
+excluded per §11).
+
+**The finding: both open items were one defect, and neither was what it looked like.**
+Each had been framed as *waiting on the world* — an IP block to lift, organic Brave
+traffic to arrive. In both cases **the provider was already publishing the answer on
+every single response and ARIA was discarding it.**
+
+- **R-F3873.** SearXNG reported `yep: "Suspended: access denied"` while
+  `/api/aria/search/health` reported it as the **healthiest engine on the board**
+  (`total: 81, ratio: 0.025, quarantined: false`) — measured in the same second.
+  `record_observation` is driven by engines appearing in RESULT ROWS, inside
+  `if normalised:`, so a blocked engine accrues no observations and its ratio stays
+  perfect forever. A source that stopped answering was indistinguishable from one
+  never asked. §27d had already made that surface BINDING for future sessions, so the
+  instrument everyone was told to trust could not show a dead engine. A repo-wide grep
+  for `unresponsive_engines` found no consumer at all.
+- **R-F3874.** `_search_brave` passed `headers=` on exactly ONE of five branches: the
+  **429**. So the gauge built to warn at 80% consumed could only ever be fed by the
+  exhaustion it exists to pre-empt. Sharpest detail: R-F3870's own docstring records
+  those headers being measured on an `HTTP 200 with results` — a branch its fix did
+  not read. The previous session's "it just needs live traffic" was therefore wrong;
+  traffic would never have populated it.
+- **Third, and the one that would have bitten hardest:** `usage_report` read through
+  non-strict `get`/`get_json`, so a wedged store rendered as `monthly: {}, plan_limits:
+  null` — "Brave was never called" — indistinguishable from a healthy quiet key. §17's
+  `spent_usd: 0.0` fabricated-P0 shape, reproduced inside the module written to prevent
+  that class.
+
+**Live proof, driven through the operator's real path** (`POST /api/aria/search/web`):
+`blocked: ['wikidata','yep']` with `wikipedia serving=True`, and **`wikidata` was a
+SECOND dark engine** ("Suspended: too many requests") that had been reporting perfect
+health. Later, on organic traffic, `plan_limits_state` moved `never_observed` → **`fresh`**
+with real windows recorded from a **success** — R-F3874's exact capability, proven by
+production rather than asserted.
+
+**Verification caught what reading did not.** Pass 1 found 4 regressions: reading
+`resp.headers` put an attribute access inside the try/except that converts any
+exception into a failed search, so a metering line could turn a served result set into
+a backend failure. Contained by `_safe_headers()` mirroring the existing `_safe_body()`
+— same hazard as R-F3857. Pass 2 clean: 1494 passed, the only 2 failures both already
+in the recorded §16 baseline.
+
+**Also corrected:** the `searxng/settings.yml` status comment now points at the live
+`engine_relevance.blocked` measurement instead of asserting a frozen snapshot — that
+file's whole history is such snapshots rotting.
+
+**Flagged, not silently fixed:** `docs/cure/defects.md` collided TWICE in one day
+(C-23 and C-24 both duplicated — a peer agent allocated C-24 hours apart from me). I
+renumbered my own entry to C-25 and left the rest, because the register has **no
+allocator**: R-numbers stopped colliding only when §2 gave them a reservation log after
+9 collisions in 50h. C-numbers are still claimed by writing one into a heading. That is
+a mechanism gap and the operator's call.
+
+**Not done:** the full §16 suite re-measurement — the peer was committing throughout, and
+§16 is explicit that a moving tree reads `VALID=NO`.
