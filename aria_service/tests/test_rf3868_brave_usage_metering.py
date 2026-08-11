@@ -86,14 +86,21 @@ def test_a_junk_quota_is_unknown_not_a_default(monkeypatch):
     assert bu.monthly_quota() is None
 
 
+# R-F3874 CHANGED THE READ CONTRACT ON PURPOSE, so these two patch the STRICT
+# readers. `usage_report` used to read through the non-strict get/get_json, whose
+# None-on-error contract made a wedged store render as `monthly: {}` — a measured
+# zero. It now reads strictly and DECLARES an unreadable store. Patching the old
+# readers here would leave these tests green while driving none of the real path,
+# which is the §23 "a test that is green while the live flow fails" failure.
+
 @pytest.mark.asyncio
 async def test_the_report_refuses_to_compute_a_percentage_without_a_quota(monkeypatch):
     monkeypatch.delenv("BRAVE_MONTHLY_QUOTA", raising=False)
 
     async def _get(k): return "40" if k.endswith(":total") else None
     async def _get_json(k): return None
-    monkeypatch.setattr(bu.rs, "get", _get)
-    monkeypatch.setattr(bu.rs, "get_json", _get_json)
+    monkeypatch.setattr(bu.rs, "get_strict", _get)
+    monkeypatch.setattr(bu.rs, "get_json_strict", _get_json)
 
     rep = await bu.usage_report()
     assert rep["quota"] is None
@@ -108,8 +115,8 @@ async def test_the_report_computes_headroom_once_a_quota_is_known(monkeypatch):
 
     async def _get(k): return "250" if k.endswith(":total") else None
     async def _get_json(k): return None
-    monkeypatch.setattr(bu.rs, "get", _get)
-    monkeypatch.setattr(bu.rs, "get_json", _get_json)
+    monkeypatch.setattr(bu.rs, "get_strict", _get)
+    monkeypatch.setattr(bu.rs, "get_json_strict", _get_json)
 
     rep = await bu.usage_report()
     assert rep["quota"] == 1000

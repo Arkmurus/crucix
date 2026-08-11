@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3871,
+  "next_available": 3877,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32669,6 +32669,63 @@
       "commit_sha": "d0efeb34",
       "notes": null,
       "shipped_at": "2026-08-11T14:22:54Z"
+    },
+    {
+      "r_number": "R-F3871",
+      "title": "P0: sidebar escapeText was method-scoped, breaking page init on every page",
+      "claimed_at": "2026-08-11T14:23:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "456d13e6",
+      "notes": null,
+      "shipped_at": "2026-08-11T14:35:33Z"
+    },
+    {
+      "r_number": "R-F3872",
+      "title": "Node tier: execution smoke for the shared front-end modules",
+      "claimed_at": "2026-08-11T14:29:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f308d6d7",
+      "notes": null,
+      "shipped_at": "2026-08-11T14:35:33Z"
+    },
+    {
+      "r_number": "R-F3873",
+      "title": "search health is blind to blocked engines - consume SearXNG unresponsive_engines",
+      "claimed_at": "2026-08-11T14:35:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3874",
+      "title": "Brave headroom gauge fed only by 429 - read published limits on every response",
+      "claimed_at": "2026-08-11T14:35:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3875",
+      "title": "parameterize curve DPO count gate",
+      "claimed_at": "2026-08-11T14:39:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "93ec21c1",
+      "notes": null,
+      "shipped_at": "2026-08-11T14:49:47Z"
+    },
+    {
+      "r_number": "R-F3876",
+      "title": "aria-web 360: design-partners nav SVG escaped to text; account _sym out of scope",
+      "claimed_at": "2026-08-11T14:53:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

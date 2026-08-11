@@ -555,6 +555,24 @@ def _safe_body(resp: Any) -> str:
         return ""
 
 
+def _safe_headers(resp: Any) -> Any:
+    """The response headers, or None — reading them must never break the search.
+
+    R-F3874. The headers are now read on the SUCCESS path, which sits inside the
+    try/except that converts any exception into a failed search and a `timeout`
+    metering record. An attribute access added for observability must not be able
+    to turn a served result set into a backend failure: that is the same shape as
+    R-F3857, where a gate added for correctness emptied result sets and made a
+    detected failure read as `ok=True, count=0`.
+
+    Mirrors `_safe_body` deliberately — same hazard, same containment.
+    """
+    try:
+        return getattr(resp, "headers", None)
+    except Exception:
+        return None
+
+
 async def _brave_meter(outcome: str, *, status: int | None = None,
                        body: str = "", headers: Any = None) -> None:
     """Count one Brave call. Metering must NEVER break the search it observes.
@@ -613,17 +631,19 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en",
                 # OpenSanctions defect of reporting the second as the first: a wrong
                 # cause pointing at a wrong fix. Retrying cannot clear a spent plan.
                 await _brave_meter("rate_limited", status=429,
-                                   body=_safe_body(resp), headers=resp.headers)
+                                   body=_safe_body(resp), headers=_safe_headers(resp))
                 logger.info("Brave search rate-limited (429) for %r — falling back to free stack", query[:60])
                 return []
             if resp.status_code in (401, 403):
                 _cb.record_failure(reason="auth")
-                await _brave_meter("auth_failed", status=resp.status_code)
+                await _brave_meter("auth_failed", status=resp.status_code,
+                                   headers=_safe_headers(resp))
                 logger.warning("Brave search auth failed (%s) — check BRAVE_SEARCH_API_KEY secret", resp.status_code)
                 return []
             if resp.status_code != 200:
                 _cb.record_failure(reason=classify_status(resp.status_code))
-                await _brave_meter("http_error", status=resp.status_code)
+                await _brave_meter("http_error", status=resp.status_code,
+                                   headers=_safe_headers(resp))
                 return []
             data = resp.json()
             web = (data.get("web") or {}).get("results") or []
@@ -645,7 +665,14 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en",
             # failures cannot answer "how much of the plan have we used", which is
             # the question that matters BEFORE the plan is spent. `empty` is tracked
             # separately from `ok` because a 200-with-zero still consumes quota.
-            await _brave_meter("ok" if results else "empty", status=200)
+            # R-F3874 — and pass the HEADERS. Brave publishes x-ratelimit-limit/
+            # -remaining/-reset/-policy on every response, including this one; R-F3870
+            # measured them on an HTTP 200 with results. Passing them only on the 429
+            # branch meant `plan_limits` could be written ONLY by a 429 — the gauge
+            # built to warn at 80% consumed could be fed only by the exhaustion it
+            # exists to pre-empt, so its warning path was unreachable in production.
+            await _brave_meter("ok" if results else "empty", status=200,
+                               headers=_safe_headers(resp))
             # R-F3051 — 200-with-zero means over-constrained, not unavailable. Retry
             # ONCE with the qualifier terms dropped (quoted phrase + OR-block kept).
             # Bounded to a single extra call so a genuinely zero-result subject costs

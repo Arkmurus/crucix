@@ -59,6 +59,10 @@ _MONTH_TTL = 34_560_000
 _DAY_TTL = 2 * 86_400
 #: Warn once consumption crosses this fraction of a KNOWN quota.
 _WARN_AT = 0.8
+#: R-F3874 — beyond this, a plan reading is a historical note, not current headroom.
+#: A plan can be downgraded between observations, so presenting an old window as
+#: available capacity would be a fabricated reassurance.
+_PLAN_STALE_S = 86_400
 
 #: Outcomes worth separating. "ok" is the only one that returned results.
 OUTCOMES = ("ok", "rate_limited", "auth_failed", "http_error", "timeout", "empty")
@@ -326,22 +330,82 @@ async def _maybe_warn_headroom() -> None:
 
 @fail_wire(module="brave_usage", gap_type="engine_failure")
 async def usage_report() -> dict[str, Any]:
-    """What ARIA knows about her paid search engine's consumption (§25.3)."""
+    """What ARIA knows about her paid search engine's consumption (§25.3).
+
+    R-F3874 — THIS REPORT USED TO RENDER ITS OWN BLINDNESS AS A CLEAN BILL OF HEALTH.
+
+    It read through the non-strict `get`/`get_json`, whose documented contract
+    returns `None` on a STORE FAILURE exactly as it does for a genuinely absent key
+    (R-F1, redis_store.py:299-303). A wedged store therefore produced
+    `monthly: {}, plan_limits: null` — "Brave has never been called and advertises no
+    limits" — which is indistinguishable from a healthy, quiet key.
+
+    That is §17's fabricated-P0 shape (`spent_usd: 0.0` from a probe with no store
+    connection, which nearly became a P0 against a meter reading $48.26) reproduced
+    INSIDE the module written to prevent that class, and it is the same absence-
+    reads-as-health defect as the three Phase A gates in §1. A meter that cannot say
+    "I could not measure" is not a meter.
+
+    So the strict readers are used and a failure is DECLARED. `store_readable: False`
+    with `monthly: None` is an honest unknown; `store_readable: True` with
+    `monthly: {}` is a real, measured zero. They must never look alike again.
+    """
     month, day = _month(), _day()
     out: dict[str, Any] = {"month": month, "day": day}
+    readable = True
+
     for label, prefix, key in (("monthly", _MONTH_PREFIX, month),
                                ("daily", _DAY_PREFIX, day)):
         counts: dict[str, int] = {}
+        failed = False
         for field in ("total",) + OUTCOMES:
             try:
-                v = await rs.get(f"{prefix}{key}:{field}")
+                v = await rs.get_strict(f"{prefix}{key}:{field}")
             except Exception:
-                v = None
+                # Store-layer failure: this count is UNKNOWN, not zero.
+                failed = True
+                break
             if v:
-                counts[field] = int(v)
-        out[label] = counts
+                try:
+                    counts[field] = int(v)
+                except (TypeError, ValueError):
+                    pass
+        if failed:
+            readable = False
+            out[label] = None
+        else:
+            out[label] = counts
+
+    out["store_readable"] = readable
+
+    # R-F3870 — the provider's own accounting, which beats any number we guess.
+    # R-F3874 — with an explicit state, because "no reading" and "an unreadable
+    # store" and "a reading from six weeks ago" are three different situations and
+    # only one of them is headroom you can act on.
+    plan: Any = None
+    try:
+        plan = await rs.get_json_strict(_PLAN_KEY)
+        if not isinstance(plan, dict) or not plan.get("windows"):
+            plan, state = None, "never_observed"
+        else:
+            age = max(0.0, time.time() - float(plan.get("at") or 0))
+            plan = dict(plan)
+            plan["age_s"] = round(age, 1)
+            state = "stale" if age > _PLAN_STALE_S else "fresh"
+    except Exception:
+        readable, plan, state = False, None, "unreadable"
+        out["store_readable"] = False
+    out["plan_limits"] = plan
+    out["plan_limits_state"] = state
+
+    try:
+        out["last_429"] = await rs.get_json_strict(_STATE_KEY)
+    except Exception:
+        out["last_429"] = None
+        out["store_readable"] = False
+
     quota = monthly_quota()
-    used = int(out.get("monthly", {}).get("total") or 0)
+    used = int((out.get("monthly") or {}).get("total") or 0)
     out["quota"] = quota
     if quota:
         out["remaining"] = max(0, quota - used)
@@ -350,14 +414,23 @@ async def usage_report() -> dict[str, Any]:
         # Never a number nobody verified. See the module docstring.
         out["remaining"] = None
         out["utilisation_pct"] = None
-        out["quota_hint"] = "set BRAVE_MONTHLY_QUOTA to enable headroom + pre-exhaustion alerts"
-    try:
-        out["last_429"] = await rs.get_json(_STATE_KEY)
-    except Exception:
-        out["last_429"] = None
-    # R-F3870 — the provider's own accounting, which beats any number we guess.
-    try:
-        out["plan_limits"] = await rs.get_json(_PLAN_KEY)
-    except Exception:
-        out["plan_limits"] = None
+        # R-F3874 — and do NOT ask the operator for a ceiling the provider has
+        # already published. R-F3870's lesson is "measuring beats asking"; a
+        # fabricated task is how a real one gets ignored.
+        if not _publishes_a_real_ceiling(plan, state):
+            out["quota_hint"] = (
+                "set BRAVE_MONTHLY_QUOTA to enable headroom + pre-exhaustion alerts")
     return out
+
+
+def _publishes_a_real_ceiling(plan: Any, state: str) -> bool:
+    """True when the provider itself gave us a usable cap on a long window.
+
+    `capped` is load-bearing: R-F3870 measured `limit 0` on the 31-day window of an
+    HTTP 200 WITH RESULTS, which means "no cap advertised", never "exhausted".
+    A stale reading does not count — a plan can be downgraded between observations.
+    """
+    if state != "fresh" or not isinstance(plan, dict):
+        return False
+    return any(w.get("capped") and (w.get("window_s") or 0) >= 3600
+               for w in (plan.get("windows") or []) if isinstance(w, dict))
