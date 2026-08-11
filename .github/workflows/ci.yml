@@ -209,6 +209,24 @@ jobs:
         continue-on-error: true
         run: npm test
 
+      # R-F3855 — the DOM-XSS guards HARD-GATE, on their own step.
+      #
+      # The step above is `continue-on-error: true` because the Node suite carries
+      # 8 standing failures, so it can report a regression but cannot block one.
+      # That is fine for a broad suite and useless for a security invariant: it
+      # made these two guards advisory, which is the same "gate nobody has seen
+      # fire" that §16 records for R-F3373.
+      #
+      # They are split out here with NO continue-on-error, so an unescaped
+      # interpolation or an unguarded URL sink fails the build. Both are green
+      # (132/132) and both have been proven to fire on an injected regression, so
+      # a red here is a real finding, never inherited noise.
+      - name: DOM-XSS guards (must pass)
+        run: >
+          node --test --test-force-exit
+          test/html-interpolation-guard-rf3845.test.mjs
+          test/url-sink-guard-rf3851.test.mjs
+
       # R-F1835: DD quality scorer.  R-F1840: dropped the `|| true` that hid the
       # exit code entirely — a real regression (or "no golden entries" because
       # CI has no LLM) now surfaces as a visible CI warning instead of being

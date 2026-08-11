@@ -183,11 +183,15 @@ describe('R-F3845 the raw list is exactly what was justified, no more', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 const CONCAT_JUSTIFIED = {
   'public/account.html': new Set([
+    '(cap || 0)',
+    "(f.on ? 'check-circle-fill' : 'dash-circle')",
+    "(warn ? ' warn' : '')",
     '_sym(t.currency)',
     'ctaBtn',
     'f.txt',
     'label',
     't.label',
+    't.priceAmount',
     'value',
   ]),
   'public/admin.html': new Set([
@@ -199,6 +203,7 @@ const CONCAT_JUSTIFIED = {
     'confClass',
   ]),
   'public/aria.html': new Set([
+    "(thinkMode ? 'Analysing…' : 'Thinking…')",
     'c',
     'cells(row)',
     'code.trim()',
@@ -216,8 +221,10 @@ const CONCAT_JUSTIFIED = {
     'label',
     'lbl',
     'sl.patternsObserved.map(function(p){return escHtml(p);})',
+    'val',
   ]),
   'public/dashboard.html': new Set([
+    '(Number(o.score) || 0)',
     '_wlSize',
     'dateStr',
     'emptyMsg',
@@ -249,6 +256,8 @@ const CONCAT_JUSTIFIED = {
     's',
   ]),
   'public/js/app.js': new Set([
+    "(f.html || escHtml(f.value || ''))",
+    '(f.options || [])',
     'bodyHtml',
     'fields.map(fieldHtml)',
     'icon',
@@ -267,6 +276,7 @@ const CONCAT_JUSTIFIED = {
     'fmtDate(lead.verified_at)',
   ]),
   'public/news.html': new Set([
+    '(data.articles_new || 0)',
     'count',
     'formatTime(a.detected_at || a.published)',
     'known',
@@ -281,10 +291,14 @@ const CONCAT_JUSTIFIED = {
     'filled',
     'label',
     'lastTs',
+    'n',
     'pct',
+    'pending',
     's.filled',
     's.total',
     'state.badgeClass',
+    'state.badgeLabel',
+    'stateLabel',
     'total',
     'trendHtml',
   ]),
@@ -293,6 +307,7 @@ const CONCAT_JUSTIFIED = {
     'colorHint',
   ]),
   'public/vetting-portal.html': new Set([
+    "(isReferee ? 'Confirm an engagement' : 'Upload your documents')",
     'o.still_needed',
   ]),
   'public/vls-chain.html': new Set([
@@ -301,6 +316,7 @@ const CONCAT_JUSTIFIED = {
     'v',
   ]),
   'public/wa-connections.html': new Set([
+    "(data.account?.status === 'connected' ? 'Already connected. No QR needed' : 'No QR code yet. Try again in a few seconds.')",
     'html',
   ]),
   'public/watchlist.html': new Set([

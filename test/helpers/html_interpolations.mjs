@@ -247,26 +247,45 @@ export function classifyConcatOperands(rawSrc, isRawIdent = () => false) {
    * `items.map` — which then classifies as an unescaped value when it is in fact
    * a markup-emitting call. Twelve operands across public/ hit exactly that.
    */
+  const balanced = (i) => {
+    let depth = 0;
+    let j = i;
+    for (; j < src.length; j += 1) {
+      if (src[j] === '(') depth += 1;
+      else if (src[j] === ')') { depth -= 1; if (!depth) { j += 1; break; } }
+    }
+    return j;
+  };
   const readOperand = (i) => {
+    // A PARENTHESISED operand — `'<code>' + (e.msg || 'unknown') + '</code>'` —
+    // starts with '(' and matched no identifier, so it was invisible. That is how
+    // the aria-brain error banner shipped with a raw `e.msg` in innerHTML.
+    if (src[i] === '(') return src.slice(i, balanced(i));
     const m0 = /^[A-Za-z_$][\w$.]*/.exec(src.slice(i));
     if (!m0) return null;
     let j = i + m0[0].length;
-    if (src[j] === '(') {
-      let depth = 0;
-      for (; j < src.length; j += 1) {
-        if (src[j] === '(') depth += 1;
-        else if (src[j] === ')') { depth -= 1; if (!depth) { j += 1; break; } }
-      }
-    }
+    if (src[j] === '(') j = balanced(j);
     return src.slice(i, j);
   };
 
   // `<literal containing markup>' + OPERAND`
-  const re = /(['"])((?:(?!\1)[\s\S]){0,400}?<\s*\/?\s*[a-zA-Z][^>]*>(?:(?!\1)[\s\S]){0,400}?)\1\s*\+\s*(?=[A-Za-z_$])/g;
+  // Accepts a PARENTHESISED operand too: `'<code>' + (e.msg || 'x')` matched no
+  // identifier and was invisible — that is how the aria-brain error banner
+  // shipped with a raw `e.msg` in innerHTML.
+  const re = /(['"])((?:(?!\1)[\s\S]){0,400}?<\s*\/?\s*[a-zA-Z][^>]*>(?:(?!\1)[\s\S]){0,400}?)\1\s*\+\s*(?=[A-Za-z_$(])/g;
+  // Direction 2: `OPERAND + '</div>…'`. A guard that reads only the literal-first
+  // direction misses every value that PRECEDES its closing tag — which is half of
+  // every concatenated builder in this tree (126 live sites when measured).
+  /** 1-indexed line for an absolute offset; shared by both scan directions. */
+  const lineAt = (idx) => src.slice(0, idx).split(String.fromCharCode(10)).length;
+  const before = /([A-Za-z_$][\w$.]*(?:\([^()]*\))?|\)[^+]{0,4})\s*\+\s*(['"])\s*<\s*\/?\s*[a-zA-Z][^>]{0,200}?>/g;
+  const seenAt = new Set();
+
   let m;
   while ((m = re.exec(src)) !== null) {
     const operandRaw = readOperand(m.index + m[0].length);
     if (!operandRaw) continue;
+    seenAt.add(m.index + m[0].length);
     const operand = operandRaw.trim();
     const head = operand.split(/[.(]/)[0];
     const line = src.slice(0, m.index).split('\n').length;
@@ -301,6 +320,34 @@ export function classifyConcatOperands(rawSrc, isRawIdent = () => false) {
       out.escaped += 1;
       continue;
     }
+    if (/\.replace\(\s*\/</.test(operand)) { out.escaped += 1; continue; }
+    out.unescaped.push({ expr: operand, line });
+  }
+
+  // Direction 2 pass. Reuses the SAME classification below via classifyOne so the
+  // two directions cannot disagree about what counts as escaped.
+  let m2;
+  while ((m2 = before.exec(src)) !== null) {
+    const operand = m2[1].trim().replace(/^\)/, '');
+    if (!operand || /^[)\s]*$/.test(operand)) continue;
+    // A BARE method call is the tail of a longer chain — `esc(x).trim()` yields
+    // `trim()`. The chain's head is classified by the forward pass; reporting
+    // the tail as its own operand is noise, not a finding.
+    if (/^(join|trim|slice|replace|toUpperCase|toLowerCase|toLocaleString|toLocaleDateString|toFixed|map|filter|concat|split|padStart|padEnd|repeat)\s*\(/.test(operand)) continue;
+    if (seenAt.has(m2.index)) continue;
+    const head = operand.split(/[.(]/)[0];
+    const line = lineAt(m2.index);
+    if (ESC_CALL.test(operand) || ESC_CALL.test(head + '(')) { out.escaped += 1; continue; }
+    if (isFullyEscaped(operand)) { out.escaped += 1; continue; }
+    if (isRawIdent(operand) || isRawIdent(head)) { out.raw.push(operand); continue; }
+    if (MARKUP_FRAGMENT.test(operand)
+        || MARKUP_FRAGMENT.test(declarationOf(src, head))
+        || MARKUP_FRAGMENT.test(functionBodyOf(src, head))) { out.raw.push(operand); continue; }
+    if (NUMERIC_OPERAND.test(operand)) { out.escaped += 1; continue; }
+    if (/\.map\(\s*(escText|escAttr|escHtml|escapeHtml|escapeText|esc)\s*\)/.test(operand)) { out.escaped += 1; continue; }
+    const d2 = declarationOf(src, head);
+    if (ESC_CALL.test(d2) || /(escText|escAttr|escHtml|escapeHtml|escapeText|esc)\s*\(/.test(d2)
+        || /\.replace\(\s*\/</.test(d2)) { out.escaped += 1; continue; }
     if (/\.replace\(\s*\/</.test(operand)) { out.escaped += 1; continue; }
     out.unescaped.push({ expr: operand, line });
   }

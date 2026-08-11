@@ -1384,3 +1384,64 @@ instance's health no longer decides whether a customer report is honest.
 
 Tests: `aria_service/tests/test_rf3853_per_engine_query_independence.py` — 7 RED pre-fix,
 7 GREEN post-fix; 26 pass across R-F3844/R-F3847/R-F3853.
+
+---
+
+### C-22 · Deep review of C-19..C-21 — one more live XSS, four analyser blind spots — **R-F3855, 2026-08-11**
+
+An adversarial review of my own guards, on the principle that a control is only worth
+what it can SEE. Four blind spots were probed for deliberately, three were live in this
+codebase, and one of them was hiding a real vulnerability.
+
+**THE LIVE DEFECT: `aria-brain.html` JS-error banner (:176).**
+`'<code>' + (e.where || 'error') + '</code>: ' + (e.msg || 'unknown')` went straight into
+`innerHTML`. `msg` is a JS error message or an unhandled-rejection reason, so on a page
+that talks to the brain it routinely carries SERVER text — **an error path is precisely
+where a hostile string arrives**, which is what makes this worse than an ordinary sink.
+
+Rebuilt from DOM nodes, not escaped — and that choice is load-bearing. This IIFE is the
+FIRST script block (:168); `js/app.js` loads at :203 and `escapeHtml` is defined at
+:2516. An escaper call here would have been a `ReferenceError` for any error thrown
+during early boot, i.e. the banner whose entire job is to report breakage would itself
+break, silently, in exactly the case it exists for. `textContent` needs nothing loaded.
+
+**WHY THE GUARD MISSED IT — blind spot 1: parenthesised operands.** The concat scanner
+read operands matching `[A-Za-z_$][\w$.]*`. `(e.msg || 'unknown')` starts with `(`, so it
+was invisible. Fixed; the scanner now balances parentheses from either an identifier or
+an open bracket.
+
+**Blind spot 2: only one side of the concatenation was read.** The scanner matched
+`'<div>' + OPERAND` and never `OPERAND + '</div>'` — half of every concatenated builder
+in this tree, **126 live sites**. Both directions are scanned now, sharing one
+classification path so they cannot disagree. Thirty operands became visible; all thirty
+resolved to counts, literal ternaries or formatters, and are justified by name.
+
+**Blind spot 3, and the one still OPEN: a raw variable that mixes markup with a value.**
+Raw-ness is decided by finding markup in a declaration — so
+`const x = cond ? '<b>ok</b>' : userInput` excuses the WHOLE variable and `userInput` is
+never reported. **20 such variables exist.** Two were resolved by hand: `issueNote`
+(both parts escaped, safe) and `rows` — which was the error-banner bug above. **The other
+18 are unverified** and are tracked, not closed. This is the honest residual of this
+whole effort: the guard's raw rule is a positive-proof rule, and this is the one shape
+where positive proof of markup does not imply absence of a sink.
+
+**Blind spot 4 was already covered:** `insertAdjacentHTML`, `outerHTML` and
+`document.write` are all seen by the existing scanners — probed and confirmed.
+
+**AND THE GUARDS WERE NOT GATING.** `ci.yml` runs `npm test` on push and pull_request —
+with `continue-on-error: true`, because the Node suite carries 8 standing failures. So
+both DOM-XSS guards ran in CI and **could not fail the build**: advisory, which is the
+same "gate nobody has seen fire" this register records for R-F3373. They now have their
+own step with no `continue-on-error`. The broader Node suite still needs a failure-SET
+baseline gate of the kind `scripts/admin/suite_baseline.py` gives Python; that is tracked
+separately, because flipping the existing flag today would just make CI permanently red.
+
+**An R-number collision was caught by the registry**, exactly as §2 intends: R-F3853 was
+taken by a peer commit between reserve and write, and the references were corrected to
+R-F3855 before commit rather than shipping a duplicate.
+
+**Open items from this review, all tracked:** the 18 unverified mixed raw declarations;
+the unbounded `_verifyAttempts`/`_resetAttempts` maps; dd-reports' ad-hoc `<`-only
+escaping; the vendored jQuery 2.1.1 (bounded by C-21, not remediated); the Node-suite
+baseline gate; and escaper sprawl — six names for one job, which caused two of the
+analyser defects in this series and is a refactor needing an operator call under §26.

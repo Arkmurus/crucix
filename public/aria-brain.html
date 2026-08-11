@@ -172,13 +172,36 @@
     var el = document.getElementById('js-error-banner');
     if (!el) return;
     if (seen.length === 0) { el.style.display = 'none'; el.innerHTML = ''; return; }
-    var rows = seen.slice(-5).map(function (e) {
-      return '<code>' + (e.where || 'error') + '</code>: ' + (e.msg || 'unknown');
-    }).join('<br>');
-    var more = seen.length > 5 ? ' <span style="color:#6b6862">(+' + (seen.length - 5) + ' earlier)</span>' : '';
-    el.innerHTML =
-      '<strong>⚠️ Page-script error. UI handlers may not work.</strong> '
-      + 'Hard-refresh (Ctrl+Shift+R) often clears stale cache. Recent:' + more + '<br>' + rows;
+    // R-F3855 — this banner put `e.msg` and `e.where` RAW into innerHTML.
+    // `msg` is a JS error message or an unhandled-rejection reason, so on a page
+    // that talks to the brain it routinely carries SERVER text — an error path is
+    // exactly where a hostile string arrives. Built from DOM nodes now.
+    //
+    // DOM rather than an escaper on purpose: this IIFE is the FIRST script block
+    // (:168) and runs before js/app.js (:203) and before escapeHtml (:2516). An
+    // error thrown during early boot would have called an escaper that did not
+    // exist yet and thrown again inside the error handler, so the banner whose
+    // whole job is to report breakage would silently fail. textContent needs
+    // nothing loaded.
+    el.textContent = '';
+    var head = document.createElement('strong');
+    head.textContent = '⚠️ Page-script error. UI handlers may not work.';
+    el.appendChild(head);
+    el.appendChild(document.createTextNode(
+      ' Hard-refresh (Ctrl+Shift+R) often clears stale cache. Recent:'));
+    if (seen.length > 5) {
+      var extra = document.createElement('span');
+      extra.style.color = '#6b6862';
+      extra.textContent = ' (+' + (seen.length - 5) + ' earlier)';
+      el.appendChild(extra);
+    }
+    seen.slice(-5).forEach(function (e) {
+      el.appendChild(document.createElement('br'));
+      var code = document.createElement('code');
+      code.textContent = e.where || 'error';
+      el.appendChild(code);
+      el.appendChild(document.createTextNode(': ' + (e.msg || 'unknown')));
+    });
     el.style.display = 'block';
   }
   function record(where, msg) {
