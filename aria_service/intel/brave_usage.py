@@ -16,11 +16,20 @@ that failure lands mid-report, on a customer. An unmeasured dependency reads
 exactly like a healthy one — the same shape as the §1 gates certified by an absence
 and the §17 cost probe that read `0.0` because it had no connection.
 
-WHAT THIS DELIBERATELY DOES NOT DO: invent headroom. Brave does not publish the
-plan's remaining allowance on the response, and we do not know this plan's monthly
-ceiling. So consumption is COUNTED (which we can do honestly) and headroom is
-reported as `unknown` until an operator sets `BRAVE_MONTHLY_QUOTA`. A fabricated
-denominator would be worse than no gauge: it would read as reassurance.
+WHAT THIS DELIBERATELY DOES NOT DO: invent headroom. A fabricated denominator
+would be worse than no gauge, because it reads as reassurance.
+
+R-F3870 CORRECTION — an earlier version of this docstring said "Brave does not
+publish the plan's remaining allowance on the response". That was FALSE and is
+left here as the correction rather than quietly deleted. Brave publishes
+`x-ratelimit-limit / -remaining / -reset / -policy` on EVERY response, so ARIA
+reads her own headroom from the provider's accounting (`parse_rate_limit_headers`)
+instead of depending on an operator-supplied number that goes stale.
+`BRAVE_MONTHLY_QUOTA` remains supported as an override for a ceiling the headers
+do not advertise, but it is no longer the only source — and it was never a good one.
+
+The lesson generalises: before filing "the operator must tell us X", check whether
+the provider already does. Measuring beats asking.
 
 THE 429 DISTINCTION IS LOAD-BEARING. §18 records the OpenSanctions defect where a
 monthly-quota exhaustion was reported as a rate limit — "a wrong cause pointing at
@@ -44,6 +53,7 @@ logger = logging.getLogger("aria.brave_usage")
 _MONTH_PREFIX = "crucix:aria:brave:usage:month:"      # + YYYY-MM
 _DAY_PREFIX = "crucix:aria:brave:usage:day:"          # + YYYY-MM-DD
 _STATE_KEY = "crucix:aria:brave:usage:state"          # last 429, classification
+_PLAN_KEY = "crucix:aria:brave:plan_limits"           # R-F3870: provider-published limits
 #: 400 days, mirroring cost_tracker.COST_MONTH_TTL — long enough to be a record.
 _MONTH_TTL = 34_560_000
 _DAY_TTL = 2 * 86_400
@@ -118,6 +128,109 @@ def classify_429(body: str, headers: Any = None) -> str:
     return "rate_limit_or_unknown"
 
 
+def parse_rate_limit_headers(headers: Any) -> list[dict[str, Any]]:
+    """Brave PUBLISHES its own limits — read them instead of asking the operator.
+
+    R-F3870. Measured live on the production key:
+
+        x-ratelimit-limit     = 50, 0
+        x-ratelimit-policy    = 50;w=1, 0;w=2678400
+        x-ratelimit-remaining = 49, 0
+        x-ratelimit-reset     = 1, 1763914
+
+    Two windows, comma-separated and positionally aligned across all four headers:
+    a 1-second window (limit 50, 49 left) and a 2,678,400s ≈ 31-day window. So ARIA
+    can measure her own headroom directly, which is a better answer than
+    BRAVE_MONTHLY_QUOTA — an operator-supplied number is a guess that goes stale,
+    this is the provider's own accounting.
+
+    THE TRAP, AND IT IS THE WHOLE REASON THIS FUNCTION IS CAREFUL. The 31-day
+    window reports `limit 0, remaining 0` — and that same response was **HTTP 200
+    with results**. So `0` here means "no cap advertised on this plan", NOT
+    "exhausted". Reading `remaining == 0` as exhaustion would raise a false P0
+    against a perfectly healthy key: exactly the absence-collapsing-into-a-
+    measurement error that produced the `spent_usd: 0.0` scare (§17) and the three
+    Phase A gates certified by an absence (§1). A window with `limit <= 0` is
+    therefore reported as `capped: False` and is never eligible for an alert.
+    """
+    def _parts(name: str) -> list[str]:
+        try:
+            raw = headers.get(name) if hasattr(headers, "get") else None
+        except Exception:
+            raw = None
+        return [p.strip() for p in str(raw).split(",")] if raw else []
+
+    limits = _parts("x-ratelimit-limit")
+    remaining = _parts("x-ratelimit-remaining")
+    resets = _parts("x-ratelimit-reset")
+    policies = _parts("x-ratelimit-policy")
+
+    out: list[dict[str, Any]] = []
+    for i, lim in enumerate(limits):
+        def _num(seq: list[str], idx: int) -> int | None:
+            try:
+                return int(float(seq[idx]))
+            except (IndexError, ValueError, TypeError):
+                return None
+
+        window = None
+        try:                                   # "0;w=2678400" -> 2678400
+            if i < len(policies) and "w=" in policies[i]:
+                window = int(float(policies[i].split("w=", 1)[1]))
+        except (ValueError, TypeError):
+            window = None
+        lim_n = _num(limits, i)
+        rem_n = _num(remaining, i)
+        capped = bool(lim_n and lim_n > 0)
+        entry: dict[str, Any] = {
+            "window_s": window,
+            "limit": lim_n,
+            "remaining": rem_n,
+            "reset_s": _num(resets, i),
+            # See the docstring: 0 means "no cap advertised", never "exhausted".
+            "capped": capped,
+        }
+        if capped and rem_n is not None:
+            entry["utilisation_pct"] = round((lim_n - rem_n) / lim_n * 100, 2)
+        out.append(entry)
+    return out
+
+
+async def _record_plan_limits(headers: Any) -> None:
+    """Persist what the provider says about our plan, and alert on a REAL cap."""
+    windows = parse_rate_limit_headers(headers)
+    if not windows:
+        return
+    try:
+        await rs.set_json(_PLAN_KEY, {"windows": windows, "at": time.time()})
+    except Exception:
+        logger.debug("[R-F3870] could not persist brave plan limits", exc_info=True)
+    for w in windows:
+        # Only a window the provider actually caps can be near exhaustion, and only
+        # a LONG window is worth alerting on — a 1-second bucket at 90% is normal
+        # pacing, not a problem anyone can act on.
+        if not w.get("capped") or (w.get("window_s") or 0) < 3600:
+            continue
+        lim, rem = w.get("limit") or 0, w.get("remaining")
+        if rem is None or lim <= 0 or (rem / lim) > (1 - _WARN_AT):
+            continue
+        logger.warning("[R-F3870] Brave plan window %ss: %s/%s remaining",
+                       w.get("window_s"), rem, lim)
+        try:
+            from .engine_wiring import wire_failure
+            wire_failure(
+                module="brave_usage",
+                detail=(f"Brave plan window {w.get('window_s')}s is at "
+                        f"{w.get('utilisation_pct')}% ({rem}/{lim} remaining) — DD's "
+                        f"designated search engine is approaching its ceiling. "
+                        f"Operator action required BEFORE exhaustion."),
+                gap_type="search_backend_failure",
+                source="brave_usage:_record_plan_limits",
+            )
+        except Exception:      # pragma: no cover
+            pass
+
+
 @fail_wire(module="brave_usage", gap_type="engine_failure")
 async def record_call(outcome: str, *, status: int | None = None,
                       body: str = "", headers: Any = None) -> None:
@@ -133,6 +246,11 @@ async def record_call(outcome: str, *, status: int | None = None,
                 await rs.expire(f"{prefix}{key}:total", ttl)
         except Exception:
             logger.debug("[R-F3868] brave usage counter write failed", exc_info=True)
+
+    # R-F3870 — Brave publishes its own limits on EVERY response. Read them rather
+    # than relying on an operator-supplied number that goes stale.
+    if headers is not None:
+        await _record_plan_limits(headers)
 
     if status == 429:
         await _note_exhaustion(classify_429(body, headers), body)
@@ -237,4 +355,9 @@ async def usage_report() -> dict[str, Any]:
         out["last_429"] = await rs.get_json(_STATE_KEY)
     except Exception:
         out["last_429"] = None
+    # R-F3870 — the provider's own accounting, which beats any number we guess.
+    try:
+        out["plan_limits"] = await rs.get_json(_PLAN_KEY)
+    except Exception:
+        out["plan_limits"] = None
     return out

@@ -18,10 +18,12 @@ read `0.0` because it had no connection.
 
 TWO PROPERTIES ARE LOAD-BEARING:
 
-  1. NEVER INVENT HEADROOM. We do not know this plan's ceiling and Brave does not
-     return it. Consumption is counted; headroom is `unknown` until an operator
-     sets BRAVE_MONTHLY_QUOTA. A fabricated denominator is worse than no gauge
-     because it reads as reassurance.
+  1. NEVER INVENT HEADROOM. A fabricated denominator is worse than no gauge
+     because it reads as reassurance. R-F3870 CORRECTION: this said "Brave does
+     not return it", which was FALSE — Brave publishes x-ratelimit-* on every
+     response, so ARIA reads the provider's own accounting rather than depending
+     on an operator-supplied number. Before filing "the operator must tell us X",
+     check whether the provider already does.
 
   2. A PACING 429 IS NOT A SPENT PLAN. §18 records the OpenSanctions defect of
      reporting the second as the first — "a wrong cause pointing at a wrong fix",
@@ -178,3 +180,111 @@ async def test_exhaustion_reaches_the_brain(monkeypatch):
     await bu._note_exhaustion("quota_exhausted", "monthly quota exceeded")
     assert seen.get("gap_type") == "search_backend_failure"
     assert "quota_exhausted" in seen.get("detail", "")
+
+
+# ── R-F3870: read the provider's own accounting ────────────────────────────────
+
+#: The exact headers measured on the production key, 2026-08-11.
+_LIVE_HEADERS = {
+    "x-ratelimit-limit": "50, 0",
+    "x-ratelimit-policy": "50;w=1, 0;w=2678400",
+    "x-ratelimit-remaining": "49, 0",
+    "x-ratelimit-reset": "1, 1763914",
+}
+
+
+def test_the_provider_publishes_its_limits_and_we_parse_both_windows():
+    """R-F3870 — a better answer than BRAVE_MONTHLY_QUOTA: the provider's own
+    accounting, on every response, instead of an operator guess that goes stale."""
+    w = bu.parse_rate_limit_headers(_LIVE_HEADERS)
+
+    assert len(w) == 2
+    assert w[0]["window_s"] == 1 and w[0]["limit"] == 50 and w[0]["remaining"] == 49
+    assert w[1]["window_s"] == 2678400          # ~31 days
+
+
+def test_a_zero_limit_window_is_NOT_exhaustion():
+    """THE TRAP. The 31-day window reports limit 0 / remaining 0, and that same
+    response was HTTP 200 WITH RESULTS. So 0 means 'no cap advertised', not
+    'spent'. Reading remaining==0 as exhaustion would raise a false P0 against a
+    healthy key — the same absence-as-measurement error as the §17 `spent_usd: 0.0`
+    scare and the §1 gates certified by an absence."""
+    w = bu.parse_rate_limit_headers(_LIVE_HEADERS)
+
+    assert w[1]["capped"] is False, "limit 0 on a 200 response means UNCAPPED"
+    assert "utilisation_pct" not in w[1], "no percentage against a non-existent cap"
+
+
+def test_a_real_cap_is_marked_capped_and_scored():
+    w = bu.parse_rate_limit_headers({
+        "x-ratelimit-limit": "2000",
+        "x-ratelimit-policy": "2000;w=2678400",
+        "x-ratelimit-remaining": "100",
+        "x-ratelimit-reset": "500000",
+    })
+    assert w[0]["capped"] is True
+    assert w[0]["utilisation_pct"] == 95.0
+
+
+def test_missing_or_malformed_headers_yield_nothing_rather_than_guesses():
+    assert bu.parse_rate_limit_headers({}) == []
+    assert bu.parse_rate_limit_headers(None) == []
+    junk = bu.parse_rate_limit_headers({"x-ratelimit-limit": "abc"})
+    assert junk and junk[0]["limit"] is None and junk[0]["capped"] is False
+
+
+@pytest.mark.asyncio
+async def test_an_uncapped_window_never_alerts(monkeypatch):
+    """The false-P0 guard, end to end: the live headers must produce NO alert."""
+    fired = []
+
+    import aria_service.intel.engine_wiring as ew
+    monkeypatch.setattr(ew, "wire_failure", lambda **kw: fired.append(kw))
+
+    async def _ok(*a, **k): return None
+    monkeypatch.setattr(bu.rs, "set_json", _ok)
+
+    await bu._record_plan_limits(_LIVE_HEADERS)
+    assert fired == [], "an uncapped window must never raise an exhaustion alert"
+
+
+@pytest.mark.asyncio
+async def test_a_genuinely_low_long_window_does_alert(monkeypatch):
+    """The other half: a REAL cap running out must reach the brain before it is
+    spent — the alert that did not exist for OpenSanctions."""
+    fired = []
+
+    import aria_service.intel.engine_wiring as ew
+    monkeypatch.setattr(ew, "wire_failure", lambda **kw: fired.append(kw))
+
+    async def _ok(*a, **k): return None
+    monkeypatch.setattr(bu.rs, "set_json", _ok)
+
+    await bu._record_plan_limits({
+        "x-ratelimit-limit": "2000",
+        "x-ratelimit-policy": "2000;w=2678400",
+        "x-ratelimit-remaining": "100",
+        "x-ratelimit-reset": "500000",
+    })
+    assert fired and fired[0]["gap_type"] == "search_backend_failure"
+
+
+@pytest.mark.asyncio
+async def test_a_busy_one_second_bucket_is_not_an_incident(monkeypatch):
+    """A 1s window at 90% is normal pacing, not something an operator can act on.
+    Alerting on it would train everyone to ignore the alert."""
+    fired = []
+
+    import aria_service.intel.engine_wiring as ew
+    monkeypatch.setattr(ew, "wire_failure", lambda **kw: fired.append(kw))
+
+    async def _ok(*a, **k): return None
+    monkeypatch.setattr(bu.rs, "set_json", _ok)
+
+    await bu._record_plan_limits({
+        "x-ratelimit-limit": "50",
+        "x-ratelimit-policy": "50;w=1",
+        "x-ratelimit-remaining": "2",
+        "x-ratelimit-reset": "1",
+    })
+    assert fired == []
