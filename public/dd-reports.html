@@ -880,7 +880,10 @@ function renderTable(reports) {
     const colors = ['#7c3aed','#2563eb','#16a34a','#ea580c','#dc2626','#0891b2','#9333ea','#ca8a04'];
     const colorIdx = entityName.split('').reduce((a,c) => a + c.charCodeAt(0), 0) % colors.length;
     const avatarColor = colors[colorIdx];
-    const avatarLetter = entityName.charAt(0).toUpperCase();
+    // R-F3845 — one character taken from an entity NAME. A lone `<` cannot open a
+    // tag, so this was not exploitable, but escaping costs nothing and removes the
+    // need for anyone to re-derive that argument.
+    const avatarLetter = escText(entityName.charAt(0).toUpperCase());
 
     // Type icon
     const typeIcon = entityType === 'person' ? 'bi-person' : 'bi-building';

@@ -240,7 +240,10 @@ function _renderFetchFailureBanner() {
     .join(', ');
   const noun = _fetchFailures.size === 1 ? 'endpoint' : 'endpoints';
   banner.innerHTML =
-    `<strong>⚠️ DATA UNAVAILABLE: ${_fetchFailures.size} ${noun} failed to fetch.</strong> `
+    // R-F3845 — a Map size and a local literal, both provably safe. Escaped anyway
+    // so the page carries ONE invariant ("every interpolation is escaped") rather
+    // than a per-value judgement the next editor has to re-derive.
+    `<strong>⚠️ DATA UNAVAILABLE: ${escHtml(_fetchFailures.size)} ${escHtml(noun)} failed to fetch.</strong> `
     + `Panels below may show stale or fallback values. Likely causes: fly.io proxy timeout, `
     + `auth flap, or backend overload. Affected: ${head}.`;
   banner.style.display = 'block';

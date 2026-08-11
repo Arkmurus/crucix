@@ -7,6 +7,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import vm from 'node:vm';
+// R-F3845 — this slice now escapes its output, and escapeHtml is defined outside
+// every slice. Use the PAGE's own copy so the sandbox runs what production runs.
+import { escapeHtmlSource } from './helpers/aria_brain_page.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const html = readFileSync(join(here, '..', 'public', 'aria-brain.html'), 'utf8');
@@ -33,7 +36,8 @@ async function render(payload) {
     },
   };
   vm.createContext(context);
-  vm.runInContext(`${source}; this.runLoader = loadComposite;`, context);
+  vm.runInContext(`${escapeHtmlSource()}
+${source}; this.runLoader = loadComposite;`, context);
   await context.runLoader();
   return elements;
 }

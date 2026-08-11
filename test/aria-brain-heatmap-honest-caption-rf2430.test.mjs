@@ -33,6 +33,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import vm from 'node:vm';
+// R-F3845 — the PAGE's own escapeHtml, for the same reason as the sibling tests.
+import { escapeHtmlSource } from './helpers/aria_brain_page.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HTML = readFileSync(join(__dirname, '..', 'public', 'aria-brain.html'), 'utf8');
@@ -55,7 +57,9 @@ async function render(fixture) {
     pct: (x) => (x == null ? '--' : Math.round(x * 100) + '%'),
   };
   vm.createContext(sb);
-  vm.runInContext(SRC + '\n;globalThis.__lh = loadHeatmap;', sb);
+  // R-F3845 — the heatmap renderer now escapes its cells, and escapeHtml is
+  // defined outside this slice. Run the PAGE's own copy, not a reimplementation.
+  vm.runInContext(escapeHtmlSource() + '\n' + SRC + '\n;globalThis.__lh = loadHeatmap;', sb);
   await sb.__lh();
   return el.innerHTML;
 }

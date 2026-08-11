@@ -576,10 +576,10 @@ function _renderFetchFailureBanner() {
       // R-F3839 — `r` is a failure REASON, which carries upstream/response text.
       .map(([p, r]) => `<code style="color:#c2410c">${escapeHtml(p)}</code> <span style="color:#6b6862">(${escapeHtml(r)})</span>`)
       .join(', ');
-    const more = entries.length > 5 ? ` <span style="color:#6b6862">(+${entries.length - 5} more)</span>` : '';
+    const more = entries.length > 5 ? ` <span style="color:#6b6862">(+${escapeHtml(entries.length - 5)} more)</span>` : '';
     const noun = entries.length === 1 ? 'endpoint' : 'endpoints';
     html +=
-      `<strong>⚠️ DATA UNAVAILABLE: ${entries.length} ${noun} failed to fetch.</strong> `
+      `<strong>⚠️ DATA UNAVAILABLE: ${escapeHtml(entries.length)} ${escapeHtml(noun)} failed to fetch.</strong> `
       + `The panels below may show fallback values (zeros, "DOWN", "--") that are `
       + `<em>not real measurements</em>. Likely causes: fly.io proxy timeout or `
       + `backend overload. Affected: ${head}${more}.`;
@@ -594,7 +594,7 @@ function _renderFetchFailureBanner() {
     const n = _authGated.size;
     const noun = n === 1 ? 'panel requires' : 'panels require';
     html += (html ? '<div style="height:8px"></div>' : '')
-      + `🔒 <strong>${n} ${noun} sign-in</strong> to display. The endpoints are `
+      + `🔒 <strong>${escapeHtml(n)} ${escapeHtml(noun)} sign-in</strong> to display. The endpoints are `
       + `reachable, just protected. These are not "down".`;
   }
   // 403 — signed in, but this tier may not call the control plane. R-F2139 scopes
@@ -605,7 +605,7 @@ function _renderFetchFailureBanner() {
     const n = _forbidden.size;
     const noun = n === 1 ? 'panel is' : 'panels are';
     html += (html ? '<div style="height:8px"></div>' : '')
-      + `🛡️ <strong>${n} control-plane ${noun} operator-tier only</strong> and cannot be `
+      + `🛡️ <strong>${escapeHtml(n)} control-plane ${escapeHtml(noun)} operator-tier only</strong> and cannot be `
       + `shown in the web UI. The autonomy and autonomous-engine endpoints require the `
       + `operator token (R-F2139); this tier holds the shared service token deliberately. `
       + `Not a fault, and not fixable by signing in. Read them via the operator CLI.`;
@@ -672,7 +672,7 @@ function heatColor(score) {
 }
 
 function metricRow(label, value, cls='neutral') {
-  return `<div class="metric"><span class="label">${label}</span><span class="value ${cls}">${value}</span></div>`;
+  return `<div class="metric"><span class="label">${escapeHtml(label)}</span><span class="value ${escapeHtml(cls)}">${escapeHtml(value)}</span></div>`;
 }
 
 // R-F465 (2026-05-14): badge reset on loader failure. Pre-R-F465, when
@@ -799,7 +799,7 @@ async function loadBreakers() {
   let html = '<table><tr><th>Backend</th><th>State</th><th>Failures</th></tr>';
   d.breakers.forEach(b => {
     const cls = b.state === 'CLOSED' ? 'good' : b.state === 'OPEN' ? 'bad' : 'warn';
-    html += `<tr><td>${escapeHtml(b.name)}</td><td class="${cls}">${escapeHtml(b.state)}</td><td>${escapeHtml(b.consecutive_failures)}/${escapeHtml(b.total_failures)}</td></tr>`;
+    html += `<tr><td>${escapeHtml(b.name)}</td><td class="${escapeHtml(cls)}">${escapeHtml(b.state)}</td><td>${escapeHtml(b.consecutive_failures)}/${escapeHtml(b.total_failures)}</td></tr>`;
   });
   html += '</table>';
   document.getElementById('breaker-metrics').innerHTML = html;
@@ -874,7 +874,7 @@ async function loadAmendments() {
     const merged = Array.isArray(a.merged_attacks) ? a.merged_attacks.filter(Boolean) : [];
 
     html +=
-      `<div style="margin-top:${idx === 0 ? '12px' : '8px'};padding:14px 16px;`
+      `<div style="margin-top:${escapeHtml(idx === 0 ? '12px' : '8px')};padding:14px 16px;`
       + `background:#f5f4ef;border:1px solid #e9e6df;border-radius:6px">`
       // Header line: ID
       + `<div style="font-family:'SF Mono','Menlo','Consolas',monospace;`
@@ -894,7 +894,7 @@ async function loadAmendments() {
       + `<span style="color:#3d3a34;font-family:'SF Mono','Menlo','Consolas',monospace">`
       + `${escapeHtml(clauses) || '-'}</span></span>`
       + `<span style="color:#6b6862">Fails: `
-      + `<span style="color:${failColor};font-weight:600">${failCount}×</span></span>`
+      + `<span style="color:${escapeHtml(failColor)};font-weight:600">${escapeHtml(failCount)}×</span></span>`
       + `<span style="color:#6b6862">Last failed: `
       + `<span style="color:#3d3a34;font-family:'SF Mono','Menlo','Consolas',monospace">`
       + `${escapeHtml(lastFailed) || '-'}</span></span>`
@@ -903,18 +903,18 @@ async function loadAmendments() {
       + (merged.length
           ? `<span style="color:#6b6862">Merged: `
             + `<span style="color:#b45309;font-family:'SF Mono','Menlo','Consolas',monospace" `
-            + `title="${escapeHtml(merged.join(', '))}">${merged.length} attack(s)</span></span>`
+            + `title="${escapeHtml(merged.join(', '))}">${escapeHtml(merged.length)} attack(s)</span></span>`
           : '')
       + `</div>`
       // Right: actions
       // R-F527 (2026-05-14): data-action delegation. See bulk-reject
       // header comment above for rationale.
       + `<div style="display:inline-flex;gap:8px;align-items:center;white-space:nowrap">`
-      + `<button data-action="approve" data-attack-id="${safeAttackId}" `
+      + `<button data-action="approve" data-attack-id="${escapeHtml(safeAttackId)}" `
       + `style="background:#16a34a;color:#fff;border:1px solid #15803d;`
       + `padding:6px 14px;border-radius:4px;cursor:pointer;font-size:0.85em;`
       + `font-weight:600">Approve</button>`
-      + `<button data-action="reject" data-attack-id="${safeAttackId}" `
+      + `<button data-action="reject" data-attack-id="${escapeHtml(safeAttackId)}" `
       + `style="background:#dc2626;color:#fff;border:1px solid #b91c1c;`
       + `padding:6px 14px;border-radius:4px;cursor:pointer;font-size:0.85em;`
       + `font-weight:600">Reject</button>`
@@ -1123,7 +1123,7 @@ async function rejectAmendment(attackId) {
   try {
     r = await showOperatorModal({
       title: `Reject amendment`,
-      sub: `<span style="font-family:'SF Mono',monospace;color:#3d3a34">${attackId}</span><br>`
+      sub: `<span style="font-family:'SF Mono',monospace;color:#3d3a34">${escapeHtml(attackId)}</span><br>`
          + `Rejection is audit-logged with the reason below. Keeps ARIA's current `
          + `constitution unchanged for this attack.`,
       notesLabel: 'Reason (required)',
@@ -1188,7 +1188,7 @@ async function approveAmendment(attackId) {
         + `change you cannot see. Reject or investigate instead.</div>`;
     r = await showOperatorModal({
       title: `Approve amendment`,
-      sub: `<span style="font-family:'SF Mono',monospace;color:#3d3a34">${attackId}</span><br>`
+      sub: `<span style="font-family:'SF Mono',monospace;color:#3d3a34">${escapeHtml(attackId)}</span><br>`
          + `This <strong>stages</strong> a constitution change in self_improve. `
          + `It is <strong>not live</strong> until you separately `
          + `<code>POST /api/aria/self/deploy/{id}</code> from the CLI (the safety gate).`
@@ -1260,7 +1260,7 @@ async function runInventory() {
       `must appear in topic/content/source.</span>`;
     return;
   }
-  let html = `<div style="margin-bottom:6px"><span class="good">${r.hits} fact${r.hits === 1 ? '' : 's'}</span> for "<code>${escapeHtml(r.tag)}</code>":</div>`;
+  let html = `<div style="margin-bottom:6px"><span class="good">${escapeHtml(r.hits)} fact${escapeHtml(r.hits === 1 ? '' : 's')}</span> for "<code>${escapeHtml(r.tag)}</code>":</div>`;
   html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
   html += '<thead><tr style="border-bottom:1px solid #e9e6df">'
         + '<th style="text-align:left;padding:5px 8px;color:#6b6862;font-weight:600">Topic</th>'
@@ -1327,7 +1327,7 @@ async function loadPredictor() {
     html += '<table><tr><th>Domain</th><th>Blocks</th></tr>';
     Object.entries(domains).sort((a,b) => b[1]-a[1]).forEach(([dom, count]) => {
       // R-F3839 — `dom` is a DOMAIN from block records, i.e. externally sourced.
-      html += `<tr><td>${escapeHtml(dom)}</td><td class="${count > 2 ? 'bad' : 'warn'}">${count}</td></tr>`;
+      html += `<tr><td>${escapeHtml(dom)}</td><td class="${escapeHtml(count > 2 ? 'bad' : 'warn')}">${escapeHtml(count)}</td></tr>`;
     });
     html += '</table>';
   } else {
@@ -1357,7 +1357,7 @@ async function loadAudit() {
       const tags = (e.confidence_tags || []).join(', ') || '--';
       const srcs = e.sources_count || 0;
       // R-F3839 — confidence tags are model-authored strings.
-      rhtml += `<tr><td>${escapeHtml(time)}</td><td>${escapeHtml(tags)}</td><td>${escapeHtml(srcs)}</td><td>${pct(e.mastery_overall)}</td><td>${escapeHtml(e.operating_mode || '--')}</td></tr>`;
+      rhtml += `<tr><td>${escapeHtml(time)}</td><td>${escapeHtml(tags)}</td><td>${escapeHtml(srcs)}</td><td>${escapeHtml(pct(e.mastery_overall))}</td><td>${escapeHtml(e.operating_mode || '--')}</td></tr>`;
     });
     rhtml += '</table>';
     document.getElementById('audit-recent').innerHTML = rhtml;
@@ -1384,9 +1384,9 @@ function _sparkline(values, opts) {
     return [x, y];
   }).filter(Boolean);
   const path = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
-  const dots = pts.map((p, i) => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2" fill="${stroke}"><title>${o.fmt ? o.fmt(vals[i]) : vals[i]}</title></circle>`).join('');
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="overflow:visible">`
-    + `<path d="${path}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>${dots}</svg>`;
+  const dots = pts.map((p, i) => `<circle cx="${escapeHtml(p[0].toFixed(1))}" cy="${escapeHtml(p[1].toFixed(1))}" r="2" fill="${escapeHtml(stroke)}"><title>${escapeHtml(o.fmt ? o.fmt(vals[i]) : vals[i])}</title></circle>`).join('');
+  return `<svg width="${escapeHtml(w)}" height="${escapeHtml(h)}" viewBox="0 0 ${escapeHtml(w)} ${escapeHtml(h)}" style="overflow:visible">`
+    + `<path d="${escapeHtml(path)}" fill="none" stroke="${escapeHtml(stroke)}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>${dots}</svg>`;
 }
 
 async function loadCompounding() {
@@ -1408,7 +1408,7 @@ async function loadCompounding() {
   if (!v.ok) {
     // Honest: not enough history — never fabricate a compounding claim (§1/§22).
     head = `<div class="metric"><span class="label">Compounding</span>`
-      + `<span class="value neutral">insufficient history (${d.snapshots} snapshot${d.snapshots === 1 ? '' : 's'})</span></div>`;
+      + `<span class="value neutral">insufficient history (${escapeHtml(d.snapshots)} snapshot${escapeHtml(d.snapshots === 1 ? '' : 's')})</span></div>`;
   } else {
     const fd = v.floor_delta || 0;
     const rising = fd > 0 || (v.count_ge_070_delta || 0) > 0;
@@ -1461,7 +1461,7 @@ async function loadEcosystem(root){
     // 'none' blocks, so the breadcrumbs rendered but did nothing. Same defect as
     // the eco-card drill-down below: delegated listener + data-* attributes.
     let crumbs = `<span style="cursor:pointer;color:var(--blue);font-weight:600" data-eco-home="1"><i class="bi bi-diagram-3"></i> Ecosystem</span>`;
-    _ecoStack.forEach((c,i)=>{ crumbs += ` <span style="color:#c2bcae">›</span> <span style="cursor:pointer;color:var(--blue)" data-eco-jump="${i}">${escapeHtml(c.label)}</span>`; });
+    _ecoStack.forEach((c,i)=>{ crumbs += ` <span style="color:#c2bcae">›</span> <span style="cursor:pointer;color:var(--blue)" data-eco-jump="${escapeHtml(i)}">${escapeHtml(c.label)}</span>`; });
     bc.innerHTML = crumbs;
     if (!bc._ecoNavBound) {
       bc._ecoNavBound = true;
@@ -1483,24 +1483,24 @@ async function loadEcosystem(root){
     // those 30, 18 are degraded and 2 broken — i.e. two thirds of everything ARIA can
     // actually measure about itself is not green. That was the smallest text on the card.
     const sens = hs.pct_live_sensor!=null
-      ? ` · <span title="${hs.grey_no_sensor||0} nodes have no live sensor at all. Grey is 'not measured', never 'healthy'.">sensors ${hs.with_live_sensor}/${hs.total_nodes}</span>`
-        + ` <span class="good">${bc.green||0} healthy</span>`
-        + ` · <span class="warn"><strong>${bc.amber||0} degraded</strong></span>`
-        + ` · <span style="color:var(--red)"><strong>${bc.red||0} broken</strong></span>` : '';
+      ? ` · <span title="${escapeHtml(hs.grey_no_sensor||0)} nodes have no live sensor at all. Grey is 'not measured', never 'healthy'.">sensors ${escapeHtml(hs.with_live_sensor)}/${escapeHtml(hs.total_nodes)}</span>`
+        + ` <span class="good">${escapeHtml(bc.green||0)} healthy</span>`
+        + ` · <span class="warn"><strong>${escapeHtml(bc.amber||0)} degraded</strong></span>`
+        + ` · <span style="color:var(--red)"><strong>${escapeHtml(bc.red||0)} broken</strong></span>` : '';
     // R-F3352 — the scope is aria-intel, and the header must say so. The old tooltip
     // ("node set == filesystem") is true of aria_service/ and reads as the ecosystem.
     const svc = cov.services || {};
     const unmappedSvc = svc.unmapped || [];
     const unmapped = unmappedSvc.length
-      ? `<div class="warn" style="margin-top:3px">⚠ ${unmappedSvc.join(' + ')}: not scanned. Their code is in no count above</div>` : '';
+      ? `<div class="warn" style="margin-top:3px">⚠ ${escapeHtml(unmappedSvc.join(' + '))}: not scanned. Their code is in no count above</div>` : '';
     // Both the scope label and the tooltip are DERIVED, so when the Node tiers are
     // mapped this stops claiming they are missing instead of becoming a stale lie.
     const scope = (svc.mapped||[]).length ? svc.mapped.join(' + ') : 'aria-intel';
     const modTip = '100% by construction WITHIN aria_service/: the node set IS that filesystem scan.'
       + (unmappedSvc.length ? ` ${unmappedSvc.join(' + ')} are NOT scanned.` : '');
-    cvEl.innerHTML = `<strong>${scope}</strong> · `
-      + `<span title="${modTip}">${c.on_map} modules</span> · `
-      + `<span class="${oc}">${c.orphans} unassigned</span> · ${ie.resolved_intra_repo} imports · call-graph partial${sens}${unmapped}`;
+    cvEl.innerHTML = `<strong>${escapeHtml(scope)}</strong> · `
+      + `<span title="${escapeHtml(modTip)}">${escapeHtml(c.on_map)} modules</span> · `
+      + `<span class="${escapeHtml(oc)}">${escapeHtml(c.orphans)} unassigned</span> · ${escapeHtml(ie.resolved_intra_repo)} imports · call-graph partial${sens}${unmapped}`;
   } else if(cvEl && root && root.startsWith('mod:')){
     // module drill → show its audit R-numbers (with titles) + function wired/dark (T3)
     try {
@@ -1565,17 +1565,17 @@ async function loadEcosystem(root){
     //      the eco-card drill-down silently dead.
     //   2. A `'` in n.id closed the JS string and injected into the handler.
     // Delegated listener + escaped data-* attributes fixes both at once.
-    return `<div class="eco-card eco-h-${_h(n)}"${drill ? ` data-eco-id="${escapeHtml(n.id)}" data-eco-nm="${escapeHtml(nm)}" style="cursor:pointer"` : ' style="cursor:default"'} title="${escapeHtml(tip)}">`
-      + `<i class="bi ${_ecoIcon(n)}"></i><span class="eco-nm">${escapeHtml(nm)}</span><span class="eco-ct">${escapeHtml(ct)}</span></div>`;
+    return `<div class="eco-card eco-h-${escapeHtml(_h(n))}"${escapeHtml(drill ? ` data-eco-id="${escapeHtml(n.id)}" data-eco-nm="${escapeHtml(nm)}" style="cursor:pointer"` : ' style="cursor:default"')} title="${escapeHtml(tip)}">`
+      + `<i class="bi ${escapeHtml(_ecoIcon(n))}"></i><span class="eco-nm">${escapeHtml(nm)}</span><span class="eco-ct">${escapeHtml(ct)}</span></div>`;
   };
   const _grid = (label, arr) => arr.length
-    ? `<div class="eco-sec">${label}</div><div class="eco-grid">${arr.map(_card).join('')}</div>` : '';
+    ? `<div class="eco-sec">${escapeHtml(label)}</div><div class="eco-grid">${arr.map(_card).join('')}</div>` : '';
 
   // health summary bar (proportional) over the shown level
   const shown = nodes.filter(n=>n.type!=='service');
   const hc = {green:0,amber:0,red:0,grey:0}; shown.forEach(n=>{ hc[_h(n)]++; });
   const tot = shown.length || 1;
-  const seg = (k,c,lbl)=>hc[k]?`<span style="width:${(hc[k]/tot*100).toFixed(1)}%;background:${c}" title="${hc[k]} ${lbl}"></span>`:'';
+  const seg = (k,c,lbl)=>hc[k]?`<span style="width:${escapeHtml((hc[k]/tot*100).toFixed(1))}%;background:${escapeHtml(c)}" title="${escapeHtml(hc[k])} ${escapeHtml(lbl)}"></span>`:'';
   const bar = `<div class="eco-hbar" style="margin:2px 0 10px">${seg('green','#16a34a','healthy')}${seg('amber','#ca8a04','degraded')}${seg('red','#dc2626','broken')}${seg('grey','#dcd8cf','no sensor')}</div>`;
 
   const services = byType('service'), organs = byType('organ'),
@@ -1657,16 +1657,16 @@ async function loadHeatmap() {
   let html = _caption + '<table><tr><th></th>';
   // R-F2276: no fixed height — with white-space:nowrap the vertical label sizes
   // to its own length; a hard 80px clipped/overlapped long names (latam_non_lusophone).
-  regionList.forEach(r => { html += `<th style="font-size:0.7em;writing-mode:vertical-rl;transform:rotate(180deg);padding:4px 2px;vertical-align:bottom">${r}</th>`; });
+  regionList.forEach(r => { html += `<th style="font-size:0.7em;writing-mode:vertical-rl;transform:rotate(180deg);padding:4px 2px;vertical-align:bottom">${escapeHtml(r)}</th>`; });
   html += '</tr>';
   topicList.forEach(topic => {
-    html += `<tr><td style="font-size:0.8em">${topic}</td>`;
+    html += `<tr><td style="font-size:0.8em">${escapeHtml(topic)}</td>`;
     regionList.forEach(region => {
       const score = d.heatmap[topic]?.[region];
       if (score != null) {
         const bg = heatColor(score);
         const cls = scoreClass(score, 0.7, 0.4);
-        html += `<td style="background:${bg};text-align:center;font-size:0.75em" class="${cls}">${pct(score)}</td>`;
+        html += `<td style="background:${escapeHtml(bg)};text-align:center;font-size:0.75em" class="${escapeHtml(cls)}">${escapeHtml(pct(score))}</td>`;
       } else {
         html += '<td style="text-align:center;color:#dcd8cf;font-size:0.7em">--</td>';
       }
@@ -1787,14 +1787,14 @@ async function loadComposite() {
     }
     const provenance = provenanceParts.join(', ');
     const noteText = val == null ? 'no qualifying data; excluded from score' : provenance;
-    const note = noteText ? ` <span style="font-size:0.75em;color:#6b6862">(${noteText})</span>` : '';
-    html += `<div class="metric"><span class="label">${sig}${w}</span><span class="value neutral">${display}${note}</span></div>`;
+    const note = noteText ? ` <span style="font-size:0.75em;color:#6b6862">(${escapeHtml(noteText)})</span>` : '';
+    html += `<div class="metric"><span class="label">${escapeHtml(sig)}${escapeHtml(w)}</span><span class="value neutral">${escapeHtml(display)}${note}</span></div>`;
   }
   if (pending > 0) {
     html += '<div style="margin-top:6px;font-size:0.75em;color:#6b6862">Missing signals are excluded and measured weights are renormalised. Treat the score as partial evidence; the displayed tier is capped while at least 25% of signals are missing.</div>';
   }
   if (d.computed_at) {
-    html += `<div style="margin-top:6px;font-size:0.75em;color:#6b6862">Computed ${new Date(d.computed_at).toLocaleString()}</div>`;
+    html += `<div style="margin-top:6px;font-size:0.75em;color:#6b6862">Computed ${escapeHtml(new Date(d.computed_at).toLocaleString())}</div>`;
   }
   document.getElementById('composite-metrics').innerHTML = html;
 }
@@ -1811,7 +1811,7 @@ async function loadCalibration() {
   html += metricRow('Accuracy (ground truth)', d.estimated_accuracy != null ? pct(d.estimated_accuracy) : '--', 'neutral');
   html += metricRow('Delta', d.calibration_delta != null ? `${(d.calibration_delta * 100).toFixed(1)}pp` : '--', statusCls);
   html += metricRow('Status', d.calibration_status?.replace('_', ' ')?.toUpperCase(), statusCls);
-  html += `<div style="margin-top:8px;font-size:0.8em;color:#6b6862">${d.recommendation || ''}</div>`;
+  html += `<div style="margin-top:8px;font-size:0.8em;color:#6b6862">${escapeHtml(d.recommendation || '')}</div>`;
   document.getElementById('calibration-metrics').innerHTML = html;
 }
 
@@ -1847,7 +1847,7 @@ async function loadSurface() {
       .slice(0,3)
       .map(c => `${c} ×${bl[c]}`)
       .join(', ');
-    html += `<div style="margin-top:6px;font-size:0.8em;color:#6b6862">Top codes: ${topCodes}</div>`;
+    html += `<div style="margin-top:6px;font-size:0.8em;color:#6b6862">Top codes: ${escapeHtml(topCodes)}</div>`;
   }
   html += '</div>';
 
@@ -1878,10 +1878,10 @@ async function loadSurface() {
                      : verdict === 'SINGLE_POINT' ? 'warn'
                      : 'bad';
     html += '<div style="grid-column: 1 / -1; margin-bottom:10px; padding:8px; background:#f5f4ef; border:1px solid #e9e6df; border-radius:6px">';
-    html += `<div style="font-weight:600;color:#7c3aed;margin-bottom:4px">🛡️ Resilience floor: ${verdict} (${resilience.resilience_count || 0} independent paths)</div>`;
+    html += `<div style="font-weight:600;color:#7c3aed;margin-bottom:4px">🛡️ Resilience floor: ${escapeHtml(verdict)} (${escapeHtml(resilience.resilience_count || 0)} independent paths)</div>`;
     const providerChips = (resilience.providers || []).map(p => {
       const cls = p.status === 'active' ? 'good' : (p.status === 'cooling' ? 'warn' : 'neutral');
-      return `<span class="value ${cls}" style="padding:2px 6px;margin-right:4px;font-size:0.8em">${p.name}: ${p.status}</span>`;
+      return `<span class="value ${escapeHtml(cls)}" style="padding:2px 6px;margin-right:4px;font-size:0.8em">${escapeHtml(p.name)}: ${escapeHtml(p.status)}</span>`;
     }).join('');
     html += `<div style="margin-top:4px">${providerChips || '<span class="neutral">No LLM providers configured</span>'}</div>`;
     html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Local brain: ${resilience.local_brain_ready ? '<span class="value good">READY</span>' : '<span class="value bad">OFF</span>'}`;
@@ -1916,7 +1916,7 @@ async function loadSurface() {
     const worst = queue.oem_worst_oems
       .map(w => `${w.oem} (${w.filled}/${w.total})`)
       .join(', ');
-    html += `<div style="margin-top:6px;font-size:0.8em;color:#6b6862">Priority: ${worst}</div>`;
+    html += `<div style="margin-top:6px;font-size:0.8em;color:#6b6862">Priority: ${escapeHtml(worst)}</div>`;
   }
   // WA mirror: three states. GATED=warn, DEFERRED=neutral, LIVE=good.
   const waStatus = queue.wa_mirror_status || (queue.wa_mirror_gated ? 'GATED' : 'LIVE');
@@ -1925,7 +1925,7 @@ async function loadSurface() {
               : 'warn';
   html += metricRow('WA counterparty mirror', waStatus, waCls);
   if (waStatus === 'GATED' && (queue.wa_mirror_missing_env || []).length) {
-    html += `<div style="margin-top:6px;font-size:0.8em;color:#6b6862">Missing env: ${queue.wa_mirror_missing_env.slice(0,2).join(', ')}</div>`;
+    html += `<div style="margin-top:6px;font-size:0.8em;color:#6b6862">Missing env: ${escapeHtml(queue.wa_mirror_missing_env.slice(0,2).join(', '))}</div>`;
   } else if (waStatus === 'DEFERRED') {
     html += `<div style="margin-top:6px;font-size:0.8em;color:#6b6862">Intentionally off. Unset ARIA_MIRROR_DEFERRED to re-enable nag.</div>`;
   }
@@ -1983,7 +1983,7 @@ async function loadLearning() {
       .map(([k, v]) => `${k}: ${v}`)
       .join(' · ');
     if (sources) {
-      html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">${sources}</div>`;
+      html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">${escapeHtml(sources)}</div>`;
     }
   }
   // R-F176 (2026-05-11): honest qualifier — staged examples are NOT
@@ -2000,7 +2000,7 @@ async function loadLearning() {
                     (re.urls_queued_24h ?? 0) > 0 ? 'good' : 'neutral');
   if ((re.stalled_cells || []).length) {
     const stalled = re.stalled_cells.map(c => c.cell).slice(0, 2).join(', ');
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#ca8a04">Stalled cells need operator source: ${stalled}</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#ca8a04">Stalled cells need operator source: ${escapeHtml(stalled)}</div>`;
   }
   html += '</div>';
 
@@ -2040,7 +2040,7 @@ async function loadLearning() {
       .slice(0, 3)
       .map(([k, v]) => `${k} ×${v}`)
       .join(', ');
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Top: ${topCodes}</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Top: ${escapeHtml(topCodes)}</div>`;
   }
   // R-F180 (2026-05-11): split open vs closed counts. The "3
   // quarantined" headline was a constant for weeks because all three
@@ -2059,7 +2059,7 @@ async function loadLearning() {
   html += metricRow('DD runs quarantined (open)', qnOpen,
                     qnOpen > 0 ? 'warn' : 'good');
   if (qnClosed > 0) {
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">+ ${qnClosed} closed (seed, F3-incident)</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">+ ${escapeHtml(qnClosed)} closed (seed, F3-incident)</div>`;
   }
   if (qnOpen > 0) {
     const openIds = (qn.items || [])
@@ -2067,7 +2067,7 @@ async function loadLearning() {
       .slice(0, 2)
       .map(q => q.run_id)
       .join(', ');
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#c2410c">Open: ${openIds}</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#c2410c">Open: ${escapeHtml(openIds)}</div>`;
   }
   // R-F2333: honest label — this is a static coverage manifest, not a live counter.
   html += metricRow('Sanctions OEMs (coverage manifest)', sx.oems_covered ?? 0, 'good');
@@ -2080,7 +2080,7 @@ async function loadLearning() {
       .slice(0,3)
       .map(([k,v]) => `${k}:${v}`)
       .join(' · ');
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Styles: ${topTopics}</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Styles: ${escapeHtml(topTopics)}</div>`;
   }
   // R-F2333: PDF deep-ingest live activity (was a DARK panel — no counter existed).
   const pdf = d.pdf_deep_ingest || {};
@@ -2101,7 +2101,7 @@ async function loadLearning() {
   html += metricRow('Memory backups on disk', backupCount,
                     backupCount > 0 ? 'good' : 'warn');
   if (mb.newest_backup) {
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Last: ${mb.newest_backup} · ${mb.total_kb_on_disk ?? 0} KB</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Last: ${escapeHtml(mb.newest_backup)} · ${escapeHtml(mb.total_kb_on_disk ?? 0)} KB</div>`;
   }
   // Off-host email shipping status (Phase 2a)
   const shipStatus = mb.email_shipping_status || 'UNKNOWN';
@@ -2110,7 +2110,7 @@ async function loadLearning() {
                 : 'warn';
   html += metricRow('Off-host email shipping', shipStatus, shipCls);
   if (shipStatus === 'LIVE' && mb.email_destination) {
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">→ ${mb.email_destination}</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">→ ${escapeHtml(mb.email_destination)}</div>`;
   } else if (shipStatus === 'GATED') {
     html += `<div style="margin-top:4px;font-size:0.8em;color:#6b6862">Set ARIA_SMTP_HOST/USER/PASS on fly.io to enable</div>`;
   }
@@ -2165,16 +2165,16 @@ async function loadLlmCost() {
   let html = '';
   html += `<div style="display:flex;flex-wrap:wrap;gap:18px;align-items:baseline;margin-bottom:8px">`;
   html += `<div><div style="font-size:0.78em;color:#6b6862">Spent this month</div>`;
-  html += `<div class="${utilCls}" style="font-size:1.6em;font-weight:600;line-height:1.1">$${spent.toFixed(2)}</div></div>`;
+  html += `<div class="${escapeHtml(utilCls)}" style="font-size:1.6em;font-weight:600;line-height:1.1">$${escapeHtml(spent.toFixed(2))}</div></div>`;
   html += `<div><div style="font-size:0.78em;color:#6b6862">Projected month-end</div>`;
-  html += `<div class="${projCls}" style="font-size:1.2em;font-weight:600;line-height:1.1">$${projected.toFixed(2)}</div></div>`;
+  html += `<div class="${escapeHtml(projCls)}" style="font-size:1.2em;font-weight:600;line-height:1.1">$${escapeHtml(projected.toFixed(2))}</div></div>`;
   html += `<div><div style="font-size:0.78em;color:#6b6862">Total calls</div>`;
-  html += `<div class="neutral" style="font-size:1.2em;font-weight:600;line-height:1.1">${(d.total_calls||0).toLocaleString()}</div></div>`;
-  html += `<div style="margin-left:auto;font-size:0.78em;color:#6b6862">Cap $${cap.toFixed(0)} · ${util.toFixed(1)}% used</div>`;
+  html += `<div class="neutral" style="font-size:1.2em;font-weight:600;line-height:1.1">${escapeHtml((d.total_calls||0).toLocaleString())}</div></div>`;
+  html += `<div style="margin-left:auto;font-size:0.78em;color:#6b6862">Cap $${escapeHtml(cap.toFixed(0))} · ${escapeHtml(util.toFixed(1))}% used</div>`;
   html += `</div>`;
   // Utilisation bar
   html += `<div style="height:6px;background:#e9e6df;border-radius:3px;overflow:hidden;margin-bottom:14px">`;
-  html += `<div style="height:100%;width:${utilWidth}%;background:${utilBarColour};transition:width .3s"></div>`;
+  html += `<div style="height:100%;width:${escapeHtml(utilWidth)}%;background:${escapeHtml(utilBarColour)};transition:width .3s"></div>`;
   html += `</div>`;
   if (d.warn_only) {
     html += `<div class="warn" style="font-size:0.8em;margin-bottom:8px">⚠ WARN-ONLY mode: cap will not block</div>`;
@@ -2192,7 +2192,7 @@ async function loadLlmCost() {
     for (const [name, row] of provRows) {
       const share = spent > 0 ? (row.cost_usd / spent * 100) : 0;
       const cls = share >= 50 ? 'warn' : 'neutral';
-      html += `<tr><td>${escapeHtml(name)}</td><td style="text-align:right">${(row.calls||0).toLocaleString()}</td><td class="${cls}" style="text-align:right">$${(row.cost_usd||0).toFixed(2)}</td><td style="text-align:right;color:#6b6862">${share.toFixed(0)}%</td></tr>`;
+      html += `<tr><td>${escapeHtml(name)}</td><td style="text-align:right">${escapeHtml((row.calls||0).toLocaleString())}</td><td class="${escapeHtml(cls)}" style="text-align:right">$${escapeHtml((row.cost_usd||0).toFixed(2))}</td><td style="text-align:right;color:#6b6862">${escapeHtml(share.toFixed(0))}%</td></tr>`;
     }
     html += '</table></div>';
   }
@@ -2207,7 +2207,7 @@ async function loadLlmCost() {
       const share = spent > 0 ? (row.cost_usd / spent * 100) : 0;
       const fname = name.length > 22 ? name.slice(0, 21) + '…' : name;
       const cls = name === 'uncategorized' ? 'warn' : '';
-      html += `<tr><td title="${escapeHtml(name)}" class="${cls}">${escapeHtml(fname)}</td><td style="text-align:right">${(row.calls||0).toLocaleString()}</td><td style="text-align:right">$${(row.cost_usd||0).toFixed(2)}</td><td style="text-align:right;color:#6b6862">${share.toFixed(0)}%</td></tr>`;
+      html += `<tr><td title="${escapeHtml(name)}" class="${escapeHtml(cls)}">${escapeHtml(fname)}</td><td style="text-align:right">${escapeHtml((row.calls||0).toLocaleString())}</td><td style="text-align:right">$${escapeHtml((row.cost_usd||0).toFixed(2))}</td><td style="text-align:right;color:#6b6862">${escapeHtml(share.toFixed(0))}%</td></tr>`;
     }
     html += '</table></div>';
   }
@@ -2220,7 +2220,7 @@ async function loadLlmCost() {
     for (const c of topCalls.slice(0, 10)) {
       const when = c.ts ? new Date(c.ts * 1000).toLocaleString([], {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '--';
       const fname = (c.feature||'?').length > 16 ? (c.feature||'?').slice(0,15) + '…' : (c.feature||'?');
-      html += `<tr><td>${escapeHtml(when)}</td><td title="${escapeHtml(c.feature||'')}">${escapeHtml(fname)}</td><td style="text-align:right">${((c.total_tokens||0)/1000).toFixed(0)}k</td><td style="text-align:right">$${(c.cost_usd||0).toFixed(3)}</td></tr>`;
+      html += `<tr><td>${escapeHtml(when)}</td><td title="${escapeHtml(c.feature||'')}">${escapeHtml(fname)}</td><td style="text-align:right">${escapeHtml(((c.total_tokens||0)/1000).toFixed(0))}k</td><td style="text-align:right">$${escapeHtml((c.cost_usd||0).toFixed(3))}</td></tr>`;
     }
     html += '</table></details></div>';
   }
@@ -2245,7 +2245,7 @@ async function loadLlmCost() {
         html += '<table style="font-size:0.78em"><tr><th>Service</th><th style="text-align:right">Calls</th><th style="text-align:right">Cost</th><th style="text-align:right">Errors</th></tr>';
         for (const [name, row] of svcRows) {
           const errCls = (row.errors||0) > 0 ? 'warn' : 'neutral';
-          html += `<tr><td>${escapeHtml(name)}</td><td style="text-align:right">${(row.calls||0).toLocaleString()}</td><td style="text-align:right">$${(row.cost_usd||0).toFixed(4)}</td><td class="${errCls}" style="text-align:right">${row.errors||0}</td></tr>`;
+          html += `<tr><td>${escapeHtml(name)}</td><td style="text-align:right">${escapeHtml((row.calls||0).toLocaleString())}</td><td style="text-align:right">$${escapeHtml((row.cost_usd||0).toFixed(4))}</td><td class="${escapeHtml(errCls)}" style="text-align:right">${escapeHtml(row.errors||0)}</td></tr>`;
         }
         html += '</table></div>';
       } else {
@@ -2263,14 +2263,14 @@ async function loadLlmCost() {
         html += '<div style="font-size:0.78em;color:#6b6862;margin-bottom:4px">Upstash Redis (cluster: adapted-ostrich-92296)</div>';
         html += '<table style="font-size:0.78em">';
         if (ups.dbsize != null) {
-          html += `<tr><td>DB size (keys)</td><td style="text-align:right">${(ups.dbsize||0).toLocaleString()}</td></tr>`;
+          html += `<tr><td>DB size (keys)</td><td style="text-align:right">${escapeHtml((ups.dbsize||0).toLocaleString())}</td></tr>`;
         }
         if (ups.info && ups.info.redis_version) {
           html += `<tr><td>Redis version</td><td style="text-align:right">${escapeHtml(ups.info.redis_version)}</td></tr>`;
         }
         if (ups.info && ups.info.uptime_in_seconds) {
           const days = (parseInt(ups.info.uptime_in_seconds, 10) / 86400).toFixed(1);
-          html += `<tr><td>Uptime (days)</td><td style="text-align:right">${days}</td></tr>`;
+          html += `<tr><td>Uptime (days)</td><td style="text-align:right">${escapeHtml(days)}</td></tr>`;
         }
         if (ups.error) {
           html += `<tr><td colspan="2" class="warn">Probe error: ${escapeHtml(ups.error)}</td></tr>`;
@@ -2322,10 +2322,10 @@ async function loadSystemHealth() {
 
   // Summary line
   const counts = d.counts || {pass: 0, warn: 0, fail: 0};
-  let html = `<div class="metric"><span class="label">Modules checked</span><span class="value">${d.modules_checked || 0}</span></div>`;
-  html += `<div class="metric"><span class="label">Pass / Warn / Fail</span><span class="value ${counts.fail ? 'bad' : counts.warn ? 'warn' : 'good'}">${counts.pass} / ${counts.warn} / ${counts.fail}</span></div>`;
+  let html = `<div class="metric"><span class="label">Modules checked</span><span class="value">${escapeHtml(d.modules_checked || 0)}</span></div>`;
+  html += `<div class="metric"><span class="label">Pass / Warn / Fail</span><span class="value ${escapeHtml(counts.fail ? 'bad' : counts.warn ? 'warn' : 'good')}">${escapeHtml(counts.pass)} / ${escapeHtml(counts.warn)} / ${escapeHtml(counts.fail)}</span></div>`;
   if (d.critical_failures && d.critical_failures.length) {
-    html += `<div class="metric"><span class="label bad">Critical failures</span><span class="value bad">${d.critical_failures.join(', ')}</span></div>`;
+    html += `<div class="metric"><span class="label bad">Critical failures</span><span class="value bad">${escapeHtml(d.critical_failures.join(', '))}</span></div>`;
   }
 
   // Per-module grid
@@ -2338,9 +2338,9 @@ async function loadSystemHealth() {
       const critBadge = m.critical ? ' <span style="color:#dc2626;font-size:0.75em">[CRIT]</span>' : '';
       // First non-PASS check note for tooltip
       const firstIssue = (m.checks || []).find(c => c.status !== 'PASS');
-      const issueNote = firstIssue ? `<div style="font-size:0.8em;color:#6b6862;margin-top:4px">${firstIssue.check}: ${firstIssue.note.slice(0,80)}</div>` : '';
-      html += `<div style="padding:8px;background:${colour};border-radius:6px">
-        <div><span style="font-weight:600">${tag} ${m.name}</span>${critBadge}</div>
+      const issueNote = firstIssue ? `<div style="font-size:0.8em;color:#6b6862;margin-top:4px">${escapeHtml(firstIssue.check)}: ${escapeHtml(firstIssue.note.slice(0,80))}</div>` : '';
+      html += `<div style="padding:8px;background:${escapeHtml(colour)};border-radius:6px">
+        <div><span style="font-weight:600">${escapeHtml(tag)} ${escapeHtml(m.name)}</span>${critBadge}</div>
         ${issueNote}
       </div>`;
     }
@@ -2348,7 +2348,7 @@ async function loadSystemHealth() {
   }
 
   if (d.generated_at) {
-    html += `<div style="margin-top:8px;font-size:0.75em;color:#6b6862">Refreshed ${new Date(d.generated_at).toLocaleTimeString()}${d._from_cache ? ' (cached)' : ''}</div>`;
+    html += `<div style="margin-top:8px;font-size:0.75em;color:#6b6862">Refreshed ${escapeHtml(new Date(d.generated_at).toLocaleTimeString())}${escapeHtml(d._from_cache ? ' (cached)' : '')}</div>`;
   }
 
   el.innerHTML = html;
@@ -2400,7 +2400,7 @@ async function loadCoverageHeatmap() {
         ${gaps.gaps.slice(0, 12).map(g =>
           `<span style="font-size:0.75em;padding:3px 8px;border-radius:5px;background:rgba(245,158,11,0.13);border:1px solid rgba(245,158,11,0.3);color:#c2410c">
              ${escapeHtml(g.domain)} × ${escapeHtml(g.jurisdiction)}
-             <span style="opacity:0.7">(${g.tier})</span>
+             <span style="opacity:0.7">(${escapeHtml(g.tier)})</span>
            </span>`).join('')}
         </div>`;
     }
@@ -2440,9 +2440,9 @@ async function loadCoverageHeatmap() {
         // R-F2332: tri-state — unknown (no freshness signal) must NOT read as "fresh".
         cell.is_stale === true ? 'STALE' : cell.is_stale === false ? 'fresh' : 'freshness: unknown',
       ];
-      html += `<td style="background:${colour};border:${border};padding:6px 3px;text-align:center;cursor:help"
+      html += `<td style="background:${escapeHtml(colour)};border:${escapeHtml(border)};padding:6px 3px;text-align:center;cursor:help"
                   title="${escapeHtml(titleParts.join(' · '))}">
-                ${cell.fact_count > 0 ? cell.fact_count : ''}
+                ${escapeHtml(cell.fact_count > 0 ? cell.fact_count : '')}
               </td>`;
     });
     html += '</tr>';
@@ -2465,9 +2465,9 @@ async function loadFreshness() {
   const stats = d.stats || {};
   badge.textContent = `${stats.stale_count || 0} stale / ${stats.tracked_total || 0}`;
   badge.className = 'badge ' + ((stats.stale_count || 0) > (stats.tracked_total || 0) * 0.3 ? 'warn' : 'good');
-  sumEl.innerHTML = `Tracked: <strong>${stats.tracked_total || 0}</strong> · `
-                  + `Fresh: <strong class="good">${stats.fresh_count || 0}</strong> · `
-                  + `Stale: <strong class="warn">${stats.stale_count || 0}</strong> `
+  sumEl.innerHTML = `Tracked: <strong>${escapeHtml(stats.tracked_total || 0)}</strong> · `
+                  + `Fresh: <strong class="good">${escapeHtml(stats.fresh_count || 0)}</strong> · `
+                  + `Stale: <strong class="warn">${escapeHtml(stats.stale_count || 0)}</strong> `
                   + `(${stats.stale_pct || 0}%)`;
   const domains = d.domains || [];
   if (!domains.length) {
@@ -2500,11 +2500,11 @@ async function loadFreshness() {
     const src = rec.last_refresh_source || '-';
     html += `<tr>
       <td style="font-family:'Cascadia Code',monospace;color:#7c3aed;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(dom)}">${escapeHtml(dom)}</td>
-      <td style="white-space:nowrap"><span class="${cls}">${stat}</span></td>
+      <td style="white-space:nowrap"><span class="${escapeHtml(cls)}">${escapeHtml(stat)}</span></td>
       <td style="white-space:nowrap">${escapeHtml(hours)}</td>
       <td style="white-space:nowrap">${escapeHtml(win)}</td>
       <td style="font-size:0.85em;color:#6b6862;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(src)}">${escapeHtml(src)}</td>
-      <td style="white-space:nowrap">${rec.facts_count || 0} / ${rec.signals_count || 0}</td>
+      <td style="white-space:nowrap">${escapeHtml(rec.facts_count || 0)} / ${escapeHtml(rec.signals_count || 0)}</td>
     </tr>`;
   });
   html += '</table>';
@@ -2554,11 +2554,11 @@ async function loadHallucination() {
   }
 
   sumEl.innerHTML =
-    `R-F401 self-claim: <strong class="${scg.violations_24h_total > 0 ? 'warn' : 'good'}">` +
-    `${scg.violations_24h_total || 0}</strong> · ` +
-    `Stream guards: <strong class="${sg.violations_24h_total > 0 ? 'warn' : 'good'}">` +
-    `${sg.violations_24h_total || 0}</strong> · ` +
-    `Turns observed: <strong>${turns24h}</strong>`;
+    `R-F401 self-claim: <strong class="${escapeHtml(scg.violations_24h_total > 0 ? 'warn' : 'good')}">` +
+    `${escapeHtml(scg.violations_24h_total || 0)}</strong> · ` +
+    `Stream guards: <strong class="${escapeHtml(sg.violations_24h_total > 0 ? 'warn' : 'good')}">` +
+    `${escapeHtml(sg.violations_24h_total || 0)}</strong> · ` +
+    `Turns observed: <strong>${escapeHtml(turns24h)}</strong>`;
 
   let html = '';
   // R-F401 self_claim_guard breakdown
@@ -2569,7 +2569,7 @@ async function loadHallucination() {
     for (const [pid, count] of Object.entries(byPat)) {
       const cls = count > 0 ? 'warn' : 'neutral';
       const human = pid.replace('rf401_', '').replace(/_/g, ' ');
-      html += `<tr><td>${escapeHtml(human)}</td><td class="${cls}" style="text-align:right">${count}</td></tr>`;
+      html += `<tr><td>${escapeHtml(human)}</td><td class="${escapeHtml(cls)}" style="text-align:right">${escapeHtml(count)}</td></tr>`;
     }
     html += '</table>';
   }
@@ -2580,7 +2580,7 @@ async function loadHallucination() {
     html += '<table style="font-size:0.82em;margin-top:4px">';
     for (const [g, count] of Object.entries(sgBy)) {
       const cls = count > 0 ? 'warn' : 'neutral';
-      html += `<tr><td>${escapeHtml(g)}</td><td class="${cls}" style="text-align:right">${count}</td></tr>`;
+      html += `<tr><td>${escapeHtml(g)}</td><td class="${escapeHtml(cls)}" style="text-align:right">${escapeHtml(count)}</td></tr>`;
     }
     html += '</table>';
   }

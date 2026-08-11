@@ -1049,13 +1049,10 @@ block in every file rather than a sample. Verified end-to-end against a booted s
 34 hashes, `'unsafe-inline'` absent, and every inline block in six real served responses
 hashed from the RESPONSE BYTES and found in the live header.
 
-**Not claimed.** `aria-brain.html` still interpolates ~230 values that are the brain's
-own telemetry — counts, percentages, CSS class names, enum states, internal identifiers.
-Those were reviewed as a class, not proven one by one. Every sink carrying externally
-influenced data (scraped domains, dead-letter error text, fetch-failure reasons,
-model-authored tags, DD jurisdictions, node labels/titles) was escaped; the rest are
-recorded as unproven rather than reported as cleared, because blanket-escaping would
-break the many sinks that deliberately emit HTML fragments.
+**The "not claimed" caveat is now CLOSED (R-F3845, 2026-08-11).** C-18 originally
+shipped saying `aria-brain.html` still interpolated ~230 telemetry values "reviewed as a
+class, not proven one by one". That sentence has been replaced by a measurement and a
+gate — see C-19 below.
 
 **Residual, bounded and pinned by a test:** `public/index.html` loads jQuery 2.1.1, whose
 `globalEval` evaluates script by creating an inline `<script>` element — which the
@@ -1064,3 +1061,73 @@ reached only when jQuery is handed markup containing a `<script>` tag; no such m
 exists in the page or its theme scripts today, and a test now fails if one appears.
 `public/vendor/jquery.min.js` is a second, orphaned copy that no page references; a test
 asserts it stays unreferenced.
+
+---
+
+### C-19 · The C-18 XSS residual, measured and gated — **CLOSED (R-F3845, 2026-08-11)**
+
+C-18 closed ten audit findings and left one sentence open: `aria-brain.html` still
+interpolated ~230 telemetry values that had been *"reviewed as a class, not proven one by
+one"*. That is an impression, not evidence, and it is the shape of finding this register
+keeps recording as a false pass. It is now a measurement.
+
+**The result, for the three audited pages:**
+
+| Page | HTML style | Escaped | Raw (named) | Unescaped |
+|---|---|---|---|---|
+| `public/aria-brain.html` | template literals | 213 | 18 | **0** |
+| `public/dd-reports.html` | string concatenation | 96 | 19 | **0** |
+| `public/dashboard.html` | both | 41 | 8 | **0** |
+
+143 interpolations were escaped in this change. The remainder were already escaped, or
+are on an allowlist **named expression by expression** in
+`test/html-interpolation-guard-rf3845.test.mjs` — each one a fragment assembled from
+already-escaped parts (`sens`, `unmapped`, `critBadge`, `seg(...)`, `memBits.join`, the
+eco-card grid, the capability-gap chips).
+
+**The invariant, chosen deliberately:** *every interpolation is escaped unless it is
+named raw.* Not *"escape the ones whose data looks external."* Provenance reasoning has
+to be redone every time the brain's API changes, and the person changing the API is not
+the person reading this file. A uniform rule with a short exception list is checkable;
+a judgement call is not.
+
+**Two real defects surfaced only because the analysis was mechanical:**
+
+1. **`${g.tier}` was unescaped** inside the capability-gap chip renderer and had been
+   invisible to every previous pass — including the first version of this one. The outer
+   expression is a `.map()` that legitimately emits markup, so it classified as *raw* and
+   nothing looked inside it. Nested interpolations are now recursed into.
+2. **`avatarLetter`** (`dd-reports.html`) put one character of an entity name straight
+   into markup. A lone `<` cannot open a tag so it was not exploitable — escaped anyway,
+   so nobody has to re-derive that argument.
+
+**Three ways the analyser was wrong before it was right** — all caught by the existing
+render tests or by the gate itself, none by reading:
+
+- It escaped `sens`, a variable that HOLDS markup, and broke the sensor banner
+  (`aria-brain-sensor-labels-rf3352` caught it). Raw-ness is a property of the
+  DECLARATION, not of the expression text.
+- Scanning a declaration to its terminating `;` without skipping string literals stopped
+  inside `color:#dc2626;font-size:…`, so `critBadge` — which emits a `<span>` — read as a
+  plain value and would have been double-escaped.
+- An array's declaration is `[]`, which says nothing; `memBits` only reveals itself
+  through its `.push()` calls.
+
+**A correction to this register.** While triaging the concatenation operands I recorded
+`why` on `dashboard.html` as a live unescaped sink. **That was wrong.** There are two
+variables of that name: the API-derived one (`s.why_it_matters`, line 348) is escaped at
+its use, and the one rendered raw is a different local assigned only string literals and
+`escHtml`-built text. No sink existed. The concatenation pass found **zero** live
+vulnerabilities across all three pages.
+
+**The gate has been PROVEN TO FIRE**, per the C-17 lesson about gates nobody has watched
+work: re-introducing `${nm}` unescaped on the eco-card made the test fail and name it —
+`aria-brain.html has 1 UNESCAPED interpolation(s) inside HTML: line 1569: ${nm}`. It also
+asserts the analyser can still SEE (>150 escaped on aria-brain, >60 concat operands on
+dd-reports), because a classifier with an empty universe certifies everything.
+
+**What this does NOT cover, stated so nobody reads it as more than it is:** interpolation
+into HTML only. It says nothing about `javascript:` URLs (that is `lib/util/safeUrl.mjs`
+and the R-F2607 client helper), inline event handlers (CSP `script-src-attr 'none'`, plus
+the R-F3839 sweep), or the other ~29 pages under `public/`, which were outside the
+audited scope and remain unmeasured.
