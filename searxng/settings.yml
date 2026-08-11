@@ -39,23 +39,57 @@ search:
     - html
     - json
 
-# R-F1659 — per-engine overrides (merged into defaults by name).
+# R-F3849 (2026-08-11) — R-F1659's "datacenter-tolerant" set HAS ROTTED.
+#
+# R-F1659 (2026-06-18) enabled google/bing/mojeek/qwant/wikipedia/wikidata as the
+# engines that still tolerated a Fly datacenter IP, and disabled the three that were
+# already perma-blocked. Two months later, measured live from inside aria-intel via
+# /stats/errors?format=json, the "tolerant" set is blocked too:
+#
+#     google    SearxEngineCaptchaException          ← was carrying the results
+#     mojeek    SearxEngineAccessDeniedException
+#     qwant     SearxEngineAccessDeniedException
+#     wikidata  SearxEngineAccessDeniedException
+#     bing      httpx.ReadTimeout / TimeoutException ← the only one still answering
+#
+# THE CONSEQUENCE WAS NOT "FEWER RESULTS", IT WAS WRONG RESULTS. With effectively one
+# timing-out engine left, the instance began returning QUERY-INDEPENDENT result sets:
+# the same DD query run four times gave four unrelated answers ("Nova Launcher FAQ",
+# "Outlook", a Danish Google Help page), all engine=bing, ten well-formed results
+# each. Four identical inputs producing four different outputs rules out query
+# mangling — it is response cross-contamination. That noise seeded the crawl registry
+# (C-14) and reached a customer DD report (C-19).
+#
+# So the blocked engines are disabled here for the SAME reason R-F1659 disabled the
+# first three: they contribute nothing but CAPTCHA/timeout latency, and every engine
+# left waiting is another chance for a response to be mismatched.
+#
+# THIS LIST WILL ROT AGAIN — that is the honest expectation, not a defect. A
+# datacenter-hosted metasearch scraping consumer engines is a decaying asset; each
+# engine blocks the IP sooner or later. Do NOT treat this file as settled truth.
+# Re-measure with:
+#     curl -s http://aria-searxng.internal:8080/stats/errors?format=json
+# and re-tune. The protection that does NOT rot is R-F3844: aria-intel now rejects a
+# query-independent result set as a backend FAILURE instead of trusting it, and
+# R-F3847 makes Brave the sole DD search engine, so this instance's health no longer
+# decides whether a customer report is honest.
 engines:
-  # Datacenter-tolerant general-web engines — keep / enable.
-  - name: google
-    disabled: false
+  # Still answering (with timeouts) — the only general-web engine left.
   - name: bing
-    disabled: false
-  - name: mojeek
-    disabled: false
-  - name: qwant
     disabled: false
   - name: wikipedia
     disabled: false
+  # BLOCKED from the Fly datacenter IP, measured 2026-08-11. Disabled so they stop
+  # adding CAPTCHA/access-denied noise and per-query timeout latency.
+  - name: google
+    disabled: true
+  - name: mojeek
+    disabled: true
+  - name: qwant
+    disabled: true
   - name: wikidata
-    disabled: false
-  # Perma-blocked from the Fly datacenter IP — disable so they stop adding
-  # CAPTCHA/rate-limit noise + timeout latency to every query.
+    disabled: true
+  # Perma-blocked since R-F1659 (2026-06-18).
   - name: duckduckgo
     disabled: true
   - name: brave

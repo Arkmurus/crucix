@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3849,
+  "next_available": 3850,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32419,9 +32419,10 @@
       "title": "Node tier: prove every aria-brain HTML interpolation is escaped, and guard it",
       "claimed_at": "2026-08-11T08:11:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "edd7a44f",
+      "notes": null,
+      "shipped_at": "2026-08-11T08:40:01Z"
     },
     {
       "r_number": "R-F3846",
@@ -32445,6 +32446,15 @@
       "r_number": "R-F3848",
       "title": "staged positive learning curve gate",
       "claimed_at": "2026-08-11T08:36:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3849",
+      "title": "R-F1659's datacenter-tolerant engine set has rotted: google/mojeek/qwant/wikidata now blocked too",
+      "claimed_at": "2026-08-11T08:46:26Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
