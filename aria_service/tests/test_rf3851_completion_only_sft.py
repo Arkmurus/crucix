@@ -54,8 +54,11 @@ def test_last_boundary_selects_final_tool_result_not_intermediate_call() -> None
 def test_paid_curve_uses_official_completion_only_collator_path() -> None:
     trainer = (ROOT / "scripts/train/sft_train.py").read_text(encoding="utf-8")
     pod = (ROOT / "scripts/train/pod_tooluse_curve.sh").read_text(encoding="utf-8")
+    host = (ROOT / "scripts/train/run_tooluse_curve.sh").read_text(encoding="utf-8")
     assert "DataCollatorForCompletionOnlyLM(marker_ids, tokenizer=tokenizer)" in trainer
     assert "data_collator=data_collator" in trainer
     assert "actual_start != expected_start" in trainer
     assert "--completion-only-loss" in pod
     assert pod.index("--completion-only-loss") < pod.index('evaluate "$SFT_OUT"')
+    assert "aria_tooluse_curve_sft_v3.tgz" in host
+    assert "aria_tooluse_curve_v2_diagnostics.tgz" not in host
