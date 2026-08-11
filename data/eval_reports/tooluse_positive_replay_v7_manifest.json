@@ -1,0 +1,33 @@
+{
+  "complete": true,
+  "strategy": "accepted_parent_full_replay_plus_positive_delta",
+  "parent_rows": 230,
+  "delta_rows": 120,
+  "total_rows": 350,
+  "parent_axis_counts": {
+    "tooluse_adverse": 6,
+    "tooluse_challenge": 16,
+    "tooluse_challenge_unavailable": 44,
+    "tooluse_contradiction": 6,
+    "tooluse_multihop": 32,
+    "tooluse_news_impact": 6,
+    "tooluse_person": 64,
+    "tooluse_resolution": 6,
+    "tooluse_trace": 6,
+    "tooluse_trace_unavailable": 44
+  },
+  "total_axis_counts": {
+    "tooluse_adverse": 22,
+    "tooluse_challenge": 32,
+    "tooluse_challenge_unavailable": 55,
+    "tooluse_contradiction": 22,
+    "tooluse_multihop": 48,
+    "tooluse_news_impact": 12,
+    "tooluse_person": 80,
+    "tooluse_resolution": 12,
+    "tooluse_trace": 12,
+    "tooluse_trace_unavailable": 55
+  },
+  "all_axes_retained": true,
+  "dpo_rows": 0
+}
