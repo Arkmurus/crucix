@@ -226,6 +226,47 @@ def _drop_query_independent_engines(query: str, results: list) -> tuple[list, di
     return kept, dropped
 
 
+def _extract_unresponsive(data: dict) -> list[tuple[str, str]]:
+    """R-F3873 — SearXNG names the engines that refused, on EVERY response.
+
+    Measured live on aria-searxng 2026-08-11:
+
+        "unresponsive_engines": [["google cse", "Suspended: too many requests"],
+                                 ["yep",        "Suspended: access denied"]]
+
+    A repo-wide grep found NO consumer for this key. That absence is why `yep` could
+    report as the healthiest engine on the board — 81 observations, 2.5%
+    query-independent — while it was access-denied and serving nothing: an engine
+    that returns no rows accrues no observations, so it looks identical to one that
+    was never asked.
+
+    OBSERVE ONLY. This function must never touch the result set. R-F3857 shipped a
+    gate that emptied results when it disliked them, turning a detected backend
+    failure into `ok=True, count=0` — which an adverse-media sweep reads as CLEAN.
+    A blocked engine has already contributed nothing; there is nothing here to
+    filter, only something to report.
+
+    Tolerant of shape: this is untrusted input on an observability path, and it must
+    never be the reason a search raises.
+    """
+    out: list[tuple[str, str]] = []
+    for item in (data.get("unresponsive_engines") or []):
+        try:
+            if isinstance(item, dict):
+                name, reason = item.get("engine"), item.get("error") or item.get("reason")
+            elif isinstance(item, (list, tuple)):
+                name = item[0] if len(item) > 0 else None
+                reason = item[1] if len(item) > 1 else ""
+            else:
+                name, reason = item, ""
+            name = str(name or "").strip().lower()
+            if name:
+                out.append((name, str(reason or "").strip()))
+        except Exception:
+            continue
+    return out
+
+
 def _infoboxes_to_results(data: dict) -> list[dict[str, str]]:
     """Map SearXNG infoboxes into ordinary result rows.
 
@@ -409,6 +450,21 @@ async def search(
     # so ordinary results keep their rank, and BEFORE both relevance gates so an
     # infobox is judged on whether it answered the query like everything else.
     normalised.extend(_infoboxes_to_results(data))
+
+    # R-F3873 — record the engines the PROVIDER says refused us. Deliberately OUTSIDE
+    # the `if normalised:` guard below: an engine that is blocked contributes no rows,
+    # so the total-blackout case — every engine down, zero results — is exactly when
+    # this must fire, and is exactly what the old placement could never record.
+    # Fire-and-forget, like the relevance recording: bookkeeping never adds store
+    # latency to a search and never raises into it.
+    try:
+        import asyncio as _aio_u
+        from . import search_engine_health as _seh_u
+        for _eng, _reason in _extract_unresponsive(data):
+            _tu = _aio_u.create_task(_seh_u.record_unresponsive(_eng, _reason))
+            _tu.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+    except Exception:      # pragma: no cover - observability never blocks search
+        logger.debug("[R-F3873] unresponsive recording unavailable", exc_info=True)
 
     # R-F3865 — score every engine on this live query and let the health tracker
     # decide, over time, which sources have stopped answering. Fire-and-forget
