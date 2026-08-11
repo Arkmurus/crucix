@@ -9,6 +9,11 @@ EVAL_FILE="${EVAL_FILE:-/workspace/datasets/aria_tooluse_eval.jsonl}"
 DPO_OUT="${DPO_OUT:-/workspace/checkpoints/aria_tooluse_dpo_v3}"
 REPORT="${REPORT:-/workspace/eval/aria_tooluse_dpo_eval.json}"
 ARCHIVE="${ARCHIVE:-/workspace/eval/aria_tooluse_dpo_adapter.tgz}"
+PROBE_FILE="${PROBE_FILE:-/workspace/datasets/aria_tooluse_curve_probe.jsonl}"
+BEFORE_PROBE="${BEFORE_PROBE:-/workspace/eval/aria_tooluse_curve_raw_probe.json}"
+DPO_PROBE="${DPO_PROBE:-/workspace/eval/aria_tooluse_curve_dpo_probe.json}"
+DPO_VERDICT="${DPO_VERDICT:-/workspace/eval/aria_tooluse_curve_dpo_verdict.json}"
+DIAGNOSTICS="${DIAGNOSTICS:-/workspace/eval/aria_tooluse_curve_diagnostics.tgz}"
 SCRIPTS="/workspace/crucix/scripts/train"
 LOGS="/workspace/logs"
 PORT=8888
@@ -23,7 +28,15 @@ cd /workspace/crucix || { echo "[FATAL] staged repository unavailable" >&2; exit
 
 mkdir -p "$DPO_OUT" /workspace/eval "$LOGS"
 rm -f /workspace/eval/_cycle_status
-trap 'rc=$?; echo "$rc" > /workspace/eval/_cycle_status 2>/dev/null || true' EXIT
+collect_diagnostics(){
+  local files=() name
+  for name in aria_tooluse_curve_dpo_probe.json aria_tooluse_curve_dpo_verdict.json; do
+    [ ! -f "/workspace/eval/$name" ] || files+=("$name")
+  done
+  [ "${#files[@]}" -eq 0 ] || tar -czf "$DIAGNOSTICS" -C /workspace/eval "${files[@]}"
+}
+on_exit(){ local rc=$?; collect_diagnostics 2>/dev/null || true; echo "$rc" > /workspace/eval/_cycle_status 2>/dev/null || true; }
+trap on_exit EXIT
 log(){ echo "[$(date -u +%H:%M:%S)] [tooluse-dpo] $*"; }
 fail(){ echo "[FATAL] $*" >&2; exit 1; }
 
@@ -32,6 +45,10 @@ if [ "$SKIP_TRAIN" != 1 ] && [ "$FRESH_BASE" != 1 ]; then
 fi
 [ -s "$DPO_FILE" ] || fail "DPO corpus missing"
 [ -s "$EVAL_FILE" ] || fail "held-out eval missing"
+if [ -s "$PROBE_FILE" ] || [ -s "$BEFORE_PROBE" ]; then
+  [ -s "$PROBE_FILE" ] && [ -s "$BEFORE_PROBE" ] \
+    || fail "DPO calibration inputs must be supplied together"
+fi
 for script in dpo_train.py serve_eval_shim.py eval_tooluse.py build_tooluse_corpus.py; do
   [ -f "$SCRIPTS/$script" ] || fail "$script missing"
 done
@@ -100,6 +117,19 @@ for i in $(seq 1 60); do
   [ "$i" -eq 60 ] && { tail -40 "$LOGS/tooluse_dpo_shim.log"; fail "evaluation shim unavailable"; }
   sleep 10
 done
+
+if [ -s "$PROBE_FILE" ]; then
+  log "evaluating DPO on the fixed 30-row calibration before held-out"
+  python -m scripts.train.eval_tooluse --target "http://localhost:$PORT/v1" \
+    --model aria-tooluse-dpo --eval-file "$PROBE_FILE" --out "$DPO_PROBE" \
+    2>&1 | tee "$LOGS/tooluse_dpo_probe.log" || fail "DPO calibration failed"
+  python "$SCRIPTS/learning_curve_gate.py" --before "$BEFORE_PROBE" \
+    --after "$DPO_PROBE" --verdict-out "$DPO_VERDICT" \
+    --protected-axis tooluse_adverse --protected-axis tooluse_contradiction \
+    --protected-axis tooluse_news_impact --protected-axis tooluse_resolution \
+    || fail "SFT-to-DPO curve gate"
+  collect_diagnostics || fail "DPO diagnostics archive"
+fi
 
 log "evaluating unchanged 168-row held-out set"
 python -m scripts.train.eval_tooluse --target "http://localhost:$PORT/v1" \

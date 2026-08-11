@@ -121,3 +121,23 @@ def test_host_passes_verified_dynamic_sft_count_to_pod() -> None:
     assert "EXPECTED_SFT_ROWS=$EXPECTED_SFT_ROWS" in host
     assert 'validate_count "$SFT_FILE" "$EXPECTED_SFT_ROWS"' in pod
     assert 'validate_count "$SFT_FILE" 90' not in pod
+
+
+def test_recovered_dpo_must_pass_calibration_before_held_out() -> None:
+    pod = (ROOT / "scripts/train/pod_tooluse_dpo.sh").read_text(encoding="utf-8")
+    calibration = pod.index('log "evaluating DPO on the fixed 30-row calibration')
+    gate = pod.index('fail "SFT-to-DPO curve gate"')
+    held_out = pod.index('log "evaluating unchanged 168-row held-out set"')
+    assert calibration < gate < held_out
+    assert 'learning_curve_gate.py" --before "$BEFORE_PROBE"' in pod
+    assert "tooluse_adverse --protected-axis tooluse_contradiction" in pod
+    assert "collect_diagnostics" in pod
+
+
+def test_v4_continuation_cannot_fall_back_to_pure_dpo() -> None:
+    host = (ROOT / "scripts/train/run_tooluse_curve_dpo_v4.sh").read_text(encoding="utf-8")
+    assert "aria_tooluse_curve_sft_v4.tgz" in host
+    assert "aria_tooluse_curve_v4_sft_rescored.json" in host
+    assert "FRESH_BASE=0 EXPECTED_DPO_PAIRS=47" in host
+    assert "REMOTE_SFT_ADAPTER=/workspace/checkpoints/aria_tooluse_curve_sft" in host
+    assert "aria_tooluse_curve_v4_dpo_diagnostics.tgz" in host

@@ -32,7 +32,8 @@ def test_pod_cycle_continues_recovered_adapter_and_persists_before_eval() -> Non
     assert archived < evaluated
     assert 'd.get("complete") is not True' in code
     assert 'len(d.get("rows") or []) != n' in code
-    assert "trap 'rc=$?; echo \"$rc\" > /workspace/eval/_cycle_status" in code
+    assert "trap on_exit EXIT" in code
+    assert 'echo "$rc" > /workspace/eval/_cycle_status' in code
 
 
 def test_orchestrator_pins_inputs_and_bounds_paid_artifact_recovery() -> None:
