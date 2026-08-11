@@ -60,7 +60,13 @@ async function runSuite() {
   for (const line of stdout.split(/\r?\n/)) {
     const m = /^\s*not ok \d+ - (.+?)\s*$/.exec(line);
     // A suite-level "not ok" restates its children; keeping both double-counts.
-    if (m && !/^# /.test(m[1])) failures.add(m[1]);
+    // R-F3905 — NORMALISE THE PATH SEPARATOR. Node reports the test name as the
+    // path it was invoked with, so the SAME test is `test\x.test.mjs` on Windows and
+    // `test/x.test.mjs` on Linux. Comparing raw strings made every failure in a
+    // Windows-recorded baseline read as FIXED and its Linux twin as NEW — the first
+    // CI run after the Node tier started executing reported exactly that: 2 new and
+    // 2 fixed, the same two files, differing only by slash.
+    if (m && !/^# /.test(m[1])) failures.add(m[1].replace(/\\/g, '/'));
   }
   const num = (re) => { const m = re.exec(stdout); return m ? Number(m[1]) : null; };
   return {
@@ -125,7 +131,12 @@ if (!fs.existsSync(BASELINE)) {
 }
 
 const base = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
-const known = new Set(base.failures || []);
+// R-F3905 — normalise the RECORDED side too, so an existing Windows-recorded
+// baseline keeps working without a re-record. Doing it on both sides is what makes
+// the baseline portable instead of platform-locked; the Python gate needed a whole
+// second file (suite_baseline.ci.json) for a difference that was genuinely
+// platform-dependent, but this one is only a separator.
+const known = new Set((base.failures || []).map((f) => f.replace(/\\/g, '/')));
 const now = new Set(result.failures);
 const added = [...now].filter((f) => !known.has(f));
 const fixed = [...known].filter((f) => !now.has(f));
