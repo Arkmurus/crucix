@@ -52,6 +52,26 @@ class FakeStore:
     async def set_json(self, key: str, value, ex=None):
         self.written[key] = value
 
+    # C-29 — the real store contract this fake stands in for grew two members the
+    # consumer now depends on. Without them the fake diverges from production and
+    # the tests fail on the FAKE, not on the behaviour they assert.
+    async def get_json_strict(self, key: str):
+        """Strict read: this fake never fails, so it mirrors get_json exactly.
+        A store failure is exercised in the C-29 suite, which has a fake that can."""
+        return await self.get_json(key)
+
+    async def scan_keys(self, pattern: str, count: int = 200) -> list[str]:
+        """C-29 — enumerate the reliability keys that actually exist.
+
+        This fake models reliability as `{"family:topic": score}` rather than as
+        stored keys, so materialise the key names the same way `get_json` above
+        resolves them.
+        """
+        import fnmatch as _fn
+
+        keys = [f"aria:atlas:reliability:{suffix}" for suffix in self.reliability]
+        return [k for k in keys if _fn.fnmatch(k, pattern)][:count]
+
 
 def _atlas(monkeypatch, families: dict[str, dict], reliability: dict[str, float]):
     store = FakeStore(families, reliability)

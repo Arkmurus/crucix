@@ -55,6 +55,11 @@ from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
 from . import redis_store as rs
+# C-29 — imported BY NAME, not reached through `rs`. The module-level `rs` is
+# monkeypatched by tests and could be any object; `rs.StoreReadError` would then
+# raise AttributeError inside the very except clause meant to handle a read
+# failure, turning a declared-unreadable store back into a crash.
+from .redis_store import StoreReadError
 
 logger = logging.getLogger("aria.intel.source_validator")
 
@@ -914,7 +919,72 @@ async def coverage_report() -> str:
 # REGISTRY HEALTH REPORT
 # ══════════════════════════════════════════════════════════════════════════
 
-async def _measured_reliability(fam: str, topics: list) -> tuple[float | None, int]:
+_K_RELIABILITY_PREFIX = "aria:atlas:reliability:"
+
+# C-29 — one scan covers the whole atlas. 200 families x 12 DD layers is ~2.4k
+# keys today; the cap is set an order of magnitude clear of that so truncation is
+# a genuine anomaly rather than routine, and truncation is REPORTED (below)
+# instead of silently shrinking the measured set.
+_RELIABILITY_SCAN_CAP = 20000
+
+
+async def _observed_reliability_keys(
+    known_families: list | None = None,
+) -> tuple[dict[str, list[str]], bool]:
+    """C-29 — ``(family -> [reliability keys that EXIST], scan_complete)``.
+
+    The consumer must read WHAT WAS WRITTEN, not what the catalogue guessed would
+    be written. See this module's C-29 test for the full defect; the short form is
+    that `record_ingest(url, layer_name)` keys on the DD LAYER name while the old
+    reader enumerated the family's seeded catalogue TAGS, and those two vocabularies
+    share exactly one token out of twelve.
+
+    ONE scan for the whole prefix, not one per family: `state_store.scan_keys` is a
+    GLOB range scan on the key primary index, and R-F703 records a live event-loop
+    wedge caused by running it per-call on a hot path. 194 scans per report would
+    walk straight back into that.
+
+    Second return value is load-bearing. `scan_keys` returns `[]` on store failure
+    exactly as it does on an empty keyspace, so a caller that trusted the list alone
+    would report a wedged store as "nobody has ever measured anything" — C-29
+    relocated rather than cured.
+    """
+    keys = await rs.scan_keys(f"{_K_RELIABILITY_PREFIX}*", count=_RELIABILITY_SCAN_CAP)
+    complete = len(keys) < _RELIABILITY_SCAN_CAP
+    known = {f for f in (known_families or ()) if isinstance(f, str)}
+    by_family: dict[str, list[str]] = {}
+
+    for key in keys:
+        rest = key[len(_K_RELIABILITY_PREFIX):]
+        # `aria:atlas:reliability:{family}:{topic}`. Split at the LAST colon, not
+        # the first: `web_atlas._source_family` returns `urlparse().netloc`, which
+        # KEEPS THE PORT — so `https://example.com:8080/x` yields the family
+        # `example.com:8080`, and an IPv6 literal yields `[::1]:9`. Splitting at the
+        # first colon would file that key under `example.com` and leave the real
+        # family with zero observations: C-29 reproduced for every ported source.
+        family, sep, _topic = rest.rpartition(":")
+        if not sep or not family:
+            continue
+        # `_normalise_topic` does not strip colons, so a topic could in principle
+        # carry one and defeat the rpartition above. The family index is the
+        # authority when it can answer: prefer the longest KNOWN family that this
+        # key actually belongs to.
+        if known and family not in known:
+            best = None
+            for candidate in known:
+                if rest.startswith(candidate + ":") and (best is None or len(candidate) > len(best)):
+                    best = candidate
+            if best is not None:
+                family = best
+        by_family.setdefault(family, []).append(key)
+    return by_family, complete
+
+
+async def _measured_reliability(
+    fam: str,
+    topics: list,
+    observed_keys: list[str] | None = None,
+) -> tuple[float | None, int]:
     """R-F3254 — ``(overall, sample_count)``; `overall` is None when NOTHING was measured.
 
     This used to read `sum(scores) / len(scores) if scores else 0.5`, inline and
@@ -926,10 +996,30 @@ async def _measured_reliability(fam: str, topics: list) -> tuple[float | None, i
 
     Same reading error as `INITIAL_MASTERY = 0.5` on the Phase A gate-#2 heatmap:
     a starved cell is not a weak cell. Absent is not false — so say None.
+
+    C-29 — `observed_keys` is the family's ACTUAL reliability keys, from
+    `_observed_reliability_keys()`. When supplied it is authoritative and complete
+    for that family: every key in it exists, so there is nothing to probe for and
+    nothing to guess. That is both the correctness fix and a large read reduction —
+    the old path issued up to 10 `get_json` misses per family (~1,940 reads across a
+    194-family atlas, of which 21 hit).
+
+    `observed_keys=None` keeps the legacy per-topic probe so the function stays
+    correct for any caller that has not built the index — but note the legacy path
+    can only ever see topics the family was TAGGED with, which is the defect itself.
     """
+    if observed_keys is not None:
+        # Bounded: these are reads on the event loop and the caller's scan cap is
+        # global, so one pathological family could otherwise dominate it. Twelve DD
+        # layers is the real ceiling today, so 50 never truncates in practice — and
+        # an EMA average is already well determined long before that.
+        keys: list[str] = list(observed_keys)[:50]
+    else:
+        keys = [f"{_K_RELIABILITY_PREFIX}{fam}:{t}" for t in topics[:10]]
+
     scores: list[float] = []
-    for t in topics[:10]:
-        rel = await rs.get_json(f"aria:atlas:reliability:{fam}:{t}")
+    for key in keys:
+        rel = await rs.get_json(key)
         if rel:
             scores.append(float(rel.get("score", 0.5)))
     if not scores:
@@ -951,7 +1041,29 @@ async def registry_health_report() -> dict:
     whose `aria:atlas:source:*` record is missing from the store (those are
     skipped below, as they were before this change).
     """
-    families_idx = await rs.get_json("aria:atlas:index:families") or []
+    # C-29 — STRICT read. `get_json` returns None on a store failure (the R-F1
+    # None-on-error contract), which becomes `families_idx = []` and renders as
+    # "the atlas has 0 sources" — a fabricated measurement of an unreadable store,
+    # indistinguishable from a genuinely empty atlas. Declare it instead.
+    try:
+        families_idx = await rs.get_json_strict("aria:atlas:index:families") or []
+    except StoreReadError as e:
+        logger.warning("[C-29] registry_health_report: store unreadable: %s", e)
+        return {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "store_readable": False,
+            "error": f"store unreadable: {e}",
+            # Counts are None, never 0: nothing was measured because nothing could
+            # be READ, and a 0 here would read as a fact about the atlas.
+            "total_sources": None,
+            "healthy_count": None, "degraded_count": None, "failing_count": None,
+            "dead_count": None, "unmeasured_count": None,
+            "top_performers": [], "degraded": [], "failing": [], "dead": [],
+            "unmeasured": [],
+        }
+
+    observed_by_family, scan_complete = await _observed_reliability_keys(families_idx)
+
     healthy: list[dict] = []
     degraded: list[dict] = []
     failing: list[dict] = []
@@ -964,7 +1076,14 @@ async def registry_health_report() -> dict:
             continue
         # Average reliability across topics as a health proxy
         topics = rec.get("topics") or []
-        overall, samples = await _measured_reliability(fam, topics)
+        observed = observed_by_family.get(fam)
+        # C-29 — on a TRUNCATED scan a family with no observed keys may simply not
+        # have been reached, so fall back to the legacy tag probe rather than
+        # asserting "unmeasured" from an incomplete read.
+        if observed is None and not scan_complete:
+            overall, samples = await _measured_reliability(fam, topics)
+        else:
+            overall, samples = await _measured_reliability(fam, topics, observed or [])
         bucket_rec = {
             "family": fam,
             "tier": rec.get("tier"),
@@ -991,6 +1110,11 @@ async def registry_health_report() -> dict:
     unmeasured.sort(key=lambda r: r["family"])      # no score to sort on
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        # C-29 — both flags are honesty state, not decoration. `store_readable`
+        # False means the counts below are unknowable, not zero; `scan_complete`
+        # False means some observations may be missing from the measured set.
+        "store_readable": True,
+        "scan_complete": scan_complete,
         "total_sources": len(families_idx),
         "healthy_count": len(healthy),
         "degraded_count": len(degraded),
@@ -1010,14 +1134,35 @@ async def suspend_failing_sources(threshold: float = 0.40) -> dict:
     `threshold`. Auto-allowed per doctrine: 'never silently trust a
     failing source'. Suspension is reversible — a later ingest that
     raises the score back above 0.60 can un-suspend."""
-    families_idx = await rs.get_json("aria:atlas:index:families") or []
+    # C-29 — this consumer was blind in exactly the same way as
+    # registry_health_report: `_measured_reliability` returned None for every
+    # family, so `overall is None` short-circuited below and auto-suspend could
+    # NEVER fire, whatever the threshold. Reading written keys makes it live.
+    # A store failure must not be able to suspend anything, so read strictly and
+    # abort rather than proceeding over an empty family list.
+    try:
+        families_idx = await rs.get_json_strict("aria:atlas:index:families") or []
+    except StoreReadError as e:
+        logger.warning("[C-29] suspend_failing_sources: store unreadable: %s", e)
+        # Shape MUST match the success return below: `suspended` is a COUNT and
+        # `families` is the list. Returning a list as `suspended` would make a
+        # caller's `result["suspended"] > 0` raise TypeError on the failure path —
+        # a crash reachable only when the store is already unhealthy.
+        return {"ok": False, "store_readable": False, "suspended": 0,
+                "families": [], "error": f"store unreadable: {e}"}
+
+    observed_by_family, scan_complete = await _observed_reliability_keys(families_idx)
     suspended: list[str] = []
     for fam in families_idx:
         rec = await rs.get_json(f"aria:atlas:source:{fam}")
         if not rec:
             continue
         topics = rec.get("topics") or []
-        overall, _samples = await _measured_reliability(fam, topics)
+        observed = observed_by_family.get(fam)
+        if observed is None and not scan_complete:
+            overall, _samples = await _measured_reliability(fam, topics)
+        else:
+            overall, _samples = await _measured_reliability(fam, topics, observed or [])
         if overall is None:
             # R-F3254 — YOU CANNOT DEMOTE WHAT YOU NEVER MEASURED. This branch
             # used to receive the 0.5 prior, which survives the default 0.40

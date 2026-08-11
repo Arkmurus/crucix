@@ -1998,3 +1998,100 @@ Relationship to [[C-27]]: C-27 was an instrument with no reader at all; C-28 is 
 reader that displays the alarm but not the cause. Both are the same underlying
 question, and both were invisible to every static gate because nothing was broken
 — the code did exactly what it said, and what it said was not enough.
+
+### C-29 · The registry reliability EMA was structurally blind — the producer and the consumer used different key-spaces — **CLOSED (R-F3906, 2026-08-11)**
+
+Found by a source-health DD of `https://imaria.io/sources.html`. The "Registry
+reliability (measured observations)" panel reported **194 of 194 families
+UNMEASURED**, healthy/degraded/failing/dead all `0`. It was not empty because
+nothing had been measured. It was empty because nothing could be read.
+
+**Measured live, same instant, build_rev `c35fbc0e`:**
+
+```
+GET /api/aria/atlas/stats                 -> topics_tracked: 1
+GET /api/aria/atlas/rank?topic=identity   -> find-and-update.company-information.service.gov.uk
+                                             confirmed: 21, score: 0.9954, last_update 2026-08-06
+GET /api/aria/source_validator/health     -> that SAME family: bucket=unmeasured, samples=0
+```
+
+Twenty-one real observations existed and the panel built to display them reported
+the source as never measured.
+
+**Cause — a producer/consumer KEY-SPACE MISMATCH.** The R-F2735 producer
+(`dd_orchestrator._record_source_reliability`) calls
+`web_atlas.record_ingest(url, layer_name)`, writing
+`aria:atlas:reliability:{family}:{DD_LAYER_NAME}`. The consumer
+(`source_validator._measured_reliability`) read
+`aria:atlas:reliability:{family}:{CATALOGUE_TOPIC_TAG}`, enumerating the topics the
+family was **tagged** with at seed time. The 12 DD layer names and the 94 seeded
+catalogue tags intersect on exactly one token, `compliance` — so **11 of 12 layers
+wrote to keys no consumer would ever read**, and only 50 of 200 families carry even
+that tag, leaving **150 structurally unmeasurable** no matter what a DD did.
+
+The consumer was enumerating the **wrong universe**: it assumed the set of topics a
+family has *observations* under equals the set it was *tagged* with. Tags describe
+editorial coverage; observations are recorded per DD layer.
+
+**A second consumer was blind the same way.** `suspend_failing_sources` shares
+`_measured_reliability`, so `overall` was `None` for every family, the `overall is
+None` guard short-circuited, and **auto-suspend could never fire at any threshold**
+— "never silently trust a failing source" was unenforceable.
+
+**R-F3254/R-F3255 are not the bug.** They correctly stopped the panel reporting an
+unmeasured source as `0.5 = failing` and gave `unmeasured` its own bucket. They made
+the emptiness *honest*. Nobody checked whether the wire underneath was connected, so
+the honesty fix made a permanent blindness legible instead of curing it. This is the
+recurring shape in CLAUDE.md §1 (three Phase A gates certified by an absence), §16
+(`route_audit` returning `{}` for a 770-route app) and §17 (the cost meter reading
+`$0.00` through a store-less process): **an instrument that cannot see is
+indistinguishable from a clean reading.**
+
+**Fix:** the consumer reads **what was written** — one prefix scan of
+`aria:atlas:reliability:*` grouped by family — instead of guessing a vocabulary.
+Deliberate properties, each pinned by a test:
+
+- **No shared vocabulary.** A topic the catalogue has never heard of is still
+  measured, so the class cannot recur. Do **not** repair a future miss by adding a
+  name to a list in `source_validator`; a hand-maintained vocabulary is the defect,
+  not the cure (cf. §27d on hand-maintained engine lists).
+- **One scan, not one per family.** `scan_keys` is a GLOB range scan and R-F703
+  records a live event-loop wedge from running it per-call on a hot path. As a side
+  effect the report got cheaper: ~1,940 mostly-missing reads become ~21 hits.
+- **An unreadable store is DECLARED, never counted.** `scan_keys` returns `[]` on
+  failure exactly as on an empty keyspace, so the naive fix would have relocated
+  C-29 rather than cured it — a wedged store reporting all 194 families unmeasured,
+  as a fact. The family index is now read with `get_json_strict`; on
+  `StoreReadError` the report carries `store_readable: false` and **null** counts,
+  never `0`. `scan_complete: false` marks a truncated scan and falls back to the
+  legacy probe rather than asserting "unmeasured" from a partial read.
+- **`StoreReadError` is imported by name**, not reached through the module-level
+  `rs`, which tests monkeypatch — otherwise the `except` clause meant to handle a
+  read failure would itself raise `AttributeError`.
+
+**Two defects were found in the fix by the review stages, not by the tests that
+already passed:**
+1. *Taint analysis* — `web_atlas._source_family` returns `urlparse().netloc`, which
+   **keeps the port**, so a family can contain a colon (`example.com:8080`, `[::1]:9`).
+   Splitting the key at the FIRST colon filed that observation under `example.com`
+   and left the real family at zero: **C-29 reproduced, by the fix for C-29.** Split
+   at the last colon, confirmed against the family index (which also covers a topic
+   carrying a colon, since `_normalise_topic` does not strip them).
+2. *Business-logic review* — the new store-unreadable return used `suspended: []`
+   while the success path returns a **count**, so a caller's
+   `result["suspended"] > 0` would raise `TypeError` on the failure path — a crash
+   reachable only when the store was already unhealthy.
+
+**Known remaining narrowing, NOT fixed here (deliberately out of scope).** Even with
+the key-space cured, the producer's gate (`confidence == CONFIRMED` and not
+`gate_demoted` and a structured `url`) has yielded exactly **one family across the
+module's lifetime**, despite 63 DD layer-runs in the last 7 days. And
+`web_atlas.record_correction` — the only negative signal — **has no caller**, so
+scores can currently only rise and auto-suspend, though no longer blind, remains
+unreachable in practice. Both are follow-on defects, not this one.
+
+**Verification:** fixture-first. The C-29 suite was RED (4 failed, 1 passed — the
+one pass being the R-F3254 honesty guard, which the fix had to preserve) before any
+production change, and the edge-case guard was proven to fail on demand by reverting
+the split. Final: **323 passed, 2 xfailed, 0 failed** across every test file that
+touches `source_validator` / `web_atlas` / the atlas routes.
