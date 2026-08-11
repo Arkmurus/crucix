@@ -39,6 +39,33 @@ search:
     - html
     - json
 
+# R-F3863 (2026-08-11) — IDENTIFY OURSELVES. Several APIs do not block this
+# datacenter IP at all; they block UNIDENTIFIED CLIENTS, and we were being refused
+# for a reason we could simply fix. Measured directly from inside aria-intel against
+# the Wikipedia API:
+#
+#     User-Agent: python-requests/2.0                    -> HTTP 403
+#         "Please set a user-agent and respect our robot policy"
+#     User-Agent: AriaIntelligence/1.0 (aria@arkmurus.com) -> HTTP 200
+#         hits = ['Rosoboronexport', 'KAB-1500', 'Aleksandr Mikheyev']
+#
+# Same IP, same query, same second. So "blocked from a datacenter" was the wrong
+# diagnosis for this class of source — the right move is COMPLIANCE, not evasion.
+# Wikimedia's robot policy asks for a descriptive agent with a contact address;
+# this provides one. It also reduces the 429s that were the other half of
+# wikipedia's failures here, because Wikimedia throttles unidentified clients
+# harder than identified ones.
+#
+# This is deliberately the OPPOSITE of the tempting fix. Routing this instance
+# through residential proxies would also "work", and it would mean evading
+# anti-bot controls to take data a provider is refusing us — untenable for a
+# due-diligence product, and the same reasoning that already stopped us scraping
+# TrustOnline (§18) and using Find Case Law unlicensed.
+outgoing:
+  useragent_suffix: "AriaIntelligence/1.0 (defence-DD research; aria@arkmurus.com)"
+  request_timeout: 6.0
+  max_request_timeout: 12.0
+
 # R-F3849 (2026-08-11) — R-F1659's "datacenter-tolerant" set HAS ROTTED.
 #
 # R-F1659 (2026-06-18) enabled google/bing/mojeek/qwant/wikipedia/wikidata as the
@@ -147,7 +174,14 @@ engines:
   # the latter is filtered per-engine by R-F3853 in search_searxng.py.
   - name: bing
     disabled: false
+  # R-F3863 — API-BASED, POLICY-COMPLIANT, and now identified (see `outgoing`
+  # above). These are the tier that does NOT rot: they are not scraped, they do not
+  # CAPTCHA, and they refuse us only when we fail to say who we are. Re-enabled
+  # together with the user-agent suffix that a direct probe proved is the whole
+  # difference between 403 and 200.
   - name: wikipedia
+    disabled: false
+  - name: wikidata
     disabled: false
   # BLOCKED from the Fly datacenter IP, measured 2026-08-11. Disabled so they stop
   # adding CAPTCHA/access-denied noise and per-query timeout latency.
@@ -156,8 +190,6 @@ engines:
   - name: mojeek
     disabled: true
   - name: qwant
-    disabled: true
-  - name: wikidata
     disabled: true
   # Perma-blocked since R-F1659 (2026-06-18).
   - name: duckduckgo
