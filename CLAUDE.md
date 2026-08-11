@@ -590,12 +590,51 @@ a gate, it must be able to FAIL (R-F3858) and must never be able to empty a resu
 set (R-F3857: an emptied set reads as "nothing found", which an adverse-media sweep
 reads as CLEAN).
 
-### 27e. Still open — an operator decision, not a code one
-Tier 2 has **no general-web index**. Restoring one licitly needs a keyed
-independent index (Mojeek/Marginalia publish APIs; terms + pricing NOT yet
-verified — verify before quoting) or a bounded slice of the Brave quota already
-paid for (R-F2318 deliberately scoped Brave away from the free stack). Until then
-ARIA runs on tier 2 + its direct news/academic/memory backends, which measured
-**10/10 related** on the niche queries that broke SearXNG — a dead SearXNG is a
-**redundancy loss, not a blackout**, and a SearXNG-only probe must never be used to
-conclude ARIA cannot search.
+### 27e. Tier 2 is SETTLED — SearXNG stays, Brave stays DD-only (operator, 2026-08-11)
+Asked "aria-searxng or Brave for tier 2, another paying service is not ARIA taking
+control", the answer is **SearXNG, and buy nothing.** Four reasons, in order of weight:
+1. **Brave is DD's engine** (operator: "brave API will be responding and be
+   responsible for DD reports"). Sharing its quota with 24/7 autonomous loops
+   recreates the OpenSanctions failure (§18) — a spent plan that **no retry, pacing
+   or breaker can clear** — except it would land mid-report, on a customer.
+2. **"Free" is not "in control" here, and the instinct inverts.** SearXNG has **no
+   index of its own**; every result is borrowed from Google/Bing/yep, who blocked
+   us three times in two months with no contract and no recourse. SearXNG is
+   *less* controlled than Brave. It is acceptable **only because it can no longer
+   lie** (R-F3844/3853/3857 + the §27d health gate).
+3. **The free stack is not starved** — measured 10/10 related on the niche queries
+   that broke SearXNG, via news/academic/memory backends.
+4. **The bounded-escalation pattern already exists** and is correct: the student
+   loop's Brave use is Pass-2 ONLY (free stack failed to ground the region),
+   ≤3/session (`ARIA_STUDENT_BRAVE_BUDGET`), auto-shed when daily spend nears the
+   cap (R-F2392/R-F2961). **Leave it; do not widen it.**
+
+**The sovereignty play is ARIA's own index, and it already compounds.** §15 is live:
+every paid search writes to `rag_store` + `intel_ledger` + `brain_hook`, so DD's
+Brave spend buys a permanent asset. Live proof — `memory:documents` supplied **5 of
+10** results for both "Modirum Gespi Ltd" and "BAE Systems plc". Growing that beats
+swapping vendors.
+
+### 27f. Brave is METERED, and it measures its own headroom (R-F3868/R-F3870)
+Nothing counted Brave's calls before 2026-08-11: `/api/aria/cost/external` returned
+`by_service: {}, total_calls: 0`. **An unmeasured dependency reads exactly like a
+healthy one**, right up to the 429. Every outcome branch of `_search_brave` is now
+metered — **success included**, because "how much of the plan is left" is the
+question that matters BEFORE it is spent — and surfaced as `brave_usage` on
+`GET /api/aria/search/health`.
+
+- **Brave publishes `x-ratelimit-limit/-remaining/-reset/-policy` on every response**
+  (measured: `50, 0` / `50;w=1, 0;w=2678400`), so ARIA reads the provider's own
+  accounting rather than an operator-set `BRAVE_MONTHLY_QUOTA`. **Before filing "the
+  operator must tell us X", check whether the provider already does.**
+- ⚠️ **`limit 0` on that 31-day window means UNCAPPED, not exhausted** — the same
+  response was **HTTP 200 with results**. Reading `remaining == 0` as exhaustion
+  would fire a false P0 against a healthy key. A window with `limit <= 0` is
+  `capped: False` and never alerts; alerting is restricted to capped windows longer
+  than an hour (a 1-second bucket at 96% is normal pacing).
+- **A pacing 429 is not a spent plan** (§18). `classify_429` keys on the BILLING
+  PERIOD, not the phrase: the real OpenSanctions body is "exceeded its **rate limit
+  for the month**", and a first draft keying on "rate limit" bucketed it as pacing —
+  reproducing the very defect, caught only by a test asserting the real body text.
+  An unrecognised 429 stays `rate_limit_or_unknown`; the raw body is kept, because a
+  classification nobody can audit is a guess wearing a verdict's clothes.
