@@ -144,11 +144,22 @@ outgoing:
 # ordinary load and is deliberately LEFT ENABLED rather than ripped out. Re-measure
 # before trusting or removing it.
 #
-# The honest state of this instance right now: EVERY general web engine is blocked
-# (yep access-denied, mojeek access-denied, duckduckgo timeout, brave/google
-# too-many-requests, startpage CAPTCHA) and bing answers only popular queries. This
-# is not a tuning problem. A datacenter-hosted metasearch scraping consumer engines
-# is structurally a decaying asset, and the engine list will keep rotting.
+# The honest state of this instance as measured 2026-08-11: EVERY general web engine
+# is blocked (yep access-denied, mojeek access-denied, duckduckgo timeout,
+# brave/google too-many-requests, startpage CAPTCHA) and bing answers only popular
+# queries. This is not a tuning problem. A datacenter-hosted metasearch scraping
+# consumer engines is structurally a decaying asset, and the engine list will keep
+# rotting.
+#
+# ⚠️ DO NOT TRUST THE PARAGRAPH ABOVE AS CURRENT — IT IS A SNAPSHOT, AND THE WHOLE
+# POINT OF THIS FILE'S HISTORY IS THAT SUCH SNAPSHOTS ROT. R-F3873 (2026-08-11) made
+# the state MEASURED: SearXNG reports `unresponsive_engines` on every response and
+# ARIA now consumes it, so the live answer is
+#     GET /api/aria/search/health → engine_relevance.blocked
+# Read that before editing anything here. `yep` in particular oscillates — it was
+# serving 81 observations at 2.5% junk while SearXNG simultaneously reported it
+# "Suspended: access denied", which is exactly why a hand-written status comment is
+# the wrong instrument and why nothing above should be treated as today's truth.
 #
 # WHAT KEEPS ARIA WORKING ANYWAY — measured end-to-end through web_search.search(),
 # which fans out across MANY backends, not just this one:
