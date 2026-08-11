@@ -223,15 +223,53 @@ Every paid API call (Brave/Anthropic/DeepSeek) writes its output to `brain_hook`
     floor for any environment where the secret is absent. Read the LIVE value in-machine
     (`flyctl ssh console -a aria-intel`), never from `flyctl secrets list`, whose DIGEST
     column is a hash and not the value (R-F3721).
-  - ⚠️ **R-F3756 STAGED, NOT LIVE.** Set with `--stage` on 2026-08-06 because a secret
-    set restarts aria-intel (~10 min boot, §11c) and a peer agent's training cycle was
-    reading the golden set from it at the time. The live effective cap was measured at
-    `300.0` when staged. **It becomes `600` on the next aria-intel deploy** — until then
-    the ceiling is still `$300`. Verify after any deploy with
-    `cost_tracker._monthly_cap_usd()`.
+  - ✅ **R-F3756 IS NOW LIVE — measured 2026-08-11.** It was staged with `--stage` on
+    2026-08-06 (a secret set restarts aria-intel, ~10 min boot per §11c, and a peer's
+    training cycle was reading the golden set at the time), and this line used to say
+    "STAGED, NOT LIVE … the ceiling is still `$300`". A later deploy applied it.
+    Verified in-machine: `cost_tracker._monthly_cap_usd()` → `600.0`, and the live
+    `/api/aria/cost/monthly/status` reports `cap_usd: 600.0`. `ARIA_DAILY_CAP_USD` is
+    also set to `50` (not the `25.0` code default).
+  - **Read the spend from the RUNNING SERVER, never from a detached `python3` probe
+    (R-F3853, 2026-08-11).** A `flyctl ssh console` one-off is a DIFFERENT process and
+    has no state_store connection — writes raise `state_store: no connection` and reads
+    return `None`, which the R-F1 None-on-error contract renders as **`0.0`**. That
+    reads as "nothing has been spent" and is indistinguishable from a real zero. A
+    session following this file measured `spent_usd: 0.0` and 12 consecutive days of
+    absent daily keys, and came within one step of reporting a fabricated P0 ("the cost
+    meter is blind, the cap cannot trip"). The meter was fine: through the live server
+    the same instant read **`$48.26` of `$600`, 19,751 calls**. Probe with
+    `curl -H "Authorization: Bearer $ARIA_OPERATOR_TOKEN" http://127.0.0.1:8000/api/aria/cost/monthly/status`
+    from inside the machine (localhost, so the token never leaves the box). This is the
+    same absence-collapsing-into-a-measurement class as the three fabricated Phase A
+    gates in §1 — the instrument, not the subject, was broken.
+  - `ARIA_USER_MONTHLY_CAP_USD` is a SEPARATE per-user cap and was NOT changed.
   - `ARIA_USER_MONTHLY_CAP_USD` is a SEPARATE per-user cap and was NOT changed.
 - **Acting on an LLM billing top-up (R-F3513, 2026-07-30):** a billing failure sets a **24h HARD cooldown** (R-F678) that is mirrored to Redis and **REHYDRATED ON BOOT**, and `_record_success` is the only thing that clears it — but a cooling provider is never called, so it sustains itself for the full 24h. **Restarting does NOT clear it** (the old `fallback.py` comment claiming otherwise was wrong and is corrected). Paying for credit therefore had no effect for ~18h on 2026-07-30. To make a top-up take effect immediately:
   `POST /api/aria/admin/llm/cooldown/clear?provider=deepseek` — **operator token only** (it re-enables provider spend). Omit `provider` to clear the whole chain. It clears the in-process stats **and** deletes the Redis mirror; clearing either alone lets the other restore it. The response reports `was_cooling`, so it never claims to have lifted a cooldown that was not there.
+- **DO NOT set `LLM_PROVIDER=anthropic` to "make Claude primary" (R-F3853, 2026-08-11).**
+  An operator directive to sort out "anthropic billing and chain order" reads like it
+  asks for this. Measured month-to-date spend says it would breach the cap:
+  deepseek 16,179 calls / 96.5M tokens / **$18.79** = `$0.195/M`; anthropic 393 calls /
+  2.65M tokens / **$21.23** = `$8.01/M`. **Anthropic is ~41× DeepSeek per token**, so
+  moving the ~111M tokens/month the autonomous loops burn onto it costs ≈ **$889/mo**
+  against a `$600` cap. Two further traps: `LLM_MODEL` is pinned to `deepseek-v4-flash`,
+  and `factory.py:59` builds Anthropic as `model or "claude-sonnet-4-6"` — so flipping
+  the provider alone yields an Anthropic client pinned to a DeepSeek model id that 404s
+  every call. **The correct architecture is already in place and is two-track**: DD pins
+  Claude (`ARIA_DD_LLM_PROVIDER` defaults to `anthropic`, R-F2917) and CANNOT degrade
+  (`ARIA_NON_DEGRADING_PINS=anthropic`, R-F3034/R-F3767), while everything else runs
+  DeepSeek. `ARIA_PREFERENCE_ONLY_PROVIDERS` is deliberately `""` so Anthropic ALSO
+  sits in the general chain as the only cross-vendor fallback — that is what keeps chat
+  up during DeepSeek's soft timeouts, it costs ~$21/mo, and R-F3767 split the flags
+  precisely so buying that resilience does not surrender the DD pin. Do not "tidy" it
+  back to `anthropic`.
+- **Anthropic billing is HEALTHY (verified 2026-08-11).** Live call → HTTP 200, real
+  `usage`, on `claude-sonnet-4-5`/`4-6`; `/v1/models` lists opus-5/sonnet-5 too. A
+  `serving_provider: deepseek` reading is NORMAL (deepseek is chain head), and DeepSeek
+  soft-cooling on `timeout` for 10–41s then logging "recovered — resetting failure
+  stats" is §14 cooling, not an outage. Do not diagnose an Anthropic billing failure
+  from either signal; probe the key directly.
 - Autonomy gate: **OPEN AT L3 FULL** as of 2026-05-22 R-F794 per operator direction "finish all". Live secrets on fly aria-intel: `ARIA_AUTONOMOUS_ENABLED=1`, `ARIA_AUTONOMY_LEVEL=3`, `ARIA_AUTONOMOUS_DRY_RUN=0`, `ARIA_OUTPUT_HARVEST_ENABLED=1`, `ARIA_SELF_IMPROVE_AUTO_DEPLOY=1`. Reverses R-F462 for `change_type=bug_fix` only. 24h observation gates SKIPPED by operator choice — code-enforced `$300` cap + `safety.py` per-task guardrails remain. Watch `/api/aria/cost/monthly/status` daily; pause via `POST /api/aria/autonomous/pause` if burn spikes.
 - ARIA-Coder (R-F802-R-F805 shipped 2026-05-22): autonomous self-coding pipeline (gap detect → plan → validate → review → stage). DORMANT — needs `ARIA_CODER_ENABLED=1` to fire. Outputs flow through existing self_improve.stage_improvement (`/api/aria/self/staged`) honouring R-F462. See [[aria_coder_buildout_2026_05_22]] for activation steps + emergency stop. Claude review hook (`ARIA_CODER_CLAUDE_REVIEW_ENABLED`) is forward-looking until Anthropic billing tops up.
 
