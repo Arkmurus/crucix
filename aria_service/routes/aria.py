@@ -22708,9 +22708,25 @@ async def law_refresh_ep():
 @router.get("/search/health")
 @fail_wire(module="aria", gap_type="engine_failure")
 async def search_health_ep():
-    """Check which search backends are available."""
+    """Check which search backends are available.
+
+    R-F3865 — now also reports whether each source is still ANSWERING THE QUESTION,
+    not merely reachable. "Available" was the weaker half: for 52 days SearXNG was
+    perfectly available and serving query-independent junk, and nothing on this
+    surface could have told the difference. `engine_relevance` carries the
+    per-engine query-independence ratio and any live quarantine (§25.3).
+    """
     from ..intel import web_search
     health = await web_search.get_search_health()
+    # Never let the new panel break the existing one — a proprioception surface
+    # that can 500 tells you nothing at exactly the moment you need it.
+    try:
+        from ..intel import search_engine_health as _seh
+        if isinstance(health, dict):
+            health["engine_relevance"] = await _seh.health_report()
+    except Exception as _e:      # pragma: no cover
+        if isinstance(health, dict):
+            health["engine_relevance"] = {"error": f"unavailable: {_e}"}
     return health
 
 

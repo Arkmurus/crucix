@@ -150,6 +150,20 @@ def _is_query_independent(query: str, results: list) -> bool:
     return True
 
 
+def _per_engine_verdicts(query: str, results: list) -> dict[str, bool]:
+    """{engine: did it answer a DIFFERENT question} — the raw signal R-F3865 records.
+
+    Split out so the per-query filter and the long-run health tracker cannot drift
+    apart: quarantining an engine on one definition of "unrelated" while filtering
+    it on another would be a slow, silent contradiction.
+    """
+    groups: dict[str, list] = {}
+    for r in results:
+        if isinstance(r, dict):
+            groups.setdefault((r.get("engine") or "").strip().lower(), []).append(r)
+    return {eng: _is_query_independent(query, rows) for eng, rows in groups.items()}
+
+
 def _drop_query_independent_engines(query: str, results: list) -> tuple[list, dict]:
     """Drop the contribution of any ENGINE that answered a different question.
 
@@ -210,6 +224,64 @@ def _drop_query_independent_engines(query: str, results: list) -> tuple[list, di
             if isinstance(r, dict)
             and (r.get("engine") or "").strip().lower() not in dropped_keys]
     return kept, dropped
+
+
+def _infoboxes_to_results(data: dict) -> list[dict[str, str]]:
+    """Map SearXNG infoboxes into ordinary result rows.
+
+    R-F3864 — the API tier answers in a DIFFERENT SHAPE, and we were discarding it.
+
+    R-F3863 re-enabled wikipedia + wikidata after proving Wikimedia refuses
+    unidentified clients rather than datacenter IPs (403 on a generic UA, 200 with
+    a descriptive one). They then reported `n=0` with no errors at all, which read
+    like "enabled but useless". They were not: SearXNG returns an encyclopedic hit
+    as an INFOBOX, not a result row, and this adapter only ever read
+    `data["results"]`. Measured for "Rosoboronexport": `results: 0, infoboxes: 1`,
+    the infobox carrying "JSC Rosoboronexport is the sole state intermediary agency
+    for Russia's exports/imports of...". Exactly the entity grounding a DD needs on
+    a niche subject, thrown away at the last step.
+
+    These rows are the most trustworthy thing this backend produces — an infobox
+    exists only on a resolved entity match, so it cannot be the soft-404 filler that
+    R-F3844/R-F3853 exist to reject. They are still passed through both gates
+    unchanged: a source earns its place by answering the query, never by provenance.
+    """
+    out: list[dict[str, str]] = []
+    for ib in (data.get("infoboxes") or []):
+        if not isinstance(ib, dict):
+            continue
+        title = (ib.get("infobox") or "").strip()
+        content = (ib.get("content") or "").strip()
+        if not title and not content:
+            continue
+        url = ""
+        for u in (ib.get("urls") or []):
+            if isinstance(u, dict) and (u.get("url") or "").strip():
+                url = u["url"].strip()
+                break
+        if not url:
+            url = (ib.get("id") or "").strip()
+        # `engine` is absent on a merged infobox; `engines` holds the contributors.
+        engine = (ib.get("engine") or "").strip()
+        if not engine:
+            engines = ib.get("engines") or []
+            # Respect SearXNG's ORDER for a list — it lists the contributor that
+            # resolved the entity first, so sorting would attribute a Wikipedia
+            # infobox to "wikidata" purely because w-i-k-i-d sorts before w-i-k-i-p.
+            # Sets carry no order, so sort those for determinism.
+            if isinstance(engines, (list, tuple)) and engines:
+                engine = str(engines[0])
+            elif isinstance(engines, (set, frozenset)) and engines:
+                engine = sorted(str(e) for e in engines)[0]
+            else:
+                engine = "infobox"
+        out.append({
+            "title": title,
+            "url": url,
+            "snippet": content,
+            "engine": str(engine).strip().lower(),
+        })
+    return out
 
 
 @fail_wire(module="search_searxng", gap_type="source_failure")
@@ -331,6 +403,45 @@ async def search(
             "snippet": (r.get("content") or r.get("snippet") or "").strip(),
             "engine":  (r.get("engine") or "").strip(),
         })
+
+    # R-F3864 — the API tier (wikipedia/wikidata) answers as an INFOBOX, not a
+    # result row, and reading only `results` discarded it. Appended AFTER the rows
+    # so ordinary results keep their rank, and BEFORE both relevance gates so an
+    # infobox is judged on whether it answered the query like everything else.
+    normalised.extend(_infoboxes_to_results(data))
+
+    # R-F3865 — score every engine on this live query and let the health tracker
+    # decide, over time, which sources have stopped answering. Fire-and-forget
+    # (same pattern as MeteredProvider's cost recording) so bookkeeping never adds
+    # store latency to a search, and never raises into it.
+    if normalised:
+        try:
+            import asyncio as _aio_h
+            from . import search_engine_health as _seh
+            for _eng, _indep in _per_engine_verdicts(query, normalised).items():
+                _t = _aio_h.create_task(
+                    _seh.record_observation(_eng, query_independent=_indep))
+                _t.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+        except Exception:      # pragma: no cover - observability never blocks search
+            logger.debug("[R-F3865] health recording unavailable", exc_info=True)
+
+        # Act on it: a quarantined engine is not consulted. Bounded by the SAME
+        # lesson R-F3857 taught — if honouring every quarantine would leave nothing
+        # at all, keep the results and let the relevance gates below judge them.
+        # A health system that can blank an answer set is a worse failure than the
+        # degraded source it was policing.
+        try:
+            from . import search_engine_health as _seh2
+            _live = [r for r in normalised
+                     if not await _seh2.is_quarantined((r.get("engine") or "").strip().lower())]
+            if _live:
+                if len(_live) != len(normalised):
+                    logger.info(
+                        "[R-F3865] skipped %d result(s) from quarantined engine(s) for %r",
+                        len(normalised) - len(_live), query[:60])
+                normalised = _live
+        except Exception:      # pragma: no cover
+            logger.debug("[R-F3865] quarantine check unavailable", exc_info=True)
 
     # R-F3853 — drop any single ENGINE that answered a different question, before
     # the whole-set check below. With yep enabled, a niche query returns real yep
