@@ -2095,3 +2095,29 @@ one pass being the R-F3254 honesty guard, which the fix had to preserve) before 
 production change, and the edge-case guard was proven to fail on demand by reverting
 the split. Final: **323 passed, 2 xfailed, 0 failed** across every test file that
 touches `source_validator` / `web_atlas` / the atlas routes.
+
+**Follow-through — R-F3908: the blindness detector itself shipped DARK.** The
+`store_readable: false` branch added above returned its honest state and **logged**,
+and did nothing else — no `brain_hook.absorb`, no gap, no metric. Under §21a that is
+dark, not wired, and it is the sharpest possible version of this defect: the whole
+of C-29 is that an instrument which cannot see reads as a clean instrument, so a
+blindness detector that tells nobody reproduces the fault one level up. ARIA would
+go blind on her own source registry and her brain would never learn of it (§25
+proprioception unmet for that limb), and the blind `suspend_failing_sources` would
+silently stop enforcing "never silently trust a failing source" with nothing
+downstream noticing it had stopped.
+
+Both failure branches now absorb to the brain with `success=False` and the gap type
+`source_registry_unreadable` — **registered** in `capability_gaps.VALID_GAP_TYPES`,
+because `record_gap` silently drops an unregistered type (`capability_gaps.py:315`;
+cf. the R-F3428 / R-F3793 / R-F3520 blocks recording types emitted in production
+while registered nowhere). An unregistered type looks exactly like wiring and
+delivers nothing, so a test pins the registration. The type is deliberately distinct
+from `source_uptime_degraded`: that means *a source is failing*, this means *the
+instrument is unreadable*, and collapsing them would report our own blindness as the
+sources' fault — the C-29 error in a new place.
+
+The SUCCESS path is deliberately left quiet: `registry_health_report` backs a polled
+dashboard panel, and emitting per read would be the `source_atlas_update` storm that
+`defence_source_seed.skip_if_populated` exists to prevent. A test guards that too, so
+the wiring cannot later be "improved" into a flood.

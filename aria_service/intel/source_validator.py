@@ -921,6 +921,42 @@ async def coverage_report() -> str:
 
 _K_RELIABILITY_PREFIX = "aria:atlas:reliability:"
 
+# R-F3908 — the gap type is REGISTERED in `capability_gaps.VALID_GAP_TYPES`.
+# `record_gap` silently drops an unregistered type, so emitting one looks exactly
+# like wiring while delivering nothing; a test pins the registration.
+_BLINDNESS_GAP_TYPE = "source_registry_unreadable"
+
+
+async def _report_registry_blindness(surface: str, err: Exception) -> None:
+    """R-F3908 (§21a/§21d) — tell the brain the source registry went BLIND.
+
+    Not "a source is failing" — the INSTRUMENT is unreadable. Those demand opposite
+    responses (investigate the source vs. investigate the store), which is why this
+    carries its own gap type rather than reusing `source_uptime_degraded`.
+
+    Best-effort and never raises: this runs on a path that is already degraded, and
+    an exception here would convert a reported blindness into an unreported crash.
+    """
+    try:
+        from . import brain_hook as _bh
+
+        await _bh.absorb(
+            module="source_validator",
+            summary=f"Source registry unreadable — {surface} is blind",
+            detail=f"{type(err).__name__}: {err}",
+            success=False,
+            gap_type=_BLINDNESS_GAP_TYPE,
+            gap_detail=(
+                f"{surface} could not read aria:atlas:index:families. Registry "
+                "reliability reports and auto-suspend are both blind until the "
+                "state store recovers."
+            ),
+            source_id="source_validator:R-F3908",
+            confidence="CONFIRMED",
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("[R-F3908] blindness signal failed to reach the brain: %s", exc)
+
 # C-29 — one scan covers the whole atlas. 200 families x 12 DD layers is ~2.4k
 # keys today; the cap is set an order of magnitude clear of that so truncation is
 # a genuine anomaly rather than routine, and truncation is REPORTED (below)
@@ -1049,6 +1085,10 @@ async def registry_health_report() -> dict:
         families_idx = await rs.get_json_strict("aria:atlas:index:families") or []
     except StoreReadError as e:
         logger.warning("[C-29] registry_health_report: store unreadable: %s", e)
+        # R-F3908 (§21a) — a log line is DARK. C-29 exists because an instrument
+        # that cannot see reads as a clean instrument; a blindness detector that
+        # tells nobody reproduces that defect one level up. Failure branch → brain.
+        await _report_registry_blindness("registry_health_report", e)
         return {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "store_readable": False,
@@ -1144,6 +1184,10 @@ async def suspend_failing_sources(threshold: float = 0.40) -> dict:
         families_idx = await rs.get_json_strict("aria:atlas:index:families") or []
     except StoreReadError as e:
         logger.warning("[C-29] suspend_failing_sources: store unreadable: %s", e)
+        # R-F3908 (§21a) — see registry_health_report. This branch matters MORE:
+        # a blind auto-suspend silently stops enforcing "never silently trust a
+        # failing source", and nothing downstream would notice it had stopped.
+        await _report_registry_blindness("suspend_failing_sources", e)
         # Shape MUST match the success return below: `suspended` is a COUNT and
         # `families` is the list. Returning a list as `suspended` would make a
         # caller's `result["suspended"] > 0` raise TypeError on the failure path —

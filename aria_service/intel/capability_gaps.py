@@ -399,6 +399,14 @@ VALID_GAP_TYPES = frozenset({
     "test_framework_gap",               # autonomous/tasks.py:1052
     "tier_exhaustion",                  # llm/tier_router.py:213
     "user_model_failure",               # user_model.py:575
+    "source_registry_unreadable",       # source_validator.py — R-F3908: the atlas
+                                        # family index could not be READ, so registry
+                                        # health and auto-suspend are blind. Distinct
+                                        # from source_uptime_degraded (a SOURCE is
+                                        # failing): here the INSTRUMENT is down, and
+                                        # collapsing the two would report our own
+                                        # blindness as the sources' fault — the C-29
+                                        # error in a new place.
     "web_integrity_failure",            # web_integrity_agent.py:936
     # ── R-F2907 (2026-07-23) — drift since the R-F2644 sweep ─────────────────
     # Caught by test_rf2644_gap_type_registry_drift, which is the REAL scan that
