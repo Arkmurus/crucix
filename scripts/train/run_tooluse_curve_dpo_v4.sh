@@ -23,7 +23,8 @@ FRESH_BASE=0 EXPECTED_DPO_PAIRS=47 \
   POD_RUNNER=scripts/train/pod_tooluse_dpo.sh \
   PROBE_LOCAL="$PROBE" PROBE_SHA256="$(hash "$PROBE")" \
   BASELINE_LOCAL="$BEFORE" BASELINE_SHA256="$(hash "$BEFORE")" \
-  TRAIN_PROOF="$DPO" REMOTE_SFT_ADAPTER=/workspace/checkpoints/aria_tooluse_curve_sft \
+  TRAIN_PROOF=data/training/aria_tooluse_curve_v2_sft.jsonl \
+  REMOTE_SFT_ADAPTER=/workspace/checkpoints/aria_tooluse_curve_sft \
   REMOTE_DPO_OUT=/workspace/checkpoints/aria_tooluse_curve_dpo_v4 \
   REPORT_LOCAL=data/eval_reports/aria_tooluse_curve_v4_dpo_eval.json \
   OUTPUT_LOCAL=data/training/checkpoints/aria_tooluse_curve_dpo_v4.tgz \

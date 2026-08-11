@@ -140,4 +140,5 @@ def test_v4_continuation_cannot_fall_back_to_pure_dpo() -> None:
     assert "aria_tooluse_curve_v4_sft_rescored.json" in host
     assert "FRESH_BASE=0 EXPECTED_DPO_PAIRS=47" in host
     assert "REMOTE_SFT_ADAPTER=/workspace/checkpoints/aria_tooluse_curve_sft" in host
+    assert "TRAIN_PROOF=data/training/aria_tooluse_curve_v2_sft.jsonl" in host
     assert "aria_tooluse_curve_v4_dpo_diagnostics.tgz" in host
