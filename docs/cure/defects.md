@@ -1696,3 +1696,54 @@ before concluding you must wait, tune, or ask the operator.** Twice here the ans
 was already in the payload — SearXNG naming the engines that refused, Brave
 publishing its own headroom — and twice the honest-sounding conclusion ("nothing can
 be done until X") was an artefact of not reading it.
+
+---
+
+### C-24 · 360 aria-web review — three UI defects, two of them mine (R-F3871/R-F3876, 2026-08-11)
+
+A front-and-back sweep of aria-web, driven by LOADING every page in a browser and
+reading the console. That method is the finding: all three defects below passed
+`node --check`, passed the full Node suite, and returned HTTP 200 with the correct
+byte count. Static analysis and a 200 both read as health.
+
+**1 · Page-blanking outage — MINE (R-F3871).** `escapeText` was declared inside
+`Sidebar.init()`, invisible to `Sidebar.html()` where R-F3866 had added escaping.
+`ReferenceError` during init on EVERY page; the dashboard rendered empty. Hoisted to
+module scope.
+
+**2 · design-partners nav icon rendered as literal text — MINE (R-F3876).** The rail
+showed purple italic `d="m` where the handshake belongs. `link()` takes a POLYMORPHIC
+icon — a `bi-xxx` class for most entries, a raw inline `<svg>` for glyphs the bundled
+font lacks — and R-F3866 escaped BOTH branches, so the SVG's path attribute leaked
+through as text. The file's own comment said the parameter may be raw SVG and the fixer
+escaped it anyway; it could not know, because `icon` is a PARAMETER whose raw-ness is
+fixed by the CALLER, not by anything resolvable at the definition. Named in
+TPL_JUSTIFIED now, with that reasoning, so it is not rediscovered.
+
+**3 · Account pricing threw — PRE-EXISTING, not mine.** `ReferenceError: _sym is not
+defined` (account.html:346). The currency-symbol helper was declared inside the IIFE in
+the SECOND inline `<script>`, which never uses it, while both call sites are in the
+FIRST — so plan cards rendered without prices. Verified against the pre-change file:
+identical placement before any commit of mine. Moved into the block that calls it; the
+page now renders £0 / £79 / £199.
+
+**All three are the same shape: the name exists in the FILE, but not in the SCOPE that
+needs it.** That is invisible to every static guard built in this series, which is why
+R-F3872 added an execution smoke — it runs the shared modules and calls the startup
+renderers, and it reproduces the R-F3871 failure verbatim while `node --check` still
+passes.
+
+**Verified clean in the browser, signed in, after the fixes:** every page 200 (or the
+intended 302), zero `ReferenceError` / `TypeError` / CSP violations across dashboard,
+dd-reports, vetting, watchlist, account, explorer, sources, news, vls-chain, leads,
+vault, aria-brain, design-partners; 114 API requests all 200; CSP still 34 hashes with
+no `unsafe-inline`.
+
+**Two things deliberately NOT reported as defects, having been checked:**
+- Two location-less exceptions appear on every page — including the pure-static landing
+  page, which issues no fetch at all. Browser-extension noise, not app code.
+- `/api/health` reports `sourcesFailed: 0` while the sweep log shows many source fetch
+  failures. It reconciles: 46 ok + 2 partial + 2 not-configured = 50 with
+  `sourcesUnaccounted: 0`. The log entries are SUB-source failures inside sources that
+  still partially succeeded, and they are labelled `[TRANSIENT]`. The accounting is
+  honest; reporting it would have been a false alarm.
