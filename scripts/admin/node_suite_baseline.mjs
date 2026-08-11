@@ -43,6 +43,25 @@ const BASELINE = path.join(ROOT, 'docs', 'node_suite_baseline.json');
  */
 let lastRawOutput = '';
 
+/**
+ * R-F3907 — collapse a RUN of separators, not one character at a time.
+ *
+ * R-F3905 normalised with `.replace(/\\/g, '/')`, which is right for a single
+ * backslash and wrong for what the baseline actually holds: the recorded entries
+ * carry TWO (`test\\intel-value-chain-rf3536.test.mjs`), because the TAP name was
+ * captured already-escaped. Replacing each character produced `test//intel-...`,
+ * which still did not match the Linux run's `test/intel-...` — so the fix reported
+ * the identical phantom NEW/FIXED pair it was written to remove, just spelled
+ * differently. CI caught it in one run; the log made it obvious.
+ *
+ * Collapsing `[\\/]+` handles one backslash, two, and a stray double slash, and is
+ * idempotent — normalise(normalise(x)) === normalise(x) — so it cannot drift again
+ * however the name was captured.
+ */
+function normalisePath(name) {
+  return String(name).replace(/[\\/]+/g, '/');
+}
+
 async function runSuite() {
   let stdout = '';
   try {
@@ -66,7 +85,7 @@ async function runSuite() {
     // Windows-recorded baseline read as FIXED and its Linux twin as NEW — the first
     // CI run after the Node tier started executing reported exactly that: 2 new and
     // 2 fixed, the same two files, differing only by slash.
-    if (m && !/^# /.test(m[1])) failures.add(m[1].replace(/\\/g, '/'));
+    if (m && !/^# /.test(m[1])) failures.add(normalisePath(m[1]));
   }
   const num = (re) => { const m = re.exec(stdout); return m ? Number(m[1]) : null; };
   return {
@@ -136,7 +155,7 @@ const base = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
 // the baseline portable instead of platform-locked; the Python gate needed a whole
 // second file (suite_baseline.ci.json) for a difference that was genuinely
 // platform-dependent, but this one is only a separator.
-const known = new Set((base.failures || []).map((f) => f.replace(/\\/g, '/')));
+const known = new Set((base.failures || []).map(normalisePath));
 const now = new Set(result.failures);
 const added = [...now].filter((f) => !known.has(f));
 const fixed = [...known].filter((f) => !now.has(f));

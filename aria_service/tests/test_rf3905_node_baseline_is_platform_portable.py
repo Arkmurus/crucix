@@ -36,18 +36,24 @@ _GATE = repo_path("scripts/admin/node_suite_baseline.mjs")
 
 
 def test_both_sides_of_the_comparison_are_normalised():
-    """Matched by SHAPE, not by an exact literal: asserting the precise escaping of
-    a JS regex from inside a Python string is its own source of false failures."""
+    """Both sides, through ONE shared function.
+
+    R-F3907 UPDATE: this asserted the inline `.replace(...)` that R-F3905 shipped.
+    That form was wrong — it collapsed one character at a time, turning the
+    baseline's DOUBLED backslash into a double slash — and is now a single named
+    `normalisePath` used by both sides, so the two comparisons cannot drift apart.
+    The correctness of the collapse itself is asserted against the REAL recorded
+    entries in `test_rf3907_node_baseline_separator_collapse.py`; this test only
+    pins that both sides go through it.
+    """
     src = _GATE.read_text(encoding="utf-8")
-    assert re.search(r"failures\.add\(m\[1\]\.replace\(", src), (
+    assert "function normalisePath" in src, (
+        "normalisation must be one shared function, not duplicated inline")
+    assert re.search(r"failures\.add\(normalisePath\(", src), (
         "the PARSED failure names must be separator-normalised")
-    assert re.search(r"base\.failures[^\n]*map\([^\n]*replace\(", src), (
+    assert re.search(r"base\.failures[^\n]*map\(normalisePath\)", src), (
         "the RECORDED baseline must be normalised too, or an existing "
         "Windows-recorded file still mismatches every Linux run")
-    # ...and each replacement must actually target the separator.
-    for line in src.splitlines():
-        if ".replace(" in line and "failures" in line:
-            assert "/g, '/'" in line, f"not a separator normalisation: {line.strip()}"
 
 
 def test_a_windows_and_a_linux_spelling_are_the_same_test():
