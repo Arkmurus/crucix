@@ -1,0 +1,13 @@
+{
+  "pass": false,
+  "reason": "curve_gate_failed",
+  "gain": -2,
+  "protected_gain": 0,
+  "regressions": [
+    {
+      "label": "tooluse_multihop",
+      "before": 2,
+      "after": 0
+    }
+  ]
+}
