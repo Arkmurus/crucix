@@ -427,3 +427,28 @@ def test_the_audit_cli_can_print_a_new_collision_on_a_cp1252_console():
             f"encode ({exc.object[exc.start:exc.end]!r} at {exc.start}). The audit "
             f"crashed on exactly this once already."
         ) from None
+
+
+def test_a_stray_heading_level_cannot_evade_the_gate(tmp_path):
+    """Found by adversarial review of this module, not by a failing test.
+
+    Every entry in the register happens to use `###`, but that is convention. A
+    parser pinned to `###` made an entry written as `## C-30 ·` or `#### C-30 ·`
+    INVISIBLE: not counted as a claim, so the allocator would reissue the number,
+    and not counted as a collision, so the gate would pass it. A guard that one
+    stray `#` defeats is the R-F3791 blind-guard shape."""
+    for level in ("##", "###", "####"):
+        f = tmp_path / f"d{len(level)}.md"
+        f.write_text(f"{level} C-30 · a\n{level} C-30 · b\n", encoding="utf-8")
+        claims, _ = reg.claims_in_register(f)
+        assert 30 in claims, f"a {level} heading must count as a claim"
+        assert reg.new_collisions(claims), f"a {level} collision must be detected"
+
+
+def test_widening_the_heading_level_did_not_change_the_live_reading(tmp_path):
+    """The converse control (R-F3858): broadening the pattern must not start
+    counting prose or continuations as claims."""
+    claims, readable = reg.claims_in_register(repo_path("docs/cure/defects.md"))
+    assert readable is True
+    assert len(claims) == 26, f"expected 26 distinct live claims, got {len(claims)}"
+    assert set(reg.new_collisions(claims)) == set(), "the live register must stay green"

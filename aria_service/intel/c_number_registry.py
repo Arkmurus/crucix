@@ -104,10 +104,19 @@ _RESERVATIONS_PATH = _REPO_ROOT / "data" / "c_number_reservations.json"
 _REGISTER_PATH = _REPO_ROOT / "docs" / "cure" / "defects.md"
 _LOCK = threading.Lock()
 
-#: THE CLAIM FORM. `### C-NN ·` — the middot separator is what distinguishes a new
-#: claim from a continuation (`### C-14b`, `### C-22 POSTSCRIPT`, `### C-19-orig`).
-#: Measured against all 34 headings in the live register: 29 canonical, 5 variants.
-_CLAIM_RE = re.compile(r"^###\s+C-(\d{1,4})\s+·\s*(.*)$", re.MULTILINE)
+#: THE CLAIM FORM. A markdown heading, `C-NN`, then the middot — the separator is
+#: what distinguishes a new claim from a continuation (`C-14b`, `C-22 POSTSCRIPT`,
+#: `C-19-orig`). Measured against all 34 headings in the live register: 29 canonical,
+#: 5 variants.
+#:
+#: THE HEADING LEVEL IS `#{2,4}`, NOT `###`, and that is not cosmetic. Every existing
+#: entry happens to use `###`, but that is convention, not enforcement: a first draft
+#: pinned to `###` meant an entry written as `## C-30 ·` or `#### C-30 ·` was INVISIBLE
+#: — not counted as a claim, so the allocator would reissue the number, AND not
+#: counted as a collision, so the gate would pass it. A guard that a stray `#`
+#: defeats is the R-F3791 blind-guard shape, found by adversarial review of this
+#: module rather than by a failing test.
+_CLAIM_RE = re.compile(r"^#{2,4}\s+C-(\d{1,4})\s+·\s*(.*)$", re.MULTILINE)
 _C_NUMBER_RE = re.compile(r"^C-(\d{1,4})$")
 
 _CLAIM_ATTEMPTS = int(os.getenv("ARIA_CNUM_CLAIM_ATTEMPTS", "4"))
