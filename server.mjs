@@ -106,6 +106,8 @@ import { localhostBypassAllowed } from './lib/auth/localhostBypass.mjs';
 // R-F3838 — scheme allowlist for URLs rendered as hrefs. escHtml stops attribute
 // breakout; it does NOT stop `javascript:`, which needs no quote to fire.
 import { safeExternalUrl } from './lib/util/safeUrl.mjs';
+// R-F3860 — ONE bound for the three unauthenticated per-email attempt maps.
+import { pruneAttemptMap } from './lib/util/attemptThrottle.mjs';
 import { ProcurementDedup, SourcePruner } from './lib/sources/sourceMaintenance.mjs';
 import { startExplorerScheduler } from './lib/self/explorerScheduler.mjs';
 import { redisAdapter } from './lib/persist/redisAdapter.mjs';
@@ -5953,6 +5955,10 @@ function _loginThrottleFail(emailLower) {
   e.count += 1; e.firstAt = e.firstAt || now;
   if (e.count >= _LOGIN_MAX_ATTEMPTS) e.lockedUntil = now + _LOGIN_LOCKOUT_MS;
   _loginAttempts.set(emailLower, e);
+  // R-F3860 — this map is keyed by a caller-supplied email and is reachable
+  // unauthenticated, so without a sweep it grows one entry per distinct
+  // address for the life of the process. Swept here, on the write that grows it.
+  pruneAttemptMap(_loginAttempts, _LOGIN_WINDOW_MS);
   // R-F2608 — opportunistic sweep so expired entries don't accumulate. Only
   // pays the O(n) cost when the map is over the cap; a steady-state login flow
   // never hits this.
@@ -6217,6 +6223,10 @@ function _verifyThrottleRecordFailure(emailLower) {
   entry.firstAt = entry.firstAt || now;
   if (entry.count >= MAX_VERIFY_ATTEMPTS) entry.lockedUntil = now + _VERIFY_LOCKOUT_MS;
   _verifyAttempts.set(emailLower, entry);
+  // R-F3860 — this map is keyed by a caller-supplied email and is reachable
+  // unauthenticated, so without a sweep it grows one entry per distinct
+  // address for the life of the process. Swept here, on the write that grows it.
+  pruneAttemptMap(_verifyAttempts, _VERIFY_WINDOW_MS);
   return entry;
 }
 
@@ -6687,6 +6697,10 @@ function _resetThrottleRecordFailure(emailLower) {
     entry.lockedUntil = now + _RESET_LOCKOUT_MS;
   }
   _resetAttempts.set(emailLower, entry);
+  // R-F3860 — this map is keyed by a caller-supplied email and is reachable
+  // unauthenticated, so without a sweep it grows one entry per distinct
+  // address for the life of the process. Swept here, on the write that grows it.
+  pruneAttemptMap(_resetAttempts, _RESET_WINDOW_MS);
   return entry;
 }
 
