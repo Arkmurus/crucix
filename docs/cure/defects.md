@@ -1949,3 +1949,52 @@ observer, with the comment "an observability tool that cannot be observed is the
 very blind spot it exists to fix." That reasoning was correct and simply had not
 been applied to the brain wire. When adding instrumentation, the question is not
 "is it recorded?" but **"who reads it, and from where?"**
+
+---
+
+### C-28 · The control centre stated a verdict and withheld the reason it already held — **CLOSED (R-F3892, 2026-08-11)**
+
+Found in the same aria-web 360 that found C-27, and it is the same question one
+layer out: not "is it recorded?" but **"who reads it, and can they act on it?"**
+
+`aria-brain.html` renders `ECOSYSTEM: ${d.status}` from aria-intel's `/health`.
+Measured live: the badge read **DEGRADED** while the SAME response carried
+
+```
+degraded_reasons: ["ecosystem_red_nodes_1", "ecosystem_degraded_nodes_22"]
+```
+
+and a probe confirmed `renderedAnywhereOnPage: false`. So ARIA's Command Control
+Centre — the operator's main page — announced that something was wrong and sent
+him to the API to discover what, having already fetched the answer and dropped it.
+
+**A verdict without its reason is not actionable, and an unactionable alert is the
+one that gets scrolled past** — which is precisely how a real degradation hides
+among the ones you have learned to ignore.
+
+**It actively misled during the review that found it.** With only the badge
+visible, the obvious suspect was the single open circuit breaker,
+`search:duckduckgo` — the §27 datacenter IP block. That inference was **wrong**:
+the real reasons are ecosystem node counts (1 red, 22 amber of 627), and the
+breaker is unrelated and already displayed two rows above. Rendering the reason
+removes the guesswork rather than relocating it.
+
+**Fix:** one `metricRow('Degraded because', …)` appended to the infra block. Two
+properties are deliberate and both are pinned by tests:
+- **Routed through `metricRow()`**, which escapes label, value and class — this is
+  server-supplied text heading for `innerHTML`, and the R-F3845 guard would (and
+  should) reject a hand-built row.
+- **Guarded on a non-empty list.** A blank "Degraded because" row reads as a
+  rendering bug and teaches the operator to distrust the whole panel.
+
+**The test found a defect in itself first.** Its initial draft searched the raw
+source, matched `degraded_reasons` inside the explanatory comment above the fix,
+and failed against a correct implementation — a false RED. It now analyses
+comment-stripped source via the length-preserving `stripLineComments`, so offsets
+still index the real file. Proven to fail on demand: removing the fix returns 3/3
+red, restoring it returns 3/3 green.
+
+Relationship to [[C-27]]: C-27 was an instrument with no reader at all; C-28 is a
+reader that displays the alarm but not the cause. Both are the same underlying
+question, and both were invisible to every static gate because nothing was broken
+— the code did exactly what it said, and what it said was not enough.

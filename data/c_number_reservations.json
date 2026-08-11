@@ -247,6 +247,18 @@
       "title": "Node-tier brain wire has full instrumentation and no reader: brainWireStats() is test-only",
       "claimed_at": "2026-08-11T17:17:31Z",
       "claimed_by": "claude",
+      "status": "closed",
+      "r_numbers": [
+        "R-F3889"
+      ],
+      "notes": null,
+      "closed_at": "2026-08-11T17:31:32Z"
+    },
+    {
+      "c_number": "C-28",
+      "title": "aria-brain renders ECOSYSTEM: DEGRADED but not degraded_reasons, which it already holds",
+      "claimed_at": "2026-08-11T17:33:45Z",
+      "claimed_by": "claude",
       "status": "open",
       "r_numbers": [],
       "notes": null

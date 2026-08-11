@@ -736,7 +736,25 @@ async function loadHealth() {
       d.circuit_breakers?.registry_empty
         ? 'neutral'
         : (d.circuit_breakers?.open > 0 ? 'warn' : 'good'),
-    );
+    )
+    // C-28 / R-F3892 — say WHY it is degraded. The badge above reported
+    // "ECOSYSTEM: DEGRADED" while this same response carried
+    // degraded_reasons: ["ecosystem_red_nodes_1","ecosystem_degraded_nodes_22"]
+    // and nothing rendered it, so the operator's main control page stated a
+    // verdict and made him query the API for the reason it already had.
+    // A verdict without its reason is not actionable, and an unactionable alert
+    // is the one that gets scrolled past — which is how a real degradation hides
+    // among the ones you have learned to ignore. (It also misleads: with only
+    // the badge visible, the obvious suspect was the one open breaker,
+    // search:duckduckgo — the §27 IP block — which is unrelated and already
+    // shown two rows up.)
+    // Guarded on a non-empty list: a blank "Degraded because" row reads as a
+    // rendering bug and teaches distrust of the whole panel. metricRow escapes
+    // label, value and class, so this server-supplied text cannot reach
+    // innerHTML raw.
+    + ((Array.isArray(d.degraded_reasons) && d.degraded_reasons.length)
+      ? metricRow('Degraded because', d.degraded_reasons.join(', '), 'warn')
+      : '');
 
   const q = d.quality || {};
   const coreWeak = q.core_weak_topics || [];
