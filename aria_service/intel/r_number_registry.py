@@ -61,6 +61,24 @@ _SAVE_RETRY_SLEEP_S = float(os.getenv("ARIA_RNUM_SAVE_RETRY_SLEEP", "0.08"))
 _CLAIM_ATTEMPTS = int(os.getenv("ARIA_RNUM_CLAIM_ATTEMPTS", "4"))
 
 
+#: R-F3899 — git env vars that OVERRIDE `cwd` and must not leak into our scans.
+#: GIT_DIR alone is enough to redirect `git log` to another repository entirely.
+_GIT_ENV_OVERRIDES = (
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+)
+
+
+def _env_without_git_overrides() -> dict[str, str]:
+    """The current environment minus the vars that would override `cwd`.
+
+    Every hook git runs (pre-commit, pre-push, post-checkout) exports GIT_DIR and
+    GIT_WORK_TREE, so anything invoked from one inherits them. Stripping them makes
+    `cwd` authoritative again, which is what every caller already assumes.
+    """
+    return {k: v for k, v in os.environ.items() if k not in _GIT_ENV_OVERRIDES}
+
+
 def _repo_root_for(path: Path | None) -> Path:
     """R-F3248 — the repo whose history governs THIS registry file.
 
@@ -524,6 +542,21 @@ def _git_log_records(
             ["git", "log", ref, "--format=%h%x1f%s%x1f%b%x1e"],
             cwd=str(root), capture_output=True, text=True, timeout=120,
             encoding="utf-8", errors="replace",
+            # R-F3899 — GIT_DIR OVERRIDES cwd, SO THE SCAN COULD READ THE WRONG REPO.
+            # git sets GIT_DIR/GIT_WORK_TREE for every hook it runs, and any process
+            # that inherits them makes this `cwd=root` decorative: git reads the
+            # ambient repo instead. R-F3248 built `_repo_root_for` precisely so "the
+            # repo whose history governs THIS registry file" decides allocation —
+            # ambient env silently defeated it.
+            #
+            # MEASURED: exporting GIT_DIR makes 4 of the 12 r_number_registry tests
+            # fail, because a tmp-path registry starts skipping the real repo's ~3,300
+            # numbers. Live consequence: `reserve()` called from inside a git hook (a
+            # pre-push verifier, ARIA's autonomous coder under a hook) allocates
+            # against whichever repo the environment names, which is exactly the
+            # collision this module exists to prevent — and it fails toward
+            # over-skipping, so it looks like nothing is wrong.
+            env=_env_without_git_overrides(),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("[R-F3095] cannot read git history: %s", exc)
