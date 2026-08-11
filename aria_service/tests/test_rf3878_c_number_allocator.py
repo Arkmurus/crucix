@@ -97,8 +97,14 @@ def test_the_live_register_collisions_are_detected():
     claims, readable = reg.claims_in_register(repo_path("docs/cure/defects.md"))
     assert readable is True
     collisions = {n: len(t) for n, t in claims.items() if len(t) > 1}
-    assert set(collisions) == {18, 19, 22, 23}, (
-        f"the known live collisions are C-18/19/22/23; got {sorted(collisions)}")
+    # Tracked against the baseline CONSTANT, not a literal set: LEGACY_COLLISIONS is
+    # shrink-only, so resolving one must not require editing a magic list here too
+    # (the same fragility that pinned a live claim COUNT and broke the same day).
+    # A NEW collision still fails this, which is the point.
+    assert set(collisions) == set(reg.LEGACY_COLLISIONS), (
+        f"live collisions {sorted(collisions)} != baseline "
+        f"{sorted(reg.LEGACY_COLLISIONS)} — a new one appeared, or one was resolved "
+        f"without shrinking LEGACY_COLLISIONS")
 
 
 def test_a_clean_register_reports_no_collisions(tmp_path):
@@ -445,12 +451,29 @@ def test_a_stray_heading_level_cannot_evade_the_gate(tmp_path):
         assert reg.new_collisions(claims), f"a {level} collision must be detected"
 
 
-def test_widening_the_heading_level_did_not_change_the_live_reading(tmp_path):
-    """The converse control (R-F3858): broadening the pattern must not start
-    counting prose or continuations as claims."""
+def test_widening_the_heading_level_did_not_change_the_live_reading():
+    """The converse control (R-F3858): broadening `###` to `#{2,4}` must not start
+    counting prose or continuations (C-11a, C-14b, C-18b, C-19-orig, C-22 POSTSCRIPT)
+    as claims.
+
+    Asserted as an INVARIANT, not a count. A first version pinned `len(claims) == 26`
+    and broke the same day when a peer legitimately added C-27 — a test that fails
+    whenever the register is USED is worse than no test, because the only way to
+    green it is to bump a magic number, which proves nothing and trains the next
+    person to ignore it. The honest question is "did widening change what we read?",
+    so it compares the two patterns against each other on the real document."""
+    import re
+
+    text = repo_path("docs/cure/defects.md").read_text(encoding="utf-8")
+    narrow = {int(m.group(1))
+              for m in re.finditer(r"^###\s+C-(\d{1,4})\s+·", text, re.MULTILINE)}
     claims, readable = reg.claims_in_register(repo_path("docs/cure/defects.md"))
+
     assert readable is True
-    assert len(claims) == 26, f"expected 26 distinct live claims, got {len(claims)}"
+    assert set(claims) == narrow, (
+        "widening the heading level changed what is read on the LIVE register — "
+        f"only under the wide pattern: {sorted(set(claims) - narrow)}; "
+        f"lost: {sorted(narrow - set(claims))}")
     assert set(reg.new_collisions(claims)) == set(), "the live register must stay green"
 
 

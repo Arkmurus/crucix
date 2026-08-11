@@ -342,8 +342,32 @@ def _all_repo_source_files():
 
 
 def install_hook() -> bool:
-    """Install the pre-commit hook via core.hooksPath."""
-    hooks_dir = REPO_ROOT / "scripts" / "githooks"
+    """Install the pre-commit hook via core.hooksPath.
+
+    R-F3896 — THIS POINTED AT THE WRONG DIRECTORY, AND IT IS THE VERY DIRECTORY
+    R-F1958 WAS WRITTEN ABOUT. That fix's own docstring says:
+
+        "core.hooksPath is scripts/git-hooks/ ... while the checks' own installer
+         pointed at the look-alike scripts/githooks/ dir. The two near-identical
+         directory names diverged, orphaning the checks."
+
+    R-F1958 added a working hook to `scripts/git-hooks/` and never touched the
+    installer, so the diagnosis was recorded and half the fix shipped. Measured
+    2026-08-11: `scripts/githooks/pre-commit` still exists as a FROZEN COPY of this
+    file's old Python checker (dated Aug 3) — it lacks the R-F3878 C-number gate,
+    still carries the R-F3886 NameError that made every check fail open, and lacks
+    the R-F3888 false-positive fix.
+
+    So running the documented install command ACTIVATED STALE LOGIC and, worse,
+    silently replaced a correct `core.hooksPath` with the orphan — observed live
+    while verifying this. An installer that de-installs the working hook is the most
+    expensive kind of dead wiring, because using the tool is what breaks it.
+
+    `scripts/githooks/` is deliberately NOT deleted: freeze §26 requires three proofs
+    and the quarantine ladder before removing anything. It is recorded here and
+    pinned by a test instead.
+    """
+    hooks_dir = REPO_ROOT / "scripts" / "git-hooks"
     hook_path = hooks_dir / "pre-commit"
     if not hook_path.exists():
         print(f"[pre-commit] ERROR: {hook_path} not found")

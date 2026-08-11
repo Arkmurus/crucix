@@ -524,9 +524,20 @@ python scripts/admin/reserve_c_number.py close C-26 R-F3873 R-F3874
 python scripts/admin/reserve_c_number.py audit                   # collisions + drift
 ```
 
-- **Enforced in CI**, not just by convention: `scripts/pre-commit --check-all` (ci.yml)
-  fails on any new collision. Note **no git hook is installed in this tree** —
-  `.git/hooks` holds only `.sample` files — so CI is the real enforcement point.
+- **Enforced in CI** — `scripts/pre-commit --check-all` (ci.yml) plus the dedicated
+  `defect-register-gate.yml`, which exists because ci.yml's push trigger carries
+  `paths-ignore: ['docs/**','**/*.md']` and would skip the very commits that collide.
+- **Also enforced locally, now that the local hook actually works.** Four separate
+  failures had stacked, each looking configured (2026-08-11):
+  `core.hooksPath` unset (R-F3885) → the hook was never invoked · the checker's
+  staged path crashed with a `NameError`, and the hook is fail-open, so **every**
+  check was silently skipped (R-F3886) · a false positive matched `pty` inside the
+  word "empty" (R-F3888) · and `--install` targeted the look-alike `scripts/githooks`,
+  a **frozen Aug-3 copy** of the old checker, so running the documented install
+  command DE-INSTALLED the working hook while printing "Installed:" (R-F3896).
+  Activate with **`python scripts/pre-commit --install`** (sets `core.hooksPath` to
+  `scripts/git-hooks`). `test_rf3885_hookspath_actually_active.py` reports the real
+  state — presence is not activation.
 - **The four existing collisions are BASELINED** in
   `c_number_registry.LEGACY_COLLISIONS`, so the gate could be turned on today rather
   than after someone renumbers four entries and breaks every citation to them.

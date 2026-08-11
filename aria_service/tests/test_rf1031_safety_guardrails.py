@@ -40,6 +40,38 @@ def _reset_safety_memory():
     _s._memory_rate_count = 0
 
 
+@pytest.fixture(autouse=True)
+def _no_safety_leak_past_this_file():
+    """R-F3894 — reset AFTER every test, not only before.
+
+    `_reset_safety_memory()` was called at the START of seven tests, so state was
+    clean WITHIN this file and the LAST test to run left `safety._memory_cost_spent`
+    dirty for every file that follows. That is invisible under a full-suite run —
+    some later test in this file happens to reset it — and appears the moment a `-k`
+    selection deselects the tests that would have.
+
+    THE VICTIM, and it is not a test-only problem in shape. Traced end to end:
+
+        safety._memory_cost_spent (left over-budget by TestCostCap)
+          -> load_governor.cost_pressure()      reads it (load_governor.py:193,
+                                                "ONE source of truth for the day's spend")
+          -> load_governor.should_shed_paid()
+          -> student.py:1406 gates Brave escalation on `not _paid_shed`
+          -> test_rf2392_brave_region_sourcing_gate2 sees NO escalation and fails
+
+    So a stale global in a unit test silently switched off the paid-search
+    escalation in an unrelated module — the R-F2961 cost-shed doing exactly what it
+    should, on a number that was fiction. Reproduced pairwise in 1.6s
+    (rf1031 + rf2392) after bisecting the collection order, per §16.
+
+    Fixture rather than another call at the top of each test: a guarantee that
+    depends on every future author remembering it is not a guarantee.
+    """
+    _reset_safety_memory()
+    yield
+    _reset_safety_memory()
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Stub redis_store — matches the public surface safety.py uses
 # ════════════════════════════════════════════════════════════════════════════
