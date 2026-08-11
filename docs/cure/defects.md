@@ -1560,3 +1560,56 @@ meanwhile stays bounded and test-pinned by C-21.
 `public/vendor/jquery.min.js` is a second, orphaned copy referenced by no page. It is
 recorded, not deleted: freeze §26 forbids deletion until the Phase 0.3 runtime overlay
 runs and the three-proof rule is met.
+
+### C-23 · Two blind spots in the search stack, both found by asking "what is NOT measured?" — **CLOSED (R-F3864, R-F3868/R-F3870, 2026-08-11)**
+
+Both are the same defect class as C-22 and as the three Phase A gates in §1: an
+absence that reads exactly like a healthy measurement.
+
+**1 · A working source was discarded at the last step (R-F3864).** R-F3863 proved
+Wikimedia refuses UNIDENTIFIED CLIENTS rather than datacenter IPs — `python-requests/2.0`
+→ 403, `AriaIntelligence/1.0 (aria@arkmurus.com)` → 200 with real hits, same IP, same
+second — and re-enabled wikipedia + wikidata with a compliant user-agent. Both then
+reported `n=0` **with no errors at all**, which reads like "enabled but useless" and
+would very plausibly have been "fixed" by disabling them again.
+
+They were working the whole time. SearXNG returns an encyclopedic hit as an **infobox**,
+not a result row, and the adapter only ever read `data["results"]`. Live for
+"Rosoboronexport": `results: 0, infoboxes: 1`, carrying "JSC Rosoboronexport is the sole
+state intermediary agency for Russia's exports/imports of…" — precisely the entity
+grounding a DD needs on a niche subject, and the case where bing serves a trending page.
+**A zero meaning "wrong field read" is indistinguishable from a zero meaning "nothing
+found".** Infobox rows are passed through both relevance gates unchanged: provenance
+earns nothing, because a trusted source is not a trusted answer.
+
+**2 · The paid engine DD depends on was completely unmetered (R-F3868).** Brave is the
+sole DD search engine (R-F3847) and ARIA's paid primary (R-F2318), and **nothing counted
+its calls**: `/api/aria/cost/external` returned `by_service: {}, total_calls: 0`. "How
+much of the plan have we used?" had no answer — not a wrong one, none. That is exactly
+how the OpenSanctions exhaustion was found (§18): by a `429` in production, after which
+no retrying, pacing or breaker cooldown could clear it. On the DD path it lands
+mid-report, on a customer.
+
+Every outcome branch of the real `_search_brave` is now metered, **success included** —
+a meter that counts only failures cannot answer the question that matters BEFORE the plan
+is spent — surfaced as `brave_usage` on `/api/aria/search/health`.
+
+**3 · …and the fix nearly reproduced the very defect it was preventing.** The first draft
+of `classify_429` keyed on the phrase "rate limit", so it bucketed the REAL OpenSanctions
+body — *"exceeded its **rate limit for the month**"* — as pacing. That is the §18 defect
+verbatim, written fresh, in the function whose entire purpose is to prevent it. It was
+caught only because a test asserted the real body text rather than a paraphrase. **The
+discriminator is the billing period, not the phrase.**
+
+**4 · Measuring beats asking (R-F3870).** R-F3868 shipped saying headroom stays `unknown`
+until an operator sets `BRAVE_MONTHLY_QUOTA`. Before filing that as an operator task:
+Brave publishes `x-ratelimit-limit/-remaining/-reset/-policy` on **every** response
+(`50, 0` / `50;w=1, 0;w=2678400`). ARIA now reads the provider's own accounting. The trap
+is sharp — the 31-day window reports `limit 0, remaining 0` on a response that was **HTTP
+200 with results**, so `0` means *uncapped*, not *spent*, and reading it as exhaustion
+would fire a false P0 against a healthy key. Windows with `limit <= 0` are `capped: False`
+and never alert.
+
+**The generalisable rule from all four:** the productive question is not "is it working?"
+but "what is not being measured, and what would that absence look like?" In every case
+here the absence looked like health.
