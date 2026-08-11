@@ -372,3 +372,33 @@ def test_backfill_does_not_disturb_a_real_reservation(tmp_path):
             json.loads(ledger.read_text(encoding="utf-8"))["reservations"]}
     assert rows["C-02"]["claimed_by"] == "me"
     assert rows["C-02"]["claimed_at"] is not None
+
+
+# ── the gate must run on the commits it exists to catch ────────────────────────
+
+def test_the_gate_has_a_trigger_that_actually_fires_on_the_register():
+    """THE HOLE SELF-REVIEW FOUND. The gate is wired into scripts/pre-commit, which
+    ci.yml runs via --check-all — but ci.yml's push trigger carries
+    `paths-ignore: ['docs/**', 'data/**', '**/*.md']` (R-F1408, deliberately), and a
+    commit adding a colliding heading touches ONLY docs/cure/defects.md, which
+    matches two of those patterns.
+
+    So on the push-to-main path this repo actually uses, CI is skipped for precisely
+    the commits the gate exists to catch: wired, and never firing. That is the
+    R-F3791 blind-guard shape — the difference between a guard that exists and a
+    guard that runs."""
+    import re as _re
+
+    ci = repo_path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "paths-ignore" in ci, (
+        "if ci.yml no longer skips doc pushes, re-check whether this extra workflow "
+        "is still needed rather than leaving two gates to drift")
+
+    wf = repo_path(".github/workflows/defect-register-gate.yml")
+    assert wf.exists(), "the register needs a trigger ci.yml's paths-ignore cannot swallow"
+    body = wf.read_text(encoding="utf-8")
+    assert "docs/cure/defects.md" in body, "it must trigger on the register itself"
+    assert "reserve_c_number.py audit" in body, "it must actually run the audit"
+    # `audit` exits 1 only on a NEW collision, which is what makes this gate usable
+    # today against four baselined ones.
+    assert _re.search(r"on:\s*\n\s*push:", body), "must fire on push, not only on PRs"

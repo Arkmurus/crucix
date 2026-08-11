@@ -1,0 +1,53 @@
+# R-F3878 — the C-number collision gate, on a trigger that actually fires.
+#
+# THE HOLE THIS CLOSES. The gate is wired into `scripts/pre-commit`, which ci.yml
+# runs via `--check-all`. But ci.yml's push trigger carries (R-F1408, deliberately):
+#
+#     paths-ignore: ['docs/**', 'data/**', '**/*.md']
+#
+# and a commit that adds a colliding C-number heading touches **only**
+# `docs/cure/defects.md` — which matches `docs/**` AND `**/*.md`. So on the
+# push-to-main path this repo actually uses, CI is skipped for precisely the commits
+# the gate exists to catch. Wired, and never firing: the same blind-guard shape as
+# R-F3791 and the three Phase A gates §1 records as certified by an absence.
+#
+# R-F1408's intent is right — a full test run on every doc commit is waste — so this
+# does not weaken it. It is a separate, seconds-long job triggered on the register
+# itself, plus the allocator that enforces it.
+name: Defect register gate
+
+on:
+  push:
+    paths:
+      - 'docs/cure/defects.md'
+      - 'aria_service/intel/c_number_registry.py'
+      - 'scripts/admin/reserve_c_number.py'
+      - '.github/workflows/defect-register-gate.yml'
+  pull_request:
+    paths:
+      - 'docs/cure/defects.md'
+      - 'aria_service/intel/c_number_registry.py'
+      - 'scripts/admin/reserve_c_number.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  c-number-collisions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      # No dependencies on purpose: c_number_registry and the r_number_registry
+      # primitives it imports are stdlib-only, so this job cannot be broken by an
+      # unrelated dependency problem. A gate that fails for reasons unconnected to
+      # what it guards is a gate that gets disabled.
+      - name: C-number collision gate
+        run: |
+          echo "A C-number claimed by writing a heading is not claimed (CLAUDE.md §26a)."
+          python scripts/admin/reserve_c_number.py audit
