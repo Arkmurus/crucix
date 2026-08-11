@@ -743,3 +743,66 @@ functional diff instead.
   (R-F3880, R-F3884, R-F3890 caught pre-commit; R-F3851 had already shipped and
   needed R-F3895 to correct). §2 exists for exactly this, and I broke it four times
   in one session.
+
+---
+
+## Session 2026-08-11 (continuation 5) — the two delegated decisions, taken
+
+Operator delegated both open items ("do what is best for ARIA"). Both are now closed,
+and chasing them turned up three more dead mechanisms. **4 R-numbers shipped**
+(R-F3893, R-F3894, R-F3896, R-F3899 @ `2b38556f`, live).
+
+**DECISION 1 — the local git hook: KEEP IT ENABLED, and make activation durable.**
+Rationale: it caught two real defects within an hour of being revived (my own §21a
+wiring gap, then a stray file I misplaced with `cp`), it is fail-open so a tooling
+bug can never wedge commits, and R-F3888 removed the one false positive found. But
+"enabled" could not rest on a command I happened to run, so:
+- **R-F3896 — `--install` pointed at the look-alike `scripts/githooks` and
+  DE-INSTALLED the working hook.** R-F1958 diagnosed exactly this ("the installer
+  pointed at the look-alike scripts/githooks/ dir"), fixed only half — it added a
+  hook to `scripts/git-hooks/` and never touched `install_hook()`. That directory
+  still holds a **frozen Aug-3 copy** of the old checker: no C-number gate, still
+  carrying the R-F3886 NameError, without the R-F3888 fix. Observed live: running the
+  documented install command overwrote a correct `core.hooksPath` with the orphan
+  **while printing "Installed:"**. An installer that de-installs the working hook is
+  the most expensive dead wiring there is, because USING THE TOOL is what breaks it.
+  Not deleted (freeze §26 needs three proofs) — recorded and pinned by a test.
+
+**DECISION 2 — the flake: ROOT-CAUSED, not muted.** §16 says bisect rather than add
+an isolation fixture on a hypothesis. Bisected to a 2-file, 1.6s reproduction and
+traced it end to end:
+    rf1031 TestCostCap leaves `safety._memory_cost_spent` over-budget
+      → `_reset_safety_memory()` ran at the START of seven tests, never after
+      → `load_governor.cost_pressure()` reads it (load_governor.py:193, "ONE source
+        of truth for the day's spend") → `should_shed_paid()`
+      → `student.py:1406` gates Brave escalation on `not _paid_shed`
+      → rf2392 sees no escalation and fails
+  A stale global in a unit test silently switched off paid-search escalation in an
+  unrelated module — R-F2961's cost-shed doing its job on a number that was fiction.
+  **R-F3894**: autouse fixture resetting AFTER every test. A guarantee that depends
+  on every future author remembering it is not a guarantee.
+  - **Correcting my own first attempt**: my initial bisect matched on "any failure"
+    and converged on `test_rf2172_no_cost_lost_in_coalescing`, a KNOWN §16 baseline
+    entry, not the failure I was chasing. Re-run per-test.
+
+**R-F3899 — found by the push itself, and it is a real allocator defect.** The
+pre-push verifier failed from a git worktree while the identical pytest selection
+passed in both trees by hand. Cause: **GIT_DIR overrides `cwd`**, and git exports it
+for every hook, so `r_numbers_known_to_git()` scanned whichever repo the environment
+named — defeating R-F3248's `_repo_root_for` entirely. `reserve()` called from inside
+a hook (a verifier, or ARIA's coder under one) allocates against the wrong history:
+the exact collision the module exists to prevent, failing toward OVER-skipping so the
+symptom is a high next number rather than an error. Measured: GIT_DIR makes 4/12
+registry tests fail; 12/12 with the fix.
+
+**R-F3893 — my own test pinned a LIVE REGISTER COUNT** (`len(claims) == 26`) and broke
+hours later when a peer legitimately added C-27 *through the allocator*. A test that
+fails whenever the thing it guards is USED is worse than no test: the only way to
+green it is to bump a magic number. Both assertions now check invariants, and a new
+AST guard prevents re-coupling.
+
+**Process note:** all commits in this block were made from an ISOLATED git worktree
+(§16 pattern) per operator direction, because a peer agent is active in the main
+checkout. That caught a real contamination risk — an early attempt swept the shared
+`r_number_reservations.json` into my commit, and the verifier then failed on the
+PEER's unshipped R-F3897.
