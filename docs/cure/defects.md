@@ -1613,3 +1613,86 @@ and never alert.
 **The generalisable rule from all four:** the productive question is not "is it working?"
 but "what is not being measured, and what would that absence look like?" In every case
 here the absence looked like health.
+
+### C-24 · Both of the previous session's "open, honestly" items were the SAME defect, one layer down — **CLOSED (R-F3873, R-F3874, 2026-08-11)**
+
+The prior session closed with two items it could not resolve and recorded them
+honestly:
+
+> - Every general web engine is blocked from the Fly IP. No engine-list tuning fixes
+>   that. ARIA survives on news/academic/memory backends — a redundancy loss, not a
+>   blackout, and it can no longer lie about it.
+> - `plan_limits` populates only when the live server itself calls Brave. I proved
+>   the parser against real headers rather than waiting for traffic.
+
+Both readings were true. Both pointed at the wrong thing, and in the same direction:
+each framed the gap as *waiting on the world* — an IP block to lift, organic traffic
+to arrive — when in both cases **the provider was already publishing the answer on
+every single response and ARIA was discarding it.**
+
+**1 · The anti-rot mechanism was blind to rot (R-F3873).** Measured live, aria-intel
+and aria-searxng in the same second:
+
+    SearXNG  → unresponsive_engines: [["google cse", "Suspended: too many requests"],
+                                      ["yep",        "Suspended: access denied"]]
+               engines_seen: ["bing"]
+    /api/aria/search/health → yep: {total: 81, ratio: 0.025, quarantined: false,
+                                    judged: true}
+
+`yep` was reported as the **healthiest engine on the board** — 2.5% query-independent
+over 81 observations — while it was access-denied and serving nothing.
+
+`record_observation` is driven by the engines appearing in RESULT ROWS, and is called
+inside `if normalised:`. An engine that is 403'd, CAPTCHA'd or timed out contributes
+no rows, so it accrues no observations: `total` freezes at its last good value, the
+ratio stays excellent, and nothing is ever quarantined. **A source that stopped
+answering is indistinguishable from one that was never asked.**
+
+That inverts the module's purpose, and §27d had already made the surface binding —
+*"if a search source looks dead, do not edit the engine list from intuition, read
+`engine_relevance`"*. The surface future sessions are instructed to trust was
+structurally incapable of showing a dead engine. It measured **lying** engines and
+was blind to **silent** ones. A repo-wide grep for `unresponsive_engines` found no
+consumer at all.
+
+The two axes are now separate because they need **opposite** responses: a lying
+engine must be filtered (quarantine); a blocked engine must be escalated and
+deliberately **not** quarantined — it already returns nothing, so a quarantine adds
+no protection while holding it out for an hour after the block lifts, and §27 records
+that no code change fixes an IP block.
+
+**2 · The pre-exhaustion gauge could only be fed by exhaustion (R-F3874).** R-F3870
+built plan-limit tracking, including an alert at 80% consumed, on the fact that Brave
+publishes `x-ratelimit-*` on every response. `_search_brave` passed `headers=` on
+exactly one of its five branches: **the 429**. The success branch — the overwhelming
+majority of calls, carrying identical headers — discarded them.
+
+So `plan_limits` could only ever be written by the event the gauge exists to
+pre-empt, and its warning path was unreachable in production. The sharpest detail:
+**R-F3870's own docstring records that the headers were measured on an `HTTP 200 with
+results`** — a branch its fix did not read.
+
+**3 · …and the meter rendered its own blindness as a clean bill of health.**
+`usage_report` read through the non-strict `get`/`get_json`, whose documented
+None-on-error contract (R-F1) made a wedged store produce `monthly: {}, plan_limits:
+null` — "Brave has never been called and advertises no limits" — indistinguishable
+from a healthy, quiet key. That is §17's fabricated-P0 shape (`spent_usd: 0.0` from a
+probe with no connection, which nearly became a P0 against a meter reading $48.26)
+**reproduced inside the module written to prevent exactly that class.** A meter that
+cannot say "I could not measure" is not a meter.
+
+**4 · Verification caught what inspection did not.** Reading the headers on the
+success path put an attribute access inside the `try/except` that converts any
+exception into a failed search — so a metering line could turn a served result set
+into a backend failure and a `timeout` record. This was found by verification pass 1
+(four regressions), not by reading the diff, and is contained by `_safe_headers()`
+mirroring the existing `_safe_body()`. Same hazard as R-F3857, where a gate added for
+correctness emptied result sets.
+
+**The generalisable rule, extending C-23's.** C-23 asked "what is not being measured,
+and what would that absence look like?" C-24 is its sharper form: **when a dependency
+looks like it is failing you, check what it is already telling you on every response
+before concluding you must wait, tune, or ask the operator.** Twice here the answer
+was already in the payload — SearXNG naming the engines that refused, Brave
+publishing its own headroom — and twice the honest-sounding conclusion ("nothing can
+be done until X") was an artefact of not reading it.

@@ -590,6 +590,28 @@ a gate, it must be able to FAIL (R-F3858) and must never be able to empty a resu
 set (R-F3857: an emptied set reads as "nothing found", which an adverse-media sweep
 reads as CLEAN).
 
+⚠️ **R-F3873 (2026-08-11) — until this fix, `engine_relevance` COULD NOT SHOW A DEAD
+ENGINE, so the binding above pointed at a surface that was blind.** Measured live,
+same second: SearXNG reported `yep` as `"Suspended: access denied"` while
+`/api/aria/search/health` reported it as the healthiest engine on the board
+(`total: 81, ratio: 0.025, quarantined: false`). Cause: `record_observation` is
+driven by the engines appearing in RESULT ROWS and ran inside `if normalised:`, so an
+engine that is 403'd/CAPTCHA'd/timed-out accrues NO observations — its `total` freezes
+at its last good value and its ratio stays perfect forever. **A source that stopped
+answering was indistinguishable from one that was never asked** (the §1 / §17 / C-23
+absence-reads-as-health shape). SearXNG publishes `unresponsive_engines` with a reason
+on EVERY response and nothing in the tree consumed it.
+There are now **two axes, and they must never be merged** — they demand opposite
+responses:
+  * **`quarantined`** = ARIA's judgement that an engine answers a DIFFERENT question.
+    Response: filter it (R-F3853).
+  * **`blocked`** = the provider says it is refusing us. Response: report + escalate,
+    and **deliberately NOT quarantine** — it already returns nothing, so a quarantine
+    buys no protection while keeping it out for an hour after the block lifts. Per
+    §27 no code change fixes an IP block; the only correct action is to SEE it.
+Read **`blocked`** to answer "is this source dark?", `quarantined` for "is it lying?",
+and `serving: null` means COULD NOT MEASURE, never healthy.
+
 ### 27e. Tier 2 is SETTLED — SearXNG stays, Brave stays DD-only (operator, 2026-08-11)
 Asked "aria-searxng or Brave for tier 2, another paying service is not ARIA taking
 control", the answer is **SearXNG, and buy nothing.** Four reasons, in order of weight:
@@ -638,3 +660,23 @@ question that matters BEFORE it is spent — and surfaced as `brave_usage` on
   reproducing the very defect, caught only by a test asserting the real body text.
   An unrecognised 429 stays `rate_limit_or_unknown`; the raw body is kept, because a
   classification nobody can audit is a guess wearing a verdict's clothes.
+- ⚠️ **R-F3874 (2026-08-11) — the gauge could ONLY be fed by the event it exists to
+  pre-empt, and the previous session's "it just needs live traffic" reading was
+  wrong.** `_search_brave` passed `headers=` on exactly ONE of its five branches: the
+  **429**. The success branch — the overwhelming majority of calls, carrying the
+  identical `x-ratelimit-*` headers — discarded them, as did auth-failure and
+  http-error. So `plan_limits` could only ever be written by a 429 and the 80%
+  warning path was unreachable in production. R-F3870's own docstring records that
+  those headers were measured on an **HTTP 200 with results** — a branch its fix did
+  not read. **Do not "wait for traffic" to populate a gauge; check that the branch
+  traffic actually takes is wired.**
+- **`usage_report` now reads STRICTLY and declares an unreadable store.** It used to
+  read via non-strict `get`/`get_json`, whose R-F1 None-on-error contract made a
+  wedged store render as `monthly: {}, plan_limits: null` — "Brave was never called"
+  — which is indistinguishable from a healthy quiet key. That is §17's `spent_usd:
+  0.0` fabricated-P0 shape reproduced INSIDE the module written to prevent it. Read
+  `store_readable` FIRST: `false` + `monthly: null` is an honest unknown; `true` +
+  `monthly: {}` is a measured zero. `plan_limits_state` is one of
+  `unreadable | never_observed | stale | fresh` — **only `fresh` is headroom you can
+  act on**, because a plan can be downgraded between observations. Do not "simplify"
+  these back to a bare `None`.
