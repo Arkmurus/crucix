@@ -205,3 +205,30 @@ collection coverage.
   tool-payload metadata from citeable source identifiers and teach contradiction
   synthesis that says "no sanctions matches" without asserting CLEAN when
   adverse evidence exists. Prove those contracts on calibration before GPU spend.
+
+## Session close — resume phrase `repair citation contract`
+
+When the operator says **`repair citation contract`**, resume in this exact order:
+
+1. Re-probe `origin/main`, the v7 diagnostics archive, the v5 held-out report,
+   and pod `maamoxx5npglea`; treat this document only as a pointer to live evidence.
+2. Map the evaluator citation parser, trace builder, system prompt, training-row
+   validator, and final-answer scorer end to end. Verify every called function.
+3. Reserve a new R-number. Add failing capability tests for all measured v7
+   failures: metadata inside `[from ...]`, tool names used as sources, `Reuters`
+   instead of `reuters.com`, no-match screening described as CLEAN despite adverse
+   evidence, and news-impact answers citing model memory.
+4. Implement a structural data-contract fix that exposes only citeable source
+   identifiers to the answer contract and validates contradiction synthesis.
+   Do not weaken the evaluator and do not modify the frozen calibration answers.
+5. Build a CPU-checkable contract-acquisition probe and prove it passes before
+   constructing a new positive curriculum. Preserve all ten axes and entity-level
+   disjointness from the unchanged n=168 held-out and 480-entity golden sets.
+6. Do not spend GPU until focused tests, full relevant tests, production compile,
+   strict tokenizer preflight, diff review, commit, and push all pass.
+7. A future candidate must first preserve 30/30 calibration, then improve or
+   preserve every held-out axis. Any regression quarantines the adapter and stops
+   the pod; v5 remains the only eligible parent until those gates pass.
+
+Closed source-of-truth state: R-F3898 is ship-marked; origin was `04132ea1` at
+close; 228 tests passed with 2 expected failures; no training pod is running.
