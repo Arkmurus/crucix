@@ -388,7 +388,16 @@ def backfill_from_register(
                 # A claim that was never made has no honest timestamp.
                 "claimed_at": None,
                 "claimed_by": "backfill:register",
-                "status": "closed" if "CLOSED" in titles[0].upper() else "open",
+                # DO NOT GUESS THE STATUS. A first cut inferred it from the word
+                # "CLOSED" in the title and got five wrong in one pass — C-03, C-12,
+                # C-16 and C-18 say "**FIXED**", C-19 says "**REMEDIATED**", C-14
+                # says "**CONTAINED + ROOT-FIXED**" — all resolved, all stamped
+                # `open`. A fabricated status is worse than none because it reads as
+                # a measurement, which is the defect class this whole register
+                # documents. `imported` is the honest value: the register itself is
+                # the authority on whether a defect is resolved, and this ledger's
+                # job is allocating numbers, not tracking state it never observed.
+                "status": "imported",
                 "r_numbers": [],
                 "notes": (
                     "imported from a defects.md heading (R-F3878); never reserved"

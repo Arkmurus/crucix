@@ -61,7 +61,7 @@ def main() -> int:
     s_close.add_argument("r_numbers", nargs="+", help="R-numbers that fixed it")
 
     s_list = sub.add_parser("list", help="list reservations")
-    s_list.add_argument("--status", default=None, choices=["open", "closed"])
+    s_list.add_argument("--status", default=None, choices=["open", "closed", "imported"])
 
     sub.add_parser("audit", help="report collisions and register drift")
     sub.add_parser("backfill", help="import existing defects.md headings into the ledger (once)")

@@ -6,7 +6,7 @@
       "title": "Every Python dependency is unpinned — P1",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -15,7 +15,7 @@
       "title": "~~Stripe is an undeclared dynamic import~~ — **RETRACTED, NOT A DEFECT**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -24,7 +24,7 @@
       "title": "Document-extraction degradation is DARK — P1 — **FIXED (R-F3723)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -33,7 +33,7 @@
       "title": "~~`undici` undeclared~~ — **RETRACTED, downgraded to a note**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -42,7 +42,7 @@
       "title": "Two WhatsApp listeners — BOTH LIVE BY DESIGN, not a stale twin — P2",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -51,7 +51,7 @@
       "title": "An unused second WA deployment configuration — P2 (Phase 4.3)",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -60,7 +60,7 @@
       "title": "Singleton/lease coverage on background work is thin — LEAD",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -69,7 +69,7 @@
       "title": "31 forever-loops with no statically visible sleep — LEAD",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -78,7 +78,7 @@
       "title": "~~No vulnerability scanning possible~~ — **CLOSED 2026-08-05**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "closed",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -87,7 +87,7 @@
       "title": "Orphan stores cannot be detected without a live key-space scan — P1 (method gap)",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -96,7 +96,7 @@
       "title": "Dependency vulnerabilities — the C-09 gap, now MEASURED — P1",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -105,7 +105,7 @@
       "title": "The duplicate-route guard had gone blind — P0 — **FIXED (R-F3791, 2026-08-08)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -114,7 +114,7 @@
       "title": "The \"36 new failures\" were mostly not regressions — P1 — **CLOSED (R-F3795…R-F3812, 2026-08-09)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "closed",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -123,7 +123,7 @@
       "title": "ARIA crawled and absorbed pornography — P0 — **CONTAINED + ROOT-FIXED (R-F3817/R-F3820, 2026-08-09)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -132,7 +132,7 @@
       "title": "Residual live signals — triaged 2026-08-10, two dissolved on inspection",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -141,7 +141,7 @@
       "title": "CI was red on every commit — two secret checkers, one file — **FIXED (R-F3827)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -150,7 +150,7 @@
       "title": "The §16 CI gate is WIRED and PROVEN FIRING — with two known flaky tests",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -159,7 +159,7 @@
       "title": "The primary search backend served NOISE as success — P0 — **FIXED (R-F3844)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved — COLLIDED, other claim(s): ['Node/JS tier security audit — 10 findings, all FIXED (R-F3831…R-F3840, 2026-08-10)']"
     },
@@ -168,7 +168,7 @@
       "title": "Noise reached a CUSTOMER-FACING DD report — P0 — **REMEDIATED (R-F3849)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved — COLLIDED, other claim(s): ['The C-18 XSS residual, measured and gated — **CLOSED (R-F3845, 2026-08-11)**']"
     },
@@ -177,7 +177,7 @@
       "title": "The interpolation guard now covers EVERY page in public/ — **R-F3850, 2026-08-11**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -186,7 +186,7 @@
       "title": "The four surfaces C-20 left uncovered — **CLOSED (R-F3851/R-F3852, 2026-08-11)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "closed",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -195,7 +195,7 @@
       "title": "SearXNG's surviving engine was serving a soft-404 page as ten results — **CLOSED (R-F3853, 2026-08-11)**",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "closed",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved — COLLIDED, other claim(s): ['Deep review of C-19..C-21 — one more live XSS, four analyser blind spots — **R-F3855, 2026-08-11**']"
     },
@@ -204,7 +204,7 @@
       "title": "Task-list closeout — five residuals fixed, one handed back with evidence (R-F3860..R-F3866, 2026-08-11)",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved — COLLIDED, other claim(s): ['Two blind spots in the search stack, both found by asking \"what is NOT measured?\" — **CLOSED (R-F3864, R-F3868/R-F3870, 2026-08-11)**']"
     },
@@ -213,7 +213,7 @@
       "title": "360 aria-web review — three UI defects, two of them mine (R-F3871/R-F3876, 2026-08-11)",
       "claimed_at": null,
       "claimed_by": "backfill:register",
-      "status": "open",
+      "status": "imported",
       "r_numbers": [],
       "notes": "imported from a defects.md heading (R-F3878); never reserved"
     },
@@ -223,8 +223,12 @@
       "claimed_at": null,
       "claimed_by": "backfill:register",
       "status": "closed",
-      "r_numbers": [],
-      "notes": "imported from a defects.md heading (R-F3878); never reserved"
+      "r_numbers": [
+        "R-F3873",
+        "R-F3874"
+      ],
+      "notes": "imported from a defects.md heading (R-F3878); never reserved",
+      "closed_at": "2026-08-11T16:57:23Z"
     },
     {
       "c_number": "C-26",

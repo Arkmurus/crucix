@@ -452,3 +452,24 @@ def test_widening_the_heading_level_did_not_change_the_live_reading(tmp_path):
     assert readable is True
     assert len(claims) == 26, f"expected 26 distinct live claims, got {len(claims)}"
     assert set(reg.new_collisions(claims)) == set(), "the live register must stay green"
+
+
+def test_backfill_does_not_guess_a_status(tmp_path):
+    """A first cut inferred status from the word "CLOSED" in the title and got five
+    wrong in one pass: C-03/C-12/C-16/C-18 say "**FIXED**", C-19 "**REMEDIATED**",
+    C-14 "**CONTAINED + ROOT-FIXED**" — all resolved, all stamped `open`.
+
+    A fabricated status is worse than none because it reads as a measurement. The
+    register is the authority on whether a defect is resolved; this ledger allocates
+    numbers and must not claim to know state it never observed."""
+    ledger = tmp_path / "c_number_reservations.json"
+    register = tmp_path / "defects.md"
+    register.write_text(
+        "### C-01 · a — **CLOSED (R-F1)**\n"
+        "### C-02 · b — **FIXED (R-F2)**\n"
+        "### C-03 · c — still open\n", encoding="utf-8")
+
+    reg.backfill_from_register(path=ledger, register=register)
+    rows = json.loads(ledger.read_text(encoding="utf-8"))["reservations"]
+    assert {r["status"] for r in rows} == {"imported"}, (
+        "backfilled rows must not carry a guessed open/closed status")
