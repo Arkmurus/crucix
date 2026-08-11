@@ -236,12 +236,18 @@ jobs:
       # No continue-on-error, so an unescaped interpolation or an unguarded URL
       # sink fails the build. Both suites are green and both have been proven to
       # fire on an injected regression, so a red here is a real finding.
-      - name: DOM-XSS guards (must pass)
+      # R-F3872 — the execution smoke is in this blocking step deliberately.
+      # Every other guard here is STATIC; a ReferenceError does not exist until
+      # the code runs, and `node --check` parses a scope error happily. R-F3871
+      # shipped exactly that and blanked every page while the suite stayed green
+      # and the server returned 200.
+      - name: DOM-XSS guards + shared-JS execution smoke (must pass)
         run: >
           node --test --test-force-exit
           --import ./test/helpers/net_guard.mjs
           test/html-interpolation-guard-rf3845.test.mjs
           test/url-sink-guard-rf3851.test.mjs
+          test/shared-js-executes-rf3872.test.mjs
 
       # R-F1835: DD quality scorer.  R-F1840: dropped the `|| true` that hid the
       # exit code entirely — a real regression (or "no golden entries" because

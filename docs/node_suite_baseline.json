@@ -2,8 +2,8 @@
   "recorded_at": "2026-08-11",
   "node": "v22.23.2",
   "totals": {
-    "tests": 1835,
-    "pass": 1818,
+    "tests": 1842,
+    "pass": 1825,
     "fail": 8,
     "skipped": 9
   },
