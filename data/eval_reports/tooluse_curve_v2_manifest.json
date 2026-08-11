@@ -1,7 +1,20 @@
 {
   "complete": true,
   "calibration_is_promotion_evidence": false,
-  "sft_rows": 90,
+  "sft_rows": 206,
+  "source_sft_rows": 90,
+  "sft_axis_weights": {
+    "tooluse_adverse": 1,
+    "tooluse_challenge": 2,
+    "tooluse_challenge_unavailable": 4,
+    "tooluse_contradiction": 1,
+    "tooluse_multihop": 2,
+    "tooluse_news_impact": 1,
+    "tooluse_person": 4,
+    "tooluse_resolution": 1,
+    "tooluse_trace": 1,
+    "tooluse_trace_unavailable": 4
+  },
   "source_dpo_rows": 51,
   "deduplicated_dpo_rows": 47,
   "calibration_rows": 30,
@@ -32,9 +45,9 @@
     "golden": "4af4f76dbaf8fa3be341b97c94c5d654ef0e354704b974044fc8e64ddcdd296c"
   },
   "output_sha256": {
-    "sft": "7d2c4103a4b05ee09c7d784b1ea100a70ac316ad9a3ac80fbf7c54ba79421ae5",
+    "sft": "787445b6ce2dc54ed199837e360f7c2acc80bb8e736d6a97424ef001bb33905d",
     "dpo": "58ea445342ddd226a2a92477992f8dee77129964f1650469523ae75388958d91",
     "probe": "72b7eca2a90db4d1e3a6a4448a2d17f3b2a0dd165f82ab96fd975720d0227c5c",
-    "baseline": "c025f79bfc2824bffd399372e82b2818c138f90d81f9da0c5db1646b6196d668"
+    "baseline": "b3c9adb4e221e0a88f28869703f2db0b8dd1ad40e6fb3bd458627548534216a2"
   }
 }

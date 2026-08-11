@@ -20,10 +20,10 @@ FRESH_BASE=1 EXPECTED_DPO_PAIRS=47 DPO_SHA256="$(hash "$DPO")" EVAL_SHA256="$(ha
   POD_RUNNER=scripts/train/pod_tooluse_curve.sh SFT_LOCAL="$SFT" SFT_SHA256="$(hash "$SFT")" \
   PROBE_LOCAL="$PROBE" PROBE_SHA256="$(hash "$PROBE")" BASELINE_LOCAL="$BASELINE" BASELINE_SHA256="$(hash "$BASELINE")" \
   DPO_LOCAL="$DPO" EVAL_LOCAL="$EVAL" TRAIN_PROOF="$SFT" \
-  REPORT_LOCAL=data/eval_reports/aria_tooluse_curve_v3_eval.json \
-  OUTPUT_LOCAL=data/training/checkpoints/aria_tooluse_curve_v3.tgz \
-  INTERMEDIATE_LOCAL=data/training/checkpoints/aria_tooluse_curve_sft_v3.tgz \
-  DIAGNOSTICS_LOCAL=data/eval_reports/aria_tooluse_curve_v3_diagnostics.tgz \
-  STATE_FILE=data/eval_reports/.tooluse_curve_v3_pod_state \
+  REPORT_LOCAL=data/eval_reports/aria_tooluse_curve_v4_eval.json \
+  OUTPUT_LOCAL=data/training/checkpoints/aria_tooluse_curve_v4.tgz \
+  INTERMEDIATE_LOCAL=data/training/checkpoints/aria_tooluse_curve_sft_v4.tgz \
+  DIAGNOSTICS_LOCAL=data/eval_reports/aria_tooluse_curve_v4_diagnostics.tgz \
+  STATE_FILE=data/eval_reports/.tooluse_curve_v4_pod_state \
   REMOTE_DPO_OUT=/workspace/checkpoints/aria_tooluse_curve_dpo CYCLE_DEADLINE=14400 \
   bash scripts/train/run_tooluse_dpo.sh

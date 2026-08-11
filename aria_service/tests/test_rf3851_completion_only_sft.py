@@ -60,5 +60,5 @@ def test_paid_curve_uses_official_completion_only_collator_path() -> None:
     assert "actual_start != expected_start" in trainer
     assert "--completion-only-loss" in pod
     assert pod.index("--completion-only-loss") < pod.index('evaluate "$SFT_OUT"')
-    assert "aria_tooluse_curve_sft_v3.tgz" in host
+    assert "aria_tooluse_curve_sft_v4.tgz" in host
     assert "aria_tooluse_curve_v2_diagnostics.tgz" not in host

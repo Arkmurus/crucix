@@ -14,6 +14,7 @@ from pathlib import Path
 
 from scripts.train.build_mixed_tooluse_cycle import ALL_AXES, RETENTION_AXES, validate_dpo
 from scripts.train.build_tooluse_corpus import _norm_subject
+from scripts.train.eval_tooluse import build_report, score_one
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -71,6 +72,45 @@ def subset_report(raw: dict, indices: list[int]) -> dict:
             "note": "trained-on calibration; never valid promotion evidence"}
 
 
+def rescore_answers(train: list[dict], raw: dict) -> dict:
+    """Reapply the current validator to retained raw answers.
+
+    Reports deliberately retain model text so scorer repairs do not require a
+    second paid inference run. Trusting stale ``honest`` booleans here made the
+    curve optimize evaluator bugs that had already been fixed in code.
+    """
+    measured = raw.get("rows") or []
+    if raw.get("complete") is not True or len(measured) != len(train):
+        raise ValueError("raw-base report is incomplete or unaligned")
+    rows = [score_one(trace, row.get("answer"))
+            for trace, row in zip(train, measured)]
+    rescored = build_report(rows)
+    rescored["rows"] = rows
+    rescored["complete"] = True
+    rescored["note"] += "; retained answers rescored by current validator"
+    return rescored
+
+
+def deficit_weighted_sft(train: list[dict], baseline: dict, quota: int) -> tuple[list[dict], dict[str, int]]:
+    """Repeat whole axes in proportion to measured calibration deficits.
+
+    Every subject within an axis receives the same weight. This targets observed
+    acquisition gaps without fabricating examples or overweighting one entity.
+    A perfect axis remains one-copy retention signal; an axis at ``h/quota`` is
+    represented ``1 + quota - h`` times.
+    """
+    scores = {str(axis["label"]): int(axis["honest"])
+              for axis in baseline.get("per_axis") or []}
+    if set(scores) != ALL_AXES:
+        raise ValueError("baseline does not cover all ten axes")
+    weights = {axis: 1 + quota - scores[axis] for axis in sorted(ALL_AXES)}
+    if any(weight < 1 or weight > quota + 1 for weight in weights.values()):
+        raise ValueError(f"invalid deficit weights: {weights}")
+    weighted = [row for row in train
+                for _ in range(weights[str(row.get("label") or "")])]
+    return weighted, weights
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--train", type=Path, required=True)
@@ -99,8 +139,10 @@ def main(argv: list[str] | None = None) -> int:
         if (row.get("label"), row.get("subject")) != (measured.get("label"), measured.get("subject")):
             raise ValueError(f"raw-base report diverges from queue at row {index + 1}")
     probe = [train[index] for index in indices]
-    baseline = subset_report(raw, indices)
-    outputs = ((args.sft_out, train), (args.dpo_out, dpo), (args.probe_out, probe))
+    rescored_raw = rescore_answers(train, raw)
+    baseline = subset_report(rescored_raw, indices)
+    sft, axis_weights = deficit_weighted_sft(train, baseline, args.quota)
+    outputs = ((args.sft_out, sft), (args.dpo_out, dpo), (args.probe_out, probe))
     for path, rows in outputs:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
@@ -108,7 +150,9 @@ def main(argv: list[str] | None = None) -> int:
     args.baseline_out.parent.mkdir(parents=True, exist_ok=True)
     args.baseline_out.write_text(json.dumps(baseline, indent=2) + "\n", encoding="utf-8")
     manifest = {"complete": True, "calibration_is_promotion_evidence": False,
-                "sft_rows": len(train), "source_dpo_rows": len(source_dpo),
+                "sft_rows": len(sft), "source_sft_rows": len(train),
+                "sft_axis_weights": axis_weights,
+                "source_dpo_rows": len(source_dpo),
                 "deduplicated_dpo_rows": len(dpo), "calibration_rows": len(probe),
                 "calibration_quota": args.quota, "axes": sorted(ALL_AXES),
                 "protected_axes": sorted(RETENTION_AXES),

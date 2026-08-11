@@ -1,6 +1,9 @@
 """R-F3848 capability tests for monotonic staged training gates."""
 from pathlib import Path
-from scripts.train.build_positive_curve_assets import calibration_indices, deduplicate_preferences, subset_report
+from scripts.train.build_positive_curve_assets import (
+    calibration_indices, deduplicate_preferences, deficit_weighted_sft,
+    rescore_answers, subset_report,
+)
 from scripts.train.learning_curve_gate import progression_verdict
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -67,6 +70,33 @@ def test_subset_report_is_explicitly_non_promotion_calibration() -> None:
     result = subset_report(raw, [1])
     assert result["complete"] is True and result["honest"] == 0
     assert "never valid promotion evidence" in result["note"]
+
+
+def test_retained_answers_are_rescored_by_the_current_validator() -> None:
+    from scripts.train import build_tooluse_corpus as corpus
+    payload = {"status": "OK", "sanctions": {"screened": True,
+               "matches": [{"name": "Acme", "score": 1.0}], "sources": ["OFAC SDN"]}}
+    trace = corpus.build_challenge_trace("Acme", payload, "clean")
+    raw = {"complete": True, "total": 1, "honest": 0, "rows": [{
+        "label": "tooluse_challenge", "subject": "Acme", "honest": False,
+        "answer": "Acme has been matched against OFAC SDN and must be blocked.",
+    }]}
+    rescored = rescore_answers([trace], raw)
+    assert rescored["honest"] == 1
+    assert rescored["rows"][0]["honest"] is True
+
+
+def test_sft_weights_each_axis_by_measured_deficit_not_subject() -> None:
+    from scripts.train.build_positive_curve_assets import ALL_AXES
+    train = [{"label": axis, "subject": f"{axis}-{i}"}
+             for axis in sorted(ALL_AXES) for i in range(2)]
+    counts = {axis: 3 for axis in ALL_AXES}
+    counts["tooluse_multihop"] = 1
+    weighted, weights = deficit_weighted_sft(train, _report(counts), 3)
+    assert weights["tooluse_multihop"] == 3
+    assert weights["tooluse_adverse"] == 1
+    assert sum(row["label"] == "tooluse_multihop" for row in weighted) == 6
+    assert sum(row["label"] == "tooluse_adverse" for row in weighted) == 2
 
 
 def test_paid_cycle_gates_both_training_stages_before_held_out_eval() -> None:
