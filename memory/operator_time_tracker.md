@@ -365,3 +365,77 @@ provenance — the gate rejecting the other 26 is correct, but why the supply sk
 that way was never investigated. The full §16 suite was NOT measured: a peer agent
 committed four times during the session and §16 is explicit that a moving tree
 makes the measurement `VALID=NO`.
+
+## Session 2026-08-11 — the search stack: a source that could not lie, and four absences that read as health
+
+**R-numbers shipped: 9** — R-F3853, R-F3857, R-F3858, R-F3859, R-F3863, R-F3864,
+R-F3865, R-F3868, R-F3870. All ship-marked and verified live by `build_rev`
+(aria-intel `bc7b3a8b` → `aa44f08e` → `9648cfea` → `a59273bd` → `d0efeb34`;
+aria-searxng deployed twice). Plus CLAUDE.md §17/§16/§27 corrections and defect
+register entries C-22 (+postscript) and C-23.
+
+**Operator hours: not supplied → pace_ratio deliberately blank.** Agent wall-clock
+covers a full working day, most of it waiting on ~8–10 minute torch builds and
+cold boots; substituting it would inflate the denominator with time nobody spent.
+
+**What it was.** Started as "sort out anthropic billing and chain order". Two of
+the three premises turned out to be false, and saying so was most of the value:
+Anthropic was never broken (live 200s, real credit, 393 calls/$21.23 MTD, already
+hard-pinned for DD and non-degrading), and the chain order was already correct —
+making Anthropic global primary would have cost ≈$889/mo against a $600 cap
+(measured: $8.01/M vs DeepSeek's $0.195/M, ~41×) and would have 404'd every call
+because `LLM_MODEL` is pinned to a DeepSeek id. What WAS broken was SearXNG.
+
+**Root cause, corrected twice by measurement.** Not "response cross-contamination"
+(R-F3849's recorded diagnosis, and a peer's). Bing answers popular queries
+correctly and serves a rotating soft-404/trending page for queries it has no hits
+on, which SearXNG scrapes as ten well-formed results — 9-10/10 related on
+Microsoft/BAE/London weather, 0/10 on Rosoboronexport/Modirum Gespi/nonsense. DD
+and research queries are ALWAYS the niche case, so it failed hardest exactly where
+ARIA depends on it. Then: Wikimedia 403s an unidentified client and 200s a
+descriptive one on the SAME IP in the same second, so "blocked from a datacenter"
+was the wrong diagnosis for the whole API tier.
+
+**Method note — I shipped a regression and found it by reviewing my own work.**
+R-F3853's per-engine filter dropped junk engines unconditionally, including when
+EVERY engine was junk, which emptied the set; the R-F3844 gate reads an empty set
+as "nothing found", so a detected backend failure became `ok=True, count=0` — a
+false clean for an adverse-media sweep. It was firing in production within the
+hour and was fixed by R-F3857. Separately, the first draft of `classify_429`
+keyed on the phrase "rate limit" and therefore bucketed the REAL OpenSanctions
+body ("exceeded its rate limit FOR THE MONTH") as pacing — the §18 defect written
+fresh inside the function whose only job is to prevent it, caught solely because a
+test asserted the real body text rather than a paraphrase.
+
+**Two of my own probes were invalid and were retracted rather than reported.** A
+detached `flyctl ssh` python3 process has no state-store connection, so the R-F1
+None-on-error contract rendered cost reads as `spent_usd: 0.0` across 12 days of
+absent daily keys. I came within one step of filing a P0 ("the cost meter is
+blind, the cap cannot trip"); through the running server the same instant read
+**$48.26 of $600 over 19,751 calls**. The same artefact later made the new engine-
+health report look empty. Recorded in §17 so the next session does not repeat it.
+
+**Two baseline entries were themselves the defect.** `test_all_search_backends_have_circuit_breakers`
+was BLIND — a fixed 80-line window plus literal-name matching reported a backend
+with two failure wires as dark; it could never go green, so it could never carry
+information either. `test_backend_names_no_brave` asserted a REVERSED policy and
+pointed at the defect: the obvious way to green it is to delete `["brave"] if
+_brave_on else []`, which would have silently disabled ARIA's paid primary and
+taken DD search with it. Local baseline 90 → 88.
+
+**Operator decisions actioned:** Tier 2 settled as SearXNG (not Brave, not a new
+vendor) — the instinct "paying = not in control" inverts here, because SearXNG has
+no index of its own and borrows from companies that blocked us three times in two
+months; it is acceptable only because R-F3844/3853/3857 plus the new health gate
+mean it can no longer lie. Brave stays DD-only; the existing bounded Pass-2
+student escalation (≤3/session, cost-shed) was left deliberately unwidened.
+
+**Left open, honestly:** `yep` answered 20/20, 403'd within the hour (likely my own
+~40-query bake-off), then RECOVERED — left enabled rather than ripped out, and the
+engine list is now self-maintaining rather than hand-curated. Every general web
+engine remains blocked from the Fly IP, which no engine-list tuning fixes; ARIA
+survives on news/academic/memory backends measuring 10/10 related, so it is a
+redundancy loss, not a blackout. `plan_limits` will only populate once the live
+server itself calls Brave — verified by parsing real headers, not by waiting for
+it. The full §16 suite was NOT re-measured: a peer agent and Codex were both
+committing, and §16 is explicit that a moving tree makes it `VALID=NO`.
