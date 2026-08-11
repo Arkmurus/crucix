@@ -66,7 +66,7 @@
     const cls = ['av', size, aria ? 'aria' : '', aria ? 'pulse' : '',
       isOnline ? 'on' : 'offl'].filter(Boolean).join(' ');
     const style = (user.avatarUrl && !aria) ? '' : avatarStyle(user.id, aria);
-    return `<span class="${cls}" style="${style}">${avatarInner(user)}</span>`;
+    return `<span class="${esc(cls)}" style="${esc(style)}">${avatarInner(user)}</span>`;
   }
   // Mutate an existing avatar node in place (keeps its id stable across renders).
   function paintAvatar(el, user, { size = '', isOnline = false } = {}) {
@@ -126,7 +126,7 @@
   function miniAvatar(user) {
     const aria = !!user.isAria;
     const style = (user.avatarUrl && !aria) ? '' : avatarStyle(user.id, aria);
-    return `<span class="av msgav${aria ? ' aria' : ''}" style="${style}">${avatarInner(user)}</span>`;
+    return `<span class="av msgav${esc(aria ? ' aria' : '')}" style="${esc(style)}">${avatarInner(user)}</span>`;
   }
 
   // R-F2371 — does a roster entry match the current search query?
@@ -193,7 +193,7 @@
     const sub = m.isAria ? 'Ask ARIA anything'
       : [m.jobTitle || m.role, m.companyName || m.sector].filter(Boolean).join(' · ')
         || (isOnline ? 'online' : relSeen(m.lastSeenAt));
-    return `<div class="row ${isOnline ? '' : 'offl'} ${activeId === m.id ? 'active' : ''}"
+    return `<div class="row ${esc(isOnline ? '' : 'offl')} ${esc(activeId === m.id ? 'active' : '')}"
                  data-open="${esc(m.id)}" role="button" tabindex="0">
         ${avatar(m, { isOnline })}
         <div class="bd"><div class="nm">${esc(m.fullName || m.username)}</div>
@@ -204,9 +204,9 @@
     const on = members.filter(m => online.has(m.id) && memMatch(m));
     const off = members.filter(m => !online.has(m.id) && memMatch(m));
     let html = memMatch(ARIA) ? memberRow(ARIA, true) : ''; // ARIA pinned, always available
-    if (on.length) html += `<div class="net-grouplbl">Online · ${on.length}</div>`
+    if (on.length) html += `<div class="net-grouplbl">Online · ${esc(on.length)}</div>`
       + on.map(m => memberRow(m, true)).join('');
-    if (off.length) html += `<div class="net-grouplbl">Offline · ${off.length}</div>`
+    if (off.length) html += `<div class="net-grouplbl">Offline · ${esc(off.length)}</div>`
       + off.map(m => memberRow(m, false)).join('');
     if (filterText && !on.length && !off.length && !memMatch(ARIA)) {
       host.innerHTML = `<div class="net-hollow">No one matches “<b>${esc(filterText)}</b>”.</div>`;
@@ -232,11 +232,11 @@
       const mine = last.from === myId;
       const prev = (mine ? 'You: ' : '') + (last.text || '');
       const openId = isGroup ? s.conversationId : s.userId;
-      return `<div class="row ${activeId === openId ? 'active' : ''}" data-open="${esc(openId)}" role="button" tabindex="0">
+      return `<div class="row ${esc(activeId === openId ? 'active' : '')}" data-open="${esc(openId)}" role="button" tabindex="0">
         ${avatar({ id: openId, fullName: u.fullName || u.username, avatarUrl: u.avatarUrl }, { isOnline: isGroup ? false : isOnline })}
         <div class="bd"><div class="nm">${esc(u.fullName || u.username)}</div>
-        <div class="sub">${isGroup ? `${(s.members || []).length} members · ` : ''}${esc(prev.slice(0, 42))}</div></div>
-        ${s.unread ? `<span class="unread">${s.unread}</span>` : `<span class="time">${fmtTime(last.ts)}</span>`}
+        <div class="sub">${esc(isGroup ? `${(s.members || []).length} members · ` : '')}${esc(prev.slice(0, 42))}</div></div>
+        ${s.unread ? `<span class="unread">${esc(s.unread)}</span>` : `<span class="time">${esc(fmtTime(last.ts))}</span>`}
       </div>`;
     }).join('');
   }
@@ -328,12 +328,12 @@
   function bubbleHtml(m) {
     const mine = m.from === myId;
     // R-F2371 — double-tick read receipt on my messages (brightens once seen)
-    const read = mine ? `<span class="rd${m.read ? ' seen' : ''}"><i class="bi bi-check2-all"></i></span>` : '';
+    const read = mine ? `<span class="rd${esc(m.read ? ' seen' : '')}"><i class="bi bi-check2-all"></i></span>` : '';
     // R-F2371 — incoming messages carry the peer's avatar (reference-style rows)
     const av = mine ? '' : miniAvatar(activePeer || { id: m.from, fullName: 'Member' });
-    return `<div class="msg ${mine ? 'me' : 'them'}">${av}` +
-      `<div class="bubble ${mine ? 'b-me' : 'b-them'}" data-mid="${esc(m.id || '')}">` +
-      `${esc(m.text)}<span class="mt">${fmtTime(m.ts)} ${read}</span></div></div>`;
+    return `<div class="msg ${esc(mine ? 'me' : 'them')}">${esc(av)}` +
+      `<div class="bubble ${esc(mine ? 'b-me' : 'b-them')}" data-mid="${esc(m.id || '')}">` +
+      `${esc(m.text)}<span class="mt">${esc(fmtTime(m.ts))} ${read}</span></div></div>`;
   }
   function renderMessages(msgs) {
     const host = $('net-messages');
@@ -347,7 +347,7 @@
     let html = '', lastDay = '';
     msgs.forEach(m => {
       const day = fmtDay(m.ts);
-      if (day && day !== lastDay) { html += `<div class="day">${day}</div>`; lastDay = day; }
+      if (day && day !== lastDay) { html += `<div class="day">${esc(day)}</div>`; lastDay = day; }
       html += bubbleHtml(m);
     });
     host.innerHTML = html;
@@ -659,7 +659,7 @@
     if (emojiBtn && emojiBox) {
       const EMOJI = ['👍', '🙏', '✅', '🔥', '👀', '⚠️', '📎', '📊', '🕵️', '🚩', '💡', '🤝',
         '🟢', '🟡', '🔴', '📈', '🧭', '✍️', '😊', '🎯', '⏱️', '🔒', '📄', '🌍'];
-      emojiBox.innerHTML = EMOJI.map(e => `<button type="button" tabindex="-1" aria-label="${e}">${e}</button>`).join('');
+      emojiBox.innerHTML = EMOJI.map(e => `<button type="button" tabindex="-1" aria-label="${esc(e)}">${esc(e)}</button>`).join('');
       emojiBtn.addEventListener('click', (e) => { e.stopPropagation(); emojiBox.classList.toggle('open'); });
       emojiBox.addEventListener('click', (e) => {
         const b = e.target.closest('button'); if (!b) return;

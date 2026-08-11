@@ -1243,3 +1243,77 @@ Escape-at-source, not escape-at-sink — correct, and justified by name rather t
 only. Nothing here addresses `javascript:` URLs (`lib/util/safeUrl.mjs` + the R-F2607
 client helper), inline event handlers (CSP `script-src-attr 'none'` + the R-F3839 sweep),
 the vendored `pelican/` theme, or `aria-app/**` (Next.js, its own renderer).
+
+---
+
+### C-21 · The four surfaces C-20 left uncovered — **CLOSED (R-F3851/R-F3852, 2026-08-11)**
+
+C-20 ended by naming what it did not cover: `javascript:` URLs, inline event handlers,
+the vendored `pelican/` theme, and `aria-app/**`. All four are closed. Three carried live
+defects; the fourth was clean and is now pinned.
+
+**1 · URL sinks — two live `javascript:` vectors.** Escaping is the wrong tool for a URL:
+`javascript:alert(1)` contains no `<`, `>`, `&` or quote, so every escaper passes it
+through untouched. Two sinks assigned server data straight to `window.location.href`,
+which EXECUTES that scheme:
+- `explorer.html` — `window.location.href = a.href` where `a` is an entry from the
+  ACTIONS API payload, **not a DOM anchor**. The property name is what made it look
+  resolved and safe.
+- `account.html` x2 — the checkout and billing-portal URLs from our own API.
+
+Both now route through `safeHref` (`js/app.js:566`, http/https/mailto else `#`). The
+other ten URL sinks are `blob:` downloads, FileReader `data:` previews, static
+`data-src`, literal-path ternaries and internal nav constants — each justified by name in
+the guard, because a URL sink is justified by knowing where the URL COMES FROM, never by
+how it looks.
+
+**2 · Inline handlers — two dead features, one of them app-wide.** CSP has set
+`script-src-attr 'none'` since R-F1919, so an `on*=` attribute is simultaneously an
+injection sink and code that cannot run:
+- `js/app.js` — the **Toast dismiss button** used `onclick="this.parentElement.remove()"`.
+  The X did nothing, on every page, for every toast, for as long as that CSP has been on.
+- `dd-reports.html` — a favicon `<img onerror>`; see below.
+
+**And the same Toast line carried a live XSS.** It interpolated `msg` RAW into innerHTML,
+and callers pass server text — `account.html` sends
+`'Checkout failed: ' + (data.error || resp.status)`, `sidebar.js` sends `err.message`. A
+hostile or reflected error string was script execution on whichever page displayed the
+toast. Now built with `textContent` and a delegated listener.
+
+> **This was missed because the C-19/C-20 guard only scanned `public/**/*.html`.** The
+> shared JS modules build HTML too. `js/app.js`, `js/network.js` and `js/sidebar.js` are
+> in scope now — 28 further interpolations escaped, and the guard discovers `.js`
+> alongside `.html`.
+
+**3 · The DD favicon was visibly broken AND a privacy leak.** `dd-reports.html` rendered
+a Google favicon `<img>` with an inline `onerror` for every citation. CSP
+`img-src 'self' data: blob:` blocks the image and `script-src-attr 'none'` blocks the
+`onerror` that would have hidden it — so **every citation in every DD report showed a
+broken-image icon**, on a surface `freeze.md` lists as under warranty. It also sent the
+domain of every source ARIA cites to a third party on each render. Replaced with the
+local icon glyph the memory-citation branch already used; both CSS classes are 16px, so
+the row layout is unchanged.
+
+**4 · `aria-app/**` (Next.js) — clean, no change needed.** Zero
+`dangerouslySetInnerHTML`, zero `innerHTML`. React escapes by default; there is no sink
+to guard.
+
+**5 · The vendored theme, bounded rather than waved away.** `public/pelican/` (jQuery
+2.1.1, bootstrap, owl-carousel) is loaded by exactly one page, `index.html`. jQuery
+2.1.1's XSS CVEs all require untrusted input to reach jQuery's HTML PARSER, and no such
+path exists: index.html has no inline script and makes no fetch of its own, and the
+theme's only dynamic surface — the lead form — writes both its success message and
+`xhr.responseJSON.error` with `.text()`, which sets textContent and parses nothing. Four
+tests pin exactly those conditions. **This does not claim jQuery 2.1.1 is safe in
+general**; it claims this page gives it nothing to be unsafe with.
+
+**Two more analyser defects, both found by the guard failing.** `escapeText` (sidebar.js)
+was a sixth escaper name the classifier did not know — the same class of bug as the
+`esc()` omission in C-20, and the second time a missing name produced phantom findings.
+And `functionBodyOf` took the first `{` after a function's name, which for
+`function avatar(user, { size = '' } = {})` is a **destructured parameter**, not the body:
+the helper's markup was invisible, so every caller was reported as an unescaped sink.
+
+**Both new guards were proven to fire**, per C-17: re-adding an unescaped `msg` to the
+Toast failed the interpolation guard naming `line 318: msg`, and the URL guard names any
+unjustified `href`/`src` sink with its line and kind.

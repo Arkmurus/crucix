@@ -49,7 +49,10 @@ const read = (f) => fs.readFileSync(path.join(repoRoot(), f), 'utf8');
 /**
  * EVERY page this server serves, discovered — not a hand-kept list.
  *
- * R-F3846 widened the guard from the three audited files to all of public/.
+ * R-F3850 widened the guard from the three audited files to all of public/.
+ * R-F3852 added the shared JS modules (js/app.js, js/network.js, js/sidebar.js).
+ * Those build HTML too, and skipping them is how an unescaped `${msg}` sat in
+ * the Toast component EVERY page uses.
  * A hardcoded list is the same failure as a classifier with an empty universe:
  * the page someone adds next month is not in it, so it is never checked.
  * `pelican/` and `vendor/` are vendored third-party themes and are excluded by
@@ -62,7 +65,7 @@ function allPages() {
     for (const e of fs.readdirSync(path.join(repoRoot(), dir), { withFileTypes: true })) {
       const rel = `${dir}/${e.name}`;
       if (e.isDirectory()) { if (!VENDORED.has(e.name)) walk(rel); continue; }
-      if (/\.html$/i.test(e.name)) out.push(rel);
+      if (/\.(html|js)$/i.test(e.name)) out.push(rel);
     }
   }('public'));
   return out.sort();
@@ -244,6 +247,16 @@ const CONCAT_JUSTIFIED = {
     'fmtDate(e.created_at)',
     'qualified',
     's',
+  ]),
+  'public/js/app.js': new Set([
+    'bodyHtml',
+    'fields.map(fieldHtml)',
+    'icon',
+    'input',
+  ]),
+  'public/js/sidebar.js': new Set([
+    'resp.status',
+    'ts',
   ]),
   'public/lead-verify.html': new Set([
     'html',

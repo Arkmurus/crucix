@@ -298,7 +298,24 @@ const Toast = {
     t.setAttribute('role', type === 'danger' || type === 'error' ? 'alert' : 'status');
     t.setAttribute('aria-live', type === 'danger' || type === 'error' ? 'assertive' : 'polite');
     t.setAttribute('aria-atomic', 'true');
-    t.innerHTML = `<span>${msg}</span><button aria-label="Dismiss notification" onclick="this.parentElement.remove()">✕</button>`;
+    // R-F3852 — this ONE line carried two defects, and it is the toast every page
+    // in the app uses.
+    //
+    // 1. `msg` went RAW into innerHTML. Callers routinely pass server text —
+    //    account.html sends `'Checkout failed: ' + (data.error || resp.status)`,
+    //    sidebar.js sends `err.message` — so a hostile or reflected error string
+    //    was script execution on whichever page happened to show the toast. It is
+    //    escaped now; nothing here was ever meant to render markup.
+    // 2. The dismiss button used an inline `onclick`, which CSP
+    //    `script-src-attr 'none'` (R-F1919) blocks — so the ✕ did nothing, on
+    //    every page, for every toast. A delegated listener restores it.
+    const body = document.createElement('span');
+    body.textContent = String(msg == null ? '' : msg);
+    const close = document.createElement('button');
+    close.setAttribute('aria-label', 'Dismiss notification');
+    close.textContent = '✕';
+    close.addEventListener('click', () => t.remove());
+    t.append(body, close);
     container.appendChild(t);
     setTimeout(() => t.remove(), duration);
   },

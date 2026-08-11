@@ -851,7 +851,11 @@ Sidebar.init('explorer');
     document.querySelectorAll('#ex-actions .ex-action').forEach((el, i) => {
       const a = actions[i];
       const trigger = () => {
-        if (a.href) window.location.href = a.href;
+        // R-F3851 — `a` is an entry from the ACTIONS API payload, not a DOM
+        // anchor, so `a.href` is server-supplied data. Assigning it to
+        // window.location.href executes a `javascript:` URL; safeHref (app.js:566)
+        // allows only http/https/mailto and falls back to '#', a no-op navigation.
+        if (a.href) window.location.href = safeHref(a.href);
         else if (a.click) a.click();
       };
       el.addEventListener('click', trigger);

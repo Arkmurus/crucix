@@ -426,7 +426,10 @@ Sidebar.init('account');
         btn.disabled = false; btn.textContent = orig;
         return;
       }
-      window.location.href = data.url;
+      // R-F3851 — a server-supplied URL assigned to window.location.href will
+      // execute a `javascript:` scheme. safeHref (app.js:566) allows only
+      // http/https/mailto and falls back to '#'.
+      window.location.href = safeHref(data.url);
     } catch (err) {
       var m2 = 'Checkout error: ' + err.message;
       Toast.show(m2, 'error', 6000);
@@ -451,7 +454,10 @@ Sidebar.init('account');
         btn.disabled = false; btn.textContent = orig;
         return;
       }
-      window.location.href = data.url;
+      // R-F3851 — a server-supplied URL assigned to window.location.href will
+      // execute a `javascript:` scheme. safeHref (app.js:566) allows only
+      // http/https/mailto and falls back to '#'.
+      window.location.href = safeHref(data.url);
     } catch (err) {
       Toast.show('Portal error: ' + err.message, 'error', 6000);
       btn.disabled = false; btn.textContent = orig;

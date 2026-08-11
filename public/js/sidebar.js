@@ -295,10 +295,10 @@ const Sidebar = {
       // (for glyphs the bundled font lacks, e.g. the handshake). Both render
       // inside `.rail-link > i` so they inherit the 18px size + muted/active colour.
       const iconHtml = icon.trim().charAt(0) === '<'
-        ? `<i aria-hidden="true">${icon}</i>`
-        : `<i class="bi ${icon}" aria-hidden="true"></i>`;
-      return `<a href="${href}" class="rail-link${cls} ${extra}" data-page="${page}" title="${label}">
-        ${iconHtml}<span class="rail-label">${label}</span>
+        ? `<i aria-hidden="true">${escapeText(icon)}</i>`
+        : `<i class="bi ${escapeText(icon)}" aria-hidden="true"></i>`;
+      return `<a href="${escapeText(href)}" class="rail-link${escapeText(cls)} ${escapeText(extra)}" data-page="${escapeText(page)}" title="${escapeText(label)}">
+        ${iconHtml}<span class="rail-label">${escapeText(label)}</span>
       </a>`;
     };
     return `

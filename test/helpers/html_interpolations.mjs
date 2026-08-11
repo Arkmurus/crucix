@@ -37,10 +37,10 @@ const BS = String.fromCharCode(92);
 // guard — it makes it report ALREADY-ESCAPED sinks as unescaped, and a fixer
 // driven off that would wrap them twice and print `&amp;lt;` to users.
 const ESCAPER_NAMES = new Set([
-  'escapeHtml', 'escHtml', 'escText', 'escAttr', 'esc',
+  'escapeHtml', 'escHtml', 'escText', 'escAttr', 'esc', 'escapeText',
   'encodeURIComponent', 'safeUrl', 'safeExternalUrl',
 ]);
-const ALREADY = /^(escapeHtml|escHtml|escText|escAttr|esc|encodeURIComponent|safeUrl|safeExternalUrl)\s*\(/;
+const ALREADY = /^(escapeHtml|escHtml|escText|escAttr|escapeText|esc|encodeURIComponent|safeUrl|safeExternalUrl)\s*\(/;
 
 /**
  * True when every value the expression can emit is already escaped.
@@ -190,7 +190,18 @@ export function declarationOf(src, ident) {
 export function functionBodyOf(src, name) {
   const m = new RegExp(`function\\s+${name}\\s*\\(`).exec(src);
   if (!m) return '';
-  let i = src.indexOf('{', m.index);
+  // Walk PAST the parameter list first. Taking the next `{` grabs a destructured
+  // parameter instead of the body — `function avatar(user, { size = '' } = {})`
+  // resolved to "{ size = '', isOnline = false }", which contains no markup, so a
+  // markup-returning helper read as a plain value and its callers were reported
+  // as unescaped sinks.
+  let p = m.index + m[0].length - 1;   // at the '('
+  let pd = 0;
+  for (; p < src.length; p += 1) {
+    if (src[p] === '(') pd += 1;
+    else if (src[p] === ')') { pd -= 1; if (!pd) { p += 1; break; } }
+  }
+  let i = src.indexOf('{', p);
   if (i < 0) return '';
   let depth = 0;
   for (let j = i; j < src.length; j += 1) {

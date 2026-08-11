@@ -1279,8 +1279,18 @@ function ddFmtBody(body) {
       const dom = mem ? 'internal memory' : (((url.match(/^https?:\/\/([^\/]+)/) || [])[1] || url).replace(/^www\./, ''));
       const tc = /UNVERIF/.test(tier) ? 'unv' : (tier === 'ENTITY_SITE' ? 'ent' : (/^T[123]|CONFIRM|VERIF/.test(tier) ? 'ver' : 'gen'));
       cites.push('<div class="dd-cite">'
+        // R-F3851 — was an <img> pulling a favicon from www.google.com with an
+        // inline onerror to hide it on failure. BOTH halves were dead, and the
+        // failure was VISIBLE: CSP `img-src 'self' data: blob:` blocks the image,
+        // and `script-src-attr 'none'` (R-F1919) blocks the onerror that would
+        // have hidden it — so every citation in every DD report rendered a
+        // broken-image icon. It also sent the domain of every source ARIA cites
+        // to a third party on each render, which is a disclosure the report
+        // surface has no reason to make. Local icon glyph instead, matching the
+        // memory branch above; .dd-cite-ico and .dd-cite-fav are both 16px so the
+        // row layout is unchanged.
         + (mem ? '<span class="dd-cite-ico"><i class="bi bi-hdd-stack"></i></span>'
-               : '<img class="dd-cite-fav" loading="lazy" src="https://www.google.com/s2/favicons?domain=' + encodeURIComponent(dom) + '&sz=32" onerror="this.style.visibility=\'hidden\'">')
+               : '<span class="dd-cite-ico"><i class="bi bi-globe"></i></span>')
         + '<div class="dd-cite-main">'
           + (mem ? '<span class="dd-cite-title">' + escText(title) + '</span>'
                  : '<a class="dd-cite-title" href="' + escAttr(safeHref(url)) + '" target="_blank" rel="noopener">' + escText(title) + '</a>')
