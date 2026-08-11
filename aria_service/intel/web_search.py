@@ -164,6 +164,37 @@ def reset_brave_scope(token: _contextvars.Token) -> None:
     _BRAVE_CTX.reset(token)
 
 
+def _dd_brave_only() -> bool:
+    """R-F3847 — on the DD path, Brave is THE search engine. Nothing substitutes.
+
+    Operator directive 2026-08-11: Brave (and Anthropic) are the designated tools for
+    DD reports, "and nothing else".
+
+    This turns OFF the R-F3122 SearXNG fallback for Brave-scoped (DD) searches. That
+    fallback was a reasonable design — it kept coverage when Brave yielded nothing,
+    and it was honest about it (`brave_fallback_used` surfaced per §14). It is removed
+    because it is the measured path by which noise reached a customer-facing report:
+
+        dd_92f9d77b8886 "Silverbrook Capital Management"
+          .digital.press_coverage[3].url = support.google.com/chrome/answer/95346?hl=fr
+
+    a French Chrome cookies help page cited as press coverage. Chain: DD enables Brave
+    exclusively → Brave yields nothing → fallback runs SearXNG → SearXNG was returning
+    query-independent noise (R-F3844). R-F3844 fixed that from the backend side; this
+    fixes it from the policy side, so DD no longer depends on a degraded backend
+    behaving itself.
+
+    Default ON, because a designation that only holds when an env var is set is not a
+    designation. Reversible without a deploy via ARIA_DD_BRAVE_ONLY=0, and ONLY the
+    explicit falsey words count — a typo must not silently restore substitution.
+
+    The free/autonomous stack is untouched: it still uses SearXNG, produces no
+    customer-facing DD, and must not burn paid quota (R-F2318).
+    """
+    raw = (os.getenv("ARIA_DD_BRAVE_ONLY") or "").strip().lower()
+    return raw not in ("0", "false", "no")
+
+
 def brave_is_enabled() -> bool:
     """True when Brave should be used for the current call: key present, not globally
     disabled, and the context flag is set (or an explicit use_brave=True is passed)."""
@@ -1642,8 +1673,22 @@ async def search(
         os.getenv("ARIA_DD_BRAVE_EXCLUSIVE", "1") or "1"
     ).strip().lower() not in ("0", "false", "no")
     _brave_fallback_tasks: list = []
+    _brave_fallback_suppressed = False
     if _brave_exclusive:
-        _brave_fallback_tasks = backend_tasks[1:2]      # SearXNG only
+        # R-F3847 — operator designation: Brave is THE DD search engine, nothing
+        # substitutes. The R-F3122 SearXNG fallback is the measured path by which a
+        # French Chrome help page became "press coverage" in dd_92f9d77b8886. When
+        # Brave has nothing, DD reports nothing — and SAYS so — rather than quietly
+        # asking a degraded backend instead.
+        if _dd_brave_only():
+            _brave_fallback_suppressed = True
+            for _unused in backend_tasks[1:2]:
+                try:
+                    _unused.close()
+                except Exception:
+                    pass
+        else:
+            _brave_fallback_tasks = backend_tasks[1:2]  # SearXNG only
         for _unused in backend_tasks[2:]:
             try:
                 _unused.close()
@@ -1751,6 +1796,30 @@ async def search(
     # surfaced on the ecosystem snapshot so a report can state that the pinned primary
     # did not serve — never a silent substitution.
     _brave_fallback_used = False
+    # R-F3847 — a suppressed substitution must never be silent. "Brave found nothing"
+    # and "nobody looked" are different facts, and a report that omits a section reads
+    # identically to one where the section was clean — the §22 failure this whole
+    # incident was. So it is logged and §21a-wired as a data gap.
+    if _brave_fallback_suppressed:
+        _primary_yield_chk = sum(len(r) for r in raw_results[1:] if isinstance(r, list))
+        if _primary_yield_chk == 0:
+            logger.warning(
+                "[R-F3847] Brave (the designated DD engine) returned nothing for %r "
+                "and substitution is OFF — reporting a DATA GAP, not a clean empty.",
+                query[:60],
+            )
+            try:
+                from .engine_wiring import wire_failure
+                wire_failure(
+                    module="web_search",
+                    detail=(f"DD search data gap: Brave returned 0 for {query[:80]!r}; "
+                            "SearXNG substitution suppressed by operator designation "
+                            "(R-F3847)"),
+                    gap_type="search_zero_results",
+                    source="web_search:search",
+                )
+            except Exception:      # pragma: no cover - observability never blocks
+                pass
     if _brave_fallback_tasks:
         _primary_yield = sum(len(r) for r in raw_results[1:] if isinstance(r, list))
         if _primary_yield == 0:

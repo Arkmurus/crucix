@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3847,
+  "next_available": 3849,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32400,9 +32400,10 @@
       "title": "mixed retention tooluse cycle",
       "claimed_at": "2026-08-11T07:26:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "efe468ab",
+      "notes": null,
+      "shipped_at": "2026-08-11T08:32:47Z"
     },
     {
       "r_number": "R-F3844",
@@ -32426,6 +32427,24 @@
       "r_number": "R-F3846",
       "title": "record the flake elimination list: four hypotheses ruled out, bisection is the remaining step",
       "claimed_at": "2026-08-11T08:21:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3847",
+      "title": "operator designation: Brave is THE DD search engine; no SearXNG substitution on the DD path",
+      "claimed_at": "2026-08-11T08:30:10Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3848",
+      "title": "staged positive learning curve gate",
+      "claimed_at": "2026-08-11T08:36:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
