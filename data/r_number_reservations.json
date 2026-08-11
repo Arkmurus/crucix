@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3903,
+  "next_available": 3904,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32983,6 +32983,15 @@
       "r_number": "R-F3902",
       "title": "c_number_registry orphan baseline entry - CLI-backed tool like r_number_registry",
       "claimed_at": "2026-08-11T19:04:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3903",
+      "title": "node suite gate refuses without showing why - unfixable in CI for 8+ commits",
+      "claimed_at": "2026-08-11T19:23:53Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

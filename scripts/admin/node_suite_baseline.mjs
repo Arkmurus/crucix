@@ -41,6 +41,8 @@ const BASELINE = path.join(ROOT, 'docs', 'node_suite_baseline.json');
  * the standing failures too, so the code alone cannot distinguish "same as
  * yesterday" from "new regression".
  */
+let lastRawOutput = '';
+
 async function runSuite() {
   let stdout = '';
   try {
@@ -50,6 +52,10 @@ async function runSuite() {
   } catch (e) {
     stdout = (e.stdout || '') + (e.stderr || '');
   }
+  // R-F3903 — keep the raw output so a parse failure can SAY WHY. Without this the
+  // gate refuses correctly and silently, which is what left it red in CI for 8+
+  // consecutive commits with nobody able to act on it.
+  lastRawOutput = stdout;
   const failures = new Set();
   for (const line of stdout.split(/\r?\n/)) {
     const m = /^\s*not ok \d+ - (.+?)\s*$/.exec(line);
@@ -72,7 +78,26 @@ const record = process.argv.includes('--record');
 
 const result = await runSuite();
 if (result.totals.tests === null) {
+  // R-F3903 — REFUSING IS RIGHT; REFUSING IN SILENCE IS NOT.
+  //
+  // This gate failed on 8+ consecutive commits in CI (both agents' work) with this
+  // one line and nothing else, while `node scripts/admin/node_suite_baseline.mjs`
+  // passed locally — 1833 passed / 8 failed, exit 0. So the suite behaves
+  // differently under CI's pinned Node 20 than under a dev Node 22, and the gate
+  // printed nothing that could distinguish "the runner crashed before emitting a
+  // summary" from "the TAP format changed".
+  //
+  // A guard that cannot say WHY it could not measure is one nobody can fix, so it
+  // stays red until someone mutes it — the failure mode every allowlist and gate in
+  // this repo is written against. The tail is capped so a 64MB buffer cannot flood
+  // the CI log.
   console.error('[node-baseline] could not parse TAP totals — refusing to record or gate');
+  const tail = (lastRawOutput || '').split(/\r?\n/).filter(Boolean).slice(-40);
+  console.error(`[node-baseline] captured ${lastRawOutput.length} bytes of output; last ${tail.length} non-empty line(s):`);
+  for (const line of tail) console.error(`  | ${line.slice(0, 300)}`);
+  if (!lastRawOutput.trim()) {
+    console.error('[node-baseline] the suite produced NO output at all — `npm test` did not start.');
+  }
   process.exit(2);
 }
 // A run that collected almost nothing is a broken runner, not a green suite.
