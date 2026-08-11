@@ -304,8 +304,20 @@ const Sidebar = {
       // icon may be a bootstrap-icons class ("bi-xxx") OR a raw inline <svg…>
       // (for glyphs the bundled font lacks, e.g. the handshake). Both render
       // inside `.rail-link > i` so they inherit the 18px size + muted/active colour.
+      // R-F3876 — the SVG branch must stay RAW. R-F3866 escaped both branches,
+      // which turned the design-partners handshake into the literal text
+      // `<svg xmlns="http://www.w3.org/2000/svg" …>` in the nav rail.
+      //
+      // Safe because this branch only ever receives a HARDCODED SVG literal from
+      // the call sites below in this same file — it is markup by construction,
+      // never data. The class branch stays escaped: `bi-xxx` is a value, and
+      // escaping a value costs nothing.
+      //
+      // A static fixer cannot infer this: `icon` is a PARAMETER, so whether it
+      // holds markup is decided by the CALLER, not by anything resolvable at the
+      // definition. That is the one shape the interpolation guard cannot classify.
       const iconHtml = icon.trim().charAt(0) === '<'
-        ? `<i aria-hidden="true">${escapeText(icon)}</i>`
+        ? `<i aria-hidden="true">${icon}</i>`
         : `<i class="bi ${escapeText(icon)}" aria-hidden="true"></i>`;
       return `<a href="${escapeText(href)}" class="rail-link${escapeText(cls)} ${escapeText(extra)}" data-page="${escapeText(page)}" title="${escapeText(label)}">
         ${iconHtml}<span class="rail-label">${escapeText(label)}</span>

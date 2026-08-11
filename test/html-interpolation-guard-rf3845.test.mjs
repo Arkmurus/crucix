@@ -80,6 +80,19 @@ const PAGES = allPages();
  * prove the parts are escaped at their own source first.
  */
 const EXPECTED_RAW = {
+  'public/js/sidebar.js': new Set([
+    // R-F3876 — the nav icon is POLYMORPHIC: a `bi-xxx` class name for most
+    // entries, or a raw inline <svg> for glyphs the bundled font lacks (the
+    // design-partners handshake). The `icon.trim().charAt(0) === '<'` branch IS
+    // the raw-markup path, and every value reaching it is a hardcoded literal in
+    // this same file — markup by construction, never data. Escaping it rendered
+    // `d="m…"` as visible text in the nav rail. The class branch stays escaped.
+    //
+    // A static classifier cannot decide this: `icon` is a PARAMETER, so its
+    // raw-ness is fixed by the CALLER, not by anything resolvable at the
+    // definition. This is the one shape the analyser must be told about.
+    'icon',
+  ]),
   'public/aria-brain.html': new Set([
     'critBadge',                 // ' <span …>[CRIT]</span>' or ''
     'dots',                      // pts.map(...) -> <circle> elements
@@ -115,15 +128,40 @@ const EXPECTED_RAW_PREFIX = {
   ],
 };
 
+/**
+ * Template interpolations that are INTENTIONALLY raw, by page.
+ *
+ * Distinct from EXPECTED_RAW: that names expressions the analyser already PROVES
+ * are markup. These are ones it classifies as unescaped and cannot prove either
+ * way, so a human decided — each entry states why.
+ */
+const TPL_JUSTIFIED = {
+  'public/js/sidebar.js': new Set([
+    // R-F3876 — the nav icon is POLYMORPHIC: a `bi-xxx` class for most entries, or
+    // a raw inline <svg> for glyphs the bundled font lacks (the design-partners
+    // handshake). `icon.trim().charAt(0) === '<'` IS the raw-markup branch, and
+    // every value reaching it is a hardcoded literal in that same file — markup by
+    // construction, never data. Escaping it rendered `d="m..."` as visible text in
+    // the nav rail (operator-reported). The class branch stays escaped.
+    //
+    // A static classifier cannot decide this: `icon` is a PARAMETER, so its
+    // raw-ness is fixed by the CALLER, not by anything resolvable at the
+    // definition. This is the one shape the analyser has to be told about.
+    'icon',
+  ]),
+};
+
 describe('R-F3850 no unescaped interpolation survives on ANY page in public/', () => {
   for (const page of PAGES) {
     it(`${page} — every HTML interpolation is escaped or named raw`, () => {
       const r = classifyHtmlInterpolations(read(page));
-      const detail = r.unescaped
+      const allowed = TPL_JUSTIFIED[page] || new Set();
+      const novel = r.unescaped.filter((u) => !allowed.has(u.expr));
+      const detail = novel
         .map((u) => `    line ${u.line}: \${${u.expr.slice(0, 80)}}`)
         .join('\n');
-      assert.equal(r.unescaped.length, 0,
-        `${page} has ${r.unescaped.length} UNESCAPED interpolation(s) inside HTML:\n${detail}\n`
+      assert.equal(novel.length, 0,
+        `${page} has ${novel.length} UNESCAPED interpolation(s) inside HTML:\n${detail}\n`
         + '  Wrap each in escapeHtml() (escHtml() on dashboard.html), or — if the value\n'
         + '  is genuinely markup assembled from already-escaped parts — add it to\n'
         + '  EXPECTED_RAW in this file with a one-line justification.');

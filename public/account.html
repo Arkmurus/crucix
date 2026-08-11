@@ -253,6 +253,22 @@
 <script src="js/app.js?v=10"></script>
 <script src="js/sidebar.js?v=13"></script>
 <script>
+// R-F3876 — _sym() lives in THIS block, where it is called.
+//
+// It was declared inside the IIFE in the second inline <script> (which never
+// used it), while both call sites are here in the first block — so the plan
+// pricing renderer threw `ReferenceError: _sym is not defined` and the pricing
+// cards rendered without their prices. PRE-EXISTING; found by loading the page
+// and reading the console, not by any static check.
+//
+// Same failure shape as R-F3871: the name existed in the file, just not in the
+// scope that needed it.
+function _sym(c) {
+  var MAP = { GBP: '£', USD: '$', EUR: '€' };
+  if (!c) return '';                 // unknown currency -> no symbol, never a default
+  return MAP[c] || (c + ' ');
+}
+
 Auth.requireAuth();
 Sidebar.init('account');
 
@@ -630,11 +646,6 @@ Sidebar.init('account');
   // symbol disagreed and nothing checked either. An UNMAPPED currency returns its
   // ISO code ("SEK 79") rather than a guessed symbol — showing the wrong symbol on
   // a price is a money error, and "no symbol" is the honest failure direction.
-  function _sym(c) {
-    var MAP = { GBP: '£', USD: '$', EUR: '€' };
-    if (!c) return '';                 // unknown currency -> no symbol, never a default
-    return MAP[c] || (c + ' ');
-  }
 
   function cacheUser(u) { try { localStorage.setItem('crucix_user', JSON.stringify(u)); if (typeof Auth !== 'undefined') Auth.user = u; } catch (e) {} }
 
