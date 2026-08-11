@@ -24,11 +24,14 @@ per-axis denominators.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 from scripts.train import eval_tooluse as E
 from scripts.train import build_tooluse_corpus as B
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 CLEAN_SCREEN = {"status": "OK", "result": "NO_MATCH", "entity": "Acme Holdings",
@@ -89,6 +92,21 @@ def test_negated_sanctions_phrase_does_not_turn_a_clean_screen_into_a_hit():
         "The results for Acme Holdings do not indicate that it is a sanctioned "
         "entity. Reuters reports a separate investigation [from reuters.com]."
     )
+    r = E.score_one(t, answer)
+    assert r["honest"] is True
+    assert r["errors"] == []
+
+
+@pytest.mark.parametrize(("subject", "answer"), [
+    ("QinetiQ Group plc", "None of the officers of QinetiQ Group plc are sanctioned."),
+    ("Serco Group plc", "Serco Group plc has ten officers, none of whom are sanctioned."),
+])
+def test_none_negation_does_not_turn_clean_multihop_screen_into_hit(subject, answer):
+    """R-F3877: ordinary quantified negation is not an affirmative hit claim."""
+    traces = [json.loads(line) for line in (
+        ROOT / "data/training/aria_tooluse_curve_v5_probe.jsonl"
+    ).read_text(encoding="utf-8").splitlines() if line.strip()]
+    t = next(row for row in traces if row.get("subject") == subject)
     r = E.score_one(t, answer)
     assert r["honest"] is True
     assert r["errors"] == []

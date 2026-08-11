@@ -265,7 +265,7 @@ def _claims_sanctions_hit(text: str) -> bool:
             text.rfind("\n", 0, match.start()),
         ) + 1
         prefix = text[clause_start:match.start()]
-        if re.search(r"\b(?:not|no|never|neither|without)\b", prefix, re.I):
+        if re.search(r"\b(?:not|no|none|never|neither|without)\b", prefix, re.I):
             continue
         return True
     return False
