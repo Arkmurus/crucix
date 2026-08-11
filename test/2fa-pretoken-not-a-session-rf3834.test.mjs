@@ -38,6 +38,9 @@ function repoRoot() {
   );
 }
 
+/** Module-scope so both describe blocks can read shipped source. */
+const read = (f) => fs.readFileSync(path.join(repoRoot(), f), 'utf8');
+
 const UID = 'rf3834-victim';
 
 describe('R-F3834 a pre-2FA token is refused everywhere a session is required', () => {
@@ -97,6 +100,23 @@ describe('R-F3834 a pre-2FA token is refused everywhere a session is required', 
     assert.equal(verifyToken(pre, { stage: 'pre2fa' }).ver, 7);
   });
 
+  it('and /2fa/authenticate ACTUALLY CHECKS that version', () => {
+    // Caught reviewing this change: the `ver` claim was added to the pre-auth
+    // token and then read by nobody, so a force-logout / suspension / password
+    // change landing inside the 5-minute window left the half-finished login
+    // still redeemable. A claim nothing enforces is the "looks wired and is
+    // dark" failure, not a fix.
+    const src = read('server.mjs');
+    const at = src.indexOf("app.post('/api/auth/2fa/authenticate'");
+    const body = src.slice(at, at + 2000);
+    assert.ok(/payload\.ver/.test(body) && /user\.tokenVersion \|\| 0/.test(body),
+      'the second factor must compare the pre-auth token version against the live user');
+    const verIdx = body.indexOf('payload.ver');
+    const totpIdx = body.indexOf('verifyTotpCode');
+    assert.ok(verIdx > -1 && totpIdx > -1 && verIdx < totpIdx,
+      'the revocation check must run BEFORE the TOTP code is spent');
+  });
+
   it('an expired pre-auth token is refused', () => {
     const pre = createToken(UID, 'user', '5m', 0, 'pre2fa');
     const [data] = pre.split('.');
@@ -106,7 +126,7 @@ describe('R-F3834 a pre-2FA token is refused everywhere a session is required', 
 });
 
 describe('R-F3834 anti-regression: production mints and checks the stage', () => {
-  const read = (f) => fs.readFileSync(path.join(repoRoot(), f), 'utf8');
+  // read() is module-scope (see above)
 
   it('login mints the pre-auth token WITH the stage claim', () => {
     const src = read('server.mjs');

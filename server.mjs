@@ -6086,6 +6086,15 @@ app.post('/api/auth/2fa/authenticate', async (req, res) => {
     try { payload = verifyToken(preToken, { stage: 'pre2fa' }); } catch { return res.status(401).json({ error: 'Pre-auth token invalid or expired' }); }
     const user = findUserById(payload.userId);
     if (!user || !user.twoFactorSecret) return res.status(401).json({ error: 'Invalid session' });
+    // R-F3834 — the pre-auth token now carries `ver`, and THIS is what makes that
+    // claim load-bearing. Without this check the version rides along unread, which
+    // is the "looks wired and is dark" failure §21a exists to prevent: a
+    // force-logout, suspension or password change (R-F3835 bumps tokenVersion)
+    // landing inside the 5-minute window would leave the half-finished login still
+    // redeemable for a full 7-day session.
+    if (payload.ver !== undefined && (user.tokenVersion || 0) !== payload.ver) {
+      return res.status(401).json({ error: 'Session revoked — please log in again' });
+    }
     const valid = await verifyTotpCode(code, user.twoFactorSecret);   // R-F3086
     if (!valid) return res.status(401).json({ error: 'Invalid authenticator code' });
     const token = createToken(user.id, user.role, '7d', user.tokenVersion || 0);
