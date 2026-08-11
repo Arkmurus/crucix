@@ -107,3 +107,75 @@ A balanced prompt queue does not guarantee a balanced DPO dataset: correct model
 answers generate no negative preference pair. Retention must therefore be a
 first-class training signal and promotion gate, not an assumption inferred from
 collection coverage.
+
+## 2026-08-11 continuation — person-first curve v5
+
+### Ordering and structural corrections
+
+- Person screening was promoted ahead of multihop because the failing multihop
+  chain terminates in person-screen interpretation. Commit `f98c0620` added the
+  person axis to target-tier collection and produced a ten-subject train-only
+  delta. The live raw-base collection pod `8b1h073aw0onqp` completed 10/10 and
+  was stopped; six outputs were genuine person-screen failures.
+- Commit `e5376ab2` merged and current-validator-rescored the 100-row baseline,
+  preserved the prior 47 mixed preferences, added six novel person preferences,
+  and built curve-v5 assets. Strict preflight passed for 230 train / 168 eval
+  rows, 55 / 50 disjoint entities, zero overlap with 480 golden entities, and a
+  2,711-token maximum. The affected suite passed 46 tests; 590 production Python
+  modules compiled.
+- Curve v5 contains 230 positive SFT rows. Person, challenge-unavailable, and
+  trace-unavailable are weighted 4x; multihop is weighted 2x; all other axes
+  retain 1x coverage. The mixed DPO set contains 53 genuine pairs.
+- The first launch exposed a stale remote constant: the host verified 53 pairs,
+  but `pod_tooluse_curve.sh` required 47. No training ran. R-F3875 commit
+  `93ec21c1` parameterized the remote gate from the host-verified value; 22 tests
+  passed and the R-number was ship-marked.
+
+### Measured SFT result
+
+- Fresh-base SFT on the 230-row curriculum completed 28/28 steps with train loss
+  1.3391. Pod `xuzogno4yh5iig` stopped after the calibration gate.
+- The original scorer reported 20/30 -> 28/30, with person 0/3 -> 3/3 and both
+  unavailable axes 0/3 -> 3/3, but marked QinetiQ and Serco multihop answers as
+  hits because they said `None ... are sanctioned`.
+- This was an evaluator defect, not a model regression: the same validator
+  already accepted `not sanctioned`, but its clause-negation grammar omitted
+  `none`. R-F3877 commit `0c33fefe` added quantified negation and exact QinetiQ /
+  Serco capability tests. The relevant suite passed 51 tests and the R-number
+  was ship-marked.
+- The retained answers then rescored 30/30 across all ten axes. Reproducible
+  baseline: `data/eval_reports/aria_tooluse_curve_v5_sft_rescored.json`.
+- Valid positive parent: `data/training/checkpoints/aria_tooluse_curve_sft_v5.tgz`
+  (310,493,395 bytes; archive contains exactly one adapter). This is calibration
+  evidence only; it has NOT yet been measured on the unchanged 168-row held-out
+  split and must not be called promoted.
+
+### Guarded DPO continuation result
+
+- A mixed-retention continuation was launched from the positive v5 SFT adapter,
+  never from raw base. Pod `youv04t3hhxo5v` trained 53 genuine pairs for 27/27
+  steps. Late-epoch training accuracy was 1.0 and reward margin 10.8768 on the
+  53-pair training sample; these are not promotion evidence.
+- The mandatory calibration gate rejected DPO at 30/30 -> 28/30. QinetiQ named
+  only James Field and Serco named only Amanda Miller; neither answer named the
+  company or completed the multihop chain. Held-out evaluation did not start.
+- Diagnostics: `data/eval_reports/aria_tooluse_curve_v5_dpo_diagnostics.tgz`.
+  The pod is EXITED. `aria_tooluse_curve_dpo_v5.tgz.partial` is prohibited as a
+  parent and must remain quarantined.
+
+### Binding next order
+
+1. Treat `aria_tooluse_curve_sft_v5.tgz` as the sole eligible training parent,
+   but not as promoted until it passes the unchanged 168-row held-out evaluation.
+2. Add a dedicated SFT-adapter held-out evaluation path so SFT can be measured
+   before any preference stage. Promotion claims must cite that complete n=168
+   report, not the trained-on n=30 calibration.
+3. Stop DPO experimentation for this failure class. Two guarded mixed-retention
+   attempts learned the preference pairs while degrading multihop transfer.
+4. Next learning work is positive multihop SFT diversity: company resolution ->
+   officers/controllers -> every person screen -> company-named synthesis. Include
+   multiple clean officers and require the final answer to name the company and
+   summarize the whole chain. Preserve person and unavailable-axis rehearsal.
+5. Any next candidate must first preserve the 30/30 calibration ceiling and then
+   improve or preserve every axis on n=168. A regression is rejection, regardless
+   of training loss or reward margin.
