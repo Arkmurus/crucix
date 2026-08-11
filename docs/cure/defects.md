@@ -1317,3 +1317,70 @@ the helper's markup was invisible, so every caller was reported as an unescaped 
 **Both new guards were proven to fire**, per C-17: re-adding an unescaped `msg` to the
 Toast failed the interpolation guard naming `line 318: msg`, and the URL guard names any
 unjustified `href`/`src` sink with its line and kind.
+
+### C-22 · SearXNG's surviving engine was serving a soft-404 page as ten results — **CLOSED (R-F3853, 2026-08-11)**
+
+C-14 seeded the crawl registry with porn and gambling farms; C-19 put a French Chrome
+cookies help page into a customer DD report as "press coverage". Both were traced to
+SearXNG returning noise. R-F3844 stopped ARIA *trusting* that noise and R-F3849 disabled
+the engines measured blocked — but neither established WHY the one surviving engine was
+producing it, and R-F3849's stated cause ("response cross-contamination") was WRONG.
+
+**The real mechanism, measured from inside aria-intel.** Bing is not mixing responses. It
+answers CORRECTLY for popular queries and serves a soft-404 / trending page for queries it
+has no hits on, which SearXNG's bing engine scrapes into ten well-formed "results". That
+page's contents rotate per request — which is exactly what made one query appear to return
+four different answers, the observation that produced the cross-contamination theory. Four
+identical inputs giving four different outputs ruled out query mangling, correctly, and
+then the wrong conclusion was drawn from it.
+
+    engines=bing, token overlap with the query:
+      "Microsoft Corporation"           9/10 related    <- popular: correct
+      "BAE Systems"                     9/10 related
+      "London weather forecast"        10/10 related
+      "Rosoboronexport"                 0/10 related    <- niche: pure junk
+      "Modirum Gespi Ltd"               0/10 related
+      "qwzzxlkj nonexistent entity 99"  0/10 related
+
+**DD and research queries are ALWAYS the niche case** — a specific company, an obscure
+entity, a person. So the instance was failing hardest in precisely the place ARIA depends
+on it, and passing in the place she does not. That asymmetry is why the noise looked
+intermittent and survived 52 days.
+
+**Fix 1 — an engine that actually has an index.** A bake-off of 18 engines against
+"Rosoboronexport" from this datacenter IP: duckduckgo/qwant/startpage CAPTCHA,
+mojeek/brave access-denied, google returns bing-grade junk. `yep` (Ahrefs' independent
+index) returned 20/20 related, and holds up on the real cases — "Rosoboronexport
+sanctions" 20/20 (TASS + Kyiv Post), "Modirum Gespi Ltd" 11/17 (the actual company site),
+"Silverbrook Capital Management" 10/20 including the SEC EDGAR 10-Q. That last one is the
+entity whose report was contaminated. Enabled in `searxng/settings.yml`; live-verified
+post-deploy: bing 0/10 + yep 20/20 on the niche query, bing 9/10 + yep 19/19 on a popular
+one.
+
+**Fix 2 — the whole-set gate stops being sufficient the moment fix 1 lands.** R-F3844 asks
+whether the MERGED set is unrelated to the query. That worked while bing was alone (all
+ten junk -> set rejected). With yep enabled a niche query returns ~20 good results
+ALONGSIDE ~10 bing artefacts; the merged set plainly relates, R-F3844 correctly passes it,
+and the junk rides through **diluted** — and diluted junk is what a citation gets drawn
+from. So R-F3853 applies the same query-independence test PER ENGINE.
+
+**Why that is not the editorialising gate R-F3844 warns against.** R-F3844's docstring is
+explicit that a search gate which judges QUALITY will eventually suppress real
+intelligence, which is worse than the noise it removes. The per-engine check makes no
+judgement about whether a result is good; it asks the same binary question — did this
+source answer THIS query at all? — once per engine, and ONE relating result keeps all of
+that engine's rows. A merely weak engine is untouched. Single-engine sets are left to the
+whole-set backstop, since dropping the only contributor would just be R-F3844 renamed.
+
+Dropped engines are surfaced on the payload (`dropped_engines`) and wired to the brain
+(§21a) — a withheld source must be visible, or a degraded backend is indistinguishable
+from a quiet one, which is the failure this whole incident was.
+
+**Expect this to rot again.** A datacenter-hosted metasearch scraping consumer engines is
+a decaying asset; yep will be blocked eventually too. Re-run the bake-off rather than
+assuming the list is still true. The protections that do NOT rot are R-F3844 + R-F3853
+(noise is rejected rather than trusted) and R-F3847 (Brave is the sole DD engine), so this
+instance's health no longer decides whether a customer report is honest.
+
+Tests: `aria_service/tests/test_rf3853_per_engine_query_independence.py` — 7 RED pre-fix,
+7 GREEN post-fix; 26 pass across R-F3844/R-F3847/R-F3853.
