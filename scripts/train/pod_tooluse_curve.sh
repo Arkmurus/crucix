@@ -58,7 +58,7 @@ evaluate(){
 curve_gate(){ python "$SCRIPTS/learning_curve_gate.py" --before "$1" --after "$2" --verdict-out "$3" --protected-axis tooluse_adverse --protected-axis tooluse_contradiction --protected-axis tooluse_news_impact --protected-axis tooluse_resolution; }
 archive(){ tar --exclude='checkpoint-*' -czf "$2.tmp" -C "$(dirname "$1")" "$(basename "$1")" && tar -tzf "$2.tmp" | awk '/\/adapter_config.json$/ {f=1} END {exit !f}' && mv "$2.tmp" "$2"; }
 require_watchdog
-python "$SCRIPTS/sft_train.py" --base-model "$BASE_MODEL" --train-file "$SFT_FILE" --output-dir "$SFT_OUT" --epochs 1 --lora-rank 32 --lora-alpha 64 --lr 2e-5 --batch-size 2 --max-seq-len 4096 --load-in-4bit 2>&1 | tee "$LOGS/tooluse_curve_sft.log" || fail "SFT"
+python "$SCRIPTS/sft_train.py" --base-model "$BASE_MODEL" --train-file "$SFT_FILE" --output-dir "$SFT_OUT" --epochs 1 --lora-rank 32 --lora-alpha 64 --lr 2e-5 --batch-size 2 --max-seq-len 4096 --load-in-4bit --completion-only-loss 2>&1 | tee "$LOGS/tooluse_curve_sft.log" || fail "SFT"
 archive "$SFT_OUT" "$SFT_ARCHIVE" || fail "SFT archive"
 evaluate "$SFT_OUT" aria-curve-sft "$PROBE_FILE" /workspace/eval/aria_tooluse_curve_sft_probe.json
 curve_gate "$RAW_PROBE" /workspace/eval/aria_tooluse_curve_sft_probe.json /workspace/eval/aria_tooluse_curve_sft_verdict.json || fail "raw-to-SFT curve gate"

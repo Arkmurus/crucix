@@ -102,6 +102,41 @@ def _render_text(tokenizer, record: dict) -> str:
 # runbook, and consistent with the north star: "the moat is verification, not
 # the 7B". Exported so cycle scripts and tests reference one value.
 ARIA_BASE_MODEL = "mistralai/Mistral-7B-Instruct-v0.3"
+TOOL_RESULTS_END = "[/TOOL_RESULTS]"
+
+
+def ensure_distinct_padding_token(tokenizer) -> None:
+    """Use an existing non-EOS token for padding so EOS remains learnable."""
+    if tokenizer.pad_token is None:
+        for candidate in (tokenizer.unk_token, tokenizer.bos_token):
+            if candidate is not None and candidate != tokenizer.eos_token:
+                tokenizer.pad_token = candidate
+                break
+    if tokenizer.pad_token_id is None or tokenizer.pad_token_id == tokenizer.eos_token_id:
+        raise ValueError("tokenizer needs an existing padding token distinct from EOS")
+    tokenizer.padding_side = "right"
+
+
+def last_boundary_end(ids: list[int], marker: list[int]) -> int:
+    """Return the token after the final marker, failing when it is absent."""
+    matches = [start + len(marker) for start in range(len(ids) - len(marker) + 1)
+               if ids[start:start + len(marker)] == marker]
+    if not matches:
+        raise ValueError("completion boundary absent")
+    return matches[-1]
+
+
+def completion_boundary_ids(tokenizer, rendered_texts: list[str]) -> list[int]:
+    """Prove every rendered trace contains the final tool-result boundary."""
+    marker = tokenizer.encode(TOOL_RESULTS_END, add_special_tokens=False)
+    if not marker:
+        raise ValueError("completion boundary tokenized empty")
+    for index, text in enumerate(rendered_texts, 1):
+        ids = tokenizer(text, add_special_tokens=False)["input_ids"]
+        if not any(ids[start:start + len(marker)] == marker
+                   for start in range(len(ids) - len(marker) + 1)):
+            raise ValueError(f"training row {index} has no tool-result completion boundary")
+    return marker
 
 
 def main() -> None:
@@ -125,6 +160,8 @@ def main() -> None:
     ap.add_argument("--max-seq-len", type=int, default=4096)
     ap.add_argument("--load-in-4bit", action="store_true",
                     help="QLoRA — only set if running on a single GPU under 80GB")
+    ap.add_argument("--completion-only-loss", action="store_true",
+                    help="mask system, user, tool, and intermediate-call tokens")
     args = ap.parse_args()
 
     _import_or_die()
@@ -136,7 +173,7 @@ def main() -> None:
     from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
     from datasets import load_dataset
     from peft import LoraConfig, get_peft_model, TaskType
-    from trl import SFTTrainer, SFTConfig
+    from trl import SFTTrainer, SFTConfig, DataCollatorForCompletionOnlyLM
 
     logger.info("Loading base model %s", args.base_model)
     bnb_config = None
@@ -149,8 +186,7 @@ def main() -> None:
         )
 
     tokenizer = AutoTokenizer.from_pretrained(args.base_model, trust_remote_code=True)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    ensure_distinct_padding_token(tokenizer)
 
     model = AutoModelForCausalLM.from_pretrained(
         args.base_model,
@@ -208,6 +244,19 @@ def main() -> None:
         remove_columns=["messages"],
     )
     logger.info("Dataset size: %d records", len(ds))
+    data_collator = None
+    if args.completion_only_loss:
+        marker_ids = completion_boundary_ids(tokenizer, list(ds["text"]))
+        data_collator = DataCollatorForCompletionOnlyLM(marker_ids, tokenizer=tokenizer)
+        sample = tokenizer(ds[0]["text"], add_special_tokens=False)
+        expected_start = last_boundary_end(sample["input_ids"], marker_ids)
+        labels = data_collator([sample])["labels"][0].tolist()
+        actual_start = next((index for index, token in enumerate(labels) if token != -100), None)
+        if actual_start != expected_start:
+            raise RuntimeError(
+                f"completion collator unmasked at {actual_start}, expected {expected_start}"
+            )
+        logger.info("Completion-only loss armed at the last %s boundary", TOOL_RESULTS_END)
 
     sft_config = SFTConfig(
         output_dir=str(args.output_dir),
@@ -232,6 +281,7 @@ def main() -> None:
         tokenizer=tokenizer,
         train_dataset=ds,
         args=sft_config,
+        data_collator=data_collator,
     )
     trainer.train()
     trainer.save_model(str(args.output_dir))
