@@ -1887,7 +1887,7 @@ second one.**
 
 ---
 
-### C-27 · The Node tier's brain wire had full instrumentation and NO READER — **CLOSED (R-F3884, 2026-08-11)**
+### C-27 · The Node tier's brain wire had full instrumentation and NO READER — **CLOSED (R-F3889, 2026-08-11)**
 
 > Claimed with `python scripts/admin/reserve_c_number.py reserve` (§26a), the
 > allocator that exists because C-18/19/22/23 each got claimed twice by writing a
@@ -1933,7 +1933,7 @@ reachable and whether a token is set. It returns the raw counters plus an explic
 all-zero counters from an unset target are byte-identical to a healthy-but-quiet
 tier, and leaving the reader to infer that difference is how this class recurs.
 
-**The load-bearing test is not the route test.** `test/brain-wire-readable-rf3884.test.mjs`
+**The load-bearing test is not the route test.** `test/brain-wire-readable-rf3889.test.mjs`
 asserts first that `brainWireStats()` has at least one call site outside `test/`.
 A route can be renamed or moved; "somebody outside test/ can read this" is the
 property that actually failed. Proven RED (2 failures) before the fix and GREEN

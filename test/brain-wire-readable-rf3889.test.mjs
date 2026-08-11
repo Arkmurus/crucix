@@ -1,6 +1,6 @@
-// test/brain-wire-readable-rf3884.test.mjs
+// test/brain-wire-readable-rf3889.test.mjs
 //
-// C-27 / R-F3884 — the Node tier's brain wire had FULL instrumentation and NO
+// C-27 / R-F3889 — the Node tier's brain wire had FULL instrumentation and NO
 // READER.
 //
 // ── THE DEFECT ───────────────────────────────────────────────────────────────
@@ -37,7 +37,7 @@
 // test/ can read this" is the property that actually failed and the one that
 // must not silently regress.
 //
-// Run: node --test test/brain-wire-readable-rf3884.test.mjs
+// Run: node --test test/brain-wire-readable-rf3889.test.mjs
 
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -52,7 +52,7 @@ const SERVER = readFileSync(join(ROOT, 'server.mjs'), 'utf8');
 
 describe('C-27 the brain wire is READABLE from production, not only from tests', () => {
   it('brainWireStats() has at least one non-test call site', () => {
-    // THE defect. Before R-F3884 the only callers were in test/, so the wire's
+    // THE defect. Before R-F3889 the only callers were in test/, so the wire's
     // health was observable exclusively from a process that is not production.
     const prodFiles = [];
     const walk = (dir) => {

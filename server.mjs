@@ -2153,7 +2153,7 @@ app.get('/api/brain-absorb/verify', requireInfraRole('poweruser', 'admin'), asyn
   res.json(cached);
 });
 
-// C-27 / R-F3884 — the brain wire's own health, readable.
+// C-27 / R-F3889 — the brain wire's own health, readable.
 // R-F2821 instrumented this wire precisely because "a signal that silently fails
 // is still dark" (§21a) — it counts delivered/dropped/throttled and records the
 // last HTTP error instead of swallowing it. But `brainWireStats()` had NO caller
