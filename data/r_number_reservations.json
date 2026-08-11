@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3850,
+  "next_available": 3871,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32447,9 +32447,10 @@
       "title": "staged positive learning curve gate",
       "claimed_at": "2026-08-11T08:36:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b47d3eea",
+      "notes": null,
+      "shipped_at": "2026-08-11T09:12:00Z"
     },
     {
       "r_number": "R-F3849",
@@ -32459,6 +32460,215 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F3850",
+      "title": "Node tier: extend the HTML-interpolation guard across every page in public/",
+      "claimed_at": "2026-08-11T09:04:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3236a0af",
+      "notes": null,
+      "shipped_at": "2026-08-11T09:11:21Z"
+    },
+    {
+      "r_number": "R-F3851",
+      "title": "completion only tooluse SFT",
+      "claimed_at": "2026-08-11T09:19:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "748f951f",
+      "notes": null,
+      "shipped_at": "2026-08-11T09:50:00Z"
+    },
+    {
+      "r_number": "R-F3852",
+      "title": "Node tier: scheme-allowlist guard for URL sinks + kill the CSP-dead favicon",
+      "claimed_at": "2026-08-11T09:23:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "748f951f",
+      "notes": null,
+      "shipped_at": "2026-08-11T09:50:00Z"
+    },
+    {
+      "r_number": "R-F3853",
+      "title": "SearXNG: bing soft-404 junk on niche queries — add yep as a working general index",
+      "claimed_at": "2026-08-11T09:50:24Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bc7b3a8b",
+      "notes": null,
+      "shipped_at": "2026-08-11T10:12:01Z"
+    },
+    {
+      "r_number": "R-F3854",
+      "title": "semantic sanctions verdict scorer",
+      "claimed_at": "2026-08-11T09:52:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c638ae63",
+      "notes": null,
+      "shipped_at": "2026-08-11T11:17:39Z"
+    },
+    {
+      "r_number": "R-F3855",
+      "title": "Node tier: fix the aria-brain error-banner XSS, close two analyser blind spots, hard-gate the guards in CI",
+      "claimed_at": "2026-08-11T10:11:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1f00bd96",
+      "notes": null,
+      "shipped_at": "2026-08-11T10:22:24Z"
+    },
+    {
+      "r_number": "R-F3856",
+      "title": "deficit weighted positive curve",
+      "claimed_at": "2026-08-11T10:12:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "160dd0cf",
+      "notes": null,
+      "shipped_at": "2026-08-11T11:17:39Z"
+    },
+    {
+      "r_number": "R-F3857",
+      "title": "R-F3853 regression: all-engines-junk emptied the set into a silent ok=True count=0 false-clean",
+      "claimed_at": "2026-08-11T10:15:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "aa44f08e",
+      "notes": null,
+      "shipped_at": "2026-08-11T10:55:45Z"
+    },
+    {
+      "r_number": "R-F3858",
+      "title": "R-F2059 guard is blind: fixed line-window + literal-name matching false-fails a wired backend",
+      "claimed_at": "2026-08-11T10:23:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "36f7ef63",
+      "notes": null,
+      "shipped_at": "2026-08-11T10:55:45Z"
+    },
+    {
+      "r_number": "R-F3859",
+      "title": "R-F1657 no-brave guard asserts a REVERSED policy - would drive a future agent to rip out primary search",
+      "claimed_at": "2026-08-11T10:26:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b509caf6",
+      "notes": null,
+      "shipped_at": "2026-08-11T10:55:46Z"
+    },
+    {
+      "r_number": "R-F3860",
+      "title": "Node tier: bound the three unauthenticated per-email attempt maps",
+      "claimed_at": "2026-08-11T10:36:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "76548bbd",
+      "notes": null,
+      "shipped_at": "2026-08-11T14:00:44Z"
+    },
+    {
+      "r_number": "R-F3861",
+      "title": "Node tier: report unescaped values hidden inside a raw declaration",
+      "claimed_at": "2026-08-11T10:37:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "76548bbd",
+      "notes": null,
+      "shipped_at": "2026-08-11T14:00:44Z"
+    },
+    {
+      "r_number": "R-F3862",
+      "title": "Node tier: failure-SET baseline gate for the Node suite",
+      "claimed_at": "2026-08-11T10:40:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "76548bbd",
+      "notes": null,
+      "shipped_at": "2026-08-11T14:00:44Z"
+    },
+    {
+      "r_number": "R-F3863",
+      "title": "Phase 1: searxng UA policy compliance + honest engine set",
+      "claimed_at": "2026-08-11T11:14:17Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "76548bbd",
+      "notes": null,
+      "shipped_at": "2026-08-11T14:00:44Z"
+    },
+    {
+      "r_number": "R-F3864",
+      "title": "Phase 1b: direct policy-compliant Wikipedia/Wikidata backend (403 without a descriptive UA)",
+      "claimed_at": "2026-08-11T11:14:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9648cfea",
+      "notes": null,
+      "shipped_at": "2026-08-11T11:41:14Z"
+    },
+    {
+      "r_number": "R-F3865",
+      "title": "Phase 3: continuous per-engine search relevance health + auto-quarantine, wired",
+      "claimed_at": "2026-08-11T11:14:18Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9648cfea",
+      "notes": null,
+      "shipped_at": "2026-08-11T11:41:14Z"
+    },
+    {
+      "r_number": "R-F3866",
+      "title": "Node tier: pin escaper equivalence and strengthen escAttr",
+      "claimed_at": "2026-08-11T11:15:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "76548bbd",
+      "notes": null,
+      "shipped_at": "2026-08-11T14:00:45Z"
+    },
+    {
+      "r_number": "R-F3867",
+      "title": "gated positive DPO continuation",
+      "claimed_at": "2026-08-11T11:23:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3af0b9ac",
+      "notes": null,
+      "shipped_at": "2026-08-11T13:41:24Z"
+    },
+    {
+      "r_number": "R-F3868",
+      "title": "Brave usage is unmetered: no quota headroom visibility for the engine DD depends on",
+      "claimed_at": "2026-08-11T13:33:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a59273bd",
+      "notes": null,
+      "shipped_at": "2026-08-11T14:12:06Z"
+    },
+    {
+      "r_number": "R-F3869",
+      "title": "promote person axis to target tier",
+      "claimed_at": "2026-08-11T13:46:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3870",
+      "title": "Brave publishes x-ratelimit headers - discover real headroom instead of asking the operator",
+      "claimed_at": "2026-08-11T14:01:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d0efeb34",
+      "notes": null,
+      "shipped_at": "2026-08-11T14:22:54Z"
     }
   ]
 }
