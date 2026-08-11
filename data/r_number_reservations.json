@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3846,
+  "next_available": 3847,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32417,6 +32417,15 @@
       "r_number": "R-F3845",
       "title": "Node tier: prove every aria-brain HTML interpolation is escaped, and guard it",
       "claimed_at": "2026-08-11T08:11:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3846",
+      "title": "record the flake elimination list: four hypotheses ruled out, bisection is the remaining step",
+      "claimed_at": "2026-08-11T08:21:20Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
