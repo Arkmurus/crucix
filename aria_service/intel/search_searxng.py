@@ -97,6 +97,59 @@ def _base_url() -> str | None:
     return raw.rstrip("/")
 
 
+#: R-F3844 — boolean operators and other query syntax carry no topical meaning, so
+#: they must never be treated as evidence that a result matched.
+_QUERY_OPERATORS = {"and", "or", "not", "near", "site", "filetype", "intitle", "inurl"}
+
+#: Minimum token length to match on. Below this, coincidental substring hits ("the",
+#: "a", "plc", "bae") would rescue an entirely unrelated result set.
+_MIN_TOKEN = 4
+
+
+def _query_tokens(query: str) -> set[str]:
+    """Meaningful, matchable tokens from a query — operators and noise stripped."""
+    import re as _re
+    raw = _re.split(r"[^0-9a-z]+", (query or "").lower())
+    return {t for t in raw if len(t) >= _MIN_TOKEN and t not in _QUERY_OPERATORS}
+
+
+def _is_query_independent(query: str, results: list) -> bool:
+    """True when NOT ONE result bears any lexical relation to the query.
+
+    R-F3844 — the discriminator for "this backend answered a DIFFERENT question".
+
+    Reproduced live 2026-08-11: the same DD query run four times returned four
+    unrelated result sets ("Nova Launcher FAQ", "Outlook", a Danish Google Help page)
+    all from `engine=bing`, with `ok: True` and ten well-formed results each. Four
+    identical inputs producing four different outputs rules out query mangling — a
+    deterministic bug repeats itself — so SearXNG was serving result sets belonging
+    to other queries while every downstream consumer saw a normal success.
+
+    DELIBERATELY CONSERVATIVE, and the asymmetry is the whole design. It fires only
+    on TOTAL absence of relation: one matching result anywhere in the set is enough
+    to pass. A legitimate result set nearly always shares something with its query;
+    the observed pathology shared nothing at all. So this catches "answered a
+    different question", never "answered badly" — it must not become a quality
+    judgement, because a search gate that editorialises will eventually suppress
+    real intelligence, which is far worse than the noise it removes.
+
+    Returns False when it CANNOT judge — no results, or a query with no usable
+    tokens. Refusing to measure is not the same as measuring a failure (§22).
+    """
+    if not results:
+        return False                      # "nothing found" is an honest answer
+    tokens = _query_tokens(query)
+    if not tokens:
+        return False                      # no basis to judge
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        hay = " ".join(str(r.get(k) or "") for k in ("title", "snippet", "url")).lower()
+        if any(t in hay for t in tokens):
+            return False
+    return True
+
+
 @fail_wire(module="search_searxng", gap_type="source_failure")
 async def search(
     query: str,
@@ -216,6 +269,41 @@ async def search(
             "snippet": (r.get("content") or r.get("snippet") or "").strip(),
             "engine":  (r.get("engine") or "").strip(),
         })
+
+    # R-F3844 — a result set unrelated to the query is a BACKEND FAILURE, not a
+    # result. Returning it as ok:True is what let a degraded SearXNG feed random
+    # pages into DD research (and, via researcher.py's auto-registration, seed the
+    # crawl registry with porn and gambling farms) while every consumer saw success.
+    if _is_query_independent(query, normalised):
+        _sample = [r.get("title", "")[:70] for r in normalised[:3]]
+        logger.warning(
+            "[R-F3844] searxng returned a QUERY-INDEPENDENT result set for %r — "
+            "treating as backend failure, not results. sample=%s",
+            query[:80], _sample,
+        )
+        # §21a — ARIA must KNOW her primary search is answering the wrong question.
+        # Silence here is exactly how this ran for 52 days unnoticed.
+        try:
+            from .engine_wiring import wire_failure
+            wire_failure(
+                module="search_searxng",
+                detail=(f"query-independent result set for {query[:80]!r}; "
+                        f"backend answered a different question. sample={_sample}"),
+                gap_type="search_backend_failure",
+                source="search_searxng:search",
+            )
+        except Exception:      # pragma: no cover - observability never blocks search
+            pass
+        return {
+            "ok":            False,
+            "configured":    True,
+            "backend":       "searxng",
+            "error":         "noise: query-independent result set",
+            "results":       [],
+            "count":         0,
+            "discarded":     len(normalised),
+            "query":         query,
+        }
 
     return {
         "ok":         True,
