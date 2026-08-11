@@ -329,6 +329,25 @@
       </div>
     </div>
 
+    <!-- R-F3879 — STAYS ON jQuery 2.1.1. The 3.7.1 upgrade was ATTEMPTED, MEASURED
+     AGAINST A LOCAL BASELINE, AND REVERTED: it is not a drop-in for this theme.
+     Two independent breakages, found by running the page, not by reading it:
+       1. plugins.js (Waypoints) calls $(...).load(fn) — the event shorthand jQuery
+          3 removed and repurposed as the AJAX loader. It throws
+          "url.indexOf is not a function" MID-BUNDLE, so every plugin defined after
+          it — counterUp among them — never registers. A one-token patch to
+          .on("load", fn) fixes this cleanly.
+       2. Even with (1) patched and the console clean, the LEAD-CAPTURE FORM
+          handler does not bind: a dispatched cancelable submit reports
+          defaultPrevented=false, and the form native-POSTs to /api/leads,
+          showing the visitor raw JSON. Cause not established; $.trim is present
+          and the nested-ready pattern was proven to fire, so it is neither of the
+          obvious candidates.
+     Breaking the public conversion path is worse than the CVEs it would fix, and
+     those CVEs are UNREACHABLE here: no untrusted input reaches jQuery's HTML
+     parser on this page (C-21, pinned by four tests in
+     test/url-sink-guard-rf3851.test.mjs).
+     The upgrade needs a real theme migration with (2) diagnosed — not a swap. -->
     <script src="pelican/assets/js/jquery-2.1.1.js"></script>
     <script src="pelican/assets/js/popper.min.js"></script>
     <script src="pelican/assets/js/bootstrap.min.js"></script>

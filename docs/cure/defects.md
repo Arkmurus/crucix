@@ -1758,3 +1758,54 @@ no `unsafe-inline`.
   `sourcesUnaccounted: 0`. The log entries are SUB-source failures inside sources that
   still partially succeeded, and they are labelled `[TRANSIENT]`. The accounting is
   honest; reporting it would have been a false alarm.
+
+---
+
+### C-25 · jQuery 3.7.1 — ATTEMPTED, MEASURED, REVERTED (R-F3879, 2026-08-11)
+
+C-21 bounded the vendored jQuery 2.1.1 exposure; C-23 measured the upgrade as "looks
+mechanical" and handed it to the operator for a browser check. **That assessment was
+wrong, and this records why** — it was based on grepping for removed APIs, and the two
+things that actually break are invisible to a grep.
+
+The upgrade was performed properly this time: jQuery 3.7.1 downloaded and its integrity
+verified against the project's published SRI
+(`sha256-eKhayi8LEQwp4NKxN+CfCh+3qOVUtJn3QNZ0TciWLP4=`, exact match), then tested against
+a LOCAL baseline of the running landing page rather than in production.
+
+**The method mattered more than the outcome.** A functional baseline was captured on
+2.1.1 first — jQuery version, owl-carousel initialised, plugin registrations, counter
+count, nav links, form and back-top presence — so the post-swap reading was a DIFF, not
+an impression.
+
+**Breakage 1 — `plugins.js` (Waypoints), FIXED by a one-token patch.**
+`$(...).load(fn)` is the event shorthand jQuery 3 REMOVED and repurposed as the AJAX
+loader, so it threw `url.indexOf is not a function` **mid-bundle**. Everything defined
+after that point never registered — the baseline diff showed exactly one field change,
+`counterUp: true → false`, which is what pointed at it. `.on("load", fn)` restores it.
+
+> The earlier "no removed APIs in plugins.js" claim came from a grep whose output was
+> mangled in the terminal and read as zero. The API was there all along.
+
+**Breakage 2 — the LEAD-CAPTURE FORM, unresolved.** With (1) patched, `counterUp`
+registered and the console clean, the form handler still does not bind: a dispatched
+cancelable submit reports `defaultPrevented: false` and the form native-POSTs to
+`/api/leads`, showing a visitor raw JSON instead of the validation message. Cause NOT
+established. Ruled out by direct probe: `$.trim` is present (`typeof === 'function'`),
+and the nested-`$(document).ready()` pattern at custom.js:124 was proven to fire under
+3.7.1 by a synthetic test. A/B confirmed it is the upgrade: identical click on 2.1.1
+gives `defaultPrevented: true` and the correct message.
+
+**REVERTED, and that is the right trade.** Breaking the public conversion path is worse
+than CVEs that cannot be reached: no untrusted input reaches jQuery's HTML parser on this
+page, and four tests in `test/url-sink-guard-rf3851.test.mjs` fail if that changes. The
+CVEs remain PRESENT and UNREACHABLE, which is the same position C-21 recorded — but it is
+now an evidenced position rather than an assumption.
+
+**What this needs is a theme migration, not a file swap:** diagnose (2), apply the
+Waypoints patch, re-run the same baseline diff, and re-test the form end to end. The
+baseline probe used here is reusable verbatim.
+
+**Correction to C-23:** "the swap looks mechanical" should not have been written from a
+static scan. Two breakages, one of them conversion-critical, and neither visible without
+running the page.
