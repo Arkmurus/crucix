@@ -34,6 +34,7 @@ from pre_commit_checks import (
     ARIA_SERVICE,
     REPO_ROOT,
     check_builtin_shadowing,   # R-F1958 — was CALLED (line ~195) but NOT imported → NameError crashed the whole checker on every run, so NO checks ran even before the hooks-path orphaning. Import it so the checker completes.
+    check_c_number_collisions,     # R-F3878 — a C-number claimed by writing a heading is not claimed (§2)
     check_syntax,              # R-F2127 — fail-fast syntax gate (a broken .py must never commit)
     check_capability_test_present,  # R-F2135 — structural guard for AGENTS.md §8.7
     check_capability_tests,
@@ -376,6 +377,16 @@ def main():
                 print(f"  ... and {len(secret_issues) - 20} more")
             print("\nRotate the credential, then read it from the environment.")
             return 1
+        # R-F3878 — the defect register is a property of the REPO, not of a file
+        # set, so it is checked in CI mode too. Wiring only the staged path would
+        # leave the register unguarded on every commit that does not touch it —
+        # and a collision lands regardless of what else is in the commit.
+        c_issues = check_c_number_collisions()
+        if c_issues:
+            print("[pre-commit] C-NUMBER COLLISION:")
+            for issue in c_issues:
+                print(issue)
+            return 1
         issues = check_all_files()
         if issues:
             print("[pre-commit] FUNCTION VERIFICATION FAILED:")
@@ -548,6 +559,11 @@ _sys.exit(_r.returncode)
 
     # Check 10: SSRF fetch-boundary on user-controlled URLs (R-F1824, audit C2)
     issues.extend(check_ssrf_fetch_boundary(files))
+
+    # R-F3878 — C-number collisions. Not file-scoped on purpose: the collision is a
+    # property of docs/cure/defects.md, and the commit that creates one is usually
+    # the commit that adds the heading.
+    issues.extend(check_c_number_collisions(files))
 
     # Check 11: Capability test presence (R-F2135) — AGENTS.md §8.7
     cap_test_issues = check_capability_test_present(files, changed_funcs)

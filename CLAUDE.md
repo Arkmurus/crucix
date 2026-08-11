@@ -505,6 +505,46 @@ Anything else: **refuse and say so.**
 A doc is the weakest evidence in this repo and has been wrong repeatedly (§1 records
 three Phase A gates certified by an absence).
 
+### 26a. C-number discipline — reserve before you write the heading (R-F3878, binding)
+
+**A C-number claimed by writing a heading into `docs/cure/defects.md` is not claimed.**
+That is the exact mechanism §2 abolished for R-numbers after 9 collisions in 50h, and
+C-numbers — having no allocator — went on colliding **four times, unnoticed**: C-18,
+C-19, C-22 and C-23 are each claimed twice by unrelated work. The damage is not
+cosmetic and it compounds, because the register now cites itself ambiguously: *"the
+C-18 XSS residual"* names one of two unrelated C-18s, and *"Deep review of C-19..C-21"*
+is a range over numbers that are themselves ambiguous. **A defect register whose
+identifiers cannot be cited has lost the property that makes it a register** — and §26
+makes this file the binding record of what may be worked on at all.
+
+```
+python scripts/admin/reserve_c_number.py reserve "short title"   # claim BEFORE writing
+python scripts/admin/reserve_c_number.py peek                    # next, without claiming
+python scripts/admin/reserve_c_number.py close C-26 R-F3873 R-F3874
+python scripts/admin/reserve_c_number.py audit                   # collisions + drift
+```
+
+- **Enforced in CI**, not just by convention: `scripts/pre-commit --check-all` (ci.yml)
+  fails on any new collision. Note **no git hook is installed in this tree** —
+  `.git/hooks` holds only `.sample` files — so CI is the real enforcement point.
+- **The four existing collisions are BASELINED** in
+  `c_number_registry.LEGACY_COLLISIONS`, so the gate could be turned on today rather
+  than after someone renumbers four entries and breaks every citation to them.
+  **SHRINK-ONLY**, same contract as `KNOWN_DEAD_CALLS`: a *third* claim on C-18 still
+  fails. Do not add to it — a new entry there means the allocator was bypassed.
+- **Do not resolve a collision by reusing or renumbering someone else's entry.**
+  Allocation is monotonic (`max + 1`, never gap-filling) precisely because a gap is
+  not evidence a number is free — it may still be cited.
+- **Git is deliberately NOT an allocation source here, and the reason is measured.**
+  Copying R-F3248's git scan moved the next number from `C-26` to **`C-296`**: `C-`
+  is not a coined token like `R-F####`, it is a bigram matching the Airbus **C-295**
+  in a commit about defence hardware and an unrelated internal "C-3 gate". Do not
+  helpfully re-add it.
+- Ledger: `data/c_number_reservations.json`. The 25 pre-existing headings were
+  imported once and are stamped `claimed_by: "backfill:register"` with
+  `claimed_at: null` — they are imported headings, **not** reservations, because
+  nobody reserved them and inventing a timestamp would put fiction in the log.
+
 **Rules:** one defect or one deletion batch per PR · smallest possible diff · **no
 refactoring inside a fix PR** · never delete without three proofs + the quarantine ladder
 · never touch data stores destructively (archive with a manifest; `rm` is never the

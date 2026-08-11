@@ -1307,3 +1307,61 @@ def check_ssrf_fetch_boundary(files: list[Path]) -> list[str]:
             f"    add '# no-ssrf-check' to the fetch line."
         )
     return issues
+
+
+# ── R-F3878 — C-NUMBER COLLISION GATE ───────────────────────────────────────
+#
+# THE DEFECT: a C-number was claimed by writing a heading into
+# docs/cure/defects.md. That is exactly the mechanism §2 abolished for R-numbers
+# after 9 collisions in 50h — and C-numbers, having no allocator, went on
+# colliding unnoticed FOUR times: C-18, C-19, C-22 and C-23 are each claimed
+# twice by unrelated work. The register now cites itself ambiguously ("the C-18
+# XSS residual" names one of two C-18s), which costs it the property that makes
+# it a register — and §26 makes this file the record of what may be worked on.
+#
+# The four existing collisions are BASELINED in c_number_registry.LEGACY_COLLISIONS
+# so this gate can be enabled today rather than after someone renumbers four
+# entries and breaks every citation to them. Shrink-only, same contract as
+# KNOWN_DEAD_CALLS: a THIRD claim on C-18 still fails, so it is recorded debt and
+# never an amnesty.
+def check_c_number_collisions(files=None, *, register=None) -> list[str]:
+    """A C-number claimed twice by unrelated work. `files` is accepted and ignored:
+    this is a property of one document, not of the staged set — a collision lands
+    whether or not defects.md is in this commit."""
+    # A LOCAL `import sys`, and the reason matters. The first draft of this gate
+    # used `sys.path` without it — `pre_commit_checks.py` never imports sys — so it
+    # raised NameError, which a bare `except Exception: return []` swallowed. The
+    # gate would have silently certified "no collisions" FOREVER. That is the
+    # R-F3791 blind-guard defect (a guard whose universe is empty always passes),
+    # and it is the same shape as the three Phase A gates §1 records as certified by
+    # an absence. Hence also: the failure branch below REPORTS, it never returns [].
+    import sys
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from aria_service.intel import c_number_registry as _cnr
+    except Exception as exc:
+        return [
+            f"  C-number collision gate COULD NOT RUN: {type(exc).__name__}: {exc}\n"
+            f"    This is reported rather than passed silently — a guard that cannot\n"
+            f"    see must never certify (§22). Fix the import or run:\n"
+            f"      python scripts/admin/reserve_c_number.py audit"
+        ]
+
+    claims, readable = _cnr.claims_in_register(register)
+    if not readable:
+        return [
+            "  C-number collision gate COULD NOT READ docs/cure/defects.md.\n"
+            "    Reported, not passed: an unreadable register has 25+ invisible\n"
+            "    claims, so 'no collisions found' would be meaningless (§22)."
+        ]
+    issues = []
+    for num, count in sorted(_cnr.new_collisions(claims).items()):
+        titles = claims.get(num, [])
+        issues.append(
+            f"  docs/cure/defects.md: C-{num:02d} is claimed {count}x by unrelated work.\n"
+            + "".join(f"      · {t[:90]}\n" for t in titles)
+            + f"    A C-number claimed by writing a heading is not claimed (§2).\n"
+            f"    Get one with:  python scripts/admin/reserve_c_number.py reserve \"<title>\"\n"
+            f"    Inspect with:  python scripts/admin/reserve_c_number.py audit"
+        )
+    return issues
