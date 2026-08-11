@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3880,
+  "next_available": 3884,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32656,9 +32656,10 @@
       "title": "promote person axis to target tier",
       "claimed_at": "2026-08-11T13:46:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0b0761cb",
+      "notes": null,
+      "shipped_at": "2026-08-11T16:07:51Z"
     },
     {
       "r_number": "R-F3870",
@@ -32759,6 +32760,44 @@
       "commit_sha": "0f3dfab4",
       "notes": null,
       "shipped_at": "2026-08-11T16:00:19Z"
+    },
+    {
+      "r_number": "R-F3880",
+      "title": "evaluate retained SFT before preference training",
+      "claimed_at": "2026-08-11T16:12:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "70701182",
+      "notes": null,
+      "shipped_at": "2026-08-11T16:17:30Z"
+    },
+    {
+      "r_number": "R-F3881",
+      "title": "align fresh mode environment contract test",
+      "claimed_at": "2026-08-11T16:16:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "39c55ccf",
+      "notes": null,
+      "shipped_at": "2026-08-11T16:17:30Z"
+    },
+    {
+      "r_number": "R-F3882",
+      "title": "jQuery 3.7.1 migration: two Waypoints fixes, verified against a local baseline",
+      "claimed_at": "2026-08-11T16:18:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3883",
+      "title": "searxng: the google disable was a no-op - the engine is named google cse",
+      "claimed_at": "2026-08-11T16:24:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

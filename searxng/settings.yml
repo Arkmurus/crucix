@@ -196,7 +196,25 @@ engines:
     disabled: false
   # BLOCKED from the Fly datacenter IP, measured 2026-08-11. Disabled so they stop
   # adding CAPTCHA/access-denied noise and per-query timeout latency.
-  - name: google
+  #
+  # ⚠️ R-F3883 — `- name: google` WAS A NO-OP FOR AS LONG AS IT HAS EXISTED. This
+  # SearXNG build has no engine called `google`; the general-web one is `google cse`
+  # (categories: general, web). Probed live on the instance: of the six names
+  # disabled here, five matched (mojeek/qwant/duckduckgo/brave/startpage) and this
+  # one matched NOTHING, so Google was queried on every single search and failed
+  # every time.
+  #
+  # It was invisible until R-F3873 gave the engine list an instrument:
+  # `engine_relevance` reported `google cse` as `serving=False, unresponsive=85,
+  # total=None` — 85 failures and **not one result set, ever**. That is different
+  # from `yep`, which oscillates (82 result sets, 81 failures) and is deliberately
+  # left enabled; this one has never worked.
+  #
+  # THE LESSON IS THE POINT OF §27d: a hand-maintained engine list does not just go
+  # stale, it can be silently INEFFECTIVE — a disable that matches no engine looks
+  # exactly like a disable that worked. Verify a name against the live instance
+  # (`curl http://aria-searxng.internal:8080/config`) before trusting it.
+  - name: google cse
     disabled: true
   - name: mojeek
     disabled: true
