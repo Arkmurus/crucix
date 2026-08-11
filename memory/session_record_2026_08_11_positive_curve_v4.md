@@ -70,3 +70,33 @@ Resume phrase: `run cycle`
 5. Only a DPO stage that passes calibration may spend the n=168 held-out eval.
    Promotion still compares against the incumbent with full pair coverage.
 
+## R-F3867 guarded DPO continuation outcome
+
+- Continuation commit `efb4162b` added the mandatory n=30 DPO calibration
+  before held-out; `3af0b9ac` corrected the host schema proof to the 206-row SFT
+  artifact while retaining the independent 47-pair DPO validator.
+- Pod `wydhpfwpjy9npw` verified the 310,566,214-byte positive SFT archive, the
+  47-pair DPO corpus, and the unchanged n=168 eval input before training.
+- DPO completed 24 optimizer steps in 49.33 seconds. Training loss was 0.1203;
+  the last interval preference accuracy was 1.0 and margin 8.188. These are
+  train-set metrics only and did not license retention.
+- External calibration was SFT 26/30 -> DPO 26/30, gain 0, protected gain 0,
+  zero regressions. The strict-gain gate rejected the DPO adapter and prevented
+  the entire n=168 held-out evaluation.
+- The plateau is real, not a scorer vocabulary gap. Remaining DPO failures:
+  QinetiQ multihop repeats a `screen` call and omits the company; all three
+  person rows omit the named person and incorrectly claim the performed screen
+  did not run. The 47 genuine pairs include 7 multihop and 6 person pairs, but
+  training-set preference separation did not transfer to these calibration
+  subjects.
+- Rejected adapter preserved only as
+  `data/training/checkpoints/aria_tooluse_curve_dpo_v4.tgz.partial`; it is a valid
+  adapter archive but MUST NOT be promoted or used as the next parent.
+- Evidence: `data/eval_reports/aria_tooluse_curve_v4_dpo_probe.json` and
+  `data/eval_reports/aria_tooluse_curve_v4_dpo_verdict.json`.
+- Pod `wydhpfwpjy9npw` is EXITED. The positive SFT v4 remains the retained parent.
+
+Next work must address person/multihop transfer structurally through new genuine
+subject-diverse evidence or a task-format correction. Do not increase epochs,
+learning rate, or retry the same 47 pairs: DPO already fit them nearly perfectly
+without calibration gain, so another dose would be an overfitting band-aid.

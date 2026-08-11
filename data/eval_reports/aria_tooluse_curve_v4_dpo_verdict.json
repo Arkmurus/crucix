@@ -1,0 +1,7 @@
+{
+  "pass": false,
+  "reason": "curve_gate_failed",
+  "gain": 0,
+  "protected_gain": 0,
+  "regressions": []
+}
