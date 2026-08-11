@@ -790,6 +790,70 @@ run was self-validating (`VALID=YES`).
 **Cost, measured not estimated:** 18m21s on `ubuntu-latest`, against ~40 minutes for
 the same run on the win-arm64 dev box.
 
+### C-18 · The primary search backend served NOISE as success — P0 — **FIXED (R-F3844)**
+
+**This is the root cause; C-14's porn was a symptom.** Reproduced live from inside
+aria-intel, 2026-08-11 — the same DD query four times, two seconds apart:
+
+```
+'"Rolls-Royce Holdings plc" owner OR shareholder OR "beneficial owner"'
+  run 1  "Oversæt dokumenter og websites - Google Help"   (Danish)
+  run 2  "Nova Launcher FAQ"                              (n=40, not 10)
+  run 3  "Confused about HL SIPP Interest — MoneySavingExpert"
+  run 4  "Outlook"
+```
+
+Four identical inputs, four unrelated result sets, all `engine=bing`. The query has
+**zero** influence — which rules out query mangling, because a deterministic bug
+returns the same wrong answer twice. SearXNG was serving result sets belonging to
+other queries. The instance is comprehensively degraded: **14 engines carry errors** —
+`google` CAPTCHA, `mojeek`/`qwant` access-denied, `duckduckgo` ConnectTimeout,
+`brave.news` TooManyRequests, and `bing` — the one still answering — ReadTimeout.
+
+**The defect is the SILENCE, not the outage.** A backend that could not answer
+returned ten well-formed results with `ok: True`, no error and no degraded flag, so
+nothing downstream could tell intelligence from noise. Every domain in those sets was
+then auto-registered permanently, which is how porn and gambling farms entered the
+crawl registry. Fixing the registry without this treats the stain, not the wound (§1).
+
+**Fixed** by a deliberately conservative gate: noise is declared only when NOT ONE
+result bears ANY lexical relation to the query — one match anywhere passes the whole
+set. It catches "answered a DIFFERENT question", never "answered badly", because a
+search gate that editorialises about quality would eventually suppress real
+intelligence. It returns "cannot judge" for empty sets and operator-only queries.
+Noise now returns `ok:False` + a stated reason and is §21a-wired as
+`search_backend_failure`. **Live-verified end-to-end** on the real degraded backend:
+`ok:false, error:"noise: query-independent result set", discarded:10`.
+
+> **STILL OPEN — infrastructure, not code.** The SearXNG instance itself is degraded.
+> Either restore upstream engines or point `SEARXNG_URL` at a healthier one. ARIA no
+> longer *trusts* the noise, which was the dangerous half.
+
+### C-19 · Noise reached a CUSTOMER-FACING DD report — P0 — operator decision needed
+
+The severity question the investigation left open, now answered with evidence. Of 29
+stored DD reports, none cite an adult/gambling domain — but **benign noise did reach
+the narrative**:
+
+```
+dd_92f9d77b8886  "Silverbrook Capital Management"
+  .digital.press_coverage[3].url =
+     https://support.google.com/chrome/answer/95346?hl=fr
+```
+
+A **French Chrome cookies help page cited as press coverage.** `support.google.com`
+was one of the exact noise results reproduced above.
+
+Mechanism, read in code rather than inferred: `web_search` SORTS by relevance
+(`web_search.py:1903`) but never FILTERS, and `_apply_domain_diversity_cap` truncates
+only the tail — so when the other backends return nothing (14 engines erroring) noise
+fills the top-N and reaches the report.
+
+**So this is a product-integrity issue, not hygiene.** R-F3844 protects new reports.
+**Operator decision:** whether `dd_92f9d77b8886` is re-run and re-issued. Also worth a
+wider sweep of `press_coverage` across historic reports — one was found by targeted
+markers, which is a floor, not a count.
+
 ### C-16 · CI was red on every commit — two secret checkers, one file — **FIXED (R-F3827)**
 
 The `test` job failed on every recent push (`cba53e22`, `c15e8ec8`, `c698756d`,
