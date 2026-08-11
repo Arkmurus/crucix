@@ -1761,7 +1761,7 @@ no `unsafe-inline`.
 
 ---
 
-### C-26 · jQuery 3.7.1 — ATTEMPTED, MEASURED, REVERTED (R-F3879, 2026-08-11)
+### C-26 · jQuery 3.7.1 — ATTEMPTED, MEASURED, REVERTED, then **SHIPPED** (R-F3879 / R-F3882, 2026-08-11)
 
 > **Renumbered C-25 → C-26 by the allocator (R-F3878).** This entry was written as
 > C-25 minutes after `f5d14b7d` had taken C-25, and the collision gate shipped that
@@ -1816,3 +1816,71 @@ baseline probe used here is reusable verbatim.
 **Correction to C-23:** "the swap looks mechanical" should not have been written from a
 static scan. Two breakages, one of them conversion-critical, and neither visible without
 running the page.
+
+---
+
+#### RESOLVED — R-F3882, 2026-08-11. jQuery 3.7.1 is live; breakage 2 was never a second defect.
+
+**"Breakage 2" and "breakage 1" were the same failure, one frame apart.** The entry above
+treats the unbound form as an independent, un-diagnosed problem. It was not. Patching
+`.load(fn)` let the bundle finish PARSING, so `counterUp` registered and the console went
+clean — which is exactly why the remaining symptom looked like a separate, deeper defect.
+It was the *next* Waypoints call throwing, at run time instead of load time:
+
+```
+custom.js:107   $('.counter').counterUp({...})
+  → jQuery.fn.waypoint → Waypoint.refresh()
+  → this.$element.offset()          // $element IS window here
+  → jQuery 3: elem.getClientRects is not a function   ← THROWS
+```
+
+jQuery 2's `.offset()` began with a `typeof elem.getClientRects === "undefined"` guard and
+returned quietly on window; jQuery 3 calls it directly. The throw propagated **out of the
+enclosing `$(document).ready()` callback**, so every statement after line 107 was skipped
+— and the lead-form handler is bound at line 124. The form was never "failing to bind";
+its binding code never executed. `plugins.js` already guards its OTHER offset call on
+`isWindow`; this call site simply did not, and jQuery 2 hid it.
+
+**Why the earlier diagnosis stalled** — every ruling-out in the entry above was correct
+and every one of them was aimed at the wrong frame. `$.trim` present: true, irrelevant.
+Nested-ready fires under 3.7.1: true, and irrelevant, because the OUTER callback died
+first. The probes tested the handler in isolation, where it works; nothing tested whether
+the code path *reaching* it survived. **A handler that is never reached and a handler that
+is broken present identically from the outside.** What finally separated them was
+instrumenting `custom.js` with sequential markers and wrapping the region in a
+`try/catch`: execution reached 106 and not 111, and the catch named the TypeError.
+Bisecting execution beat reasoning about behaviour.
+
+**The fix is two lines in `plugins.js`, both in Waypoints:**
+```js
+return i.on("load",function(){return n[m]("refresh")})                       // was i.load(...)
+r=n.isWindow(this.element);e=r?{top:0,left:0}:this.$element.offset();        // was e=this.$element.offset();
+```
+
+**Verified by the same baseline diff, field for field, at a controlled scroll position on
+both versions — every field identical:** `owlInitialised` true / `owlStages` 1 /
+`owlItems` 3, all four plugins registered (`owlCarousel`, `counterUp`, `waypoint`,
+`scrollspy`), 4 counters reading 1–4, `navbarLinks` 7, `navHTMLlen` 1357, `docHeight`
+6029, `backTopVisible` `table`, `navActiveLinks` `[]`, Bootstrap 4.0.0-beta.2, console
+clean, screenshot visually identical. The conversion path — the thing the revert was
+protecting — is proven working: `FORM_defaultPrevented: true`, response
+`"Please enter your name, a valid work email and your primary use case."`, class
+`form-response is-error`, `stillOnPage: true`. No native POST, no raw JSON.
+
+> **Two fields nearly caused a false alarm.** An ad-hoc probe read `navbarLinks: 8` and
+> `backTopVisible: "none"` on 2.1.1 versus `7` / `"table"` on 3.7.1. Both were artifacts
+> of the probe's own scroll state, not of jQuery — re-measured at `scrollY` 0 and 1500 on
+> each version, all four readings agree. **A diff between two runs is only evidence when
+> the conditions are pinned;** an unpinned diff manufactures regressions as readily as it
+> hides them, and this one would have re-reverted a working upgrade.
+
+CVEs 2015-9251, 2019-11358 and 2020-11022/11023 are now GONE rather than
+present-and-unreachable. jQuery 2.1.1 stays in the tree unreferenced — CURE freeze §26
+forbids deletion, and the three-proof rule is not met for it.
+
+**Correction to the entry above:** "Cause NOT established" was accurate when written and
+"REVERTED, and that is the right trade" was the correct call at that moment — with the
+cause unknown, shipping would have been a guess. The error to avoid is not the revert; it
+is *stopping* at it. The lesson generalises past jQuery: **when a symptom survives the
+fix for its apparent cause, suspect the same cause at a different frame before positing a
+second one.**

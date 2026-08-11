@@ -329,26 +329,31 @@
       </div>
     </div>
 
-    <!-- R-F3879 — STAYS ON jQuery 2.1.1. The 3.7.1 upgrade was ATTEMPTED, MEASURED
-     AGAINST A LOCAL BASELINE, AND REVERTED: it is not a drop-in for this theme.
-     Two independent breakages, found by running the page, not by reading it:
-       1. plugins.js (Waypoints) calls $(...).load(fn) — the event shorthand jQuery
-          3 removed and repurposed as the AJAX loader. It throws
-          "url.indexOf is not a function" MID-BUNDLE, so every plugin defined after
-          it — counterUp among them — never registers. A one-token patch to
-          .on("load", fn) fixes this cleanly.
-       2. Even with (1) patched and the console clean, the LEAD-CAPTURE FORM
-          handler does not bind: a dispatched cancelable submit reports
-          defaultPrevented=false, and the form native-POSTs to /api/leads,
-          showing the visitor raw JSON. Cause not established; $.trim is present
-          and the nested-ready pattern was proven to fire, so it is neither of the
-          obvious candidates.
-     Breaking the public conversion path is worse than the CVEs it would fix, and
-     those CVEs are UNREACHABLE here: no untrusted input reaches jQuery's HTML
-     parser on this page (C-21, pinned by four tests in
-     test/url-sink-guard-rf3851.test.mjs).
-     The upgrade needs a real theme migration with (2) diagnosed — not a swap. -->
-    <script src="pelican/assets/js/jquery-2.1.1.js"></script>
+    <!-- R-F3882 — jQuery 3.7.1, replacing 2.1.1 (CVE-2015-9251 cross-domain ajax
+     XSS, CVE-2019-11358 $.extend prototype pollution, CVE-2020-11022/11023
+     htmlPrefilter XSS). File integrity verified against jQuery's published SRI:
+     sha256-eKhayi8LEQwp4NKxN+CfCh+3qOVUtJn3QNZ0TciWLP4=
+
+     NOT a drop-in — it needed two one-line fixes in plugins.js (Waypoints), both
+     found by running the page against a functional baseline captured on 2.1.1
+     first, and both invisible to a grep:
+       1. $(...).load(fn) — the event shorthand jQuery 3 removed and repurposed as
+          the AJAX loader. Threw mid-bundle, so every plugin defined after it
+          (counterUp included) never registered.
+       2. refresh() called .offset() UNCONDITIONALLY, including when the element is
+          window. jQuery 2 guarded that with a typeof check; jQuery 3 calls
+          elem.getClientRects() directly and throws. That throw propagated out of
+          the counterUp call in custom.js:107, aborting the enclosing ready
+          callback — so the LEAD-FORM handler at custom.js:124 never bound and the
+          form native-POSTed to /api/leads, showing visitors raw JSON.
+          Now guarded on isWindow, exactly as the same file already guards its
+          other offset call.
+
+     Verified on a local server, field by field against the 2.1.1 baseline: owl
+     carousel loaded (3 items, nav), all four plugins registered, 4 counters, 8 nav
+     links, back-top, Bootstrap 4.0.0-beta.2, console clean, and the lead form
+     preventing default with its validation message. jQuery 2.1.1 is left in the
+     tree unreferenced (CURE freeze §26 forbids deletion). -->    <script src="pelican/assets/js/jquery-3.7.1.js"></script>
     <script src="pelican/assets/js/popper.min.js"></script>
     <script src="pelican/assets/js/bootstrap.min.js"></script>
     <script src="pelican/assets/js/plugins.js"></script>
