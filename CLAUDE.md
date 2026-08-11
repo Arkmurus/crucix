@@ -523,3 +523,79 @@ each way: its first pass classified the live `aria-wa` listener as DEAD-CANDIDAT
 after `docs/cure/` was committed it read its own report as evidence of life
 (DEAD-CANDIDATE 109 → 27 with no code deleted). **Never trust a census number that the
 validator has not passed.**
+
+## 27. Search architecture — three tiers, and the list maintains itself (R-F3863/3864/3865, 2026-08-11)
+
+**Operator directive 2026-08-11:** "we don't want to park aria searxng… we need a
+robust solution… ARIA must perform at the highest level without mistakes."
+
+**The premise to correct first: you cannot code your way out of an IP block.**
+SearXNG works by impersonating a browser against consumer engines, and they block
+datacenter IPs by design. Measured the same day: yep/mojeek access-denied,
+duckduckgo timeout, brave/google too-many-requests, startpage CAPTCHA. A better
+scraper gets blocked slightly later. **The engine list rots continuously** —
+R-F1659's "datacenter-tolerant" set was blocked two months on, R-F3849's
+replacement the same week, and yep answered 20/20 then 403'd within the HOUR (and
+then recovered — it was volume-triggered, which is why it was left ENABLED rather
+than ripped out).
+
+**Residential proxies are NOT the fix and must not be proposed.** They would work,
+and they mean evading anti-bot controls to take data a provider is refusing us —
+untenable for a due-diligence product, and the same reasoning that stopped us
+scraping TrustOnline and using Find Case Law unlicensed (§18).
+
+### 27a. The three tiers
+1. **DD / customer-facing — Brave + Anthropic, exclusively.** Brave-only search
+   (R-F3847), Anthropic hard-pinned and non-degrading (R-F2917/R-F3034/R-F3767).
+   SearXNG **never** touches this path. Unchanged by any of the above.
+2. **The API tier — licit, identified, and it does NOT rot.** Not scraped, no
+   CAPTCHA; these sources refuse us only when we fail to say who we are.
+3. **Opportunistic breadth — SearXNG's scraped engines.** Inherently flaky,
+   contained by the relevance gates below. ARIA must never *depend* on it.
+
+### 27b. IDENTIFY OURSELVES — the finding that reframed tier 2
+Measured against the Wikipedia API from inside aria-intel, same IP, same second:
+`User-Agent: python-requests/2.0` → **HTTP 403** *"Please set a user-agent and
+respect our robot policy"*; `AriaIntelligence/1.0 (aria@arkmurus.com)` → **HTTP
+200**, hits `['Rosoboronexport', 'KAB-1500', 'Aleksandr Mikheyev']`. **"Blocked
+from a datacenter" was the wrong diagnosis for this whole class of source.**
+`searxng/settings.yml` now sets `outgoing.useragent_suffix`; wikipedia dropped out
+of the error list immediately. Before adding a source or declaring one blocked,
+**probe it with a descriptive UA first.**
+
+### 27c. An API source may answer in a different SHAPE
+wikipedia/wikidata then reported `n=0` with **no errors** — which reads like
+"enabled but useless" and would plausibly have been "fixed" by disabling them.
+They were working: SearXNG returns an encyclopedic hit as an **infobox**, not a
+result row, and the adapter only read `data["results"]` (R-F3864). Live for
+"Rosoboronexport": `results: 0, infoboxes: 1`. **A zero meaning "wrong field read"
+is indistinguishable from a zero meaning "nothing found"** — the same
+absence-collapsing-into-a-measurement class as the §1 gates and the §17 cost probe.
+
+### 27d. The anti-rot mechanism — do NOT hand-maintain the engine list
+`intel/search_engine_health.py` (R-F3865) scores **every engine on live traffic**
+with the same R-F3844 discriminator the per-query filter uses (`_per_engine_verdicts`
+is shared so the two cannot drift), quarantines sources that stop answering, wires
+it to the brain (§21a), and reports on `GET /api/aria/search/health` →
+`engine_relevance`. Three properties are load-bearing and each is pinned by a test:
+**minimum sample 12** (an obscure query legitimately returns nothing related;
+quarantining on one observation punishes an engine for the caller's query),
+**ratio 0.8 + TTL'd quarantine + decaying counters** (a permanent ban would make
+this module the next stale hand-maintained list), and **fails open** (an unreadable
+store never quarantines — §22).
+
+**Binding:** if a search source looks dead, do not edit the engine list from
+intuition — read `engine_relevance`, and re-probe with a descriptive UA. If you add
+a gate, it must be able to FAIL (R-F3858) and must never be able to empty a result
+set (R-F3857: an emptied set reads as "nothing found", which an adverse-media sweep
+reads as CLEAN).
+
+### 27e. Still open — an operator decision, not a code one
+Tier 2 has **no general-web index**. Restoring one licitly needs a keyed
+independent index (Mojeek/Marginalia publish APIs; terms + pricing NOT yet
+verified — verify before quoting) or a bounded slice of the Brave quota already
+paid for (R-F2318 deliberately scoped Brave away from the free stack). Until then
+ARIA runs on tier 2 + its direct news/academic/memory backends, which measured
+**10/10 related** on the niche queries that broke SearXNG — a dead SearXNG is a
+**redundancy loss, not a blackout**, and a SearXNG-only probe must never be used to
+conclude ARIA cannot search.
