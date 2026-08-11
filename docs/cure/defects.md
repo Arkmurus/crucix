@@ -1614,7 +1614,18 @@ and never alert.
 but "what is not being measured, and what would that absence look like?" In every case
 here the absence looked like health.
 
-### C-24 · Both of the previous session's "open, honestly" items were the SAME defect, one layer down — **CLOSED (R-F3873, R-F3874, 2026-08-11)**
+### C-25 · Both of the previous session's "open, honestly" items were the SAME defect, one layer down — **CLOSED (R-F3873, R-F3874, 2026-08-11)**
+
+> **Renumbered C-24 → C-25 on the day it was written.** A peer agent working the same
+> tree independently allocated C-24 for an unrelated aria-web review, hours apart. Note
+> C-23 is ALSO duplicated (lines 1492 and 1564) — so this register has now collided
+> twice, which makes it a mechanism problem, not two accidents. **This file has no
+> allocator.** R-numbers stopped colliding only when §2 gave them a reservation log
+> (`reserve_r_number.py`) after 9 collisions in 50h; C-numbers are still claimed by
+> writing one into a heading and hoping. Left as a flagged gap rather than fixed
+> silently: the freeze (§26) scopes this session to the two defects below, and an
+> allocator is the operator's call. Do not resolve a future collision by reusing a
+> number — a defect register whose identifiers are ambiguous cannot be cited.
 
 The prior session closed with two items it could not resolve and recorded them
 honestly:
@@ -1690,7 +1701,7 @@ mirroring the existing `_safe_body()`. Same hazard as R-F3857, where a gate adde
 correctness emptied result sets.
 
 **The generalisable rule, extending C-23's.** C-23 asked "what is not being measured,
-and what would that absence look like?" C-24 is its sharper form: **when a dependency
+and what would that absence look like?" C-25 is its sharper form: **when a dependency
 looks like it is failing you, check what it is already telling you on every response
 before concluding you must wait, tune, or ask the operator.** Twice here the answer
 was already in the payload — SearXNG naming the engines that refused, Brave
