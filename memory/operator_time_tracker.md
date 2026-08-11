@@ -563,3 +563,59 @@ fiction in the log.
 **Deliberately NOT done:** renumbering the four existing collisions. Every one is
 cited by other entries and by commit history; renumbering would break more than it
 fixes, and it is the operator's call.
+
+---
+
+## Session 2026-08-11 (continuation 3) — DD on my own work
+
+Adversarial review of R-F3873 / R-F3874 / R-F3878, verified against production
+rather than against my own tests. Three claims held; three new findings came out of
+it, one of which is a fix (R-F3883).
+
+**VERIFIED LIVE, with evidence:**
+- **Wired (§21a) — proven, not assumed.** `GET /api/aria/coder/gaps` carries four
+  gaps from `search_engine_health:record_unresponsive` (yep, google cse, wikipedia,
+  wikidata) with the full actionable detail. And only ONE per engine against 85
+  unresponsive events, so the transition-dedupe holds — the alert cannot flood.
+- **Enabled — proven red AND green on real work.** The C-number gate failed
+  automatically on the peer's colliding commit `0f3dfab4` (`C-25 <- NEW`) and passed
+  on the resolution `838e879b`. A gate observed only passing has not been tested.
+- **Both meters run on production traffic.** Brave: `monthly {total 14, ok 9,
+  empty 5}`, `store_readable: true`, `plan_limits_state: fresh`. Engine health:
+  bing serving (142/0), yep blocked (82 result sets / 81 failures — it oscillates).
+
+**FINDING 1 — R-F3883, fixed and deployed.** `searxng/settings.yml` disabled
+`- name: google`, **which is a no-op: this SearXNG build has no engine by that
+name.** The general-web one is `google cse`. Probed the live instance's own
+`/config`: five of six disables matched, `google` matched nothing — so Google was
+queried on every search and failed every time while the comment claimed otherwise.
+Invisible until R-F3873 gave the list an instrument: `serving=False,
+unresponsive=85, total=None` — 85 failures and **not one result set, ever**
+(categorically unlike `yep`, which oscillates and is deliberately kept). Fixed,
+aria-searxng redeployed, verified: enabled engines 82 -> 81, exactly one change,
+`google cse` gone from `unresponsive_engines`, search still returns 10 results.
+**Generalises §27d: a hand-maintained list does not merely go stale, it can be
+silently INEFFECTIVE — a disable matching no engine looks exactly like one that
+worked.**
+
+**FINDING 2 — my own parser could be evaded by a stray `#`.** `_CLAIM_RE` was pinned
+to `###`; an entry written `## C-30 ·` or `#### C-30 ·` was invisible, so the
+allocator would reissue the number AND the gate would pass the collision. Widened to
+`#{2,4}` with tests both ways. Found by reviewing my own module, not by a red test.
+
+**FINDING 3 — surfaced, deliberately NOT actioned: `core.hooksPath` is unset.** The
+repo ships `scripts/git-hooks/pre-commit` and `test_rf1958_precommit_hook_active`
+asserts it exists in "the ACTIVE core.hooksPath dir" — but never asserts the config
+is SET, and it is unset both locally and globally. So **no local hook runs at all**,
+for any of the ~12 checks, not just mine. Pre-existing and repo-wide. My CI wiring is
+the real enforcement and is proven, so nothing of mine depends on it. Not flipped
+unilaterally: `.git/config` is shared with the live peer agent and enabling a
+pre-commit hook mid-session would start gating their commits. One-liner when wanted:
+`git config core.hooksPath scripts/git-hooks`.
+
+**HONEST LIMITATION (not a defect):** R-F3874's pre-exhaustion alert still cannot
+fire, because Brave advertises `limit 0` on the 31-day window, i.e. no monthly
+ceiling. That is the correct reading (0 means uncapped, never exhausted), and the
+report keeps saying `set BRAVE_MONTHLY_QUOTA to enable headroom alerts` — which is
+now an honest ask rather than a fabricated one. Until it is set, the only protection
+against a spent plan is the 429 classifier, which is live.
