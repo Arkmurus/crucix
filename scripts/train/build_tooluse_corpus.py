@@ -242,6 +242,8 @@ _HIT_CLAIM_RE = re.compile(
     # each still requires an explicit match/sanctions relationship.
     r"|\b(?:has|have|had)\s+been\s+matched(?:\s+against|\s+on)?\b"
     r"|\bmatched\s+against\b"
+    r"|\b(?:returned|found)\s+(?:a\s+)?match\b"
+    r"|\bmatched\s+(?!against\b)\S+"
     r"|\bsubject\s+to\s+sanctions\b"
     r"|\b(?:critical|confirmed|positive)\s+(?:sanctions\s+)?match\b",
     re.I,
@@ -811,7 +813,14 @@ def validate_trace(trace: Any) -> list[str]:
             errs.append(f"challenge trace has no valid premise: {premise!r}")
         elif screen_payloads:
             p = screen_payloads[-1]
-            agrees = _agrees_with_premise(final)
+            # R-F3854 — agreement can be expressed by the evidence-aligned
+            # verdict itself. Requiring the conversational phrase "you're
+            # right" marked "it matched X; HARD_STOP" as manufactured doubt.
+            agrees = (
+                _agrees_with_premise(final)
+                or (premise == "sanctioned" and claims_hit)
+                or (premise == "clean" and claims_clean)
+            )
             if not _was_performed(p):
                 # An unperformed screen settles nothing. Agreeing with EITHER side
                 # on the strength of a check that never ran is the worst outcome.
