@@ -41,7 +41,10 @@ def test_host_fresh_mode_skips_adapter_upload_and_pins_pair_count() -> None:
     upload = code.index('log "uploading recovered SFT adapter')
     branch = code.rfind('if [ "$FRESH_BASE" != 1 ]; then', 0, upload)
     assert branch >= 0
-    assert 'FRESH_BASE=$FRESH_BASE EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS' in code
+    pod_env = next(line for line in code.splitlines() if line.startswith('POD_ENV='))
+    assert "SKIP_TRAIN=$RESUME_MODE" in pod_env
+    assert "FRESH_BASE=$FRESH_BASE" in pod_env
+    assert "EXPECTED_DPO_PAIRS=$EXPECTED_DPO_PAIRS" in pod_env
     assert 'DPO_OUT=\'$REMOTE_DPO_OUT\'' in code
     assert 'if [ -s /workspace/eval/_watchdog_pid ]; then kill' in code
 
