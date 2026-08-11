@@ -162,13 +162,20 @@ async def _register(engine: str) -> None:
         logger.debug("[R-F3873] could not register engine %s", engine, exc_info=True)
 
 
-async def _set_last_event(engine: str, event: str, reason: str = "") -> None:
-    """Record what this engine did MOST RECENTLY: served, or refused."""
+async def _set_last_event(engine: str, event: str, reason: str = "") -> str:
+    """Record what this engine did MOST RECENTLY: served, or refused.
+
+    Returns the PRIOR event so the caller can detect a transition without a second
+    read. A blocked engine appears on every query, so an extra `get_json` here is
+    an extra store round-trip per blocked engine per search — the kind of steady
+    background load that shows up later as store saturation, not as a bug.
+    """
     try:
         prior = await rs.get_json(_skey(engine))
     except Exception:
         prior = None
     prior = prior if isinstance(prior, dict) else {}
+    prior_event = str(prior.get("last_event") or "")
     blocks = int(prior.get("unresponsive_count") or 0)
     if event == "unresponsive":
         blocks += 1
@@ -185,6 +192,7 @@ async def _set_last_event(engine: str, event: str, reason: str = "") -> None:
         await rs.set_json(_skey(engine), state)
     except Exception:
         logger.debug("[R-F3873] could not persist state for %s", engine, exc_info=True)
+    return prior_event
 
 
 @fail_wire(module="search_engine_health", gap_type="engine_failure")
@@ -246,14 +254,8 @@ async def record_unresponsive(engine: str, reason: str = "") -> None:
     """
     engine = _norm(engine)
     await _register(engine)
-    try:
-        prior = await rs.get_json(_skey(engine))
-    except Exception:
-        prior = None
-    was_serving = not (isinstance(prior, dict)
-                       and prior.get("last_event") == "unresponsive")
-    await _set_last_event(engine, "unresponsive", reason)
-    if was_serving:
+    prior_event = await _set_last_event(engine, "unresponsive", reason)
+    if prior_event != "unresponsive":          # the TRANSITION is the news
         await _alert_blocked(engine, reason)
 
 

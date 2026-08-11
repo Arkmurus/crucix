@@ -163,6 +163,28 @@ async def test_a_recovered_engine_stops_being_reported_blocked(store):
 
 
 @pytest.mark.asyncio
+async def test_the_brain_hears_the_transition_not_every_query(store, monkeypatch):
+    """A blocked engine appears on EVERY query. An alert that fires hundreds of
+    times a day is an alert that gets muted, and a muted alert is how the 52-day
+    SearXNG rot survived. Only the transition is news."""
+    alerts: list[str] = []
+
+    async def _capture(engine, reason):
+        alerts.append(engine)
+
+    monkeypatch.setattr(seh, "_alert_blocked", _capture)
+
+    for _ in range(5):
+        await seh.record_unresponsive("yep", "Suspended: access denied")
+    assert alerts == ["yep"], f"alerted {len(alerts)}x for one continuous block"
+
+    # ...but a RECOVERY followed by a fresh block is genuinely new information.
+    await seh.record_observation("yep", query_independent=False)
+    await seh.record_unresponsive("yep", "Suspended: access denied")
+    assert alerts == ["yep", "yep"]
+
+
+@pytest.mark.asyncio
 async def test_blocked_is_not_quarantined(store):
     """Property 1 — quarantining a blocked engine is theatre (it already returns
     nothing) AND harmful (it would keep it out for an hour after the block lifts)."""
