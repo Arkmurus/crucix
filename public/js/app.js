@@ -572,9 +572,18 @@ function truncate(str, n = 160) {
 }
 
 function escHtml(s) {
+  // R-F3866 — the single quote was missing. This is the GLOBAL escaper most pages
+  // reach through js/app.js, and without `'` any value placed inside a
+  // SINGLE-quoted HTML attribute could close it and add another attribute. Every
+  // other escaper in the tree (15 of 17) already covered the full set; these two
+  // did not, and nothing compared them. In text position `&#39;` renders as an
+  // apostrophe, so this is invisible to users.
+  //
+  // `String(s || '')` is kept deliberately: it maps 0 and false to '' as before.
   return String(s || '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // R-F2607 — scheme allowlist for data-derived href/URL sinks. Blocks

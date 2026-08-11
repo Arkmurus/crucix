@@ -1486,3 +1486,77 @@ non-datacenter egress for aria-searxng, a keyed API that allows it, or spending 
 Brave quota on the autonomous stack (Brave is already paid and measured working, but
 R-F2318 deliberately scoped it to user-facing search to protect quota). No code change
 reaches this; §21e escalation applies.
+
+---
+
+### C-23 · Task-list closeout — five residuals fixed, one handed back with evidence (R-F3860..R-F3866, 2026-08-11)
+
+The C-22 review left seven tracked items. Six are closed by code; the seventh is an
+operator decision and is stated as one rather than quietly dropped.
+
+**R-F3861 · the last false-negative class is now enforced.** `unescapedRemainder()`
+strips literals, then escaper calls with BALANCED arguments, and reports the PROPERTY
+READS that survive inside a declaration classified as raw. Every one of the 27 survivors
+was resolved at its source and is a CONDITION — `x != null ? … : ''`, a `.length` loop
+guard, a boolean test — never an emitted value. Pinned per page in the guard.
+
+> Getting the detector honest took three corrections, each of which had been producing a
+> confident wrong answer: stripping escaper calls BEFORE string literals broke on a paren
+> inside a string (`escText(x || '(unnamed)')`) and reported three correctly-escaped call
+> sites as sinks; a missing word boundary on the `+=` / `.push()` collectors made `s`
+> match `rows +=` and `cites +=`, concatenating unrelated code into one 5,600-character
+> "declaration" that surfaced `placeholder="e.g. Acme"` from static markup as a property
+> read; and the declaration scan had no length bound, so an unbalanced bracket walked to
+> end-of-file.
+
+**R-F3860 · three unbounded attempt maps, one bound.** `_loginAttempts`,
+`_verifyAttempts` and `_resetAttempts` are all keyed by a caller-supplied email and all
+reachable unauthenticated; each pruned only the key it was touching, so cycling addresses
+grew them for the life of the process. `lib/util/attemptThrottle.mjs` sweeps on the write
+that grows the map — no timer to leak, no work when idle — and **never evicts an entry
+still serving a lockout**, which would have handed an attacker a free reset. A test
+asserts a FOURTH map cannot be added without a sweep.
+
+**R-F3862 · the Node suite gates.** `npm test` ran under `continue-on-error: true`
+because of 8 standing failures, so no Node regression could fail the build.
+`scripts/admin/node_suite_baseline.mjs` is the counterpart to `suite_baseline.py`: it
+fails only on failures ABSENT from `docs/node_suite_baseline.json`, reports fixed ones
+without failing, and refuses to gate when the runner collected almost nothing — a broken
+runner must not read as a green suite. **Proven to fire**: removing one known failure
+from the baseline produced exit 1 naming the test *while the totals stayed identical at
+1801/8*, which is precisely why §16 says diff the SET, never the count.
+
+> The first baseline attempt recorded **9** failures. The ninth was mine — R-F3861's
+> escText migration had broken a vm test that runs an extracted slice of dd-reports.html
+> without escText in scope. Fixed, re-recorded at exactly the standing 8. A baseline is
+> the one artefact where recording your own regression makes it permanent.
+
+**R-F3863/R-F3866 · escaper sprawl was hiding three real weaknesses.** Six names for one
+job across 17 definitions. Pinning them to behavioural equivalence — rather than the
+refactor the freeze refuses — immediately exposed that they did NOT agree:
+- **`js/app.js:escHtml` did not escape `'`** — the GLOBAL escaper most pages use, so any
+  value in a single-quoted attribute could close it. `sources.html:escHtml` had the same
+  gap.
+- **`wa-connections.html:escHtml` was the DOM trick** (`textContent` → `innerHTML`), which
+  escapes neither quote — and that page uses it in FIVE attribute positions.
+- **`account.html:escapeHtml` rendered `null` as the literal text "null"** in the UI.
+- (`dd-reports.html:escAttr` escaped only `"`; fixed under R-F3861.)
+
+None was exploitable with today's data, and that is exactly the point: nothing compared
+them, so a weak copy could sit there indefinitely. All 17 now produce identical output
+for every vector, asserted against the SHIPPED source rather than a reimplementation.
+
+**Still open, and it is an operator call — jQuery 2.1.1.** Feasibility is now measured,
+not guessed: `custom.js` (40 jQuery calls) and `validator.js` (21) use zero
+jQuery-3-removed APIs, `plugins.js`'s two `.context` hits are false positives
+(`e.contextDimension`, a plugin's own `this.context`), and Bootstrap 4.0.0 supports
+jQuery 3. So the swap looks mechanical. What stops it here is that jQuery 3 also changes
+BEHAVIOUR no grep detects — Deferred exception semantics, `.width()` decimals,
+`:visible`, ready timing — on `public/index.html`, the **public marketing landing page**,
+and verifying that means loading it in a browser. Shipping an unverified major-version
+bump to the public site is the risk class this whole effort has refused. The exposure
+meanwhile stays bounded and test-pinned by C-21.
+
+`public/vendor/jquery.min.js` is a second, orphaned copy referenced by no page. It is
+recorded, not deleted: freeze §26 forbids deletion until the Phase 0.3 runtime overlay
+runs and the three-proof rule is met.

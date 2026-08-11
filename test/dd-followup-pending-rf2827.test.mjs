@@ -42,7 +42,14 @@ function loadClassifier() {
     'dd-reports.html must expose followUpState() — the page currently has no concept ' +
     'of a pending async follow-up (0 refs to adverse_media/in_progress)');
   const end = PAGE.indexOf('\nfunction ', start + 1);
-  return new Function(`${PAGE.slice(start, end)}; return followUpState;`)();
+  // R-F3866 — the appended return MUST start on its own line. The slice can end
+  // with a trailing `//` comment (any comment sitting between this function and
+  // the next one), and without the newline `; return followUpState;` lands INSIDE
+  // that comment: the Function evaluates cleanly and returns undefined, so the
+  // failure reads as 'loadClassifier(...) is not a function' rather than pointing
+  // anywhere near the cause.
+  return new Function(`${PAGE.slice(start, end)}
+; return followUpState;`)();
 }
 
 // The exact shapes the pipeline produces.

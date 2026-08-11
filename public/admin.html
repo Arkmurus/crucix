@@ -204,13 +204,13 @@ function userCard(u) {
   var statusClass = u.status==='active'?'sc-badge-green':(u.status==='pending_approval'||u.status==='pending_verification')?'sc-badge-orange':'sc-badge-red';
   var actions = '';
   if (u.status==='pending_approval'||u.status==='pending_verification') {
-    actions += '<button type="button" class="action-btn approve" data-action="approve" data-id="'+u.id+'"><i class="bi bi-check-lg"></i> Approve</button>';
-    actions += '<button type="button" class="action-btn reject" data-action="reject" data-id="'+u.id+'"><i class="bi bi-x-lg"></i> Reject</button>';
+    actions += '<button type="button" class="action-btn approve" data-action="approve" data-id="'+escHtml(u.id)+'"><i class="bi bi-check-lg"></i> Approve</button>';
+    actions += '<button type="button" class="action-btn reject" data-action="reject" data-id="'+escHtml(u.id)+'"><i class="bi bi-x-lg"></i> Reject</button>';
   }
   if (u.status==='active') {
-    actions += '<button type="button" class="action-btn logout-btn" data-action="force-logout" data-id="'+u.id+'"><i class="bi bi-box-arrow-right"></i> Force Logout</button>';
+    actions += '<button type="button" class="action-btn logout-btn" data-action="force-logout" data-id="'+escHtml(u.id)+'"><i class="bi bi-box-arrow-right"></i> Force Logout</button>';
   }
-  actions += '<button type="button" class="action-btn delete" data-action="delete" data-id="'+u.id+'"><i class="bi bi-trash"></i> Delete</button>';
+  actions += '<button type="button" class="action-btn delete" data-action="delete" data-id="'+escHtml(u.id)+'"><i class="bi bi-trash"></i> Delete</button>';
   var login = u.lastLogin ? '<span style="font-size:11px;color:#9b968c;margin-left:auto">Last login: '+fmtDateTime(u.lastLogin)+'</span>' : '';
   return '<div class="user-card" id="user-'+u.id+'">'+
     '<div class="user-main">'+
@@ -220,7 +220,7 @@ function userCard(u) {
         '<div class="user-meta">'+escHtml(u.email||'')+' · @'+escHtml(u.username||'')+'</div>'+
       '</div>'+
       '<span class="sc-badge '+statusClass+'">'+escHtml(u.status||'')+'</span>'+
-      '<select class="role-sel" data-action="role" data-id="'+u.id+'">'+
+      '<select class="role-sel" data-action="role" data-id="'+escHtml(u.id)+'">'+
         ['viewer','support','poweruser','admin'].map(function(r){return '<option value="'+r+'"'+(u.role===r?' selected':'')+'>'+r+'</option>';}).join('')+
       '</select>'+
     '</div>'+

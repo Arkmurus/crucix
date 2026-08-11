@@ -81,9 +81,20 @@ async function drivePoll({ statusSequence, polls = 400 }) {
   const fuSrc = HTML.slice(HTML.indexOf('function followUpState'),
     HTML.indexOf('async function ddStartFailureMessage'));
   const followUpState = new Function(`${fuSrc}; return followUpState;`)();
+  // R-F3862 — the poll loop escapes the failure message with escText() (R-F3861
+  // replaced an ad-hoc `<`-only escape). escText is defined elsewhere in the page,
+  // outside this extracted slice, so the sandbox has to supply it — and it supplies
+  // the PAGE'S OWN copy, never a reimplementation, so this cannot pass against an
+  // escaper that has drifted from what production runs.
+  const escTextSrc = (() => {
+    const at = HTML.indexOf('function escText(');
+    assert.ok(at > -1, 'dd-reports.html must still define escText');
+    return HTML.slice(at, HTML.indexOf(String.fromCharCode(10), at));
+  })();
+  const escText = new Function(`${escTextSrc}; return escText;`)();
   const fn = new Function(
     'runId', 'name', 'authed', 'loadReports', 'document', 'window', 'Toast', 'setTimeout', 'Math',
-    'followUpState',
+    'followUpState', 'escText',
     `return (async () => { ${src} })();`,
   );
   await fn(
@@ -96,6 +107,7 @@ async function drivePoll({ statusSequence, polls = 400 }) {
     setTimeoutStub,
     Math,
     followUpState,
+    escText,
   );
 
   // Drain the controllable clock.

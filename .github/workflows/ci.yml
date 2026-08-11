@@ -205,25 +205,41 @@ jobs:
       # `--import ./test/helpers/net_guard.mjs` so CI can NEVER hit a live service (a briefing
       # test had been POSTing real signals to the production brain). Integration suites needing
       # a running service (test_compliance.mjs) are not matched by default discovery → `npm run test:live`.
-      - name: Node tests (aria-web)
-        continue-on-error: true
-        run: npm test
+      # R-F3862 — the Node suite now GATES on its failure SET.
+      #
+      # This used to be a bare `npm test` with continue-on-error, because the
+      # suite carries a standing set of failures and hard-failing on them would
+      # keep CI permanently red. Honest, but it meant a real Node regression
+      # could not fail the build either.
+      #
+      # node_suite_baseline.mjs is the Node counterpart to
+      # scripts/admin/suite_baseline.py (R-F3373): it fails ONLY on failures
+      # absent from docs/node_suite_baseline.json, reports fixed ones without
+      # failing, and refuses to gate at all if the runner collected almost
+      # nothing (a broken runner must not read as a green suite).
+      #
+      # It compares the SET, never the count — §16, learned on the Python side.
+      # Proven: removing one known failure from the baseline made it exit 1 and
+      # name the test, while the totals stayed identical at 1801/8.
+      - name: Node suite gate (fails only on NEW failures)
+        run: node scripts/admin/node_suite_baseline.mjs
 
       # R-F3855 — the DOM-XSS guards HARD-GATE, on their own step.
       #
-      # The step above is `continue-on-error: true` because the Node suite carries
-      # 8 standing failures, so it can report a regression but cannot block one.
-      # That is fine for a broad suite and useless for a security invariant: it
-      # made these two guards advisory, which is the same "gate nobody has seen
-      # fire" that §16 records for R-F3373.
+      # Kept SEPARATE from the suite gate above even though that one now blocks
+      # too, and deliberately so: the suite gate is baseline-relative (it permits
+      # the 8 standing failures), while a DOM-XSS finding is never acceptable at
+      # any baseline. Folding these in would make it possible to "fix" a red by
+      # re-recording the baseline, which is exactly the wrong affordance for a
+      # security invariant.
       #
-      # They are split out here with NO continue-on-error, so an unescaped
-      # interpolation or an unguarded URL sink fails the build. Both are green
-      # (132/132) and both have been proven to fire on an injected regression, so
-      # a red here is a real finding, never inherited noise.
+      # No continue-on-error, so an unescaped interpolation or an unguarded URL
+      # sink fails the build. Both suites are green and both have been proven to
+      # fire on an injected regression, so a red here is a real finding.
       - name: DOM-XSS guards (must pass)
         run: >
           node --test --test-force-exit
+          --import ./test/helpers/net_guard.mjs
           test/html-interpolation-guard-rf3845.test.mjs
           test/url-sink-guard-rf3851.test.mjs
 
@@ -272,4 +288,9 @@ jobs:
           echo "--- aria-wa npm audit (informational) ---"
           npm audit --omit=dev --audit-level=critical || true
           echo "--- aria-wa node tests ---"
-          node --test . 2>&1 | tail -40 || true
+          # R-F3862 — was `node --test .` with NO network guard, so a wa-listener
+          # test could reach a live service from CI. That is the exact failure
+          # R-F2731 exists for: a briefing test had been POSTing real signals to
+          # the production brain. The guard lives at the repo root, hence the
+          # relative path from services/wa-listener.
+          node --test --test-force-exit --import ../../test/helpers/net_guard.mjs . 2>&1 | tail -40 || true

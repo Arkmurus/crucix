@@ -67,6 +67,81 @@ export function isFullyEscaped(expr) {
   s = s.replace(/\b(true|false|null|undefined|typeof|new|void)\b/g, '');
   return !/[A-Za-z_$]/.test(s);
 }
+/**
+ * Values inside `expr` that reach the DOM WITHOUT passing an escaper.
+ *
+ * R-F3861 — closes the last false-negative class. Raw-ness is decided by finding
+ * markup in a declaration, so a declaration that holds BOTH markup and a value —
+ * `const x = cond ? '<b>ok</b>' : userInput` — excused the whole variable and
+ * `userInput` was never reported. Neither scan direction catches it, because the
+ * value sits in a TERNARY BRANCH rather than beside a `+`.
+ *
+ * That shape hid a live XSS: the aria-brain error banner (R-F3855).
+ *
+ * Method: delete escaper calls (arguments included), string literals, numbers and
+ * keywords; whatever identifier-shaped tokens survive are values with no escaper
+ * between them and innerHTML. Names that resolve to markup-emitting helpers are
+ * dropped, since those are fragments, not values.
+ *
+ * @param {string} src   whole-file source, for resolving helper names
+ * @param {string} expr  the declaration/expression to inspect
+ * @returns {string[]} unescaped value tokens, deduped
+ */
+export function unescapedRemainder(src, expr) {
+  // ORDER MATTERS. Literals go first: a paren inside a STRING —
+  // `escText(x || '(unnamed)')` — breaks any `[^()]*` escaper strip, leaving the
+  // argument behind and reporting an escaped value as unescaped. Three real call
+  // sites read that way before this was corrected.
+  let s = expr;
+  s = s.replace(/`(?:[^`\\]|\\.)*`/g, ' "" ');                     // template literals
+  s = s.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g, ' "" ');   // string literals
+  s = s.replace(/\/(?:[^/\\\n]|\\.)+\/[gimsuy]*/g, ' RE ');        // regex literals
+
+  // Now strip escaper CALLS with BALANCED arguments, innermost outward, so a
+  // nested call like escHtml(truncate(u.title, 110)) removes the whole thing.
+  for (let pass = 0; pass < 24; pass += 1) {
+    let changed = false;
+    for (const name of ESCAPER_NAMES) {
+      const at = s.indexOf(name + '(');
+      if (at < 0) continue;
+      // Only a standalone identifier, not a suffix of a longer name.
+      if (at > 0 && /[\w$.]/.test(s[at - 1])) continue;
+      let depth = 0;
+      let j = at + name.length;
+      for (; j < s.length; j += 1) {
+        if (s[j] === '(') depth += 1;
+        else if (s[j] === ')') { depth -= 1; if (!depth) { j += 1; break; } }
+      }
+      s = s.slice(0, at) + ' "" ' + s.slice(j);
+      changed = true;
+    }
+    if (!changed) break;
+  }
+  s = s.replace(/\b\d+(\.\d+)?\b/g, '0');
+  const KEYWORD = /^(const|let|var|function|return|true|false|null|undefined|typeof|new|void|if|else|for|of|in|this|Math|Object|Array|JSON|String|Number|Boolean|Date|document|window|console|RE)$/;
+  const SAFE_METHOD = /^(length|size|join|trim|slice|map|filter|push|concat|split|toFixed|toUpperCase|toLowerCase|toLocaleString|toLocaleDateString|replace|indexOf|includes|forEach|reverse|sort|keys|values|entries|from|isArray|round|min|max|abs|floor|ceil)$/;
+  // Report PROPERTY READS only (`obj.field`), not bare identifiers.
+  //
+  // A bare lowercase name inside a declaration is almost always a lambda
+  // parameter, a loop variable or a local flag; reporting those buried the real
+  // findings in ~230 tokens of noise, and a signal nobody can read is not a
+  // control. API data arrives as a property read, which is the shape that
+  // matters — `scope.subject_name`, `u.title`, `e.msg`.
+  const out = new Set();
+  for (const m of s.matchAll(/\b([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)\b/g)) {
+    const tok = m[1];
+    const head = tok.split('.')[0];
+    const tail = tok.split('.').pop();
+    if (KEYWORD.test(head) || KEYWORD.test(tok)) continue;
+    if (SAFE_METHOD.test(tail)) continue;
+    if (ESCAPER_NAMES.has(head)) continue;
+    // A helper that RETURNS markup is a fragment, not a value.
+    if (MARKUP.test(functionBodyOf(src, head)) || MARKUP.test(declarationOf(src, head))) continue;
+    out.add(tok);
+  }
+  return [...out];
+}
+
 const MARKUP = /<\s*\/?\s*[a-zA-Z][^>]*>/;
 /**
  * Markup detection for CONCATENATED builders, where a single tag is split across
@@ -146,7 +221,13 @@ export function declarationOf(src, ident) {
   while ((m = decl.exec(src)) !== null) {
     let j = m.index + m[0].length;
     let depth = 0;
-    for (; j < src.length; j += 1) {
+    // Bound the scan. If a bracket never balances — which happens when the match
+    // is not really a declaration, or when the expression runs into the page's
+    // static markup — an unbounded walk swallows the rest of the FILE and reports
+    // tokens from unrelated HTML (`placeholder="e.g. Acme"` surfaced as a
+    // property read `e.g`). No real declaration in this tree approaches this.
+    const limit = Math.min(src.length, j + 4000);
+    for (; j < limit; j += 1) {
       const ch = src[j];
       if (ch === '"' || ch === "'") {
         // Skip the literal. Without this a `;` inside a CSS string ends the scan
@@ -175,8 +256,12 @@ export function declarationOf(src, ident) {
     }
     chunks.push(src.slice(m.index, j));
   }
-  for (const mm of src.matchAll(new RegExp(`${ident}\\s*\\+=\\s*([^\\n]*)`, 'g'))) chunks.push(mm[1]);
-  for (const mm of src.matchAll(new RegExp(`${ident}\\.push\\(([^\\n]*)`, 'g'))) chunks.push(mm[1]);
+  // (?<![\w$.]) — WORD BOUNDARY, and it is load-bearing. Without it the collector
+  // for `s` also matched `rows +=`, `cites +=` and every other identifier ENDING
+  // in that name, concatenating unrelated code into one 5,600-character
+  // "declaration" and reporting tokens from static markup elsewhere in the page.
+  for (const mm of src.matchAll(new RegExp(`(?<![\\w$.])${ident}\\s*\\+=\\s*([^\\n]*)`, 'g'))) chunks.push(mm[1]);
+  for (const mm of src.matchAll(new RegExp(`(?<![\\w$.])${ident}\\.push\\(([^\\n]*)`, 'g'))) chunks.push(mm[1]);
   return chunks.join('\n');
 }
 

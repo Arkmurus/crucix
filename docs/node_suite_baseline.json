@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-08-11",
+  "node": "v22.23.2",
+  "totals": {
+    "tests": 1835,
+    "pass": 1818,
+    "fail": 8,
+    "skipped": 9
+  },
+  "failures": [
+    "DD report detail data-action controls are all wired to handlers",
+    "R-F2380 DD delete buttons require verified deletion before success",
+    "R-F3278 news.html contains no em/en dashes in displayed copy",
+    "R-F3297 access form uses the real lead endpoint with honest outcomes",
+    "a REQUIRED but UNAVAILABLE source is never pre-ticked",
+    "server.mjs uses the v13 API through one helper, on every route",
+    "test\\\\intel-value-chain-rf3536.test.mjs",
+    "test\\\\precommit-gate-performance-rf3556.test.mjs"
+  ]
+}

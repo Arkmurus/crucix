@@ -466,10 +466,18 @@
       `).join('');
     }
 
+    // R-F3866 — was the DOM trick (`d.textContent = s; return d.innerHTML`).
+    // That escapes `&`, `<` and `>` but NOT the quotes, and this page uses
+    // escHtml in FIVE attribute positions (`data-id="${escHtml(...)}"`,
+    // `id="del-${escHtml(...)}"`, `class="badge ${escHtml(...)}"`), where a `"`
+    // in the value closes the attribute and can add another. The ids and statuses
+    // it renders are listener-minted today, so this was not exploitable — but the
+    // escaper was the weak one, and nothing compared it against the other 16.
+    // Same character set as every other escaper in the tree now.
     function escHtml(s) {
-      const d = document.createElement('div');
-      d.textContent = s;
-      return d.innerHTML;
+      return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[c]));
     }
 
     async function refresh() {

@@ -568,7 +568,10 @@ Sidebar.init('account');
       });
     }
     function escapeHtml(s) {
-      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      // R-F3866 — was String(s), which renders null/undefined as the literal
+      // text "null"/"undefined" in the UI. Every other escaper in the tree maps
+      // them to ''; this one did not, and nothing compared them.
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
   })();
 

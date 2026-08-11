@@ -36,6 +36,7 @@ import { describe, it } from 'node:test';
 
 import {
   classifyHtmlInterpolations, classifyConcatOperands, declarationOf,
+  unescapedRemainder, stripLineComments,
 } from './helpers/html_interpolations.mjs';
 
 function repoRoot() {
@@ -235,11 +236,13 @@ const CONCAT_JUSTIFIED = {
   ]),
   'public/dd-reports.html': new Set([
     'L.count_skipped',
-    "String(rep.error || 'see report')",
     '_cnt',
     '_si.banner',
     'chips',
     'fmtDate(created)',
+    "l.replace(/^[-•*] /, '')",
+    "l.replace(/^[-•] /, '')",
+    "l.replace(/^\\d+\\. /, '')",
     'label',
     'lastRun',
     'm',
@@ -249,6 +252,7 @@ const CONCAT_JUSTIFIED = {
     'typeIcon',
   ]),
   'public/design-partners.html': new Set([
+    "(applied===1?'':'s')",
     'applied',
     'fmtDate(acct.credentialIssuedAt)',
     'fmtDate(e.created_at)',
@@ -369,6 +373,80 @@ describe('R-F3845 concatenation-built HTML is gated too', () => {
 // the helper's own sink is reported at its DEFINITION. These tests pin that,
 // because the argument is what the missing allowlist rests on.
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// R-F3861 — the LAST false-negative class, now enforced.
+//
+// Raw-ness is decided by finding markup in a declaration. A declaration holding
+// BOTH markup and a value — `const x = cond ? '<b>ok</b>' : userInput` — excused
+// the whole variable, and neither scan direction sees it because the value is in
+// a TERNARY BRANCH, not beside a `+`. That shape hid a live XSS (R-F3855, the
+// aria-brain error banner).
+//
+// unescapedRemainder() strips literals, then escaper calls with BALANCED
+// arguments, and reports the PROPERTY READS that survive — the shape API data
+// arrives in. Each entry below was resolved at its source: every one is a
+// CONDITION (`x != null ? … : ''`, a loop guard, a boolean test), never an
+// emitted value, and every value those branches DO emit is escaped.
+// ─────────────────────────────────────────────────────────────────────────────
+const RAW_DECL_JUSTIFIED = {
+  // Each token below was resolved at its source: every one is a CONDITION —
+  // `x != null ? … : ''`, a `.length` loop guard, a boolean test — and never an
+  // emitted value. The values those branches DO emit are escaped at the emit
+  // point (escText/escHtml/esc). Verified by hand, not inferred.
+  'public/account.html': ['t.currency', 't.priceAmount'],
+  'public/admin.html': ['u.lastLogin'],
+  'public/aria-brain.html': ['hs.pct_live_sensor', 'm.critical', 'nd.function_count'],
+  'public/aria.html': ['listEl.querySelectorAll'],
+  'public/dd-reports.html': ['L.count_run', 'L.count_skipped', '_si.banner', 'data.stats', 'ev.tier', 'f.detail', 'f.gate_demoted', 'f.severity', 'o.required', 'readiness.clearance_ready', 'sec.evidence', 'sec.highlights', 'sec.subcalls'],
+  'public/design-partners.html': ['acct.credentialIssuedAt'],
+  'public/js/app.js': ['f.required'],
+  'public/vetting.html': ['d.attempted', 'd.sent', 'r.days_outstanding', 'r.json', 's.blockers'],
+};
+
+describe('R-F3861 a raw declaration cannot hide an unescaped value', () => {
+  for (const page of PAGES) {
+    it(`${page}`, () => {
+      const raw = read(page);
+      const src = stripLineComments(raw);
+      const names = new Set([
+        ...classifyHtmlInterpolations(raw).raw,
+        ...classifyConcatOperands(raw).raw,
+      ].filter((e) => /^[A-Za-z_$][\w$]*$/.test(e)));
+      const allowed = new Set(RAW_DECL_JUSTIFIED[page] || []);
+      const novel = [];
+      for (const n of names) {
+        const decl = declarationOf(src, n);
+        if (!decl) continue;
+        for (const tok of unescapedRemainder(src, decl)) {
+          if (!allowed.has(tok)) novel.push(`${n} -> ${tok}`);
+        }
+      }
+      assert.deepEqual([...new Set(novel)], [],
+        `${page}: a variable treated as RAW markup also carries an unescaped value:\n  `
+        + `${[...new Set(novel)].join('\n  ')}\n`
+        + '  Escape it at its source, or add the token to RAW_DECL_JUSTIFIED once you '
+        + 'have confirmed it is a CONDITION and not an emitted value.');
+    });
+  }
+
+  it('the detector still catches the shape that hid R-F3855', () => {
+    const bad = "const x = cond ? '<b>ok</b>' : u.userInput;";
+    assert.deepEqual(unescapedRemainder(bad, bad), ['u.userInput']);
+  });
+
+  it('a paren inside a STRING does not defeat the escaper strip', () => {
+    // escText(x || '(unnamed)') broke a `[^()]*` strip and reported three
+    // properly-escaped call sites as sinks.
+    const ok = "h += '<div>' + escText(scope.subject_name || '(unnamed)')";
+    assert.deepEqual(unescapedRemainder(ok, ok), []);
+  });
+
+  it('a NESTED escaper call is stripped whole', () => {
+    const ok = "const inner = '<div>' + escHtml(truncate(u.title || '', 110)) + '</div>'";
+    assert.deepEqual(unescapedRemainder(ok, ok), []);
+  });
+});
+
 describe('R-F3845 a raw call does not hide the sink inside the helper', () => {
   it('an unescaped value inside a markup-returning function IS reported (concat)', () => {
     const src = `<script>

@@ -826,7 +826,13 @@ async function ddStartFailureMessage(resp, what) {
   return { isQuota: false, text: label + ' could not start (HTTP ' + resp.status + ')' + detail + '.' };
 }
 
-function escAttr(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
+// R-F3863 — was `.replace(/"/g,'&quot;')` only. Every call site happens to sit in a
+// DOUBLE-quoted attribute, where escaping `"` is sufficient, so this was not
+// exploitable — but it is one quote-style change away from a breakout, and it
+// left `&` raw so entity sequences in the data got mangled on read. Now the same
+// character set as escText(); attributes are decoded by the browser, so
+// dataset.* readers see the identical value they did before.
+function escAttr(s) { return escText(s); }
 function escText(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function ddIsPlaceholderName(value) {
@@ -2252,10 +2258,10 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
           if (footEl && footEl.parentNode) footEl.parentNode.insertBefore(exEl, footEl);
           else if (bodyEl && bodyEl.parentNode) bodyEl.parentNode.appendChild(exEl);
         }
-        const _nm = String(started.entity_name || name).replace(/</g, '&lt;');
+        const _nm = escText(started.entity_name || name);
         const _cnt = started.run_count || 1;
         const _last = started.last_run_at ? new Date(started.last_run_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'previously';
-        const _risk = String(started.risk_level || 'unknown').replace(/</g, '&lt;');
+        const _risk = escText(started.risk_level || 'unknown');
         exEl.innerHTML =
           '<div style="text-align:center;padding:24px 16px">' +
             '<div style="font-size:34px;color:#2563eb;margin-bottom:6px"><i class="bi bi-folder-check"></i></div>' +
@@ -2312,7 +2318,7 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
         if (footEl && footEl.parentNode) footEl.parentNode.insertBefore(confEl, footEl);
         else if (bodyEl && bodyEl.parentNode) bodyEl.parentNode.appendChild(confEl);
       }
-      const _nm = String(name).replace(/</g, '&lt;');
+      const _nm = escText(name);
       confEl.innerHTML =
         '<div style="text-align:center;padding:24px 16px">' +
           '<div style="font-size:34px;color:#7c3aed;margin-bottom:6px"><i class="bi bi-hourglass-split"></i></div>' +
@@ -2379,7 +2385,7 @@ document.getElementById('dd-search').addEventListener('input', applySearch);
               }
               if (st === 'failed') {
                 if (liveEl) liveEl.innerHTML = '<span style="color:#dc2626">✗ DD failed: ' +
-                  String(rep.error || 'see report').replace(/</g, '&lt;') + '</span>';
+                  escText(rep.error || 'see report') + '</span>';
                 if (window.Toast) Toast.show('DD failed for ' + name, 'error');
               } else if (fu.blocksComplete) {
                 if (liveEl) liveEl.innerHTML = '<span style="color:#b45309">⚠ Report ready. ' +
