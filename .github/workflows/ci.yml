@@ -182,7 +182,24 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # R-F3904 — was "20", BELOW this project's own declared minimum.
+          # package.json says `"engines": {"node": ">=22"}` and both production
+          # images are `node:22-slim`, so CI was testing on a runtime the project
+          # does not support.
+          #
+          # The consequence was not a subtle incompatibility — it ran ZERO TESTS.
+          # `npm test` is `node --test ... "test/**/*.test.mjs"`, and Node 20's test
+          # runner does not expand globs (Node 22+ does), so it reported
+          #     Could not find '/home/runner/work/crucix/crucix/test/**/*.test.mjs'
+          # emitted no TAP summary, and the suite gate refused with
+          # "could not parse TAP totals" on 8+ consecutive commits — both agents'
+          # work, entirely ungated on the Node tier, while the same command passed
+          # locally with 1833 tests.
+          #
+          # It took R-F3903 to find this: the gate had been refusing correctly and
+          # SILENTLY, so nobody could see that the runner never started. A gate that
+          # cannot say why it could not measure is one nobody can act on.
+          node-version: "22"
 
       - name: Install deps (clean, from lockfile)
         run: npm ci
