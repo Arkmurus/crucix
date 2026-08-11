@@ -829,7 +829,44 @@ Noise now returns `ok:False` + a stated reason and is §21a-wired as
 > Either restore upstream engines or point `SEARXNG_URL` at a healthier one. ARIA no
 > longer *trusts* the noise, which was the dangerous half.
 
-### C-19 · Noise reached a CUSTOMER-FACING DD report — P0 — operator decision needed
+### C-18b · The SearXNG noise is NOT the engine set — engine fix tried and MEASURED as failed
+
+R-F3849 re-tuned the engine list on live evidence (R-F1659's June "datacenter-tolerant"
+set had rotted: google CAPTCHA, mojeek/qwant/wikidata access-denied, only bing
+answering) and deployed it. **Then measured. It did not work.** The same query four
+times still returns four unrelated results — "Corrector Castellano", "Stock Exchange
+of Thailand", "WhatsApp Web", "On This Day" — now via `bing` + `google cse`, a variant
+the disable did not cover.
+
+**So the engine set was never the cause.** The instance is mismatching responses to
+requests. Leading hypothesis, UNTESTED: response mixing under concurrent load
+(`ARIA_SEARXNG_CONCURRENCY=4` plus the autonomous loop hitting it continuously), which
+would explain a *sequential* probe receiving another query's answer.
+
+**Deliberately NOT disabled.** R-F3844 discards the noise per-query while letting good
+responses through (3 of 11 probes were clean), so a blanket kill loses the working
+queries for no gain. The engine change still removes four dead engines' latency.
+
+> **The protection is R-F3844 + R-F3847, not this config.** The config comment carries
+> the re-measure command and says plainly that the list will rot again — a
+> datacenter-hosted metasearch scraping consumer engines is a decaying asset.
+
+### C-19 · Noise reached a CUSTOMER-FACING DD report — P0 — **REMEDIATED (R-F3849)**
+
+Full sweep of all 29 stored DD reports: **exactly one** carried an off-mission
+citation — `dd_92f9d77b8886` (Silverbrook), `.digital.press_coverage[3]` =
+"Télécharger et installer Google Chrome" (`support.google.com/chrome/answer/95346`).
+It was tagged `source_tier: UNVERIFIED`, so it was never presented as verified
+evidence — but it does not belong in a press-coverage section.
+
+Remediated surgically rather than by re-running the DD (a re-run changes content far
+beyond the defect and burns budget for no integrity gain): the FULL original report
+archived to `/data/quarantine/rf3849_*.json` first (§26), the single citation removed
+(13→12 entries), and an `amendments` entry written **onto the report** — an amended
+deliverable must say it was amended. Re-verified through the live API: 29 reports, **0
+off-mission citations**.
+
+### C-19-orig · Noise reached a CUSTOMER-FACING DD report — original finding
 
 The severity question the investigation left open, now answered with evidence. Of 29
 stored DD reports, none cite an adult/gambling domain — but **benign noise did reach
