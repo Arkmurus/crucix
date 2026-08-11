@@ -13,6 +13,10 @@ TARGET_LABELS = {
     "tooluse_challenge",
     "tooluse_challenge_unavailable",
     "tooluse_multihop",
+    # R-F3869 — person is an acquisition failure, not retention. Capping it at
+    # six subjects while unavailable-screen axes received 11-16 taught the
+    # terminal answer to call performed person matches unavailable.
+    "tooluse_person",
     "tooluse_trace_unavailable",
 }
 EXPECTED_LABELS = TARGET_LABELS | {
@@ -60,6 +64,19 @@ def build_balanced_queue(
     return selected
 
 
+def select_novel_rows(rows: list[dict], prior: list[dict]) -> list[dict]:
+    """Return rows whose axis/subject evidence is absent from ``prior``."""
+    known = {
+        (str(row.get("label") or ""), _norm_subject(str(row.get("subject") or "")))
+        for row in prior
+    }
+    return [
+        row for row in rows
+        if (str(row.get("label") or ""),
+            _norm_subject(str(row.get("subject") or ""))) not in known
+    ]
+
+
 def _read_jsonl(path: Path) -> list[dict]:
     return [
         json.loads(line)
@@ -76,6 +93,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--target-limit", type=int, default=16)
     parser.add_argument("--retention-limit", type=int, default=6)
+    parser.add_argument("--exclude-file", type=Path,
+                        help="Write only axis/subject rows absent from this JSONL")
     args = parser.parse_args(argv)
 
     held = {
@@ -88,6 +107,8 @@ def main(argv: list[str] | None = None) -> int:
         target_limit=args.target_limit,
         retention_limit=args.retention_limit,
     )
+    if args.exclude_file:
+        queue = select_novel_rows(queue, _read_jsonl(args.exclude_file))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in queue),

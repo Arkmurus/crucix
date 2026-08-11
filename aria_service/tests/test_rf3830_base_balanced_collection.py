@@ -8,6 +8,7 @@ from scripts.train.build_balanced_tooluse_queue import (
     EXPECTED_LABELS,
     TARGET_LABELS,
     build_balanced_queue,
+    select_novel_rows,
 )
 
 
@@ -33,7 +34,22 @@ def test_balanced_queue_targets_failures_and_retains_every_axis() -> None:
     assert all(
         counts[label] == 6 for label in EXPECTED_LABELS - TARGET_LABELS
     )
-    assert len(queue) == 100
+    assert counts["tooluse_person"] == 16
+    assert len(queue) == 110
+
+
+def test_person_match_is_targeted_before_dependent_multihop() -> None:
+    assert "tooluse_person" in TARGET_LABELS
+    assert "tooluse_multihop" in TARGET_LABELS
+
+
+def test_delta_collection_contains_only_new_axis_subject_evidence() -> None:
+    prior = [{"label": "tooluse_person", "subject": "Oleg Deripaska"}]
+    current = prior + [
+        {"label": "tooluse_person", "subject": "Petr Aven"},
+        {"label": "tooluse_trace", "subject": "Oleg Deripaska"},
+    ]
+    assert select_novel_rows(current, prior) == current[1:]
 
 
 def test_balanced_queue_refuses_held_out_entity() -> None:
