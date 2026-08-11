@@ -183,16 +183,32 @@ def _drop_query_independent_engines(query: str, results: list) -> tuple[list, di
         by_engine.setdefault((r.get("engine") or "").strip().lower(), []).append(r)
     if len(by_engine) < 2:
         return results, {}
+    # Keyed by the REAL engine key, never by a display label. R-F3857: labelling
+    # the unnamed group "unknown" collided with an engine actually called
+    # "unknown", and the collision dropped the innocent one.
+    dropped_keys: set[str] = set()
     dropped: dict[str, int] = {}
     for engine, rows in by_engine.items():
         if _is_query_independent(query, rows):
-            dropped[engine or "unknown"] = len(rows)
+            dropped_keys.add(engine)
+            dropped[engine or "(unnamed)"] = len(rows)
     if not dropped:
+        return results, {}
+    # R-F3857 — when EVERY engine is unrelated, this is the whole-set case and
+    # R-F3844 already owns it. Emptying the list here instead would hand that gate
+    # an empty set, which it reads as "nothing found is an honest answer" — so a
+    # backend that answered a different question would be reported as ok=True with
+    # zero results. An adverse-media sweep reads zero results as a CLEAN sweep, so
+    # that is a false clean, not a smaller answer. This filter exists to remove a
+    # MINORITY bad source from an otherwise good set; the all-bad case is not its
+    # decision to make. Note this is precisely the state that arrives when `yep` is
+    # eventually blocked too — the protection would have vanished exactly when it
+    # was most needed.
+    if len(dropped_keys) == len(by_engine):
         return results, {}
     kept = [r for r in results
             if isinstance(r, dict)
-            and (r.get("engine") or "").strip().lower() not in
-            {e for e in by_engine if (e or "unknown") in dropped}]
+            and (r.get("engine") or "").strip().lower() not in dropped_keys]
     return kept, dropped
 
 
