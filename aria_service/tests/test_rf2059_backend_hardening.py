@@ -117,8 +117,15 @@ def test_all_search_backends_have_circuit_breakers():
     backends = _search_backends(tree)
     assert backends, "no _search_* backends found — the guard has gone blind again"
 
-    # _search_brave is a permanent stub returning [] (R-F320 removal).
-    exempt = {"_search_brave"}
+    # R-F3868 — NOTHING IS EXEMPT ANY MORE. This set held "_search_brave",
+    # described as "a permanent stub returning [] (R-F320 removal)". That is FALSE
+    # and had become dangerous: Brave was reinstated as the paid primary (R-F2318)
+    # and is now the sole DD search engine (R-F3847). Verified against the AST —
+    # `_search_brave` has a circuit breaker, wires its failures, and is 100+ lines
+    # of live code. The exemption was excluding ARIA's most important paid backend
+    # from the very guard that protects backends, on the strength of a stale
+    # comment. It passes on its own merits.
+    exempt: set[str] = set()
 
     missing = []
     for fn in backends:
@@ -136,7 +143,7 @@ def test_all_search_backends_wire_their_failures():
     """§21a — a backend that fails silently is DARK. Split from the breaker
     assertion so a failure names which property broke."""
     tree, _ = _load()
-    exempt = {"_search_brave"}
+    exempt: set[str] = set()
 
     missing = []
     for fn in _search_backends(tree):

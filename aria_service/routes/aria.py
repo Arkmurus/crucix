@@ -22727,6 +22727,18 @@ async def search_health_ep():
     except Exception as _e:      # pragma: no cover
         if isinstance(health, dict):
             health["engine_relevance"] = {"error": f"unavailable: {_e}"}
+    # R-F3868 — consumption of the PAID engine DD depends on. Nothing counted
+    # Brave's calls before this, so "how much of the plan is left" had no answer
+    # at all — which is how the OpenSanctions exhaustion was found (§18): by a 429
+    # in production, not by a gauge. Reports `unknown` headroom rather than
+    # inventing a denominator until BRAVE_MONTHLY_QUOTA is set.
+    try:
+        from ..intel import brave_usage as _bu
+        if isinstance(health, dict):
+            health["brave_usage"] = await _bu.usage_report()
+    except Exception as _e:      # pragma: no cover
+        if isinstance(health, dict):
+            health["brave_usage"] = {"error": f"unavailable: {_e}"}
     return health
 
 

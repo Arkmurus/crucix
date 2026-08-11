@@ -543,6 +543,33 @@ def _relax_brave_query(query: str) -> str:
     return relaxed if relaxed and relaxed != q else ""
 
 
+def _safe_body(resp: Any) -> str:
+    """The response body, or "" — reading it must never turn a 429 into a crash.
+
+    R-F3868: the body is load-bearing (it is the only signal separating a pacing
+    429 from a spent plan, §18), but it is also untrusted input on an error path.
+    """
+    try:
+        return (resp.text or "")[:500]
+    except Exception:
+        return ""
+
+
+async def _brave_meter(outcome: str, *, status: int | None = None,
+                       body: str = "", headers: Any = None) -> None:
+    """Count one Brave call. Metering must NEVER break the search it observes.
+
+    R-F3868 — Brave is DD's designated engine and nothing was counting its calls:
+    `/api/aria/cost/external` reported `by_service: {}, total_calls: 0`. An
+    unmeasured dependency reads exactly like a healthy one, right up to the 429.
+    """
+    try:
+        from . import brave_usage as _bu
+        await _bu.record_call(outcome, status=status, body=body, headers=headers)
+    except Exception:      # pragma: no cover - observability never blocks search
+        logger.debug("[R-F3868] brave metering unavailable", exc_info=True)
+
+
 async def _search_brave(query: str, max_results: int = 10, language: str = "en",
                         *, _is_relaxed_retry: bool = False) -> list[SearchResult]:
     """Brave Web Search API. Returns [] when unconfigured, cooled, rate-limited, or
@@ -581,14 +608,22 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en",
             resp = await client.get(_BRAVE_ENDPOINT, params=params, headers=headers)
             if resp.status_code == 429:
                 _cb.record_failure(reason="rate_limited")
+                # R-F3868 — the 429 BODY is the only thing that distinguishes "we
+                # are going too fast" from "the plan is spent", and §18 records the
+                # OpenSanctions defect of reporting the second as the first: a wrong
+                # cause pointing at a wrong fix. Retrying cannot clear a spent plan.
+                await _brave_meter("rate_limited", status=429,
+                                   body=_safe_body(resp), headers=resp.headers)
                 logger.info("Brave search rate-limited (429) for %r — falling back to free stack", query[:60])
                 return []
             if resp.status_code in (401, 403):
                 _cb.record_failure(reason="auth")
+                await _brave_meter("auth_failed", status=resp.status_code)
                 logger.warning("Brave search auth failed (%s) — check BRAVE_SEARCH_API_KEY secret", resp.status_code)
                 return []
             if resp.status_code != 200:
                 _cb.record_failure(reason=classify_status(resp.status_code))
+                await _brave_meter("http_error", status=resp.status_code)
                 return []
             data = resp.json()
             web = (data.get("web") or {}).get("results") or []
@@ -606,6 +641,11 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en",
                     timestamp=(item.get("age") or item.get("page_age") or ""),
                 ))
             _cb.record_success()
+            # R-F3868 — count the call that SUCCEEDED too. A meter that only counts
+            # failures cannot answer "how much of the plan have we used", which is
+            # the question that matters BEFORE the plan is spent. `empty` is tracked
+            # separately from `ok` because a 200-with-zero still consumes quota.
+            await _brave_meter("ok" if results else "empty", status=200)
             # R-F3051 — 200-with-zero means over-constrained, not unavailable. Retry
             # ONCE with the qualifier terms dropped (quoted phrase + OR-block kept).
             # Bounded to a single extra call so a genuinely zero-result subject costs
@@ -633,6 +673,7 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en",
             return results
     except Exception as e:
         _cb.record_failure(reason="timeout")
+        await _brave_meter("timeout")
         logger.warning("Brave search failed: %s", e)
         wire_failure(
             module="web_search._search_brave",
