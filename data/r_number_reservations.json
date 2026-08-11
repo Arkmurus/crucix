@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "next_available": 3884,
+  "next_available": 3887,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -32786,9 +32786,10 @@
       "title": "jQuery 3.7.1 migration: two Waypoints fixes, verified against a local baseline",
       "claimed_at": "2026-08-11T16:18:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bce625f7",
+      "notes": null,
+      "shipped_at": "2026-08-11T16:49:35Z"
     },
     {
       "r_number": "R-F3883",
@@ -32799,6 +32800,33 @@
       "commit_sha": "65a36640",
       "notes": null,
       "shipped_at": "2026-08-11T16:32:24Z"
+    },
+    {
+      "r_number": "R-F3884",
+      "title": "wire Brave into the cost tracker - record_brave_call had zero callers",
+      "claimed_at": "2026-08-11T16:46:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3885",
+      "title": "precommit hook test certifies presence not activation - core.hooksPath unset",
+      "claimed_at": "2026-08-11T16:46:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F3886",
+      "title": "pre-commit staged path crashes with NameError - every local check failed open",
+      "claimed_at": "2026-08-11T16:50:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

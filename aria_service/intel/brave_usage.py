@@ -256,10 +256,69 @@ async def record_call(outcome: str, *, status: int | None = None,
     if headers is not None:
         await _record_plan_limits(headers)
 
+    # R-F3884 — AND put the SPEND on the operator's cost surface, not only the call
+    # count on this module's own one. `cost_tracker.record_brave_call` was built for
+    # exactly this, with a documented price and a BRAVE_COST_PER_CALL_USD override,
+    # and had ZERO callers — so `/api/aria/cost/external` still reported
+    # `by_service: {}, total_calls: 0`, which is verbatim the symptom C-23 cites as
+    # the proof Brave was unmetered. R-F3868 counted calls here and left that
+    # endpoint untouched: the fix was verified against a different surface than the
+    # one whose emptiness defined the defect.
+    await _record_spend(outcome, status)
+
+    # §21a — BOTH branches must reach a brain sink. This module had wire_failure on
+    # every error path and NOTHING on the success path, so the brain could see Brave
+    # breaking but never see it working — and "no failure signal" is not evidence of
+    # health (§1, §22). Caught by the pre-commit wiring check the moment R-F3886
+    # revived it, having been dark in this module since R-F3868.
+    # Routed through wire_success, i.e. the lightweight metric path (R-F1664), NOT
+    # absorb: this is per-call telemetry and the heavy tier is what wedged the
+    # absorb pipeline once already.
+    if outcome == "ok":
+        try:
+            from .engine_wiring import wire_success
+            wire_success(module="brave_usage",
+                         summary="brave search call served",
+                         source_id="brave_usage:R-F3884")
+        except Exception:      # pragma: no cover - telemetry never blocks search
+            pass
+
     if status == 429:
         await _note_exhaustion(classify_429(body, headers), body)
     else:
         await _maybe_warn_headroom()
+
+
+async def _record_spend(outcome: str, status: int | None) -> None:
+    """Book this call against the external cost surface — and the §17 cap.
+
+    THE CAP INTERACTION IS DELIBERATE. `_flush_external_pending` writes the composite
+    `COST_MONTH_PREFIX{month}` rollup that `assert_monthly_cap` reads, so Brave spend
+    counts toward the monthly ceiling. That is correct — Brave is real money and the
+    operator watches that number daily (§17) — but it is a behavioural change, so it
+    was checked against live headroom before shipping (~$48 of $600 month-to-date;
+    Brave at $0.005/call adds tens of dollars a month, not hundreds).
+
+    NEVER BILL FOR A CALL BRAVE DID NOT ANSWER. A timeout produced no HTTP response,
+    so no query was served; it is recorded as an attempt at cost 0.0 rather than
+    hidden or charged. Same rule that keeps `monthly_quota()` returning None instead
+    of a comforting zero.
+
+    The PRICE is not decided here. It comes from cost_tracker's documented default
+    ($5/1,000, the conservative Pro-plan ceiling) or the operator's
+    BRAVE_COST_PER_CALL_USD — a second hardcoded rate in this module would be a
+    number nobody could reconcile with the first.
+    """
+    try:
+        from . import cost_tracker as _ct
+        await _ct.record_brave_call(
+            operation="search",
+            success=(outcome == "ok"),
+            # status is None only when no response arrived (timeout/transport error).
+            cost_per_call_usd=None if status is not None else 0.0,
+        )
+    except Exception:      # pragma: no cover - cost bookkeeping never blocks search
+        logger.debug("[R-F3884] brave cost recording unavailable", exc_info=True)
 
 
 async def _note_exhaustion(kind: str, body: str) -> None:

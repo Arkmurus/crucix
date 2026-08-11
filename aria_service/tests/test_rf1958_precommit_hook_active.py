@@ -8,6 +8,19 @@ pre-commit hook to the ACTIVE dir.
 
 These tests assert (a) the hook is wired into the active path and is fail-safe,
 and (b) the underlying enforcement it activates actually detects a violation.
+
+⚠️ R-F3885 (2026-08-11) — READ THIS BEFORE TRUSTING THE WORD "ACTIVE" BELOW.
+These tests certify the hook's PRESENCE and call it activation. Nothing here checks
+that `core.hooksPath` is actually SET, and measured on 2026-08-11 it was unset both
+locally and globally — so **no local hook ran at all**, for any of the ~12 checks,
+while this file was green. That is R-F1958's own defect one level up: it fixed the
+config-points-elsewhere problem and then asserted the file's location, leaving the
+same class (the config not pointing where everyone believes) invisible.
+
+`test_rf3885_hookspath_actually_active.py` measures and REPORTS the real activation
+state. Enforcement today is CI (ci.yml → `scripts/pre-commit --check-all`, plus
+defect-register-gate.yml). To activate locally:
+    git config core.hooksPath scripts/git-hooks
 """
 import sys
 from pathlib import Path

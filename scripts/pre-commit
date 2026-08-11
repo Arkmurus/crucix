@@ -499,7 +499,26 @@ _sys.exit(_r.returncode)
             module_path = resolve_module(call["object"], file_path, call.get("line_num"))
             if module_path is None:
                 continue
-            if _is_capability_guarded(lines, call["line_num"], call["function"]):
+            # R-F3886 — this said `lines`, which does not exist in THIS scope; the
+            # variable here is `added_lines` (the name `lines` belongs to
+            # check_all_files(), where this guard call was copied from). The staged
+            # path therefore died with `NameError: name 'lines' is not defined` on
+            # the first staged .py containing any resolvable call.
+            #
+            # It failed WORSE than silently: the hook is deliberately fail-open (it
+            # blocks only on an explicit "VERIFICATION FAILED" sentinel, so a tooling
+            # bug never wedges commits), so the crash meant EVERY local check — all
+            # ~12, including the R-F3878 C-number gate — was skipped and the commit
+            # allowed. CI stayed green because `--check-all` runs check_all_files(),
+            # which never reaches this line. TWO failures had stacked: core.hooksPath
+            # unset (R-F3885) AND this crash, so activating the hook alone would have
+            # bought nothing.
+            #
+            # `added_lines` is CORRECT, not merely NameError-free: call["line_num"]
+            # is produced by enumerate() over added_lines inside find_function_calls
+            # / find_direct_function_calls, so it indexes THAT list, and
+            # _is_capability_guarded slices lines[lo:line_num].
+            if _is_capability_guarded(added_lines, call["line_num"], call["function"]):
                 continue
             # R-F3556 — known dead branches: reported, not fatal, shrink-only.
             if (module_path, call["function"]) in KNOWN_DEAD_CALLS:
@@ -536,7 +555,8 @@ _sys.exit(_r.returncode)
             module_path = resolve_module(call["object"], file_path, call.get("line_num"))
             if module_path is None:
                 continue
-            if _is_capability_guarded(lines, call["line_num"], call["function"]):
+            # R-F3886 — same defect, second staged-path site. See above.
+            if _is_capability_guarded(added_lines, call["line_num"], call["function"]):
                 continue
             # R-F3556 — known dead branches: reported, not fatal, shrink-only.
             if (module_path, call["function"]) in KNOWN_DEAD_CALLS:
