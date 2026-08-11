@@ -131,25 +131,51 @@ class TestSearchMakeLoud:
 class TestBackendNames:
     """R-F1657 Fix 3+4: backend names are correct (no phantom brave)."""
 
-    def test_backend_names_no_brave(self):
-        """_backend_names must not contain 'brave' as an actual name entry."""
-        from aria_service.intel.web_search import search
-        import inspect
+    def test_backend_names_never_names_brave_unconditionally(self):
+        """No PHANTOM brave — a backend name may appear only when that backend can
+        actually serve.
+
+        R-F3859 (2026-08-11) — THIS GUARD ASSERTED A REVERSED POLICY AND WAS
+        DANGEROUS. It required that `"brave"` never appear in `_backend_names` at
+        all. That was right in R-F1657's world: Brave was a REMOVED stub (R-F320)
+        returning [], so naming it invented a contributor that could not
+        contribute — a phantom that corrupts attribution and telemetry.
+
+        Brave was reinstated. It is LIVE, PAID, and ARIA's primary user-facing
+        search (R-F2318), the sole DD search engine (R-F3847), and the operator
+        restated it on 2026-08-11: "brave API is aria's search engine" for DD.
+        CLAUDE.md §18 records the reversal explicitly, and warns that the stale
+        reading "would have led a future agent to rip out working primary search".
+
+        This test WAS that trap. It had been red since Brave came back, parked in
+        docs/suite_baseline.json as a known failure, and the obvious way to make it
+        green is to delete `["brave"] if _brave_on else []` — which would silently
+        disable the paid primary backend and take DD search with it.
+
+        So the ASSERTION is corrected to the guard's actual purpose, which never
+        stopped being valid: the name must be CONDITIONAL on the backend being
+        enabled. An unconditional `"brave"` would be the phantom R-F1657 forbade;
+        a guarded one is an honest name for a backend that really runs.
+        """
         source = function_source("aria_service.intel.web_search", "search")
         lines = source.split('\n')
         for i, line in enumerate(lines):
-            if '_backend_names' in line:
-                # Collect lines until we see the closing );
-                block = '\n'.join(lines[i:i+8])
-                # Check for quoted 'brave' strings (not in comments)
-                for line in lines[i:i+8]:
-                    stripped = line.strip()
-                    # Skip comments
-                    if stripped.startswith('#'):
-                        continue
-                    if '"brave"' in stripped or "'brave'" in stripped:
-                        assert False, f"_backend_names still has 'brave' in: {stripped}"
-                return
+            if '_backend_names' not in line:
+                continue
+            for candidate in lines[i:i + 8]:
+                stripped = candidate.strip()
+                if stripped.startswith('#'):
+                    continue
+                if '"brave"' not in stripped and "'brave'" not in stripped:
+                    continue
+                # Named — so it must be gated on Brave actually being on.
+                assert ('_brave_on' in stripped or 'if ' in stripped), (
+                    "brave is named UNCONDITIONALLY in _backend_names: "
+                    f"{stripped!r}. Either it is a phantom (R-F1657) or the gate "
+                    "was lost. Do NOT fix this by deleting the name — Brave is the "
+                    "paid primary and the sole DD engine (R-F2318/R-F3847)."
+                )
+            return
 
     def test_telemetry_names_no_brave(self):
         """Telemetry counter names must not contain 'brave_lang'."""
