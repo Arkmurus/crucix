@@ -97,6 +97,15 @@ import { errorTracker, configureTelemetry, SweepMonitor } from './lib/observabil
 // Shared module (not an inline regex) so the capability test drives the shipped
 // validator over a real socket rather than a copy of it.
 import { isValidVettingPortalSuffix } from './lib/vetting/portalPath.mjs';
+// R-F3831/R-F3832 — the same defect class as R-F3682, on NAMED route params.
+// Rationale, charsets and the measured exploit live in the module.
+import { isValidSessionId, isValidWaAccountId } from './lib/http/upstreamSegment.mjs';
+// R-F3833 — ONE localhost-bypass decision, keyed off the REAL TCP peer. Five
+// gates previously derived it from the forgeable req.ip; see the module header.
+import { localhostBypassAllowed } from './lib/auth/localhostBypass.mjs';
+// R-F3838 — scheme allowlist for URLs rendered as hrefs. escHtml stops attribute
+// breakout; it does NOT stop `javascript:`, which needs no quote to fire.
+import { safeExternalUrl } from './lib/util/safeUrl.mjs';
 import { ProcurementDedup, SourcePruner } from './lib/sources/sourceMaintenance.mjs';
 import { startExplorerScheduler } from './lib/self/explorerScheduler.mjs';
 import { redisAdapter } from './lib/persist/redisAdapter.mjs';
@@ -1439,7 +1448,11 @@ app.get('/api/wa/binding', requireAuth, async (req, res) => {
   const uid = req.user?.userId || '';
   try {
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/binding/' + encodeURIComponent(uid), {
-      headers: { 'Authorization': WA_SERVICE_AUTH },
+      // R-F3832 — pin the JWT user so the listener's own ownership check
+      // (_waBindingOwns) is load-bearing for real traffic. Without the header the
+      // listener treats the caller as admin/internal and trusts the path uid,
+      // which leaves the check inert on exactly the path that matters.
+      headers: { 'Authorization': WA_SERVICE_AUTH, 'X-WA-User': uid },
       signal: AbortSignal.timeout(10000),
     });
     return res.status(r.status).json(await r.json().catch(() => ({})));
@@ -1453,7 +1466,8 @@ app.delete('/api/wa/binding', requireAuth, async (req, res) => {
   try {
     const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/binding/' + encodeURIComponent(uid), {
       method: 'DELETE',
-      headers: { 'Authorization': WA_SERVICE_AUTH },
+      // R-F3832 — see the GET above. This is the verb the traversal targeted.
+      headers: { 'Authorization': WA_SERVICE_AUTH, 'X-WA-User': uid },
       signal: AbortSignal.timeout(10000),
     });
     return res.status(r.status).json(await r.json().catch(() => ({})));
@@ -1487,8 +1501,13 @@ app.post('/api/wa-listener/accounts', requireAuth, express.json({ limit: '100kb'
 });
 
 app.get('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
+  // R-F3832 — this fetch carries Bearer ARIA_INTERNAL_TOKEN, which the listener's
+  // requireAuth accepts unconditionally. Raw concatenation let `..%2f..%2fmessages`
+  // reach GET /messages, which returns every account's messageStore with no owner
+  // filter. Validate first, then encode.
+  if (!isValidWaAccountId(req.params.id)) return rejectBadPathSegment(res, 'account id', req.params.id);
   try {
-    const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + req.params.id, {
+    const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + encodeURIComponent(req.params.id), {
       // R-F1909 (G3): pin the JWT user so the listener owner-gates this account read.
       headers: { 'Authorization': WA_SERVICE_AUTH, 'X-WA-User': req.user?.userId || '' },
       signal: AbortSignal.timeout(10000),
@@ -1501,8 +1520,10 @@ app.get('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
 });
 
 app.get('/api/wa-listener/accounts/:id/qr', requireAuth, async (req, res) => {
+  // R-F3832 — see the sibling handler above.
+  if (!isValidWaAccountId(req.params.id)) return rejectBadPathSegment(res, 'account id', req.params.id);
   try {
-    const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + req.params.id + '/qr', {
+    const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + encodeURIComponent(req.params.id) + '/qr', {
       // R-F1909 (G3): pin the JWT user — without this any logged-in user could read
       // another user's QR and link (hijack) their WhatsApp session.
       headers: { 'Authorization': WA_SERVICE_AUTH, 'X-WA-User': req.user?.userId || '' },
@@ -1516,8 +1537,12 @@ app.get('/api/wa-listener/accounts/:id/qr', requireAuth, async (req, res) => {
 });
 
 app.delete('/api/wa-listener/accounts/:id', requireAuth, async (req, res) => {
+  // R-F3832 — see the sibling handler above. A traversal on this verb reached
+  // DELETE /api/wa-listener/binding/<victimUserId>, which reads the uid straight
+  // from the path with no ownership check of its own.
+  if (!isValidWaAccountId(req.params.id)) return rejectBadPathSegment(res, 'account id', req.params.id);
   try {
-    const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + req.params.id, {
+    const r = await fetch(WA_LISTENER_URL + '/api/wa-listener/accounts/' + encodeURIComponent(req.params.id), {
       method: 'DELETE',
       // R-F1909 (G3): pin the JWT user so only the owner can delete their account.
       headers: { 'Authorization': WA_SERVICE_AUTH, 'X-WA-User': req.user?.userId || '' },
@@ -2483,6 +2508,10 @@ function _shareSet(token, payload) {
 
 function _shareGet(token) {
   const all = _shareStore.read() || {};
+  // R-F3838 — own-property lookup only. The route's length bound already keeps
+  // `__proto__`/`constructor` out, but a store lookup should not depend on a
+  // regex somewhere else staying strict.
+  if (!Object.prototype.hasOwnProperty.call(all, token)) return null;
   const entry = all[token];
   if (!entry || !entry.expiresAt || Date.now() > entry.expiresAt) return null;
   return entry;
@@ -2507,7 +2536,13 @@ app.post('/api/share/brief', requireAdmin, async (req, res) => {
 
 app.get('/s/:token', async (req, res) => {
   const { token } = req.params;
-  if (!/^[a-z0-9]{20,30}$/.test(token)) return res.status(400).send('Invalid token');
+  // R-F3838 — the guard was /^[a-z0-9]{20,30}$/ while _shareSet mints
+  // randomBytes(24).toString('base64url'): 32 chars of [A-Za-z0-9_-]. Too long,
+  // wrong case, wrong charset — so EVERY share link 400'd and the feature had
+  // never once worked. Now matched to what is actually minted, with the length
+  // bound kept loose enough to survive a token-size change but tight enough that
+  // no prototype key ('__proto__', 'constructor') can reach the store lookup.
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return res.status(400).send('Invalid token');
 
   const payload = _shareGet(token);
   if (!payload) return res.status(404).send('<h2>Brief not found or expired</h2>');
@@ -2568,7 +2603,7 @@ ${hot.length > 0 ? `
     ${l.procurementAuthority ? `<div><span class="label">Authority:</span><span class="val">${escHtml(l.procurementAuthority)}</span></div>` : ''}
     ${l.oemRecommendation ? `<div><span class="label">OEM:</span><span class="val">${escHtml(l.oemRecommendation)}</span></div>` : ''}
     ${l.nextStep ? `<div class="next-step"><strong>Next 48h:</strong> ${escHtml(l.nextStep)}</div>` : ''}
-    ${l.portalUrl ? `<div class="meta"><a href="${escHtml(l.portalUrl)}" target="_blank">Procurement Portal →</a></div>` : ''}
+    ${safeExternalUrl(l.portalUrl) ? `<div class="meta"><a href="${escHtml(safeExternalUrl(l.portalUrl))}" target="_blank" rel="noopener noreferrer">Procurement Portal →</a></div>` : ''}
   </div>`).join('')}
 </div>` : ''}
 
@@ -2597,7 +2632,7 @@ ${tenders.length > 0 ? `
     ${t.winProbability != null ? `<span style="float:right;font-weight:700;font-size:0.8rem">Win ${t.winProbability}%</span>` : ''}
     <div class="title">${escHtml(t.title)}</div>
     <div class="meta">${escHtml(t.source)} · ${escHtml(t.date || '')}
-    ${t.url ? ` · <a href="${escHtml(t.url)}" target="_blank">View Tender →</a>` : ''}</div>
+    ${safeExternalUrl(t.url) ? ` · <a href="${escHtml(safeExternalUrl(t.url))}" target="_blank" rel="noopener noreferrer">View Tender →</a>` : ''}</div>
   </div>`).join('')}
 </div>` : ''}
 
@@ -3411,6 +3446,31 @@ async function _ariaChatAsyncPoll(message, sid, personaUserId, persona) {
 // so a chat WRITE and a sidebar LIST land in the same bucket. Email is stable
 // across deploys / account-store rebuilds; user.id is not (R-F1687 also moves
 // users.json onto the /data volume so the id stops churning).
+// R-F3831/R-F3832 — ONE refusal path for a request-controlled path segment that
+// would otherwise be interpolated into a token-bearing upstream URL.
+//
+// Declared as a function declaration (hoisted) so the /api/wa-listener routes
+// registered earlier in this file can call it at request time — the same reason
+// requireRole is declared that way (see the note at its definition).
+//
+// §21a: a refused traversal is security-relevant, so it reaches the brain rather
+// than the console. status 403 makes classifyError return SEVERITY.AUTH
+// (lib/observability/errorTracker.mjs), which is on the ESCALATE list — a plain
+// Error classifies TRANSIENT and is dropped before the wire, i.e. it would look
+// wired and be dark.
+//
+// The response never echoes the attempted segment back to the caller.
+function rejectBadPathSegment(res, kind, value) {
+  const seen = typeof value === 'string' ? value : typeof value;
+  const segmentRejected = new Error(
+    `${kind} path segment rejected (${seen.length} chars, ` +
+    `first 24: ${JSON.stringify(String(seen).slice(0, 24))})`,
+  );
+  segmentRejected.status = 403;
+  try { errorTracker.record('proxy_path', 'segment_rejected', segmentRejected); } catch {}
+  return res.status(400).json({ error: `Invalid ${kind}` });
+}
+
 function stableUserId(req) {
   try {
     const uid = req.user?.userId;
@@ -4258,9 +4318,17 @@ app.get('/api/aria/dd/report/:run_id/pdf', requireAuth, async (req, res) => {
       report?.target?.name || report?.identity?.entity_name || 'report',
     ).replace(/[^\w\-]+/g, '_').slice(0, 60) || 'report';
 
+    // R-F3837 — the run id was interpolated RAW while `entity` beside it was
+    // sanitised. Node rejects CRLF in a header value, so this is filename
+    // spoofing via a `"` (…filename="x"; filename="invoice.exe") rather than
+    // header injection — but the fix is the transform already used one line up.
+    // Only the FILENAME is sanitised: the upstream fetch and the PDF's printed
+    // docRef must keep the true run id.
+    const safeRunId = runId.replace(/[^\w\-]+/g, '_').slice(0, 60) || 'report';
+
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition',
-      `attachment; filename="ARIA_DD_${entity}_${runId}.pdf"`);
+      `attachment; filename="ARIA_DD_${entity}_${safeRunId}.pdf"`);
     res.setHeader('Cache-Control', 'no-store');   // reports are tenant data
     return res.send(pdf);
   } catch (e) {
@@ -5217,16 +5285,24 @@ app.get('/api/aria/conversations/:sessionId', requireAuth, async (req, res) => {
   // R-F606 (2026-05-16): forward the JWT-derived user_id to the Python
   // backend so it can enforce ownership. Pre-R-F606 we proxied only the
   // session_id and Python returned the conversation unconditionally.
+  // R-F3831 — validate BEFORE the token-bearing proxy call, then encode. Raw
+  // interpolation here let `..%2f..%2f` walk out of the conversations prefix and
+  // reach any non-operator-gated brain path carrying _ariaHeaders().
   const sid = req.params.sessionId;
+  if (!isValidSessionId(sid)) return rejectBadPathSegment(res, 'session id', sid);
   const userId = stableUserId(req);   // R-F1687: email-slug, matches write-side bucket
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
-  await ariaProxy(req, res, `/api/aria/conversations/${sid}/detail?user_id=${encodeURIComponent(userId)}`, {
+  await ariaProxy(req, res, `/api/aria/conversations/${encodeURIComponent(sid)}/detail?user_id=${encodeURIComponent(userId)}`, {
     fallback: null,
   });
 });
 
 app.delete('/api/aria/conversations/:sessionId', requireAuth, async (req, res) => {
+  // R-F3831 — see the GET handler above. This verb was the worst of the three:
+  // a traversal here issued an attacker-chosen DELETE at the brain carrying the
+  // service token, around pinNonAdminUserId and the R-F2775 infra gate.
   const sid = req.params.sessionId;
+  if (!isValidSessionId(sid)) return rejectBadPathSegment(res, 'session id', sid);
   // R-F606 (2026-05-16): JWT field is `userId`, not `id` — pre-fix this
   // sent user_id='' on every delete, which combined with the store-layer
   // bug let any authenticated user destroy any other user's conversation
@@ -5236,7 +5312,7 @@ app.delete('/api/aria/conversations/:sessionId', requireAuth, async (req, res) =
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
   if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'ARIA service unavailable' });
   try {
-    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/conversations/${sid}?user_id=${encodeURIComponent(userId)}`, {
+    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/conversations/${encodeURIComponent(sid)}?user_id=${encodeURIComponent(userId)}`, {
       method: 'DELETE',
       headers: _ariaHeaders(),
       signal: AbortSignal.timeout(10000),
@@ -5249,7 +5325,9 @@ app.delete('/api/aria/conversations/:sessionId', requireAuth, async (req, res) =
 });
 
 app.put('/api/aria/conversations/:sessionId/title', requireAuth, async (req, res) => {
+  // R-F3831 — see the GET handler above; this verb gave arbitrary brain WRITES.
   const sid = req.params.sessionId;
+  if (!isValidSessionId(sid)) return rejectBadPathSegment(res, 'session id', sid);
   const { title } = req.body || {};
   if (!title) return res.status(400).json({ error: 'title required' });
   // R-F606 (2026-05-16): pin user_id to the JWT-resolved value, not to
@@ -5261,7 +5339,7 @@ app.put('/api/aria/conversations/:sessionId/title', requireAuth, async (req, res
   if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'ARIA service unavailable' });
   try {
     const r = await fetch(
-      `${ARIA_SERVICE_URL}/api/aria/conversations/${sid}/title?user_id=${encodeURIComponent(userId)}`,
+      `${ARIA_SERVICE_URL}/api/aria/conversations/${encodeURIComponent(sid)}/title?user_id=${encodeURIComponent(userId)}`,
       {
         method: 'PUT',
         headers: _ariaHeaders(),
@@ -5548,9 +5626,12 @@ function requireAuth(req, res, next) {
   // The post-migration risk vector is a co-tenant container, but Fly
   // gives each app its own network namespace; the only thing that can
   // hit 127.0.0.1 is this process itself.
-  const ip = req.ip || req.socket?.remoteAddress || '';
-  const bypassDisabled = (process.env.ARIA_DISABLE_LOCALHOST_BYPASS || '').toLowerCase() === '1';
-  if (!bypassDisabled && (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')) return next();
+  // R-F3833 — was `req.ip || req.socket?.remoteAddress`. With `trust proxy: 1`
+  // req.ip is derived from X-Forwarded-For, so a 6PN peer connecting directly to
+  // aria-web.internal:3117 could send `X-Forwarded-For: 127.0.0.1` and reach
+  // next() with req.user never set. requireInfraRole already keyed off the real
+  // peer and documented this vector; this gate was simply never updated.
+  if (localhostBypassAllowed(req)) return next();
 
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Authentication required' });
@@ -5650,9 +5731,9 @@ function requireRole(...allowed) {
 // unaffected: their real peer address IS 127.0.0.1.
 function requireInfraRole(...allowed) {
   return (req, res, next) => {
-    const peer = req.socket?.remoteAddress || '';
-    const bypassDisabled = (process.env.ARIA_DISABLE_LOCALHOST_BYPASS || '').toLowerCase() === '1';
-    if (!bypassDisabled && (peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1')) return next();
+    // R-F3833 — behaviour unchanged; this gate was already correct. It now shares
+    // the one implementation so a sixth copy has nowhere to drift to.
+    if (localhostBypassAllowed(req)) return next();
     return requireRole(...allowed)(req, res, next);
   };
 }
@@ -5719,9 +5800,10 @@ function _cookieToken(req) {
 // requireAuth so same-process operator tooling is unaffected.
 function requirePageRole(...allowed) {
   return (req, res, next) => {
-    const ip = req.ip || req.socket?.remoteAddress || '';
-    const bypassDisabled = (process.env.ARIA_DISABLE_LOCALHOST_BYPASS || '').toLowerCase() === '1';
-    if (!bypassDisabled && (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')) return next();
+    // R-F3833 — same forgery as requireAuth, and this one renders operator/infra
+    // PAGES (vault, aria-brain, dashboard) to an unauthenticated 6PN peer. Not in
+    // the original audit; found by sweeping every loopback literal in the tier.
+    if (localhostBypassAllowed(req)) return next();
     const token = _cookieToken(req);
     if (!token) return res.redirect(302, '/signin.html');
     let payload;
@@ -5934,7 +6016,13 @@ app.post('/api/auth/login', async (req, res) => {
 
     // If 2FA is enabled, issue a short-lived pre-auth token instead of the real JWT
     if (user.twoFactorEnabled && user.twoFactorSecret) {
-      const preToken = createToken(user.id, user.role, '5m');
+      // R-F3834 — stage:'pre2fa' is what stops this being a full session token.
+      // Without it requireAuth accepted it for five minutes (ver 0 matches any
+      // account never force-logged-out), so password-only access to a 2FA
+      // account was enough to change the password or disable 2FA. Passing the
+      // real tokenVersion additionally lets a force-logout kill it mid-flow.
+      // No auth cookie is set here: the second factor has not been presented yet.
+      const preToken = createToken(user.id, user.role, '5m', user.tokenVersion || 0, 'pre2fa');
       return res.json({ requires2FA: true, preToken });
     }
 
@@ -5992,7 +6080,10 @@ app.post('/api/auth/2fa/authenticate', async (req, res) => {
     const { preToken, code } = req.body || {};
     if (!preToken || !code) return res.status(400).json({ error: 'preToken and code required' });
     let payload;
-    try { payload = verifyToken(preToken); } catch { return res.status(401).json({ error: 'Pre-auth token invalid or expired' }); }
+    // R-F3834 — the ONLY acceptor of a pre-auth token, and it demands that exact
+    // stage: a full session token is refused here too, so the stage check is not
+    // one-directional.
+    try { payload = verifyToken(preToken, { stage: 'pre2fa' }); } catch { return res.status(401).json({ error: 'Pre-auth token invalid or expired' }); }
     const user = findUserById(payload.userId);
     if (!user || !user.twoFactorSecret) return res.status(401).json({ error: 'Invalid session' });
     const valid = await verifyTotpCode(code, user.twoFactorSecret);   // R-F3086
@@ -6083,14 +6174,82 @@ app.post('/api/auth/2fa/disable', requireAuth, async (req, res) => {
   }
 });
 
+// ── R-F3836: verify-email attempt throttle, keyed by EMAIL ───────────────────
+// Mirrors the R-F609 reset-password throttle below (_resetThrottle*), for the
+// same reason and with the same shape.
+//
+// The R-F2035 lockout it supplements counts attempts on the USER RECORD, so it
+// can only fire for an email that exists. That made the lockout itself an
+// oracle: five wrong codes against a real pending account returned 429, while
+// the same five against an unregistered address returned 400 forever. Closing
+// the 404/400/200 three-way split without closing this would just move the leak.
+//
+// Keyed by email and checked BEFORE any user lookup, so the response is
+// identical whether or not the address is registered.
+const _verifyAttempts = new Map();   // emailLower -> { count, firstAt, lockedUntil }
+const _VERIFY_WINDOW_MS = 15 * 60 * 1000;
+const _VERIFY_LOCKOUT_MS = 60 * 60 * 1000;
+
+function _verifyThrottleCheck(emailLower) {
+  const now = Date.now();
+  const entry = _verifyAttempts.get(emailLower);
+  if (!entry) return { allowed: true };
+  if (entry.lockedUntil && entry.lockedUntil > now) return { allowed: false };
+  if (entry.firstAt && now - entry.firstAt > _VERIFY_WINDOW_MS) {
+    _verifyAttempts.delete(emailLower);
+  }
+  return { allowed: true };
+}
+
+function _verifyThrottleRecordFailure(emailLower) {
+  const now = Date.now();
+  const entry = _verifyAttempts.get(emailLower) || { count: 0, firstAt: now };
+  entry.count += 1;
+  entry.firstAt = entry.firstAt || now;
+  if (entry.count >= MAX_VERIFY_ATTEMPTS) entry.lockedUntil = now + _VERIFY_LOCKOUT_MS;
+  _verifyAttempts.set(emailLower, entry);
+  return entry;
+}
+
+function _verifyThrottleClear(emailLower) {
+  _verifyAttempts.delete(emailLower);
+}
+
 app.post('/api/auth/verify-email', async (req, res) => {
   try {
     const { email, code } = req.body || {};
     if (!email || !code) return res.status(400).json({ error: 'Email and code required' });
+    const _emailLower = String(email).toLowerCase().trim();
+
+    // R-F3836 — ONE refusal for every failure mode. Previously an unknown email
+    // 404'd "User not found", a known email with a wrong code 400'd "Invalid
+    // verification code", and an already-verified account 200'd "already
+    // verified" — three distinguishable answers, i.e. an oracle that tells an
+    // attacker walking a breach list which addresses hold live verified accounts.
+    // Registration (:5777) and /forgot-password already refuse to answer that;
+    // this endpoint was the side door.
+    //
+    // The cost is honest and small: someone re-clicking a stale verification link
+    // now reads the generic refusal instead of "already verified — please log in".
+    // They can still simply sign in, which is what they wanted.
+    const INVALID_CODE = 'Invalid or expired verification code.';
+
+    // Throttle BEFORE the lookup, so a locked-out email cannot probe existence
+    // through the timing or the shape of the refusal (R-F609's rationale).
+    if (!_verifyThrottleCheck(_emailLower).allowed) {
+      console.warn(`[Auth] verify-email REJECTED throttle email=${_emailLower} ip=${req.ip}`);
+      return res.status(400).json({ error: INVALID_CODE });
+    }
 
     const user = findUserByEmail(email);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    if (user.status === 'active') return res.json({ message: 'Email already verified — your account is active. Please log in.' });
+    if (!user) {
+      _verifyThrottleRecordFailure(_emailLower);
+      return res.status(400).json({ error: INVALID_CODE });
+    }
+    if (user.status === 'active') {
+      _verifyThrottleRecordFailure(_emailLower);
+      return res.status(400).json({ error: INVALID_CODE });
+    }
 
     // R-F2035 — verify-code brute-force lockout. A 6-digit code is grindable; cap
     // wrong attempts, then BURN the code (force a fresh resend) so brute force
@@ -6103,18 +6262,30 @@ app.post('/api/auth/verify-email', async (req, res) => {
       try { _vcMatch = timingSafeEqual(Buffer.from(_vcExpected, 'utf8'), Buffer.from(_vcProvided, 'utf8')); } catch { _vcMatch = false; }
     }
     if (!_vcMatch) {
+      _verifyThrottleRecordFailure(_emailLower);
       const attempts = (user.verificationAttempts || 0) + 1;
       if (attempts >= MAX_VERIFY_ATTEMPTS) {
+        // R-F2035's code burn is the real defence and is UNCHANGED. Only the
+        // RESPONSE becomes uniform: the old 429 fired solely for emails that
+        // exist, so it announced "this address is a live pending account".
+        // Nothing consumes the dropped `needsResend` flag (grepped: no client).
         updateUser(user.id, { verificationCode: null, verificationExpiry: null, verificationAttempts: 0 });
         console.warn(`[Auth] verify-email LOCKOUT email=${email} — ${attempts} wrong codes, code burned`);
-        return res.status(429).json({ error: 'Too many incorrect codes. Request a new verification code.', needsResend: true });
+        return res.status(400).json({ error: INVALID_CODE });
       }
       updateUser(user.id, { verificationAttempts: attempts });
-      return res.status(400).json({ error: 'Invalid verification code' });
+      // R-F3836 — byte-identical to the unknown-email and already-verified
+      // refusals above, so none of the three can be told apart.
+      return res.status(400).json({ error: INVALID_CODE });
     }
+    // Reached only after a CORRECT code, so this message reveals nothing an
+    // attacker did not already have to know — kept as real UX for a real user.
     if (user.verificationExpiry && new Date(user.verificationExpiry) < new Date()) {
       return res.status(400).json({ error: 'Verification code expired. Request a new one.', needsResend: true });
     }
+    // Correct code: this email is not being probed. Drop its failure history so a
+    // legitimate user who fat-fingered earlier is not carrying a lockout.
+    _verifyThrottleClear(_emailLower);
 
     // ── R-F2034: self-serve INSTANT approval ────────────────────────────────
     // A verified email IS the approval (operator policy 2026-06-27). The manual
@@ -6172,9 +6343,14 @@ app.post('/api/auth/resend-verification', async (req, res) => {
     const { email } = req.body || {};
     if (!email) return res.status(400).json({ error: 'Email required' });
 
+    // R-F3836 — the unknown-email branch was already uniform; the already-verified
+    // branch was not, and 400 vs 200 is all an attacker needs to separate a live
+    // verified account from an address nobody has registered. Both now return the
+    // same acknowledgement and neither sends mail.
+    const RESEND_ACK = 'If that email exists, a code has been sent.';
     const user = findUserByEmail(email);
-    if (!user) return res.json({ message: 'If that email exists, a code has been sent.' });
-    if (user.status === 'active') return res.status(400).json({ error: 'Account already verified' });
+    if (!user) return res.json({ message: RESEND_ACK });
+    if (user.status === 'active') return res.json({ message: RESEND_ACK });
 
     // Rate limit: reject if last code sent <60s ago
     if (user.verificationExpiry) {
@@ -6416,11 +6592,27 @@ app.put('/api/auth/password', requireAuth, (req, res) => {
     // R-F3332 — clearing the rotation flag lives with the write that satisfies
     // it. A gate whose clear path sits somewhere else is how an account gets
     // locked out permanently.
+    //
+    // R-F3835 — bump tokenVersion so every OTHER live session dies with the old
+    // password. Without this a token stolen beforehand stayed valid for the rest
+    // of its 7-day life, so changing your password did not evict the thief. The
+    // admin-driven paths already did this (recovery-reset :6728, revokeTokens on
+    // force-logout/suspend); only the two a user drives for themselves were missed.
+    const nextVersion = (user.tokenVersion || 0) + 1;
     updateUser(req.user.userId, {
       passwordHash: hashPassword(newPassword),
+      tokenVersion: nextVersion,
       ...rotationClearedFields(),
     });
-    res.json({ message: 'Password updated successfully' });
+
+    // ...and re-issue, because the bump also invalidates the CALLER's token.
+    // public/set-password.html (the R-F3332 rotation flow) navigates to
+    // /dashboard.html straight after this call reusing its stored token; without
+    // a replacement the security fix becomes a lockout. The cookie must be
+    // refreshed too — requirePageRole authenticates page NAVIGATIONS from it.
+    const replacement = createToken(user.id, user.role, '7d', nextVersion);
+    _setAuthCookie(res, replacement);
+    res.json({ message: 'Password updated successfully', token: replacement });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update password' });
   }
@@ -6539,8 +6731,14 @@ app.post('/api/auth/reset-password', async (req, res) => {
       return res.status(400).json({ error: 'Reset code expired. Request a new one.' });
     }
 
+    // R-F3835 — a forgotten-password reset is the strongest signal an account may
+    // be compromised, so it must evict every live session. No replacement token is
+    // minted here: this route is UNAUTHENTICATED, and issuing a session would let
+    // anyone holding a reset code skip the sign-in step entirely. The user signs
+    // in with the new password, exactly as the response already says.
     updateUser(user.id, {
       passwordHash: hashPassword(newPassword),
+      tokenVersion: (user.tokenVersion || 0) + 1,
       resetCode: null,
       resetExpiry: null,
     });
@@ -7881,9 +8079,10 @@ app.get('/events', (req, res) => {
   // /api/search/deep: localhost, OR the internal service token, OR an
   // Authorization: Bearer JWT header, OR a short-lived single-use SSE ticket
   // via ?ticket= (issued by POST /api/sse/ticket).
-  const ip = req.ip || req.socket?.remoteAddress || '';
-  const isLocalhost = (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1');
-  if (!isLocalhost) {
+  // R-F3833 — was keyed off the forgeable req.ip, so a 6PN peer sending
+  // `X-Forwarded-For: 127.0.0.1` could subscribe to the entire sweep payload
+  // (intel signals, news, opportunities, BD pipeline state) unauthenticated.
+  if (!localhostBypassAllowed(req)) {
     const header = req.headers.authorization?.replace('Bearer ', '') || '';
     const internalToken = (process.env.ARIA_INTERNAL_TOKEN || '').trim();
     if (internalToken && header === internalToken) {

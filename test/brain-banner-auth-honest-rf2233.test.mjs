@@ -19,6 +19,9 @@
 import fs from 'fs';
 import path from 'path';
 import vm from 'node:vm';
+// R-F3839 — the banner escapes the failure reason now; escapeHtml lives outside
+// this slice, so the sandbox needs the page's own definition.
+import { escapeHtmlSource } from './helpers/aria_brain_page.mjs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -65,6 +68,7 @@ function makeSandbox({ token = '' } = {}) {
   vm.runInContext(appJs, sandbox, { filename: 'app.js' });
   // app.js exposes API/Auth as `const` (block-less top level) — re-export to global
   vm.runInContext('this.API = API; this.window.API = API;', sandbox);
+  vm.runInContext(escapeHtmlSource(), sandbox, { filename: 'aria-brain.escapeHtml' });
   vm.runInContext(brainBlock, sandbox, { filename: 'brain.fetchJson' });
   return sandbox;
 }

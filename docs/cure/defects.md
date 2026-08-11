@@ -918,3 +918,85 @@ self-contained, operator-invoked rather than service-invoked, and its failure mo
 loud (a cycle that will not launch) rather than silent. `services/wa-listener/*.mjs`
 must **not** be in an early batch: nine of those files were misclassified as dead by the
 first census pass purely because their `test_*.mjs` naming was not recognised.
+
+---
+
+### C-18 · Node/JS tier security audit — 10 findings, all FIXED (R-F3831…R-F3840, 2026-08-10)
+
+A read-only security audit of the Node tier (`server.mjs` ~330 route registrations,
+`lib/**`, `middleware/rateLimiter.mjs`, both WhatsApp listeners, `public/**`) produced
+10 findings. Every one was re-verified at the cited `file:line` before any code was
+written; the audit's own withdrawn items (`/api/aria/session/forget`, `/api/aria/report`)
+were left withdrawn.
+
+**Authorisation.** Batch A (items 1–4) is admissible under freeze §1.1's security
+exception — confirmed vulnerabilities with known exploit paths. Batch B (items 5–10) is
+hygiene and does **not** qualify on its own; it proceeded under an explicit operator
+override given 2026-08-10 ("proceed with these items… follow strict protocol"), recorded
+here as the audit trail §26/§10 require. One squashed commit, per the same instruction.
+
+| # | R-number | Finding | Severity |
+|---|---|---|---|
+| 1 | R-F3831 | Path traversal in the three `/api/aria/conversations/:sessionId` proxies, carrying the brain service token | P0 |
+| 2 | R-F3832 | Same traversal into the WA listener's internal API, carrying `ARIA_INTERNAL_TOKEN` | P1 |
+| 3 | R-F3833 | Localhost bypass keyed off the forgeable `req.ip` at **five** gates | P1 |
+| 4 | R-F3834 | The 2FA pre-auth token was a fully valid session token | P1 |
+| 5 | R-F3835 | Password change/reset did not revoke live sessions | P2 |
+| 6 | R-F3836 | Account enumeration on verify-email / resend-verification | P2 |
+| 7 | R-F3840 | `script-src 'unsafe-inline'` | P2 |
+| 8 | R-F3837 | Unsanitised `runId` in a `Content-Disposition` filename | P2 |
+| 9 | R-F3838 | `/s/:token` share links could never redeem — and reviving the route exposed two unvalidated `href` sinks | Low |
+| 10 | R-F3839 | XSS pass over the three files the audit sampled but did not clear | Follow-up |
+
+**Three things the audit did not have, found while fixing:**
+
+1. **A fifth `req.ip` bypass — `requirePageRole` (`server.mjs`).** The audit named four
+   sites; sweeping every loopback literal in the tier found a fifth, and it is the one
+   that renders operator/infra PAGES (vault, aria-brain, admin) to an unauthenticated
+   6PN peer. Found by grep, not by reading the audit.
+2. **The eco-card `onclick` had never fired.** `aria-brain.html` built an inline
+   `onclick` by concatenation with a raw node id. CSP has set `script-src-attr 'none'`
+   since R-F1919 — whose comment claims *"every served page's handlers were migrated to
+   delegated addEventListener first, so nothing breaks"* — so the drill-down and the
+   breadcrumb nav were **silently dead in production**, and the injection sink was
+   unreachable for the same reason. Both are now delegated listeners, which fixes a
+   latent vulnerability and a broken feature in one change.
+3. **Reviving a dead route is shipping a new one.** `/s/:token` (item 9) is an
+   UNAUTHENTICATED public page whose two `href` sinks were escaped for attribute
+   breakout but not scheme-validated — `javascript:` contains no quote and survives
+   `escHtml` untouched. Fixing the guard without fixing those would have turned a dead
+   feature into a live XSS. `lib/util/safeUrl.mjs` now gates both.
+
+**The exploit for item 3 was reproduced, not argued.** `test/localhost-bypass-forgery-rf3833.test.mjs`
+stages a genuine non-loopback TCP peer (binds `0.0.0.0`, connects to the host's own LAN
+address) and drives the pre-fix gate verbatim: `X-Forwarded-For: 127.0.0.1` → **200,
+bypassed**; same peer without the header → 401. The fixture is retained so the claim
+stays falsifiable.
+
+**Item 7 was closed by hashing, not by externalising.** `script-src` now names a
+`'sha256-…'` per inline block, computed **at boot** from the files about to be served.
+That detail is load-bearing: browsers hash exact bytes, and with no `*.html` rule in
+`.gitattributes` these files are CRLF on a Windows checkout and LF in the Linux image, so
+a checked-in hash list would be correct locally and blank every page in production.
+Hashes and `'unsafe-inline'` are mutually exclusive, so a missed block is a dead page,
+not a partial weakening — hence a fail-open branch when the scan finds nothing, the
+`ARIA_CSP_ALLOW_INLINE_SCRIPT=1` escape hatch, and a test asserting coverage of every
+block in every file rather than a sample. Verified end-to-end against a booted server:
+34 hashes, `'unsafe-inline'` absent, and every inline block in six real served responses
+hashed from the RESPONSE BYTES and found in the live header.
+
+**Not claimed.** `aria-brain.html` still interpolates ~230 values that are the brain's
+own telemetry — counts, percentages, CSS class names, enum states, internal identifiers.
+Those were reviewed as a class, not proven one by one. Every sink carrying externally
+influenced data (scraped domains, dead-letter error text, fetch-failure reasons,
+model-authored tags, DD jurisdictions, node labels/titles) was escaped; the rest are
+recorded as unproven rather than reported as cleared, because blanket-escaping would
+break the many sinks that deliberately emit HTML fragments.
+
+**Residual, bounded and pinned by a test:** `public/index.html` loads jQuery 2.1.1, whose
+`globalEval` evaluates script by creating an inline `<script>` element — which the
+hash-only policy blocks where `'unsafe-inline'` would have allowed it. That path is
+reached only when jQuery is handed markup containing a `<script>` tag; no such markup
+exists in the page or its theme scripts today, and a test now fails if one appears.
+`public/vendor/jquery.min.js` is a second, orphaned copy that no page references; a test
+asserts it stays unreferenced.

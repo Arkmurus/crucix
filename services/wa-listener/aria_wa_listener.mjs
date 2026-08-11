@@ -4053,8 +4053,29 @@ app.post('/api/wa-listener/binding/code', requireAuth, (req, res) => {
   return res.json({ ok: true, expiresAt: issued.pairing.expiresAt, ariaNumber: _waOwnNumber() });
 });
 
+// R-F3832 — DEFENCE IN DEPTH for the binding routes.
+//
+// Both routes below read the target uid straight from the PATH and, before this,
+// checked nothing: they relied entirely on aria-web having pinned it. That made
+// them the payload for the aria-web traversal fixed in the same R-number — a
+// request to /accounts/..%2f..%2fapi%2fwa-listener%2fbinding%2f<victim> arrived
+// here carrying the internal token and unlinked another tenant's WhatsApp.
+//
+// The rule mirrors _waOwns (:3973): an X-WA-User header that IS present must
+// match the path uid; an ABSENT header is the admin/internal caller and keeps
+// its existing access. That distinction is what makes this safe to add — the
+// legitimate callers (server.mjs /api/wa/binding GET+DELETE, :1444/:1457) send
+// no X-WA-User at all and are unaffected, while the traversal path forwards the
+// ATTACKER's header, which cannot match the victim uid it is reaching for.
+function _waBindingOwns(req, uid) {
+  const u = _waUser(req);
+  if (!u) return true;   // admin/internal — no user pinned, same as _waOwns
+  return u === uid;
+}
+
 app.get('/api/wa-listener/binding/:userId', requireAuth, (req, res) => {
   const uid = String(req.params.userId || '');
+  if (!_waBindingOwns(req, uid)) return res.status(403).json({ error: 'Not your binding' });
   const b = _waBindings.find((x) => x && x.userId === uid && !x.revokedAt);
   const pending = _waPendingPairings.find(
     (x) => x && x.userId === uid && !x.usedAt && Date.parse(x.expiresAt || '') > Date.now(),
@@ -4070,6 +4091,7 @@ app.get('/api/wa-listener/binding/:userId', requireAuth, (req, res) => {
 
 app.delete('/api/wa-listener/binding/:userId', requireAuth, (req, res) => {
   const uid = String(req.params.userId || '');
+  if (!_waBindingOwns(req, uid)) return res.status(403).json({ error: 'Not your binding' });
   let revoked = 0;
   for (const b of _waBindings) {
     if (b && b.userId === uid && !b.revokedAt) { b.revokedAt = new Date().toISOString(); revoked += 1; }

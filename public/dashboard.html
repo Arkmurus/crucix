@@ -234,7 +234,9 @@ function _renderFetchFailureBanner() {
     return;
   }
   const head = [..._fetchFailures.entries()]
-    .map(([p, r]) => `<code style="color:#b91c1c">${p}</code> <span style="color:var(--sc-muted)">(${r})</span>`)
+    // R-F3839 — `r` is a failure REASON carrying upstream/response text, and this
+    // page is not behind the operator gate. escHtml is global via js/app.js:557.
+    .map(([p, r]) => `<code style="color:#b91c1c">${escHtml(p)}</code> <span style="color:var(--sc-muted)">(${escHtml(r)})</span>`)
     .join(', ');
   const noun = _fetchFailures.size === 1 ? 'endpoint' : 'endpoints';
   banner.innerHTML =

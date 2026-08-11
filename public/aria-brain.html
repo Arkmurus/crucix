@@ -573,7 +573,8 @@ function _renderFetchFailureBanner() {
   if (_fetchFailures.size > 0) {
     const entries = [..._fetchFailures.entries()];
     const head = entries.slice(0, 5)
-      .map(([p, r]) => `<code style="color:#c2410c">${p}</code> <span style="color:#6b6862">(${r})</span>`)
+      // R-F3839 — `r` is a failure REASON, which carries upstream/response text.
+      .map(([p, r]) => `<code style="color:#c2410c">${escapeHtml(p)}</code> <span style="color:#6b6862">(${escapeHtml(r)})</span>`)
       .join(', ');
     const more = entries.length > 5 ? ` <span style="color:#6b6862">(+${entries.length - 5} more)</span>` : '';
     const noun = entries.length === 1 ? 'endpoint' : 'endpoints';
@@ -748,7 +749,8 @@ async function loadMode() {
   if (d.history?.length) {
     html += '<div style="margin-top:8px;font-size:0.8em;color:#6b6862">Recent transitions:</div>';
     d.history.slice(0, 5).forEach(h => {
-      html += `<div style="font-size:0.75em;padding:2px 0">${h.from} → ${h.to}: ${h.reason} (${h.at})</div>`;
+      // R-F3839 — `reason` is free text from the load governor.
+      html += `<div style="font-size:0.75em;padding:2px 0">${escapeHtml(h.from)} → ${escapeHtml(h.to)}: ${escapeHtml(h.reason)} (${escapeHtml(h.at)})</div>`;
     });
   }
   document.getElementById('mode-metrics').innerHTML = html;
@@ -797,7 +799,7 @@ async function loadBreakers() {
   let html = '<table><tr><th>Backend</th><th>State</th><th>Failures</th></tr>';
   d.breakers.forEach(b => {
     const cls = b.state === 'CLOSED' ? 'good' : b.state === 'OPEN' ? 'bad' : 'warn';
-    html += `<tr><td>${b.name}</td><td class="${cls}">${b.state}</td><td>${b.consecutive_failures}/${b.total_failures}</td></tr>`;
+    html += `<tr><td>${escapeHtml(b.name)}</td><td class="${cls}">${escapeHtml(b.state)}</td><td>${escapeHtml(b.consecutive_failures)}/${escapeHtml(b.total_failures)}</td></tr>`;
   });
   html += '</table>';
   document.getElementById('breaker-metrics').innerHTML = html;
@@ -1308,7 +1310,8 @@ async function loadLayer5c() {
     html += '<div style="margin-top:8px;font-weight:600;color:#ca8a04">Top flagged jurisdictions</div>';
     html += '<table><tr><th>Jurisdiction</th><th>Flagged runs</th></tr>';
     flagged.forEach(j => {
-      html += `<tr><td>${j.jurisdiction}</td><td class="warn">${j.flagged}</td></tr>`;
+      // R-F3839 — jurisdiction arrives with DD subject data, not from a fixed enum.
+      html += `<tr><td>${escapeHtml(j.jurisdiction)}</td><td class="warn">${escapeHtml(j.flagged)}</td></tr>`;
     });
     html += '</table>';
   }
@@ -1323,7 +1326,8 @@ async function loadPredictor() {
   if (Object.keys(domains).length) {
     html += '<table><tr><th>Domain</th><th>Blocks</th></tr>';
     Object.entries(domains).sort((a,b) => b[1]-a[1]).forEach(([dom, count]) => {
-      html += `<tr><td>${dom}</td><td class="${count > 2 ? 'bad' : 'warn'}">${count}</td></tr>`;
+      // R-F3839 — `dom` is a DOMAIN from block records, i.e. externally sourced.
+      html += `<tr><td>${escapeHtml(dom)}</td><td class="${count > 2 ? 'bad' : 'warn'}">${count}</td></tr>`;
     });
     html += '</table>';
   } else {
@@ -1352,7 +1356,8 @@ async function loadAudit() {
       const time = e.timestamp?.slice(11, 16) || '--';
       const tags = (e.confidence_tags || []).join(', ') || '--';
       const srcs = e.sources_count || 0;
-      rhtml += `<tr><td>${time}</td><td>${tags}</td><td>${srcs}</td><td>${pct(e.mastery_overall)}</td><td>${e.operating_mode || '--'}</td></tr>`;
+      // R-F3839 — confidence tags are model-authored strings.
+      rhtml += `<tr><td>${escapeHtml(time)}</td><td>${escapeHtml(tags)}</td><td>${escapeHtml(srcs)}</td><td>${pct(e.mastery_overall)}</td><td>${escapeHtml(e.operating_mode || '--')}</td></tr>`;
     });
     rhtml += '</table>';
     document.getElementById('audit-recent').innerHTML = rhtml;
@@ -1452,9 +1457,20 @@ async function loadEcosystem(root){
 
   // breadcrumb
   if(bc){
-    let crumbs = `<span style="cursor:pointer;color:var(--blue);font-weight:600" onclick="ecoHome()"><i class="bi bi-diagram-3"></i> Ecosystem</span>`;
-    _ecoStack.forEach((c,i)=>{ crumbs += ` <span style="color:#c2bcae">›</span> <span style="cursor:pointer;color:var(--blue)" onclick="ecoJump(${i})">${c.label}</span>`; });
+    // R-F3839 — these were inline onclick handlers, which CSP script-src-attr
+    // 'none' blocks, so the breadcrumbs rendered but did nothing. Same defect as
+    // the eco-card drill-down below: delegated listener + data-* attributes.
+    let crumbs = `<span style="cursor:pointer;color:var(--blue);font-weight:600" data-eco-home="1"><i class="bi bi-diagram-3"></i> Ecosystem</span>`;
+    _ecoStack.forEach((c,i)=>{ crumbs += ` <span style="color:#c2bcae">›</span> <span style="cursor:pointer;color:var(--blue)" data-eco-jump="${i}">${escapeHtml(c.label)}</span>`; });
     bc.innerHTML = crumbs;
+    if (!bc._ecoNavBound) {
+      bc._ecoNavBound = true;
+      bc.addEventListener('click', (ev) => {
+        if (ev.target.closest('[data-eco-home]')) return ecoHome();
+        const jump = ev.target.closest('[data-eco-jump]');
+        if (jump) ecoJump(Number(jump.getAttribute('data-eco-jump')));
+      });
+    }
   }
   // coverage banner (root view only) — the honest completeness proof
   if(cov && cov.modules && cvEl){
@@ -1491,9 +1507,12 @@ async function loadEcosystem(root){
       const nd = await fetchJson('/ecosystem/node/' + encodeURIComponent(root));
       if(nd && nd.node){
         const ar = (nd.audit_refs||[]).slice(-6).reverse();
-        const chips = ar.map(a=>`<span title="${(a.title||'').replace(/"/g,'')}" style="background:#1c2430;border:1px solid #2b3644;border-radius:3px;padding:1px 5px;margin-right:4px;color:#8fa3b8">${a.r}</span>`).join('');
-        const fw = nd.function_count!=null ? ` · <span class="neutral">${nd.wired_functions}/${nd.function_count} functions wired to brain</span>` : '';
-        cvEl.innerHTML = `<strong>${nd.node.label}</strong> · fan-in ${nd.fan_in} / fan-out ${nd.fan_out}${fw}<div style="margin-top:4px">audit: ${chips || '<span class="neutral">none</span>'}</div>`;
+        // R-F3839 — stripping only `"` happened to hold for a double-quoted
+        // attribute, but it is one quote-style change away from breaking. Use the
+        // real escaper for both the attribute and the text.
+        const chips = ar.map(a=>`<span title="${escapeHtml(a.title||'')}" style="background:#1c2430;border:1px solid #2b3644;border-radius:3px;padding:1px 5px;margin-right:4px;color:#8fa3b8">${escapeHtml(a.r)}</span>`).join('');
+        const fw = nd.function_count!=null ? ` · <span class="neutral">${escapeHtml(nd.wired_functions)}/${escapeHtml(nd.function_count)} functions wired to brain</span>` : '';
+        cvEl.innerHTML = `<strong>${escapeHtml(nd.node.label)}</strong> · fan-in ${escapeHtml(nd.fan_in)} / fan-out ${escapeHtml(nd.fan_out)}${fw}<div style="margin-top:4px">audit: ${chips || '<span class="neutral">none</span>'}</div>`;
       } else { cvEl.innerHTML = ''; }
     } catch(e){ cvEl.innerHTML = ''; }
   } else if(cvEl && root){ cvEl.innerHTML = ''; }
@@ -1537,8 +1556,17 @@ async function loadEcosystem(root){
       + (n.sensor ? ` · [${n.health||'grey'}] ${n.sensor}${n.sensor_value!=null?(' = '+n.sensor_value):''}` : '')
       + (rn.length ? ` · audit ${rn.slice(-4).reverse().join(', ')}` : '');
     const drill = n.type!=='function';
-    return `<div class="eco-card eco-h-${_h(n)}"${drill?` onclick="ecoDrill('${n.id}','${nm.replace(/'/g,'')}')"`:' style="cursor:default"'} title="${tip.replace(/"/g,'')}">`
-      + `<i class="bi ${_ecoIcon(n)}"></i><span class="eco-nm">${nm}</span><span class="eco-ct">${ct}</span></div>`;
+    // R-F3839 — was an inline `onclick="ecoDrill('${n.id}','${nm}')"` built by
+    // string concatenation, with n.id interpolated RAW and nm stripped only of
+    // single quotes. Two problems, both real:
+    //   1. CSP sets script-src-attr 'none' (middleware/rateLimiter.mjs:267), so
+    //      the handler NEVER FIRED in production. R-F1919 migrated every page's
+    //      inline handlers to delegated listeners and missed this one, leaving
+    //      the eco-card drill-down silently dead.
+    //   2. A `'` in n.id closed the JS string and injected into the handler.
+    // Delegated listener + escaped data-* attributes fixes both at once.
+    return `<div class="eco-card eco-h-${_h(n)}"${drill ? ` data-eco-id="${escapeHtml(n.id)}" data-eco-nm="${escapeHtml(nm)}" style="cursor:pointer"` : ' style="cursor:default"'} title="${escapeHtml(tip)}">`
+      + `<i class="bi ${_ecoIcon(n)}"></i><span class="eco-nm">${escapeHtml(nm)}</span><span class="eco-ct">${escapeHtml(ct)}</span></div>`;
   };
   const _grid = (label, arr) => arr.length
     ? `<div class="eco-sec">${label}</div><div class="eco-grid">${arr.map(_card).join('')}</div>` : '';
@@ -1562,6 +1590,17 @@ async function loadEcosystem(root){
     + `<span style="color:#dc2626">● broken / unmapped</span><span style="color:#b5b0a4">● no sensor (grey ≠ green)</span>`
     + `<span>· click a card to drill in, hover for its sensor + R-numbers</span></div>`;
   el.classList.remove('loading'); el.innerHTML = html;
+  // R-F3839 — delegated click, replacing the inline onclick that CSP
+  // (script-src-attr 'none') had been silently blocking. Bound once per render
+  // on the container, so re-rendered cards keep working without re-binding each.
+  if (!el._ecoDrillBound) {
+    el._ecoDrillBound = true;
+    el.addEventListener('click', (ev) => {
+      const card = ev.target.closest('.eco-card[data-eco-id]');
+      if (!card || !el.contains(card)) return;
+      ecoDrill(card.getAttribute('data-eco-id'), card.getAttribute('data-eco-nm') || '');
+    });
+  }
 }
 function ecoDrill(id,label){ if(!id) return;
   if(id.startsWith('organ:')||id.startsWith('mod:')){ _ecoStack.push({id,label:label||id}); loadEcosystem(id); }
@@ -1653,7 +1692,9 @@ async function loadDLQ() {
   if (d.queue?.length) {
     html += '<div style="margin-top:8px">';
     d.queue.slice(0, 3).forEach(e => {
-      html += `<div class="dlq-entry"><strong>${e.task_id}</strong> → ${e.channel}<br>${e.error?.slice(0,100)}<br><span class="timestamp">${e.enqueued_at}</span></div>`;
+      // R-F3839 — a dead-letter entry carries an ERROR STRING, which routinely
+      // contains upstream/remote text. Never raw into innerHTML.
+      html += `<div class="dlq-entry"><strong>${escapeHtml(e.task_id)}</strong> → ${escapeHtml(e.channel)}<br>${escapeHtml(e.error?.slice(0,100))}<br><span class="timestamp">${escapeHtml(e.enqueued_at)}</span></div>`;
     });
     html += '</div>';
   }

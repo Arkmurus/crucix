@@ -13,6 +13,9 @@ import slowDown  from 'express-slow-down';
 import helmet    from 'helmet';
 import { body, query, param, validationResult } from 'express-validator';
 import { verifyToken } from '../lib/auth/users.mjs';   // R-F3072 — identity-keyed buckets
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { computeInlineScriptHashes } from '../lib/http/cspHashes.mjs';   // R-F3840
 
 // R-F35 (2026-05-03): IPv6-safe IP fallback. express-rate-limit v8+ emits
 // ERR_ERL_KEY_GEN_IPV6 if you mix req.ip into a custom keyGenerator
@@ -252,6 +255,48 @@ export function applyRateLimiting(app) {
 // ── Security Headers ──────────────────────────────────────────────────────────
 
 export function applySecurityHeaders(app) {
+  // ── R-F3840: drop 'unsafe-inline' from script-src ──────────────────────────
+  // Hash every inline <script> this server serves and name the hashes in the
+  // policy instead. Rationale, and why hashing beats a nonce or externalising
+  // 29 files, is in lib/http/cspHashes.mjs.
+  //
+  // Computed at BOOT from the files about to be served: the browser hashes exact
+  // bytes, and these HTML files are CRLF on a Windows checkout but LF in the
+  // Linux image, so any checked-in hash list would be wrong in production.
+  //
+  // FAIL-OPEN, deliberately. Hashes and 'unsafe-inline' are mutually exclusive —
+  // once one hash is present the browser ignores 'unsafe-inline' — so a scan
+  // that returned nothing (unreadable directory, changed layout) would blank
+  // every page. If the scan finds no blocks we keep 'unsafe-inline' and say so,
+  // because a broken UI is a worse outcome than the hygiene gap this closes.
+  // ARIA_CSP_ALLOW_INLINE_SCRIPT=1 forces the old behaviour back without a code
+  // change, as an operator escape hatch.
+  const _publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
+  const _forceInline = (process.env.ARIA_CSP_ALLOW_INLINE_SCRIPT || '').toLowerCase() === '1';
+  let _scriptSrc = ["'self'", "'unsafe-inline'"];
+  if (!_forceInline) {
+    let scan = { hashes: [], files: 0, blocks: 0 };
+    try {
+      scan = computeInlineScriptHashes(_publicDir);
+    } catch (e) {
+      console.warn(`[CSP] R-F3840 inline-script scan FAILED (${e.message}) — keeping 'unsafe-inline'`);
+    }
+    if (scan.hashes.length > 0) {
+      _scriptSrc = ["'self'", ...scan.hashes];
+      console.log(
+        `[CSP] R-F3840 script-src 'unsafe-inline' REMOVED — ${scan.hashes.length} inline-script `
+        + `hashes across ${scan.blocks} blocks in ${scan.files} HTML files`,
+      );
+    } else {
+      console.warn(
+        `[CSP] R-F3840 no inline scripts found under ${_publicDir} — keeping 'unsafe-inline'. `
+        + 'This is the fail-open branch: a wrong hash set blanks every page.',
+      );
+    }
+  } else {
+    console.warn("[CSP] R-F3840 ARIA_CSP_ALLOW_INLINE_SCRIPT=1 — script-src 'unsafe-inline' RESTORED by operator");
+  }
+
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
@@ -263,7 +308,9 @@ export function applySecurityHeaders(app) {
         // <script> app block; fully dropping it needs those externalised (tracked
         // follow-up). The stale "Angular needs this" note was wrong — Angular is
         // dead/undeployed; the real reason is the inline page-app scripts.
-        scriptSrc:     ["'self'", "'unsafe-inline'"],  // inline page-app <script> blocks
+        // R-F3840 — 'self' + a sha256 per inline block (see above). Falls back to
+        // 'unsafe-inline' only if the boot scan found nothing.
+        scriptSrc:     _scriptSrc,
         scriptSrcAttr: ["'none'"],                     // R-F1919: no inline event handlers
         styleSrc:    ["'self'", "'unsafe-inline'", 'fonts.googleapis.com'],
         fontSrc:     ["'self'", 'fonts.gstatic.com'],

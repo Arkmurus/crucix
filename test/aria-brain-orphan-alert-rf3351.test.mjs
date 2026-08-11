@@ -26,6 +26,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import vm from 'node:vm';
+// R-F3839 — the extracted slice now escapes its output, and escapeHtml is defined
+// outside every slice. Pull in the PAGE's own copy rather than reimplementing it.
+import { escapeHtmlSource, elementStub } from './helpers/aria_brain_page.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const html = readFileSync(join(here, '..', 'public', 'aria-brain.html'), 'utf8');
@@ -37,9 +40,11 @@ const source = html.slice(start, end);
 
 /** Render the root ecosystem view against a fixture graph and return the HTML. */
 async function render(graph, coverage) {
-  const el = { innerHTML: '', classList: { remove() {} } };
-  const bc = { innerHTML: '' };
-  const cv = { innerHTML: '' };
+  // R-F3839 — the renderer now attaches delegated click listeners (the inline
+  // onclick handlers it replaced were dead under CSP script-src-attr 'none').
+  const el = elementStub();
+  const bc = elementStub();
+  const cv = elementStub();
   const byId = { 'ecosystem-map': el, 'ecosystem-breadcrumb': bc, 'ecosystem-coverage': cv };
   const context = {
     fetchJson: async (url) => (url.startsWith('/ecosystem/coverage') ? coverage : graph),
@@ -47,7 +52,8 @@ async function render(graph, coverage) {
     console,
   };
   vm.createContext(context);
-  vm.runInContext(`${source}; this.run = loadEcosystem;`, context);
+  vm.runInContext(`${escapeHtmlSource()}
+${source}; this.run = loadEcosystem;`, context);
   await context.run();
   return { map: el.innerHTML, coverage: cv.innerHTML };
 }
